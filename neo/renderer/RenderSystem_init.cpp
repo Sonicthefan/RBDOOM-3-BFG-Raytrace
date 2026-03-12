@@ -320,6 +320,12 @@ idCVar r_psxAffineTextures( "r_psxAffineTextures", "1", CVAR_RENDERER | CVAR_FLO
 
 idCVar r_useMaskedOcclusionCulling( "r_useMaskedOcclusionCulling", "1", CVAR_RENDERER | CVAR_BOOL | CVAR_NOCHEAT | CVAR_NEW, "SIMD optimized software culling by Intel" );
 // RB end
+// ==================== PATH TRACING ====================
+idCVar r_pathTracing("r_pathTracing", "0", CVAR_RENDERER | CVAR_INTEGER | CVAR_ARCHIVE,
+	"Path tracing mode:\n"
+	"  0 = off (classic raster fallback)\n"
+	"  1 = hybrid (raster G-buffer Å® RTXPT)\n"
+	"  2 = pure (primary-ray path tracing only)");
 
 const char* fileExten[4] = { "tga", "png", "jpg", "exr" };
 const char* envDirection[6] = { "_px", "_nx", "_py", "_ny", "_pz", "_nz" };
