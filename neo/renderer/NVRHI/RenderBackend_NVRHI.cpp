@@ -40,8 +40,11 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "nvrhi/utils.h"
 #include <sys/DeviceManager.h>
+#include "PathTracePrimaryPass.h"
+extern idCVar r_pathTracing;
 extern DeviceManager* deviceManager;
 extern idCVar r_graphicsAPI;
+
 
 idCVar r_drawFlickerBox( "r_drawFlickerBox", "0", CVAR_RENDERER | CVAR_BOOL, "visual test for dropping frames" );
 idCVar stereoRender_warp( "stereoRender_warp", "0", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "use the optical warping renderprog instead of stereoDeGhost" );
@@ -1975,6 +1978,14 @@ idRenderBackend::GL_StartFrame
 */
 void idRenderBackend::GL_StartFrame()
 {
+	// === PATH TRACING STUB (safe - raster still works when cvar=0) ===
+	if (r_pathTracing.GetInteger() != 0)
+	{
+		static PathTracePrimaryPass s_pathTracePass(this);
+		s_pathTracePass.Execute();
+		// return;   // Å© uncomment this later when we want to skip raster completely
+	}
+
 	OPTICK_EVENT( "StartFrame" );
 
 	// fetch GPU timer queries of last frame
