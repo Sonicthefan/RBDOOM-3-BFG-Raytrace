@@ -6,7 +6,7 @@
 #include "../RenderBackend.h"
 #include "../../framework/Common_local.h"
 
-extern idCVar r_pathTracing;   // ← this makes the cvar visible
+extern idCVar r_pathTracing;
 
 PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     : m_backend(backend)
@@ -18,9 +18,9 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
 {
 }
 
-void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
+void PathTracePrimaryPass::Execute()
 {
-    int mode = r_pathTracing.GetInteger();   // ← no "const" to avoid weird follow-on error
+    const int mode = r_pathTracing.GetInteger();
     common->Printf("=== PathTracePrimaryPass (mode %d) ===\n", mode);
 
     if (mode == 2) {
