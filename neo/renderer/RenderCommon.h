@@ -1086,6 +1086,7 @@ extern idCVar r_windowHeight;
 
 extern idCVar r_debugContext;				// enable various levels of context debug
 extern idCVar r_useValidationLayers;
+extern idCVar r_pathTracing;
 extern idCVar r_vidMode;					// video mode number
 extern idCVar r_displayRefresh;				// optional display refresh rate option for vid mode
 extern idCVar r_fullscreen;					// 0 = windowed, 1 = full screen

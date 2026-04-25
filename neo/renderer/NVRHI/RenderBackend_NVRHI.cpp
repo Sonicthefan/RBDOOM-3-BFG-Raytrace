@@ -1978,14 +1978,6 @@ idRenderBackend::GL_StartFrame
 */
 void idRenderBackend::GL_StartFrame()
 {
-	// === PATH TRACING STUB (safe - raster still works when cvar=0) ===
-	if (r_pathTracing.GetInteger() != 0)
-	{
-		static PathTracePrimaryPass s_pathTracePass(this);
-		s_pathTracePass.Execute();
-		// return;   // © uncomment this later when we want to skip raster completely
-	}
-
 	OPTICK_EVENT( "StartFrame" );
 
 	// fetch GPU timer queries of last frame
@@ -1998,6 +1990,14 @@ void idRenderBackend::GL_StartFrame()
 #endif
 
 	commandList->open();
+
+	// === PATH TRACING STUB (safe - raster still works when cvar=0) ===
+	if (r_pathTracing.GetInteger() != 0)
+	{
+		static PathTracePrimaryPass s_pathTracePass(this);
+		s_pathTracePass.Execute();
+		// return;   // uncomment this later when we want to skip raster completely
+	}
 
 	renderLog.StartFrame( commandList );
 	renderLog.OpenMainBlock( MRB_GPU_TIME );

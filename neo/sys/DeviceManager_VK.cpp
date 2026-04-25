@@ -1248,6 +1248,7 @@ bool DeviceManager_VK::CreateDeviceAndSwapChain()
 	// RB: control these through the cmdline
 	m_DeviceParams.enableNvrhiValidationLayer = r_useValidationLayers.GetInteger() > 0;
 	m_DeviceParams.enableDebugRuntime = r_useValidationLayers.GetInteger() > 1;
+	m_DeviceParams.enableRayTracingExtensions = r_pathTracing.GetInteger() != 0;
 
 	// SRS - DynamicLoader is in a separate namespace in newer versions of Vulkan-Hpp
 #if VK_HEADER_VERSION >= 301
