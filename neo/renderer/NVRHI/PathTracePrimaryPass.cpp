@@ -18,6 +18,9 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeTestInitialized(false)
     , m_smokeSceneBuilt(false)
     , m_smokeTestDispatched(false)
+    , m_smokeReadbackQueued(false)
+    , m_smokeReadbackLogged(false)
+    , m_smokeReadbackDelayFrames(0)
 {
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (device)
@@ -60,6 +63,7 @@ void PathTracePrimaryPass::Execute()
     InitRayTracingSmokeTest();
     BuildRayTracingSmokeTestScene();
     ExecuteRayTracingSmokeTest();
+    ReadBackRayTracingSmokeTest();
 }
 
 void PathTracePrimaryPass::InitRayTracingSmokeTest()
@@ -94,12 +98,16 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     void* shaderData = nullptr;
-    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData);
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
     if (shaderSize <= 0 || !shaderData)
     {
         common->Printf("PathTracePrimaryPass: couldn't read %s\n", shaderPath);
         return;
     }
+
+    common->Printf("PathTracePrimaryPass: loaded RT smoke shader %s (%d bytes, timestamp %u)\n",
+        shaderPath, shaderSize, static_cast<unsigned int>(shaderTimestamp));
 
     m_smokeShaderLibrary = device->createShaderLibrary(shaderData, shaderSize);
     Mem_Free(shaderData);
@@ -172,14 +180,60 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::TextureDesc outputDesc;
+    outputDesc.width = 1;
+    outputDesc.height = 1;
+    outputDesc.mipLevels = 1;
+    outputDesc.arraySize = 1;
+    outputDesc.format = nvrhi::Format::RGBA32_FLOAT;
+    outputDesc.dimension = nvrhi::TextureDimension::Texture2D;
+    outputDesc.isUAV = true;
+    outputDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    outputDesc.keepInitialState = true;
+    outputDesc.debugName = "PathTraceSmokeOutput";
+    m_smokeOutputTexture = device->createTexture(outputDesc);
+
+    if (!m_smokeOutputTexture)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke output UAV\n");
+        return;
+    }
+
+    nvrhi::TextureDesc readbackDesc = outputDesc;
+    readbackDesc.isShaderResource = false;
+    readbackDesc.isUAV = false;
+    readbackDesc.initialState = nvrhi::ResourceStates::Unknown;
+    readbackDesc.keepInitialState = false;
+    readbackDesc.debugName = "PathTraceSmokeReadback";
+    m_smokeReadbackTexture = device->createStagingTexture(readbackDesc, nvrhi::CpuAccessMode::Read);
+
+    if (!m_smokeReadbackTexture)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke readback texture\n");
+        return;
+    }
+
+    nvrhi::BindingLayoutDesc bindingLayoutDesc;
+    bindingLayoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+    bindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    bindingLayoutDesc.bindings = {
+        nvrhi::BindingLayoutItem::RayTracingAccelStruct(0),
+        nvrhi::BindingLayoutItem::Texture_UAV(1)
+    };
+    m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
+
     nvrhi::BindingSetDesc bindingSetDesc;
     bindingSetDesc.bindings = {
-        nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas)
+        nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
+        nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture)
     };
+    m_smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
 
-    if (!nvrhi::utils::CreateBindingSetAndLayout(device, nvrhi::ShaderType::All, 0, bindingSetDesc, m_smokeBindingLayout, m_smokeBindingSet))
+    if (!m_smokeBindingLayout || !m_smokeBindingSet)
     {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke TLAS binding set\n");
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke binding set\n");
         return;
     }
 
@@ -222,6 +276,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     m_smokeShaderTable->addHitGroup("HitGroup");
 
     common->Printf("PathTracePrimaryPass: RT smoke pipeline initialized\n");
+    common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized\n");
 }
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene()
@@ -269,7 +324,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene()
 
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
 {
-    if (m_smokeTestDispatched || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet)
+    if (m_smokeTestDispatched || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeOutputTexture || !m_smokeReadbackTexture)
     {
         return;
     }
@@ -283,6 +338,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet };
+    commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->commitBarriers();
+    commandList->clearTextureFloat(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
     commandList->setRayTracingState(state);
 
     nvrhi::rt::DispatchRaysArguments args;
@@ -291,6 +349,51 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
     args.depth = 1;
     commandList->dispatchRays(args);
 
+    commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+    commandList->commitBarriers();
+    commandList->copyTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), m_smokeOutputTexture, nvrhi::TextureSlice());
+
     m_smokeTestDispatched = true;
+    m_smokeReadbackQueued = true;
+    m_smokeReadbackDelayFrames = 2;
     common->Printf("PathTracePrimaryPass: dispatched RT smoke raygen\n");
+    common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
+}
+
+void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
+{
+    if (!m_smokeReadbackQueued || m_smokeReadbackLogged || !m_smokeReadbackTexture)
+    {
+        return;
+    }
+
+    if (m_smokeReadbackDelayFrames > 0)
+    {
+        --m_smokeReadbackDelayFrames;
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return;
+    }
+
+    device->waitForIdle();
+
+    size_t rowPitch = 0;
+    void* readbackData = device->mapStagingTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &rowPitch);
+    if (!readbackData)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke UAV readback map failed\n");
+        m_smokeReadbackLogged = true;
+        return;
+    }
+
+    const float* rgba = static_cast<const float*>(readbackData);
+    common->Printf("PathTracePrimaryPass: RT smoke UAV readback rgba=(%.3f, %.3f, %.3f, %.3f), rowPitch=%u\n",
+        rgba[0], rgba[1], rgba[2], rgba[3], static_cast<unsigned int>(rowPitch));
+
+    device->unmapStagingTexture(m_smokeReadbackTexture);
+    m_smokeReadbackLogged = true;
 }

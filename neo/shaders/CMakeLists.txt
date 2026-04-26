@@ -72,7 +72,7 @@ if(USE_VULKAN)
     add_custom_command(
         OUTPUT ${PATH_TRACING_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
-        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -Fo ${PATH_TRACING_SPIRV_OUTPUT} ${PATH_TRACING_SHADER_SOURCE}
+        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV -Fo ${PATH_TRACING_SPIRV_OUTPUT} ${PATH_TRACING_SHADER_SOURCE}
         DEPENDS ${PATH_TRACING_SHADER_SOURCE}
         COMMENT "Compiling path tracing smoke RT shader library (SPIR-V)"
         VERBATIM)

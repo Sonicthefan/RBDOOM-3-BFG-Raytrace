@@ -1,9 +1,12 @@
+#include "../../vulkan.hlsli"
+
 struct PathTraceSmokePayload
 {
     uint value;
 };
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 
 [shader("raygeneration")]
 void RayGen()
@@ -18,6 +21,7 @@ void RayGen()
     ray.TMax = 10.0;
 
     TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
+    SmokeOutput[uint2(0, 0)] = payload.value != 0 ? float4(0.0, 1.0, 0.0, 1.0) : float4(1.0, 0.0, 0.0, 1.0);
 }
 
 [shader("miss")]
