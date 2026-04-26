@@ -17,6 +17,7 @@ public:
 
 private:
     void InitRayTracingSmokeTest();
+    bool ResizeRayTracingSmokeOutput(int width, int height);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
@@ -33,6 +34,9 @@ private:
     bool m_smokeReadbackLogged;
     int m_smokeReadbackDelayFrames;
     int m_smokeReadbackCooldownFrames;
+    int m_smokeSceneLogCooldownFrames;
+    int m_smokeOutputWidth;
+    int m_smokeOutputHeight;
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;
