@@ -40,7 +40,6 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "nvrhi/utils.h"
 #include <sys/DeviceManager.h>
-#include "PathTracePrimaryPass.h"
 extern idCVar r_pathTracing;
 extern DeviceManager* deviceManager;
 extern idCVar r_graphicsAPI;
@@ -1990,14 +1989,6 @@ void idRenderBackend::GL_StartFrame()
 #endif
 
 	commandList->open();
-
-	// === PATH TRACING STUB (safe - raster still works when cvar=0) ===
-	if (r_pathTracing.GetInteger() != 0)
-	{
-		static PathTracePrimaryPass s_pathTracePass(this);
-		s_pathTracePass.Execute();
-		// return;   // uncomment this later when we want to skip raster completely
-	}
 
 	renderLog.StartFrame( commandList );
 	renderLog.OpenMainBlock( MRB_GPU_TIME );

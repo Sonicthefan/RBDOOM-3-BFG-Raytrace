@@ -40,6 +40,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "imgui/ImGui_Hooks.h"
 
 #include "RenderPass.h"
+#include "NVRHI/PathTracePrimaryPass.h"
 #include <sys/DeviceManager.h>
 #include <nvrhi/utils.h>
 
@@ -5607,6 +5608,13 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 		{
 			renderLog.OpenBlock( "Render_DrawView3D", colorRed );
 		}
+	}
+
+	if( is3D && r_pathTracing.GetInteger() != 0 )
+	{
+		static PathTracePrimaryPass s_pathTracePass( this );
+		s_pathTracePass.Execute( _viewDef );
+		// return;   // uncomment this later when we want to skip raster completely
 	}
 
 	//-------------------------------------------------

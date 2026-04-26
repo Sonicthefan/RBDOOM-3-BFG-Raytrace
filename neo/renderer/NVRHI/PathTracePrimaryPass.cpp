@@ -8,8 +8,86 @@
 #include "../../sys/DeviceManager.h"
 
 #include <nvrhi/utils.h>
+#include <vector>
 
 extern DeviceManager* deviceManager;
+
+namespace {
+
+bool CaptureOneDoomSurfaceForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, int& sourceVerts, int& sourceIndexes, int& sourceTriangle)
+{
+    sourceVerts = 0;
+    sourceIndexes = 0;
+    sourceTriangle = -1;
+
+    if (!viewDef || !viewDef->drawSurfs)
+    {
+        return false;
+    }
+
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        if (!drawSurf || !drawSurf->frontEndGeo)
+        {
+            continue;
+        }
+
+        const srfTriangles_t* tri = drawSurf->frontEndGeo;
+        if (!tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3)
+        {
+            continue;
+        }
+
+        for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+        {
+            const int i0 = tri->indexes[index + 0];
+            const int i1 = tri->indexes[index + 1];
+            const int i2 = tri->indexes[index + 2];
+            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+            {
+                continue;
+            }
+
+            const idVec3& p0 = tri->verts[i0].xyz;
+            const idVec3& p1 = tri->verts[i1].xyz;
+            const idVec3& p2 = tri->verts[i2].xyz;
+            const idVec3 normal = (p1 - p0).Cross(p2 - p0);
+            if (normal.LengthSqr() < 1.0e-8f || idMath::Fabs(normal.z) < 0.1f)
+            {
+                continue;
+            }
+
+            const idVec3 centroid = (p0 + p1 + p2) * (1.0f / 3.0f);
+
+            vertexData.clear();
+            vertexData.reserve(static_cast<size_t>(tri->numVerts) * 3);
+            for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
+            {
+                const idVec3 position = tri->verts[vertexIndex].xyz - centroid;
+                vertexData.push_back(position.x);
+                vertexData.push_back(position.y);
+                vertexData.push_back(position.z);
+            }
+
+            indexData.clear();
+            indexData.reserve(tri->numIndexes);
+            for (int sourceIndex = 0; sourceIndex < tri->numIndexes; ++sourceIndex)
+            {
+                indexData.push_back(static_cast<uint32_t>(tri->indexes[sourceIndex]));
+            }
+
+            sourceVerts = tri->numVerts;
+            sourceIndexes = tri->numIndexes;
+            sourceTriangle = index / 3;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+}
 
 PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     : m_backend(backend)
@@ -18,6 +96,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeTestInitialized(false)
     , m_smokeSceneBuilt(false)
     , m_smokeTestDispatched(false)
+    , m_smokeWaitingForDoomSurfaceLogged(false)
     , m_smokeReadbackQueued(false)
     , m_smokeReadbackLogged(false)
     , m_smokeReadbackDelayFrames(0)
@@ -38,7 +117,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
 {
 }
 
-void PathTracePrimaryPass::Execute()
+void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
 {
     const int mode = r_pathTracing.GetInteger();
 
@@ -61,7 +140,7 @@ void PathTracePrimaryPass::Execute()
     }
 
     InitRayTracingSmokeTest();
-    BuildRayTracingSmokeTestScene();
+    BuildRayTracingSmokeTestScene(viewDef);
     ExecuteRayTracingSmokeTest();
     ReadBackRayTracingSmokeTest();
 }
@@ -118,65 +197,14 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
-    const float triangleVertices[] = {
-         0.0f,  0.6f, 0.0f,
-         0.6f, -0.6f, 0.0f,
-        -0.6f, -0.6f, 0.0f
-    };
-
-    const uint32_t triangleIndices[] = { 0, 1, 2 };
-
-    nvrhi::BufferDesc vertexBufferDesc;
-    vertexBufferDesc.byteSize = sizeof(triangleVertices);
-    vertexBufferDesc.debugName = "PathTraceSmokeTriangleVertices";
-    vertexBufferDesc.isVertexBuffer = true;
-    vertexBufferDesc.isAccelStructBuildInput = true;
-    vertexBufferDesc.initialState = nvrhi::ResourceStates::Common;
-    vertexBufferDesc.keepInitialState = true;
-    m_smokeVertexBuffer = device->createBuffer(vertexBufferDesc);
-
-    nvrhi::BufferDesc indexBufferDesc;
-    indexBufferDesc.byteSize = sizeof(triangleIndices);
-    indexBufferDesc.debugName = "PathTraceSmokeTriangleIndices";
-    indexBufferDesc.isIndexBuffer = true;
-    indexBufferDesc.isAccelStructBuildInput = true;
-    indexBufferDesc.initialState = nvrhi::ResourceStates::Common;
-    indexBufferDesc.keepInitialState = true;
-    m_smokeIndexBuffer = device->createBuffer(indexBufferDesc);
-
-    if (!m_smokeVertexBuffer || !m_smokeIndexBuffer)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke triangle buffers\n");
-        return;
-    }
-
-    nvrhi::rt::GeometryTriangles triangleGeometry;
-    triangleGeometry.indexBuffer = m_smokeIndexBuffer;
-    triangleGeometry.vertexBuffer = m_smokeVertexBuffer;
-    triangleGeometry.indexFormat = nvrhi::Format::R32_UINT;
-    triangleGeometry.vertexFormat = nvrhi::Format::RGB32_FLOAT;
-    triangleGeometry.indexCount = 3;
-    triangleGeometry.vertexCount = 3;
-    triangleGeometry.vertexStride = sizeof(float) * 3;
-
-    nvrhi::rt::GeometryDesc geometryDesc;
-    geometryDesc.setTriangles(triangleGeometry);
-    geometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
-
-    m_smokeBlasDesc = nvrhi::rt::AccelStructDesc()
-        .addBottomLevelGeometry(geometryDesc)
-        .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
-        .setDebugName("PathTraceSmokeBLAS");
-
-    m_smokeBlas = device->createAccelStruct(m_smokeBlasDesc);
     m_smokeTlas = device->createAccelStruct(nvrhi::rt::AccelStructDesc()
         .setTopLevelMaxInstances(1)
         .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
         .setDebugName("PathTraceSmokeTLAS"));
 
-    if (!m_smokeBlas || !m_smokeTlas)
+    if (!m_smokeTlas)
     {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke acceleration structures\n");
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke TLAS\n");
         return;
     }
 
@@ -279,9 +307,15 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized\n");
 }
 
-void PathTracePrimaryPass::BuildRayTracingSmokeTestScene()
+void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
-    if (m_smokeSceneBuilt || !m_smokeBlas || !m_smokeTlas || !m_smokeVertexBuffer || !m_smokeIndexBuffer)
+    if (m_smokeSceneBuilt || !m_smokeTlas)
+    {
+        return;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
     {
         return;
     }
@@ -292,18 +326,75 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene()
         return;
     }
 
-    const float triangleVertices[] = {
-         0.0f,  0.6f, 0.0f,
-         0.6f, -0.6f, 0.0f,
-        -0.6f, -0.6f, 0.0f
-    };
+    std::vector<float> vertexData;
+    std::vector<uint32_t> indexData;
+    int sourceVerts = 0;
+    int sourceIndexes = 0;
+    int sourceTriangle = -1;
+    const bool usingDoomSurface = CaptureOneDoomSurfaceForSmokeTest(viewDef, vertexData, indexData, sourceVerts, sourceIndexes, sourceTriangle);
+    if (!usingDoomSurface)
+    {
+        if (!m_smokeWaitingForDoomSurfaceLogged)
+        {
+            common->Printf("PathTracePrimaryPass: waiting for a Doom surface to build RT smoke BLAS\n");
+            m_smokeWaitingForDoomSurfaceLogged = true;
+        }
+        return;
+    }
 
-    const uint32_t triangleIndices[] = { 0, 1, 2 };
+    nvrhi::BufferDesc vertexBufferDesc;
+    vertexBufferDesc.byteSize = vertexData.size() * sizeof(vertexData[0]);
+    vertexBufferDesc.debugName = "PathTraceSmokeDoomSurfaceVertices";
+    vertexBufferDesc.isVertexBuffer = true;
+    vertexBufferDesc.isAccelStructBuildInput = true;
+    vertexBufferDesc.initialState = nvrhi::ResourceStates::Common;
+    vertexBufferDesc.keepInitialState = true;
+    m_smokeVertexBuffer = device->createBuffer(vertexBufferDesc);
+
+    nvrhi::BufferDesc indexBufferDesc;
+    indexBufferDesc.byteSize = indexData.size() * sizeof(indexData[0]);
+    indexBufferDesc.debugName = "PathTraceSmokeDoomSurfaceIndices";
+    indexBufferDesc.isIndexBuffer = true;
+    indexBufferDesc.isAccelStructBuildInput = true;
+    indexBufferDesc.initialState = nvrhi::ResourceStates::Common;
+    indexBufferDesc.keepInitialState = true;
+    m_smokeIndexBuffer = device->createBuffer(indexBufferDesc);
+
+    if (!m_smokeVertexBuffer || !m_smokeIndexBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke geometry buffers\n");
+        return;
+    }
+
+    nvrhi::rt::GeometryTriangles triangleGeometry;
+    triangleGeometry.indexBuffer = m_smokeIndexBuffer;
+    triangleGeometry.vertexBuffer = m_smokeVertexBuffer;
+    triangleGeometry.indexFormat = nvrhi::Format::R32_UINT;
+    triangleGeometry.vertexFormat = nvrhi::Format::RGB32_FLOAT;
+    triangleGeometry.indexCount = static_cast<uint32_t>(indexData.size());
+    triangleGeometry.vertexCount = static_cast<uint32_t>(vertexData.size() / 3);
+    triangleGeometry.vertexStride = sizeof(float) * 3;
+
+    nvrhi::rt::GeometryDesc geometryDesc;
+    geometryDesc.setTriangles(triangleGeometry);
+    geometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
+
+    m_smokeBlasDesc = nvrhi::rt::AccelStructDesc()
+        .addBottomLevelGeometry(geometryDesc)
+        .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+        .setDebugName("PathTraceSmokeDoomSurfaceBLAS");
+
+    m_smokeBlas = device->createAccelStruct(m_smokeBlasDesc);
+    if (!m_smokeBlas)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke BLAS\n");
+        return;
+    }
 
     commandList->beginTrackingBufferState(m_smokeVertexBuffer, nvrhi::ResourceStates::Common);
     commandList->beginTrackingBufferState(m_smokeIndexBuffer, nvrhi::ResourceStates::Common);
-    commandList->writeBuffer(m_smokeVertexBuffer, triangleVertices, sizeof(triangleVertices));
-    commandList->writeBuffer(m_smokeIndexBuffer, triangleIndices, sizeof(triangleIndices));
+    commandList->writeBuffer(m_smokeVertexBuffer, vertexData.data(), vertexData.size() * sizeof(vertexData[0]));
+    commandList->writeBuffer(m_smokeIndexBuffer, indexData.data(), indexData.size() * sizeof(indexData[0]));
     commandList->setBufferState(m_smokeVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
     commandList->setBufferState(m_smokeIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
     commandList->commitBarriers();
@@ -319,7 +410,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene()
     commandList->buildTopLevelAccelStruct(m_smokeTlas, &instanceDesc, 1, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
     m_smokeSceneBuilt = true;
 
-    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS\n");
+    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from Doom surface (%d verts, %d indexes, triangle %d)\n",
+        sourceVerts, sourceIndexes, sourceTriangle);
 }
 
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()

@@ -3,6 +3,7 @@
 #include <nvrhi/nvrhi.h>
 
 class idRenderBackend;
+struct viewDef_t;
 
 class PathTracePrimaryPass {
 public:
@@ -10,11 +11,11 @@ public:
     ~PathTracePrimaryPass();
 
     // Called every frame when r_pathTracing >= 1
-    void Execute();
+    void Execute(const viewDef_t* viewDef);
 
 private:
     void InitRayTracingSmokeTest();
-    void BuildRayTracingSmokeTestScene();
+    void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest();
     void ReadBackRayTracingSmokeTest();
 
@@ -24,6 +25,7 @@ private:
     bool m_smokeTestInitialized;
     bool m_smokeSceneBuilt;
     bool m_smokeTestDispatched;
+    bool m_smokeWaitingForDoomSurfaceLogged;
     bool m_smokeReadbackQueued;
     bool m_smokeReadbackLogged;
     int m_smokeReadbackDelayFrames;
