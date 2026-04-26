@@ -18,13 +18,16 @@ namespace {
 const int RT_SMOKE_MAX_SURFACES = 8;
 const int RT_SMOKE_MAX_VERTS = 4096;
 const int RT_SMOKE_MAX_INDEXES = 12288;
+const int RT_SMOKE_OUTPUT_WIDTH = 320;
+const int RT_SMOKE_OUTPUT_HEIGHT = 180;
+const int RT_SMOKE_DEBUG_MODE = 0; // 0: hit/miss, 1: depth, 2: geometric normal
 
 struct PathTraceSmokeConstants
 {
     float cameraOriginAndTMax[4];
     float cameraForwardAndTanX[4];
     float cameraLeftAndTanY[4];
-    float cameraUpAndPad[4];
+    float cameraUpAndDebugMode[4];
 };
 
 bool TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
@@ -348,8 +351,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::TextureDesc outputDesc;
-    outputDesc.width = 1;
-    outputDesc.height = 1;
+    outputDesc.width = RT_SMOKE_OUTPUT_WIDTH;
+    outputDesc.height = RT_SMOKE_OUTPUT_HEIGHT;
     outputDesc.mipLevels = 1;
     outputDesc.arraySize = 1;
     outputDesc.format = nvrhi::Format::RGBA32_FLOAT;
@@ -389,21 +392,15 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.bindings = {
         nvrhi::BindingLayoutItem::RayTracingAccelStruct(0),
         nvrhi::BindingLayoutItem::Texture_UAV(1),
-        nvrhi::BindingLayoutItem::ConstantBuffer(2)
+        nvrhi::BindingLayoutItem::ConstantBuffer(2),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4)
     };
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
-    nvrhi::BindingSetDesc bindingSetDesc;
-    bindingSetDesc.bindings = {
-        nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
-        nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture),
-        nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer)
-    };
-    m_smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
-
-    if (!m_smokeBindingLayout || !m_smokeBindingSet)
+    if (!m_smokeBindingLayout)
     {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke binding set\n");
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke binding layout\n");
         return;
     }
 
@@ -423,7 +420,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
             false
         }
     };
-    pipelineDesc.maxPayloadSize = 4;
+    pipelineDesc.maxPayloadSize = 32;
     pipelineDesc.maxAttributeSize = 8;
     pipelineDesc.maxRecursionDepth = 1;
 
@@ -446,7 +443,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     m_smokeShaderTable->addHitGroup("HitGroup");
 
     common->Printf("PathTracePrimaryPass: RT smoke pipeline initialized\n");
-    common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized\n");
+    common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT);
 }
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
@@ -488,6 +485,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferDesc vertexBufferDesc;
     vertexBufferDesc.byteSize = vertexData.size() * sizeof(vertexData[0]);
     vertexBufferDesc.debugName = "PathTraceSmokeDoomSurfaceVertices";
+    vertexBufferDesc.structStride = sizeof(float) * 3;
     vertexBufferDesc.isVertexBuffer = true;
     vertexBufferDesc.isAccelStructBuildInput = true;
     vertexBufferDesc.initialState = nvrhi::ResourceStates::Common;
@@ -497,6 +495,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferDesc indexBufferDesc;
     indexBufferDesc.byteSize = indexData.size() * sizeof(indexData[0]);
     indexBufferDesc.debugName = "PathTraceSmokeDoomSurfaceIndices";
+    indexBufferDesc.structStride = sizeof(uint32_t);
     indexBufferDesc.isIndexBuffer = true;
     indexBufferDesc.isAccelStructBuildInput = true;
     indexBufferDesc.initialState = nvrhi::ResourceStates::Common;
@@ -551,6 +550,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     instanceDesc.setBLAS(m_smokeBlas);
 
     commandList->buildTopLevelAccelStruct(m_smokeTlas, &instanceDesc, 1, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+
+    nvrhi::BindingSetDesc bindingSetDesc;
+    bindingSetDesc.bindings = {
+        nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
+        nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture),
+        nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer),
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_smokeVertexBuffer),
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_smokeIndexBuffer)
+    };
+    m_smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
+    if (!m_smokeBindingSet)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke binding set\n");
+        return;
+    }
+
     m_smokeSceneBuilt = true;
 
     common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from %d Doom surfaces using center camera ray anchor (%d verts, %d indexes, anchor triangle %d)\n",
@@ -595,20 +610,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.cameraLeftAndTanY[1] = cameraLeft.y;
     constants.cameraLeftAndTanY[2] = cameraLeft.z;
     constants.cameraLeftAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
-    constants.cameraUpAndPad[0] = cameraUp.x;
-    constants.cameraUpAndPad[1] = cameraUp.y;
-    constants.cameraUpAndPad[2] = cameraUp.z;
-    constants.cameraUpAndPad[3] = 0.0f;
+    constants.cameraUpAndDebugMode[0] = cameraUp.x;
+    constants.cameraUpAndDebugMode[1] = cameraUp.y;
+    constants.cameraUpAndDebugMode[2] = cameraUp.z;
+    constants.cameraUpAndDebugMode[3] = static_cast<float>(RT_SMOKE_DEBUG_MODE);
 
     commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+    commandList->setBufferState(m_smokeVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(m_smokeIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
     commandList->clearTextureFloat(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
     commandList->setRayTracingState(state);
 
     nvrhi::rt::DispatchRaysArguments args;
-    args.width = 1;
-    args.height = 1;
+    args.width = RT_SMOKE_OUTPUT_WIDTH;
+    args.height = RT_SMOKE_OUTPUT_HEIGHT;
     args.depth = 1;
     commandList->dispatchRays(args);
 
@@ -619,7 +636,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     m_smokeTestDispatched = true;
     m_smokeReadbackQueued = true;
     m_smokeReadbackDelayFrames = 2;
-    common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen\n");
+    common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen (%dx%d, debugMode=%d)\n", RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT, RT_SMOKE_DEBUG_MODE);
     common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
 }
 
@@ -653,9 +670,34 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
         return;
     }
 
-    const float* rgba = static_cast<const float*>(readbackData);
-    common->Printf("PathTracePrimaryPass: RT smoke UAV readback rgba=(%.3f, %.3f, %.3f, %.3f), rowPitch=%u\n",
-        rgba[0], rgba[1], rgba[2], rgba[3], static_cast<unsigned int>(rowPitch));
+    const int sampleX = RT_SMOKE_OUTPUT_WIDTH / 2;
+    const int sampleY = RT_SMOKE_OUTPUT_HEIGHT / 2;
+    const byte* readbackBytes = static_cast<const byte*>(readbackData);
+    const float* centerRgba = reinterpret_cast<const float*>(readbackBytes + rowPitch * sampleY + sizeof(float) * 4 * sampleX);
+
+    int greenHits = 0;
+    int redMisses = 0;
+    for (int y = 0; y < RT_SMOKE_OUTPUT_HEIGHT; ++y)
+    {
+        const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
+        for (int x = 0; x < RT_SMOKE_OUTPUT_WIDTH; ++x)
+        {
+            const float* rgba = row + x * 4;
+            if (rgba[1] > 0.5f)
+            {
+                ++greenHits;
+            }
+            else if (rgba[0] > 0.5f)
+            {
+                ++redMisses;
+            }
+        }
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke UAV readback %dx%d center rgba=(%.3f, %.3f, %.3f, %.3f), hits=%d, misses=%d, rowPitch=%u\n",
+        RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT,
+        centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
+        greenHits, redMisses, static_cast<unsigned int>(rowPitch));
 
     device->unmapStagingTexture(m_smokeReadbackTexture);
     m_smokeReadbackLogged = true;
