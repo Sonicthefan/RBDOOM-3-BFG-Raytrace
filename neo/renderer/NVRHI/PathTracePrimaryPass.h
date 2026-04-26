@@ -26,6 +26,7 @@ private:
     bool m_rayTracingSupported;
     bool m_smokeTestInitialized;
     bool m_smokeSceneBuilt;
+    bool m_smokeSceneRebuildLogged;
     bool m_smokeTestDispatched;
     bool m_smokeWaitingForDoomSurfaceLogged;
     bool m_smokeReadbackQueued;

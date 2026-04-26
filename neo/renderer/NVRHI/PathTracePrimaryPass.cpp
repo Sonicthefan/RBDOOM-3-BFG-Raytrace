@@ -14,6 +14,12 @@
 
 extern DeviceManager* deviceManager;
 
+idCVar r_pathTracingDebugMode(
+    "r_pathTracingDebugMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER | CVAR_ARCHIVE,
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = geometric normal" );
+
 namespace {
 
 const int RT_SMOKE_MAX_SURFACES = 8;
@@ -21,7 +27,6 @@ const int RT_SMOKE_MAX_VERTS = 4096;
 const int RT_SMOKE_MAX_INDEXES = 12288;
 const int RT_SMOKE_OUTPUT_WIDTH = 320;
 const int RT_SMOKE_OUTPUT_HEIGHT = 180;
-const int RT_SMOKE_DEBUG_MODE = 0; // 0: hit/miss, 1: depth, 2: geometric normal
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 
 struct PathTraceSmokeConstants
@@ -224,6 +229,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_rayTracingSupported(false)
     , m_smokeTestInitialized(false)
     , m_smokeSceneBuilt(false)
+    , m_smokeSceneRebuildLogged(false)
     , m_smokeTestDispatched(false)
     , m_smokeWaitingForDoomSurfaceLogged(false)
     , m_smokeReadbackQueued(false)
@@ -451,7 +457,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
-    if (m_smokeSceneBuilt || !m_smokeTlas)
+    m_smokeSceneBuilt = false;
+
+    if (!m_smokeTlas)
     {
         return;
     }
@@ -493,7 +501,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     vertexBufferDesc.isAccelStructBuildInput = true;
     vertexBufferDesc.initialState = nvrhi::ResourceStates::Common;
     vertexBufferDesc.keepInitialState = true;
-    m_smokeVertexBuffer = device->createBuffer(vertexBufferDesc);
+    nvrhi::BufferHandle smokeVertexBuffer = device->createBuffer(vertexBufferDesc);
 
     nvrhi::BufferDesc indexBufferDesc;
     indexBufferDesc.byteSize = indexData.size() * sizeof(indexData[0]);
@@ -503,17 +511,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     indexBufferDesc.isAccelStructBuildInput = true;
     indexBufferDesc.initialState = nvrhi::ResourceStates::Common;
     indexBufferDesc.keepInitialState = true;
-    m_smokeIndexBuffer = device->createBuffer(indexBufferDesc);
+    nvrhi::BufferHandle smokeIndexBuffer = device->createBuffer(indexBufferDesc);
 
-    if (!m_smokeVertexBuffer || !m_smokeIndexBuffer)
+    if (!smokeVertexBuffer || !smokeIndexBuffer)
     {
         common->Printf("PathTracePrimaryPass: failed to create RT smoke geometry buffers\n");
         return;
     }
 
     nvrhi::rt::GeometryTriangles triangleGeometry;
-    triangleGeometry.indexBuffer = m_smokeIndexBuffer;
-    triangleGeometry.vertexBuffer = m_smokeVertexBuffer;
+    triangleGeometry.indexBuffer = smokeIndexBuffer;
+    triangleGeometry.vertexBuffer = smokeVertexBuffer;
     triangleGeometry.indexFormat = nvrhi::Format::R32_UINT;
     triangleGeometry.vertexFormat = nvrhi::Format::RGB32_FLOAT;
     triangleGeometry.indexCount = static_cast<uint32_t>(indexData.size());
@@ -524,33 +532,33 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     geometryDesc.setTriangles(triangleGeometry);
     geometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
 
-    m_smokeBlasDesc = nvrhi::rt::AccelStructDesc()
+    nvrhi::rt::AccelStructDesc smokeBlasDesc = nvrhi::rt::AccelStructDesc()
         .addBottomLevelGeometry(geometryDesc)
         .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
         .setDebugName("PathTraceSmokeDoomSurfaceBLAS");
 
-    m_smokeBlas = device->createAccelStruct(m_smokeBlasDesc);
-    if (!m_smokeBlas)
+    nvrhi::rt::AccelStructHandle smokeBlas = device->createAccelStruct(smokeBlasDesc);
+    if (!smokeBlas)
     {
         common->Printf("PathTracePrimaryPass: failed to create RT smoke BLAS\n");
         return;
     }
 
-    commandList->beginTrackingBufferState(m_smokeVertexBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(m_smokeIndexBuffer, nvrhi::ResourceStates::Common);
-    commandList->writeBuffer(m_smokeVertexBuffer, vertexData.data(), vertexData.size() * sizeof(vertexData[0]));
-    commandList->writeBuffer(m_smokeIndexBuffer, indexData.data(), indexData.size() * sizeof(indexData[0]));
-    commandList->setBufferState(m_smokeVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-    commandList->setBufferState(m_smokeIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->beginTrackingBufferState(smokeVertexBuffer, nvrhi::ResourceStates::Common);
+    commandList->beginTrackingBufferState(smokeIndexBuffer, nvrhi::ResourceStates::Common);
+    commandList->writeBuffer(smokeVertexBuffer, vertexData.data(), vertexData.size() * sizeof(vertexData[0]));
+    commandList->writeBuffer(smokeIndexBuffer, indexData.data(), indexData.size() * sizeof(indexData[0]));
+    commandList->setBufferState(smokeVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
+    commandList->setBufferState(smokeIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
     commandList->commitBarriers();
 
-    nvrhi::utils::BuildBottomLevelAccelStruct(commandList, m_smokeBlas, m_smokeBlasDesc);
+    nvrhi::utils::BuildBottomLevelAccelStruct(commandList, smokeBlas, smokeBlasDesc);
 
     nvrhi::rt::InstanceDesc instanceDesc;
     instanceDesc.setInstanceMask(0xff);
     instanceDesc.setInstanceContributionToHitGroupIndex(0);
     instanceDesc.setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable);
-    instanceDesc.setBLAS(m_smokeBlas);
+    instanceDesc.setBLAS(smokeBlas);
 
     commandList->buildTopLevelAccelStruct(m_smokeTlas, &instanceDesc, 1, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
 
@@ -559,20 +567,29 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
         nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture),
         nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_smokeVertexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_smokeIndexBuffer)
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(3, smokeVertexBuffer),
+        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, smokeIndexBuffer)
     };
-    m_smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
-    if (!m_smokeBindingSet)
+    nvrhi::BindingSetHandle smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
+    if (!smokeBindingSet)
     {
         common->Printf("PathTracePrimaryPass: failed to create RT smoke binding set\n");
         return;
     }
 
+    m_smokeVertexBuffer = smokeVertexBuffer;
+    m_smokeIndexBuffer = smokeIndexBuffer;
+    m_smokeBlasDesc = smokeBlasDesc;
+    m_smokeBlas = smokeBlas;
+    m_smokeBindingSet = smokeBindingSet;
     m_smokeSceneBuilt = true;
 
-    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from %d Doom surfaces using center camera ray anchor (%d verts, %d indexes, anchor triangle %d)\n",
-        sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
+    if (!m_smokeSceneRebuildLogged)
+    {
+        common->Printf("PathTracePrimaryPass: rebuilding RT smoke BLAS/TLAS every frame from current visible Doom surfaces (first frame: %d surfaces, %d verts, %d indexes, anchor triangle %d)\n",
+            sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
+        m_smokeSceneRebuildLogged = true;
+    }
 }
 
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
@@ -591,6 +608,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet };
+    const int debugMode = idMath::ClampInt(0, 2, r_pathTracingDebugMode.GetInteger());
 
     idVec3 cameraOrigin = viewDef->renderView.vieworg - m_smokeSceneOrigin;
     idVec3 cameraForward = viewDef->renderView.viewaxis[0];
@@ -616,7 +634,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.cameraUpAndDebugMode[0] = cameraUp.x;
     constants.cameraUpAndDebugMode[1] = cameraUp.y;
     constants.cameraUpAndDebugMode[2] = cameraUp.z;
-    constants.cameraUpAndDebugMode[3] = static_cast<float>(RT_SMOKE_DEBUG_MODE);
+    constants.cameraUpAndDebugMode[3] = static_cast<float>(debugMode);
 
     commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
     commandList->setBufferState(m_smokeVertexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -644,7 +662,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
     if (!m_smokeTestDispatched)
     {
-        common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen (%dx%d, debugMode=%d)\n", RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT, RT_SMOKE_DEBUG_MODE);
+        common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen (%dx%d, debugMode=%d)\n", RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT, debugMode);
     }
     m_smokeTestDispatched = true;
 }
