@@ -14,16 +14,58 @@ extern DeviceManager* deviceManager;
 
 namespace {
 
-bool CaptureOneDoomSurfaceForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, int& sourceVerts, int& sourceIndexes, int& sourceTriangle)
+const int RT_SMOKE_MAX_SURFACES = 8;
+const int RT_SMOKE_MAX_VERTS = 4096;
+const int RT_SMOKE_MAX_INDEXES = 12288;
+
+bool FindSmokeRayAnchorTriangle(const srfTriangles_t* tri, int& sourceTriangle, idVec3& centroid)
 {
+    for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+    {
+        const int i0 = tri->indexes[index + 0];
+        const int i1 = tri->indexes[index + 1];
+        const int i2 = tri->indexes[index + 2];
+        if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+        {
+            continue;
+        }
+
+        const idVec3& p0 = tri->verts[i0].xyz;
+        const idVec3& p1 = tri->verts[i1].xyz;
+        const idVec3& p2 = tri->verts[i2].xyz;
+        const idVec3 normal = (p1 - p0).Cross(p2 - p0);
+        if (normal.LengthSqr() < 1.0e-8f || idMath::Fabs(normal.z) < 0.1f)
+        {
+            continue;
+        }
+
+        sourceTriangle = index / 3;
+        centroid = (p0 + p1 + p2) * (1.0f / 3.0f);
+        return true;
+    }
+
+    return false;
+}
+
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle)
+{
+    sourceSurfaces = 0;
     sourceVerts = 0;
     sourceIndexes = 0;
-    sourceTriangle = -1;
+    anchorTriangle = -1;
 
     if (!viewDef || !viewDef->drawSurfs)
     {
         return false;
     }
+
+    bool foundAnchor = false;
+    idVec3 anchorCentroid = vec3_origin;
+
+    vertexData.clear();
+    indexData.clear();
+    vertexData.reserve(RT_SMOKE_MAX_VERTS * 3);
+    indexData.reserve(RT_SMOKE_MAX_INDEXES);
 
     for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
     {
@@ -39,52 +81,57 @@ bool CaptureOneDoomSurfaceForSmokeTest(const viewDef_t* viewDef, std::vector<flo
             continue;
         }
 
-        for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+        int surfaceAnchorTriangle = -1;
+        idVec3 surfaceCentroid = vec3_origin;
+        if (!FindSmokeRayAnchorTriangle(tri, surfaceAnchorTriangle, surfaceCentroid))
         {
-            const int i0 = tri->indexes[index + 0];
-            const int i1 = tri->indexes[index + 1];
-            const int i2 = tri->indexes[index + 2];
+            continue;
+        }
+
+        if (!foundAnchor)
+        {
+            foundAnchor = true;
+            anchorCentroid = surfaceCentroid;
+            anchorTriangle = surfaceAnchorTriangle;
+        }
+
+        if (sourceSurfaces >= RT_SMOKE_MAX_SURFACES ||
+            sourceVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+            sourceIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+        {
+            break;
+        }
+
+        const uint32_t indexBase = static_cast<uint32_t>(sourceVerts);
+        for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
+        {
+            const idVec3 position = tri->verts[vertexIndex].xyz - anchorCentroid;
+            vertexData.push_back(position.x);
+            vertexData.push_back(position.y);
+            vertexData.push_back(position.z);
+        }
+
+        for (int sourceIndex = 0; sourceIndex + 2 < tri->numIndexes; sourceIndex += 3)
+        {
+            const int i0 = tri->indexes[sourceIndex + 0];
+            const int i1 = tri->indexes[sourceIndex + 1];
+            const int i2 = tri->indexes[sourceIndex + 2];
             if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
             {
                 continue;
             }
 
-            const idVec3& p0 = tri->verts[i0].xyz;
-            const idVec3& p1 = tri->verts[i1].xyz;
-            const idVec3& p2 = tri->verts[i2].xyz;
-            const idVec3 normal = (p1 - p0).Cross(p2 - p0);
-            if (normal.LengthSqr() < 1.0e-8f || idMath::Fabs(normal.z) < 0.1f)
-            {
-                continue;
-            }
-
-            const idVec3 centroid = (p0 + p1 + p2) * (1.0f / 3.0f);
-
-            vertexData.clear();
-            vertexData.reserve(static_cast<size_t>(tri->numVerts) * 3);
-            for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
-            {
-                const idVec3 position = tri->verts[vertexIndex].xyz - centroid;
-                vertexData.push_back(position.x);
-                vertexData.push_back(position.y);
-                vertexData.push_back(position.z);
-            }
-
-            indexData.clear();
-            indexData.reserve(tri->numIndexes);
-            for (int sourceIndex = 0; sourceIndex < tri->numIndexes; ++sourceIndex)
-            {
-                indexData.push_back(static_cast<uint32_t>(tri->indexes[sourceIndex]));
-            }
-
-            sourceVerts = tri->numVerts;
-            sourceIndexes = tri->numIndexes;
-            sourceTriangle = index / 3;
-            return true;
+            indexData.push_back(indexBase + static_cast<uint32_t>(i0));
+            indexData.push_back(indexBase + static_cast<uint32_t>(i1));
+            indexData.push_back(indexBase + static_cast<uint32_t>(i2));
         }
+
+        ++sourceSurfaces;
+        sourceVerts += tri->numVerts;
+        sourceIndexes = static_cast<int>(indexData.size());
     }
 
-    return false;
+    return sourceSurfaces > 0 && !vertexData.empty() && !indexData.empty();
 }
 
 }
@@ -328,15 +375,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     std::vector<float> vertexData;
     std::vector<uint32_t> indexData;
+    int sourceSurfaces = 0;
     int sourceVerts = 0;
     int sourceIndexes = 0;
-    int sourceTriangle = -1;
-    const bool usingDoomSurface = CaptureOneDoomSurfaceForSmokeTest(viewDef, vertexData, indexData, sourceVerts, sourceIndexes, sourceTriangle);
-    if (!usingDoomSurface)
+    int anchorTriangle = -1;
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, vertexData, indexData, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
+    if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
         {
-            common->Printf("PathTracePrimaryPass: waiting for a Doom surface to build RT smoke BLAS\n");
+            common->Printf("PathTracePrimaryPass: waiting for Doom surfaces to build RT smoke BLAS\n");
             m_smokeWaitingForDoomSurfaceLogged = true;
         }
         return;
@@ -410,8 +458,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->buildTopLevelAccelStruct(m_smokeTlas, &instanceDesc, 1, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
     m_smokeSceneBuilt = true;
 
-    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from Doom surface (%d verts, %d indexes, triangle %d)\n",
-        sourceVerts, sourceIndexes, sourceTriangle);
+    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from %d Doom surfaces (%d verts, %d indexes, anchor triangle %d)\n",
+        sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
 }
 
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
