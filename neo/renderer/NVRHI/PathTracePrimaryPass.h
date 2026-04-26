@@ -12,6 +12,7 @@ public:
 
     // Called every frame when r_pathTracing >= 1
     void Execute(const viewDef_t* viewDef);
+    void PresentDebugOutput();
 
 private:
     void InitRayTracingSmokeTest();
@@ -29,6 +30,7 @@ private:
     bool m_smokeReadbackQueued;
     bool m_smokeReadbackLogged;
     int m_smokeReadbackDelayFrames;
+    int m_smokeReadbackCooldownFrames;
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;

@@ -5,6 +5,7 @@
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
 #include "../GLMatrix.h"
+#include "../Passes/CommonPasses.h"
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
 
@@ -21,6 +22,7 @@ const int RT_SMOKE_MAX_INDEXES = 12288;
 const int RT_SMOKE_OUTPUT_WIDTH = 320;
 const int RT_SMOKE_OUTPUT_HEIGHT = 180;
 const int RT_SMOKE_DEBUG_MODE = 0; // 0: hit/miss, 1: depth, 2: geometric normal
+const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 
 struct PathTraceSmokeConstants
 {
@@ -227,6 +229,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeReadbackQueued(false)
     , m_smokeReadbackLogged(false)
     , m_smokeReadbackDelayFrames(0)
+    , m_smokeReadbackCooldownFrames(0)
     , m_smokeSceneOrigin(vec3_origin)
 {
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
@@ -574,7 +577,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 {
-    if (m_smokeTestDispatched || !viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeOutputTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer)
+    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeOutputTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer)
     {
         return;
     }
@@ -629,21 +632,31 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.depth = 1;
     commandList->dispatchRays(args);
 
-    commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
-    commandList->commitBarriers();
-    commandList->copyTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), m_smokeOutputTexture, nvrhi::TextureSlice());
+    if (!m_smokeReadbackQueued && m_smokeReadbackCooldownFrames <= 0)
+    {
+        commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+        commandList->commitBarriers();
+        commandList->copyTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), m_smokeOutputTexture, nvrhi::TextureSlice());
+        m_smokeReadbackQueued = true;
+        m_smokeReadbackDelayFrames = 2;
+        common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
+    }
 
+    if (!m_smokeTestDispatched)
+    {
+        common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen (%dx%d, debugMode=%d)\n", RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT, RT_SMOKE_DEBUG_MODE);
+    }
     m_smokeTestDispatched = true;
-    m_smokeReadbackQueued = true;
-    m_smokeReadbackDelayFrames = 2;
-    common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen (%dx%d, debugMode=%d)\n", RT_SMOKE_OUTPUT_WIDTH, RT_SMOKE_OUTPUT_HEIGHT, RT_SMOKE_DEBUG_MODE);
-    common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
 }
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
-    if (!m_smokeReadbackQueued || m_smokeReadbackLogged || !m_smokeReadbackTexture)
+    if (!m_smokeReadbackQueued || !m_smokeReadbackTexture)
     {
+        if (m_smokeReadbackCooldownFrames > 0)
+        {
+            --m_smokeReadbackCooldownFrames;
+        }
         return;
     }
 
@@ -666,7 +679,8 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     if (!readbackData)
     {
         common->Printf("PathTracePrimaryPass: RT smoke UAV readback map failed\n");
-        m_smokeReadbackLogged = true;
+        m_smokeReadbackQueued = false;
+        m_smokeReadbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
         return;
     }
 
@@ -701,4 +715,31 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     device->unmapStagingTexture(m_smokeReadbackTexture);
     m_smokeReadbackLogged = true;
+    m_smokeReadbackQueued = false;
+    m_smokeReadbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
+}
+
+void PathTracePrimaryPass::PresentDebugOutput()
+{
+    if (!m_smokeTestDispatched || !m_smokeOutputTexture || !m_backend || !deviceManager)
+    {
+        return;
+    }
+
+    nvrhi::ICommandList* commandList = m_backend->GL_GetCommandList();
+    nvrhi::IFramebuffer* targetFramebuffer = deviceManager->GetCurrentFramebuffer();
+    if (!commandList || !targetFramebuffer)
+    {
+        return;
+    }
+
+    commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+    commandList->commitBarriers();
+
+    BlitParameters blitParms;
+    blitParms.sourceTexture = m_smokeOutputTexture;
+    blitParms.targetFramebuffer = targetFramebuffer;
+    blitParms.targetViewport = nvrhi::Viewport(renderSystem->GetNativeWidth(), renderSystem->GetNativeHeight());
+    blitParms.sampler = BlitSampler::Point;
+    m_backend->GetCommonPasses().BlitTexture(commandList, blitParms, nullptr);
 }

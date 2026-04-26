@@ -60,6 +60,16 @@ extern idCVar stereoRender_swapEyes;
 // SRS - flag indicating whether we are drawing a 3d view vs. a 2d-only view (e.g. menu or pda)
 bool drawView3D;
 
+namespace {
+
+PathTracePrimaryPass& RB_GetPathTracePrimaryPass( idRenderBackend* backend )
+{
+	static PathTracePrimaryPass s_pathTracePass( backend );
+	return s_pathTracePass;
+}
+
+}
+
 /*
 ================
 SetVertexParm
@@ -5543,6 +5553,13 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 
 	DrawFlickerBox();
 
+	if( r_pathTracing.GetInteger() != 0 )
+	{
+		renderLog.OpenBlock( "Blit_PathTraceSmokeDebug", colorYellow );
+		RB_GetPathTracePrimaryPass( this ).PresentDebugOutput();
+		renderLog.CloseBlock();
+	}
+
 	// stop rendering on this thread
 	uint64 backEndFinishTime = Sys_Microseconds();
 	pc.cpuTotalMicroSec = backEndFinishTime - backEndStartTime;
@@ -5610,10 +5627,10 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 		}
 	}
 
-	if( is3D && r_pathTracing.GetInteger() != 0 )
+	const bool presentPathTraceDebugOutput = is3D && r_pathTracing.GetInteger() != 0;
+	if( presentPathTraceDebugOutput )
 	{
-		static PathTracePrimaryPass s_pathTracePass( this );
-		s_pathTracePass.Execute( _viewDef );
+		RB_GetPathTracePrimaryPass( this ).Execute( _viewDef );
 		// return;   // uncomment this later when we want to skip raster completely
 	}
 
