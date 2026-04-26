@@ -4,6 +4,7 @@
 #include "PathTracePrimaryPass.h"
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
+#include "../GLMatrix.h"
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
 
@@ -18,54 +19,72 @@ const int RT_SMOKE_MAX_SURFACES = 8;
 const int RT_SMOKE_MAX_VERTS = 4096;
 const int RT_SMOKE_MAX_INDEXES = 12288;
 
-bool FindSmokeRayAnchorTriangle(const srfTriangles_t* tri, int& sourceTriangle, idVec3& centroid)
+struct PathTraceSmokeConstants
 {
-    for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+    float cameraOriginAndTMax[4];
+    float cameraForwardAndTanX[4];
+    float cameraLeftAndTanY[4];
+    float cameraUpAndPad[4];
+};
+
+bool TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
+{
+    if (drawSurf->space)
     {
-        const int i0 = tri->indexes[index + 0];
-        const int i1 = tri->indexes[index + 1];
-        const int i2 = tri->indexes[index + 2];
-        if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
-        {
-            continue;
-        }
-
-        const idVec3& p0 = tri->verts[i0].xyz;
-        const idVec3& p1 = tri->verts[i1].xyz;
-        const idVec3& p2 = tri->verts[i2].xyz;
-        const idVec3 normal = (p1 - p0).Cross(p2 - p0);
-        if (normal.LengthSqr() < 1.0e-8f || idMath::Fabs(normal.z) < 0.1f)
-        {
-            continue;
-        }
-
-        sourceTriangle = index / 3;
-        centroid = (p0 + p1 + p2) * (1.0f / 3.0f);
+        R_LocalPointToGlobal(drawSurf->space->modelMatrix, localPoint, worldPoint);
         return true;
     }
 
-    return false;
+    worldPoint = localPoint;
+    return true;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle)
+bool IntersectRayTriangle(const idVec3& rayOrigin, const idVec3& rayDirection, const idVec3& p0, const idVec3& p1, const idVec3& p2, float& hitDistance)
 {
-    sourceSurfaces = 0;
-    sourceVerts = 0;
-    sourceIndexes = 0;
-    anchorTriangle = -1;
-
-    if (!viewDef || !viewDef->drawSurfs)
+    const idVec3 edge1 = p1 - p0;
+    const idVec3 edge2 = p2 - p0;
+    const idVec3 pvec = rayDirection.Cross(edge2);
+    const float det = edge1 * pvec;
+    if (idMath::Fabs(det) < 1.0e-8f)
     {
         return false;
     }
 
-    bool foundAnchor = false;
-    idVec3 anchorCentroid = vec3_origin;
+    const float invDet = 1.0f / det;
+    const idVec3 tvec = rayOrigin - p0;
+    const float u = (tvec * pvec) * invDet;
+    if (u < 0.0f || u > 1.0f)
+    {
+        return false;
+    }
 
-    vertexData.clear();
-    indexData.clear();
-    vertexData.reserve(RT_SMOKE_MAX_VERTS * 3);
-    indexData.reserve(RT_SMOKE_MAX_INDEXES);
+    const idVec3 qvec = tvec.Cross(edge1);
+    const float v = (rayDirection * qvec) * invDet;
+    if (v < 0.0f || u + v > 1.0f)
+    {
+        return false;
+    }
+
+    const float t = (edge2 * qvec) * invDet;
+    if (t <= 0.1f)
+    {
+        return false;
+    }
+
+    hitDistance = t;
+    return true;
+}
+
+bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle)
+{
+    const idVec3 rayOrigin = viewDef->renderView.vieworg;
+    idVec3 rayDirection = viewDef->renderView.viewaxis[0];
+    rayDirection.Normalize();
+
+    bool foundHit = false;
+    float closestHit = 1.0e30f;
+    anchorSurface = -1;
+    anchorTriangle = -1;
 
     for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
     {
@@ -81,18 +100,74 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        int surfaceAnchorTriangle = -1;
-        idVec3 surfaceCentroid = vec3_origin;
-        if (!FindSmokeRayAnchorTriangle(tri, surfaceAnchorTriangle, surfaceCentroid))
+        for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+        {
+            const int i0 = tri->indexes[index + 0];
+            const int i1 = tri->indexes[index + 1];
+            const int i2 = tri->indexes[index + 2];
+            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+            {
+                continue;
+            }
+
+            idVec3 p0;
+            idVec3 p1;
+            idVec3 p2;
+            TransformSurfacePointToWorld(drawSurf, tri->verts[i0].xyz, p0);
+            TransformSurfacePointToWorld(drawSurf, tri->verts[i1].xyz, p1);
+            TransformSurfacePointToWorld(drawSurf, tri->verts[i2].xyz, p2);
+
+            float hitDistance = 0.0f;
+            if (IntersectRayTriangle(rayOrigin, rayDirection, p0, p1, p2, hitDistance) && hitDistance < closestHit)
+            {
+                closestHit = hitDistance;
+                anchorPoint = rayOrigin + rayDirection * hitDistance;
+                anchorSurface = surfaceIndex;
+                anchorTriangle = index / 3;
+                foundHit = true;
+            }
+        }
+    }
+
+    return foundHit;
+}
+
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle)
+{
+    sourceSurfaces = 0;
+    sourceVerts = 0;
+    sourceIndexes = 0;
+    int anchorSurface = -1;
+    anchorTriangle = -1;
+
+    if (!viewDef || !viewDef->drawSurfs)
+    {
+        return false;
+    }
+
+    if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle))
+    {
+        return false;
+    }
+
+    vertexData.clear();
+    indexData.clear();
+    vertexData.reserve(RT_SMOKE_MAX_VERTS * 3);
+    indexData.reserve(RT_SMOKE_MAX_INDEXES);
+
+    for (int surfaceOffset = 0; surfaceOffset < viewDef->numDrawSurfs; ++surfaceOffset)
+    {
+        const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        if (!drawSurf || !drawSurf->frontEndGeo)
         {
             continue;
         }
 
-        if (!foundAnchor)
+        const srfTriangles_t* tri = drawSurf->frontEndGeo;
+        if (!tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3)
         {
-            foundAnchor = true;
-            anchorCentroid = surfaceCentroid;
-            anchorTriangle = surfaceAnchorTriangle;
+            continue;
         }
 
         if (sourceSurfaces >= RT_SMOKE_MAX_SURFACES ||
@@ -105,7 +180,9 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
         const uint32_t indexBase = static_cast<uint32_t>(sourceVerts);
         for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
         {
-            const idVec3 position = tri->verts[vertexIndex].xyz - anchorCentroid;
+            idVec3 worldPosition;
+            TransformSurfacePointToWorld(drawSurf, tri->verts[vertexIndex].xyz, worldPosition);
+            const idVec3 position = worldPosition - sceneOrigin;
             vertexData.push_back(position.x);
             vertexData.push_back(position.y);
             vertexData.push_back(position.z);
@@ -147,6 +224,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeReadbackQueued(false)
     , m_smokeReadbackLogged(false)
     , m_smokeReadbackDelayFrames(0)
+    , m_smokeSceneOrigin(vec3_origin)
 {
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (device)
@@ -188,7 +266,7 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
 
     InitRayTracingSmokeTest();
     BuildRayTracingSmokeTestScene(viewDef);
-    ExecuteRayTracingSmokeTest();
+    ExecuteRayTracingSmokeTest(viewDef);
     ReadBackRayTracingSmokeTest();
 }
 
@@ -255,6 +333,20 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BufferDesc constantsDesc;
+    constantsDesc.byteSize = sizeof(PathTraceSmokeConstants);
+    constantsDesc.debugName = "PathTraceSmokeConstants";
+    constantsDesc.isConstantBuffer = true;
+    constantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    constantsDesc.keepInitialState = true;
+    m_smokeConstantsBuffer = device->createBuffer(constantsDesc);
+
+    if (!m_smokeConstantsBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke constants buffer\n");
+        return;
+    }
+
     nvrhi::TextureDesc outputDesc;
     outputDesc.width = 1;
     outputDesc.height = 1;
@@ -292,17 +384,20 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
     bindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
         .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
         .setUnorderedAccessViewOffset(0);
     bindingLayoutDesc.bindings = {
         nvrhi::BindingLayoutItem::RayTracingAccelStruct(0),
-        nvrhi::BindingLayoutItem::Texture_UAV(1)
+        nvrhi::BindingLayoutItem::Texture_UAV(1),
+        nvrhi::BindingLayoutItem::ConstantBuffer(2)
     };
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
     nvrhi::BindingSetDesc bindingSetDesc;
     bindingSetDesc.bindings = {
         nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
-        nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture)
+        nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture),
+        nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer)
     };
     m_smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
 
@@ -379,12 +474,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     int sourceVerts = 0;
     int sourceIndexes = 0;
     int anchorTriangle = -1;
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, vertexData, indexData, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, vertexData, indexData, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
     if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
         {
-            common->Printf("PathTracePrimaryPass: waiting for Doom surfaces to build RT smoke BLAS\n");
+            common->Printf("PathTracePrimaryPass: waiting for center camera ray Doom surface hit to build RT smoke BLAS\n");
             m_smokeWaitingForDoomSurfaceLogged = true;
         }
         return;
@@ -458,13 +553,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->buildTopLevelAccelStruct(m_smokeTlas, &instanceDesc, 1, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
     m_smokeSceneBuilt = true;
 
-    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from %d Doom surfaces (%d verts, %d indexes, anchor triangle %d)\n",
+    common->Printf("PathTracePrimaryPass: built RT smoke BLAS/TLAS from %d Doom surfaces using center camera ray anchor (%d verts, %d indexes, anchor triangle %d)\n",
         sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
 }
 
-void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
+void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 {
-    if (m_smokeTestDispatched || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeOutputTexture || !m_smokeReadbackTexture)
+    if (m_smokeTestDispatched || !viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeOutputTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer)
     {
         return;
     }
@@ -478,6 +573,34 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet };
+
+    idVec3 cameraOrigin = viewDef->renderView.vieworg - m_smokeSceneOrigin;
+    idVec3 cameraForward = viewDef->renderView.viewaxis[0];
+    idVec3 cameraLeft = viewDef->renderView.viewaxis[1];
+    idVec3 cameraUp = viewDef->renderView.viewaxis[2];
+    cameraForward.Normalize();
+    cameraLeft.Normalize();
+    cameraUp.Normalize();
+
+    PathTraceSmokeConstants constants = {};
+    constants.cameraOriginAndTMax[0] = cameraOrigin.x;
+    constants.cameraOriginAndTMax[1] = cameraOrigin.y;
+    constants.cameraOriginAndTMax[2] = cameraOrigin.z;
+    constants.cameraOriginAndTMax[3] = 100000.0f;
+    constants.cameraForwardAndTanX[0] = cameraForward.x;
+    constants.cameraForwardAndTanX[1] = cameraForward.y;
+    constants.cameraForwardAndTanX[2] = cameraForward.z;
+    constants.cameraForwardAndTanX[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
+    constants.cameraLeftAndTanY[0] = cameraLeft.x;
+    constants.cameraLeftAndTanY[1] = cameraLeft.y;
+    constants.cameraLeftAndTanY[2] = cameraLeft.z;
+    constants.cameraLeftAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+    constants.cameraUpAndPad[0] = cameraUp.x;
+    constants.cameraUpAndPad[1] = cameraUp.y;
+    constants.cameraUpAndPad[2] = cameraUp.z;
+    constants.cameraUpAndPad[3] = 0.0f;
+
+    commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
     commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
     commandList->clearTextureFloat(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
@@ -496,7 +619,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest()
     m_smokeTestDispatched = true;
     m_smokeReadbackQueued = true;
     m_smokeReadbackDelayFrames = 2;
-    common->Printf("PathTracePrimaryPass: dispatched RT smoke raygen\n");
+    common->Printf("PathTracePrimaryPass: dispatched RT smoke camera raygen\n");
     common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
 }
 

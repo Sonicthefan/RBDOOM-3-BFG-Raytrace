@@ -16,7 +16,7 @@ public:
 private:
     void InitRayTracingSmokeTest();
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
-    void ExecuteRayTracingSmokeTest();
+    void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
 
     idRenderBackend* m_backend;
@@ -29,8 +29,10 @@ private:
     bool m_smokeReadbackQueued;
     bool m_smokeReadbackLogged;
     int m_smokeReadbackDelayFrames;
+    idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;
+    nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;
     nvrhi::rt::AccelStructDesc m_smokeBlasDesc;
