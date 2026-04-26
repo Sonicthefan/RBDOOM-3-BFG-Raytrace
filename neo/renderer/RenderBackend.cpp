@@ -68,6 +68,23 @@ PathTracePrimaryPass& RB_GetPathTracePrimaryPass( idRenderBackend* backend )
 	return s_pathTracePass;
 }
 
+nvrhi::IFramebuffer* RB_GetPathTraceLdrColorFramebuffer()
+{
+	static nvrhi::FramebufferHandle s_pathTraceLdrColorFramebuffer;
+	static nvrhi::ITexture* s_pathTraceLdrTexture = nullptr;
+
+	nvrhi::TextureHandle ldrTextureHandle = globalImages->ldrImage->GetTextureHandle();
+	nvrhi::ITexture* ldrTexture = ldrTextureHandle.Get();
+	if( s_pathTraceLdrColorFramebuffer == nullptr || s_pathTraceLdrTexture != ldrTexture )
+	{
+		s_pathTraceLdrTexture = ldrTexture;
+		s_pathTraceLdrColorFramebuffer = deviceManager->GetDevice()->createFramebuffer(
+			nvrhi::FramebufferDesc().addColorAttachment( ldrTextureHandle ) );
+	}
+
+	return s_pathTraceLdrColorFramebuffer;
+}
+
 }
 
 /*
@@ -5487,6 +5504,19 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 	// SRS - Save glConfig.timerQueryAvailable state so it can be disabled for RC_DRAW_VIEW_GUI then restored after it is finished
 	const bool timerQueryAvailable = glConfig.timerQueryAvailable;
 	drawView3D = false;
+	bool pathTraceDebugPresentPending = false;
+	auto PresentPathTraceDebugIfPending = [&]()
+	{
+		if( pathTraceDebugPresentPending && r_pathTracing.GetInteger() != 0 )
+		{
+			renderLog.OpenBlock( "Blit_PathTraceSmokeDebugToLDR", colorYellow );
+			RB_GetPathTracePrimaryPass( this ).BlitDebugOutput(
+				RB_GetPathTraceLdrColorFramebuffer(),
+				nvrhi::Viewport( renderSystem->GetWidth(), renderSystem->GetHeight() ) );
+			renderLog.CloseBlock();
+			pathTraceDebugPresentPending = false;
+		}
+	};
 
 	for( ; cmds != NULL; cmds = ( const emptyCommand_t* )cmds->next )
 	{
@@ -5496,6 +5526,7 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 				break;
 
 			case RC_DRAW_VIEW_GUI:
+				PresentPathTraceDebugIfPending();
 				if( drawView3D )
 				{
 					// SRS - Capture separate timestamps for overlay GUI rendering when RC_DRAW_VIEW_3D timestamps are active
@@ -5521,6 +5552,7 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 			case RC_DRAW_VIEW_3D:
 				drawView3D = true;
 				DrawView( cmds, 0 );
+				pathTraceDebugPresentPending = true;
 				c_draw3d++;
 				break;
 
@@ -5551,14 +5583,9 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 		}
 	}
 
-	DrawFlickerBox();
+	PresentPathTraceDebugIfPending();
 
-	if( r_pathTracing.GetInteger() != 0 )
-	{
-		renderLog.OpenBlock( "Blit_PathTraceSmokeDebug", colorYellow );
-		RB_GetPathTracePrimaryPass( this ).PresentDebugOutput();
-		renderLog.CloseBlock();
-	}
+	DrawFlickerBox();
 
 	// stop rendering on this thread
 	uint64 backEndFinishTime = Sys_Microseconds();

@@ -13,6 +13,7 @@ public:
     // Called every frame when r_pathTracing >= 1
     void Execute(const viewDef_t* viewDef);
     void PresentDebugOutput();
+    void BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
 
 private:
     void InitRayTracingSmokeTest();

@@ -721,14 +721,29 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
 void PathTracePrimaryPass::PresentDebugOutput()
 {
-    if (!m_smokeTestDispatched || !m_smokeOutputTexture || !m_backend || !deviceManager)
+    if (!deviceManager)
+    {
+        return;
+    }
+
+    nvrhi::IFramebuffer* targetFramebuffer = deviceManager->GetCurrentFramebuffer();
+    if (!targetFramebuffer)
+    {
+        return;
+    }
+
+    BlitDebugOutput(targetFramebuffer, nvrhi::Viewport(renderSystem->GetNativeWidth(), renderSystem->GetNativeHeight()));
+}
+
+void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport)
+{
+    if (!m_smokeTestDispatched || !m_smokeOutputTexture || !m_backend || !targetFramebuffer)
     {
         return;
     }
 
     nvrhi::ICommandList* commandList = m_backend->GL_GetCommandList();
-    nvrhi::IFramebuffer* targetFramebuffer = deviceManager->GetCurrentFramebuffer();
-    if (!commandList || !targetFramebuffer)
+    if (!commandList)
     {
         return;
     }
@@ -739,7 +754,7 @@ void PathTracePrimaryPass::PresentDebugOutput()
     BlitParameters blitParms;
     blitParms.sourceTexture = m_smokeOutputTexture;
     blitParms.targetFramebuffer = targetFramebuffer;
-    blitParms.targetViewport = nvrhi::Viewport(renderSystem->GetNativeWidth(), renderSystem->GetNativeHeight());
+    blitParms.targetViewport = targetViewport;
     blitParms.sampler = BlitSampler::Point;
     m_backend->GetCommonPasses().BlitTexture(commandList, blitParms, nullptr);
 }
