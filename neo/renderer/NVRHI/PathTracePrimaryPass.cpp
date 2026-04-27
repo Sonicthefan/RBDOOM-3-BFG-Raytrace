@@ -754,6 +754,63 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     return foundHit;
 }
 
+int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t surfaceClassId, std::vector<float>& vertices, std::vector<uint32_t>& indexes, std::vector<uint32_t>& triangleClasses, RtSmokeSurfaceSkipStats& skipStats)
+{
+    const size_t vertexStart = vertices.size();
+    const size_t indexStart = indexes.size();
+    const size_t classStart = triangleClasses.size();
+    const uint32_t indexBase = static_cast<uint32_t>(vertices.size() / 3);
+
+    for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
+    {
+        idVec3 worldPosition;
+        TransformSurfacePointToWorld(drawSurf, tri->verts[vertexIndex].xyz, worldPosition);
+        vertices.push_back(worldPosition.x);
+        vertices.push_back(worldPosition.y);
+        vertices.push_back(worldPosition.z);
+    }
+
+    for (int sourceIndex = 0; sourceIndex + 2 < tri->numIndexes; sourceIndex += 3)
+    {
+        const int i0 = tri->indexes[sourceIndex + 0];
+        const int i1 = tri->indexes[sourceIndex + 1];
+        const int i2 = tri->indexes[sourceIndex + 2];
+        if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+        {
+            ++skipStats.invalidIndexCount;
+            continue;
+        }
+
+        idVec3 p0;
+        idVec3 p1;
+        idVec3 p2;
+        TransformSurfacePointToWorld(drawSurf, tri->verts[i0].xyz, p0);
+        TransformSurfacePointToWorld(drawSurf, tri->verts[i1].xyz, p1);
+        TransformSurfacePointToWorld(drawSurf, tri->verts[i2].xyz, p2);
+        if (IsZeroAreaSmokeTriangle(p0, p1, p2))
+        {
+            continue;
+        }
+
+        indexes.push_back(indexBase + static_cast<uint32_t>(i0));
+        indexes.push_back(indexBase + static_cast<uint32_t>(i1));
+        indexes.push_back(indexBase + static_cast<uint32_t>(i2));
+        triangleClasses.push_back(surfaceClassId);
+    }
+
+    const int emittedIndexes = static_cast<int>(indexes.size() - indexStart);
+    if (emittedIndexes <= 0 || triangleClasses.size() == classStart)
+    {
+        vertices.resize(vertexStart);
+        indexes.resize(indexStart);
+        triangleClasses.resize(classStart);
+        ++skipStats.zeroAreaOnly;
+        return 0;
+    }
+
+    return emittedIndexes;
+}
+
 bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint64>& staticSurfaceKeys, std::vector<float>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
     sourceSurfaces = 0;
@@ -799,6 +856,66 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
 
     int dynamicVerts = 0;
     int dynamicIndexes = 0;
+    int dynamicSurfaces = 0;
+
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        const srfTriangles_t* tri = nullptr;
+        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+        {
+            continue;
+        }
+
+        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        if (surfaceClass != RtSmokeSurfaceClass::StaticWorld)
+        {
+            continue;
+        }
+
+        const uint32_t surfaceClassId = SmokeSurfaceClassId(surfaceClass);
+        const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
+        const bool staticSurfaceCached = std::find(staticSurfaceKeys.begin(), staticSurfaceKeys.end(), staticSurfaceKey) != staticSurfaceKeys.end();
+        ++sourceSurfaces;
+        ++bucketRanges.buckets[0].surfaceCount;
+
+        if (staticSurfaceCached)
+        {
+            sourceVerts += tri->numVerts;
+            sourceIndexes += tri->numIndexes;
+            AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
+            if (reasonSamples)
+            {
+                AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+            }
+            continue;
+        }
+
+        const int cachedVerts = static_cast<int>(staticVertexCache.size() / 3);
+        const int cachedIndexes = static_cast<int>(staticIndexCache.size());
+        if (cachedVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+            cachedIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+        {
+            ++skipStats.limitExceeded;
+            continue;
+        }
+
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(drawSurf, tri, surfaceClassId, staticVertexCache, staticIndexCache, staticTriangleClassCache, skipStats);
+        if (emittedIndexes <= 0)
+        {
+            continue;
+        }
+
+        staticSurfaceKeys.push_back(staticSurfaceKey);
+        staticCacheChanged = true;
+        sourceVerts += tri->numVerts;
+        sourceIndexes += emittedIndexes;
+        AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+        if (reasonSamples)
+        {
+            AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+        }
+    }
 
     for (int surfaceOffset = 0; surfaceOffset < viewDef->numDrawSurfs; ++surfaceOffset)
     {
@@ -810,7 +927,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        if (sourceSurfaces >= RT_SMOKE_MAX_SURFACES)
+        if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
         {
             ++skipStats.limitExceeded;
             break;
@@ -820,125 +937,37 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
         const uint32_t surfaceClassId = SmokeSurfaceClassId(surfaceClass);
         const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId));
         const bool isStaticWorld = surfaceClass == RtSmokeSurfaceClass::StaticWorld;
-        const uint64 staticSurfaceKey = isStaticWorld ? BuildSmokeStaticSurfaceKey(drawSurf, tri) : 0;
-        const bool staticSurfaceCached = isStaticWorld && std::find(staticSurfaceKeys.begin(), staticSurfaceKeys.end(), staticSurfaceKey) != staticSurfaceKeys.end();
-        if (isStaticWorld && staticSurfaceCached)
+        if (isStaticWorld)
         {
-            ++sourceSurfaces;
-            sourceVerts += tri->numVerts;
-            sourceIndexes += tri->numIndexes;
-            AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
-            ++bucketRanges.buckets[bucketIndex].surfaceCount;
-            if (reasonSamples)
-            {
-                AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
-            }
             continue;
         }
 
-        if (isStaticWorld)
+        const int cachedVerts = static_cast<int>(staticVertexCache.size() / 3);
+        const int cachedIndexes = static_cast<int>(staticIndexCache.size());
+        if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+            cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
         {
-            const int cachedVerts = static_cast<int>(staticVertexCache.size() / 3);
-            const int cachedIndexes = static_cast<int>(staticIndexCache.size());
-            if (cachedVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                cachedIndexes + tri->numIndexes + dynamicIndexes > RT_SMOKE_MAX_INDEXES)
-            {
-                ++skipStats.limitExceeded;
-                continue;
-            }
-        }
-        else
-        {
-            const int cachedVerts = static_cast<int>(staticVertexCache.size() / 3);
-            const int cachedIndexes = static_cast<int>(staticIndexCache.size());
-            if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
-            {
-                ++skipStats.limitExceeded;
-                continue;
-            }
+            ++skipStats.limitExceeded;
+            continue;
         }
 
         std::vector<float>& bucketVertices = bucketVertexData[bucketIndex];
         std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
-        const size_t vertexStart = bucketVertices.size();
-        const size_t indexStart = bucketIndexes.size();
-        const size_t classStart = bucketClasses.size();
-        const uint32_t indexBase = static_cast<uint32_t>(bucketVertices.size() / 3);
-        for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(drawSurf, tri, surfaceClassId, bucketVertices, bucketIndexes, bucketClasses, skipStats);
+        if (emittedIndexes <= 0)
         {
-            idVec3 worldPosition;
-            TransformSurfacePointToWorld(drawSurf, tri->verts[vertexIndex].xyz, worldPosition);
-            const idVec3 position = worldPosition;
-            bucketVertices.push_back(position.x);
-            bucketVertices.push_back(position.y);
-            bucketVertices.push_back(position.z);
-        }
-
-        for (int sourceIndex = 0; sourceIndex + 2 < tri->numIndexes; sourceIndex += 3)
-        {
-            const int i0 = tri->indexes[sourceIndex + 0];
-            const int i1 = tri->indexes[sourceIndex + 1];
-            const int i2 = tri->indexes[sourceIndex + 2];
-            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
-            {
-                ++skipStats.invalidIndexCount;
-                continue;
-            }
-
-            idVec3 p0;
-            idVec3 p1;
-            idVec3 p2;
-            TransformSurfacePointToWorld(drawSurf, tri->verts[i0].xyz, p0);
-            TransformSurfacePointToWorld(drawSurf, tri->verts[i1].xyz, p1);
-            TransformSurfacePointToWorld(drawSurf, tri->verts[i2].xyz, p2);
-            if (IsZeroAreaSmokeTriangle(p0, p1, p2))
-            {
-                continue;
-            }
-
-            bucketIndexes.push_back(indexBase + static_cast<uint32_t>(i0));
-            bucketIndexes.push_back(indexBase + static_cast<uint32_t>(i1));
-            bucketIndexes.push_back(indexBase + static_cast<uint32_t>(i2));
-            bucketClasses.push_back(surfaceClassId);
-        }
-
-        const int emittedIndexes = static_cast<int>(bucketIndexes.size() - indexStart);
-        if (emittedIndexes <= 0 || bucketClasses.size() == classStart)
-        {
-            bucketVertices.resize(vertexStart);
-            bucketIndexes.resize(indexStart);
-            bucketClasses.resize(classStart);
-            ++skipStats.zeroAreaOnly;
             continue;
         }
 
         ++sourceSurfaces;
+        ++dynamicSurfaces;
         sourceVerts += tri->numVerts;
         sourceIndexes += emittedIndexes;
         AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
         ++bucketRanges.buckets[bucketIndex].surfaceCount;
-        if (isStaticWorld)
-        {
-            const uint32_t staticIndexBase = static_cast<uint32_t>(staticVertexCache.size() / 3);
-            staticSurfaceKeys.push_back(staticSurfaceKey);
-            staticVertexCache.insert(staticVertexCache.end(), bucketVertices.begin() + vertexStart, bucketVertices.end());
-            for (size_t localIndex = indexStart; localIndex < bucketIndexes.size(); ++localIndex)
-            {
-                staticIndexCache.push_back(staticIndexBase + bucketIndexes[localIndex]);
-            }
-            staticTriangleClassCache.insert(staticTriangleClassCache.end(), bucketClasses.begin() + classStart, bucketClasses.end());
-            bucketVertices.resize(vertexStart);
-            bucketIndexes.resize(indexStart);
-            bucketClasses.resize(classStart);
-            staticCacheChanged = true;
-        }
-        else
-        {
-            dynamicVerts += tri->numVerts;
-            dynamicIndexes += emittedIndexes;
-        }
+        dynamicVerts += tri->numVerts;
+        dynamicIndexes += emittedIndexes;
         if (reasonSamples)
         {
             AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
@@ -1557,7 +1586,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     if (m_smokeSceneLogCooldownFrames <= 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke scene capture %d/%d surfaces, %d/%d verts, %d/%d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d space=%d model=%d indexes=%d cache=%d limits=%d zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
+        common->Printf("PathTracePrimaryPass: RT smoke scene capture %d surfaces (dynamic cap %d), %d/%d verts, %d/%d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d space=%d model=%d indexes=%d cache=%d limits=%d zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
             sourceSurfaces, RT_SMOKE_MAX_SURFACES,
             sourceVerts, RT_SMOKE_MAX_VERTS,
             sourceIndexes, RT_SMOKE_MAX_INDEXES,
