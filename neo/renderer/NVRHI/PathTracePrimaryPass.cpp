@@ -273,16 +273,15 @@ const char* SmokeDynamicModelName(dynamicModel_t dynamicModel)
     }
 }
 
-bool TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
+void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
 {
     if (drawSurf->space)
     {
         R_LocalPointToGlobal(drawSurf->space->modelMatrix, localPoint, worldPoint);
-        return true;
+        return;
     }
 
     worldPoint = localPoint;
-    return true;
 }
 
 bool IsZeroAreaSmokeTriangle(const idVec3& p0, const idVec3& p1, const idVec3& p2)
@@ -385,6 +384,13 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
 
+    if ((drawSurf && drawSurf->jointCache != 0) ||
+        (tri && tri->staticModelWithJoints != nullptr) ||
+        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0))
+    {
+        return RtSmokeSurfaceClass::SkinnedDeformed;
+    }
+
     if (material)
     {
         const deform_t deform = material->Deform();
@@ -401,13 +407,6 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
         }
     }
 
-    if ((drawSurf && drawSurf->jointCache != 0) ||
-        (tri && tri->staticModelWithJoints != nullptr) ||
-        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0))
-    {
-        return RtSmokeSurfaceClass::SkinnedDeformed;
-    }
-
     const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
     if ((viewDef && space == &viewDef->worldSpace) ||
         !entityDef ||
@@ -419,15 +418,6 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
 
     if (entityDef)
     {
-        const dynamicModel_t dynamicModel = model ? model->IsDynamicModel() : DM_STATIC;
-        if (entityDef->dynamicModel ||
-            entityDef->cachedDynamicModel ||
-            dynamicModel != DM_STATIC ||
-            (renderEntity && (renderEntity->callback || renderEntity->forceUpdate != 0 || renderEntity->weaponDepthHack || renderEntity->modelDepthHack != 0.0f)))
-        {
-            return RtSmokeSurfaceClass::RigidEntity;
-        }
-
         return RtSmokeSurfaceClass::RigidEntity;
     }
 
@@ -820,9 +810,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        if (sourceSurfaces >= RT_SMOKE_MAX_SURFACES ||
-            sourceVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-            sourceIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+        if (sourceSurfaces >= RT_SMOKE_MAX_SURFACES)
         {
             ++skipStats.limitExceeded;
             break;
@@ -856,7 +844,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
                 cachedIndexes + tri->numIndexes + dynamicIndexes > RT_SMOKE_MAX_INDEXES)
             {
                 ++skipStats.limitExceeded;
-                break;
+                continue;
             }
         }
         else
@@ -867,7 +855,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
                 cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
             {
                 ++skipStats.limitExceeded;
-                break;
+                continue;
             }
         }
 
@@ -1277,6 +1265,9 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     m_smokeReadbackQueued = false;
     m_smokeReadbackDelayFrames = 0;
     m_smokeReadbackCooldownFrames = 0;
+    m_smokeStaticBlasCacheValid = false;
+    m_smokeStaticBlas = nullptr;
+    m_smokeDynamicBlas = nullptr;
 
     common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
     return true;
@@ -1379,11 +1370,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int staticIndexOffset = bucketRanges.buckets[0].indexOffset;
     const int staticIndexCount = bucketRanges.buckets[0].indexCount;
     const int dynamicIndexOffset = bucketRanges.buckets[1].indexOffset;
-    const int dynamicIndexCount = static_cast<int>(indexData.size()) - dynamicIndexOffset;
+    const int dynamicIndexCount =
+        bucketRanges.buckets[1].indexCount +
+        bucketRanges.buckets[2].indexCount +
+        bucketRanges.buckets[3].indexCount +
+        bucketRanges.buckets[4].indexCount;
     const bool hasStaticBlas = staticIndexCount > 0;
     const bool hasDynamicBlas = dynamicIndexCount > 0;
     const RtSmokeStaticBlasSignature staticSignature = ComputeSmokeStaticBlasSignature(vertexData, indexData, bucketRanges.buckets[0], vec3_origin);
-    const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas && !staticCacheChanged;
+    // Cached static BLASes reference the buffer handles used when they were built.
+    // Reuse is valid only while the static cache prefix is byte-identical in the current SRV buffers.
+    const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas && !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;
 
     if (!hasStaticBlas && !hasDynamicBlas)
     {
