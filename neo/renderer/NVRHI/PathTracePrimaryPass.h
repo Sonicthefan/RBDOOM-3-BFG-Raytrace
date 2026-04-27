@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nvrhi/nvrhi.h>
+#include <vector>
 
 class idRenderBackend;
 struct viewDef_t;
@@ -41,6 +42,10 @@ private:
     uint64 m_smokeStaticBlasSignature;
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;
+    std::vector<uint64> m_smokeStaticSurfaceKeys;
+    std::vector<float> m_smokeStaticVertexCache;
+    std::vector<uint32_t> m_smokeStaticIndexCache;
+    std::vector<uint32_t> m_smokeStaticTriangleClassCache;
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;
