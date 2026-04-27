@@ -13,6 +13,7 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 StructuredBuffer<float3> SmokeVertices : register(t3);
 StructuredBuffer<uint> SmokeIndices : register(t4);
 StructuredBuffer<uint> SmokeTriangleClasses : register(t5);
+StructuredBuffer<uint2> SmokeInstanceRanges : register(t6);
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -99,7 +100,9 @@ void Miss(inout PathTraceSmokePayload payload)
 [shader("closesthit")]
 void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    const uint indexOffset = PrimitiveIndex() * 3;
+    const uint2 instanceRange = SmokeInstanceRanges[InstanceID()];
+    const uint globalPrimitiveIndex = instanceRange.y + PrimitiveIndex();
+    const uint indexOffset = instanceRange.x + PrimitiveIndex() * 3;
     const uint i0 = SmokeIndices[indexOffset + 0];
     const uint i1 = SmokeIndices[indexOffset + 1];
     const uint i2 = SmokeIndices[indexOffset + 2];
@@ -111,5 +114,5 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.value = 1;
     payload.hitT = RayTCurrent();
     payload.normal = normalize(cross(p1 - p0, p2 - p0));
-    payload.surfaceClass = SmokeTriangleClasses[PrimitiveIndex()];
+    payload.surfaceClass = SmokeTriangleClasses[globalPrimitiveIndex];
 }

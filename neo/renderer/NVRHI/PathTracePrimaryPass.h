@@ -41,11 +41,14 @@ private:
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;
     nvrhi::BufferHandle m_smokeTriangleClassBuffer;
+    nvrhi::BufferHandle m_smokeInstanceRangeBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;
-    nvrhi::rt::AccelStructDesc m_smokeBlasDesc;
-    nvrhi::rt::AccelStructHandle m_smokeBlas;
+    nvrhi::rt::AccelStructDesc m_smokeStaticBlasDesc;
+    nvrhi::rt::AccelStructDesc m_smokeDynamicBlasDesc;
+    nvrhi::rt::AccelStructHandle m_smokeStaticBlas;
+    nvrhi::rt::AccelStructHandle m_smokeDynamicBlas;
     nvrhi::rt::AccelStructHandle m_smokeTlas;
     nvrhi::BindingLayoutHandle m_smokeBindingLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
