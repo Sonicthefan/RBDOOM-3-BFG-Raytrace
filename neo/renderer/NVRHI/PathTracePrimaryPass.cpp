@@ -126,6 +126,14 @@ struct RtSmokeBucketRanges
     RtSmokeBucketRange buckets[RT_SMOKE_CLASS_COUNT];
 };
 
+struct RtSmokeStaticBlasSignature
+{
+    uint64 hash = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+};
+
 enum class RtSmokeSurfaceClass
 {
     StaticWorld,
@@ -595,6 +603,48 @@ void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, n
     triangleGeometry.vertexStride = sizeof(float) * 3;
 }
 
+uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size)
+{
+    const byte* bytes = static_cast<const byte*>(data);
+    for (size_t index = 0; index < size; ++index)
+    {
+        hash ^= static_cast<uint64>(bytes[index]);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(const std::vector<float>& vertexData, const std::vector<uint32_t>& indexData, const RtSmokeBucketRange& staticRange, const idVec3& sceneOrigin)
+{
+    RtSmokeStaticBlasSignature signature;
+    signature.vertexCount = staticRange.vertexCount;
+    signature.indexCount = staticRange.indexCount;
+    signature.triangleCount = staticRange.triangleCount;
+
+    uint64 hash = 14695981039346656037ull;
+    hash = HashSmokeBytes(hash, &sceneOrigin.x, sizeof(sceneOrigin.x));
+    hash = HashSmokeBytes(hash, &sceneOrigin.y, sizeof(sceneOrigin.y));
+    hash = HashSmokeBytes(hash, &sceneOrigin.z, sizeof(sceneOrigin.z));
+    hash = HashSmokeBytes(hash, &signature.vertexCount, sizeof(signature.vertexCount));
+    hash = HashSmokeBytes(hash, &signature.indexCount, sizeof(signature.indexCount));
+    hash = HashSmokeBytes(hash, &signature.triangleCount, sizeof(signature.triangleCount));
+
+    if (staticRange.vertexCount > 0)
+    {
+        const size_t vertexFloatOffset = static_cast<size_t>(staticRange.vertexOffset) * 3;
+        const size_t vertexFloatCount = static_cast<size_t>(staticRange.vertexCount) * 3;
+        hash = HashSmokeBytes(hash, vertexData.data() + vertexFloatOffset, vertexFloatCount * sizeof(vertexData[0]));
+    }
+
+    if (staticRange.indexCount > 0)
+    {
+        hash = HashSmokeBytes(hash, indexData.data() + staticRange.indexOffset, static_cast<size_t>(staticRange.indexCount) * sizeof(indexData[0]));
+    }
+
+    signature.hash = hash;
+    return signature;
+}
+
 bool IntersectRayTriangle(const idVec3& rayOrigin, const idVec3& rayDirection, const idVec3& p0, const idVec3& p1, const idVec3& p2, float& hitDistance)
 {
     const idVec3 edge1 = p1 - p0;
@@ -866,6 +916,10 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeSceneLogCooldownFrames(0)
     , m_smokeOutputWidth(0)
     , m_smokeOutputHeight(0)
+    , m_smokeStaticBlasCacheValid(false)
+    , m_smokeStaticBlasSignature(0)
+    , m_smokeStaticBlasCacheHitCount(0)
+    , m_smokeStaticBlasCacheMissCount(0)
     , m_smokeSceneOrigin(vec3_origin)
 {
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
@@ -1225,6 +1279,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int dynamicIndexCount = static_cast<int>(indexData.size()) - dynamicIndexOffset;
     const bool hasStaticBlas = staticIndexCount > 0;
     const bool hasDynamicBlas = dynamicIndexCount > 0;
+    const RtSmokeStaticBlasSignature staticSignature = ComputeSmokeStaticBlasSignature(vertexData, indexData, bucketRanges.buckets[0], m_smokeSceneOrigin);
+    const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas && m_smokeStaticBlasSignature == staticSignature.hash;
 
     if (!hasStaticBlas && !hasDynamicBlas)
     {
@@ -1236,22 +1292,32 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::rt::AccelStructHandle smokeStaticBlas;
     if (hasStaticBlas)
     {
-        nvrhi::rt::GeometryTriangles staticTriangleGeometry;
-        InitSmokeTriangleGeometry(staticTriangleGeometry, smokeVertexBuffer, smokeIndexBuffer, totalVertexCount, staticIndexOffset, staticIndexCount);
-
-        nvrhi::rt::GeometryDesc staticGeometryDesc;
-        staticGeometryDesc.setTriangles(staticTriangleGeometry);
-        staticGeometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
-
-        smokeStaticBlasDesc = nvrhi::rt::AccelStructDesc()
-            .addBottomLevelGeometry(staticGeometryDesc)
-            .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
-            .setDebugName("PathTraceSmokeStaticWorldBLAS");
-        smokeStaticBlas = device->createAccelStruct(smokeStaticBlasDesc);
-        if (!smokeStaticBlas)
+        if (staticBlasCacheHit)
         {
-            common->Printf("PathTracePrimaryPass: failed to create RT smoke static BLAS\n");
-            return;
+            smokeStaticBlas = m_smokeStaticBlas;
+            smokeStaticBlasDesc = m_smokeStaticBlasDesc;
+            ++m_smokeStaticBlasCacheHitCount;
+        }
+        else
+        {
+            nvrhi::rt::GeometryTriangles staticTriangleGeometry;
+            InitSmokeTriangleGeometry(staticTriangleGeometry, smokeVertexBuffer, smokeIndexBuffer, totalVertexCount, staticIndexOffset, staticIndexCount);
+
+            nvrhi::rt::GeometryDesc staticGeometryDesc;
+            staticGeometryDesc.setTriangles(staticTriangleGeometry);
+            staticGeometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
+
+            smokeStaticBlasDesc = nvrhi::rt::AccelStructDesc()
+                .addBottomLevelGeometry(staticGeometryDesc)
+                .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+                .setDebugName("PathTraceSmokeStaticWorldBLAS");
+            smokeStaticBlas = device->createAccelStruct(smokeStaticBlasDesc);
+            if (!smokeStaticBlas)
+            {
+                common->Printf("PathTracePrimaryPass: failed to create RT smoke static BLAS\n");
+                return;
+            }
+            ++m_smokeStaticBlasCacheMissCount;
         }
     }
 
@@ -1292,7 +1358,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->setBufferState(smokeInstanceRangeBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
 
-    if (hasStaticBlas)
+    if (hasStaticBlas && !staticBlasCacheHit)
     {
         nvrhi::utils::BuildBottomLevelAccelStruct(commandList, smokeStaticBlas, smokeStaticBlasDesc);
     }
@@ -1352,6 +1418,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeDynamicBlasDesc = smokeDynamicBlasDesc;
     m_smokeStaticBlas = smokeStaticBlas;
     m_smokeDynamicBlas = smokeDynamicBlas;
+    if (hasStaticBlas)
+    {
+        m_smokeStaticBlasCacheValid = true;
+        m_smokeStaticBlasSignature = staticSignature.hash;
+    }
     m_smokeBindingSet = smokeBindingSet;
     m_smokeSceneBuilt = true;
 
@@ -1367,6 +1438,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.unknownSurfaces);
         common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
             staticIndexCount, dynamicIndexCount, instanceCount);
+        common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu hits=%d misses=%d\n",
+            staticBlasCacheHit ? "hit" : "rebuild",
+            static_cast<unsigned long long>(staticSignature.hash),
+            m_smokeStaticBlasCacheHitCount,
+            m_smokeStaticBlasCacheMissCount);
         LogSmokeBucketRanges(bucketRanges);
         m_smokeSceneRebuildLogged = true;
     }
@@ -1402,6 +1478,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.unknownSurfaces, classStats.unknownVerts, classStats.unknownIndexes, classStats.unknownTriangles);
         common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
             staticIndexCount, dynamicIndexCount, instanceCount);
+        common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu hits=%d misses=%d\n",
+            staticBlasCacheHit ? "hit" : "rebuild",
+            static_cast<unsigned long long>(staticSignature.hash),
+            m_smokeStaticBlasCacheHitCount,
+            m_smokeStaticBlasCacheMissCount);
         LogSmokeBucketRanges(bucketRanges);
         m_smokeSceneLogCooldownFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;
     }

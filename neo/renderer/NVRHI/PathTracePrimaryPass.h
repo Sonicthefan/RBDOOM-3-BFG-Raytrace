@@ -37,6 +37,10 @@ private:
     int m_smokeSceneLogCooldownFrames;
     int m_smokeOutputWidth;
     int m_smokeOutputHeight;
+    bool m_smokeStaticBlasCacheValid;
+    uint64 m_smokeStaticBlasSignature;
+    int m_smokeStaticBlasCacheHitCount;
+    int m_smokeStaticBlasCacheMissCount;
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;
