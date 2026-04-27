@@ -47,10 +47,12 @@ private:
     std::vector<uint32_t> m_smokeStaticIndexCache;
     std::vector<uint32_t> m_smokeStaticTriangleClassCache;
     idVec3 m_smokeSceneOrigin;
-    nvrhi::BufferHandle m_smokeVertexBuffer;
-    nvrhi::BufferHandle m_smokeIndexBuffer;
-    nvrhi::BufferHandle m_smokeTriangleClassBuffer;
-    nvrhi::BufferHandle m_smokeInstanceRangeBuffer;
+    nvrhi::BufferHandle m_smokeStaticVertexBuffer;
+    nvrhi::BufferHandle m_smokeStaticIndexBuffer;
+    nvrhi::BufferHandle m_smokeStaticTriangleClassBuffer;
+    nvrhi::BufferHandle m_smokeDynamicVertexBuffer;
+    nvrhi::BufferHandle m_smokeDynamicIndexBuffer;
+    nvrhi::BufferHandle m_smokeDynamicTriangleClassBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;

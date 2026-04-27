@@ -10,10 +10,12 @@ struct PathTraceSmokePayload
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
-StructuredBuffer<float3> SmokeVertices : register(t3);
-StructuredBuffer<uint> SmokeIndices : register(t4);
-StructuredBuffer<uint> SmokeTriangleClasses : register(t5);
-StructuredBuffer<uint2> SmokeInstanceRanges : register(t6);
+StructuredBuffer<float3> SmokeStaticVertices : register(t3);
+StructuredBuffer<uint> SmokeStaticIndices : register(t4);
+StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
+StructuredBuffer<float3> SmokeDynamicVertices : register(t6);
+StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
+StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -100,19 +102,18 @@ void Miss(inout PathTraceSmokePayload payload)
 [shader("closesthit")]
 void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    const uint2 instanceRange = SmokeInstanceRanges[InstanceID()];
-    const uint globalPrimitiveIndex = instanceRange.y + PrimitiveIndex();
-    const uint indexOffset = instanceRange.x + PrimitiveIndex() * 3;
-    const uint i0 = SmokeIndices[indexOffset + 0];
-    const uint i1 = SmokeIndices[indexOffset + 1];
-    const uint i2 = SmokeIndices[indexOffset + 2];
+    const uint instanceId = InstanceID();
+    const uint indexOffset = PrimitiveIndex() * 3;
+    const uint i0 = instanceId == 0 ? SmokeStaticIndices[indexOffset + 0] : SmokeDynamicIndices[indexOffset + 0];
+    const uint i1 = instanceId == 0 ? SmokeStaticIndices[indexOffset + 1] : SmokeDynamicIndices[indexOffset + 1];
+    const uint i2 = instanceId == 0 ? SmokeStaticIndices[indexOffset + 2] : SmokeDynamicIndices[indexOffset + 2];
 
-    const float3 p0 = SmokeVertices[i0];
-    const float3 p1 = SmokeVertices[i1];
-    const float3 p2 = SmokeVertices[i2];
+    const float3 p0 = instanceId == 0 ? SmokeStaticVertices[i0] : SmokeDynamicVertices[i0];
+    const float3 p1 = instanceId == 0 ? SmokeStaticVertices[i1] : SmokeDynamicVertices[i1];
+    const float3 p2 = instanceId == 0 ? SmokeStaticVertices[i2] : SmokeDynamicVertices[i2];
 
     payload.value = 1;
     payload.hitT = RayTCurrent();
     payload.normal = normalize(cross(p1 - p0, p2 - p0));
-    payload.surfaceClass = SmokeTriangleClasses[globalPrimitiveIndex];
+    payload.surfaceClass = instanceId == 0 ? SmokeStaticTriangleClasses[PrimitiveIndex()] : SmokeDynamicTriangleClasses[PrimitiveIndex()];
 }
