@@ -5,12 +5,14 @@ struct PathTraceSmokePayload
     uint value;
     float hitT;
     float3 normal;
+    uint surfaceClass;
 };
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 StructuredBuffer<float3> SmokeVertices : register(t3);
 StructuredBuffer<uint> SmokeIndices : register(t4);
+StructuredBuffer<uint> SmokeTriangleClasses : register(t5);
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -32,6 +34,7 @@ void RayGen()
     payload.value = 0;
     payload.hitT = 0.0;
     payload.normal = float3(0.0, 0.0, 0.0);
+    payload.surfaceClass = 4;
 
     RayDesc ray;
     ray.Origin = CameraOriginAndTMax.xyz;
@@ -57,6 +60,29 @@ void RayGen()
     else if (debugMode == 2)
     {
         SmokeOutput[pixel] = float4(payload.normal * 0.5 + 0.5, 1.0);
+    }
+    else if (debugMode == 3)
+    {
+        if (payload.surfaceClass == 0)
+        {
+            SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
+        }
+        else if (payload.surfaceClass == 1)
+        {
+            SmokeOutput[pixel] = float4(0.0, 0.35, 1.0, 1.0);
+        }
+        else if (payload.surfaceClass == 2)
+        {
+            SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
+        }
+        else if (payload.surfaceClass == 3)
+        {
+            SmokeOutput[pixel] = float4(1.0, 0.75, 0.0, 1.0);
+        }
+        else
+        {
+            SmokeOutput[pixel] = float4(1.0, 1.0, 1.0, 1.0);
+        }
     }
     else
     {
@@ -85,4 +111,5 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.value = 1;
     payload.hitT = RayTCurrent();
     payload.normal = normalize(cross(p1 - p0, p2 - p0));
+    payload.surfaceClass = SmokeTriangleClasses[PrimitiveIndex()];
 }

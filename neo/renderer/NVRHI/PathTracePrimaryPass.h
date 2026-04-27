@@ -40,6 +40,7 @@ private:
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeVertexBuffer;
     nvrhi::BufferHandle m_smokeIndexBuffer;
+    nvrhi::BufferHandle m_smokeTriangleClassBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;
