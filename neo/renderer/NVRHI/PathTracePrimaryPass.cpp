@@ -5,6 +5,7 @@
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
 #include "../GLMatrix.h"
+#include "../Model_local.h"
 #include "../Passes/CommonPasses.h"
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
@@ -110,11 +111,13 @@ struct RtSmokeDynamicGeometryStats
     int rigidSurfaces = 0;
     int skinnedCpuCurrentSurfaces = 0;
     int skinnedLikelyBasePoseSurfaces = 0;
+    int skinnedRtCpuSkinnedSurfaces = 0;
     int particleAlphaSurfaces = 0;
     int unknownSurfaces = 0;
     int rigidIndexes = 0;
     int skinnedCpuCurrentIndexes = 0;
     int skinnedLikelyBasePoseIndexes = 0;
+    int skinnedRtCpuSkinnedIndexes = 0;
     int particleAlphaIndexes = 0;
     int unknownIndexes = 0;
 };
@@ -184,6 +187,7 @@ struct RtSmokeSurfaceClassReason
     bool cpuVertexCacheCurrent = false;
     bool cpuIndexCacheCurrent = false;
     bool skinnedLikelyBasePose = false;
+    bool rtCpuSkinned = false;
     idVec3 entityOrigin = vec3_origin;
     idMat3 entityAxis = mat3_identity;
     idBounds entityBounds;
@@ -305,6 +309,37 @@ void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& loca
     }
 
     worldPoint = localPoint;
+}
+
+const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri)
+{
+    if (!r_useGPUSkinning.GetBool() || !tri || !tri->staticModelWithJoints || !tri->staticModelWithJoints->jointsInverted)
+    {
+        return nullptr;
+    }
+
+    return tri->staticModelWithJoints->jointsInverted;
+}
+
+idVec3 TransformSmokeSkinnedVertexPosition(const idDrawVert& base, const idJointMat* joints)
+{
+    const idJointMat& j0 = joints[base.color[0]];
+    const idJointMat& j1 = joints[base.color[1]];
+    const idJointMat& j2 = joints[base.color[2]];
+    const idJointMat& j3 = joints[base.color[3]];
+
+    const float w0 = base.color2[0] * (1.0f / 255.0f);
+    const float w1 = base.color2[1] * (1.0f / 255.0f);
+    const float w2 = base.color2[2] * (1.0f / 255.0f);
+    const float w3 = base.color2[3] * (1.0f / 255.0f);
+
+    idJointMat accum;
+    idJointMat::Mul(accum, j0, w0);
+    idJointMat::Mad(accum, j1, w1);
+    idJointMat::Mad(accum, j2, w2);
+    idJointMat::Mad(accum, j3, w3);
+
+    return accum * idVec4(base.xyz.x, base.xyz.y, base.xyz.z, 1.0f);
 }
 
 bool IsZeroAreaSmokeTriangle(const idVec3& p0, const idVec3& p1, const idVec3& p2)
@@ -497,6 +532,7 @@ RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef,
     reason.cpuVertexCacheCurrent = tri && tri->ambientCache != 0 && vertexCache.CacheIsCurrent(tri->ambientCache);
     reason.cpuIndexCacheCurrent = tri && tri->indexCache != 0 && vertexCache.CacheIsCurrent(tri->indexCache);
     reason.skinnedLikelyBasePose = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed && SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
+    reason.rtCpuSkinned = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed && GetSmokeRtCpuSkinningJoints(tri) != nullptr;
     if (renderEntity)
     {
         reason.entityOrigin = renderEntity->origin;
@@ -528,7 +564,12 @@ void AddSmokeDynamicGeometryStats(RtSmokeDynamicGeometryStats& stats, RtSmokeSur
             stats.rigidIndexes += indexes;
             break;
         case RtSmokeSurfaceClass::SkinnedDeformed:
-            if (SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri))
+            if (GetSmokeRtCpuSkinningJoints(tri) != nullptr)
+            {
+                ++stats.skinnedRtCpuSkinnedSurfaces;
+                stats.skinnedRtCpuSkinnedIndexes += indexes;
+            }
+            else if (SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri))
             {
                 ++stats.skinnedLikelyBasePoseSurfaces;
                 stats.skinnedLikelyBasePoseIndexes += indexes;
@@ -625,7 +666,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
                 continue;
             }
 
-            common->Printf("PathTracePrimaryPass: RT smoke class sample %s surf=%d material='%s' coverage=%s sort=%.1f deform=%s entity=%d model='%s' modelDynamic=%s joints(cache=%d staticModel=%d entity=%d) cache(staticV=%d staticI=%d currentV=%d currentI=%d) cpuVerts=%d skinnedBasePose=%d worldSpace=%d staticWorldModel=%d entityDef=%d dynModel=%d cachedDyn=%d callback=%d forceUpdate=%d weaponDepthHack=%d modelDepthHack=%.3f verts=%d indexes=%d\n",
+            common->Printf("PathTracePrimaryPass: RT smoke class sample %s surf=%d material='%s' coverage=%s sort=%.1f deform=%s entity=%d model='%s' modelDynamic=%s joints(cache=%d staticModel=%d entity=%d) cache(staticV=%d staticI=%d currentV=%d currentI=%d) cpuVerts=%d rtCpuSkin=%d skinnedBasePose=%d worldSpace=%d staticWorldModel=%d entityDef=%d dynModel=%d cachedDyn=%d callback=%d forceUpdate=%d weaponDepthHack=%d modelDepthHack=%.3f verts=%d indexes=%d\n",
                 SmokeSurfaceClassName(reason.finalClass),
                 reason.surfaceIndex,
                 reason.materialName.c_str(),
@@ -643,6 +684,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
                 reason.cpuVertexCacheCurrent ? 1 : 0,
                 reason.cpuIndexCacheCurrent ? 1 : 0,
                 reason.cpuVertsAvailable ? 1 : 0,
+                reason.rtCpuSkinned ? 1 : 0,
                 reason.skinnedLikelyBasePose ? 1 : 0,
                 reason.isWorldSpace ? 1 : 0,
                 reason.isStaticWorldModel ? 1 : 0,
@@ -658,7 +700,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
 
             if (reason.finalClass == RtSmokeSurfaceClass::SkinnedDeformed)
             {
-                common->Printf("PathTracePrimaryPass: RT smoke skinned detail entity=%d model='%s' origin=(%.2f %.2f %.2f) axis0=(%.3f %.3f %.3f) axis1=(%.3f %.3f %.3f) axis2=(%.3f %.3f %.3f) joints(cache=%d staticModel=%d entityCount=%d) cpuVerts=%d cacheCurrent=(v%d i%d) likelyBasePose=%d\n",
+                common->Printf("PathTracePrimaryPass: RT smoke skinned detail entity=%d model='%s' origin=(%.2f %.2f %.2f) axis0=(%.3f %.3f %.3f) axis1=(%.3f %.3f %.3f) axis2=(%.3f %.3f %.3f) joints(cache=%d staticModel=%d entityCount=%d) cpuVerts=%d cacheCurrent=(v%d i%d) rtCpuSkin=%d likelyBasePose=%d\n",
                     reason.entityNum,
                     reason.modelName.c_str(),
                     reason.entityOrigin.x, reason.entityOrigin.y, reason.entityOrigin.z,
@@ -671,6 +713,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
                     reason.cpuVertsAvailable ? 1 : 0,
                     reason.cpuVertexCacheCurrent ? 1 : 0,
                     reason.cpuIndexCacheCurrent ? 1 : 0,
+                    reason.rtCpuSkinned ? 1 : 0,
                     reason.skinnedLikelyBasePose ? 1 : 0);
                 if (reason.hasEntityBounds)
                 {
@@ -705,7 +748,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
             continue;
         }
 
-        common->Printf("PathTracePrimaryPass: RT smoke skinned focused surf=%d entity=%d model='%s' material='%s' origin=(%.2f %.2f %.2f) axis0=(%.3f %.3f %.3f) axis1=(%.3f %.3f %.3f) axis2=(%.3f %.3f %.3f) joints(cache=%d staticModel=%d entityCount=%d) cpuVerts=%d cacheCurrent=(v%d i%d) likelyBasePose=%d verts=%d indexes=%d\n",
+        common->Printf("PathTracePrimaryPass: RT smoke skinned focused surf=%d entity=%d model='%s' material='%s' origin=(%.2f %.2f %.2f) axis0=(%.3f %.3f %.3f) axis1=(%.3f %.3f %.3f) axis2=(%.3f %.3f %.3f) joints(cache=%d staticModel=%d entityCount=%d) cpuVerts=%d cacheCurrent=(v%d i%d) rtCpuSkin=%d likelyBasePose=%d verts=%d indexes=%d\n",
             reason.surfaceIndex,
             reason.entityNum,
             reason.modelName.c_str(),
@@ -720,6 +763,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
             reason.cpuVertsAvailable ? 1 : 0,
             reason.cpuVertexCacheCurrent ? 1 : 0,
             reason.cpuIndexCacheCurrent ? 1 : 0,
+            reason.rtCpuSkinned ? 1 : 0,
             reason.skinnedLikelyBasePose ? 1 : 0,
             reason.verts,
             reason.indexes);
@@ -880,6 +924,8 @@ bool IntersectRayTriangle(const idVec3& rayOrigin, const idVec3& rayDirection, c
     return true;
 }
 
+void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition);
+
 bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle)
 {
     const idVec3 rayOrigin = viewDef->renderView.vieworg;
@@ -905,6 +951,7 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
             continue;
         }
 
+        const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
         for (int index = 0; index + 2 < tri->numIndexes; index += 3)
         {
             const int i0 = tri->indexes[index + 0];
@@ -918,9 +965,9 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
             idVec3 p0;
             idVec3 p1;
             idVec3 p2;
-            TransformSurfacePointToWorld(drawSurf, tri->verts[i0].xyz, p0);
-            TransformSurfacePointToWorld(drawSurf, tri->verts[i1].xyz, p1);
-            TransformSurfacePointToWorld(drawSurf, tri->verts[i2].xyz, p2);
+            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
+            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
+            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
             if (IsZeroAreaSmokeTriangle(p0, p1, p2))
             {
                 continue;
@@ -941,17 +988,28 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     return foundHit;
 }
 
+void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition)
+{
+    idVec3 localPosition = tri->verts[vertexIndex].xyz;
+    if (rtCpuSkinningJoints)
+    {
+        localPosition = TransformSmokeSkinnedVertexPosition(tri->verts[vertexIndex], rtCpuSkinningJoints);
+    }
+    TransformSurfacePointToWorld(drawSurf, localPosition, worldPosition);
+}
+
 int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t surfaceClassId, std::vector<float>& vertices, std::vector<uint32_t>& indexes, std::vector<uint32_t>& triangleClasses, RtSmokeSurfaceSkipStats& skipStats)
 {
     const size_t vertexStart = vertices.size();
     const size_t indexStart = indexes.size();
     const size_t classStart = triangleClasses.size();
     const uint32_t indexBase = static_cast<uint32_t>(vertices.size() / 3);
+    const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
 
     for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
     {
         idVec3 worldPosition;
-        TransformSurfacePointToWorld(drawSurf, tri->verts[vertexIndex].xyz, worldPosition);
+        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, vertexIndex, rtCpuSkinningJoints, worldPosition);
         vertices.push_back(worldPosition.x);
         vertices.push_back(worldPosition.y);
         vertices.push_back(worldPosition.z);
@@ -971,9 +1029,9 @@ int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t*
         idVec3 p0;
         idVec3 p1;
         idVec3 p2;
-        TransformSurfacePointToWorld(drawSurf, tri->verts[i0].xyz, p0);
-        TransformSurfacePointToWorld(drawSurf, tri->verts[i1].xyz, p1);
-        TransformSurfacePointToWorld(drawSurf, tri->verts[i2].xyz, p2);
+        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
+        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
+        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
         if (IsZeroAreaSmokeTriangle(p0, p1, p2))
         {
             continue;
@@ -1768,9 +1826,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.unknownSurfaces);
         common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
             staticIndexCount, dynamicIndexCount, instanceCount);
-        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
+        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedRtCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
             dynamicStats.rigidSurfaces, dynamicStats.rigidIndexes,
             dynamicStats.skinnedCpuCurrentSurfaces, dynamicStats.skinnedCpuCurrentIndexes,
+            dynamicStats.skinnedRtCpuSkinnedSurfaces, dynamicStats.skinnedRtCpuSkinnedIndexes,
             dynamicStats.skinnedLikelyBasePoseSurfaces, dynamicStats.skinnedLikelyBasePoseIndexes,
             dynamicStats.particleAlphaSurfaces, dynamicStats.particleAlphaIndexes,
             dynamicStats.unknownSurfaces, dynamicStats.unknownIndexes);
@@ -1815,9 +1874,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.unknownSurfaces, classStats.unknownVerts, classStats.unknownIndexes, classStats.unknownTriangles);
         common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
             staticIndexCount, dynamicIndexCount, instanceCount);
-        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
+        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedRtCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
             dynamicStats.rigidSurfaces, dynamicStats.rigidIndexes,
             dynamicStats.skinnedCpuCurrentSurfaces, dynamicStats.skinnedCpuCurrentIndexes,
+            dynamicStats.skinnedRtCpuSkinnedSurfaces, dynamicStats.skinnedRtCpuSkinnedIndexes,
             dynamicStats.skinnedLikelyBasePoseSurfaces, dynamicStats.skinnedLikelyBasePoseIndexes,
             dynamicStats.particleAlphaSurfaces, dynamicStats.particleAlphaIndexes,
             dynamicStats.unknownSurfaces, dynamicStats.unknownIndexes);
