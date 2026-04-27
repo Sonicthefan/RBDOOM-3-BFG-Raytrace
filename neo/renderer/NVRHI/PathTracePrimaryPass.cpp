@@ -104,6 +104,22 @@ struct RtSmokeSurfaceSkipStats
     int emptyClassBuffer = 0;
 };
 
+struct RtSmokeBucketRange
+{
+    int vertexOffset = 0;
+    int vertexCount = 0;
+    int indexOffset = 0;
+    int indexCount = 0;
+    int triangleOffset = 0;
+    int triangleCount = 0;
+    int surfaceCount = 0;
+};
+
+struct RtSmokeBucketRanges
+{
+    RtSmokeBucketRange buckets[RT_SMOKE_CLASS_COUNT];
+};
+
 enum class RtSmokeSurfaceClass
 {
     StaticWorld,
@@ -540,6 +556,26 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
     }
 }
 
+void LogSmokeBucketRanges(const RtSmokeBucketRanges& ranges)
+{
+    common->Printf("PathTracePrimaryPass: RT smoke bucket ranges static-world v[%d+%d] i[%d+%d] t[%d+%d]; rigid-entity v[%d+%d] i[%d+%d] t[%d+%d]; skinned v[%d+%d] i[%d+%d] t[%d+%d]; particle/alpha v[%d+%d] i[%d+%d] t[%d+%d]; unknown v[%d+%d] i[%d+%d] t[%d+%d]\n",
+        ranges.buckets[0].vertexOffset, ranges.buckets[0].vertexCount,
+        ranges.buckets[0].indexOffset, ranges.buckets[0].indexCount,
+        ranges.buckets[0].triangleOffset, ranges.buckets[0].triangleCount,
+        ranges.buckets[1].vertexOffset, ranges.buckets[1].vertexCount,
+        ranges.buckets[1].indexOffset, ranges.buckets[1].indexCount,
+        ranges.buckets[1].triangleOffset, ranges.buckets[1].triangleCount,
+        ranges.buckets[2].vertexOffset, ranges.buckets[2].vertexCount,
+        ranges.buckets[2].indexOffset, ranges.buckets[2].indexCount,
+        ranges.buckets[2].triangleOffset, ranges.buckets[2].triangleCount,
+        ranges.buckets[3].vertexOffset, ranges.buckets[3].vertexCount,
+        ranges.buckets[3].indexOffset, ranges.buckets[3].indexCount,
+        ranges.buckets[3].triangleOffset, ranges.buckets[3].triangleCount,
+        ranges.buckets[4].vertexOffset, ranges.buckets[4].vertexCount,
+        ranges.buckets[4].indexOffset, ranges.buckets[4].indexCount,
+        ranges.buckets[4].triangleOffset, ranges.buckets[4].triangleCount);
+}
+
 bool IntersectRayTriangle(const idVec3& rayOrigin, const idVec3& rayDirection, const idVec3& p0, const idVec3& p1, const idVec3& p2, float& hitDistance)
 {
     const idVec3 edge1 = p1 - p0;
@@ -637,7 +673,7 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     return foundHit;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
     sourceSurfaces = 0;
     sourceVerts = 0;
@@ -646,6 +682,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
     anchorTriangle = -1;
     classStats = RtSmokeSurfaceClassStats();
     skipStats = RtSmokeSurfaceSkipStats();
+    bucketRanges = RtSmokeBucketRanges();
     if (reasonSamples)
     {
         *reasonSamples = RtSmokeSurfaceClassReasonSamples();
@@ -668,6 +705,16 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
     indexData.reserve(RT_SMOKE_MAX_INDEXES);
     triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
 
+    std::vector<float> bucketVertexData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketTriangleClassData[RT_SMOKE_CLASS_COUNT];
+    for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
+    {
+        bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS * 3 / RT_SMOKE_CLASS_COUNT);
+        bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
+        bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+    }
+
     for (int surfaceOffset = 0; surfaceOffset < viewDef->numDrawSurfs; ++surfaceOffset)
     {
         const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
@@ -686,20 +733,24 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             break;
         }
 
-        const size_t vertexStart = vertexData.size();
-        const size_t indexStart = indexData.size();
-        const size_t classStart = triangleClassData.size();
-        const uint32_t indexBase = static_cast<uint32_t>(sourceVerts);
         const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
         const uint32_t surfaceClassId = SmokeSurfaceClassId(surfaceClass);
+        const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId));
+        std::vector<float>& bucketVertices = bucketVertexData[bucketIndex];
+        std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
+        std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
+        const size_t vertexStart = bucketVertices.size();
+        const size_t indexStart = bucketIndexes.size();
+        const size_t classStart = bucketClasses.size();
+        const uint32_t indexBase = static_cast<uint32_t>(bucketVertices.size() / 3);
         for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
         {
             idVec3 worldPosition;
             TransformSurfacePointToWorld(drawSurf, tri->verts[vertexIndex].xyz, worldPosition);
             const idVec3 position = worldPosition - sceneOrigin;
-            vertexData.push_back(position.x);
-            vertexData.push_back(position.y);
-            vertexData.push_back(position.z);
+            bucketVertices.push_back(position.x);
+            bucketVertices.push_back(position.y);
+            bucketVertices.push_back(position.z);
         }
 
         for (int sourceIndex = 0; sourceIndex + 2 < tri->numIndexes; sourceIndex += 3)
@@ -724,30 +775,50 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
                 continue;
             }
 
-            indexData.push_back(indexBase + static_cast<uint32_t>(i0));
-            indexData.push_back(indexBase + static_cast<uint32_t>(i1));
-            indexData.push_back(indexBase + static_cast<uint32_t>(i2));
-            triangleClassData.push_back(surfaceClassId);
+            bucketIndexes.push_back(indexBase + static_cast<uint32_t>(i0));
+            bucketIndexes.push_back(indexBase + static_cast<uint32_t>(i1));
+            bucketIndexes.push_back(indexBase + static_cast<uint32_t>(i2));
+            bucketClasses.push_back(surfaceClassId);
         }
 
-        const int emittedIndexes = static_cast<int>(indexData.size() - indexStart);
-        if (emittedIndexes <= 0 || triangleClassData.size() == classStart)
+        const int emittedIndexes = static_cast<int>(bucketIndexes.size() - indexStart);
+        if (emittedIndexes <= 0 || bucketClasses.size() == classStart)
         {
-            vertexData.resize(vertexStart);
-            indexData.resize(indexStart);
-            triangleClassData.resize(classStart);
+            bucketVertices.resize(vertexStart);
+            bucketIndexes.resize(indexStart);
+            bucketClasses.resize(classStart);
             ++skipStats.zeroAreaOnly;
             continue;
         }
 
         ++sourceSurfaces;
         sourceVerts += tri->numVerts;
-        sourceIndexes = static_cast<int>(indexData.size());
+        sourceIndexes += emittedIndexes;
         AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+        ++bucketRanges.buckets[bucketIndex].surfaceCount;
         if (reasonSamples)
         {
             AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
         }
+    }
+
+    for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
+    {
+        RtSmokeBucketRange& range = bucketRanges.buckets[bucketIndex];
+        range.vertexOffset = static_cast<int>(vertexData.size() / 3);
+        range.indexOffset = static_cast<int>(indexData.size());
+        range.triangleOffset = static_cast<int>(triangleClassData.size());
+        range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size() / 3);
+        range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
+        range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
+
+        const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
+        vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());
+        for (uint32_t localIndex : bucketIndexData[bucketIndex])
+        {
+            indexData.push_back(vertexOffset + localIndex);
+        }
+        triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
     }
 
     if (triangleClassData.empty())
@@ -1065,9 +1136,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     int anchorTriangle = -1;
     RtSmokeSurfaceClassStats classStats;
     RtSmokeSurfaceSkipStats skipStats;
+    RtSmokeBucketRanges bucketRanges;
     const bool dumpClassReasons = r_pathTracingClassDump.GetInteger() != 0;
     RtSmokeSurfaceClassReasonSamples reasonSamples;
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, vertexData, indexData, triangleClassData, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dumpClassReasons ? &reasonSamples : nullptr);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, vertexData, indexData, triangleClassData, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
     if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
@@ -1192,6 +1264,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.skinnedDeformedSurfaces,
             classStats.particleAlphaSurfaces,
             classStats.unknownSurfaces);
+        LogSmokeBucketRanges(bucketRanges);
         m_smokeSceneRebuildLogged = true;
     }
 
@@ -1224,6 +1297,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.skinnedDeformedSurfaces, classStats.skinnedDeformedVerts, classStats.skinnedDeformedIndexes, classStats.skinnedDeformedTriangles,
             classStats.particleAlphaSurfaces, classStats.particleAlphaVerts, classStats.particleAlphaIndexes, classStats.particleAlphaTriangles,
             classStats.unknownSurfaces, classStats.unknownVerts, classStats.unknownIndexes, classStats.unknownTriangles);
+        LogSmokeBucketRanges(bucketRanges);
         m_smokeSceneLogCooldownFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;
     }
     else
