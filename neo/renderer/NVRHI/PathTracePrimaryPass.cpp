@@ -57,7 +57,7 @@ const int RT_SMOKE_MAX_OUTPUT_HEIGHT = 2160;
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_CLASS_COUNT = 5;
-const int RT_SMOKE_CLASS_REASON_SAMPLES = 2;
+const int RT_SMOKE_CLASS_REASON_SAMPLES = 8;
 
 struct PathTraceSmokeConstants
 {
@@ -103,6 +103,20 @@ struct RtSmokeSurfaceSkipStats
     int limitExceeded = 0;
     int zeroAreaOnly = 0;
     int emptyClassBuffer = 0;
+};
+
+struct RtSmokeDynamicGeometryStats
+{
+    int rigidSurfaces = 0;
+    int skinnedCpuCurrentSurfaces = 0;
+    int skinnedLikelyBasePoseSurfaces = 0;
+    int particleAlphaSurfaces = 0;
+    int unknownSurfaces = 0;
+    int rigidIndexes = 0;
+    int skinnedCpuCurrentIndexes = 0;
+    int skinnedLikelyBasePoseIndexes = 0;
+    int particleAlphaIndexes = 0;
+    int unknownIndexes = 0;
 };
 
 struct RtSmokeBucketRange
@@ -166,12 +180,27 @@ struct RtSmokeSurfaceClassReason
     bool forceUpdate = false;
     bool weaponDepthHack = false;
     float modelDepthHack = 0.0f;
+    bool cpuVertsAvailable = false;
+    bool cpuVertexCacheCurrent = false;
+    bool cpuIndexCacheCurrent = false;
+    bool skinnedLikelyBasePose = false;
+    idVec3 entityOrigin = vec3_origin;
+    idMat3 entityAxis = mat3_identity;
+    idBounds entityBounds;
+    idBounds surfaceBounds;
+    idBounds localReferenceBounds;
+    idBounds globalReferenceBounds;
+    bool hasEntityBounds = false;
+    bool hasSurfaceBounds = false;
+    bool hasReferenceBounds = false;
 };
 
 struct RtSmokeSurfaceClassReasonSamples
 {
     RtSmokeSurfaceClassReason samples[RT_SMOKE_CLASS_COUNT][RT_SMOKE_CLASS_REASON_SAMPLES];
     int counts[RT_SMOKE_CLASS_COUNT] = {};
+    RtSmokeSurfaceClassReason skinnedSamples[RT_SMOKE_CLASS_REASON_SAMPLES];
+    int skinnedCount = 0;
 };
 
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)
@@ -418,6 +447,16 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     return RtSmokeSurfaceClass::Unknown;
 }
 
+bool SmokeSkinnedSurfaceLikelyBasePose(const drawSurf_t* drawSurf, const srfTriangles_t* tri)
+{
+    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
+    return (drawSurf && drawSurf->jointCache != 0) ||
+        (tri && tri->staticModelWithJoints != nullptr) ||
+        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0);
+}
+
 RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeSurfaceClass surfaceClass)
 {
     RtSmokeSurfaceClassReason reason;
@@ -454,8 +493,63 @@ RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef,
     reason.forceUpdate = renderEntity && renderEntity->forceUpdate != 0;
     reason.weaponDepthHack = renderEntity && renderEntity->weaponDepthHack;
     reason.modelDepthHack = renderEntity ? renderEntity->modelDepthHack : (space ? space->modelDepthHack : 0.0f);
+    reason.cpuVertsAvailable = tri && tri->verts != nullptr;
+    reason.cpuVertexCacheCurrent = tri && tri->ambientCache != 0 && vertexCache.CacheIsCurrent(tri->ambientCache);
+    reason.cpuIndexCacheCurrent = tri && tri->indexCache != 0 && vertexCache.CacheIsCurrent(tri->indexCache);
+    reason.skinnedLikelyBasePose = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed && SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
+    if (renderEntity)
+    {
+        reason.entityOrigin = renderEntity->origin;
+        reason.entityAxis = renderEntity->axis;
+        reason.entityBounds = renderEntity->bounds;
+        reason.hasEntityBounds = true;
+    }
+    if (tri)
+    {
+        reason.surfaceBounds = tri->bounds;
+        reason.hasSurfaceBounds = true;
+    }
+    if (entityDef)
+    {
+        reason.localReferenceBounds = entityDef->localReferenceBounds;
+        reason.globalReferenceBounds = entityDef->globalReferenceBounds;
+        reason.hasReferenceBounds = true;
+    }
 
     return reason;
+}
+
+void AddSmokeDynamicGeometryStats(RtSmokeDynamicGeometryStats& stats, RtSmokeSurfaceClass surfaceClass, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int indexes)
+{
+    switch (surfaceClass)
+    {
+        case RtSmokeSurfaceClass::RigidEntity:
+            ++stats.rigidSurfaces;
+            stats.rigidIndexes += indexes;
+            break;
+        case RtSmokeSurfaceClass::SkinnedDeformed:
+            if (SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri))
+            {
+                ++stats.skinnedLikelyBasePoseSurfaces;
+                stats.skinnedLikelyBasePoseIndexes += indexes;
+            }
+            else
+            {
+                ++stats.skinnedCpuCurrentSurfaces;
+                stats.skinnedCpuCurrentIndexes += indexes;
+            }
+            break;
+        case RtSmokeSurfaceClass::ParticleAlpha:
+            ++stats.particleAlphaSurfaces;
+            stats.particleAlphaIndexes += indexes;
+            break;
+        case RtSmokeSurfaceClass::Unknown:
+            ++stats.unknownSurfaces;
+            stats.unknownIndexes += indexes;
+            break;
+        default:
+            break;
+    }
 }
 
 void AddSmokeSurfaceClassStats(RtSmokeSurfaceClassStats& stats, RtSmokeSurfaceClass surfaceClass, int verts, int indexes)
@@ -498,6 +592,12 @@ void AddSmokeSurfaceClassStats(RtSmokeSurfaceClassStats& stats, RtSmokeSurfaceCl
 
 void AddSmokeSurfaceClassReasonSample(RtSmokeSurfaceClassReasonSamples& samples, const RtSmokeSurfaceClassReason& reason)
 {
+    if (reason.finalClass == RtSmokeSurfaceClass::SkinnedDeformed && samples.skinnedCount < RT_SMOKE_CLASS_REASON_SAMPLES)
+    {
+        samples.skinnedSamples[samples.skinnedCount] = reason;
+        ++samples.skinnedCount;
+    }
+
     const int classIndex = static_cast<int>(SmokeSurfaceClassId(reason.finalClass));
     if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
     {
@@ -525,7 +625,7 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
                 continue;
             }
 
-            common->Printf("PathTracePrimaryPass: RT smoke class sample %s surf=%d material='%s' coverage=%s sort=%.1f deform=%s entity=%d model='%s' modelDynamic=%s joints(cache=%d staticModel=%d entity=%d) cache(staticV=%d staticI=%d) worldSpace=%d staticWorldModel=%d entityDef=%d dynModel=%d cachedDyn=%d callback=%d forceUpdate=%d weaponDepthHack=%d modelDepthHack=%.3f verts=%d indexes=%d\n",
+            common->Printf("PathTracePrimaryPass: RT smoke class sample %s surf=%d material='%s' coverage=%s sort=%.1f deform=%s entity=%d model='%s' modelDynamic=%s joints(cache=%d staticModel=%d entity=%d) cache(staticV=%d staticI=%d currentV=%d currentI=%d) cpuVerts=%d skinnedBasePose=%d worldSpace=%d staticWorldModel=%d entityDef=%d dynModel=%d cachedDyn=%d callback=%d forceUpdate=%d weaponDepthHack=%d modelDepthHack=%.3f verts=%d indexes=%d\n",
                 SmokeSurfaceClassName(reason.finalClass),
                 reason.surfaceIndex,
                 reason.materialName.c_str(),
@@ -540,6 +640,10 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
                 reason.hasRenderEntityJoints ? 1 : 0,
                 reason.ambientCacheStatic ? 1 : 0,
                 reason.indexCacheStatic ? 1 : 0,
+                reason.cpuVertexCacheCurrent ? 1 : 0,
+                reason.cpuIndexCacheCurrent ? 1 : 0,
+                reason.cpuVertsAvailable ? 1 : 0,
+                reason.skinnedLikelyBasePose ? 1 : 0,
                 reason.isWorldSpace ? 1 : 0,
                 reason.isStaticWorldModel ? 1 : 0,
                 reason.hasEntityDef ? 1 : 0,
@@ -551,6 +655,81 @@ void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& s
                 reason.modelDepthHack,
                 reason.verts,
                 reason.indexes);
+
+            if (reason.finalClass == RtSmokeSurfaceClass::SkinnedDeformed)
+            {
+                common->Printf("PathTracePrimaryPass: RT smoke skinned detail entity=%d model='%s' origin=(%.2f %.2f %.2f) axis0=(%.3f %.3f %.3f) axis1=(%.3f %.3f %.3f) axis2=(%.3f %.3f %.3f) joints(cache=%d staticModel=%d entityCount=%d) cpuVerts=%d cacheCurrent=(v%d i%d) likelyBasePose=%d\n",
+                    reason.entityNum,
+                    reason.modelName.c_str(),
+                    reason.entityOrigin.x, reason.entityOrigin.y, reason.entityOrigin.z,
+                    reason.entityAxis[0].x, reason.entityAxis[0].y, reason.entityAxis[0].z,
+                    reason.entityAxis[1].x, reason.entityAxis[1].y, reason.entityAxis[1].z,
+                    reason.entityAxis[2].x, reason.entityAxis[2].y, reason.entityAxis[2].z,
+                    reason.hasJointCache ? 1 : 0,
+                    reason.hasStaticModelWithJoints ? 1 : 0,
+                    reason.hasRenderEntityJoints ? 1 : 0,
+                    reason.cpuVertsAvailable ? 1 : 0,
+                    reason.cpuVertexCacheCurrent ? 1 : 0,
+                    reason.cpuIndexCacheCurrent ? 1 : 0,
+                    reason.skinnedLikelyBasePose ? 1 : 0);
+                if (reason.hasEntityBounds)
+                {
+                    common->Printf("PathTracePrimaryPass: RT smoke skinned bounds entityLocal=[(%.2f %.2f %.2f)..(%.2f %.2f %.2f)]\n",
+                        reason.entityBounds[0].x, reason.entityBounds[0].y, reason.entityBounds[0].z,
+                        reason.entityBounds[1].x, reason.entityBounds[1].y, reason.entityBounds[1].z);
+                }
+                if (reason.hasSurfaceBounds)
+                {
+                    common->Printf("PathTracePrimaryPass: RT smoke skinned bounds surfaceLocal=[(%.2f %.2f %.2f)..(%.2f %.2f %.2f)]\n",
+                        reason.surfaceBounds[0].x, reason.surfaceBounds[0].y, reason.surfaceBounds[0].z,
+                        reason.surfaceBounds[1].x, reason.surfaceBounds[1].y, reason.surfaceBounds[1].z);
+                }
+                if (reason.hasReferenceBounds)
+                {
+                    common->Printf("PathTracePrimaryPass: RT smoke skinned bounds refLocal=[(%.2f %.2f %.2f)..(%.2f %.2f %.2f)] refGlobal=[(%.2f %.2f %.2f)..(%.2f %.2f %.2f)]\n",
+                        reason.localReferenceBounds[0].x, reason.localReferenceBounds[0].y, reason.localReferenceBounds[0].z,
+                        reason.localReferenceBounds[1].x, reason.localReferenceBounds[1].y, reason.localReferenceBounds[1].z,
+                        reason.globalReferenceBounds[0].x, reason.globalReferenceBounds[0].y, reason.globalReferenceBounds[0].z,
+                        reason.globalReferenceBounds[1].x, reason.globalReferenceBounds[1].y, reason.globalReferenceBounds[1].z);
+                }
+            }
+        }
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke focused skinned sample dump count=%d\n", samples.skinnedCount);
+    for (int sampleIndex = 0; sampleIndex < samples.skinnedCount; ++sampleIndex)
+    {
+        const RtSmokeSurfaceClassReason& reason = samples.skinnedSamples[sampleIndex];
+        if (!reason.valid)
+        {
+            continue;
+        }
+
+        common->Printf("PathTracePrimaryPass: RT smoke skinned focused surf=%d entity=%d model='%s' material='%s' origin=(%.2f %.2f %.2f) axis0=(%.3f %.3f %.3f) axis1=(%.3f %.3f %.3f) axis2=(%.3f %.3f %.3f) joints(cache=%d staticModel=%d entityCount=%d) cpuVerts=%d cacheCurrent=(v%d i%d) likelyBasePose=%d verts=%d indexes=%d\n",
+            reason.surfaceIndex,
+            reason.entityNum,
+            reason.modelName.c_str(),
+            reason.materialName.c_str(),
+            reason.entityOrigin.x, reason.entityOrigin.y, reason.entityOrigin.z,
+            reason.entityAxis[0].x, reason.entityAxis[0].y, reason.entityAxis[0].z,
+            reason.entityAxis[1].x, reason.entityAxis[1].y, reason.entityAxis[1].z,
+            reason.entityAxis[2].x, reason.entityAxis[2].y, reason.entityAxis[2].z,
+            reason.hasJointCache ? 1 : 0,
+            reason.hasStaticModelWithJoints ? 1 : 0,
+            reason.hasRenderEntityJoints ? 1 : 0,
+            reason.cpuVertsAvailable ? 1 : 0,
+            reason.cpuVertexCacheCurrent ? 1 : 0,
+            reason.cpuIndexCacheCurrent ? 1 : 0,
+            reason.skinnedLikelyBasePose ? 1 : 0,
+            reason.verts,
+            reason.indexes);
+        if (reason.hasReferenceBounds)
+        {
+            common->Printf("PathTracePrimaryPass: RT smoke skinned focused bounds refLocal=[(%.2f %.2f %.2f)..(%.2f %.2f %.2f)] refGlobal=[(%.2f %.2f %.2f)..(%.2f %.2f %.2f)]\n",
+                reason.localReferenceBounds[0].x, reason.localReferenceBounds[0].y, reason.localReferenceBounds[0].z,
+                reason.localReferenceBounds[1].x, reason.localReferenceBounds[1].y, reason.localReferenceBounds[1].z,
+                reason.globalReferenceBounds[0].x, reason.globalReferenceBounds[0].y, reason.globalReferenceBounds[0].z,
+                reason.globalReferenceBounds[1].x, reason.globalReferenceBounds[1].y, reason.globalReferenceBounds[1].z);
         }
     }
 }
@@ -819,7 +998,7 @@ int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t*
     return emittedIndexes;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint64>& staticSurfaceKeys, std::vector<float>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint64>& staticSurfaceKeys, std::vector<float>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
     sourceSurfaces = 0;
     sourceVerts = 0;
@@ -829,6 +1008,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
     anchorTriangle = -1;
     classStats = RtSmokeSurfaceClassStats();
     skipStats = RtSmokeSurfaceSkipStats();
+    dynamicStats = RtSmokeDynamicGeometryStats();
     bucketRanges = RtSmokeBucketRanges();
     if (reasonSamples)
     {
@@ -973,6 +1153,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
         sourceVerts += tri->numVerts;
         sourceIndexes += emittedIndexes;
         AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+        AddSmokeDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
         ++bucketRanges.buckets[bucketIndex].surfaceCount;
         dynamicVerts += tri->numVerts;
         dynamicIndexes += emittedIndexes;
@@ -1347,11 +1528,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     int anchorTriangle = -1;
     RtSmokeSurfaceClassStats classStats;
     RtSmokeSurfaceSkipStats skipStats;
+    RtSmokeDynamicGeometryStats dynamicStats;
     RtSmokeBucketRanges bucketRanges;
     const bool dumpClassReasons = r_pathTracingClassDump.GetInteger() != 0;
     RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
     if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
@@ -1586,6 +1768,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.unknownSurfaces);
         common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
             staticIndexCount, dynamicIndexCount, instanceCount);
+        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
+            dynamicStats.rigidSurfaces, dynamicStats.rigidIndexes,
+            dynamicStats.skinnedCpuCurrentSurfaces, dynamicStats.skinnedCpuCurrentIndexes,
+            dynamicStats.skinnedLikelyBasePoseSurfaces, dynamicStats.skinnedLikelyBasePoseIndexes,
+            dynamicStats.particleAlphaSurfaces, dynamicStats.particleAlphaIndexes,
+            dynamicStats.unknownSurfaces, dynamicStats.unknownIndexes);
         common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu cacheSurfaces=%d hits=%d misses=%d\n",
             staticBlasCacheHit ? "hit" : "rebuild",
             static_cast<unsigned long long>(staticSignature.hash),
@@ -1627,6 +1815,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             classStats.unknownSurfaces, classStats.unknownVerts, classStats.unknownIndexes, classStats.unknownTriangles);
         common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
             staticIndexCount, dynamicIndexCount, instanceCount);
+        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
+            dynamicStats.rigidSurfaces, dynamicStats.rigidIndexes,
+            dynamicStats.skinnedCpuCurrentSurfaces, dynamicStats.skinnedCpuCurrentIndexes,
+            dynamicStats.skinnedLikelyBasePoseSurfaces, dynamicStats.skinnedLikelyBasePoseIndexes,
+            dynamicStats.particleAlphaSurfaces, dynamicStats.particleAlphaIndexes,
+            dynamicStats.unknownSurfaces, dynamicStats.unknownIndexes);
         common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu cacheSurfaces=%d hits=%d misses=%d\n",
             staticBlasCacheHit ? "hit" : "rebuild",
             static_cast<unsigned long long>(staticSignature.hash),
