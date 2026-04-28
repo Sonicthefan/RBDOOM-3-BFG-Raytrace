@@ -80,6 +80,8 @@ private:
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
+    std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
+    int m_smokeMaterialTableEntryCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;

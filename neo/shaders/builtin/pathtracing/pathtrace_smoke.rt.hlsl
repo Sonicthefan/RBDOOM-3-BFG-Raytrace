@@ -39,6 +39,7 @@ StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
+Texture2D<float4> SmokeFallbackTexture : register(t14);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -48,6 +49,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 CameraForwardAndTanX;
     float4 CameraLeftAndTanY;
     float4 CameraUpAndDebugMode;
+    float4 TextureInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -76,12 +78,55 @@ float3 MaterialIdToColor(uint materialId)
 
 float4 SampleSmokeDiffuseTexture(uint textureIndex, float2 texCoord, float4 fallback)
 {
-    if (textureIndex == 0xffffffffu)
+    const uint textureCount = (uint)TextureInfo.x;
+    const uint sampleMethod = (uint)TextureInfo.y;
+    const bool bindlessEnabled = TextureInfo.w != 0.0;
+    if (sampleMethod == 0u || textureIndex == 0xffffffffu || textureIndex >= textureCount)
     {
         return fallback;
     }
 
-    return SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(SmokeMaterialSampler, texCoord, 0.0);
+    if (!all(texCoord == texCoord) || any(abs(texCoord) > 65536.0))
+    {
+        return fallback;
+    }
+
+    const float2 wrappedTexCoord = frac(texCoord);
+    float4 sampled = fallback;
+    if (sampleMethod == 2u)
+    {
+        sampled = bindlessEnabled
+            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(0, 0, 0))
+            : SmokeFallbackTexture.Load(int3(0, 0, 0));
+    }
+    else
+    {
+        sampled = bindlessEnabled
+            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(SmokeMaterialSampler, wrappedTexCoord, 0.0)
+            : SmokeFallbackTexture.SampleLevel(SmokeMaterialSampler, wrappedTexCoord, 0.0);
+    }
+    if (!all(sampled == sampled) || any(abs(sampled) > 65504.0))
+    {
+        return fallback;
+    }
+
+    return sampled;
+}
+
+PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
+{
+    PathTraceSmokeMaterial material;
+    material.debugAlbedo = float4(1.0, 0.0, 1.0, 1.0);
+    material.diffuseTextureIndex = 0xffffffffu;
+    material.pad = uint3(0, 0, 0);
+
+    const uint materialCount = (uint)TextureInfo.z;
+    if (materialIndex < materialCount)
+    {
+        material = SmokeMaterials[materialIndex];
+    }
+
+    return material;
 }
 
 [shader("raygeneration")]
@@ -165,11 +210,11 @@ void RayGen()
     }
     else if (debugMode == 7)
     {
-        SmokeOutput[pixel] = SmokeMaterials[payload.materialIndex].debugAlbedo;
+        SmokeOutput[pixel] = LoadSmokeMaterial(payload.materialIndex).debugAlbedo;
     }
     else if (debugMode == 8)
     {
-        const PathTraceSmokeMaterial material = SmokeMaterials[payload.materialIndex];
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
         SmokeOutput[pixel] = SampleSmokeDiffuseTexture(material.diffuseTextureIndex, payload.texCoord, material.debugAlbedo);
     }
     else
