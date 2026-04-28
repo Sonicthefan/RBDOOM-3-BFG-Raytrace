@@ -9,6 +9,7 @@ struct PathTraceSmokePayload
     float2 texCoord;
     uint surfaceClass;
     uint materialId;
+    uint materialIndex;
 };
 
 struct PathTraceSmokeVertex
@@ -28,6 +29,9 @@ StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
 StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
+StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
+StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
+StructuredBuffer<float4> SmokeMaterials : register(t13);
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -77,6 +81,7 @@ void RayGen()
     payload.texCoord = float2(0.0, 0.0);
     payload.surfaceClass = 4;
     payload.materialId = 0;
+    payload.materialIndex = 0;
 
     RayDesc ray;
     ray.Origin = CameraOriginAndTMax.xyz;
@@ -139,6 +144,10 @@ void RayGen()
     {
         SmokeOutput[pixel] = float4(MaterialIdToColor(payload.materialId), 1.0);
     }
+    else if (debugMode == 7)
+    {
+        SmokeOutput[pixel] = SmokeMaterials[payload.materialIndex];
+    }
     else
     {
         SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
@@ -181,4 +190,5 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     payload.materialId = instanceId == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
+    payload.materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[PrimitiveIndex()] : SmokeDynamicTriangleMaterialIndexes[PrimitiveIndex()];
 }
