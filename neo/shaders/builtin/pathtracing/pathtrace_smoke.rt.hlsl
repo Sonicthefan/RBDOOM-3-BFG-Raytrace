@@ -8,6 +8,7 @@ struct PathTraceSmokePayload
     float3 geometricNormal;
     float2 texCoord;
     uint surfaceClass;
+    uint materialId;
 };
 
 struct PathTraceSmokeVertex
@@ -25,6 +26,8 @@ StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
+StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
+StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -43,6 +46,21 @@ float3 SafeNormalize(float3 value, float3 fallback)
     return lengthSquared > 1.0e-8 ? value * rsqrt(lengthSquared) : fallback;
 }
 
+float3 MaterialIdToColor(uint materialId)
+{
+    uint hash = materialId;
+    hash ^= hash >> 16;
+    hash *= 2246822519u;
+    hash ^= hash >> 13;
+    hash *= 3266489917u;
+    hash ^= hash >> 16;
+
+    const float r = ((hash >> 0) & 255u) * (1.0 / 255.0);
+    const float g = ((hash >> 8) & 255u) * (1.0 / 255.0);
+    const float b = ((hash >> 16) & 255u) * (1.0 / 255.0);
+    return 0.15 + float3(r, g, b) * 0.85;
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -58,6 +76,7 @@ void RayGen()
     payload.geometricNormal = float3(0.0, 0.0, 0.0);
     payload.texCoord = float2(0.0, 0.0);
     payload.surfaceClass = 4;
+    payload.materialId = 0;
 
     RayDesc ray;
     ray.Origin = CameraOriginAndTMax.xyz;
@@ -116,6 +135,10 @@ void RayGen()
     {
         SmokeOutput[pixel] = float4(payload.geometricNormal * 0.5 + 0.5, 1.0);
     }
+    else if (debugMode == 6)
+    {
+        SmokeOutput[pixel] = float4(MaterialIdToColor(payload.materialId), 1.0);
+    }
     else
     {
         SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
@@ -157,4 +180,5 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.normal = forceGeometricNormal ? payload.geometricNormal : interpolatedNormal;
     payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    payload.materialId = instanceId == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
 }

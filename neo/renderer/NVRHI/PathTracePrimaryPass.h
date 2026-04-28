@@ -53,13 +53,16 @@ private:
     std::vector<PathTraceSmokeVertex> m_smokeStaticVertexCache;
     std::vector<uint32_t> m_smokeStaticIndexCache;
     std::vector<uint32_t> m_smokeStaticTriangleClassCache;
+    std::vector<uint32_t> m_smokeStaticTriangleMaterialCache;
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeStaticVertexBuffer;
     nvrhi::BufferHandle m_smokeStaticIndexBuffer;
     nvrhi::BufferHandle m_smokeStaticTriangleClassBuffer;
+    nvrhi::BufferHandle m_smokeStaticTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeDynamicVertexBuffer;
     nvrhi::BufferHandle m_smokeDynamicIndexBuffer;
     nvrhi::BufferHandle m_smokeDynamicTriangleClassBuffer;
+    nvrhi::BufferHandle m_smokeDynamicTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;
