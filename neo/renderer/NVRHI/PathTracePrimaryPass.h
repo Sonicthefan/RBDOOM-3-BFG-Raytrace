@@ -54,6 +54,8 @@ private:
     std::vector<uint32_t> m_smokeStaticIndexCache;
     std::vector<uint32_t> m_smokeStaticTriangleClassCache;
     std::vector<uint32_t> m_smokeStaticTriangleMaterialCache;
+    uint32_t m_smokeTextureProbeMaterialId;
+    int m_smokeTextureProbeRequestedIndex;
     idVec3 m_smokeSceneOrigin;
     nvrhi::BufferHandle m_smokeStaticVertexBuffer;
     nvrhi::BufferHandle m_smokeStaticIndexBuffer;
@@ -75,7 +77,9 @@ private:
     nvrhi::rt::AccelStructHandle m_smokeDynamicBlas;
     nvrhi::rt::AccelStructHandle m_smokeTlas;
     nvrhi::BindingLayoutHandle m_smokeBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
+    nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;

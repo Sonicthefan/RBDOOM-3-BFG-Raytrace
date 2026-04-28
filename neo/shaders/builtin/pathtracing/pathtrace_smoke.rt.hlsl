@@ -19,6 +19,13 @@ struct PathTraceSmokeVertex
     float4 texCoord;
 };
 
+struct PathTraceSmokeMaterial
+{
+    float4 debugAlbedo;
+    uint diffuseTextureIndex;
+    uint3 pad;
+};
+
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
@@ -31,7 +38,9 @@ StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
-StructuredBuffer<float4> SmokeMaterials : register(t13);
+StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
+VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
+SamplerState SmokeMaterialSampler : register(s0);
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -63,6 +72,16 @@ float3 MaterialIdToColor(uint materialId)
     const float g = ((hash >> 8) & 255u) * (1.0 / 255.0);
     const float b = ((hash >> 16) & 255u) * (1.0 / 255.0);
     return 0.15 + float3(r, g, b) * 0.85;
+}
+
+float4 SampleSmokeDiffuseTexture(uint textureIndex, float2 texCoord, float4 fallback)
+{
+    if (textureIndex == 0xffffffffu)
+    {
+        return fallback;
+    }
+
+    return SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(SmokeMaterialSampler, texCoord, 0.0);
 }
 
 [shader("raygeneration")]
@@ -146,7 +165,12 @@ void RayGen()
     }
     else if (debugMode == 7)
     {
-        SmokeOutput[pixel] = SmokeMaterials[payload.materialIndex];
+        SmokeOutput[pixel] = SmokeMaterials[payload.materialIndex].debugAlbedo;
+    }
+    else if (debugMode == 8)
+    {
+        const PathTraceSmokeMaterial material = SmokeMaterials[payload.materialIndex];
+        SmokeOutput[pixel] = SampleSmokeDiffuseTexture(material.diffuseTextureIndex, payload.texCoord, material.debugAlbedo);
     }
     else
     {
