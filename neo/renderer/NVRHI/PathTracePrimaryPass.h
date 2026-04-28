@@ -6,6 +6,13 @@
 class idRenderBackend;
 struct viewDef_t;
 
+struct PathTraceSmokeVertex
+{
+    float position[4];
+    float normal[4];
+    float texCoord[4];
+};
+
 class PathTracePrimaryPass {
 public:
     explicit PathTracePrimaryPass(idRenderBackend* backend);
@@ -43,7 +50,7 @@ private:
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;
     std::vector<uint64> m_smokeStaticSurfaceKeys;
-    std::vector<float> m_smokeStaticVertexCache;
+    std::vector<PathTraceSmokeVertex> m_smokeStaticVertexCache;
     std::vector<uint32_t> m_smokeStaticIndexCache;
     std::vector<uint32_t> m_smokeStaticTriangleClassCache;
     idVec3 m_smokeSceneOrigin;

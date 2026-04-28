@@ -12,6 +12,7 @@
 
 #include <nvrhi/utils.h>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 extern DeviceManager* deviceManager;
@@ -20,7 +21,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER | CVAR_ARCHIVE,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = geometric normal, 3 = surface class" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -59,6 +60,9 @@ const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_CLASS_COUNT = 5;
 const int RT_SMOKE_CLASS_REASON_SAMPLES = 8;
+const int RT_SMOKE_VERTEX_STRIDE = sizeof(PathTraceSmokeVertex);
+const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
+const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 
 struct PathTraceSmokeConstants
 {
@@ -120,6 +124,20 @@ struct RtSmokeDynamicGeometryStats
     int skinnedRtCpuSkinnedIndexes = 0;
     int particleAlphaIndexes = 0;
     int unknownIndexes = 0;
+};
+
+struct RtSmokeAttributeClassStats
+{
+    int invalidNormalVerts = 0;
+    int invalidNormalTriangles = 0;
+    int invalidUvVerts = 0;
+    int invalidUvTriangles = 0;
+    int forcedGeometricNormalTriangles = 0;
+};
+
+struct RtSmokeAttributeStats
+{
+    RtSmokeAttributeClassStats classes[RT_SMOKE_CLASS_COUNT];
 };
 
 struct RtSmokeBucketRange
@@ -300,6 +318,46 @@ const char* SmokeDynamicModelName(dynamicModel_t dynamicModel)
     }
 }
 
+bool SmokeFloatIsFinite(float value)
+{
+    return std::isfinite(value) != 0;
+}
+
+bool SmokeVec2IsFinite(const idVec2& value)
+{
+    return SmokeFloatIsFinite(value.x) && SmokeFloatIsFinite(value.y);
+}
+
+bool SmokeVec3IsFinite(const idVec3& value)
+{
+    return SmokeFloatIsFinite(value.x) && SmokeFloatIsFinite(value.y) && SmokeFloatIsFinite(value.z);
+}
+
+idVec3 SmokeVertexPosition(const PathTraceSmokeVertex& vertex)
+{
+    return idVec3(vertex.position[0], vertex.position[1], vertex.position[2]);
+}
+
+idVec3 SmokeVertexNormal(const PathTraceSmokeVertex& vertex)
+{
+    return idVec3(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
+}
+
+idVec2 SmokeVertexTexCoord(const PathTraceSmokeVertex& vertex)
+{
+    return idVec2(vertex.texCoord[0], vertex.texCoord[1]);
+}
+
+bool SmokeNormalIsUsable(const idVec3& normal)
+{
+    return SmokeVec3IsFinite(normal) && normal.LengthSqr() > 1.0e-8f;
+}
+
+bool SmokeTexCoordIsUsable(const idVec2& texCoord)
+{
+    return SmokeVec2IsFinite(texCoord) && idMath::Fabs(texCoord.x) < 1.0e6f && idMath::Fabs(texCoord.y) < 1.0e6f;
+}
+
 void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
 {
     if (drawSurf->space)
@@ -309,6 +367,17 @@ void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& loca
     }
 
     worldPoint = localPoint;
+}
+
+void TransformSurfaceVectorToWorld(const drawSurf_t* drawSurf, const idVec3& localVector, idVec3& worldVector)
+{
+    if (drawSurf->space)
+    {
+        R_LocalVectorToGlobal(drawSurf->space->modelMatrix, localVector, worldVector);
+        return;
+    }
+
+    worldVector = localVector;
 }
 
 const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri)
@@ -340,6 +409,29 @@ idVec3 TransformSmokeSkinnedVertexPosition(const idDrawVert& base, const idJoint
     idJointMat::Mad(accum, j3, w3);
 
     return accum * idVec4(base.xyz.x, base.xyz.y, base.xyz.z, 1.0f);
+}
+
+idVec3 TransformSmokeSkinnedVertexNormal(const idDrawVert& base, const idJointMat* joints)
+{
+    const idJointMat& j0 = joints[base.color[0]];
+    const idJointMat& j1 = joints[base.color[1]];
+    const idJointMat& j2 = joints[base.color[2]];
+    const idJointMat& j3 = joints[base.color[3]];
+
+    const float w0 = base.color2[0] * (1.0f / 255.0f);
+    const float w1 = base.color2[1] * (1.0f / 255.0f);
+    const float w2 = base.color2[2] * (1.0f / 255.0f);
+    const float w3 = base.color2[3] * (1.0f / 255.0f);
+
+    idJointMat accum;
+    idJointMat::Mul(accum, j0, w0);
+    idJointMat::Mad(accum, j1, w1);
+    idJointMat::Mad(accum, j2, w2);
+    idJointMat::Mad(accum, j3, w3);
+
+    idVec3 normal = accum * base.GetNormal();
+    normal.Normalize();
+    return normal;
 }
 
 bool IsZeroAreaSmokeTriangle(const idVec3& p0, const idVec3& p1, const idVec3& p2)
@@ -798,6 +890,26 @@ void LogSmokeBucketRanges(const RtSmokeBucketRanges& ranges)
         ranges.buckets[4].triangleOffset, ranges.buckets[4].triangleCount);
 }
 
+void LogSmokeAttributeStats(const RtSmokeAttributeStats& stats)
+{
+    common->Printf("PathTracePrimaryPass: RT smoke attribute validation invalidNormals static=%dv/%dt rigid=%dv/%dt skinned=%dv/%dt particle/alpha=%dv/%dt unknown=%dv/%dt; invalidUVs static=%dv/%dt rigid=%dv/%dt skinned=%dv/%dt particle/alpha=%dv/%dt unknown=%dv/%dt; geomNormalFallback static=%dt rigid=%dt skinned=%dt particle/alpha=%dt unknown=%dt\n",
+        stats.classes[0].invalidNormalVerts, stats.classes[0].invalidNormalTriangles,
+        stats.classes[1].invalidNormalVerts, stats.classes[1].invalidNormalTriangles,
+        stats.classes[2].invalidNormalVerts, stats.classes[2].invalidNormalTriangles,
+        stats.classes[3].invalidNormalVerts, stats.classes[3].invalidNormalTriangles,
+        stats.classes[4].invalidNormalVerts, stats.classes[4].invalidNormalTriangles,
+        stats.classes[0].invalidUvVerts, stats.classes[0].invalidUvTriangles,
+        stats.classes[1].invalidUvVerts, stats.classes[1].invalidUvTriangles,
+        stats.classes[2].invalidUvVerts, stats.classes[2].invalidUvTriangles,
+        stats.classes[3].invalidUvVerts, stats.classes[3].invalidUvTriangles,
+        stats.classes[4].invalidUvVerts, stats.classes[4].invalidUvTriangles,
+        stats.classes[0].forcedGeometricNormalTriangles,
+        stats.classes[1].forcedGeometricNormalTriangles,
+        stats.classes[2].forcedGeometricNormalTriangles,
+        stats.classes[3].forcedGeometricNormalTriangles,
+        stats.classes[4].forcedGeometricNormalTriangles);
+}
+
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount)
 {
     triangleGeometry.indexBuffer = indexBuffer;
@@ -808,7 +920,7 @@ void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, n
     triangleGeometry.vertexOffset = 0;
     triangleGeometry.indexCount = static_cast<uint32_t>(indexCount);
     triangleGeometry.vertexCount = static_cast<uint32_t>(totalVertexCount);
-    triangleGeometry.vertexStride = sizeof(float) * 3;
+    triangleGeometry.vertexStride = RT_SMOKE_VERTEX_STRIDE;
 }
 
 nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput)
@@ -836,7 +948,7 @@ uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size)
     return hash;
 }
 
-RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(const std::vector<float>& vertexData, const std::vector<uint32_t>& indexData, const RtSmokeBucketRange& staticRange, const idVec3& sceneOrigin)
+RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(const std::vector<PathTraceSmokeVertex>& vertexData, const std::vector<uint32_t>& indexData, const RtSmokeBucketRange& staticRange, const idVec3& sceneOrigin)
 {
     RtSmokeStaticBlasSignature signature;
     signature.vertexCount = staticRange.vertexCount;
@@ -853,9 +965,7 @@ RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(const std::vector<flo
 
     if (staticRange.vertexCount > 0)
     {
-        const size_t vertexFloatOffset = static_cast<size_t>(staticRange.vertexOffset) * 3;
-        const size_t vertexFloatCount = static_cast<size_t>(staticRange.vertexCount) * 3;
-        hash = HashSmokeBytes(hash, vertexData.data() + vertexFloatOffset, vertexFloatCount * sizeof(vertexData[0]));
+        hash = HashSmokeBytes(hash, vertexData.data() + staticRange.vertexOffset, static_cast<size_t>(staticRange.vertexCount) * sizeof(vertexData[0]));
     }
 
     if (staticRange.indexCount > 0)
@@ -925,6 +1035,7 @@ bool IntersectRayTriangle(const idVec3& rayOrigin, const idVec3& rayDirection, c
 }
 
 void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition);
+PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints);
 
 bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle)
 {
@@ -988,31 +1099,74 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     return foundHit;
 }
 
-void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition)
+PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints)
 {
-    idVec3 localPosition = tri->verts[vertexIndex].xyz;
+    const idDrawVert& drawVert = tri->verts[vertexIndex];
+    idVec3 localPosition = drawVert.xyz;
+    idVec3 localNormal = drawVert.GetNormal();
     if (rtCpuSkinningJoints)
     {
-        localPosition = TransformSmokeSkinnedVertexPosition(tri->verts[vertexIndex], rtCpuSkinningJoints);
+        localPosition = TransformSmokeSkinnedVertexPosition(drawVert, rtCpuSkinningJoints);
+        localNormal = TransformSmokeSkinnedVertexNormal(drawVert, rtCpuSkinningJoints);
     }
+
+    idVec3 worldPosition;
+    idVec3 worldNormal;
     TransformSurfacePointToWorld(drawSurf, localPosition, worldPosition);
+    TransformSurfaceVectorToWorld(drawSurf, localNormal, worldNormal);
+    worldNormal.Normalize();
+
+    const idVec2 texCoord = drawVert.GetTexCoord();
+    PathTraceSmokeVertex vertex = {};
+    vertex.position[0] = worldPosition.x;
+    vertex.position[1] = worldPosition.y;
+    vertex.position[2] = worldPosition.z;
+    vertex.position[3] = 1.0f;
+    vertex.normal[0] = worldNormal.x;
+    vertex.normal[1] = worldNormal.y;
+    vertex.normal[2] = worldNormal.z;
+    vertex.normal[3] = 0.0f;
+    vertex.texCoord[0] = texCoord.x;
+    vertex.texCoord[1] = texCoord.y;
+    vertex.texCoord[2] = 0.0f;
+    vertex.texCoord[3] = 0.0f;
+    return vertex;
 }
 
-int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t surfaceClassId, std::vector<float>& vertices, std::vector<uint32_t>& indexes, std::vector<uint32_t>& triangleClasses, RtSmokeSurfaceSkipStats& skipStats)
+void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition)
+{
+    const PathTraceSmokeVertex vertex = BuildSmokeSurfaceVertex(drawSurf, tri, vertexIndex, rtCpuSkinningJoints);
+    worldPosition.Set(vertex.position[0], vertex.position[1], vertex.position[2]);
+}
+
+int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t surfaceClassId, std::vector<PathTraceSmokeVertex>& vertices, std::vector<uint32_t>& indexes, std::vector<uint32_t>& triangleClasses, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats)
 {
     const size_t vertexStart = vertices.size();
     const size_t indexStart = indexes.size();
     const size_t classStart = triangleClasses.size();
-    const uint32_t indexBase = static_cast<uint32_t>(vertices.size() / 3);
+    const uint32_t indexBase = static_cast<uint32_t>(vertices.size());
     const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
+    const int classIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
 
     for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
     {
-        idVec3 worldPosition;
-        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, vertexIndex, rtCpuSkinningJoints, worldPosition);
-        vertices.push_back(worldPosition.x);
-        vertices.push_back(worldPosition.y);
-        vertices.push_back(worldPosition.z);
+        PathTraceSmokeVertex vertex = BuildSmokeSurfaceVertex(drawSurf, tri, vertexIndex, rtCpuSkinningJoints);
+        const idVec3 normal = SmokeVertexNormal(vertex);
+        const idVec2 texCoord = SmokeVertexTexCoord(vertex);
+        if (!SmokeNormalIsUsable(normal))
+        {
+            ++attributeStats.classes[classIndex].invalidNormalVerts;
+            vertex.normal[0] = 0.0f;
+            vertex.normal[1] = 0.0f;
+            vertex.normal[2] = 0.0f;
+        }
+        if (!SmokeTexCoordIsUsable(texCoord))
+        {
+            ++attributeStats.classes[classIndex].invalidUvVerts;
+            vertex.texCoord[0] = 0.0f;
+            vertex.texCoord[1] = 0.0f;
+        }
+        vertices.push_back(vertex);
     }
 
     for (int sourceIndex = 0; sourceIndex + 2 < tri->numIndexes; sourceIndex += 3)
@@ -1026,12 +1180,12 @@ int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t*
             continue;
         }
 
-        idVec3 p0;
-        idVec3 p1;
-        idVec3 p2;
-        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
-        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
-        TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
+        const PathTraceSmokeVertex& v0 = vertices[indexBase + static_cast<uint32_t>(i0)];
+        const PathTraceSmokeVertex& v1 = vertices[indexBase + static_cast<uint32_t>(i1)];
+        const PathTraceSmokeVertex& v2 = vertices[indexBase + static_cast<uint32_t>(i2)];
+        const idVec3 p0 = SmokeVertexPosition(v0);
+        const idVec3 p1 = SmokeVertexPosition(v1);
+        const idVec3 p2 = SmokeVertexPosition(v2);
         if (IsZeroAreaSmokeTriangle(p0, p1, p2))
         {
             continue;
@@ -1040,7 +1194,32 @@ int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t*
         indexes.push_back(indexBase + static_cast<uint32_t>(i0));
         indexes.push_back(indexBase + static_cast<uint32_t>(i1));
         indexes.push_back(indexBase + static_cast<uint32_t>(i2));
-        triangleClasses.push_back(surfaceClassId);
+        const bool invalidNormalTriangle =
+            !SmokeNormalIsUsable(SmokeVertexNormal(v0)) ||
+            !SmokeNormalIsUsable(SmokeVertexNormal(v1)) ||
+            !SmokeNormalIsUsable(SmokeVertexNormal(v2));
+        const bool invalidUvTriangle =
+            !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v0)) ||
+            !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v1)) ||
+            !SmokeTexCoordIsUsable(SmokeVertexTexCoord(v2));
+        const bool preferGeometricNormal =
+            invalidNormalTriangle ||
+            static_cast<RtSmokeSurfaceClass>(classIndex) == RtSmokeSurfaceClass::ParticleAlpha;
+
+        if (invalidNormalTriangle)
+        {
+            ++attributeStats.classes[classIndex].invalidNormalTriangles;
+        }
+        if (invalidUvTriangle)
+        {
+            ++attributeStats.classes[classIndex].invalidUvTriangles;
+        }
+        if (preferGeometricNormal)
+        {
+            ++attributeStats.classes[classIndex].forcedGeometricNormalTriangles;
+        }
+
+        triangleClasses.push_back(surfaceClassId | (preferGeometricNormal ? RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL : 0u));
     }
 
     const int emittedIndexes = static_cast<int>(indexes.size() - indexStart);
@@ -1056,7 +1235,7 @@ int AppendSmokeSurfaceGeometry(const drawSurf_t* drawSurf, const srfTriangles_t*
     return emittedIndexes;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint64>& staticSurfaceKeys, std::vector<float>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint64>& staticSurfaceKeys, std::vector<PathTraceSmokeVertex>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
     sourceSurfaces = 0;
     sourceVerts = 0;
@@ -1067,6 +1246,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
     classStats = RtSmokeSurfaceClassStats();
     skipStats = RtSmokeSurfaceSkipStats();
     dynamicStats = RtSmokeDynamicGeometryStats();
+    attributeStats = RtSmokeAttributeStats();
     bucketRanges = RtSmokeBucketRanges();
     if (reasonSamples)
     {
@@ -1086,16 +1266,16 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
     vertexData.clear();
     indexData.clear();
     triangleClassData.clear();
-    vertexData.reserve(RT_SMOKE_MAX_VERTS * 3);
+    vertexData.reserve(RT_SMOKE_MAX_VERTS);
     indexData.reserve(RT_SMOKE_MAX_INDEXES);
     triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
 
-    std::vector<float> bucketVertexData[RT_SMOKE_CLASS_COUNT];
+    std::vector<PathTraceSmokeVertex> bucketVertexData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleClassData[RT_SMOKE_CLASS_COUNT];
     for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
     {
-        bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS * 3 / RT_SMOKE_CLASS_COUNT);
+        bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
         bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
         bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
     }
@@ -1137,7 +1317,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        const int cachedVerts = static_cast<int>(staticVertexCache.size() / 3);
+        const int cachedVerts = static_cast<int>(staticVertexCache.size());
         const int cachedIndexes = static_cast<int>(staticIndexCache.size());
         if (cachedVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
             cachedIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
@@ -1146,7 +1326,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        const int emittedIndexes = AppendSmokeSurfaceGeometry(drawSurf, tri, surfaceClassId, staticVertexCache, staticIndexCache, staticTriangleClassCache, skipStats);
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(drawSurf, tri, surfaceClassId, staticVertexCache, staticIndexCache, staticTriangleClassCache, skipStats, attributeStats);
         if (emittedIndexes <= 0)
         {
             continue;
@@ -1188,7 +1368,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        const int cachedVerts = static_cast<int>(staticVertexCache.size() / 3);
+        const int cachedVerts = static_cast<int>(staticVertexCache.size());
         const int cachedIndexes = static_cast<int>(staticIndexCache.size());
         if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
             cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
@@ -1197,10 +1377,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
             continue;
         }
 
-        std::vector<float>& bucketVertices = bucketVertexData[bucketIndex];
+        std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
         std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
-        const int emittedIndexes = AppendSmokeSurfaceGeometry(drawSurf, tri, surfaceClassId, bucketVertices, bucketIndexes, bucketClasses, skipStats);
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(drawSurf, tri, surfaceClassId, bucketVertices, bucketIndexes, bucketClasses, skipStats, attributeStats);
         if (emittedIndexes <= 0)
         {
             continue;
@@ -1225,7 +1405,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
     staticRange.vertexOffset = 0;
     staticRange.indexOffset = 0;
     staticRange.triangleOffset = 0;
-    staticRange.vertexCount = static_cast<int>(staticVertexCache.size() / 3);
+    staticRange.vertexCount = static_cast<int>(staticVertexCache.size());
     staticRange.indexCount = static_cast<int>(staticIndexCache.size());
     staticRange.triangleCount = static_cast<int>(staticTriangleClassCache.size());
 
@@ -1237,10 +1417,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<float
         }
 
         RtSmokeBucketRange& range = bucketRanges.buckets[bucketIndex];
-        range.vertexOffset = static_cast<int>(vertexData.size() / 3);
+        range.vertexOffset = static_cast<int>(vertexData.size());
         range.indexOffset = static_cast<int>(indexData.size());
         range.triangleOffset = static_cast<int>(triangleClassData.size());
-        range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size() / 3);
+        range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size());
         range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
         range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
 
@@ -1577,7 +1757,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    std::vector<float> dynamicVertexData;
+    std::vector<PathTraceSmokeVertex> dynamicVertexData;
     std::vector<uint32_t> dynamicIndexData;
     std::vector<uint32_t> dynamicTriangleClassData;
     int sourceSurfaces = 0;
@@ -1587,11 +1767,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeSurfaceClassStats classStats;
     RtSmokeSurfaceSkipStats skipStats;
     RtSmokeDynamicGeometryStats dynamicStats;
+    RtSmokeAttributeStats attributeStats;
     RtSmokeBucketRanges bucketRanges;
     const bool dumpClassReasons = r_pathTracingClassDump.GetInteger() != 0;
     RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
     if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
@@ -1602,10 +1783,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    nvrhi::BufferHandle smokeStaticVertexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldVertices", m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]), sizeof(float) * 3, true, false, true);
+    nvrhi::BufferHandle smokeStaticVertexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldVertices", m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]), RT_SMOKE_VERTEX_STRIDE, true, false, true);
     nvrhi::BufferHandle smokeStaticIndexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldIndices", m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]), sizeof(uint32_t), false, true, true);
     nvrhi::BufferHandle smokeStaticTriangleClassBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldTriangleClasses", m_smokeStaticTriangleClassCache.size() * sizeof(m_smokeStaticTriangleClassCache[0]), sizeof(uint32_t), false, false, false);
-    nvrhi::BufferHandle smokeDynamicVertexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeDynamicCandidateVertices", dynamicVertexData.size() * sizeof(dynamicVertexData[0]), sizeof(float) * 3, true, false, true);
+    nvrhi::BufferHandle smokeDynamicVertexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeDynamicCandidateVertices", dynamicVertexData.size() * sizeof(dynamicVertexData[0]), RT_SMOKE_VERTEX_STRIDE, true, false, true);
     nvrhi::BufferHandle smokeDynamicIndexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeDynamicCandidateIndices", dynamicIndexData.size() * sizeof(dynamicIndexData[0]), sizeof(uint32_t), false, true, true);
     nvrhi::BufferHandle smokeDynamicTriangleClassBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeDynamicCandidateTriangleClasses", dynamicTriangleClassData.size() * sizeof(dynamicTriangleClassData[0]), sizeof(uint32_t), false, false, false);
 
@@ -1615,8 +1796,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    const int staticVertexCount = static_cast<int>(m_smokeStaticVertexCache.size() / 3);
-    const int dynamicVertexCount = static_cast<int>(dynamicVertexData.size() / 3);
+    const int staticVertexCount = static_cast<int>(m_smokeStaticVertexCache.size());
+    const int dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
     const int staticIndexCount = bucketRanges.buckets[0].indexCount;
     const int dynamicIndexCount =
         bucketRanges.buckets[1].indexCount +
@@ -1839,6 +2020,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<int>(m_smokeStaticSurfaceKeys.size()),
             m_smokeStaticBlasCacheHitCount,
             m_smokeStaticBlasCacheMissCount);
+        LogSmokeAttributeStats(attributeStats);
         LogSmokeBucketRanges(bucketRanges);
         m_smokeSceneRebuildLogged = true;
     }
@@ -1887,6 +2069,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<int>(m_smokeStaticSurfaceKeys.size()),
             m_smokeStaticBlasCacheHitCount,
             m_smokeStaticBlasCacheMissCount);
+        LogSmokeAttributeStats(attributeStats);
         LogSmokeBucketRanges(bucketRanges);
         m_smokeSceneLogCooldownFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;
     }
@@ -1914,7 +2097,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet };
-    const int debugMode = idMath::ClampInt(0, 3, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 5, r_pathTracingDebugMode.GetInteger());
 
     idVec3 cameraOrigin = viewDef->renderView.vieworg;
     idVec3 cameraForward = viewDef->renderView.viewaxis[0];
