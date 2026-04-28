@@ -1,0 +1,395 @@
+RBDoom3 BFG Path Tracing Experiment
+===================================
+
+Purpose
+-------
+
+This branch is an experimental attempt to evolve the Vulkan/NVRHI renderer in
+RBDoom3 BFG toward a Quake II RTX style brute-force path traced renderer. The
+target hardware is currently an RTX 4090 class GPU, so the early goal is image
+quality and learning rather than broad hardware support or high performance.
+
+The current work is intentionally staged as "RT smoke" debug functionality
+inside PathTracePrimaryPass. It proves pieces of the path tracing pipeline in
+small, testable steps before replacing the main renderer.
+
+
+Current State
+-------------
+
+The renderer has a debug-only path tracing smoke pass behind r_pathTracing.
+It traces primary camera rays through an NVRHI ray tracing pipeline and displays
+the RT output as the 3D scene layer while leaving the normal Doom HUD, GUI, and
+menus drawn on top.
+
+Implemented debug CVars:
+
+- r_pathTracing
+  Enables the experimental RT path.
+
+- r_pathTracingDebugWidth / r_pathTracingDebugHeight
+  Set the RT debug output resolution. Tested at 320x180 and 1280x720.
+
+- r_pathTracingDebugMode
+  Selects the debug visualization:
+  0 = hit/miss
+  1 = depth
+  2 = interpolated normal
+  3 = surface class
+  4 = UV
+  5 = geometric normal
+  6 = material ID hash color
+  7 = material table debug color
+  8 = sampled diffuse texture probe
+
+- r_pathTracingClassDump
+  One-shot dump of sampled surface classification reasons.
+
+- r_pathTracingTextureProbeIndex
+  Selects the material-table index to bind for debug texture probing.
+  -1 means first safe texture.
+
+- r_pathTracingTextureProbeReset
+  Releases the latched texture probe and selects again.
+
+- r_pathTracingTextureProbeDump
+  One-shot dump of the currently latched texture probe and safe candidates.
+
+- r_pathTracingTextureTableLimit / r_pathTracingTextureTableStart
+  Selects a window of safe captured diffuse textures for debug mode 8. The
+  current active slot count is capped conservatively while texture sampling is
+  experimental.
+
+- r_pathTracingTextureSampleMethod
+  Selects the mode 8 texture fetch path:
+  0 = disabled/fallback material color
+  1 = SampleLevel diagnostic path
+  2 = Texture.Load stable default
+
+- r_pathTracingTextureBindlessEnable
+  1 samples through the bindless descriptor table. 0 samples a regular fallback
+  SRV and is useful for diagnostics.
+
+- r_pathTracingTextureForceFallback
+  Binds fallback textures into active table slots instead of captured Doom
+  diffuse textures. This helps separate texture-handle issues from shader
+  texture-fetch issues.
+
+- r_pathTracingSmokeLog
+  Enables or disables periodic RT smoke logging.
+
+
+Geometry and BVH Work Completed
+-------------------------------
+
+The pass now builds real ray tracing acceleration structures from visible Doom
+draw surfaces:
+
+- Captures visible draw surfaces from the current view.
+- Builds BLAS/TLAS using NVRHI ray tracing APIs.
+- Rebuilds dynamic-candidate geometry each frame.
+- Maintains a persistent static-world geometry cache.
+- Rebuilds the static-world BLAS only when newly seen static surfaces are added.
+- Rebuilds the TLAS every frame.
+- Splits static-world and dynamic-candidate geometry into separate buffers.
+- Instances static and dynamic BLASes in one TLAS.
+- Closest-hit shader fetches from the correct static or dynamic buffers based
+  on InstanceID.
+
+The static-world cache is populated independently of the center-ray anchor,
+using stable surface keys. This avoids obvious instability from Doom draw-surface
+ordering changes.
+
+
+Surface Classification
+----------------------
+
+Captured surfaces are classified into debug buckets:
+
+- static-world
+- rigid-entity
+- skinned/deformed
+- particle/alpha
+- unknown
+
+This is used for logging, debug visualization, and the static/dynamic BLAS split.
+Entity-owned static models with static caches and no joints are treated as
+rigid-entity rather than fully dynamic.
+
+The classifier has been exercised in game. It broadly behaves as expected:
+
+- World geometry is usually green/static.
+- Doors, crates, and entity-owned rigid objects are dynamic/rigid.
+- Skinned characters are correctly identified.
+- Smoke cards and translucent particle-like surfaces are particle/alpha.
+
+Some edge cases remain, such as occasional static-looking pieces classified as
+rigid/dynamic. This is acceptable for now because correctness is favored over
+over-aggressive static caching.
+
+
+Skinned Geometry
+----------------
+
+Initially, skinned characters appeared in T-pose because the RT capture was
+using base/static mesh data while the raster renderer was using GPU skinning.
+
+Current behavior:
+
+- With r_useGPUSkinning enabled, RT smoke now has an RT-only CPU skinning path
+  for MD5/skinned surfaces.
+- It uses current joint data and the weighted joint transform logic from the
+  MD5 model path.
+- This does not change the main raster r_useGPUSkinning setting.
+- Characters now animate correctly in the RT debug output.
+
+This path is not optimized. It is a correctness bridge so the RT path can trace
+posed skinned geometry while the renderer continues using GPU skinning normally.
+
+
+Vertex Attributes
+-----------------
+
+RT smoke geometry buffers now include:
+
+- position
+- normal
+- UV
+
+Closest-hit interpolates normals and UVs. Debug modes were added for:
+
+- interpolated normal
+- geometric normal
+- UV visualization
+
+Several issues were encountered and fixed:
+
+- Some normals were invalid or near zero.
+- Particle/alpha/translucent surfaces were especially unreliable with imported
+  vertex normals.
+- Fallback geometric normals are generated where needed.
+- Attribute validation logs invalid normal/UV counts by class.
+
+After hardening, normal and UV debug modes appear stable and useful.
+
+
+Material Debug Work
+-------------------
+
+The RT smoke path now tracks material identity per triangle:
+
+- Each captured surface gets a stable material ID from the idMaterial name.
+- Per-triangle material IDs are stored for static and dynamic geometry.
+- Debug mode 6 colors hits by material ID.
+- A compact material table exists for captured materials.
+- Per-triangle material table indexes are stored.
+- Debug mode 7 shades from the material table debug color.
+
+This provides the CPU/GPU plumbing needed for real material data, without yet
+implementing the full Doom material system in RT.
+
+
+Texture Probe Work
+------------------
+
+Debug mode 8 is an early sampled diffuse texture probe.
+
+The current implementation:
+
+- Discovers plausible diffuse/base-color images from captured materials.
+- Avoids calling idMaterial::GetEditorImage() during RT discovery.
+- Builds an NVRHI bindless Texture_SRV descriptor table.
+- Reuses the descriptor table instead of recreating it every scene build.
+- Writes a conservative active window of safe Doom diffuse textures.
+- Stores descriptor indexes in the RT material table for captured materials.
+- Fetches bindless texture data in the ray generation shader.
+- Falls back to material debug colors when a material has no bound descriptor.
+- Keeps texture dump logging for controlled testing.
+
+Important history:
+
+- Fixed Texture2D slots were tried first and caused device-removed crashes.
+- A private GPU texture copy path was tried and hit Doom/NVRHI state assertions.
+- Switching to bindless descriptor tables compiled and ran.
+- The remaining repeatable crash was traced to texture discovery calling
+  GetEditorImage(), which can load missing editor images on demand.
+- Removing the editor-image fallback eliminated the repeatable crash in the
+  tested map location.
+- A later device-removed crash near animated SWF/GUI terminals was narrowed to
+  SampleLevel from the RT shader. It reproduced even when sampling the fallback
+  white texture and with bindless disabled.
+- Texture.Load is stable in the same animated terminal cases so far. It is now
+  the default mode 8 fetch path. SampleLevel remains available as a diagnostic.
+
+Mode 8 is still only a probe. Texture.Load currently fetches a single texel and
+does not yet implement filtering, mip selection, or full Doom material behavior.
+
+
+Known Blockers and Issues
+-------------------------
+
+Texture system integration is the main active blocker.
+
+Current safe approach:
+
+- Only use already available fast-path diffuse or explicit diffuse-stage images.
+- Do not use editor image fallback for RT texture discovery.
+- Do not force-load missing images during RT scene capture.
+- Do not copy raster-owned textures into private RT textures until resource
+  state ownership is better understood.
+- Use Texture.Load for RT texture debug mode 8. Treat SampleLevel as unsafe near
+  animated SWF/GUI terminals until the sampler/state interaction is understood.
+
+Open issues:
+
+- Mode 8 currently binds a conservative active window of captured diffuse maps,
+  not a final global material texture system.
+- Material stages are much richer than a single diffuse texture.
+- Doom materials can have generated images, videos, blend stages, alpha tests,
+  deform stages, lights, and special render behavior.
+- No normal/specular/roughness/metalness material sampling exists yet.
+- No alpha testing or opacity handling in closest-hit/any-hit exists yet.
+- No path traced lighting, bounce rays, shadows, MIS, denoising, or accumulation
+  exists yet.
+- Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
+  acceptable for now but not final.
+
+
+Testing Workflow Used So Far
+----------------------------
+
+Build command:
+
+    cmake --build build --config Debug --target RBDoom3BFG
+
+Runtime testing has been done by copying:
+
+    build/Debug/RBDoom3BFG.exe
+
+into a prepared Doom 3 BFG game folder. When shaders change, also copy:
+
+    base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
+
+to the matching path in the prepared game folder.
+
+Typical runtime commands:
+
+    r_pathTracing 1
+    r_pathTracingDebugWidth 1280
+    r_pathTracingDebugHeight 720
+    r_pathTracingDebugMode 3
+
+For texture probe testing:
+
+    r_pathTracingDebugMode 8
+    r_pathTracingTextureProbeDump 1
+    r_pathTracingTextureProbeIndex 0
+    r_pathTracingTextureProbeReset 1
+
+For quieter traversal testing:
+
+    r_pathTracingSmokeLog 0
+
+
+Useful Commits
+--------------
+
+Recent milestone commits on this branch:
+
+- 352c6f75 Stabilize RT smoke texture probe sampling
+- 5005d0a9 Add bindless RT smoke texture probe
+- 847fc6f9 Add RT smoke material table lookup
+- f9343e4a Add RT smoke material ID debug mode
+- 862d8833 Add RT smoke vertex attributes
+- 70954940 Add RT smoke CPU skinning path
+- 47fef9da Split RT smoke static and dynamic buffers
+- cf1a7a11 Stabilize RT smoke static world capture
+- f7b7a895 Clean up RT smoke capture correctness
+- 5b601109 Accumulate RT smoke static world cache
+- 23e78735 Cache RT smoke static BLAS
+- 282d6eb0 Split RT smoke BLAS buckets
+
+
+Recommended Next Steps
+----------------------
+
+Near term:
+
+1. Keep missing, unsafe, or dynamically generated materials on fallback debug
+   colors instead of forcing image loads.
+
+2. Continue hardening texture lifetime and descriptor-table behavior with modest
+   active texture limits.
+
+3. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
+   surfaces while Texture.Load survives.
+
+4. Add an any-hit or closest-hit alpha-test experiment for simple cutout
+   materials once diffuse sampling is stable.
+
+Medium term:
+
+1. Move RT smoke scene building out of PathTracePrimaryPass into a dedicated
+   helper/module. The pass file has grown large and now owns too many unrelated
+   concerns: surface capture, classification, BLAS/TLAS management, material
+   table building, CPU skinning, and debug logging.
+
+2. Split static-world cache from dynamic scene update code more cleanly.
+
+3. Start a true path tracing output mode:
+   - primary hit albedo
+   - direct emissive/light debug
+   - simple shadow ray
+   - one diffuse bounce
+   - accumulation
+
+4. Add explicit material fields needed by path tracing:
+   - base color
+   - alpha/cutout
+   - normal map
+   - roughness/specular/metalness approximation
+   - emissive/light material support
+
+Longer term:
+
+1. Replace the raster 3D scene with a full path traced scene output.
+
+2. Preserve raster GUI/HUD/menu composition on top.
+
+3. Investigate denoising and reconstruction technologies after a visually
+   meaningful brute-force baseline exists.
+
+4. Study Quake II RTX and NVIDIA Donut/RTXPT for architecture ideas, especially
+   material handling, bindless texture tables, light sampling, accumulation,
+   and denoiser integration. The Doom 3 renderer differs enough that code should
+   be adapted carefully rather than copied wholesale.
+
+
+Notes for Future Contributors
+-----------------------------
+
+This work is debug-only and intentionally conservative. If something looks
+overly defensive, it is probably because a previous experiment crashed the device
+or produced silently wrong shader data.
+
+Avoid these traps unless you are intentionally revisiting them:
+
+- Do not call GetEditorImage() from RT texture discovery during frame capture.
+  It can load missing images and caused repeatable device-removed crashes.
+
+- Do not assume a BLAS built from one vertex/index buffer can be reused with
+  different shader-side attribute buffers. BLAS geometry and closest-hit fetches
+  must refer to matching data.
+
+- Do not merge static and dynamic triangle metadata casually. InstanceID and
+  per-instance buffer selection are important.
+
+- Be cautious with Doom draw-surface order. It is not stable enough to use as a
+  persistent identity.
+
+- Be cautious with large single surfaces and transient draw surfaces. The capture
+  code has validation for null data, stale CPU geometry, invalid indexes,
+  limits, and zero-area triangles for a reason.
+
+The current code is not final architecture. It is a working ladder: each rung is
+there because it made the next ray tracing feature testable in game.

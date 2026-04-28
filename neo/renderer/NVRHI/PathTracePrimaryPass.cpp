@@ -137,6 +137,7 @@ const int RT_SMOKE_MATERIAL_REASON_SAMPLES = 12;
 const int RT_SMOKE_TEXTURE_PROBE_CANDIDATE_SAMPLES = 24;
 const int RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES = 64;
 const int RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY = 128;
+const int RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP = 64;
 const int RT_SMOKE_VERTEX_STRIDE = sizeof(PathTraceSmokeVertex);
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
@@ -310,6 +311,16 @@ enum class RtSmokeSurfaceClass
 };
 
 std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
+
+int GetSmokeTextureTableRequestedLimit()
+{
+    return idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, r_pathTracingTextureTableLimit.GetInteger());
+}
+
+int GetSmokeTextureTableEffectiveLimit()
+{
+    return Min(GetSmokeTextureTableRequestedLimit(), RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP);
+}
 
 struct RtSmokeSurfaceClassReason
 {
@@ -782,7 +793,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         return;
     }
 
-    const int textureTableLimit = idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, r_pathTracingTextureTableLimit.GetInteger());
+    const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
 
     if (r_pathTracingTextureProbeReset.GetInteger() != 0 || latchedRequestedIndex != table.textureProbeRequestedIndex)
@@ -1681,15 +1692,18 @@ void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
 void LogSmokeTextureProbe(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
-    const int textureTableLimit = idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, r_pathTracingTextureTableLimit.GetInteger());
+    const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
+    const int requestedTextureTableLimit = GetSmokeTextureTableRequestedLimit();
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
     const int textureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0 ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()) : 0;
     const bool textureBindlessEnabled = r_pathTracingTextureBindlessEnable.GetInteger() != 0;
-    common->Printf("PathTracePrimaryPass: RT smoke bindless texture table occupancy=%d/%d start=%d capacity=%d sampleMethod=%d bindless=%d texturedMaterials=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke bindless texture table occupancy=%d/%d requested=%d start=%d capacity=%d activeCap=%d sampleMethod=%d bindless=%d texturedMaterials=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
         static_cast<int>(table.diffuseTextures.size()),
         textureTableLimit,
+        requestedTextureTableLimit,
         textureTableStart,
         RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY,
+        RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP,
         textureSampleMethod,
         textureBindlessEnabled ? 1 : 0,
         table.materialsWithTextures,
@@ -1756,18 +1770,21 @@ void LogSmokeTextureProbeSwitch(const RtSmokeMaterialTableBuild& table)
 void LogSmokeTextureProbeDump(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
-    const int textureTableLimit = idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, r_pathTracingTextureTableLimit.GetInteger());
+    const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
+    const int requestedTextureTableLimit = GetSmokeTextureTableRequestedLimit();
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
     const int textureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0 ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()) : 0;
     const bool textureBindlessEnabled = r_pathTracingTextureBindlessEnable.GetInteger() != 0;
-    common->Printf("PathTracePrimaryPass: RT smoke texture probe dump request=%d bound=%d materialId=%u slots=%d/%d start=%d capacity=%d sampleMethod=%d bindless=%d texturedMaterials=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke texture probe dump request=%d bound=%d materialId=%u slots=%d/%d requested=%d start=%d capacity=%d activeCap=%d sampleMethod=%d bindless=%d texturedMaterials=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
         table.textureProbeRequestedIndex,
         table.textureProbeBoundIndex,
         table.textureProbeBoundMaterialId,
         static_cast<int>(table.diffuseTextures.size()),
         textureTableLimit,
+        requestedTextureTableLimit,
         textureTableStart,
         RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY,
+        RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP,
         textureSampleMethod,
         textureBindlessEnabled ? 1 : 0,
         table.materialsWithTextures,
@@ -1858,7 +1875,7 @@ void LogSmokeTextureProbeDump(const RtSmokeMaterialTableBuild& table)
 
 void LogSmokeTextureActiveWindow(const RtSmokeMaterialTableBuild& table)
 {
-    const int textureTableLimit = idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, r_pathTracingTextureTableLimit.GetInteger());
+    const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
     if (textureTableLimit <= 0)
     {
         return;
@@ -1909,9 +1926,11 @@ void LogSmokeTextureActiveWindow(const RtSmokeMaterialTableBuild& table)
     lastLoggedBindlessEnabled = textureBindlessEnabled ? 1 : 0;
     lastLoggedHash = activeHash;
 
-    common->Printf("PathTracePrimaryPass: RT smoke active texture window start=%d limit=%d slots=%d sampledMaterials=%d forceFallback=%d sampleMethod=%d bindless=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke active texture window start=%d limit=%d requested=%d activeCap=%d slots=%d sampledMaterials=%d forceFallback=%d sampleMethod=%d bindless=%d\n",
         textureTableStart,
         textureTableLimit,
+        GetSmokeTextureTableRequestedLimit(),
+        RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP,
         static_cast<int>(table.diffuseTextures.size()),
         sampledCount,
         forceFallback ? 1 : 0,
@@ -3225,15 +3244,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (enableTextureProbe)
     {
         const bool forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
-        smokeTextureDescriptorTable = device->createDescriptorTable(m_smokeTextureBindlessLayout);
         if (!smokeTextureDescriptorTable)
         {
-            common->Printf("PathTracePrimaryPass: failed to create RT smoke per-frame texture descriptor table\n");
+            smokeTextureDescriptorTable = device->createDescriptorTable(m_smokeTextureBindlessLayout);
+        }
+        if (!smokeTextureDescriptorTable)
+        {
+            common->Printf("PathTracePrimaryPass: failed to create RT smoke texture descriptor table\n");
             return;
         }
 
-        const int textureSlotCount = idMath::ClampInt(1, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, Max(static_cast<int>(materialTable.diffuseTextures.size()), 1));
-        smokeActiveTextureTable.reserve(textureSlotCount);
+        const int textureSlotCount = idMath::ClampInt(1, RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP, Max(static_cast<int>(materialTable.diffuseTextures.size()), 1));
+        smokeActiveTextureTable.reserve(textureSlotCount + 1);
         for (int textureSlot = 0; textureSlot < textureSlotCount; ++textureSlot)
         {
             nvrhi::TextureHandle texture =
