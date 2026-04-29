@@ -8,6 +8,7 @@ struct PathTraceSmokePayload
     float3 geometricNormal;
     float2 texCoord;
     uint surfaceClass;
+    uint translucentSubtype;
     uint materialId;
     uint materialIndex;
 };
@@ -60,6 +61,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -81,6 +84,35 @@ float3 MaterialIdToColor(uint materialId)
     const float g = ((hash >> 8) & 255u) * (1.0 / 255.0);
     const float b = ((hash >> 16) & 255u) * (1.0 / 255.0);
     return 0.15 + float3(r, g, b) * 0.85;
+}
+
+float3 TranslucentSubtypeToColor(uint subtype)
+{
+    if (subtype == 0u)
+    {
+        return float3(0.10, 0.75, 1.00); // decal / grime
+    }
+    if (subtype == 1u)
+    {
+        return float3(0.20, 1.00, 0.65); // object glass
+    }
+    if (subtype == 2u)
+    {
+        return float3(1.00, 0.45, 0.05); // smoke / particle
+    }
+    if (subtype == 3u)
+    {
+        return float3(1.00, 0.95, 0.10); // signage / glow
+    }
+    if (subtype == 4u)
+    {
+        return float3(0.85, 0.25, 1.00); // portal / window
+    }
+    if (subtype == 5u)
+    {
+        return float3(1.00, 0.20, 0.75); // gui / screen
+    }
+    return float3(0.75, 0.75, 0.75);
 }
 
 float4 SampleSmokeTexture(uint textureIndex, uint textureWidth, uint textureHeight, float2 texCoord, float4 fallback)
@@ -212,6 +244,7 @@ void RayGen()
     payload.geometricNormal = float3(0.0, 0.0, 0.0);
     payload.texCoord = float2(0.0, 0.0);
     payload.surfaceClass = 4;
+    payload.translucentSubtype = 5;
     payload.materialId = 0;
     payload.materialIndex = 0;
 
@@ -324,6 +357,23 @@ void RayGen()
             SmokeOutput[pixel] = albedo;
         }
     }
+    else if (debugMode == 12)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        const float3 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord).rgb;
+        if (payload.surfaceClass == 3u)
+        {
+            const float stripe = frac((payload.texCoord.x + payload.texCoord.y) * 12.0) > 0.5 ? 1.0 : 0.0;
+            const float3 subtypeColor = TranslucentSubtypeToColor(payload.translucentSubtype);
+            const float3 tintedAlbedo = lerp(albedo, subtypeColor, 0.45);
+            const float3 stripedTint = lerp(tintedAlbedo, subtypeColor, stripe * 0.35);
+            SmokeOutput[pixel] = float4(stripedTint, 1.0);
+        }
+        else
+        {
+            SmokeOutput[pixel] = float4(albedo * 0.35, 1.0);
+        }
+    }
     else
     {
         SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
@@ -374,6 +424,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.normal = forceGeometricNormal ? payload.geometricNormal : interpolatedNormal;
     payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    payload.translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
     payload.materialId = instanceId == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
     payload.materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[PrimitiveIndex()] : SmokeDynamicTriangleMaterialIndexes[PrimitiveIndex()];
 }

@@ -22,7 +22,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -77,6 +77,12 @@ idCVar r_pathTracingTextureFallbackDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump current RT smoke albedo fallback materials once" );
+
+idCVar r_pathTracingTranslucentDump(
+    "r_pathTracingTranslucentDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current RT smoke translucent subtype classifier samples once" );
 
 idCVar r_pathTracingTextureProbeDumpStart(
     "r_pathTracingTextureProbeDumpStart",
@@ -144,8 +150,10 @@ const int RT_SMOKE_MAX_OUTPUT_HEIGHT = 2160;
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_CLASS_COUNT = 5;
+const int RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT = 7;
 const int RT_SMOKE_CLASS_REASON_SAMPLES = 8;
 const int RT_SMOKE_MATERIAL_REASON_SAMPLES = 12;
+const int RT_SMOKE_TRANSLUCENT_REASON_SAMPLES = 24;
 const int RT_SMOKE_TEXTURE_PROBE_CANDIDATE_SAMPLES = 24;
 const int RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES = 64;
 const int RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY = 512;
@@ -153,6 +161,8 @@ const int RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP = 512;
 const int RT_SMOKE_VERTEX_STRIDE = sizeof(PathTraceSmokeVertex);
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
+const uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
+const uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 const uint32_t RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 
 struct PathTraceSmokeConstants
@@ -241,6 +251,50 @@ struct RtSmokeMaterialSample
     idStr name;
 };
 
+struct RtSmokeTranslucentClassifierInfo
+{
+    bool sortIsGuiOrSubview = false;
+    bool sortIsDecal = false;
+    bool sortIsPostProcess = false;
+    bool polygonOffsetDecal = false;
+    bool hasScreenTexgen = false;
+    bool hasAdditiveBlend = false;
+    bool hasAmbientStage = false;
+    bool hasAmbientBlendStage = false;
+    bool hasDiffuseStage = false;
+    bool nameLooksGui = false;
+    bool nameLooksParticle = false;
+    bool nameLooksDecal = false;
+    bool nameLooksGlass = false;
+    bool nameLooksGlow = false;
+    bool nameLooksSignage = false;
+};
+
+enum class RtSmokeTranslucentSubtype
+{
+    DecalGrime,
+    ObjectGlass,
+    SmokeParticle,
+    SignageGlow,
+    PortalWindow,
+    GuiScreen,
+    Unknown
+};
+
+struct RtSmokeTranslucentSubtypeDebugSample
+{
+    bool valid = false;
+    RtSmokeTranslucentSubtype subtype = RtSmokeTranslucentSubtype::Unknown;
+    int surfaceIndex = -1;
+    int verts = 0;
+    int indexes = 0;
+    idStr materialName;
+    materialCoverage_t coverage = MC_BAD;
+    float sort = SS_BAD;
+    deform_t deform = DFRM_NONE;
+    RtSmokeTranslucentClassifierInfo info;
+};
+
 struct RtSmokeMaterialStats
 {
     int totalSurfaces = 0;
@@ -255,6 +309,12 @@ struct RtSmokeMaterialStats
     RtSmokeMaterialSample translucentSamples[RT_SMOKE_MATERIAL_REASON_SAMPLES];
     int sampleCount = 0;
     int translucentSampleCount = 0;
+    int translucentSubtypeSurfaces[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
+    int translucentSubtypeTriangles[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
+    RtSmokeMaterialSample translucentSubtypeSamples[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT][RT_SMOKE_MATERIAL_REASON_SAMPLES];
+    int translucentSubtypeSampleCounts[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
+    RtSmokeTranslucentSubtypeDebugSample translucentDebugSamples[RT_SMOKE_TRANSLUCENT_REASON_SAMPLES];
+    int translucentDebugSampleCount = 0;
 };
 
 struct PathTraceSmokeMaterial
@@ -483,6 +543,134 @@ const char* SmokeSurfaceClassNameByIndex(int classIndex)
     }
 
     return SmokeSurfaceClassName(static_cast<RtSmokeSurfaceClass>(classIndex));
+}
+
+uint32_t SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype subtype)
+{
+    switch (subtype)
+    {
+        case RtSmokeTranslucentSubtype::DecalGrime:
+            return 0;
+        case RtSmokeTranslucentSubtype::ObjectGlass:
+            return 1;
+        case RtSmokeTranslucentSubtype::SmokeParticle:
+            return 2;
+        case RtSmokeTranslucentSubtype::SignageGlow:
+            return 3;
+        case RtSmokeTranslucentSubtype::GuiScreen:
+            return 5;
+        case RtSmokeTranslucentSubtype::PortalWindow:
+            return 4;
+        default:
+            return 6;
+    }
+}
+
+const char* SmokeTranslucentSubtypeName(RtSmokeTranslucentSubtype subtype)
+{
+    switch (subtype)
+    {
+        case RtSmokeTranslucentSubtype::DecalGrime:
+            return "decal/grime";
+        case RtSmokeTranslucentSubtype::ObjectGlass:
+            return "object-glass";
+        case RtSmokeTranslucentSubtype::SmokeParticle:
+            return "smoke/particle";
+        case RtSmokeTranslucentSubtype::SignageGlow:
+            return "signage/glow";
+        case RtSmokeTranslucentSubtype::PortalWindow:
+            return "portal/window";
+        case RtSmokeTranslucentSubtype::GuiScreen:
+            return "gui/screen";
+        default:
+            return "unknown";
+    }
+}
+
+const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex)
+{
+    if (subtypeIndex < 0 || subtypeIndex >= RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT)
+    {
+        return "invalid";
+    }
+
+    return SmokeTranslucentSubtypeName(static_cast<RtSmokeTranslucentSubtype>(subtypeIndex));
+}
+
+bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int tokenCount)
+{
+    for (int tokenIndex = 0; tokenIndex < tokenCount; ++tokenIndex)
+    {
+        if (name.Find(tokens[tokenIndex], false) >= 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material)
+{
+    RtSmokeTranslucentClassifierInfo info;
+    if (!material)
+    {
+        return info;
+    }
+
+    idStr materialName = material->GetName();
+    const float sort = material->GetSort();
+    info.sortIsGuiOrSubview = sort <= SS_GUI;
+    info.sortIsDecal = sort >= SS_DECAL && sort < SS_FAR;
+    info.sortIsPostProcess = sort >= SS_POST_PROCESS;
+    info.polygonOffsetDecal = material->TestMaterialFlag(MF_POLYGONOFFSET);
+
+    static const char* guiTokens[] = { "gui", "guis/", "video", "cinematic", "terminal", "console", "pda", "cursor" };
+    static const char* particleTokens[] = { "particle", "smoke", "dust", "steam", "fog", "muzzle", "spark", "bloodcloud" };
+    static const char* decalTokens[] = { "decal", "stain", "grime", "dirt", "scorch", "burn", "bullet", "mud", "blood", "splat", "mark" };
+    static const char* glassTokens[] = { "glass", "window", "visor", "transparent" };
+    static const char* glowTokens[] = { "glow", "light", "lamp", "beam", "flare", "strip", "striplight", "tube", "neon", "emissive", "emit", "bulb", "fluoro", "flouro" };
+    static const char* signageTokens[] = { "logo", "sign", "label", "snack", "soda", "cola", "add", "screen", "monitor" };
+    info.nameLooksGui = SmokeNameContainsAny(materialName, guiTokens, sizeof(guiTokens) / sizeof(guiTokens[0]));
+    info.nameLooksParticle = SmokeNameContainsAny(materialName, particleTokens, sizeof(particleTokens) / sizeof(particleTokens[0]));
+    info.nameLooksDecal = SmokeNameContainsAny(materialName, decalTokens, sizeof(decalTokens) / sizeof(decalTokens[0]));
+    info.nameLooksGlass = SmokeNameContainsAny(materialName, glassTokens, sizeof(glassTokens) / sizeof(glassTokens[0]));
+    info.nameLooksGlow = SmokeNameContainsAny(materialName, glowTokens, sizeof(glowTokens) / sizeof(glowTokens[0]));
+    info.nameLooksSignage = SmokeNameContainsAny(materialName, signageTokens, sizeof(signageTokens) / sizeof(signageTokens[0]));
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+
+        if (stage->texture.texgen == TG_SCREEN || stage->texture.texgen == TG_SCREEN2)
+        {
+            info.hasScreenTexgen = true;
+        }
+        if (stage->lighting == SL_AMBIENT)
+        {
+            info.hasAmbientStage = true;
+        }
+        else if (stage->lighting == SL_DIFFUSE)
+        {
+            info.hasDiffuseStage = true;
+        }
+
+        const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+        const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+        if ((srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE)
+        {
+            info.hasAdditiveBlend = true;
+        }
+        if (stage->lighting == SL_AMBIENT && (dstBlend != GLS_DSTBLEND_ZERO || srcBlend == GLS_SRCBLEND_DST_COLOR || srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR))
+        {
+            info.hasAmbientBlendStage = true;
+        }
+    }
+
+    return info;
 }
 
 const char* SmokeDeformName(deform_t deform)
@@ -1222,7 +1410,7 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
 }
 
-void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass)
+void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype translucentSubtype)
 {
     const char* materialName = material ? material->GetName() : "<none>";
     const uint32_t materialId = HashSmokeMaterialName(materialName);
@@ -1262,6 +1450,33 @@ void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* materi
         return;
     }
 
+    const int subtypeIndex = idMath::ClampInt(0, RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT - 1, static_cast<int>(SmokeTranslucentSubtypeId(translucentSubtype)));
+    ++stats.translucentSubtypeSurfaces[subtypeIndex];
+    stats.translucentSubtypeTriangles[subtypeIndex] += indexes / 3;
+
+    bool subtypeSampleFound = false;
+    for (int sampleIndex = 0; sampleIndex < stats.translucentSubtypeSampleCounts[subtypeIndex]; ++sampleIndex)
+    {
+        RtSmokeMaterialSample& sample = stats.translucentSubtypeSamples[subtypeIndex][sampleIndex];
+        if (sample.id == materialId)
+        {
+            ++sample.surfaces;
+            sample.triangles += indexes / 3;
+            subtypeSampleFound = true;
+            break;
+        }
+    }
+
+    if (!subtypeSampleFound && stats.translucentSubtypeSampleCounts[subtypeIndex] < RT_SMOKE_MATERIAL_REASON_SAMPLES)
+    {
+        RtSmokeMaterialSample& sample = stats.translucentSubtypeSamples[subtypeIndex][stats.translucentSubtypeSampleCounts[subtypeIndex]];
+        sample.id = materialId;
+        sample.surfaces = 1;
+        sample.triangles = indexes / 3;
+        sample.name = materialName;
+        ++stats.translucentSubtypeSampleCounts[subtypeIndex];
+    }
+
     ++stats.translucentSurfaces;
     stats.translucentTriangles += indexes / 3;
     const bool firstTranslucentMaterial = std::find(stats.translucentMaterialIds.begin(), stats.translucentMaterialIds.end(), materialId) == stats.translucentMaterialIds.end();
@@ -1291,6 +1506,27 @@ void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* materi
         sample.name = materialName;
         ++stats.translucentSampleCount;
     }
+}
+
+void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeTranslucentSubtype subtype)
+{
+    if (stats.translucentDebugSampleCount >= RT_SMOKE_TRANSLUCENT_REASON_SAMPLES)
+    {
+        return;
+    }
+
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    RtSmokeTranslucentSubtypeDebugSample& sample = stats.translucentDebugSamples[stats.translucentDebugSampleCount++];
+    sample.valid = true;
+    sample.subtype = subtype;
+    sample.surfaceIndex = surfaceIndex;
+    sample.verts = tri ? tri->numVerts : 0;
+    sample.indexes = tri ? tri->numIndexes : 0;
+    sample.materialName = material ? material->GetName() : "<none>";
+    sample.coverage = material ? material->Coverage() : MC_BAD;
+    sample.sort = material ? material->GetSort() : SS_BAD;
+    sample.deform = material ? material->Deform() : DFRM_NONE;
+    sample.info = BuildSmokeTranslucentClassifierInfo(material);
 }
 
 bool SmokeFloatIsFinite(float value)
@@ -1572,6 +1808,71 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     }
 
     return RtSmokeSurfaceClass::Unknown;
+}
+
+RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!material)
+    {
+        return RtSmokeTranslucentSubtype::Unknown;
+    }
+
+    const deform_t deform = material->Deform();
+    const float sort = material->GetSort();
+    const RtSmokeTranslucentClassifierInfo info = BuildSmokeTranslucentClassifierInfo(material);
+
+    if (info.hasScreenTexgen || info.nameLooksGui)
+    {
+        return RtSmokeTranslucentSubtype::GuiScreen;
+    }
+
+    if (info.sortIsPostProcess || info.sortIsGuiOrSubview)
+    {
+        return RtSmokeTranslucentSubtype::PortalWindow;
+    }
+
+    if (deform == DFRM_PARTICLE ||
+        deform == DFRM_PARTICLE2 ||
+        deform == DFRM_SPRITE ||
+        deform == DFRM_TUBE ||
+        deform == DFRM_FLARE ||
+        sort >= SS_ALMOST_NEAREST ||
+        info.nameLooksParticle)
+    {
+        return RtSmokeTranslucentSubtype::SmokeParticle;
+    }
+
+    if (info.nameLooksGlass)
+    {
+        return RtSmokeTranslucentSubtype::ObjectGlass;
+    }
+
+    if (info.hasAdditiveBlend ||
+        (info.hasAmbientStage && !info.hasDiffuseStage && info.nameLooksGlow) ||
+        (info.hasAmbientBlendStage && info.nameLooksGlow) ||
+        (info.nameLooksGlow && !info.nameLooksDecal) ||
+        info.nameLooksSignage)
+    {
+        return RtSmokeTranslucentSubtype::SignageGlow;
+    }
+
+    if (info.sortIsDecal || info.polygonOffsetDecal || info.nameLooksDecal)
+    {
+        return RtSmokeTranslucentSubtype::DecalGrime;
+    }
+
+    return RtSmokeTranslucentSubtype::Unknown;
+}
+
+uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype)
+{
+    uint32_t id = SmokeSurfaceClassId(surfaceClass);
+    if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
+    {
+        id |= (SmokeTranslucentSubtypeId(subtype) << RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT) & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK;
+    }
+    return id;
 }
 
 bool SmokeSkinnedSurfaceLikelyBasePose(const drawSurf_t* drawSurf, const srfTriangles_t* tri)
@@ -1950,6 +2251,80 @@ void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats)
             sample.triangles);
     }
     common->Printf("\n");
+
+    common->Printf("PathTracePrimaryPass: RT smoke translucent subtype counts");
+    for (int subtypeIndex = 0; subtypeIndex < RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT; ++subtypeIndex)
+    {
+        common->Printf(" %s=%d(%dt)",
+            SmokeTranslucentSubtypeNameByIndex(subtypeIndex),
+            stats.translucentSubtypeSurfaces[subtypeIndex],
+            stats.translucentSubtypeTriangles[subtypeIndex]);
+    }
+    common->Printf("\n");
+
+    for (int subtypeIndex = 0; subtypeIndex < RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT; ++subtypeIndex)
+    {
+        const int sampleCount = stats.translucentSubtypeSampleCounts[subtypeIndex];
+        if (sampleCount <= 0)
+        {
+            continue;
+        }
+
+        common->Printf("PathTracePrimaryPass: RT smoke translucent subtype %s samples=",
+            SmokeTranslucentSubtypeNameByIndex(subtypeIndex));
+        for (int sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
+        {
+            const RtSmokeMaterialSample& sample = stats.translucentSubtypeSamples[subtypeIndex][sampleIndex];
+            common->Printf("%s%s(id=%u surfaces=%d triangles=%d)",
+                sampleIndex == 0 ? "" : ", ",
+                sample.name.c_str(),
+                sample.id,
+                sample.surfaces,
+                sample.triangles);
+        }
+        common->Printf("\n");
+    }
+}
+
+void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats)
+{
+    common->Printf("PathTracePrimaryPass: RT smoke translucent subtype dump samples=%d\n",
+        stats.translucentDebugSampleCount);
+
+    for (int sampleIndex = 0; sampleIndex < stats.translucentDebugSampleCount; ++sampleIndex)
+    {
+        const RtSmokeTranslucentSubtypeDebugSample& sample = stats.translucentDebugSamples[sampleIndex];
+        if (!sample.valid)
+        {
+            continue;
+        }
+
+        const RtSmokeTranslucentClassifierInfo& info = sample.info;
+        common->Printf("PathTracePrimaryPass: RT smoke translucent sample surf=%d subtype=%s material='%s' coverage=%s sort=%.2f deform=%s verts=%d indexes=%d flags guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
+            sample.surfaceIndex,
+            SmokeTranslucentSubtypeName(sample.subtype),
+            sample.materialName.c_str(),
+            SmokeCoverageName(sample.coverage),
+            sample.sort,
+            SmokeDeformName(sample.deform),
+            sample.verts,
+            sample.indexes,
+            info.sortIsGuiOrSubview ? 1 : 0,
+            info.sortIsDecal ? 1 : 0,
+            info.sortIsPostProcess ? 1 : 0,
+            info.polygonOffsetDecal ? 1 : 0,
+            info.hasScreenTexgen ? 1 : 0,
+            info.hasAdditiveBlend ? 1 : 0,
+            info.hasAmbientStage ? 1 : 0,
+            info.hasAmbientBlendStage ? 1 : 0,
+            info.hasDiffuseStage ? 1 : 0,
+            info.nameLooksGui ? 1 : 0,
+            info.nameLooksParticle ? 1 : 0,
+            info.nameLooksDecal ? 1 : 0,
+            info.nameLooksGlass ? 1 : 0,
+            info.nameLooksGlow ? 1 : 0,
+            info.nameLooksSignage ? 1 : 0);
+    }
 }
 
 void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
@@ -2955,13 +3330,14 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             continue;
         }
 
-        const uint32_t surfaceClassId = SmokeSurfaceClassId(surfaceClass);
+        const RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
+        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
         const uint32_t materialId = SmokeMaterialId(drawSurf->material);
         const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
         const bool staticSurfaceCached = std::find(staticSurfaceKeys.begin(), staticSurfaceKeys.end(), staticSurfaceKey) != staticSurfaceKeys.end();
         ++sourceSurfaces;
         ++bucketRanges.buckets[0].surfaceCount;
-        AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass);
+        AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
 
         if (staticSurfaceCached)
         {
@@ -3018,9 +3394,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         }
 
         const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-        const uint32_t surfaceClassId = SmokeSurfaceClassId(surfaceClass);
+        const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
         const uint32_t materialId = SmokeMaterialId(drawSurf->material);
-        const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId));
+        const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
         const bool isStaticWorld = surfaceClass == RtSmokeSurfaceClass::StaticWorld;
         if (isStaticWorld)
         {
@@ -3046,7 +3423,11 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             continue;
         }
 
-        AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass);
+        AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
+        if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
+        {
+            AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
+        }
         ++sourceSurfaces;
         ++dynamicSurfaces;
         sourceVerts += tri->numVerts;
@@ -3436,8 +3817,8 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 11, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11;
+    const int requestedDebugMode = idMath::ClampInt(0, 12, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11 || requestedDebugMode == 12;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeConstantsBuffer)
     {
@@ -3532,6 +3913,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         LogSmokeTextureFallbackDump(materialTable);
         r_pathTracingTextureFallbackDump.SetInteger(0);
+    }
+    if (r_pathTracingTranslucentDump.GetInteger() != 0)
+    {
+        LogSmokeTranslucentSubtypeDump(materialStats);
+        r_pathTracingTranslucentDump.SetInteger(0);
     }
     if (enableTextureProbe)
     {
@@ -3970,7 +4356,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 11, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 12, r_pathTracingDebugMode.GetInteger());
     if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
