@@ -167,7 +167,9 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 
 uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
-    return instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[primitiveIndex] : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
+    const uint materialCount = (uint)TextureInfo.z;
+    const uint materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[primitiveIndex] : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
+    return materialIndex < materialCount ? materialIndex : 0xffffffffu;
 }
 
 float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 barycentrics)
@@ -299,6 +301,27 @@ void RayGen()
         else
         {
             SmokeOutput[pixel] = float4(0.0, 1.0, 0.25, 1.0);
+        }
+    }
+    else if (debugMode == 10)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        SmokeOutput[pixel] = SampleSmokeDiffuseTexture(material, payload.texCoord);
+    }
+    else if (debugMode == 11)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        const float4 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord);
+        if (payload.surfaceClass == 3u)
+        {
+            const float3 materialColor = MaterialIdToColor(payload.materialId);
+            const float stripe = frac((payload.texCoord.x + payload.texCoord.y) * 8.0) > 0.5 ? 1.0 : 0.0;
+            const float3 overlayColor = lerp(float3(0.0, 1.0, 1.0), float3(1.0, 0.85, 0.0), stripe);
+            SmokeOutput[pixel] = float4(lerp(overlayColor, materialColor, 0.25), 1.0);
+        }
+        else
+        {
+            SmokeOutput[pixel] = albedo;
         }
     }
     else
