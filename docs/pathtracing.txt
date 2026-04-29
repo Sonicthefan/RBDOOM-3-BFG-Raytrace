@@ -41,6 +41,11 @@ Implemented debug CVars:
   6 = material ID hash color
   7 = material table debug color
   8 = sampled diffuse texture probe
+  9 = alpha/coverage preview
+  10 = albedo
+  11 = translucent overlay inspection
+  12 = translucent subtype classification
+  13 = simple fixed-light Lambert shading
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -57,8 +62,8 @@ Implemented debug CVars:
 
 - r_pathTracingTextureTableLimit / r_pathTracingTextureTableStart
   Selects a window of safe captured diffuse textures for debug mode 8. The
-  current active slot count is capped conservatively while texture sampling is
-  experimental.
+  active slot count currently supports up to 512 descriptors for broader albedo
+  coverage while texture sampling remains experimental.
 
 - r_pathTracingTextureSampleMethod
   Selects the mode 8 texture fetch path:
@@ -74,6 +79,17 @@ Implemented debug CVars:
   Binds fallback textures into active table slots instead of captured Doom
   diffuse textures. This helps separate texture-handle issues from shader
   texture-fetch issues.
+
+- r_pathTracingTextureFallbackDump
+  One-shot dump of materials that fell back to debug colors instead of sampled
+  albedo textures.
+
+- r_pathTracingAlphaDump
+  One-shot dump of alpha-tested materials, discovered alpha/coverage images,
+  cutoffs, texture dimensions, and descriptor slots.
+
+- r_pathTracingTranslucentDump
+  One-shot dump of translucent material subtype classification reasons.
 
 - r_pathTracingSmokeLog
   Enables or disables periodic RT smoke logging.
@@ -126,6 +142,23 @@ The classifier has been exercised in game. It broadly behaves as expected:
 Some edge cases remain, such as occasional static-looking pieces classified as
 rigid/dynamic. This is acceptable for now because correctness is favored over
 over-aggressive static caching.
+
+Translucent surfaces now have a second debug-only subtype classifier used by
+mode 12:
+
+- decal/grime
+- object glass
+- smoke/particle
+- signage/glow
+- portal/window
+- GUI/screen
+- unknown
+
+This classifier is intentionally diagnostic. It helped identify Doom 3's heavy
+use of translucent cards for dirt, grime, logos, warning labels, windows, smoke,
+and light/glow surfaces. It should not be treated as final material semantics.
+Some categories, especially glow/signage and object glass, need a more complete
+material and lighting model before they can be handled correctly.
 
 
 Skinned Geometry
@@ -224,6 +257,43 @@ Important history:
 Mode 8 is still only a probe. Texture.Load currently fetches a single texel and
 does not yet implement filtering, mip selection, or full Doom material behavior.
 
+The active texture table was expanded to 512 descriptors after diagnostics
+showed the earlier conservative limits left many valid captured materials on
+fallback debug colors. With Texture.Load as the default fetch path, 512
+descriptors covered the tested scenes without the earlier SWF/GUI terminal
+crash pattern.
+
+
+Alpha, Albedo, and Lighting Debug Modes
+---------------------------------------
+
+Alpha-test exploration now exists in debug-only form:
+
+- Material discovery looks for dedicated alpha/coverage images on perforated
+  materials when available.
+- Mode 9 visualizes alpha pass/fail using stable Texture.Load fetches.
+- An any-hit shader is wired for alpha-tested materials and calls IgnoreHit()
+  when sampled alpha is below the material cutoff.
+- Opaque materials stay on the normal closest-hit path.
+
+This has worked well for fan grates and perforated floors. Some Doom character
+materials expose dissolve/blood-style masks; these were initially over-applied,
+then narrowed so normal character albedo is usable again.
+
+Albedo and simple lighting exploration:
+
+- Mode 10 shades hits with sampled diffuse/albedo textures and falls back to
+  material debug colors when no safe texture descriptor exists.
+- Mode 11 overlays translucent/decal-like surfaces on top of the albedo view for
+  inspection.
+- Mode 12 colors translucent subtype classifications.
+- Mode 13 applies a simple fixed-direction Lambert light using sampled albedo
+  and the interpolated/geometric RT normal.
+
+Mode 13 is not Doom lighting. It is only a proof that the RT path can combine
+geometry, normals, alpha any-hit, material table data, bindless albedo, and a
+lighting equation in one debug visualization.
+
 
 Known Blockers and Issues
 -------------------------
@@ -242,15 +312,16 @@ Current safe approach:
 
 Open issues:
 
-- Mode 8 currently binds a conservative active window of captured diffuse maps,
-  not a final global material texture system.
+- Modes 8, 10, and 13 use the experimental bindless table, not a final global
+  material texture system.
 - Material stages are much richer than a single diffuse texture.
 - Doom materials can have generated images, videos, blend stages, alpha tests,
   deform stages, lights, and special render behavior.
 - No normal/specular/roughness/metalness material sampling exists yet.
-- No alpha testing or opacity handling in closest-hit/any-hit exists yet.
-- No path traced lighting, bounce rays, shadows, MIS, denoising, or accumulation
-  exists yet.
+- Alpha any-hit exists for simple cutout/perforated materials, but blended
+  translucent surfaces are not handled physically yet.
+- No shadow rays, bounce rays, MIS, denoising, or accumulation exists yet.
+- Mode 13 is a fixed-light debug shader, not real Doom light integration.
 - Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
   acceptable for now but not final.
 
@@ -282,9 +353,27 @@ Typical runtime commands:
 For texture probe testing:
 
     r_pathTracingDebugMode 8
+    r_pathTracingTextureTableLimit 512
+    r_pathTracingTextureSampleMethod 2
     r_pathTracingTextureProbeDump 1
     r_pathTracingTextureProbeIndex 0
     r_pathTracingTextureProbeReset 1
+
+For albedo and simple lighting:
+
+    r_pathTracingDebugMode 10
+    r_pathTracingTextureTableLimit 512
+    r_pathTracingTextureSampleMethod 2
+
+    r_pathTracingDebugMode 13
+
+For alpha and translucent inspection:
+
+    r_pathTracingDebugMode 9
+    r_pathTracingAlphaDump 1
+
+    r_pathTracingDebugMode 12
+    r_pathTracingTranslucentDump 1
 
 For quieter traversal testing:
 
@@ -296,6 +385,12 @@ Useful Commits
 
 Recent milestone commits on this branch:
 
+- 9648cf11 Add RT smoke Lambert debug mode
+- fc802458 Add RT smoke translucent subtype debug mode
+- 9de51c53 Add RT smoke albedo texture diagnostics
+- bab07b5b Add RT smoke alpha any-hit traversal
+- 3fab923f Add RT smoke alpha coverage texture preview
+- ab85af6b Harden RT smoke texture table lifetime
 - 352c6f75 Stabilize RT smoke texture probe sampling
 - 5005d0a9 Add bindless RT smoke texture probe
 - 847fc6f9 Add RT smoke material table lookup
@@ -318,14 +413,17 @@ Near term:
 1. Keep missing, unsafe, or dynamically generated materials on fallback debug
    colors instead of forcing image loads.
 
-2. Continue hardening texture lifetime and descriptor-table behavior with modest
-   active texture limits.
+2. Continue hardening texture lifetime and descriptor-table behavior while the
+   active bindless table is exercised at larger sizes.
 
 3. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
    surfaces while Texture.Load survives.
 
-4. Add an any-hit or closest-hit alpha-test experiment for simple cutout
-   materials once diffuse sampling is stable.
+4. Add a first real direct-lighting experiment: shadow rays from mode 13 hits
+   toward one simple fixed light or one selected Doom light.
+
+5. Start separating decal/blend/translucent behavior from opaque albedo. The
+   current subtype classifier is useful for inspection but not a renderer.
 
 Medium term:
 
