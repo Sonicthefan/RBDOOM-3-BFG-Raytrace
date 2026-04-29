@@ -57,6 +57,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 CameraLeftAndTanY;
     float4 CameraUpAndDebugMode;
     float4 TextureInfo;
+    float4 LightOriginAndRadius;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -175,6 +176,21 @@ float4 SmokeMissColor()
     return float4(1.0, 0.0, 0.0, 1.0);
 }
 
+PathTraceSmokePayload InitSmokePayload()
+{
+    PathTraceSmokePayload payload;
+    payload.value = 0;
+    payload.hitT = 0.0;
+    payload.normal = float3(0.0, 0.0, 0.0);
+    payload.geometricNormal = float3(0.0, 0.0, 0.0);
+    payload.texCoord = float2(0.0, 0.0);
+    payload.surfaceClass = 4;
+    payload.translucentSubtype = 5;
+    payload.materialId = 0;
+    payload.materialIndex = 0;
+    return payload;
+}
+
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material;
@@ -229,6 +245,30 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
     return SampleSmokeAlphaTexture(material, texCoord).a < material.alphaCutoff;
 }
 
+float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax)
+{
+    PathTraceSmokePayload shadowPayload = InitSmokePayload();
+    shadowPayload.value = 1;
+
+    RayDesc shadowRay;
+    shadowRay.Origin = origin;
+    shadowRay.Direction = direction;
+    shadowRay.TMin = 0.01;
+    shadowRay.TMax = tMax;
+
+    TraceRay(
+        SmokeScene,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+        0xff,
+        0,
+        1,
+        0,
+        shadowRay,
+        shadowPayload);
+
+    return shadowPayload.value == 0 ? 1.0 : 0.0;
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -237,16 +277,7 @@ void RayGen()
     const float2 uv = (float2(pixel) + 0.5) / float2(dimensions);
     const float2 ndc = uv * 2.0 - 1.0;
 
-    PathTraceSmokePayload payload;
-    payload.value = 0;
-    payload.hitT = 0.0;
-    payload.normal = float3(0.0, 0.0, 0.0);
-    payload.geometricNormal = float3(0.0, 0.0, 0.0);
-    payload.texCoord = float2(0.0, 0.0);
-    payload.surfaceClass = 4;
-    payload.translucentSubtype = 5;
-    payload.materialId = 0;
-    payload.materialIndex = 0;
+    PathTraceSmokePayload payload = InitSmokePayload();
 
     RayDesc ray;
     ray.Origin = CameraOriginAndTMax.xyz;
@@ -384,6 +415,32 @@ void RayGen()
         const float3 ambient = albedo * 0.12;
         const float3 diffuse = albedo * (0.18 + ndotl * 1.15);
         SmokeOutput[pixel] = float4(saturate(ambient + diffuse), 1.0);
+    }
+    else if (debugMode == 14)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        const float3 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord).rgb;
+        const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
+        const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
+        const bool hasPointLight = LightOriginAndRadius.w > 1.0;
+        const float3 toLight = LightOriginAndRadius.xyz - hitPosition;
+        const float lightDistance = length(toLight);
+        const float3 lightDir = hasPointLight && lightDistance > 1.0e-3
+            ? toLight / lightDistance
+            : normalize(float3(0.35, 0.45, 0.82));
+        const float ndotl = saturate(dot(normal, lightDir));
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = hasPointLight ? max(lightDistance - 0.5, 0.01) : CameraOriginAndTMax.w;
+        const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax) : 0.0;
+        const float lightAttenuation = hasPointLight
+            ? saturate(1.0 - lightDistance / max(LightOriginAndRadius.w, 1.0))
+            : 1.0;
+        const float directScale = hasPointLight ? (0.35 + lightAttenuation * lightAttenuation * 2.25) : 1.15;
+        const float3 ambient = albedo * 0.12;
+        const float3 unshadowedFill = albedo * 0.18;
+        const float3 direct = albedo * (ndotl * directScale * visibility);
+        SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct), 1.0);
     }
     else
     {

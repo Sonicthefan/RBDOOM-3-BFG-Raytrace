@@ -22,7 +22,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = nearest point-light shadow" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -172,7 +172,51 @@ struct PathTraceSmokeConstants
     float cameraLeftAndTanY[4];
     float cameraUpAndDebugMode[4];
     float textureInfo[4];
+    float lightOriginAndRadius[4];
 };
+
+bool FindNearestSmokePointLight(const viewDef_t* viewDef, const idVec3& cameraOrigin, idVec3& lightOrigin, float& lightRadius)
+{
+    if (!viewDef)
+    {
+        return false;
+    }
+
+    bool foundLight = false;
+    float bestDistanceSquared = idMath::INFINITUM;
+    for (const viewLight_t* vLight = viewDef->viewLights; vLight != NULL; vLight = vLight->next)
+    {
+        if (!vLight->pointLight || vLight->parallel || vLight->removeFromList)
+        {
+            continue;
+        }
+
+        const float distanceSquared = (vLight->globalLightOrigin - cameraOrigin).LengthSqr();
+        if (distanceSquared >= bestDistanceSquared)
+        {
+            continue;
+        }
+
+        float radius = 512.0f;
+        if (vLight->lightDef)
+        {
+            const idVec3& lightRadiusVec = vLight->lightDef->parms.lightRadius;
+            radius = Max(lightRadiusVec.x, Max(lightRadiusVec.y, lightRadiusVec.z));
+        }
+
+        if (radius <= 1.0f)
+        {
+            continue;
+        }
+
+        foundLight = true;
+        bestDistanceSquared = distanceSquared;
+        lightOrigin = vLight->globalLightOrigin;
+        lightRadius = radius;
+    }
+
+    return foundLight;
+}
 
 struct RtSmokeSurfaceClassStats
 {
@@ -3817,8 +3861,8 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 13, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11 || requestedDebugMode == 12 || requestedDebugMode == 13;
+    const int requestedDebugMode = idMath::ClampInt(0, 14, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11 || requestedDebugMode == 12 || requestedDebugMode == 13 || requestedDebugMode == 14;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeConstantsBuffer)
     {
@@ -4356,8 +4400,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 13, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 13) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 14, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -4394,6 +4438,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.textureInfo[1] = static_cast<float>(textureSampleMethod);
     constants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
     constants.textureInfo[3] = r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1.0f : 0.0f;
+    idVec3 selectedLightOrigin = cameraOrigin;
+    float selectedLightRadius = 0.0f;
+    if (debugMode == 14 && FindNearestSmokePointLight(viewDef, cameraOrigin, selectedLightOrigin, selectedLightRadius))
+    {
+        constants.lightOriginAndRadius[0] = selectedLightOrigin.x;
+        constants.lightOriginAndRadius[1] = selectedLightOrigin.y;
+        constants.lightOriginAndRadius[2] = selectedLightOrigin.z;
+        constants.lightOriginAndRadius[3] = selectedLightRadius;
+    }
 
     commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
     commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);

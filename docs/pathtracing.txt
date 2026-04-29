@@ -46,6 +46,7 @@ Implemented debug CVars:
   11 = translucent overlay inspection
   12 = translucent subtype classification
   13 = simple fixed-light Lambert shading
+  14 = nearest point-light Lambert shading with direct shadow ray
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -289,10 +290,16 @@ Albedo and simple lighting exploration:
 - Mode 12 colors translucent subtype classifications.
 - Mode 13 applies a simple fixed-direction Lambert light using sampled albedo
   and the interpolated/geometric RT normal.
+- Mode 14 extends mode 13 with one debug-only shadow ray from the primary hit
+  toward the nearest visible Doom point light. It falls back to the old fixed
+  directional light if no point light is available. The shadow ray preserves
+  the existing alpha any-hit path so cutout blockers can be ignored when their
+  alpha test rejects the hit.
 
-Mode 13 is not Doom lighting. It is only a proof that the RT path can combine
-geometry, normals, alpha any-hit, material table data, bindless albedo, and a
-lighting equation in one debug visualization.
+Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
+combine geometry, normals, alpha any-hit, material table data, bindless albedo,
+a lighting equation, and now a single direct visibility query in debug
+visualizations.
 
 
 Known Blockers and Issues
@@ -320,7 +327,8 @@ Open issues:
 - No normal/specular/roughness/metalness material sampling exists yet.
 - Alpha any-hit exists for simple cutout/perforated materials, but blended
   translucent surfaces are not handled physically yet.
-- No shadow rays, bounce rays, MIS, denoising, or accumulation exists yet.
+- No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has one
+  nearest-point-light direct-shadow ray only.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
 - Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
   acceptable for now but not final.
@@ -419,8 +427,8 @@ Near term:
 3. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
    surfaces while Texture.Load survives.
 
-4. Add a first real direct-lighting experiment: shadow rays from mode 13 hits
-   toward one simple fixed light or one selected Doom light.
+4. Expand real Doom light selection for the direct-lighting experiment. Mode 14
+   currently traces one shadow ray toward the nearest visible point light only.
 
 5. Start separating decal/blend/translucent behavior from opaque albedo. The
    current subtype classifier is useful for inspection but not a renderer.
