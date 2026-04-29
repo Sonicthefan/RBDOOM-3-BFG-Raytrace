@@ -46,7 +46,7 @@ Implemented debug CVars:
   11 = translucent overlay inspection
   12 = translucent subtype classification
   13 = simple fixed-light Lambert shading
-  14 = nearest point-light Lambert shading with direct shadow ray
+  14 = nearest point-light Lambert shading with direct shadow rays
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -92,8 +92,40 @@ Implemented debug CVars:
 - r_pathTracingTranslucentDump
   One-shot dump of translucent material subtype classification reasons.
 
+- r_pathTracingLightDump
+  One-shot dump of the selected debug point lights used by modes 14 and 15.
+
+- r_pathTracingLightCount
+  Maximum selected visible point lights used by modes 14 and 15. Defaults to 4,
+  with a debug cap of 32.
+  Set to 1 or 2 to reduce secondary shadow-ray pressure during stability
+  testing, or 0 to use the fixed directional fallback path.
+
+- r_pathTracingLightSelection
+  Selected point-light ranking for modes 14 and 15. 0 keeps the original
+  nearest-camera behavior. 1 ranks by estimated camera influence from evaluated
+  light color/intensity and radius falloff.
+
 - r_pathTracingSmokeLog
   Enables or disables periodic RT smoke logging.
+
+- r_pathTracingTimingLog
+  Enables slow-frame CPU timing logs for RT smoke scene build and dispatch
+  submission. Scene-build timing includes whether the RT smoke material table
+  cache hit or rebuilt.
+
+- r_pathTracingTimingThreshold
+  Minimum RT smoke CPU time in milliseconds before timing logs are printed.
+
+- r_pathTracingReadbackEnable
+  Enables RT smoke UAV readback diagnostics. Defaults to 0 because readback
+  waits for the GPU to idle and can cause large profiling hitches.
+
+- r_pathTracingMaterialCache
+  Experimental RT smoke material-table cache toggle. The cache path is currently
+  ignored because changing visible material sets can corrupt material-to-texture
+  mapping unless the frame-local material index mapping stays compatible with
+  cached static BLAS metadata.
 
 
 Geometry and BVH Work Completed
@@ -290,11 +322,28 @@ Albedo and simple lighting exploration:
 - Mode 12 colors translucent subtype classifications.
 - Mode 13 applies a simple fixed-direction Lambert light using sampled albedo
   and the interpolated/geometric RT normal.
-- Mode 14 extends mode 13 with one debug-only shadow ray from the primary hit
-  toward the nearest visible Doom point light. It falls back to the old fixed
-  directional light if no point light is available. The shadow ray preserves
-  the existing alpha any-hit path so cutout blockers can be ignored when their
-  alpha test rejects the hit.
+- Mode 14 extends mode 13 with debug-only shadow rays from the primary hit
+  toward up to 32 selected visible Doom point lights. The default selector
+  ranks lights by estimated camera influence from evaluated light color,
+  r_lightScale, and radius falloff; r_pathTracingLightSelection 0 restores the
+  original nearest-camera ranking. Mode 14 still uses simple radius-based debug
+  attenuation and falls back to the old fixed directional light if no point
+  light is available. The shadow rays preserve the existing alpha any-hit path
+  so cutout blockers can be ignored when their alpha tests reject the hit.
+- Mode 15 visualizes the dominant selected light at each primary hit. It uses
+  the same selected-light payload and alpha-aware shadow rays as mode 14, but
+  shades by light slot instead of final albedo lighting so selection and
+  occlusion can be inspected directly.
+
+Material table performance:
+
+- RT smoke has an experimental material-table cache behind
+  r_pathTracingMaterialCache, but the path is currently ignored after testing
+  showed material-to-texture mapping corruption when visible material order
+  changed. The correct baseline keeps static materials first so cached static
+  triangle material-index buffers remain valid across dynamic material changes.
+- Diagnostic texture coverage stats are skipped unless smoke logging is
+  enabled.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,
@@ -327,8 +376,8 @@ Open issues:
 - No normal/specular/roughness/metalness material sampling exists yet.
 - Alpha any-hit exists for simple cutout/perforated materials, but blended
   translucent surfaces are not handled physically yet.
-- No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has one
-  nearest-point-light direct-shadow ray only.
+- No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has up to
+  32 selected point-light direct-shadow rays only.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
 - Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
   acceptable for now but not final.
@@ -383,9 +432,39 @@ For alpha and translucent inspection:
     r_pathTracingDebugMode 12
     r_pathTracingTranslucentDump 1
 
+For nearest-light shadow inspection:
+
+    r_pathTracingDebugMode 14
+    r_pathTracingLightCount 4
+    r_pathTracingLightSelection 1
+    r_pathTracingLightDump 1
+
+For selected-light influence inspection:
+
+    r_pathTracingDebugMode 15
+    r_pathTracingLightCount 4
+    r_pathTracingLightSelection 1
+    r_pathTracingLightDump 1
+
+For abusive selected-light scaling tests:
+
+    r_pathTracingDebugMode 14
+    r_pathTracingLightSelection 1
+    r_pathTracingLightCount 1
+    r_pathTracingLightCount 4
+    r_pathTracingLightCount 8
+    r_pathTracingLightCount 16
+    r_pathTracingLightCount 32
+
 For quieter traversal testing:
 
     r_pathTracingSmokeLog 0
+
+For hitch diagnostics:
+
+    r_pathTracingTimingLog 1
+    r_pathTracingTimingThreshold 40
+    r_pathTracingReadbackEnable 0
 
 
 Useful Commits
@@ -428,7 +507,7 @@ Near term:
    surfaces while Texture.Load survives.
 
 4. Expand real Doom light selection for the direct-lighting experiment. Mode 14
-   currently traces one shadow ray toward the nearest visible point light only.
+   currently traces shadow rays toward up to four nearest visible point lights.
 
 5. Start separating decal/blend/translucent behavior from opaque albedo. The
    current subtype classifier is useful for inspection but not a renderer.

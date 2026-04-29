@@ -57,7 +57,9 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 CameraLeftAndTanY;
     float4 CameraUpAndDebugMode;
     float4 TextureInfo;
-    float4 LightOriginAndRadius;
+    float4 LightOriginAndRadius[32];
+    float4 LightColorAndIntensity[32];
+    float4 LightInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -65,6 +67,7 @@ static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
+static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
 {
@@ -114,6 +117,21 @@ float3 TranslucentSubtypeToColor(uint subtype)
         return float3(1.00, 0.20, 0.75); // gui / screen
     }
     return float3(0.75, 0.75, 0.75);
+}
+
+float3 DebugLightSlotColor(uint lightIndex)
+{
+    uint hash = lightIndex + 1u;
+    hash ^= hash >> 16;
+    hash *= 2246822519u;
+    hash ^= hash >> 13;
+    hash *= 3266489917u;
+    hash ^= hash >> 16;
+
+    const float r = ((hash >> 0) & 255u) * (1.0 / 255.0);
+    const float g = ((hash >> 8) & 255u) * (1.0 / 255.0);
+    const float b = ((hash >> 16) & 255u) * (1.0 / 255.0);
+    return 0.20 + float3(r, g, b) * 0.80;
 }
 
 float4 SampleSmokeTexture(uint textureIndex, uint textureWidth, uint textureHeight, float2 texCoord, float4 fallback)
@@ -416,31 +434,74 @@ void RayGen()
         const float3 diffuse = albedo * (0.18 + ndotl * 1.15);
         SmokeOutput[pixel] = float4(saturate(ambient + diffuse), 1.0);
     }
-    else if (debugMode == 14)
+    else if (debugMode == 14 || debugMode == 15)
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
         const float3 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord).rgb;
         const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
         const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
-        const bool hasPointLight = LightOriginAndRadius.w > 1.0;
-        const float3 toLight = LightOriginAndRadius.xyz - hitPosition;
-        const float lightDistance = length(toLight);
-        const float3 lightDir = hasPointLight && lightDistance > 1.0e-3
-            ? toLight / lightDistance
-            : normalize(float3(0.35, 0.45, 0.82));
-        const float ndotl = saturate(dot(normal, lightDir));
-        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
-        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
-        const float shadowTMax = hasPointLight ? max(lightDistance - 0.5, 0.01) : CameraOriginAndTMax.w;
-        const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax) : 0.0;
-        const float lightAttenuation = hasPointLight
-            ? saturate(1.0 - lightDistance / max(LightOriginAndRadius.w, 1.0))
-            : 1.0;
-        const float directScale = hasPointLight ? (0.35 + lightAttenuation * lightAttenuation * 2.25) : 1.15;
         const float3 ambient = albedo * 0.12;
         const float3 unshadowedFill = albedo * 0.18;
-        const float3 direct = albedo * (ndotl * directScale * visibility);
-        SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct), 1.0);
+        float3 direct = float3(0.0, 0.0, 0.0);
+        float3 dominantLightDebug = float3(0.0, 0.0, 0.0);
+        float dominantLightWeight = 0.0;
+        const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
+        if (lightCount == 0u)
+        {
+            const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
+            const float ndotl = saturate(dot(normal, lightDir));
+            const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+            const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+            const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w) : 0.0;
+            direct = albedo * (ndotl * 1.15 * visibility);
+            dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
+            dominantLightWeight = ndotl * visibility;
+        }
+        else
+        {
+            [loop]
+            for (uint lightIndex = 0u; lightIndex < lightCount; lightIndex++)
+            {
+                const float4 lightOriginAndRadius = LightOriginAndRadius[lightIndex];
+                const float3 toLight = lightOriginAndRadius.xyz - hitPosition;
+                const float lightDistance = length(toLight);
+                if (lightDistance <= 1.0e-3)
+                {
+                    continue;
+                }
+
+                const float3 lightDir = toLight / lightDistance;
+                const float ndotl = saturate(dot(normal, lightDir));
+                if (ndotl <= 0.0)
+                {
+                    continue;
+                }
+
+                const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+                const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+                const float shadowTMax = max(lightDistance - 0.5, 0.01);
+                const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+                const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
+                const float directScale = 0.12 + lightAttenuation * lightAttenuation * 0.75;
+                const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
+                const float contributionWeight = ndotl * directScale * visibility * max(max(lightColor.r, lightColor.g), lightColor.b);
+                direct += albedo * lightColor * (ndotl * directScale * visibility);
+                if (contributionWeight > dominantLightWeight)
+                {
+                    dominantLightWeight = contributionWeight;
+                    dominantLightDebug = DebugLightSlotColor(lightIndex) * (0.18 + saturate(contributionWeight * 2.0) * 0.82);
+                }
+            }
+        }
+        if (debugMode == 15)
+        {
+            const float3 base = albedo * 0.08;
+            SmokeOutput[pixel] = float4(saturate(base + dominantLightDebug), 1.0);
+        }
+        else
+        {
+            SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct), 1.0);
+        }
     }
     else
     {

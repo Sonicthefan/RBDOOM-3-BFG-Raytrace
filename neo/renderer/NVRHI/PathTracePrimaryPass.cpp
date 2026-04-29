@@ -22,7 +22,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = nearest point-light shadow" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -84,6 +84,24 @@ idCVar r_pathTracingTranslucentDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump current RT smoke translucent subtype classifier samples once" );
 
+idCVar r_pathTracingLightDump(
+    "r_pathTracingLightDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the current RT smoke selected debug light once" );
+
+idCVar r_pathTracingLightCount(
+    "r_pathTracingLightCount",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum selected visible point lights for RT smoke debug modes 14/15; 0 = fixed directional fallback, max 32" );
+
+idCVar r_pathTracingLightSelection(
+    "r_pathTracingLightSelection",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "RT smoke point-light selection: 0 = nearest camera lights, 1 = strongest estimated camera influence" );
+
 idCVar r_pathTracingTextureProbeDumpStart(
     "r_pathTracingTextureProbeDumpStart",
     "0",
@@ -138,6 +156,30 @@ idCVar r_pathTracingSmokeLog(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable periodic RT smoke debug logging" );
 
+idCVar r_pathTracingTimingLog(
+    "r_pathTracingTimingLog",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable RT smoke slow-frame CPU timing logs" );
+
+idCVar r_pathTracingTimingThreshold(
+    "r_pathTracingTimingThreshold",
+    "40",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "RT smoke CPU timing log threshold in milliseconds" );
+
+idCVar r_pathTracingReadbackEnable(
+    "r_pathTracingReadbackEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable RT smoke UAV readback diagnostics; can stall the GPU/CPU while profiling" );
+
+idCVar r_pathTracingMaterialCache(
+    "r_pathTracingMaterialCache",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental RT smoke material-table cache; currently ignored while material-index stability is validated" );
+
 namespace {
 
 const int RT_SMOKE_MAX_SURFACES = 128;
@@ -158,6 +200,7 @@ const int RT_SMOKE_TEXTURE_PROBE_CANDIDATE_SAMPLES = 24;
 const int RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES = 64;
 const int RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY = 512;
 const int RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP = 512;
+const int RT_SMOKE_MAX_DEBUG_LIGHTS = 32;
 const int RT_SMOKE_VERTEX_STRIDE = sizeof(PathTraceSmokeVertex);
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
@@ -172,27 +215,81 @@ struct PathTraceSmokeConstants
     float cameraLeftAndTanY[4];
     float cameraUpAndDebugMode[4];
     float textureInfo[4];
-    float lightOriginAndRadius[4];
+    float lightOriginAndRadius[RT_SMOKE_MAX_DEBUG_LIGHTS][4];
+    float lightColorAndIntensity[RT_SMOKE_MAX_DEBUG_LIGHTS][4];
+    float lightInfo[4];
 };
 
-bool FindNearestSmokePointLight(const viewDef_t* viewDef, const idVec3& cameraOrigin, idVec3& lightOrigin, float& lightRadius)
+struct RtSmokeSelectedLight
 {
-    if (!viewDef)
+    idVec3 origin = vec3_zero;
+    float radius = 0.0f;
+    idVec4 color = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    int index = -1;
+    float distanceSquared = idMath::INFINITUM;
+    float score = 0.0f;
+};
+
+idVec4 EvaluateSmokeLightColor(const viewLight_t* vLight)
+{
+    if (!vLight || !vLight->lightShader || !vLight->shaderRegisters)
     {
-        return false;
+        return idVec4(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
-    bool foundLight = false;
-    float bestDistanceSquared = idMath::INFINITUM;
-    for (const viewLight_t* vLight = viewDef->viewLights; vLight != NULL; vLight = vLight->next)
+    const float lightScale = r_lightScale.GetFloat();
+    const idMaterial* lightShader = vLight->lightShader;
+    const float* lightRegs = vLight->shaderRegisters;
+    for (int lightStageNum = 0; lightStageNum < lightShader->GetNumStages(); lightStageNum++)
     {
-        if (!vLight->pointLight || vLight->parallel || vLight->removeFromList)
+        const shaderStage_t* lightStage = lightShader->GetStage(lightStageNum);
+        if (!lightStage || !lightRegs[lightStage->conditionRegister])
         {
             continue;
         }
 
-        const float distanceSquared = (vLight->globalLightOrigin - cameraOrigin).LengthSqr();
-        if (distanceSquared >= bestDistanceSquared)
+        const int* registers = lightStage->color.registers;
+        idVec4 color(
+            lightScale * lightRegs[registers[0]],
+            lightScale * lightRegs[registers[1]],
+            lightScale * lightRegs[registers[2]],
+            lightRegs[registers[3]]);
+        if (color.x > 0.0f || color.y > 0.0f || color.z > 0.0f)
+        {
+            color.w = Max(color.x, Max(color.y, color.z));
+            return color;
+        }
+    }
+
+    return idVec4(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+float ScoreSmokePointLight(const idVec3& cameraOrigin, const idVec3& lightOrigin, float radius, const idVec4& color, int selectionMode)
+{
+    const float distanceSquared = (lightOrigin - cameraOrigin).LengthSqr();
+    if (selectionMode <= 0)
+    {
+        return 1.0f / Max(distanceSquared, 1.0f);
+    }
+
+    const float distance = idMath::Sqrt(distanceSquared);
+    const float normalizedDistance = distance / Max(radius, 1.0f);
+    const float attenuation = idMath::ClampFloat(0.0f, 1.0f, 1.0f - normalizedDistance);
+    const float intensity = Max(0.0f, color.w);
+    return intensity * (0.001f + attenuation * attenuation);
+}
+
+int CollectSelectedSmokePointLights(const viewDef_t* viewDef, const idVec3& cameraOrigin, RtSmokeSelectedLight* selectedLights, int maxSelectedLights, int selectionMode)
+{
+    if (!viewDef || !selectedLights || maxSelectedLights <= 0)
+    {
+        return 0;
+    }
+
+    int selectedLightCount = 0;
+    for (const viewLight_t* vLight = viewDef->viewLights; vLight != NULL; vLight = vLight->next)
+    {
+        if (!vLight->pointLight || vLight->parallel || vLight->removeFromList)
         {
             continue;
         }
@@ -209,13 +306,54 @@ bool FindNearestSmokePointLight(const viewDef_t* viewDef, const idVec3& cameraOr
             continue;
         }
 
-        foundLight = true;
-        bestDistanceSquared = distanceSquared;
-        lightOrigin = vLight->globalLightOrigin;
-        lightRadius = radius;
+        const idVec4 color = EvaluateSmokeLightColor(vLight);
+        const float distanceSquared = (vLight->globalLightOrigin - cameraOrigin).LengthSqr();
+        const float score = ScoreSmokePointLight(cameraOrigin, vLight->globalLightOrigin, radius, color, selectionMode);
+        if (score <= 0.0f)
+        {
+            continue;
+        }
+
+        int insertIndex = selectedLightCount;
+        if (selectedLightCount == maxSelectedLights)
+        {
+            insertIndex = -1;
+            float worstScore = score;
+            for (int i = 0; i < selectedLightCount; i++)
+            {
+                if (selectedLights[i].score < worstScore)
+                {
+                    worstScore = selectedLights[i].score;
+                    insertIndex = i;
+                }
+            }
+
+            if (insertIndex < 0)
+            {
+                continue;
+            }
+        }
+        else
+        {
+            selectedLightCount++;
+        }
+
+        selectedLights[insertIndex].origin = vLight->globalLightOrigin;
+        selectedLights[insertIndex].radius = radius;
+        selectedLights[insertIndex].color = color;
+        selectedLights[insertIndex].index = vLight->lightDef ? vLight->lightDef->index : -1;
+        selectedLights[insertIndex].distanceSquared = distanceSquared;
+        selectedLights[insertIndex].score = score;
     }
 
-    return foundLight;
+    std::sort(selectedLights, selectedLights + selectedLightCount, [](const RtSmokeSelectedLight& a, const RtSmokeSelectedLight& b) {
+        if (a.score != b.score)
+        {
+            return a.score > b.score;
+        }
+        return a.distanceSquared < b.distanceSquared;
+    });
+    return selectedLightCount;
 }
 
 struct RtSmokeSurfaceClassStats
@@ -395,6 +533,15 @@ struct RtSmokeMaterialTableBuild
     bool textureProbeUsedLatch = false;
 };
 
+struct RtSmokeMaterialTableCache
+{
+    bool valid = false;
+    uint64 signature = 0;
+    RtSmokeMaterialTableBuild table;
+    int hits = 0;
+    int misses = 0;
+};
+
 struct RtSmokeMaterialTextureInfo
 {
     uint32_t materialId = 0;
@@ -467,6 +614,7 @@ enum class RtSmokeSurfaceClass
 };
 
 std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
+RtSmokeMaterialTableCache g_smokeMaterialTableCache;
 
 int GetSmokeTextureTableRequestedLimit()
 {
@@ -476,6 +624,43 @@ int GetSmokeTextureTableRequestedLimit()
 int GetSmokeTextureTableEffectiveLimit()
 {
     return Min(GetSmokeTextureTableRequestedLimit(), RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP);
+}
+
+uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
+{
+    hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+    return hash;
+}
+
+uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
+{
+    std::vector<uint32_t> uniqueMaterialIds;
+    uniqueMaterialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
+    uniqueMaterialIds.insert(uniqueMaterialIds.end(), staticMaterialIds.begin(), staticMaterialIds.end());
+    uniqueMaterialIds.insert(uniqueMaterialIds.end(), dynamicMaterialIds.begin(), dynamicMaterialIds.end());
+    std::sort(uniqueMaterialIds.begin(), uniqueMaterialIds.end());
+    uniqueMaterialIds.erase(std::unique(uniqueMaterialIds.begin(), uniqueMaterialIds.end()), uniqueMaterialIds.end());
+
+    uint64 hash = 1469598103934665603ull;
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(uniqueMaterialIds.size()));
+    for (uint32_t materialId : uniqueMaterialIds)
+    {
+        hash = HashSmokeMaterialCacheValue(hash, materialId);
+    }
+
+    hash = HashSmokeMaterialCacheValue(hash, enableTextureProbe ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(GetSmokeTextureTableRequestedLimit()));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(Max(0, r_pathTracingTextureTableStart.GetInteger())));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureSampleEnable.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureForceFallback.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeIndex.GetInteger() + 0x80000000u));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeReset.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, latchedTextureProbeMaterialId);
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(latchedTextureProbeRequestedIndex + 0x80000000u));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(g_smokeMaterialTextureRegistry.size()));
+    return hash;
 }
 
 struct RtSmokeSurfaceClassReason
@@ -1079,6 +1264,24 @@ bool IsSmokeTextureHandleSafeForDescriptor(nvrhi::TextureHandle texture)
     return texture && IsSmokeDiffuseTextureSafeForRayTracing(texture);
 }
 
+bool SmokeTextureHandleListsEqual(const std::vector<nvrhi::TextureHandle>& lhs, const std::vector<nvrhi::TextureHandle>& rhs)
+{
+    if (lhs.size() != rhs.size())
+    {
+        return false;
+    }
+
+    for (int i = 0; i < static_cast<int>(lhs.size()); ++i)
+    {
+        if (lhs[i].Get() != rhs[i].Get())
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 {
     const char* materialName = material ? material->GetName() : "<none>";
@@ -1452,6 +1655,36 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     }
 
     PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+}
+
+void RebuildSmokeMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds)
+{
+    table.staticMaterialIndexes.clear();
+    table.dynamicMaterialIndexes.clear();
+    table.staticMaterialIndexes.reserve(staticMaterialIds.size());
+    table.dynamicMaterialIndexes.reserve(dynamicMaterialIds.size());
+
+    for (uint32_t materialId : staticMaterialIds)
+    {
+        const std::vector<uint32_t>::iterator existing = std::lower_bound(table.materialIds.begin(), table.materialIds.end(), materialId);
+        table.staticMaterialIndexes.push_back(existing != table.materialIds.end() && *existing == materialId ? static_cast<uint32_t>(existing - table.materialIds.begin()) : UINT32_MAX);
+    }
+
+    for (uint32_t materialId : dynamicMaterialIds)
+    {
+        const std::vector<uint32_t>::iterator existing = std::lower_bound(table.materialIds.begin(), table.materialIds.end(), materialId);
+        table.dynamicMaterialIndexes.push_back(existing != table.materialIds.end() && *existing == materialId ? static_cast<uint32_t>(existing - table.materialIds.begin()) : UINT32_MAX);
+    }
+}
+
+bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit)
+{
+    // Disabled while validating a frame-local material-index mapping that remains
+    // compatible with cached static BLAS metadata.
+    signature = 0;
+    cacheHit = false;
+    BuildSmokeMaterialTable(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+    return false;
 }
 
 void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype translucentSubtype)
@@ -3860,9 +4093,10 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
+    const int sceneStartMs = Sys_Milliseconds();
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 14, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11 || requestedDebugMode == 12 || requestedDebugMode == 13 || requestedDebugMode == 14;
+    const int requestedDebugMode = idMath::ClampInt(0, 15, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11 || requestedDebugMode == 12 || requestedDebugMode == 13 || requestedDebugMode == 14 || requestedDebugMode == 15;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeConstantsBuffer)
     {
@@ -3898,7 +4132,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool dumpClassReasons = r_pathTracingClassDump.GetInteger() != 0;
     RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
+    const int captureStartMs = Sys_Milliseconds();
     const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
+    const int captureMs = Sys_Milliseconds() - captureStartMs;
     if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
@@ -3924,19 +4160,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
 
+    const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
-    BuildSmokeMaterialTable(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe);
+    uint64 materialTableSignature = 0;
+    bool materialTableCacheHit = false;
+    BuildSmokeMaterialTableCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
     if (!ValidateSmokeMaterialIndexes(materialTable))
     {
         common->Printf("PathTracePrimaryPass: invalid RT smoke material table, skipping scene build\n");
         return;
     }
-    const RtSmokeTextureCoverageStats textureCoverageStats = BuildSmokeTextureCoverageStats(
-        materialTable,
-        m_smokeStaticTriangleClassCache,
-        materialTable.staticMaterialIndexes,
-        dynamicTriangleClassData,
-        materialTable.dynamicMaterialIndexes);
+    RtSmokeTextureCoverageStats textureCoverageStats;
+    const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
+    if (needTextureCoverageStats)
+    {
+        textureCoverageStats = BuildSmokeTextureCoverageStats(
+            materialTable,
+            m_smokeStaticTriangleClassCache,
+            materialTable.staticMaterialIndexes,
+            dynamicTriangleClassData,
+            materialTable.dynamicMaterialIndexes);
+    }
+    const int materialMs = Sys_Milliseconds() - materialStartMs;
     static uint32_t lastLoggedTextureProbeMaterialId = 0;
     if (enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0 && materialTable.textureProbeBoundMaterialId != lastLoggedTextureProbeMaterialId)
     {
@@ -3963,11 +4208,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         LogSmokeTranslucentSubtypeDump(materialStats);
         r_pathTracingTranslucentDump.SetInteger(0);
     }
-    if (enableTextureProbe)
+    if (enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0)
     {
         LogSmokeTextureActiveWindow(materialTable);
     }
 
+    const int bufferCreateStartMs = Sys_Milliseconds();
     nvrhi::BufferHandle smokeStaticVertexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldVertices", m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]), RT_SMOKE_VERTEX_STRIDE, true, false, true);
     nvrhi::BufferHandle smokeStaticIndexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldIndices", m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]), sizeof(uint32_t), false, true, true);
     nvrhi::BufferHandle smokeStaticTriangleClassBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldTriangleClasses", m_smokeStaticTriangleClassCache.size() * sizeof(m_smokeStaticTriangleClassCache[0]), sizeof(uint32_t), false, false, false);
@@ -3985,6 +4231,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         common->Printf("PathTracePrimaryPass: failed to create RT smoke geometry buffers\n");
         return;
     }
+    const int bufferCreateMs = Sys_Milliseconds() - bufferCreateStartMs;
 
     const int staticVertexCount = static_cast<int>(m_smokeStaticVertexCache.size());
     const int dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
@@ -4083,6 +4330,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->beginTrackingBufferState(smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::Common);
     commandList->beginTrackingBufferState(smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::Common);
     commandList->beginTrackingBufferState(smokeMaterialTableBuffer, nvrhi::ResourceStates::Common);
+    const int bufferUploadStartMs = Sys_Milliseconds();
     if (!staticBlasCacheHit && !m_smokeStaticVertexCache.empty())
     {
         commandList->writeBuffer(smokeStaticVertexBuffer, m_smokeStaticVertexCache.data(), m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]));
@@ -4142,7 +4390,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->setBufferState(smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
+    const int bufferUploadMs = Sys_Milliseconds() - bufferUploadStartMs;
 
+    const int accelSubmitStartMs = Sys_Milliseconds();
     if (hasStaticBlas && !staticBlasCacheHit)
     {
         nvrhi::utils::BuildBottomLevelAccelStruct(commandList, smokeStaticBlas, smokeStaticBlasDesc);
@@ -4177,6 +4427,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     commandList->buildTopLevelAccelStruct(m_smokeTlas, instanceDescs, instanceCount, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+    const int accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
 
     nvrhi::BindingSetDesc bindingSetDesc;
     bindingSetDesc.bindings = {
@@ -4238,6 +4489,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
 
             smokeActiveTextureTable.push_back(texture);
+        }
+
+        for (int textureSlot = 0; textureSlot < textureSlotCount; ++textureSlot)
+        {
+            nvrhi::TextureHandle texture = smokeActiveTextureTable[textureSlot + 1];
             if (!device->writeDescriptorTable(smokeTextureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))
             {
                 common->Printf("PathTracePrimaryPass: failed to write RT smoke bindless texture descriptor slot %d\n", textureSlot);
@@ -4281,6 +4537,30 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeMaterialTableEntryCount = static_cast<int>(materialTable.materials.size());
     m_smokeSceneBuilt = true;
 
+    const int sceneMs = Sys_Milliseconds() - sceneStartMs;
+    if (r_pathTracingTimingLog.GetInteger() != 0 && sceneMs >= Max(0, r_pathTracingTimingThreshold.GetInteger()))
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d material=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d lightCount=%d debugMode=%d\n",
+            sceneMs,
+            captureMs,
+            materialMs,
+            bufferCreateMs,
+            bufferUploadMs,
+            accelSubmitMs,
+            sourceSurfaces,
+            sourceVerts,
+            sourceIndexes,
+            dynamicIndexCount,
+            dynamicStats.skinnedRtCpuSkinnedSurfaces,
+            dynamicStats.skinnedRtCpuSkinnedIndexes,
+            staticBlasCacheHit ? 1 : 0,
+            materialTableCacheHit ? 1 : 0,
+            g_smokeMaterialTableCache.hits,
+            g_smokeMaterialTableCache.misses,
+            r_pathTracingLightCount.GetInteger(),
+            requestedDebugMode);
+    }
+
     if (r_pathTracingSmokeLog.GetInteger() != 0 && !m_smokeSceneRebuildLogged)
     {
         common->Printf("PathTracePrimaryPass: rebuilding RT smoke BLAS/TLAS every frame from current visible Doom surfaces (first frame: %d surfaces, %d verts, %d indexes, anchor triangle %d)\n",
@@ -4306,6 +4586,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<int>(m_smokeStaticSurfaceKeys.size()),
             m_smokeStaticBlasCacheHitCount,
             m_smokeStaticBlasCacheMissCount);
+        common->Printf("PathTracePrimaryPass: RT smoke material table cache %s signature=%llu hits=%d misses=%d materials=%d textures=%d\n",
+            materialTableCacheHit ? "hit" : "rebuild",
+            static_cast<unsigned long long>(materialTableSignature),
+            g_smokeMaterialTableCache.hits,
+            g_smokeMaterialTableCache.misses,
+            static_cast<int>(materialTable.materials.size()),
+            static_cast<int>(materialTable.diffuseTextures.size()));
         LogSmokeMaterialStats(materialStats);
         LogSmokeMaterialTable(materialTable);
         if (enableTextureProbe)
@@ -4364,6 +4651,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<int>(m_smokeStaticSurfaceKeys.size()),
             m_smokeStaticBlasCacheHitCount,
             m_smokeStaticBlasCacheMissCount);
+        common->Printf("PathTracePrimaryPass: RT smoke material table cache %s signature=%llu hits=%d misses=%d materials=%d textures=%d\n",
+            materialTableCacheHit ? "hit" : "rebuild",
+            static_cast<unsigned long long>(materialTableSignature),
+            g_smokeMaterialTableCache.hits,
+            g_smokeMaterialTableCache.misses,
+            static_cast<int>(materialTable.materials.size()),
+            static_cast<int>(materialTable.diffuseTextures.size()));
         LogSmokeMaterialStats(materialStats);
         LogSmokeMaterialTable(materialTable);
         if (enableTextureProbe)
@@ -4384,6 +4678,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 {
+    const int executeStartMs = Sys_Milliseconds();
     if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
         !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer)
@@ -4400,8 +4695,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 14, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 15, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -4438,14 +4733,47 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.textureInfo[1] = static_cast<float>(textureSampleMethod);
     constants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
     constants.textureInfo[3] = r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1.0f : 0.0f;
-    idVec3 selectedLightOrigin = cameraOrigin;
-    float selectedLightRadius = 0.0f;
-    if (debugMode == 14 && FindNearestSmokePointLight(viewDef, cameraOrigin, selectedLightOrigin, selectedLightRadius))
+    RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
+    const int requestedLightCount = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingLightCount.GetInteger());
+    const int lightSelectionMode = idMath::ClampInt(0, 1, r_pathTracingLightSelection.GetInteger());
+    const int selectedLightCount = (debugMode == 14 || debugMode == 15)
+        ? CollectSelectedSmokePointLights(viewDef, cameraOrigin, selectedLights, requestedLightCount, lightSelectionMode)
+        : 0;
+    constants.lightInfo[0] = static_cast<float>(selectedLightCount);
+    constants.lightInfo[1] = static_cast<float>(lightSelectionMode);
+    for (int i = 0; i < selectedLightCount; i++)
     {
-        constants.lightOriginAndRadius[0] = selectedLightOrigin.x;
-        constants.lightOriginAndRadius[1] = selectedLightOrigin.y;
-        constants.lightOriginAndRadius[2] = selectedLightOrigin.z;
-        constants.lightOriginAndRadius[3] = selectedLightRadius;
+        constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
+        constants.lightOriginAndRadius[i][1] = selectedLights[i].origin.y;
+        constants.lightOriginAndRadius[i][2] = selectedLights[i].origin.z;
+        constants.lightOriginAndRadius[i][3] = selectedLights[i].radius;
+        constants.lightColorAndIntensity[i][0] = selectedLights[i].color.x;
+        constants.lightColorAndIntensity[i][1] = selectedLights[i].color.y;
+        constants.lightColorAndIntensity[i][2] = selectedLights[i].color.z;
+        constants.lightColorAndIntensity[i][3] = selectedLights[i].color.w;
+    }
+    if ((debugMode == 14 || debugMode == 15) && r_pathTracingLightDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke selected %d debug point lights selection=%s\n",
+            selectedLightCount,
+            lightSelectionMode == 0 ? "nearest" : "cameraInfluence");
+        for (int i = 0; i < selectedLightCount; i++)
+        {
+            common->Printf("  light[%d]: index=%d origin=(%.2f %.2f %.2f) radius=%.2f distance=%.2f score=%.6f color=(%.3f %.3f %.3f) intensity=%.3f\n",
+                i,
+                selectedLights[i].index,
+                selectedLights[i].origin.x,
+                selectedLights[i].origin.y,
+                selectedLights[i].origin.z,
+                selectedLights[i].radius,
+                idMath::Sqrt(selectedLights[i].distanceSquared),
+                selectedLights[i].score,
+                selectedLights[i].color.x,
+                selectedLights[i].color.y,
+                selectedLights[i].color.z,
+                selectedLights[i].color.w);
+        }
+        r_pathTracingLightDump.SetInteger(0);
     }
 
     commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
@@ -4477,15 +4805,28 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.height = m_smokeOutputHeight;
     args.depth = 1;
     commandList->dispatchRays(args);
+    const int dispatchSubmitMs = Sys_Milliseconds() - executeStartMs;
+    if (r_pathTracingTimingLog.GetInteger() != 0 && dispatchSubmitMs >= Max(0, r_pathTracingTimingThreshold.GetInteger()))
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke slow dispatch submit %d ms output=%dx%d debugMode=%d lightCount=%d\n",
+            dispatchSubmitMs,
+            m_smokeOutputWidth,
+            m_smokeOutputHeight,
+            debugMode,
+            requestedLightCount);
+    }
 
-    if (!m_smokeReadbackQueued && m_smokeReadbackCooldownFrames <= 0)
+    if (r_pathTracingReadbackEnable.GetInteger() != 0 && !m_smokeReadbackQueued && m_smokeReadbackCooldownFrames <= 0)
     {
         commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
         commandList->commitBarriers();
         commandList->copyTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), m_smokeOutputTexture, nvrhi::TextureSlice());
         m_smokeReadbackQueued = true;
         m_smokeReadbackDelayFrames = 2;
-        common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
+        if (r_pathTracingSmokeLog.GetInteger() != 0)
+        {
+            common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
+        }
     }
 
     if (!m_smokeTestDispatched)
@@ -4497,6 +4838,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
+    if (r_pathTracingReadbackEnable.GetInteger() == 0)
+    {
+        m_smokeReadbackQueued = false;
+        m_smokeReadbackDelayFrames = 0;
+        m_smokeReadbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
+        return;
+    }
+
     if (!m_smokeReadbackQueued || !m_smokeReadbackTexture)
     {
         if (m_smokeReadbackCooldownFrames > 0)
@@ -4518,7 +4867,9 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
         return;
     }
 
+    const int readbackStartMs = Sys_Milliseconds();
     device->waitForIdle();
+    const int waitForIdleMs = Sys_Milliseconds() - readbackStartMs;
 
     size_t rowPitch = 0;
     void* readbackData = device->mapStagingTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &rowPitch);
@@ -4554,10 +4905,15 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
         }
     }
 
-    common->Printf("PathTracePrimaryPass: RT smoke UAV readback %dx%d center rgba=(%.3f, %.3f, %.3f, %.3f), hits=%d, misses=%d, rowPitch=%u\n",
-        m_smokeOutputWidth, m_smokeOutputHeight,
-        centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
-        greenHits, redMisses, static_cast<unsigned int>(rowPitch));
+    const int readbackMs = Sys_Milliseconds() - readbackStartMs;
+    if (r_pathTracingSmokeLog.GetInteger() != 0 || (r_pathTracingTimingLog.GetInteger() != 0 && readbackMs >= Max(0, r_pathTracingTimingThreshold.GetInteger())))
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke UAV readback %dx%d center rgba=(%.3f, %.3f, %.3f, %.3f), hits=%d, misses=%d, rowPitch=%u, total=%d ms, waitForIdle=%d ms\n",
+            m_smokeOutputWidth, m_smokeOutputHeight,
+            centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
+            greenHits, redMisses, static_cast<unsigned int>(rowPitch),
+            readbackMs, waitForIdleMs);
+    }
 
     device->unmapStagingTexture(m_smokeReadbackTexture);
     m_smokeReadbackLogged = true;
