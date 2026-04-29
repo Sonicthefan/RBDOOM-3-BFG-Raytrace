@@ -66,6 +66,12 @@ idCVar r_pathTracingTextureProbeDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the current RT smoke texture probe and sampled candidate list once" );
 
+idCVar r_pathTracingAlphaDump(
+    "r_pathTracingAlphaDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the current RT smoke alpha-test material table once" );
+
 idCVar r_pathTracingTextureProbeDumpStart(
     "r_pathTracingTextureProbeDumpStart",
     "0",
@@ -291,6 +297,7 @@ struct RtSmokeMaterialTextureInfo
     bool hasSafeAlphaTexture = false;
     bool hasAlphaTest = false;
     float alphaCutoff = 0.0f;
+    materialCoverage_t coverage = MC_BAD;
     int tableIndex = -1;
 };
 
@@ -790,6 +797,7 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->alphaReason = alphaReason;
     info->diffuseImage = diffuseImage;
     info->alphaImage = alphaImage;
+    info->coverage = material ? material->Coverage() : MC_BAD;
     info->hasDiffuseImage = diffuseImage != nullptr;
     info->hasAlphaImage = alphaImage != nullptr;
     info->hasTextureHandle = diffuseImage && diffuseImage->GetTextureHandle();
@@ -1911,6 +1919,71 @@ void LogSmokeTextureProbeSwitch(const RtSmokeMaterialTableBuild& table)
         table.textureProbeUsedLatch ? 1 : 0);
 }
 
+void LogSmokeAlphaMaterialDump(const RtSmokeMaterialTableBuild& table)
+{
+    const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
+    int alphaMaterialCount = 0;
+    for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
+    {
+        if ((table.materials[tableIndex].flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0)
+        {
+            ++alphaMaterialCount;
+        }
+    }
+
+    const int maxLogged = RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES;
+    common->Printf("PathTracePrimaryPass: RT smoke alpha material dump entries=%d alphaTested=%d slots=%d tableLimit=%d start=%d sampleMethod=%d bindless=%d\n",
+        materialTableCount,
+        alphaMaterialCount,
+        static_cast<int>(table.diffuseTextures.size()),
+        GetSmokeTextureTableEffectiveLimit(),
+        Max(0, r_pathTracingTextureTableStart.GetInteger()),
+        r_pathTracingTextureSampleEnable.GetInteger() != 0 ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()) : 0,
+        r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1 : 0);
+
+    int logged = 0;
+    for (int tableIndex = 0; tableIndex < materialTableCount && logged < maxLogged; ++tableIndex)
+    {
+        const PathTraceSmokeMaterial& material = table.materials[tableIndex];
+        if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0)
+        {
+            continue;
+        }
+
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
+        common->Printf("PathTracePrimaryPass: RT smoke alpha material index=%d id=%u material='%s' coverage=%s cutoff=%.3f diffuse='%s' diffuseSlot=%d diffuseSize=%ux%u alpha='%s' alphaSlot=%d alphaSize=%ux%u alphaReason='%s' diffuseReason='%s' safeDiffuse=%d safeAlpha=%d\n",
+            tableIndex,
+            table.materialIds[tableIndex],
+            info.materialName.c_str(),
+            SmokeCoverageName(info.coverage),
+            material.alphaCutoff,
+            info.diffuseImageName.c_str(),
+            material.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.diffuseTextureIndex),
+            material.textureWidth,
+            material.textureHeight,
+            info.alphaImageName.c_str(),
+            material.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.alphaTextureIndex),
+            material.alphaTextureWidth,
+            material.alphaTextureHeight,
+            info.alphaReason.c_str(),
+            info.fallbackReason.c_str(),
+            info.hasSafeTexture ? 1 : 0,
+            info.hasSafeAlphaTexture ? 1 : 0);
+        ++logged;
+    }
+
+    if (logged == 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke alpha material dump found no alpha-tested materials in current capture\n");
+    }
+    else if (logged < alphaMaterialCount)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke alpha material dump truncated logged=%d total=%d\n",
+            logged,
+            alphaMaterialCount);
+    }
+}
+
 void LogSmokeTextureProbeDump(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
@@ -2960,7 +3033,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         {
             "HitGroup",
             m_smokeShaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit),
-            nullptr,
+            m_smokeShaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit),
             nullptr,
             nullptr,
             false
@@ -3152,6 +3225,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         LogSmokeTextureProbeDump(materialTable);
         r_pathTracingTextureProbeDump.SetInteger(0);
     }
+    if (enableTextureProbe && r_pathTracingAlphaDump.GetInteger() != 0)
+    {
+        LogSmokeAlphaMaterialDump(materialTable);
+        r_pathTracingAlphaDump.SetInteger(0);
+    }
     if (enableTextureProbe)
     {
         LogSmokeTextureActiveWindow(materialTable);
@@ -3221,7 +3299,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
             nvrhi::rt::GeometryDesc staticGeometryDesc;
             staticGeometryDesc.setTriangles(staticTriangleGeometry);
-            staticGeometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
 
             smokeStaticBlasDesc = nvrhi::rt::AccelStructDesc()
                 .addBottomLevelGeometry(staticGeometryDesc)
@@ -3246,7 +3323,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
         nvrhi::rt::GeometryDesc dynamicGeometryDesc;
         dynamicGeometryDesc.setTriangles(dynamicTriangleGeometry);
-        dynamicGeometryDesc.setFlags(nvrhi::rt::GeometryFlags::Opaque);
 
         smokeDynamicBlasDesc = nvrhi::rt::AccelStructDesc()
             .addBottomLevelGeometry(dynamicGeometryDesc)

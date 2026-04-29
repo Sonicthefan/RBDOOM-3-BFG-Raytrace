@@ -138,6 +138,11 @@ float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
     return SampleSmokeDiffuseTexture(material, texCoord);
 }
 
+float4 SmokeMissColor()
+{
+    return float4(1.0, 0.0, 0.0, 1.0);
+}
+
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material;
@@ -158,6 +163,36 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
     }
 
     return material;
+}
+
+uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
+{
+    return instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[primitiveIndex] : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
+}
+
+float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 barycentrics)
+{
+    const uint indexOffset = primitiveIndex * 3;
+    const uint i0 = instanceId == 0 ? SmokeStaticIndices[indexOffset + 0] : SmokeDynamicIndices[indexOffset + 0];
+    const uint i1 = instanceId == 0 ? SmokeStaticIndices[indexOffset + 1] : SmokeDynamicIndices[indexOffset + 1];
+    const uint i2 = instanceId == 0 ? SmokeStaticIndices[indexOffset + 2] : SmokeDynamicIndices[indexOffset + 2];
+    const float2 uv0 = (instanceId == 0 ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).xy;
+    const float2 uv1 = (instanceId == 0 ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).xy;
+    const float2 uv2 = (instanceId == 0 ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).xy;
+    const float3 weights = float3(1.0 - barycentrics.x - barycentrics.y, barycentrics.x, barycentrics.y);
+    return uv0 * weights.x + uv1 * weights.y + uv2 * weights.z;
+}
+
+bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics)
+{
+    const PathTraceSmokeMaterial material = LoadSmokeMaterial(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex));
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0u)
+    {
+        return false;
+    }
+
+    const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
+    return SampleSmokeAlphaTexture(material, texCoord).a < material.alphaCutoff;
 }
 
 [shader("raygeneration")]
@@ -192,7 +227,7 @@ void RayGen()
     const uint debugMode = (uint)CameraUpAndDebugMode.w;
     if (payload.value == 0)
     {
-        SmokeOutput[pixel] = float4(1.0, 0.0, 0.0, 1.0);
+        SmokeOutput[pixel] = SmokeMissColor();
     }
     else if (debugMode == 1)
     {
@@ -259,7 +294,7 @@ void RayGen()
         }
         else if (texel.a < material.alphaCutoff)
         {
-            SmokeOutput[pixel] = float4(1.0, 0.0, 0.0, 1.0);
+            SmokeOutput[pixel] = SmokeMissColor();
         }
         else
         {
@@ -276,6 +311,15 @@ void RayGen()
 void Miss(inout PathTraceSmokePayload payload)
 {
     payload.value = 0;
+}
+
+[shader("anyhit")]
+void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics))
+    {
+        IgnoreHit();
+    }
 }
 
 [shader("closesthit")]
