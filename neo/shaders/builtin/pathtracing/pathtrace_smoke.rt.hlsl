@@ -374,6 +374,17 @@ void RayGen()
             SmokeOutput[pixel] = float4(albedo * 0.35, 1.0);
         }
     }
+    else if (debugMode == 13)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        const float3 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord).rgb;
+        const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
+        const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
+        const float ndotl = saturate(dot(normal, lightDir));
+        const float3 ambient = albedo * 0.12;
+        const float3 diffuse = albedo * (0.18 + ndotl * 1.15);
+        SmokeOutput[pixel] = float4(saturate(ambient + diffuse), 1.0);
+    }
     else
     {
         SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
