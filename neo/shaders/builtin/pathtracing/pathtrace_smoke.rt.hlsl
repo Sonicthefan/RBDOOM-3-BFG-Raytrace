@@ -23,7 +23,13 @@ struct PathTraceSmokeMaterial
 {
     float4 debugAlbedo;
     uint diffuseTextureIndex;
-    uint3 pad;
+    uint alphaTextureIndex;
+    float alphaCutoff;
+    uint flags;
+    uint textureWidth;
+    uint textureHeight;
+    uint alphaTextureWidth;
+    uint alphaTextureHeight;
 };
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
@@ -54,6 +60,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
 {
@@ -76,7 +83,7 @@ float3 MaterialIdToColor(uint materialId)
     return 0.15 + float3(r, g, b) * 0.85;
 }
 
-float4 SampleSmokeDiffuseTexture(uint textureIndex, float2 texCoord, float4 fallback)
+float4 SampleSmokeTexture(uint textureIndex, uint textureWidth, uint textureHeight, float2 texCoord, float4 fallback)
 {
     const uint textureCount = (uint)TextureInfo.x;
     const uint sampleMethod = (uint)TextureInfo.y;
@@ -95,8 +102,11 @@ float4 SampleSmokeDiffuseTexture(uint textureIndex, float2 texCoord, float4 fall
     float4 sampled = fallback;
     if (sampleMethod == 2u)
     {
+        const uint width = max(textureWidth, 1u);
+        const uint height = max(textureHeight, 1u);
+        const uint2 texel = min(uint2(wrappedTexCoord * float2(width, height)), uint2(width - 1u, height - 1u));
         sampled = bindlessEnabled
-            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(0, 0, 0))
+            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel, 0))
             : SmokeFallbackTexture.Load(int3(0, 0, 0));
     }
     else
@@ -113,12 +123,33 @@ float4 SampleSmokeDiffuseTexture(uint textureIndex, float2 texCoord, float4 fall
     return sampled;
 }
 
+float4 SampleSmokeDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    return SampleSmokeTexture(material.diffuseTextureIndex, material.textureWidth, material.textureHeight, texCoord, material.debugAlbedo);
+}
+
+float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if (material.alphaTextureIndex != 0xffffffffu)
+    {
+        return SampleSmokeTexture(material.alphaTextureIndex, material.alphaTextureWidth, material.alphaTextureHeight, texCoord, SampleSmokeDiffuseTexture(material, texCoord));
+    }
+
+    return SampleSmokeDiffuseTexture(material, texCoord);
+}
+
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material;
     material.debugAlbedo = float4(1.0, 0.0, 1.0, 1.0);
     material.diffuseTextureIndex = 0xffffffffu;
-    material.pad = uint3(0, 0, 0);
+    material.alphaTextureIndex = 0xffffffffu;
+    material.alphaCutoff = 0.0;
+    material.flags = 0u;
+    material.textureWidth = 1u;
+    material.textureHeight = 1u;
+    material.alphaTextureWidth = 1u;
+    material.alphaTextureHeight = 1u;
 
     const uint materialCount = (uint)TextureInfo.z;
     if (materialIndex < materialCount)
@@ -215,7 +246,25 @@ void RayGen()
     else if (debugMode == 8)
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
-        SmokeOutput[pixel] = SampleSmokeDiffuseTexture(material.diffuseTextureIndex, payload.texCoord, material.debugAlbedo);
+        SmokeOutput[pixel] = SampleSmokeDiffuseTexture(material, payload.texCoord);
+    }
+    else if (debugMode == 9)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        const float4 texel = SampleSmokeAlphaTexture(material, payload.texCoord);
+        const bool alphaTested = (material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u;
+        if (!alphaTested)
+        {
+            SmokeOutput[pixel] = float4(0.15, 0.15, 0.15, 1.0);
+        }
+        else if (texel.a < material.alphaCutoff)
+        {
+            SmokeOutput[pixel] = float4(1.0, 0.0, 0.0, 1.0);
+        }
+        else
+        {
+            SmokeOutput[pixel] = float4(0.0, 1.0, 0.25, 1.0);
+        }
     }
     else
     {
