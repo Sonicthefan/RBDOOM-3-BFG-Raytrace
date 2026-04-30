@@ -163,6 +163,18 @@ idCVar r_pathTracingTextureDecode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Decode RT smoke material texture encodings such as Doom diffuse YCoCg" );
 
+idCVar r_pathTracingUseNormalMaps(
+    "r_pathTracingUseNormalMaps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use sampled normal maps for RT smoke debug mode 14 direct lighting" );
+
+idCVar r_pathTracingUseSpecularMaps(
+    "r_pathTracingUseSpecularMaps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use sampled specular maps for RT smoke debug mode 14 direct lighting" );
+
 idCVar r_pathTracingAdditiveDecalKey(
     "r_pathTracingAdditiveDecalKey",
     "0",
@@ -5129,7 +5141,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t textureFlags =
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
-        (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u);
+        (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && debugMode == 14 ? 8u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && debugMode == 14 ? 16u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const int requestedLightCount = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingLightCount.GetInteger());

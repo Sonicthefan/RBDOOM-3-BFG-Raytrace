@@ -84,6 +84,20 @@ Implemented debug CVars:
   Enables decode of Doom texture encodings in the RT texture path. Defaults to
   1. Currently this decodes diffuse YCoCg textures before albedo/lighting use.
 
+- r_pathTracingUseNormalMaps
+  Enables sampled normal maps in debug mode 14 selected point-light direct
+  lighting. Defaults to 1. The normal map is decoded in the shader and applied
+  through a per-hit tangent basis derived from triangle position/UV gradients.
+  The decode follows the existing raster G-buffer convention: normal X is read
+  from texture alpha, normal Y from green, and normal Z is reconstructed. This
+  is an experimental bridge toward the later Doom material-to-PBR path;
+  roughness/specular conversion is still separate future work.
+
+- r_pathTracingUseSpecularMaps
+  Enables sampled specular maps in debug mode 14 selected point-light direct
+  lighting. Defaults to 1. This is a simple Blinn-style diagnostic highlight
+  using Doom's specular color map, not the final PBR material model.
+
 - r_pathTracingAdditiveDecalKey
   Treats additive translucent decal/signage materials as RGB-keyed overlays in
   the RT smoke path. Near-black texels are ignored by primary rays so the
@@ -104,7 +118,10 @@ Implemented debug CVars:
 
 Normal and specular material textures are discovered through the same cached
 material metadata path as albedo. They are bound into the shared RT smoke
-bindless texture table and currently sampled only by debug modes 16 and 17.
+bindless texture table. Debug mode 16 previews sampled normal maps, debug mode
+17 previews sampled specular maps, and debug mode 14 can apply normal maps to
+its selected point-light direct lighting when r_pathTracingUseNormalMaps is 1
+and specular maps when r_pathTracingUseSpecularMaps is 1.
 
 - r_pathTracingTextureBindlessEnable
   1 samples through the bindless descriptor table. 0 samples a regular fallback

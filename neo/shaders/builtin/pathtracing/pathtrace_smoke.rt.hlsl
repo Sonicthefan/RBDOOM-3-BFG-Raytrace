@@ -6,6 +6,8 @@ struct PathTraceSmokePayload
     float hitT;
     float3 normal;
     float3 geometricNormal;
+    float3 tangent;
+    float3 bitangent;
     float2 texCoord;
     uint surfaceClass;
     uint translucentSubtype;
@@ -77,12 +79,20 @@ static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
 {
     const float lengthSquared = dot(value, value);
     return lengthSquared > 1.0e-8 ? value * rsqrt(lengthSquared) : fallback;
+}
+
+float3 BuildPerpendicular(float3 normal)
+{
+    const float3 axis = abs(normal.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(0.0, 1.0, 0.0);
+    return SafeNormalize(cross(axis, normal), float3(1.0, 0.0, 0.0));
 }
 
 float3 MaterialIdToColor(uint materialId)
@@ -260,6 +270,34 @@ float4 SampleSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord
         float4(0.5, 0.5, 1.0, 1.0));
 }
 
+float3 DecodeSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord, float3 normal, float3 tangent, float3 bitangent)
+{
+    if ((material.normalTextureIndex == 0xffffffffu) || ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS) == 0u))
+    {
+        return normal;
+    }
+
+    const float4 bump = SampleSmokeNormalTexture(material, texCoord) * 2.0 - 1.0;
+    if (!all(bump == bump))
+    {
+        return normal;
+    }
+
+    float3 decoded = float3(bump.w, bump.y, 0.0);
+    const float xyLengthSquared = dot(decoded.xy, decoded.xy);
+    if (xyLengthSquared >= 1.0)
+    {
+        decoded.xy *= rsqrt(xyLengthSquared);
+        decoded.z = 0.0;
+    }
+    else
+    {
+        decoded.z = sqrt(1.0 - xyLengthSquared);
+    }
+    const float3 worldNormal = tangent * decoded.x + bitangent * decoded.y + normal * decoded.z;
+    return SafeNormalize(worldNormal, normal);
+}
+
 float4 SampleSmokeSpecularTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
     return SampleSmokeTexture(
@@ -268,6 +306,29 @@ float4 SampleSmokeSpecularTexture(PathTraceSmokeMaterial material, float2 texCoo
         material.specularTextureHeight,
         texCoord,
         float4(0.0, 0.0, 0.0, 1.0));
+}
+
+float3 SampleSmokeDirectSpecular(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if ((material.specularTextureIndex == 0xffffffffu) || ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS) == 0u))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    return saturate(SampleSmokeSpecularTexture(material, texCoord).rgb);
+}
+
+float3 EvaluateSmokeSpecular(float3 specularColor, float3 normal, float3 lightDir, float3 viewDir, float3 lightColor, float directScale, float visibility)
+{
+    if (visibility <= 0.0 || max(max(specularColor.r, specularColor.g), specularColor.b) <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 halfVector = SafeNormalize(lightDir + viewDir, normal);
+    const float specularNdotH = saturate(dot(normal, halfVector));
+    const float specularTerm = pow(specularNdotH, 32.0) * directScale * visibility;
+    return specularColor * lightColor * specularTerm;
 }
 
 float SmokeAdditiveDecalOpacity(float3 albedo)
@@ -303,6 +364,8 @@ PathTraceSmokePayload InitSmokePayload()
     payload.hitT = 0.0;
     payload.normal = float3(0.0, 0.0, 0.0);
     payload.geometricNormal = float3(0.0, 0.0, 0.0);
+    payload.tangent = float3(1.0, 0.0, 0.0);
+    payload.bitangent = float3(0.0, 1.0, 0.0);
     payload.texCoord = float2(0.0, 0.0);
     payload.surfaceClass = 4;
     payload.translucentSubtype = 5;
@@ -578,8 +641,13 @@ void RayGen()
         }
         else
         {
-            const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
+            const float3 baseNormal = SafeNormalize(payload.normal, payload.geometricNormal);
+            const float3 normal = debugMode == 14
+                ? DecodeSmokeNormalTexture(material, payload.texCoord, baseNormal, payload.tangent, payload.bitangent)
+                : baseNormal;
             const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
+            const float3 viewDir = SafeNormalize(ray.Origin - hitPosition, -ray.Direction);
+            const float3 specularColor = debugMode == 14 ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
             const float3 ambient = albedo * 0.12;
             const float3 unshadowedFill = albedo * 0.18;
             float3 direct = float3(0.0, 0.0, 0.0);
@@ -594,6 +662,7 @@ void RayGen()
                 const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
                 const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w) : 0.0;
                 direct = albedo * (ndotl * 1.15 * visibility);
+                direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, float3(0.85, 0.85, 1.0), 1.15, visibility);
                 dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
                 dominantLightWeight = ndotl * visibility;
             }
@@ -626,6 +695,7 @@ void RayGen()
                     const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
                     const float contributionWeight = ndotl * directScale * visibility * max(max(lightColor.r, lightColor.g), lightColor.b);
                     direct += albedo * lightColor * (ndotl * directScale * visibility);
+                    direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale, visibility);
                     if (contributionWeight > dominantLightWeight)
                     {
                         dominantLightWeight = contributionWeight;
@@ -692,6 +762,30 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.geometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), float3(0.0, 0.0, 1.0));
     const float3 interpolatedNormal = SafeNormalize(n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z, payload.geometricNormal);
     payload.normal = forceGeometricNormal ? payload.geometricNormal : interpolatedNormal;
+    const float3 tangentFallback = BuildPerpendicular(payload.normal);
+    const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
+    const float3 dp1 = p1 - p0;
+    const float3 dp2 = p2 - p0;
+    const float2 duv1 = uv1 - uv0;
+    const float2 duv2 = uv2 - uv0;
+    const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
+    if (abs(uvDeterminant) > 1.0e-8)
+    {
+        const float inverseDeterminant = 1.0 / uvDeterminant;
+        const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
+        const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
+        payload.tangent = SafeNormalize(rawTangent - payload.normal * dot(payload.normal, rawTangent), tangentFallback);
+        payload.bitangent = SafeNormalize(rawBitangent - payload.normal * dot(payload.normal, rawBitangent) - payload.tangent * dot(payload.tangent, rawBitangent), bitangentFallback);
+        if (dot(cross(payload.tangent, payload.bitangent), payload.normal) < 0.0)
+        {
+            payload.bitangent = -payload.bitangent;
+        }
+    }
+    else
+    {
+        payload.tangent = tangentFallback;
+        payload.bitangent = bitangentFallback;
+    }
     payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     payload.translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
