@@ -23,7 +23,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -163,6 +163,12 @@ idCVar r_pathTracingTextureDecode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Decode RT smoke material texture encodings such as Doom diffuse YCoCg" );
 
+idCVar r_pathTracingAdditiveDecalKey(
+    "r_pathTracingAdditiveDecalKey",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Treat additive translucent decal/signage materials as RGB-keyed RT overlays" );
+
 idCVar r_pathTracingMaterialMetadataCache(
     "r_pathTracingMaterialMetadataCache",
     "1",
@@ -186,6 +192,12 @@ idCVar r_pathTracingTimingThreshold(
     "40",
     CVAR_RENDERER | CVAR_INTEGER,
     "RT smoke CPU timing log threshold in milliseconds" );
+
+idCVar r_pathTracingTimingLogInterval(
+    "r_pathTracingTimingLogInterval",
+    "1000",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Minimum milliseconds between repeated RT smoke timing log lines; 0 logs every threshold hit" );
 
 idCVar r_pathTracingReadbackEnable(
     "r_pathTracingReadbackEnable",
@@ -227,6 +239,7 @@ const uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 const uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 const uint32_t RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 const uint32_t RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
+const uint32_t RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 
 struct PathTraceSmokeConstants
 {
@@ -524,13 +537,22 @@ struct PathTraceSmokeMaterial
     float debugAlbedo[4];
     uint32_t diffuseTextureIndex = UINT32_MAX;
     uint32_t alphaTextureIndex = UINT32_MAX;
+    uint32_t normalTextureIndex = UINT32_MAX;
+    uint32_t specularTextureIndex = UINT32_MAX;
     float alphaCutoff = 0.0f;
     uint32_t flags = 0;
     uint32_t textureWidth = 1;
     uint32_t textureHeight = 1;
     uint32_t alphaTextureWidth = 1;
     uint32_t alphaTextureHeight = 1;
+    uint32_t normalTextureWidth = 1;
+    uint32_t normalTextureHeight = 1;
+    uint32_t specularTextureWidth = 1;
+    uint32_t specularTextureHeight = 1;
+    uint32_t padding0 = 0;
+    uint32_t padding1 = 0;
 };
+static_assert((sizeof(PathTraceSmokeMaterial) % 16) == 0, "PathTraceSmokeMaterial must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
 struct RtSmokeMaterialTableBuild
 {
@@ -540,6 +562,8 @@ struct RtSmokeMaterialTableBuild
     std::vector<uint32_t> dynamicMaterialIndexes;
     std::vector<nvrhi::TextureHandle> diffuseTextures;
     int materialsWithTextures = 0;
+    int materialsWithNormalTextures = 0;
+    int materialsWithSpecularTextures = 0;
     int materialsMissingTextures = 0;
     int materialsRejectedTextures = 0;
     int materialsRejectedAtFinalCheck = 0;
@@ -547,6 +571,7 @@ struct RtSmokeMaterialTableBuild
     int materialsOverTextureSlotLimit = 0;
     int materialsWithAlphaTextures = 0;
     int materialsAlphaTested = 0;
+    int materialsAdditiveDecals = 0;
     int textureProbeRequestedIndex = -1;
     int textureProbeBoundIndex = -1;
     uint32_t textureProbeBoundMaterialId = 0;
@@ -568,22 +593,45 @@ struct RtSmokeMaterialTextureInfo
     idStr materialName;
     idStr diffuseImageName;
     idStr alphaImageName;
+    idStr normalImageName;
+    idStr specularImageName;
     idStr fallbackReason;
     idStr alphaReason;
+    idStr normalReason;
+    idStr specularReason;
     idImage* diffuseImage = nullptr;
     idImage* alphaImage = nullptr;
+    idImage* normalImage = nullptr;
+    idImage* specularImage = nullptr;
     bool hasDiffuseImage = false;
     bool hasAlphaImage = false;
+    bool hasNormalImage = false;
+    bool hasSpecularImage = false;
     bool hasTextureHandle = false;
     bool hasAlphaTextureHandle = false;
+    bool hasNormalTextureHandle = false;
+    bool hasSpecularTextureHandle = false;
     bool hasSafeTexture = false;
     bool hasSafeAlphaTexture = false;
+    bool hasSafeNormalTexture = false;
+    bool hasSafeSpecularTexture = false;
     bool hasAlphaTest = false;
+    bool additiveDecal = false;
     float alphaCutoff = 0.0f;
     textureColor_t diffuseColorFormat = CFM_DEFAULT;
     textureColor_t alphaColorFormat = CFM_DEFAULT;
+    textureColor_t normalColorFormat = CFM_DEFAULT;
+    textureColor_t specularColorFormat = CFM_DEFAULT;
     materialCoverage_t coverage = MC_BAD;
     int tableIndex = -1;
+};
+
+struct RtSmokeMaterialMetadataFrameStats
+{
+    int registrations = 0;
+    int cacheRefreshes = 0;
+    int fullDiscovers = 0;
+    int newEntries = 0;
 };
 
 struct RtSmokeBucketRange
@@ -638,6 +686,32 @@ enum class RtSmokeSurfaceClass
 std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
 std::unordered_map<uint32_t, int> g_smokeMaterialTextureRegistryLookup;
 RtSmokeMaterialTableCache g_smokeMaterialTableCache;
+RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
+int g_smokeLastSceneTimingLogMs = -1000000;
+int g_smokeLastDispatchTimingLogMs = -1000000;
+int g_smokeLastReadbackTimingLogMs = -1000000;
+
+bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
+{
+    if (r_pathTracingTimingLog.GetInteger() == 0)
+    {
+        return false;
+    }
+
+    if (elapsedMs < Max(0, r_pathTracingTimingThreshold.GetInteger()))
+    {
+        return false;
+    }
+
+    const int intervalMs = Max(0, r_pathTracingTimingLogInterval.GetInteger());
+    if (intervalMs > 0 && nowMs - lastLogMs < intervalMs)
+    {
+        return false;
+    }
+
+    lastLogMs = nowMs;
+    return true;
+}
 
 int GetSmokeTextureTableRequestedLimit()
 {
@@ -1042,6 +1116,33 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTes
 
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
 
+bool IsSmokeAdditiveDecalMaterial(const idMaterial* material)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo info = BuildSmokeTranslucentClassifierInfo(material);
+    if (!info.hasAdditiveBlend)
+    {
+        return false;
+    }
+
+    if (info.hasScreenTexgen || info.nameLooksGui || info.nameLooksParticle || info.nameLooksGlass)
+    {
+        return false;
+    }
+
+    return material->Coverage() == MC_TRANSLUCENT ||
+        info.hasAmbientStage ||
+        info.sortIsDecal ||
+        info.polygonOffsetDecal ||
+        info.nameLooksDecal ||
+        info.nameLooksSignage ||
+        info.nameLooksGlow;
+}
+
 uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
 {
     std::vector<uint32_t>::iterator existing = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
@@ -1065,6 +1166,11 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     if (info.diffuseColorFormat == CFM_YCOCG_DXT5)
     {
         material.flags |= RT_SMOKE_MATERIAL_DIFFUSE_YCOCG;
+    }
+    if (info.additiveDecal && r_pathTracingAdditiveDecalKey.GetInteger() != 0)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL;
+        ++table.materialsAdditiveDecals;
     }
     table.materialIds.push_back(materialId);
     table.materials.push_back(material);
@@ -1156,6 +1262,68 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
     }
 
     reason = "no fast-path or diffuse-stage image";
+    return nullptr;
+}
+
+idImage* FindSmokeNormalImage(const idMaterial* material, idStr& reason)
+{
+    if (!material)
+    {
+        reason = "null material";
+        return nullptr;
+    }
+
+    idImage* image = material->GetFastPathBumpImage();
+    if (image)
+    {
+        reason = "fastPathBump";
+        return image;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_BUMP || !stage->texture.image)
+        {
+            continue;
+        }
+
+        reason = va("stage %d SL_BUMP", stageIndex);
+        return stage->texture.image;
+    }
+
+    reason = "no fast-path or bump-stage image";
+    return nullptr;
+}
+
+idImage* FindSmokeSpecularImage(const idMaterial* material, idStr& reason)
+{
+    if (!material)
+    {
+        reason = "null material";
+        return nullptr;
+    }
+
+    idImage* image = material->GetFastPathSpecularImage();
+    if (image)
+    {
+        reason = "fastPathSpecular";
+        return image;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_SPECULAR || !stage->texture.image)
+        {
+            continue;
+        }
+
+        reason = va("stage %d SL_SPECULAR", stageIndex);
+        return stage->texture.image;
+    }
+
+    reason = "no fast-path or specular-stage image";
     return nullptr;
 }
 
@@ -1333,24 +1501,32 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
 {
     info.hasTextureHandle = info.diffuseImage && info.diffuseImage->GetTextureHandle();
     info.hasAlphaTextureHandle = info.alphaImage && info.alphaImage->GetTextureHandle();
+    info.hasNormalTextureHandle = info.normalImage && info.normalImage->GetTextureHandle();
+    info.hasSpecularTextureHandle = info.specularImage && info.specularImage->GetTextureHandle();
     info.hasSafeTexture = info.hasTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage);
     info.hasSafeAlphaTexture = info.hasAlphaTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.alphaImage);
+    info.hasSafeNormalTexture = info.hasNormalTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage);
+    info.hasSafeSpecularTexture = info.hasSpecularTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage);
 }
 
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 {
+    ++g_smokeMaterialMetadataFrameStats.registrations;
+
     const char* materialName = material ? material->GetName() : "<none>";
     const uint32_t materialId = HashSmokeMaterialName(materialName);
 
     RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
     if (info && r_pathTracingMaterialMetadataCache.GetInteger() != 0)
     {
+        ++g_smokeMaterialMetadataFrameStats.cacheRefreshes;
         RefreshSmokeMaterialTextureHandleState(*info);
         return;
     }
 
     if (!info)
     {
+        ++g_smokeMaterialMetadataFrameStats.newEntries;
         RtSmokeMaterialTextureInfo newInfo;
         newInfo.materialId = materialId;
         newInfo.materialName = materialName;
@@ -1359,25 +1535,44 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         info = &g_smokeMaterialTextureRegistry.back();
     }
 
+    ++g_smokeMaterialMetadataFrameStats.fullDiscovers;
+
     idStr reason;
     idImage* diffuseImage = FindSmokeDiffuseImage(material, reason);
     idStr alphaReason;
     idImage* alphaImage = FindSmokeAlphaImage(material, alphaReason);
+    idStr normalReason;
+    idImage* normalImage = FindSmokeNormalImage(material, normalReason);
+    idStr specularReason;
+    idImage* specularImage = FindSmokeSpecularImage(material, specularReason);
     info->materialName = materialName;
     info->fallbackReason = reason;
     info->alphaReason = alphaReason;
+    info->normalReason = normalReason;
+    info->specularReason = specularReason;
     info->diffuseImage = diffuseImage;
     info->alphaImage = alphaImage;
+    info->normalImage = normalImage;
+    info->specularImage = specularImage;
     info->coverage = material ? material->Coverage() : MC_BAD;
     info->hasDiffuseImage = diffuseImage != nullptr;
     info->hasAlphaImage = alphaImage != nullptr;
+    info->hasNormalImage = normalImage != nullptr;
+    info->hasSpecularImage = specularImage != nullptr;
     info->hasTextureHandle = diffuseImage && diffuseImage->GetTextureHandle();
     info->hasAlphaTextureHandle = alphaImage && alphaImage->GetTextureHandle();
+    info->hasNormalTextureHandle = normalImage && normalImage->GetTextureHandle();
+    info->hasSpecularTextureHandle = specularImage && specularImage->GetTextureHandle();
     info->diffuseImageName = diffuseImage ? diffuseImage->GetName() : "<none>";
     info->alphaImageName = alphaImage ? alphaImage->GetName() : "<none>";
+    info->normalImageName = normalImage ? normalImage->GetName() : "<none>";
+    info->specularImageName = specularImage ? specularImage->GetName() : "<none>";
     info->diffuseColorFormat = diffuseImage ? diffuseImage->GetOpts().colorFormat : CFM_DEFAULT;
     info->alphaColorFormat = alphaImage ? alphaImage->GetOpts().colorFormat : CFM_DEFAULT;
+    info->normalColorFormat = normalImage ? normalImage->GetOpts().colorFormat : CFM_DEFAULT;
+    info->specularColorFormat = specularImage ? specularImage->GetOpts().colorFormat : CFM_DEFAULT;
     ResolveSmokeMaterialAlphaInfo(material, info->hasAlphaTest, info->alphaCutoff);
+    info->additiveDecal = IsSmokeAdditiveDecalMaterial(material);
     RefreshSmokeMaterialTextureHandleState(*info);
     if (info->hasDiffuseImage && !info->hasSafeTexture)
     {
@@ -1432,6 +1627,18 @@ std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuil
         }
 
         if (info.alphaImage && info.hasAlphaTextureHandle && info.hasSafeAlphaTexture)
+        {
+            safeMaterialIndexes.push_back(tableIndex);
+            continue;
+        }
+
+        if (info.normalImage && info.hasNormalTextureHandle && info.hasSafeNormalTexture)
+        {
+            safeMaterialIndexes.push_back(tableIndex);
+            continue;
+        }
+
+        if (info.specularImage && info.hasSpecularTextureHandle && info.hasSafeSpecularTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
         }
@@ -1517,6 +1724,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
 
     table.diffuseTextures.clear();
     table.materialsWithTextures = 0;
+    table.materialsWithNormalTextures = 0;
+    table.materialsWithSpecularTextures = 0;
     table.materialsMissingTextures = 0;
     table.materialsRejectedTextures = 0;
     table.materialsRejectedAtFinalCheck = 0;
@@ -1533,10 +1742,16 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
     {
         table.materials[tableIndex].diffuseTextureIndex = UINT32_MAX;
         table.materials[tableIndex].alphaTextureIndex = UINT32_MAX;
+        table.materials[tableIndex].normalTextureIndex = UINT32_MAX;
+        table.materials[tableIndex].specularTextureIndex = UINT32_MAX;
         table.materials[tableIndex].textureWidth = 1;
         table.materials[tableIndex].textureHeight = 1;
         table.materials[tableIndex].alphaTextureWidth = 1;
         table.materials[tableIndex].alphaTextureHeight = 1;
+        table.materials[tableIndex].normalTextureWidth = 1;
+        table.materials[tableIndex].normalTextureHeight = 1;
+        table.materials[tableIndex].specularTextureWidth = 1;
+        table.materials[tableIndex].specularTextureHeight = 1;
     }
 
     if (!enableTextureProbe)
@@ -1633,6 +1848,34 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
                 table.materials[safeIndex].alphaTextureWidth = Max(1u, alphaTextureDesc.width);
                 table.materials[safeIndex].alphaTextureHeight = Max(1u, alphaTextureDesc.height);
                 ++table.materialsWithAlphaTextures;
+            }
+        }
+
+        const nvrhi::TextureHandle normalTexture = info.normalImage ? info.normalImage->GetTextureHandle() : nullptr;
+        if (normalTexture && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage))
+        {
+            const uint32_t normalDescriptorIndex = AddSmokeMaterialTextureSlot(table, normalTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
+            if (normalDescriptorIndex != UINT32_MAX)
+            {
+                table.materials[safeIndex].normalTextureIndex = normalDescriptorIndex;
+                const nvrhi::TextureDesc& normalTextureDesc = normalTexture->getDesc();
+                table.materials[safeIndex].normalTextureWidth = Max(1u, normalTextureDesc.width);
+                table.materials[safeIndex].normalTextureHeight = Max(1u, normalTextureDesc.height);
+                ++table.materialsWithNormalTextures;
+            }
+        }
+
+        const nvrhi::TextureHandle specularTexture = info.specularImage ? info.specularImage->GetTextureHandle() : nullptr;
+        if (specularTexture && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage))
+        {
+            const uint32_t specularDescriptorIndex = AddSmokeMaterialTextureSlot(table, specularTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
+            if (specularDescriptorIndex != UINT32_MAX)
+            {
+                table.materials[safeIndex].specularTextureIndex = specularDescriptorIndex;
+                const nvrhi::TextureDesc& specularTextureDesc = specularTexture->getDesc();
+                table.materials[safeIndex].specularTextureWidth = Max(1u, specularTextureDesc.width);
+                table.materials[safeIndex].specularTextureHeight = Max(1u, specularTextureDesc.height);
+                ++table.materialsWithSpecularTextures;
             }
         }
     }
@@ -2659,14 +2902,17 @@ void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats)
 void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
-    common->Printf("PathTracePrimaryPass: RT smoke material table entries=%d staticTriangles=%d dynamicTriangles=%d textureSlots=%d textured=%d alphaTested=%d alphaTextured=%d missingTextures=%d rejectedTextures=%d finalRejected=%d descriptorFallbacks=%d overTextureSlotLimit=%d probeRequest=%d probeBound=%d probeMaterial=%u latch=%d samples=",
+    common->Printf("PathTracePrimaryPass: RT smoke material table entries=%d staticTriangles=%d dynamicTriangles=%d textureSlots=%d textured=%d normalTextured=%d specularTextured=%d alphaTested=%d alphaTextured=%d additiveDecals=%d missingTextures=%d rejectedTextures=%d finalRejected=%d descriptorFallbacks=%d overTextureSlotLimit=%d probeRequest=%d probeBound=%d probeMaterial=%u latch=%d samples=",
         materialTableCount,
         static_cast<int>(table.staticMaterialIndexes.size()),
         static_cast<int>(table.dynamicMaterialIndexes.size()),
         static_cast<int>(table.diffuseTextures.size()),
         table.materialsWithTextures,
+        table.materialsWithNormalTextures,
+        table.materialsWithSpecularTextures,
         table.materialsAlphaTested,
         table.materialsWithAlphaTextures,
+        table.materialsAdditiveDecals,
         table.materialsMissingTextures,
         table.materialsRejectedTextures,
         table.materialsRejectedAtFinalCheck,
@@ -2681,7 +2927,7 @@ void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
     for (int sampleIndex = 0; sampleIndex < sampleCount; ++sampleIndex)
     {
         const PathTraceSmokeMaterial& material = table.materials[sampleIndex];
-        common->Printf("%sindex=%d id=%u color=(%.2f %.2f %.2f) tex=%d alphaTex=%d alpha=%d cutoff=%.2f",
+        common->Printf("%sindex=%d id=%u color=(%.2f %.2f %.2f) tex=%d normalTex=%d specTex=%d alphaTex=%d alpha=%d additive=%d cutoff=%.2f",
             sampleIndex == 0 ? "" : ", ",
             sampleIndex,
             table.materialIds[sampleIndex],
@@ -2689,8 +2935,11 @@ void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
             material.debugAlbedo[1],
             material.debugAlbedo[2],
             material.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.diffuseTextureIndex),
+            material.normalTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.normalTextureIndex),
+            material.specularTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.specularTextureIndex),
             material.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(material.alphaTextureIndex),
             (material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0 ? 1 : 0,
+            (material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0 ? 1 : 0,
             material.alphaCutoff);
     }
 
@@ -2705,7 +2954,7 @@ void LogSmokeTextureProbe(const RtSmokeMaterialTableBuild& table)
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
     const int textureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0 ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()) : 0;
     const bool textureBindlessEnabled = r_pathTracingTextureBindlessEnable.GetInteger() != 0;
-    common->Printf("PathTracePrimaryPass: RT smoke bindless texture table occupancy=%d/%d requested=%d start=%d capacity=%d activeCap=%d sampleMethod=%d bindless=%d texturedMaterials=%d alphaTested=%d alphaTextured=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke bindless texture table occupancy=%d/%d requested=%d start=%d capacity=%d activeCap=%d sampleMethod=%d bindless=%d texturedMaterials=%d normalTextured=%d specularTextured=%d alphaTested=%d alphaTextured=%d missing=%d rejected=%d finalRejected=%d descriptorFallbacks=%d skippedOrOverLimit=%d\n",
         static_cast<int>(table.diffuseTextures.size()),
         textureTableLimit,
         requestedTextureTableLimit,
@@ -2715,6 +2964,8 @@ void LogSmokeTextureProbe(const RtSmokeMaterialTableBuild& table)
         textureSampleMethod,
         textureBindlessEnabled ? 1 : 0,
         table.materialsWithTextures,
+        table.materialsWithNormalTextures,
+        table.materialsWithSpecularTextures,
         table.materialsAlphaTested,
         table.materialsWithAlphaTextures,
         table.materialsMissingTextures,
@@ -4147,8 +4398,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 {
     const int sceneStartMs = Sys_Milliseconds();
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 15, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = requestedDebugMode == 8 || requestedDebugMode == 9 || requestedDebugMode == 10 || requestedDebugMode == 11 || requestedDebugMode == 12 || requestedDebugMode == 13 || requestedDebugMode == 14 || requestedDebugMode == 15;
+    const int requestedDebugMode = idMath::ClampInt(0, 17, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = requestedDebugMode >= 8 && requestedDebugMode <= 17;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeConstantsBuffer)
     {
@@ -4197,6 +4448,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
+    g_smokeMaterialMetadataFrameStats = RtSmokeMaterialMetadataFrameStats();
+    const int metadataStartMs = Sys_Milliseconds();
     if (enableTextureProbe)
     {
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
@@ -4211,6 +4464,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RegisterSmokeMaterialTextureInfo(drawSurf->material);
         }
     }
+    const int metadataMs = Sys_Milliseconds() - metadataStartMs;
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
@@ -4590,11 +4844,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeSceneBuilt = true;
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
-    if (r_pathTracingTimingLog.GetInteger() != 0 && sceneMs >= Max(0, r_pathTracingTimingThreshold.GetInteger()))
+    if (ShouldLogSmokeTiming(sceneMs, Sys_Milliseconds(), g_smokeLastSceneTimingLogMs))
     {
-        common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d material=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d lightCount=%d debugMode=%d\n",
+        common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d metadata=%d material=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d metadataRegistry=%d additiveDecals=%d lightCount=%d debugMode=%d\n",
             sceneMs,
             captureMs,
+            metadataMs,
             materialMs,
             bufferCreateMs,
             bufferUploadMs,
@@ -4609,6 +4864,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             materialTableCacheHit ? 1 : 0,
             g_smokeMaterialTableCache.hits,
             g_smokeMaterialTableCache.misses,
+            r_pathTracingMaterialMetadataCache.GetInteger() != 0 ? 1 : 0,
+            g_smokeMaterialMetadataFrameStats.cacheRefreshes,
+            g_smokeMaterialMetadataFrameStats.fullDiscovers,
+            g_smokeMaterialMetadataFrameStats.newEntries,
+            g_smokeMaterialMetadataFrameStats.registrations,
+            static_cast<int>(g_smokeMaterialTextureRegistry.size()),
+            materialTable.materialsAdditiveDecals,
             r_pathTracingLightCount.GetInteger(),
             requestedDebugMode);
     }
@@ -4747,7 +5009,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 15, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 17, r_pathTracingDebugMode.GetInteger());
     if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
@@ -4862,7 +5124,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.depth = 1;
     commandList->dispatchRays(args);
     const int dispatchSubmitMs = Sys_Milliseconds() - executeStartMs;
-    if (r_pathTracingTimingLog.GetInteger() != 0 && dispatchSubmitMs >= Max(0, r_pathTracingTimingThreshold.GetInteger()))
+    if (ShouldLogSmokeTiming(dispatchSubmitMs, Sys_Milliseconds(), g_smokeLastDispatchTimingLogMs))
     {
         common->Printf("PathTracePrimaryPass: RT smoke slow dispatch submit %d ms output=%dx%d debugMode=%d lightCount=%d\n",
             dispatchSubmitMs,
@@ -4962,7 +5224,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     }
 
     const int readbackMs = Sys_Milliseconds() - readbackStartMs;
-    if (r_pathTracingSmokeLog.GetInteger() != 0 || (r_pathTracingTimingLog.GetInteger() != 0 && readbackMs >= Max(0, r_pathTracingTimingThreshold.GetInteger())))
+    if (r_pathTracingSmokeLog.GetInteger() != 0 || ShouldLogSmokeTiming(readbackMs, Sys_Milliseconds(), g_smokeLastReadbackTimingLogMs))
     {
         common->Printf("PathTracePrimaryPass: RT smoke UAV readback %dx%d center rgba=(%.3f, %.3f, %.3f, %.3f), hits=%d, misses=%d, rowPitch=%u, total=%d ms, waitForIdle=%d ms\n",
             m_smokeOutputWidth, m_smokeOutputHeight,

@@ -47,6 +47,9 @@ Implemented debug CVars:
   12 = translucent subtype classification
   13 = simple fixed-light Lambert shading
   14 = nearest point-light Lambert shading with direct shadow rays
+  15 = selected point-light influence debug
+  16 = normal map preview
+  17 = specular map preview
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -80,6 +83,16 @@ Implemented debug CVars:
 - r_pathTracingTextureDecode
   Enables decode of Doom texture encodings in the RT texture path. Defaults to
   1. Currently this decodes diffuse YCoCg textures before albedo/lighting use.
+
+- r_pathTracingAdditiveDecalKey
+  Treats additive translucent decal/signage materials as RGB-keyed overlays in
+  the RT smoke path. Near-black texels are ignored by primary rays so the
+  underlying surface can be hit, and additive decals do not block debug shadow
+  rays.
+
+Normal and specular material textures are discovered through the same cached
+material metadata path as albedo. They are bound into the shared RT smoke
+bindless texture table and currently sampled only by debug modes 16 and 17.
 
 - r_pathTracingTextureBindlessEnable
   1 samples through the bindless descriptor table. 0 samples a regular fallback
@@ -120,11 +133,15 @@ Implemented debug CVars:
 
 - r_pathTracingTimingLog
   Enables slow-frame CPU timing logs for RT smoke scene build and dispatch
-  submission. Scene-build timing includes whether the RT smoke material table
-  cache hit or rebuilt.
+  submission. Scene-build timing includes material metadata-cache counters and
+  whether the experimental RT smoke material table cache hit or rebuilt.
 
 - r_pathTracingTimingThreshold
   Minimum RT smoke CPU time in milliseconds before timing logs are printed.
+
+- r_pathTracingTimingLogInterval
+  Minimum milliseconds between repeated RT smoke timing log lines. Defaults to
+  1000. Set to 0 to print every threshold hit while doing detailed profiling.
 
 - r_pathTracingReadbackEnable
   Enables RT smoke UAV readback diagnostics. Defaults to 0 because readback
@@ -397,7 +414,9 @@ Open issues:
 - Material stages are much richer than a single diffuse texture.
 - Doom materials can have generated images, videos, blend stages, alpha tests,
   deform stages, lights, and special render behavior.
-- No normal/specular/roughness/metalness material sampling exists yet.
+- Normal/specular texture discovery and preview modes exist, but those maps are
+  not folded into the lighting model yet. Roughness/metalness material sampling
+  does not exist yet.
 - Alpha any-hit exists for simple cutout/perforated materials, but blended
   translucent surfaces are not handled physically yet.
 - No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has up to

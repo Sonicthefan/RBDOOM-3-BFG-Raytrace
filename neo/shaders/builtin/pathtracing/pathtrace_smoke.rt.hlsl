@@ -25,12 +25,20 @@ struct PathTraceSmokeMaterial
     float4 debugAlbedo;
     uint diffuseTextureIndex;
     uint alphaTextureIndex;
+    uint normalTextureIndex;
+    uint specularTextureIndex;
     float alphaCutoff;
     uint flags;
     uint textureWidth;
     uint textureHeight;
     uint alphaTextureWidth;
     uint alphaTextureHeight;
+    uint normalTextureWidth;
+    uint normalTextureHeight;
+    uint specularTextureWidth;
+    uint specularTextureHeight;
+    uint padding0;
+    uint padding1;
 };
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
@@ -68,6 +76,7 @@ static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
+static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -241,6 +250,47 @@ float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
     return SampleSmokeDiffuseTexture(material, texCoord);
 }
 
+float4 SampleSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    return SampleSmokeTexture(
+        material.normalTextureIndex,
+        material.normalTextureWidth,
+        material.normalTextureHeight,
+        texCoord,
+        float4(0.5, 0.5, 1.0, 1.0));
+}
+
+float4 SampleSmokeSpecularTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    return SampleSmokeTexture(
+        material.specularTextureIndex,
+        material.specularTextureWidth,
+        material.specularTextureHeight,
+        texCoord,
+        float4(0.0, 0.0, 0.0, 1.0));
+}
+
+float SmokeAdditiveDecalOpacity(float3 albedo)
+{
+    return max(max(albedo.r, albedo.g), albedo.b);
+}
+
+bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, bool shadowRay)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) == 0u)
+    {
+        return false;
+    }
+
+    if (shadowRay)
+    {
+        return true;
+    }
+
+    const float opacity = SmokeAdditiveDecalOpacity(SampleSmokeDiffuseTexture(material, texCoord).rgb);
+    return opacity < 0.035;
+}
+
 float4 SmokeMissColor()
 {
     return float4(1.0, 0.0, 0.0, 1.0);
@@ -267,12 +317,20 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
     material.debugAlbedo = float4(1.0, 0.0, 1.0, 1.0);
     material.diffuseTextureIndex = 0xffffffffu;
     material.alphaTextureIndex = 0xffffffffu;
+    material.normalTextureIndex = 0xffffffffu;
+    material.specularTextureIndex = 0xffffffffu;
     material.alphaCutoff = 0.0;
     material.flags = 0u;
     material.textureWidth = 1u;
     material.textureHeight = 1u;
     material.alphaTextureWidth = 1u;
     material.alphaTextureHeight = 1u;
+    material.normalTextureWidth = 1u;
+    material.normalTextureHeight = 1u;
+    material.specularTextureWidth = 1u;
+    material.specularTextureHeight = 1u;
+    material.padding0 = 0u;
+    material.padding1 = 0u;
 
     const uint materialCount = (uint)TextureInfo.z;
     if (materialIndex < materialCount)
@@ -303,15 +361,20 @@ float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 bar
     return uv0 * weights.x + uv1 * weights.y + uv2 * weights.z;
 }
 
-bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics)
+bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
 {
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex));
+    const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
+    if (SmokeAdditiveDecalRejectsHit(material, texCoord, shadowRay))
+    {
+        return true;
+    }
+
     if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) == 0u)
     {
         return false;
     }
 
-    const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
     return SampleSmokeAlphaTexture(material, texCoord).a < material.alphaCutoff;
 }
 
@@ -442,6 +505,16 @@ void RayGen()
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
         SmokeOutput[pixel] = SampleSmokeDiffuseTexture(material, payload.texCoord);
     }
+    else if (debugMode == 16)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        SmokeOutput[pixel] = SampleSmokeNormalTexture(material, payload.texCoord);
+    }
+    else if (debugMode == 17)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        SmokeOutput[pixel] = SampleSmokeSpecularTexture(material, payload.texCoord);
+    }
     else if (debugMode == 11)
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
@@ -479,80 +552,96 @@ void RayGen()
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
         const float3 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord).rgb;
-        const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
-        const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
-        const float ndotl = saturate(dot(normal, lightDir));
-        const float3 ambient = albedo * 0.12;
-        const float3 diffuse = albedo * (0.18 + ndotl * 1.15);
-        SmokeOutput[pixel] = float4(saturate(ambient + diffuse), 1.0);
+        if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
+        {
+            const float opacity = SmokeAdditiveDecalOpacity(albedo);
+            SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25)), 1.0);
+        }
+        else
+        {
+            const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
+            const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
+            const float ndotl = saturate(dot(normal, lightDir));
+            const float3 ambient = albedo * 0.12;
+            const float3 diffuse = albedo * (0.18 + ndotl * 1.15);
+            SmokeOutput[pixel] = float4(saturate(ambient + diffuse), 1.0);
+        }
     }
     else if (debugMode == 14 || debugMode == 15)
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
         const float3 albedo = SampleSmokeDiffuseTexture(material, payload.texCoord).rgb;
-        const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
-        const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
-        const float3 ambient = albedo * 0.12;
-        const float3 unshadowedFill = albedo * 0.18;
-        float3 direct = float3(0.0, 0.0, 0.0);
-        float3 dominantLightDebug = float3(0.0, 0.0, 0.0);
-        float dominantLightWeight = 0.0;
-        const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
-        if (lightCount == 0u)
+        if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
-            const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
-            const float ndotl = saturate(dot(normal, lightDir));
-            const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
-            const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
-            const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w) : 0.0;
-            direct = albedo * (ndotl * 1.15 * visibility);
-            dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
-            dominantLightWeight = ndotl * visibility;
+            const float opacity = SmokeAdditiveDecalOpacity(albedo);
+            SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25)), 1.0);
         }
         else
         {
-            [loop]
-            for (uint lightIndex = 0u; lightIndex < lightCount; lightIndex++)
+            const float3 normal = SafeNormalize(payload.normal, payload.geometricNormal);
+            const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
+            const float3 ambient = albedo * 0.12;
+            const float3 unshadowedFill = albedo * 0.18;
+            float3 direct = float3(0.0, 0.0, 0.0);
+            float3 dominantLightDebug = float3(0.0, 0.0, 0.0);
+            float dominantLightWeight = 0.0;
+            const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
+            if (lightCount == 0u)
             {
-                const float4 lightOriginAndRadius = LightOriginAndRadius[lightIndex];
-                const float3 toLight = lightOriginAndRadius.xyz - hitPosition;
-                const float lightDistance = length(toLight);
-                if (lightDistance <= 1.0e-3)
-                {
-                    continue;
-                }
-
-                const float3 lightDir = toLight / lightDistance;
+                const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
                 const float ndotl = saturate(dot(normal, lightDir));
-                if (ndotl <= 0.0)
-                {
-                    continue;
-                }
-
                 const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
                 const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
-                const float shadowTMax = max(lightDistance - 0.5, 0.01);
-                const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
-                const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
-                const float directScale = 0.12 + lightAttenuation * lightAttenuation * 0.75;
-                const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
-                const float contributionWeight = ndotl * directScale * visibility * max(max(lightColor.r, lightColor.g), lightColor.b);
-                direct += albedo * lightColor * (ndotl * directScale * visibility);
-                if (contributionWeight > dominantLightWeight)
+                const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w) : 0.0;
+                direct = albedo * (ndotl * 1.15 * visibility);
+                dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
+                dominantLightWeight = ndotl * visibility;
+            }
+            else
+            {
+                [loop]
+                for (uint lightIndex = 0u; lightIndex < lightCount; lightIndex++)
                 {
-                    dominantLightWeight = contributionWeight;
-                    dominantLightDebug = DebugLightSlotColor(lightIndex) * (0.18 + saturate(contributionWeight * 2.0) * 0.82);
+                    const float4 lightOriginAndRadius = LightOriginAndRadius[lightIndex];
+                    const float3 toLight = lightOriginAndRadius.xyz - hitPosition;
+                    const float lightDistance = length(toLight);
+                    if (lightDistance <= 1.0e-3)
+                    {
+                        continue;
+                    }
+
+                    const float3 lightDir = toLight / lightDistance;
+                    const float ndotl = saturate(dot(normal, lightDir));
+                    if (ndotl <= 0.0)
+                    {
+                        continue;
+                    }
+
+                    const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+                    const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+                    const float shadowTMax = max(lightDistance - 0.5, 0.01);
+                    const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+                    const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
+                    const float directScale = 0.12 + lightAttenuation * lightAttenuation * 0.75;
+                    const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
+                    const float contributionWeight = ndotl * directScale * visibility * max(max(lightColor.r, lightColor.g), lightColor.b);
+                    direct += albedo * lightColor * (ndotl * directScale * visibility);
+                    if (contributionWeight > dominantLightWeight)
+                    {
+                        dominantLightWeight = contributionWeight;
+                        dominantLightDebug = DebugLightSlotColor(lightIndex) * (0.18 + saturate(contributionWeight * 2.0) * 0.82);
+                    }
                 }
             }
-        }
-        if (debugMode == 15)
-        {
-            const float3 base = albedo * 0.08;
-            SmokeOutput[pixel] = float4(saturate(base + dominantLightDebug), 1.0);
-        }
-        else
-        {
-            SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct), 1.0);
+            if (debugMode == 15)
+            {
+                const float3 base = albedo * 0.08;
+                SmokeOutput[pixel] = float4(saturate(base + dominantLightDebug), 1.0);
+            }
+            else
+            {
+                SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct), 1.0);
+            }
         }
     }
     else
@@ -570,7 +659,7 @@ void Miss(inout PathTraceSmokePayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics))
+    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, payload.value == 1u))
     {
         IgnoreHit();
     }
