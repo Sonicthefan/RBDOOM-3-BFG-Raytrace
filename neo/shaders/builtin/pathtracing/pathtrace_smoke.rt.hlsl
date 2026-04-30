@@ -76,6 +76,8 @@ static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
@@ -152,6 +154,16 @@ float3 DebugLightSlotColor(uint lightIndex)
     const float g = ((hash >> 8) & 255u) * (1.0 / 255.0);
     const float b = ((hash >> 16) & 255u) * (1.0 / 255.0);
     return 0.20 + float3(r, g, b) * 0.80;
+}
+
+float SmokeHashToUnitFloat(uint hash)
+{
+    hash ^= hash >> 16;
+    hash *= 2246822519u;
+    hash ^= hash >> 13;
+    hash *= 3266489917u;
+    hash ^= hash >> 16;
+    return ((hash >> 8) & 0x00ffffffu) * (1.0 / 16777215.0);
 }
 
 float4 LoadSmokeTextureTexel(uint textureIndex, uint2 texel, bool bindlessEnabled)
@@ -411,6 +423,11 @@ uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
     return materialIndex < materialCount ? materialIndex : 0xffffffffu;
 }
 
+uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
+{
+    return instanceId == 0 ? SmokeStaticTriangleClasses[primitiveIndex] : SmokeDynamicTriangleClasses[primitiveIndex];
+}
+
 float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 barycentrics)
 {
     const uint indexOffset = primitiveIndex * 3;
@@ -424,10 +441,56 @@ float2 InterpolateSmokeTexCoord(uint instanceId, uint primitiveIndex, float2 bar
     return uv0 * weights.x + uv1 * weights.y + uv2 * weights.z;
 }
 
+bool SmokeParticleDitherRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, uint triangleClassAndFlags, bool shadowRay)
+{
+    const uint smokeParticleFlags = (uint)LightInfo.w;
+    if ((smokeParticleFlags & 1u) == 0u)
+    {
+        return false;
+    }
+
+    const uint surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    const uint translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT || translucentSubtype != RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE)
+    {
+        return false;
+    }
+
+    if (shadowRay)
+    {
+        return true;
+    }
+
+    const float4 alphaTexel = SampleSmokeAlphaTexture(material, texCoord);
+    const float textureMask = saturate(max(alphaTexel.a, max(max(alphaTexel.r, alphaTexel.g), alphaTexel.b)));
+    const float2 wrappedTexCoord = frac(abs(texCoord));
+    const float2 edgeDistance = min(wrappedTexCoord, 1.0 - wrappedTexCoord);
+    const float edgeFade = (smokeParticleFlags & 2u) != 0u
+        ? saturate(min(edgeDistance.x, edgeDistance.y) * 8.0)
+        : 1.0;
+    const float alpha = saturate(textureMask * edgeFade * saturate(LightInfo.z));
+    const uint2 ditherCell = uint2(floor(wrappedTexCoord * 128.0));
+    const uint2 baryCell = uint2(saturate(barycentrics) * 255.0);
+    const uint hash =
+        primitiveIndex * 747796405u ^
+        instanceId * 2891336453u ^
+        ditherCell.x * 277803737u ^
+        ditherCell.y * 3266489917u ^
+        baryCell.x * 668265263u ^
+        baryCell.y * 2246822519u;
+    return alpha < SmokeHashToUnitFloat(hash);
+}
+
 bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
 {
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex));
     const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
+    const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
+    if (SmokeParticleDitherRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, triangleClassAndFlags, shadowRay))
+    {
+        return true;
+    }
+
     if (SmokeAdditiveDecalRejectsHit(material, texCoord, shadowRay))
     {
         return true;
@@ -757,7 +820,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 
     payload.value = 1;
     payload.hitT = RayTCurrent();
-    const uint triangleClassAndFlags = instanceId == 0 ? SmokeStaticTriangleClasses[PrimitiveIndex()] : SmokeDynamicTriangleClasses[PrimitiveIndex()];
+    const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, PrimitiveIndex());
     const bool forceGeometricNormal = (triangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0;
     payload.geometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), float3(0.0, 0.0, 1.0));
     const float3 interpolatedNormal = SafeNormalize(n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z, payload.geometricNormal);

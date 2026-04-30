@@ -175,6 +175,24 @@ idCVar r_pathTracingUseSpecularMaps(
     CVAR_RENDERER | CVAR_INTEGER,
     "Use sampled specular maps for RT smoke debug mode 14 direct lighting" );
 
+idCVar r_pathTracingSmokeParticleDither(
+    "r_pathTracingSmokeParticleDither",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use stable alpha dithering for RT smoke particle cards and ignore them for debug shadow rays" );
+
+idCVar r_pathTracingSmokeParticleAlphaScale(
+    "r_pathTracingSmokeParticleAlphaScale",
+    "0.25",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Opacity scale for RT smoke particle-card alpha dithering" );
+
+idCVar r_pathTracingSmokeParticleEdgeFade(
+    "r_pathTracingSmokeParticleEdgeFade",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Fade RT smoke particle-card dither opacity near card UV edges" );
+
 idCVar r_pathTracingAdditiveDecalKey(
     "r_pathTracingAdditiveDecalKey",
     "0",
@@ -5153,6 +5171,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         : 0;
     constants.lightInfo[0] = static_cast<float>(selectedLightCount);
     constants.lightInfo[1] = static_cast<float>(lightSelectionMode);
+    constants.lightInfo[2] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingSmokeParticleAlphaScale.GetFloat());
+    constants.lightInfo[3] =
+        (r_pathTracingSmokeParticleDither.GetInteger() != 0 ? 1.0f : 0.0f) +
+        (r_pathTracingSmokeParticleEdgeFade.GetInteger() != 0 ? 2.0f : 0.0f);
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;

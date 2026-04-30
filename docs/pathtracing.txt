@@ -98,6 +98,21 @@ Implemented debug CVars:
   lighting. Defaults to 1. This is a simple Blinn-style diagnostic highlight
   using Doom's specular color map, not the final PBR material model.
 
+- r_pathTracingSmokeParticleDither
+  Enables a cheap smoke-card visibility hack for RT smoke particle materials.
+  Defaults to 1. Particle/smoke translucent subtype hits use stable alpha
+  dithering for primary rays and are ignored by debug shadow rays, which keeps
+  large smoke cards from fully hiding the map while avoiding sorted blending.
+
+- r_pathTracingSmokeParticleAlphaScale
+  Opacity scale for smoke particle dithering. Defaults to 0.25. Lower values
+  make smoke cards less visually dominant in RT debug modes.
+
+- r_pathTracingSmokeParticleEdgeFade
+  Enables a UV edge fade for smoke particle dithering. Defaults to 1. This
+  reduces the obvious rectangular silhouette from particle cards whose source
+  alpha is broad or flat.
+
 - r_pathTracingAdditiveDecalKey
   Treats additive translucent decal/signage materials as RGB-keyed overlays in
   the RT smoke path. Near-black texels are ignored by primary rays so the
