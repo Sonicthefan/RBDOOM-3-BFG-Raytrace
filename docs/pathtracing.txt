@@ -90,6 +90,18 @@ Implemented debug CVars:
   underlying surface can be hit, and additive decals do not block debug shadow
   rays.
 
+- r_pathTracingAllowGuiTextures
+  Opt-in diagnostic for GUI/SWF-like material textures. Defaults to 0. When set
+  to 1, GUI/video/generated/scratch-named images may enter the RT smoke texture
+  table only if their image options and texture descriptor still pass the strict
+  non-render-target, non-UAV, 2D SRV checks. Timing/material logs report
+  guiTextures=candidates/accepted/rejected.
+
+- r_pathTracingAllowGuiSurfaces
+  Opt-in diagnostic for GUI/SWF draw-surface geometry cards. Defaults to 0. When
+  set to 1, GUI surfaces are allowed through RT smoke capture and classified as
+  particle/alpha with the GUI-screen translucent subtype.
+
 Normal and specular material textures are discovered through the same cached
 material metadata path as albedo. They are bound into the shared RT smoke
 bindless texture table and currently sampled only by debug modes 16 and 17.
