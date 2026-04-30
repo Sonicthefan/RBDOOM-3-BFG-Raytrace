@@ -22,6 +22,24 @@ It traces primary camera rays through an NVRHI ray tracing pipeline and displays
 the RT output as the 3D scene layer while leaving the normal Doom HUD, GUI, and
 menus drawn on top.
 
+Current validated feature set:
+
+- Primary camera rays through NVRHI ray tracing.
+- Static and dynamic BLAS/TLAS with separate geometry buffers.
+- Persistent static-world geometry cache.
+- Per-frame dynamic geometry capture.
+- RT-only CPU skinning for skinned MD5 characters.
+- Bindless material texture table using Texture.Load.
+- Manual bilinear Texture.Load filtering.
+- Doom diffuse YCoCg decode.
+- Alpha any-hit for cutout/perforated materials.
+- Albedo, normal, and specular texture discovery.
+- Debug selected-light direct lighting with RT shadow rays.
+- Mode 14 normal-map lighting using Doom/RBDoom's DXT5-style normal decode.
+- Mode 14 simple Blinn-style specular from Doom spec maps.
+- GUI/SWF texture and surface diagnostics behind opt-in CVars.
+- Placeholder smoke particle dithering.
+
 Implemented debug CVars:
 
 - r_pathTracing
@@ -46,7 +64,7 @@ Implemented debug CVars:
   11 = translucent overlay inspection
   12 = translucent subtype classification
   13 = simple fixed-light Lambert shading
-  14 = nearest point-light Lambert shading with direct shadow rays
+  14 = selected point-light direct lighting with RT shadow rays
   15 = selected point-light influence debug
   16 = normal map preview
   17 = specular map preview
@@ -412,10 +430,27 @@ Albedo and simple lighting exploration:
   attenuation and falls back to the old fixed directional light if no point
   light is available. The shadow rays preserve the existing alpha any-hit path
   so cutout blockers can be ignored when their alpha tests reject the hit.
+  Mode 14 can apply sampled normal maps when r_pathTracingUseNormalMaps is 1.
+  The normal decode intentionally matches the raster G-buffer shader: X comes
+  from the texture alpha channel, Y from green, and Z is reconstructed. A
+  previous direct .xyz normal decode made most surfaces face away from lights
+  and killed the selected-light response. Mode 14 can also add a simple
+  Blinn-style direct specular highlight from the sampled Doom specular map when
+  r_pathTracingUseSpecularMaps is 1. This is diagnostic shading, not final PBR.
 - Mode 15 visualizes the dominant selected light at each primary hit. It uses
   the same selected-light payload and alpha-aware shadow rays as mode 14, but
   shades by light slot instead of final albedo lighting so selection and
   occlusion can be inspected directly.
+
+Particle/smoke placeholder handling:
+
+- Smoke/particle translucent subtype surfaces can use stable alpha dithering
+  when r_pathTracingSmokeParticleDither is 1. Shadow rays ignore these smoke
+  particles so broad cards do not erase direct-light shadows.
+- r_pathTracingSmokeParticleAlphaScale scales the dither survival probability.
+  r_pathTracingSmokeParticleEdgeFade applies a simple UV edge fade to reduce the
+  visible rectangle silhouette. This remains a placeholder hack; it can still
+  look noisy and card-like.
 
 Material table performance:
 
@@ -458,11 +493,13 @@ Open issues:
 - Material stages are much richer than a single diffuse texture.
 - Doom materials can have generated images, videos, blend stages, alpha tests,
   deform stages, lights, and special render behavior.
-- Normal/specular texture discovery and preview modes exist, but those maps are
-  not folded into the lighting model yet. Roughness/metalness material sampling
-  does not exist yet.
+- Normal/specular texture discovery exists and is folded into mode 14 direct
+  lighting, but it is still diagnostic. The final renderer still needs a
+  deliberate Doom-material-to-PBR conversion, including roughness. A roughness
+  buffer will likely matter for NVIDIA ray reconstruction/denoising work later.
 - Alpha any-hit exists for simple cutout/perforated materials, but blended
   translucent surfaces are not handled physically yet.
+- Smoke particle dithering is a visibility hack, not correct translucency.
 - No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has up to
   32 selected point-light direct-shadow rays only.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
@@ -529,6 +566,8 @@ For nearest-light shadow inspection:
     r_pathTracingLightCount 4
     r_pathTracingLightSelection 1
     r_pathTracingLightDump 1
+    r_pathTracingUseNormalMaps 1
+    r_pathTracingUseSpecularMaps 1
 
 For selected-light influence inspection:
 
@@ -547,6 +586,16 @@ For abusive selected-light scaling tests:
     r_pathTracingLightCount 16
     r_pathTracingLightCount 32
 
+For smoke particle placeholder testing:
+
+    r_pathTracingSmokeParticleDither 1
+    r_pathTracingSmokeParticleEdgeFade 1
+    r_pathTracingSmokeParticleAlphaScale 0.25
+
+To disable the smoke-card placeholder hack:
+
+    r_pathTracingSmokeParticleDither 0
+
 For quieter traversal testing:
 
     r_pathTracingSmokeLog 0
@@ -564,6 +613,10 @@ Useful Commits
 Recent milestone commits on this branch:
 
 - 9648cf11 Add RT smoke Lambert debug mode
+- 4cb0419d Add RT smoke particle dithering
+- 8eb40def Add RT smoke normal specular lighting
+- e545feaa Add RT smoke GUI texture diagnostics
+- 75229a99 Add RT smoke normal and specular texture previews
 - fc802458 Add RT smoke translucent subtype debug mode
 - 9de51c53 Add RT smoke albedo texture diagnostics
 - bab07b5b Add RT smoke alpha any-hit traversal
@@ -588,17 +641,23 @@ Recommended Next Steps
 
 Near term:
 
-1. Keep missing, unsafe, or dynamically generated materials on fallback debug
+1. Add emissive/glow material capture and display.
+   - Inspect Doom material stages for glow/emissive/additive signals.
+   - Bind or derive emissive textures/colors.
+   - Add an unshadowed emissive term to mode 14 first.
+   - Later, treat emissive surfaces as path-traced light sources.
+
+2. Start a deliberate Doom material to RT/PBR conversion.
+   - Base color from albedo.
+   - Shading normal from normal map.
+   - Specular/F0 from Doom spec map.
+   - Roughness approximation for denoising/ray reconstruction.
+
+3. Keep missing, unsafe, or dynamically generated materials on fallback debug
    colors instead of forcing image loads.
 
-2. Continue hardening texture lifetime and descriptor-table behavior while the
-   active bindless table is exercised at larger sizes.
-
-3. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
+4. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
    surfaces while Texture.Load survives.
-
-4. Expand real Doom light selection for the direct-lighting experiment. Mode 14
-   currently traces shadow rays toward up to four nearest visible point lights.
 
 5. Start separating decal/blend/translucent behavior from opaque albedo. The
    current subtype classifier is useful for inspection but not a renderer.
@@ -625,6 +684,12 @@ Medium term:
    - normal map
    - roughness/specular/metalness approximation
    - emissive/light material support
+
+5. Replace the smoke particle dithering placeholder with a better translucent
+   strategy if it becomes important:
+   - stochastic transparency with accumulation
+   - sorted or approximate compositing
+   - ray-marched/volumetric approximation for major smoke effects
 
 Longer term:
 
