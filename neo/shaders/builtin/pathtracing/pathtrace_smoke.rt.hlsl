@@ -67,6 +67,7 @@ static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
+static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -134,11 +135,48 @@ float3 DebugLightSlotColor(uint lightIndex)
     return 0.20 + float3(r, g, b) * 0.80;
 }
 
+float4 LoadSmokeTextureTexel(uint textureIndex, uint2 texel, bool bindlessEnabled)
+{
+    return bindlessEnabled
+        ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel, 0))
+        : SmokeFallbackTexture.Load(int3(0, 0, 0));
+}
+
+float4 SampleSmokeTextureLoad(uint textureIndex, uint textureWidth, uint textureHeight, float2 wrappedTexCoord, bool bindlessEnabled, bool bilinearFilter)
+{
+    const uint width = max(textureWidth, 1u);
+    const uint height = max(textureHeight, 1u);
+
+    if (!bilinearFilter || width == 1u || height == 1u)
+    {
+        const uint2 texel = min(uint2(wrappedTexCoord * float2(width, height)), uint2(width - 1u, height - 1u));
+        return LoadSmokeTextureTexel(textureIndex, texel, bindlessEnabled);
+    }
+
+    const float2 texelPosition = wrappedTexCoord * float2(width, height) - 0.5;
+    const float2 basePosition = floor(texelPosition);
+    const float2 fraction = frac(texelPosition);
+    const int2 baseTexel = int2(basePosition);
+    const uint2 textureSize = uint2(width, height);
+    const uint2 texel00 = uint2((baseTexel + int2(0, 0) + int2(width, height)) % int2(textureSize));
+    const uint2 texel10 = uint2((baseTexel + int2(1, 0) + int2(width, height)) % int2(textureSize));
+    const uint2 texel01 = uint2((baseTexel + int2(0, 1) + int2(width, height)) % int2(textureSize));
+    const uint2 texel11 = uint2((baseTexel + int2(1, 1) + int2(width, height)) % int2(textureSize));
+
+    const float4 c00 = LoadSmokeTextureTexel(textureIndex, texel00, bindlessEnabled);
+    const float4 c10 = LoadSmokeTextureTexel(textureIndex, texel10, bindlessEnabled);
+    const float4 c01 = LoadSmokeTextureTexel(textureIndex, texel01, bindlessEnabled);
+    const float4 c11 = LoadSmokeTextureTexel(textureIndex, texel11, bindlessEnabled);
+    return lerp(lerp(c00, c10, fraction.x), lerp(c01, c11, fraction.x), fraction.y);
+}
+
 float4 SampleSmokeTexture(uint textureIndex, uint textureWidth, uint textureHeight, float2 texCoord, float4 fallback)
 {
     const uint textureCount = (uint)TextureInfo.x;
     const uint sampleMethod = (uint)TextureInfo.y;
-    const bool bindlessEnabled = TextureInfo.w != 0.0;
+    const uint textureFlags = (uint)TextureInfo.w;
+    const bool bindlessEnabled = (textureFlags & 1u) != 0u;
+    const bool bilinearFilter = (textureFlags & 2u) != 0u;
     if (sampleMethod == 0u || textureIndex == 0xffffffffu || textureIndex >= textureCount)
     {
         return fallback;
@@ -153,12 +191,7 @@ float4 SampleSmokeTexture(uint textureIndex, uint textureWidth, uint textureHeig
     float4 sampled = fallback;
     if (sampleMethod == 2u)
     {
-        const uint width = max(textureWidth, 1u);
-        const uint height = max(textureHeight, 1u);
-        const uint2 texel = min(uint2(wrappedTexCoord * float2(width, height)), uint2(width - 1u, height - 1u));
-        sampled = bindlessEnabled
-            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel, 0))
-            : SmokeFallbackTexture.Load(int3(0, 0, 0));
+        sampled = SampleSmokeTextureLoad(textureIndex, textureWidth, textureHeight, wrappedTexCoord, bindlessEnabled, bilinearFilter);
     }
     else
     {
@@ -174,9 +207,28 @@ float4 SampleSmokeTexture(uint textureIndex, uint textureWidth, uint textureHeig
     return sampled;
 }
 
+float3 ConvertSmokeYCoCgToRGB(float4 ycocg)
+{
+    ycocg.z = (ycocg.z * 31.875) + 1.0;
+    ycocg.z = 1.0 / ycocg.z;
+    ycocg.xy *= ycocg.z;
+
+    float3 rgb;
+    rgb.r = dot(ycocg, float4(1.0, -1.0, 0.0, 1.0));
+    rgb.g = dot(ycocg, float4(0.0, 1.0, -0.50196078, 1.0));
+    rgb.b = dot(ycocg, float4(-1.0, -1.0, 1.00392156, 1.0));
+    return saturate(rgb);
+}
+
 float4 SampleSmokeDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
-    return SampleSmokeTexture(material.diffuseTextureIndex, material.textureWidth, material.textureHeight, texCoord, material.debugAlbedo);
+    float4 texel = SampleSmokeTexture(material.diffuseTextureIndex, material.textureWidth, material.textureHeight, texCoord, material.debugAlbedo);
+    const bool textureDecodeEnabled = (((uint)TextureInfo.w) & 4u) != 0u;
+    if (textureDecodeEnabled && (material.flags & RT_SMOKE_MATERIAL_DIFFUSE_YCOCG) != 0u)
+    {
+        texel.rgb = ConvertSmokeYCoCgToRGB(texel);
+    }
+    return texel;
 }
 
 float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)

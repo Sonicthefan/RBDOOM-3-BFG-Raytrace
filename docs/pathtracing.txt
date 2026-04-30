@@ -72,6 +72,15 @@ Implemented debug CVars:
   1 = SampleLevel diagnostic path
   2 = Texture.Load stable default
 
+- r_pathTracingTextureFilter
+  Selects filtering for Texture.Load sampling:
+  0 = point Load
+  1 = manual bilinear Load
+
+- r_pathTracingTextureDecode
+  Enables decode of Doom texture encodings in the RT texture path. Defaults to
+  1. Currently this decodes diffuse YCoCg textures before albedo/lighting use.
+
 - r_pathTracingTextureBindlessEnable
   1 samples through the bindless descriptor table. 0 samples a regular fallback
   SRV and is useful for diagnostics.
@@ -126,6 +135,11 @@ Implemented debug CVars:
   ignored because changing visible material sets can corrupt material-to-texture
   mapping unless the frame-local material index mapping stays compatible with
   cached static BLAS metadata.
+
+- r_pathTracingMaterialMetadataCache
+  Caches stable per-material texture metadata such as diffuse/alpha image
+  discovery, cutoff, and texture safety. The compact material table and
+  triangle material indexes are still rebuilt every frame.
 
 
 Geometry and BVH Work Completed
@@ -286,9 +300,16 @@ Important history:
   white texture and with bindless disabled.
 - Texture.Load is stable in the same animated terminal cases so far. It is now
   the default mode 8 fetch path. SampleLevel remains available as a diagnostic.
+- Texture.Load now has manual bilinear filtering behind
+  r_pathTracingTextureFilter. This improves the debug texture probe without
+  using sampler-state based SampleLevel in the ray tracing shader.
+- Diffuse textures using Doom's YCoCg DXT5 encoding are now tagged in the RT
+  material payload and decoded in the shader when r_pathTracingTextureDecode is
+  enabled. Without this, TD_DIFFUSE images appear with incorrect green/orange
+  colors and exaggerated block compression artifacts.
 
-Mode 8 is still only a probe. Texture.Load currently fetches a single texel and
-does not yet implement filtering, mip selection, or full Doom material behavior.
+Mode 8 is still only a probe. Texture.Load does not yet implement mip selection
+or full Doom material behavior.
 
 The active texture table was expanded to 512 descriptors after diagnostics
 showed the earlier conservative limits left many valid captured materials on
@@ -342,6 +363,9 @@ Material table performance:
   showed material-to-texture mapping corruption when visible material order
   changed. The correct baseline keeps static materials first so cached static
   triangle material-index buffers remain valid across dynamic material changes.
+- Per-material texture metadata is cached independently of the material table.
+  This avoids repeatedly scanning material stages for already discovered
+  materials while preserving the safe per-frame table/index rebuild.
 - Diagnostic texture coverage stats are skipped unless smoke logging is
   enabled.
 
@@ -412,6 +436,8 @@ For texture probe testing:
     r_pathTracingDebugMode 8
     r_pathTracingTextureTableLimit 512
     r_pathTracingTextureSampleMethod 2
+    r_pathTracingTextureFilter 1
+    r_pathTracingTextureDecode 1
     r_pathTracingTextureProbeDump 1
     r_pathTracingTextureProbeIndex 0
     r_pathTracingTextureProbeReset 1
@@ -421,6 +447,8 @@ For albedo and simple lighting:
     r_pathTracingDebugMode 10
     r_pathTracingTextureTableLimit 512
     r_pathTracingTextureSampleMethod 2
+    r_pathTracingTextureFilter 1
+    r_pathTracingTextureDecode 1
 
     r_pathTracingDebugMode 13
 
