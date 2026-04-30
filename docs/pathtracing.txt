@@ -167,14 +167,29 @@ Implemented debug CVars:
 - r_pathTracingAllowGuiTextures
   Opt-in diagnostic for GUI/SWF-like material textures. Defaults to 0. When set
   to 1, GUI/video/generated/scratch-named images may enter the RT smoke texture
-  table only if their image options and texture descriptor still pass the strict
-  non-render-target, non-UAV, 2D SRV checks. Timing/material logs report
+  table. GUI-like render-target/UAV-backed images are allowed when their
+  texture descriptor is still a usable 2D SRV, because live SWF/GUI panels can
+  route through screen/dynamic stages. Timing/material logs report
   guiTextures=candidates/accepted/rejected.
 
 - r_pathTracingAllowGuiSurfaces
   Opt-in diagnostic for GUI/SWF draw-surface geometry cards. Defaults to 0. When
   set to 1, GUI surfaces are allowed through RT smoke capture and classified as
   particle/alpha with the GUI-screen translucent subtype.
+
+- r_pathTracingGuiLayerOffset
+  RT-smoke-only local-Z offset for generated in-world GUI draw surfaces.
+  Defaults to 0.003 after testing found this was the least bad placeholder
+  value. This attempts to separate Doom's painter-order GUI draw commands enough
+  for ray tracing to see multiple layers. It is a debug crutch, not a correct
+  solution.
+
+- r_pathTracingGuiDump
+  One-shot dump of captured in-world GUI draw surfaces. This logs material name,
+  capture status, material-table slot, vertex color/alpha range, UV range, stage
+  texgen/dynamic flags, image names, and texture safety. It was used to confirm
+  that generated GUI draw surfaces existed but were initially rejected because
+  their synthetic GUI view entity has no normal render model.
 
 Normal, specular, and emissive material textures are discovered through the same
 cached material metadata path as albedo. They are bound into the shared RT smoke
@@ -536,6 +551,39 @@ Particle/smoke placeholder handling:
   surface. It uses the evaluated light shader color, so table/Parm-driven
   pulsing is reflected, but it is not sampled as a real path-traced emitter.
 
+GUI/SWF panel placeholder findings:
+
+- In-world Doom GUI panels are not ordinary textured screen meshes. The raster
+  path calls the GUI/SWF system, emits many 2D painter-order draw commands into
+  a synthetic GUI view entity, and then rasterizes those commands onto or around
+  the panel. Generated GUI drawSurfs normally had no frontEndGeo, so the RT
+  smoke capture initially skipped them. The experiment now creates a frame-local
+  CPU copy for these generated GUI triangles and lets them through validation
+  when r_pathTracingAllowGuiSurfaces is 1.
+- The generated GUI surfaces do not belong to a normal render model. Validation
+  therefore must exempt GUI draw surfaces from the usual entity hModel check;
+  otherwise r_pathTracingGuiDump reports many GUI surfaces with captured=0 and
+  no material metadata.
+- Directly tracing the generated GUI quads is only a proof-of-life placeholder.
+  The UI content becomes visible, including animated/SWF content and individual
+  text/image layers, but ray tracing interprets Doom's 2D painter-order
+  rectangles as real 3D occluders. Layer offsets can make one panel look better
+  while breaking another: background layers may flip to the front, large
+  rectangles can hide nearby world geometry or monitor shells, and round
+  screens can need additional alpha clipping. Some circular panels happened to
+  look better in one offset configuration while rectangular terminals became
+  worse.
+- r_pathTracingGuiLayerOffset is therefore deliberately debug-only. Values near
+  0.003 were the least bad in one test, but this should not be mistaken for a
+  viable renderer.
+- The likely correct long-term design is to keep Doom's GUI/SWF raster path for
+  panel contents: rasterize each live panel offscreen into a texture, identify
+  the actual physical screen/panel surface, keep the generated painter-order GUI
+  quads out of the TLAS, and have the RT material sample the composited panel
+  texture on the physical surface. Interaction/raycasting should stay with the
+  original GUI system. This preserves Doom's animation, text, alpha, clipping,
+  and painter order while RT only sees a single physical screen material.
+
 Known limitations:
 
 - Mirrored-UV normal maps can still look wrong on some props. The RT debug path
@@ -592,6 +640,10 @@ Open issues:
 - Alpha any-hit exists for simple cutout/perforated materials, but blended
   translucent surfaces are not handled physically yet.
 - Smoke particle dithering is a visibility hack, not correct translucency.
+- GUI/SWF panels are not solved. The direct generated-GUI-surface path is an
+  opt-in diagnostic only and can occlude unrelated geometry or layer panels
+  incorrectly. A rasterized offscreen panel texture projected onto the physical
+  panel surface is the intended future direction.
 - No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has up to
   32 selected point-light direct-shadow rays only.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
@@ -655,6 +707,13 @@ For alpha and translucent inspection:
 For crosshair material diagnostics:
 
     r_pathTracingCrosshairMaterialDump 1
+
+For GUI/SWF panel diagnostics:
+
+    r_pathTracingAllowGuiSurfaces 1
+    r_pathTracingAllowGuiTextures 1
+    r_pathTracingGuiLayerOffset 0.003
+    r_pathTracingGuiDump 1
 
 For nearest-light shadow inspection:
 

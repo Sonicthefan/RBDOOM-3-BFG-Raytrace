@@ -91,6 +91,12 @@ idCVar r_pathTracingCrosshairMaterialDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump detailed RT smoke material/stage info for the surface under the center crosshair once" );
 
+idCVar r_pathTracingGuiDump(
+    "r_pathTracingGuiDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump captured RT smoke in-world GUI draw surfaces once" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",
@@ -364,11 +370,14 @@ struct RtSmokeSelectedLight
     idVec3 origin = vec3_zero;
     float radius = 0.0f;
     idVec4 color = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    bool spriteProxy = false;
     int index = -1;
     float distanceSquared = idMath::INFINITUM;
     float score = 0.0f;
     idStr shaderName;
 };
+
+bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int tokenCount);
 
 idVec4 EvaluateSmokeLightColor(const viewLight_t* vLight)
 {
@@ -417,6 +426,18 @@ float ScoreSmokePointLight(const idVec3& cameraOrigin, const idVec3& lightOrigin
     const float attenuation = idMath::ClampFloat(0.0f, 1.0f, 1.0f - normalizedDistance);
     const float intensity = Max(0.0f, color.w);
     return intensity * (0.001f + attenuation * attenuation);
+}
+
+bool IsSmokeLightSpriteProxyCandidate(const idMaterial* lightShader)
+{
+    if (!lightShader)
+    {
+        return false;
+    }
+
+    idStr shaderName = lightShader->GetName();
+    static const char* spriteTokens[] = { "strobe", "beacon", "blink", "warning", "alarm", "flare", "sprite", "glow" };
+    return SmokeNameContainsAny(shaderName, spriteTokens, sizeof(spriteTokens) / sizeof(spriteTokens[0]));
 }
 
 int CollectSelectedSmokePointLights(const viewDef_t* viewDef, const idVec3& cameraOrigin, RtSmokeSelectedLight* selectedLights, int maxSelectedLights, int selectionMode)
@@ -485,6 +506,7 @@ int CollectSelectedSmokePointLights(const viewDef_t* viewDef, const idVec3& came
         selectedLights[insertIndex].distanceSquared = distanceSquared;
         selectedLights[insertIndex].score = score;
         selectedLights[insertIndex].shaderName = vLight->lightShader ? vLight->lightShader->GetName() : "<none>";
+        selectedLights[insertIndex].spriteProxy = IsSmokeLightSpriteProxyCandidate(vLight->lightShader);
     }
 
     std::sort(selectedLights, selectedLights + selectedLightCount, [](const RtSmokeSelectedLight& a, const RtSmokeSelectedLight& b) {
@@ -1506,6 +1528,42 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    if (r_pathTracingAllowGuiTextures.GetInteger() != 0 && (material->HasGui() || classifier.nameLooksGui || classifier.sortIsGuiOrSubview))
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || !stage->texture.image)
+            {
+                continue;
+            }
+
+            if (stage->texture.texgen == TG_SCREEN ||
+                stage->texture.texgen == TG_SCREEN2 ||
+                stage->texture.dynamic == DI_GUI_RENDER ||
+                stage->texture.dynamic == DI_RENDER_TARGET)
+            {
+                reason = va("stage %d GUI screen/dynamic", stageIndex);
+                return stage->texture.image;
+            }
+        }
+
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || !stage->texture.image)
+            {
+                continue;
+            }
+
+            if (stage->lighting == SL_AMBIENT || stage->lighting == SL_DIFFUSE)
+            {
+                reason = va("stage %d GUI ambient/diffuse", stageIndex);
+                return stage->texture.image;
+            }
+        }
+    }
+
     if (IsSmokeTranslucentOverlayCardMaterial(material, classifier))
     {
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -2014,13 +2072,21 @@ bool IsSmokeDiffuseImageSafeForRayTracing(idImage* image)
     }
 
     const idImageOpts& opts = image->GetOpts();
-    if (opts.isRenderTarget || opts.isUAV || opts.samples != 1 || opts.textureType != DTT_2D)
+    const bool guiTextureOverride =
+        r_pathTracingAllowGuiTextures.GetInteger() != 0 &&
+        IsSmokeImageNameGuiLike(image->GetName());
+    if (opts.samples != 1 || opts.textureType != DTT_2D)
+    {
+        return false;
+    }
+
+    if ((opts.isRenderTarget || opts.isUAV) && !guiTextureOverride)
     {
         return false;
     }
 
     if (!IsSmokeImageNameSafeForRayTracing(image->GetName()) &&
-        (r_pathTracingAllowGuiTextures.GetInteger() == 0 || !IsSmokeImageNameGuiLike(image->GetName())))
+        !guiTextureOverride)
     {
         return false;
     }
@@ -2093,9 +2159,17 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
     if (info && r_pathTracingMaterialMetadataCache.GetInteger() != 0)
     {
-        ++g_smokeMaterialMetadataFrameStats.cacheRefreshes;
-        RefreshSmokeMaterialTextureHandleState(*info);
-        return;
+        const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+        const bool rediscoverGuiDiffuse =
+            r_pathTracingAllowGuiTextures.GetInteger() != 0 &&
+            (material && (material->HasGui() || classifier.nameLooksGui || classifier.sortIsGuiOrSubview)) &&
+            !info->hasDiffuseImage;
+        if (!rediscoverGuiDiffuse)
+        {
+            ++g_smokeMaterialMetadataFrameStats.cacheRefreshes;
+            RefreshSmokeMaterialTextureHandleState(*info);
+            return;
+        }
     }
 
     if (!info)
@@ -2976,7 +3050,8 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         return false;
     }
 
-    if (IsSmokeGuiDrawSurface(drawSurf) && r_pathTracingAllowGuiSurfaces.GetInteger() == 0)
+    const bool guiDrawSurface = IsSmokeGuiDrawSurface(drawSurf);
+    if (guiDrawSurface && r_pathTracingAllowGuiSurfaces.GetInteger() == 0)
     {
         if (skipStats)
         {
@@ -2997,7 +3072,7 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     const viewEntity_t* space = drawSurf->space;
     const idRenderEntityLocal* entityDef = space->entityDef;
     const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
-    if (viewDef && space != &viewDef->worldSpace && (!renderEntity || !renderEntity->hModel))
+    if (!guiDrawSurface && viewDef && space != &viewDef->worldSpace && (!renderEntity || !renderEntity->hModel))
     {
         if (skipStats)
         {
@@ -4618,6 +4693,142 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
     }
 }
 
+void LogSmokeGuiSurfaceDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
+{
+    if (!viewDef)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke GUI dump no viewDef\n");
+        return;
+    }
+
+    const int maxLogged = 24;
+    int guiSurfaces = 0;
+    int capturedGuiSurfaces = 0;
+    int logged = 0;
+    common->Printf("PathTracePrimaryPass: RT smoke GUI dump drawSurfs=%d allowGuiSurfaces=%d allowGuiTextures=%d\n",
+        viewDef->numDrawSurfs,
+        r_pathTracingAllowGuiSurfaces.GetInteger() != 0 ? 1 : 0,
+        r_pathTracingAllowGuiTextures.GetInteger() != 0 ? 1 : 0);
+
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        if (!IsSmokeGuiDrawSurface(drawSurf))
+        {
+            continue;
+        }
+
+        ++guiSurfaces;
+        const srfTriangles_t* tri = nullptr;
+        const bool captured = ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr);
+        if (captured)
+        {
+            ++capturedGuiSurfaces;
+        }
+
+        if (logged >= maxLogged)
+        {
+            continue;
+        }
+
+        const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+        const char* materialName = material ? material->GetName() : "<none>";
+        const uint32_t materialId = HashSmokeMaterialName(materialName);
+        int tableIndex = -1;
+        std::vector<uint32_t>::const_iterator tableIt = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
+        if (tableIt != table.materialIds.end())
+        {
+            tableIndex = static_cast<int>(tableIt - table.materialIds.begin());
+        }
+
+        idVec4 colorMin(1.0f, 1.0f, 1.0f, 1.0f);
+        idVec4 colorMax(0.0f, 0.0f, 0.0f, 0.0f);
+        idVec2 uvMin(1.0e20f, 1.0e20f);
+        idVec2 uvMax(-1.0e20f, -1.0e20f);
+        if (tri && tri->verts)
+        {
+            for (int vertIndex = 0; vertIndex < tri->numVerts; ++vertIndex)
+            {
+                const idDrawVert& vert = tri->verts[vertIndex];
+                for (int component = 0; component < 4; ++component)
+                {
+                    const float c = vert.color[component] * (1.0f / 255.0f);
+                    colorMin[component] = Min(colorMin[component], c);
+                    colorMax[component] = Max(colorMax[component], c);
+                }
+                const idVec2 uv = vert.GetTexCoord();
+                uvMin.x = Min(uvMin.x, uv.x);
+                uvMin.y = Min(uvMin.y, uv.y);
+                uvMax.x = Max(uvMax.x, uv.x);
+                uvMax.y = Max(uvMax.y, uv.y);
+            }
+        }
+
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, tableIndex);
+        const PathTraceSmokeMaterial* rtMaterial = tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size()) ? &table.materials[tableIndex] : nullptr;
+        common->Printf("PathTracePrimaryPass: RT smoke GUI surface[%d] captured=%d table=%d id=%u material='%s' verts=%d indexes=%d colorMin=(%.2f %.2f %.2f %.2f) colorMax=(%.2f %.2f %.2f %.2f) uvMin=(%.2f %.2f) uvMax=(%.2f %.2f) diffuse='%s' safe=%d handle=%d slot=%d reason='%s'\n",
+            surfaceIndex,
+            captured ? 1 : 0,
+            tableIndex,
+            materialId,
+            materialName,
+            tri ? tri->numVerts : 0,
+            tri ? tri->numIndexes : 0,
+            colorMin.x, colorMin.y, colorMin.z, colorMin.w,
+            colorMax.x, colorMax.y, colorMax.z, colorMax.w,
+            uvMin.x, uvMin.y,
+            uvMax.x, uvMax.y,
+            info.diffuseImageName.c_str(),
+            info.hasSafeTexture ? 1 : 0,
+            info.hasTextureHandle ? 1 : 0,
+            rtMaterial && rtMaterial->diffuseTextureIndex != UINT32_MAX ? static_cast<int>(rtMaterial->diffuseTextureIndex) : -1,
+            info.fallbackReason.c_str());
+
+        if (material)
+        {
+            const float* regs = drawSurf && drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
+            const int registerCount = material->GetNumRegisters();
+            for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+            {
+                const shaderStage_t* stage = material->GetStage(stageIndex);
+                if (!stage)
+                {
+                    continue;
+                }
+
+                idVec4 stageColor(1.0f, 1.0f, 1.0f, 1.0f);
+                if (regs)
+                {
+                    for (int component = 0; component < 4; ++component)
+                    {
+                        const int colorRegister = stage->color.registers[component];
+                        if (colorRegister >= 0 && colorRegister < registerCount)
+                        {
+                            stageColor[component] = regs[colorRegister];
+                        }
+                    }
+                }
+                common->Printf("PathTracePrimaryPass: RT smoke GUI surface[%d] stage[%d] lighting=%s color=(%.3f %.3f %.3f %.3f) texgen=%s dynamic=%d image='%s' safe=%d\n",
+                    surfaceIndex,
+                    stageIndex,
+                    SmokeStageLightingName(stage->lighting),
+                    stageColor.x, stageColor.y, stageColor.z, stageColor.w,
+                    SmokeTexgenName(stage->texture.texgen),
+                    static_cast<int>(stage->texture.dynamic),
+                    stage->texture.image ? stage->texture.image->GetName() : "<none>",
+                    stage->texture.image && IsSmokeDiffuseImageSafeForRayTracing(stage->texture.image) ? 1 : 0);
+            }
+        }
+
+        ++logged;
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke GUI dump summary guiSurfaces=%d captured=%d logged=%d\n",
+        guiSurfaces,
+        capturedGuiSurfaces,
+        logged);
+}
+
 PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints)
 {
     const idDrawVert& drawVert = tri->verts[vertexIndex];
@@ -4649,6 +4860,14 @@ PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const s
     vertex.texCoord[1] = texCoord.y;
     vertex.texCoord[2] = 0.0f;
     vertex.texCoord[3] = 0.0f;
+    vertex.color[0] = drawVert.color[0] * (1.0f / 255.0f);
+    vertex.color[1] = drawVert.color[1] * (1.0f / 255.0f);
+    vertex.color[2] = drawVert.color[2] * (1.0f / 255.0f);
+    vertex.color[3] = drawVert.color[3] * (1.0f / 255.0f);
+    vertex.color2[0] = drawVert.color2[0] * (1.0f / 255.0f);
+    vertex.color2[1] = drawVert.color2[1] * (1.0f / 255.0f);
+    vertex.color2[2] = drawVert.color2[2] * (1.0f / 255.0f);
+    vertex.color2[3] = drawVert.color2[3] * (1.0f / 255.0f);
     return vertex;
 }
 
@@ -5435,6 +5654,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         LogSmokeCrosshairMaterialDump(viewDef, materialTable);
         r_pathTracingCrosshairMaterialDump.SetInteger(0);
     }
+    if (r_pathTracingGuiDump.GetInteger() != 0)
+    {
+        LogSmokeGuiSurfaceDump(viewDef, materialTable);
+        r_pathTracingGuiDump.SetInteger(0);
+    }
     if (enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0)
     {
         LogSmokeTextureActiveWindow(materialTable);
@@ -6008,7 +6232,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         constants.lightColorAndIntensity[i][0] = selectedLights[i].color.x;
         constants.lightColorAndIntensity[i][1] = selectedLights[i].color.y;
         constants.lightColorAndIntensity[i][2] = selectedLights[i].color.z;
-        constants.lightColorAndIntensity[i][3] = selectedLights[i].color.w;
+        constants.lightColorAndIntensity[i][3] = selectedLights[i].spriteProxy ? 1.0f : 0.0f;
     }
     if ((debugMode == 14 || debugMode == 15) && r_pathTracingLightDump.GetInteger() != 0)
     {
@@ -6017,7 +6241,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             lightSelectionMode == 0 ? "nearest" : "cameraInfluence");
         for (int i = 0; i < selectedLightCount; i++)
         {
-            common->Printf("  light[%d]: index=%d origin=(%.2f %.2f %.2f) radius=%.2f distance=%.2f score=%.6f color=(%.3f %.3f %.3f) intensity=%.3f shader='%s'\n",
+            common->Printf("  light[%d]: index=%d origin=(%.2f %.2f %.2f) radius=%.2f distance=%.2f score=%.6f color=(%.3f %.3f %.3f) intensity=%.3f sprite=%d shader='%s'\n",
                 i,
                 selectedLights[i].index,
                 selectedLights[i].origin.x,
@@ -6030,6 +6254,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 selectedLights[i].color.y,
                 selectedLights[i].color.z,
                 selectedLights[i].color.w,
+                selectedLights[i].spriteProxy ? 1 : 0,
                 selectedLights[i].shaderName.c_str());
         }
         r_pathTracingLightDump.SetInteger(0);
