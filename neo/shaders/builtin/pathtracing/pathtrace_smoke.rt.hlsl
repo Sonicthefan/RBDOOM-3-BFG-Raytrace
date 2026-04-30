@@ -75,6 +75,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 LightOriginAndRadius[32];
     float4 LightColorAndIntensity[32];
     float4 LightInfo;
+    float4 PortalWindowInfo;
+    float4 LightSpriteInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -83,11 +85,20 @@ static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
 static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
+static const uint RT_SMOKE_MATERIAL_FILTER_DECAL = 0x00000010u;
+static const uint RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY = 0x00000020u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA = 0x00000040u;
+static const uint RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
+static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
@@ -259,7 +270,7 @@ float3 ConvertSmokeYCoCgToRGB(float4 ycocg)
     return saturate(rgb);
 }
 
-float4 SampleSmokeDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
+float4 SampleSmokeDecodedDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
     float4 texel = SampleSmokeTexture(material.diffuseTextureIndex, material.textureWidth, material.textureHeight, texCoord, material.debugAlbedo);
     const bool textureDecodeEnabled = (((uint)TextureInfo.w) & 4u) != 0u;
@@ -270,6 +281,16 @@ float4 SampleSmokeDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoor
     return texel;
 }
 
+float4 SampleSmokeDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u)
+    {
+        return material.debugAlbedo;
+    }
+
+    return SampleSmokeDecodedDiffuseTexture(material, texCoord);
+}
+
 float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
     if (material.alphaTextureIndex != 0xffffffffu)
@@ -278,6 +299,23 @@ float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
     }
 
     return SampleSmokeDiffuseTexture(material, texCoord);
+}
+
+float SmokeAlphaCoverage(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY) != 0u)
+    {
+        const float3 decoded = SampleSmokeDecodedDiffuseTexture(material, texCoord).rgb;
+        return 1.0 - max(max(decoded.r, decoded.g), decoded.b);
+    }
+
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA) != 0u)
+    {
+        const float3 decoded = SampleSmokeDecodedDiffuseTexture(material, texCoord).rgb;
+        return max(max(decoded.r, decoded.g), decoded.b);
+    }
+
+    return SampleSmokeAlphaTexture(material, texCoord).a;
 }
 
 float4 SampleSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord)
@@ -398,6 +436,37 @@ bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
 
     const float opacity = SmokeAdditiveDecalOpacity(SampleSmokeDiffuseTexture(material, texCoord).rgb);
     return opacity < 0.035;
+}
+
+bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, bool shadowRay)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) == 0u)
+    {
+        return false;
+    }
+
+    if (shadowRay)
+    {
+        return true;
+    }
+
+    const float3 albedo = SampleSmokeDiffuseTexture(material, texCoord).rgb;
+    const bool blackKey = (material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
+    const float effect = blackKey
+        ? max(max(albedo.r, albedo.g), albedo.b)
+        : 1.0 - min(min(albedo.r, albedo.g), albedo.b);
+    const float opacity = saturate(effect * 0.55);
+    const float2 wrappedTexCoord = frac(abs(texCoord));
+    const uint2 ditherCell = uint2(floor(wrappedTexCoord * 256.0));
+    const uint2 baryCell = uint2(saturate(barycentrics) * 255.0);
+    const uint hash =
+        primitiveIndex * 1597334677u ^
+        instanceId * 3812015801u ^
+        ditherCell.x * 747796405u ^
+        ditherCell.y * 2891336453u ^
+        baryCell.x * 277803737u ^
+        baryCell.y * 3266489917u;
+    return opacity < SmokeHashToUnitFloat(hash);
 }
 
 float4 SmokeMissColor()
@@ -522,6 +591,58 @@ bool SmokeParticleDitherRejectsHit(PathTraceSmokeMaterial material, float2 texCo
     return alpha < SmokeHashToUnitFloat(hash);
 }
 
+bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, uint triangleClassAndFlags, bool shadowRay)
+{
+    if (PortalWindowInfo.x <= 0.0)
+    {
+        return false;
+    }
+
+    const uint surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+    const uint translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    {
+        return false;
+    }
+
+    const bool portalWindow = translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW;
+    const bool objectGlass =
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS &&
+        (material.flags & RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0u;
+    if (!portalWindow && !objectGlass)
+    {
+        return false;
+    }
+
+    const float4 alphaTexel = SampleSmokeAlphaTexture(material, texCoord);
+    const float textureMask = saturate(max(alphaTexel.a, max(max(alphaTexel.r, alphaTexel.g), alphaTexel.b)));
+    float opacity = max(saturate(textureMask * PortalWindowInfo.y), saturate(PortalWindowInfo.z));
+    if ((material.flags & RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK) != 0u)
+    {
+        opacity = max(opacity, 0.18);
+    }
+    if (objectGlass)
+    {
+        opacity = max(saturate(textureMask * 0.22), 0.12);
+    }
+    if (shadowRay)
+    {
+        opacity *= saturate(PortalWindowInfo.w);
+    }
+
+    const float2 wrappedTexCoord = frac(abs(texCoord));
+    const uint2 ditherCell = uint2(floor(wrappedTexCoord * 192.0));
+    const uint2 baryCell = uint2(saturate(barycentrics) * 255.0);
+    const uint hash =
+        primitiveIndex * 1597334677u ^
+        instanceId * 3812015801u ^
+        ditherCell.x * 747796405u ^
+        ditherCell.y * 2891336453u ^
+        baryCell.x * 277803737u ^
+        baryCell.y * 3266489917u;
+    return opacity < SmokeHashToUnitFloat(hash);
+}
+
 bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
 {
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex));
@@ -532,7 +653,17 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
         return true;
     }
 
+    if (SmokeGlassFallbackRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, triangleClassAndFlags, shadowRay))
+    {
+        return true;
+    }
+
     if (SmokeAdditiveDecalRejectsHit(material, texCoord, shadowRay))
+    {
+        return true;
+    }
+
+    if (SmokeFilterDecalRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, shadowRay))
     {
         return true;
     }
@@ -542,7 +673,7 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
         return false;
     }
 
-    return SampleSmokeAlphaTexture(material, texCoord).a < material.alphaCutoff;
+    return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
 }
 
 float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax)
@@ -569,6 +700,39 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax)
     return shadowPayload.value == 0 ? 1.0 : 0.0;
 }
 
+float3 EvaluateSmokeLightSpriteProxies(float3 rayOrigin, float3 rayDirection, float sceneHitT)
+{
+    if (LightSpriteInfo.x <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 sprites = float3(0.0, 0.0, 0.0);
+    const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < lightCount; lightIndex++)
+    {
+        const float4 lightOriginAndRadius = LightOriginAndRadius[lightIndex];
+        const float3 toLight = lightOriginAndRadius.xyz - rayOrigin;
+        const float t = dot(toLight, rayDirection);
+        if (t <= 0.0 || t >= sceneHitT)
+        {
+            continue;
+        }
+
+        const float3 closest = rayOrigin + rayDirection * t;
+        const float distanceToRay = length(lightOriginAndRadius.xyz - closest);
+        const float proxyRadius = clamp(lightOriginAndRadius.w * LightSpriteInfo.y, 2.0, 96.0);
+        const float core = saturate(1.0 - distanceToRay / proxyRadius);
+        const float glow = core * core * (3.0 - 2.0 * core);
+        const float distanceFade = saturate(1.0 - t / max(CameraOriginAndTMax.w, 1.0));
+        const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
+        sprites += lightColor * glow * (0.35 + distanceFade * 0.65) * LightSpriteInfo.z;
+    }
+
+    return sprites;
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -593,7 +757,14 @@ void RayGen()
     const uint debugMode = (uint)CameraUpAndDebugMode.w;
     if (payload.value == 0)
     {
-        SmokeOutput[pixel] = SmokeMissColor();
+        if (debugMode == 14)
+        {
+            SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
+        }
+        else
+        {
+            SmokeOutput[pixel] = SmokeMissColor();
+        }
     }
     else if (debugMode == 1)
     {
@@ -652,13 +823,13 @@ void RayGen()
     else if (debugMode == 9)
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
-        const float4 texel = SampleSmokeAlphaTexture(material, payload.texCoord);
         const bool alphaTested = (material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u;
+        const float coverage = SmokeAlphaCoverage(material, payload.texCoord);
         if (!alphaTested)
         {
             SmokeOutput[pixel] = float4(0.15, 0.15, 0.15, 1.0);
         }
-        else if (texel.a < material.alphaCutoff)
+        else if (coverage < material.alphaCutoff)
         {
             SmokeOutput[pixel] = SmokeMissColor();
         }
@@ -816,7 +987,8 @@ void RayGen()
             }
             else
             {
-                SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive), 1.0);
+                const float3 lightSprites = EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, payload.hitT);
+                SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive + lightSprites), 1.0);
             }
         }
     }

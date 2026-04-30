@@ -142,6 +142,22 @@ Implemented debug CVars:
   reduces the obvious rectangular silhouette from particle cards whose source
   alpha is broad or flat.
 
+- r_pathTracingPortalWindowStochastic
+  Enables stable stochastic transparency for RT smoke portal/window surfaces.
+  Defaults to 1. This is a debug placeholder for Doom 3's large level glass and
+  uses the material alpha/albedo mask as a Russian-roulette opacity source.
+
+- r_pathTracingPortalWindowAlphaScale
+  Opacity scale for portal/window stochastic transparency. Defaults to 0.35.
+
+- r_pathTracingPortalWindowMinOpacity
+  Minimum primary-ray opacity for portal/window stochastic transparency.
+  Defaults to 0.05.
+
+- r_pathTracingPortalWindowShadowOpacity
+  Shadow-ray opacity multiplier for portal/window stochastic transparency.
+  Defaults to 0.05 so large windows mostly stop blocking debug direct shadows.
+
 - r_pathTracingAdditiveDecalKey
   Treats additive translucent decal/signage materials as RGB-keyed overlays in
   the RT smoke path. Near-black texels are ignored by primary rays so the
@@ -188,6 +204,13 @@ term when r_pathTracingUseEmissiveMaps is 1.
 - r_pathTracingTranslucentDump
   One-shot dump of translucent material subtype classification reasons.
 
+- r_pathTracingCrosshairMaterialDump
+  One-shot dump of detailed RT smoke material diagnostics for the surface hit by
+  the center crosshair ray. This logs the Doom material name, coverage, sort,
+  surface class/subtype, classifier flags, RT texture metadata, RT material
+  slots/flags, triangle vertex colors, and all material stages with blend,
+  color, alpha-test, texgen, dynamic/cinematic, image, and safety information.
+
 - r_pathTracingLightDump
   One-shot dump of the selected debug point lights used by modes 14 and 15.
 
@@ -201,6 +224,17 @@ term when r_pathTracingUseEmissiveMaps is 1.
   Selected point-light ranking for modes 14 and 15. 0 keeps the original
   nearest-camera behavior. 1 ranks by estimated camera influence from evaluated
   light color/intensity and radius falloff.
+
+- r_pathTracingLightSpriteProxies
+  Enables debug-only emissive sprite proxies for selected RT smoke lights in
+  mode 14. Defaults to 1. This is a placeholder for Doom 3 light shader flare
+  and strobe visuals that may not have ordinary surface geometry in the BLAS.
+
+- r_pathTracingLightSpriteRadiusScale
+  World-space radius scale for selected-light sprite proxies. Defaults to 0.04.
+
+- r_pathTracingLightSpriteIntensity
+  Intensity multiplier for selected-light sprite proxies. Defaults to 2.5.
 
 - r_pathTracingSmokeLog
   Enables or disables periodic RT smoke logging.
@@ -416,6 +450,23 @@ Alpha-test exploration now exists in debug-only form:
 
 - Material discovery looks for dedicated alpha/coverage images on perforated
   materials when available.
+- Translucent glass/signage/glow-like cards can also opt into alpha any-hit
+  when the material exposes an explicit alpha-test stage, which catches cutout
+  cards such as glasses lenses without treating all blended translucency as
+  clipped geometry.
+- Ambient blended decal/grime materials can provide their safe ambient image as
+  RT albedo when no diffuse stage exists. The any-hit path also masks their
+  blend-mode no-effect texels: white-keyed filter decals drop near-white texels,
+  while black-keyed filter decals drop near-black texels. Retained filter decal
+  texels are stochastically thinned as a temporary overlay approximation so
+  door/wall surfaces can still show through in the one-hit debug path.
+- Packed YCoCg perforated materials that reuse the diffuse image as their
+  coverage stage can derive the RT alpha test from decoded diffuse luminance
+  instead of the raw alpha channel. Reflective eyewear cutouts such as glasses
+  and goggles use an inverted dark-key variant of that coverage test, plus a
+  dark neutral placeholder albedo while keeping their normal/specular maps,
+  since their original look depends on reflection/cube-map behavior that the
+  debug path does not implement yet.
 - Mode 9 visualizes alpha pass/fail using stable Texture.Load fetches.
 - An any-hit shader is wired for alpha-tested materials and calls IgnoreHit()
   when sampled alpha is below the material cutoff.
@@ -465,6 +516,33 @@ Particle/smoke placeholder handling:
   r_pathTracingSmokeParticleEdgeFade applies a simple UV edge fade to reduce the
   visible rectangle silhouette. This remains a placeholder hack; it can still
   look noisy and card-like.
+- Portal/window translucent subtype surfaces can use a similar stable
+  stochastic transparency placeholder when r_pathTracingPortalWindowStochastic
+  is 1. This targets large level windows only; small object glass remains on the
+  existing path until a real glass material exists. Portal/window materials with
+  no safe diffuse texture use their constant ambient/diffuse stage color as a
+  temporary fallback tint instead of the material hash debug color, and fall
+  back to a neutral blue-gray tint if the stage color is not constant. Plain
+  portal/window fallback materials are kept out of the decal overlay thinning
+  path and receive a small minimum stochastic opacity so indoor portal glass
+  remains visible even when it has no grime/albedo mask.
+- Object-glass translucent subtype materials, such as small props and vending
+  machine glass doors, use the same stochastic glass placeholder at a lower
+  minimum opacity. This is still a debug approximation for reflect-cube glass,
+  not a physically correct glass/reflection implementation.
+- Selected animated light shaders can draw a debug-only screen/ray-space sprite
+  proxy in mode 14. This is meant to restore visibility for strobe/flare-like
+  light visuals whose Doom material is a light shader rather than a captured
+  surface. It uses the evaluated light shader color, so table/Parm-driven
+  pulsing is reflected, but it is not sampled as a real path-traced emitter.
+
+Known limitations:
+
+- Mirrored-UV normal maps can still look wrong on some props. The RT debug path
+  recomputes tangent space in shader and currently normalizes handedness, which
+  can erase the mirrored-side convention used by some Doom 3 assets. A proper
+  fix should preserve/import the engine tangent basis or add a narrowly scoped
+  handedness path, rather than flipping all normal maps globally.
 
 Material table performance:
 
@@ -574,6 +652,10 @@ For alpha and translucent inspection:
     r_pathTracingDebugMode 12
     r_pathTracingTranslucentDump 1
 
+For crosshair material diagnostics:
+
+    r_pathTracingCrosshairMaterialDump 1
+
 For nearest-light shadow inspection:
 
     r_pathTracingDebugMode 14
@@ -610,6 +692,13 @@ For smoke particle placeholder testing:
 To disable the smoke-card placeholder hack:
 
     r_pathTracingSmokeParticleDither 0
+
+For portal/window glass placeholder testing:
+
+    r_pathTracingPortalWindowStochastic 1
+    r_pathTracingPortalWindowAlphaScale 0.35
+    r_pathTracingPortalWindowMinOpacity 0.05
+    r_pathTracingPortalWindowShadowOpacity 0.05
 
 For quieter traversal testing:
 

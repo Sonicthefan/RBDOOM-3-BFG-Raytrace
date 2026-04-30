@@ -85,6 +85,12 @@ idCVar r_pathTracingTranslucentDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump current RT smoke translucent subtype classifier samples once" );
 
+idCVar r_pathTracingCrosshairMaterialDump(
+    "r_pathTracingCrosshairMaterialDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump detailed RT smoke material/stage info for the surface under the center crosshair once" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",
@@ -102,6 +108,24 @@ idCVar r_pathTracingLightSelection(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "RT smoke point-light selection: 0 = nearest camera lights, 1 = strongest estimated camera influence" );
+
+idCVar r_pathTracingLightSpriteProxies(
+    "r_pathTracingLightSpriteProxies",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Draw debug-only emissive sprite proxies for selected RT smoke lights in mode 14" );
+
+idCVar r_pathTracingLightSpriteRadiusScale(
+    "r_pathTracingLightSpriteRadiusScale",
+    "0.04",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "World-space radius scale for RT smoke selected-light sprite proxies" );
+
+idCVar r_pathTracingLightSpriteIntensity(
+    "r_pathTracingLightSpriteIntensity",
+    "2.5",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Intensity multiplier for RT smoke selected-light sprite proxies" );
 
 idCVar r_pathTracingTextureProbeDumpStart(
     "r_pathTracingTextureProbeDumpStart",
@@ -199,6 +223,30 @@ idCVar r_pathTracingSmokeParticleEdgeFade(
     CVAR_RENDERER | CVAR_INTEGER,
     "Fade RT smoke particle-card dither opacity near card UV edges" );
 
+idCVar r_pathTracingPortalWindowStochastic(
+    "r_pathTracingPortalWindowStochastic",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use stable stochastic transparency for RT smoke portal/window surfaces" );
+
+idCVar r_pathTracingPortalWindowAlphaScale(
+    "r_pathTracingPortalWindowAlphaScale",
+    "0.35",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Opacity scale for RT smoke portal/window stochastic transparency" );
+
+idCVar r_pathTracingPortalWindowMinOpacity(
+    "r_pathTracingPortalWindowMinOpacity",
+    "0.05",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Minimum primary-ray opacity for RT smoke portal/window stochastic transparency" );
+
+idCVar r_pathTracingPortalWindowShadowOpacity(
+    "r_pathTracingPortalWindowShadowOpacity",
+    "0.05",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Shadow-ray opacity multiplier for RT smoke portal/window stochastic transparency" );
+
 idCVar r_pathTracingAdditiveDecalKey(
     "r_pathTracingAdditiveDecalKey",
     "0",
@@ -289,6 +337,13 @@ const uint32_t RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 const uint32_t RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 const uint32_t RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 const uint32_t RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
+const uint32_t RT_SMOKE_MATERIAL_FILTER_DECAL = 0x00000010u;
+const uint32_t RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY = 0x00000020u;
+const uint32_t RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA = 0x00000040u;
+const uint32_t RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
+const uint32_t RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
+const uint32_t RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
+const uint32_t RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 
 struct PathTraceSmokeConstants
 {
@@ -300,6 +355,8 @@ struct PathTraceSmokeConstants
     float lightOriginAndRadius[RT_SMOKE_MAX_DEBUG_LIGHTS][4];
     float lightColorAndIntensity[RT_SMOKE_MAX_DEBUG_LIGHTS][4];
     float lightInfo[4];
+    float portalWindowInfo[4];
+    float lightSpriteInfo[4];
 };
 
 struct RtSmokeSelectedLight
@@ -310,6 +367,7 @@ struct RtSmokeSelectedLight
     int index = -1;
     float distanceSquared = idMath::INFINITUM;
     float score = 0.0f;
+    idStr shaderName;
 };
 
 idVec4 EvaluateSmokeLightColor(const viewLight_t* vLight)
@@ -426,6 +484,7 @@ int CollectSelectedSmokePointLights(const viewDef_t* viewDef, const idVec3& came
         selectedLights[insertIndex].index = vLight->lightDef ? vLight->lightDef->index : -1;
         selectedLights[insertIndex].distanceSquared = distanceSquared;
         selectedLights[insertIndex].score = score;
+        selectedLights[insertIndex].shaderName = vLight->lightShader ? vLight->lightShader->GetName() : "<none>";
     }
 
     std::sort(selectedLights, selectedLights + selectedLightCount, [](const RtSmokeSelectedLight& a, const RtSmokeSelectedLight& b) {
@@ -682,9 +741,18 @@ struct RtSmokeMaterialTextureInfo
     bool hasSafeEmissiveTexture = false;
     bool hasAlphaTest = false;
     bool additiveDecal = false;
+    bool filterDecal = false;
+    bool filterDecalBlackKey = false;
+    bool alphaFromDiffuseLuma = false;
+    bool forceFallbackAlbedo = false;
+    bool alphaFromDiffuseDarkKey = false;
+    bool portalWindowFallback = false;
+    bool objectGlassFallback = false;
     bool emissive = false;
     float alphaCutoff = 0.0f;
     idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    idVec4 fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    bool hasFallbackAlbedo = false;
     textureColor_t diffuseColorFormat = CFM_DEFAULT;
     textureColor_t alphaColorFormat = CFM_DEFAULT;
     textureColor_t normalColorFormat = CFM_DEFAULT;
@@ -931,6 +999,52 @@ const char* SmokeCoverageName(materialCoverage_t coverage)
     }
 }
 
+const char* SmokeStageLightingName(stageLighting_t lighting)
+{
+    switch (lighting)
+    {
+        case SL_AMBIENT:
+            return "ambient";
+        case SL_BUMP:
+            return "bump";
+        case SL_DIFFUSE:
+            return "diffuse";
+        case SL_SPECULAR:
+            return "specular";
+        case SL_COVERAGE:
+            return "coverage";
+        default:
+            return "unknown";
+    }
+}
+
+const char* SmokeTexgenName(texgen_t texgen)
+{
+    switch (texgen)
+    {
+        case TG_EXPLICIT:
+            return "explicit";
+        case TG_DIFFUSE_CUBE:
+            return "diffuse-cube";
+        case TG_REFLECT_CUBE:
+            return "reflect-cube";
+        case TG_REFLECT_CUBE2:
+            return "reflect-cube2";
+        case TG_SKYBOX_CUBE:
+            return "skybox-cube";
+        case TG_WOBBLESKY_CUBE:
+            return "wobblesky-cube";
+        case TG_SCREEN:
+            return "screen";
+        case TG_SCREEN2:
+            return "screen2";
+        case TG_GLASSWARP:
+            return "glasswarp";
+        default:
+            return "unknown";
+    }
+}
+
 const char* SmokeSurfaceClassNameByIndex(int classIndex)
 {
     if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
@@ -1156,13 +1270,17 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTes
         return;
     }
 
-    if (material->Coverage() != MC_PERFORATED)
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const bool allowTranslucentCutout =
+        material->Coverage() == MC_TRANSLUCENT &&
+        !classifier.hasScreenTexgen &&
+        !classifier.nameLooksGui &&
+        !classifier.nameLooksParticle &&
+        (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);
+    if (material->Coverage() != MC_PERFORATED && !allowTranslucentCutout)
     {
         return;
     }
-
-    hasAlphaTest = true;
-    alphaCutoff = 0.5f;
 
     const float* constantRegisters = material->ConstantRegisters();
     const int registerCount = material->GetNumRegisters();
@@ -1174,15 +1292,26 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTes
             continue;
         }
 
+        hasAlphaTest = true;
+        alphaCutoff = 0.5f;
         if (constantRegisters && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount)
         {
             alphaCutoff = idMath::ClampFloat(0.0f, 1.0f, constantRegisters[stage->alphaTestRegister]);
         }
         return;
     }
+
+    if (material->Coverage() == MC_PERFORATED)
+    {
+        hasAlphaTest = true;
+        alphaCutoff = 0.5f;
+    }
 }
 
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
+bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material);
+bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material);
+bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
 
 bool IsSmokeAdditiveDecalMaterial(const idMaterial* material)
 {
@@ -1230,6 +1359,13 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     material.emissiveColor[2] = 0.0f;
     material.emissiveColor[3] = 1.0f;
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, static_cast<int>(table.materials.size()));
+    if (info.hasFallbackAlbedo)
+    {
+        material.debugAlbedo[0] = info.fallbackAlbedo.x;
+        material.debugAlbedo[1] = info.fallbackAlbedo.y;
+        material.debugAlbedo[2] = info.fallbackAlbedo.z;
+        material.debugAlbedo[3] = info.fallbackAlbedo.w;
+    }
     if (info.hasAlphaTest && info.hasAlphaImage)
     {
         material.flags |= RT_SMOKE_MATERIAL_ALPHA_TEST;
@@ -1243,6 +1379,34 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     {
         material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL;
         ++table.materialsAdditiveDecals;
+    }
+    if (info.filterDecal)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL;
+    }
+    if (info.filterDecalBlackKey)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY;
+    }
+    if (info.alphaFromDiffuseLuma)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA;
+    }
+    if (info.forceFallbackAlbedo)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO;
+    }
+    if (info.alphaFromDiffuseDarkKey)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY;
+    }
+    if (info.portalWindowFallback)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK;
+    }
+    if (info.objectGlassFallback)
+    {
+        material.flags |= RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK;
     }
     if (info.emissive && (info.hasSafeEmissiveTexture || !info.hasEmissiveImage))
     {
@@ -1339,6 +1503,22 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
 
         reason = va("stage %d SL_DIFFUSE", stageIndex);
         return stage->texture.image;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    if (IsSmokeTranslucentOverlayCardMaterial(material, classifier))
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || stage->lighting != SL_AMBIENT || !stage->texture.image)
+            {
+                continue;
+            }
+
+            reason = va("stage %d SL_AMBIENT translucent blend", stageIndex);
+            return stage->texture.image;
+        }
     }
 
     reason = "no fast-path or diffuse-stage image";
@@ -1466,6 +1646,132 @@ bool SmokeStageConstantColor(const idMaterial* material, const shaderStage_t* st
     return true;
 }
 
+bool IsSmokeReflectiveEyewearMaterial(const idMaterial* material)
+{
+    if (!material || material->Coverage() != MC_PERFORATED)
+    {
+        return false;
+    }
+
+    idStr materialName = material->GetName();
+    static const char* eyewearTokens[] = { "glasses", "goggles", "gogs", "visor" };
+    if (!SmokeNameContainsAny(materialName, eyewearTokens, sizeof(eyewearTokens) / sizeof(eyewearTokens[0])))
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (stage && stage->lighting == SL_SPECULAR && stage->texture.image)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material)
+{
+    if (!material || material->Coverage() != MC_TRANSLUCENT)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    return classifier.sortIsGuiOrSubview || classifier.sortIsPostProcess || classifier.hasScreenTexgen;
+}
+
+bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material)
+{
+    if (!material || material->Coverage() != MC_TRANSLUCENT)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    return classifier.nameLooksGlass && !IsSmokePortalWindowFallbackMaterial(material);
+}
+
+bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    if (!material || material->Coverage() != MC_TRANSLUCENT)
+    {
+        return false;
+    }
+    if (IsSmokePortalWindowFallbackMaterial(material))
+    {
+        return false;
+    }
+
+    return classifier.sortIsDecal ||
+        classifier.polygonOffsetDecal ||
+        classifier.nameLooksDecal ||
+        (classifier.hasAmbientBlendStage && !classifier.hasDiffuseStage);
+}
+
+bool FindSmokeMaterialFallbackAlbedo(const idMaterial* material, idVec4& albedo)
+{
+    albedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    if (!material)
+    {
+        return false;
+    }
+
+    if (IsSmokeReflectiveEyewearMaterial(material))
+    {
+        albedo = idVec4(0.08f, 0.10f, 0.11f, 1.0f);
+        return true;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+
+        if (stage->texture.texgen == TG_SKYBOX_CUBE || stage->texture.texgen == TG_WOBBLESKY_CUBE)
+        {
+            albedo = idVec4(0.18f, 0.26f, 0.36f, 1.0f);
+            return true;
+        }
+    }
+
+    if (!IsSmokePortalWindowFallbackMaterial(material))
+    {
+        return false;
+    }
+
+    albedo = idVec4(0.55f, 0.70f, 0.72f, 1.0f);
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || (stage->lighting != SL_AMBIENT && stage->lighting != SL_DIFFUSE))
+        {
+            continue;
+        }
+
+        idVec4 stageColor;
+        if (!SmokeStageConstantColor(material, stage, stageColor))
+        {
+            continue;
+        }
+
+        if (stageColor.x <= 0.0f && stageColor.y <= 0.0f && stageColor.z <= 0.0f)
+        {
+            continue;
+        }
+
+        albedo = stageColor;
+        return true;
+    }
+
+    return true;
+}
+
 idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec4& emissiveColor)
 {
     emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1543,9 +1849,22 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
 
 idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
 {
-    if (!material || material->Coverage() != MC_PERFORATED)
+    if (!material)
     {
-        reason = "not perforated";
+        reason = "null material";
+        return nullptr;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const bool allowTranslucentCutout =
+        material->Coverage() == MC_TRANSLUCENT &&
+        !classifier.hasScreenTexgen &&
+        !classifier.nameLooksGui &&
+        !classifier.nameLooksParticle &&
+        (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);
+    if (material->Coverage() != MC_PERFORATED && !allowTranslucentCutout)
+    {
+        reason = "not perforated or translucent cutout";
         return nullptr;
     }
 
@@ -1560,6 +1879,21 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
         if (stage->lighting == SL_COVERAGE)
         {
             reason = va("stage %d SL_COVERAGE", stageIndex);
+            return stage->texture.image;
+        }
+    }
+
+    if (allowTranslucentCutout)
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || !stage->hasAlphaTest || stage->ignoreAlphaTest || !stage->texture.image)
+            {
+                continue;
+            }
+
+            reason = va("stage %d translucent alpha-test", stageIndex);
             return stage->texture.image;
         }
     }
@@ -1788,6 +2122,8 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     idStr emissiveReason;
     idVec4 emissiveColor;
     idImage* emissiveImage = FindSmokeEmissiveImage(material, emissiveReason, emissiveColor);
+    idVec4 fallbackAlbedo;
+    const bool hasFallbackAlbedo = FindSmokeMaterialFallbackAlbedo(material, fallbackAlbedo);
     info->materialName = materialName;
     info->fallbackReason = reason;
     info->alphaReason = alphaReason;
@@ -1822,8 +2158,39 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->emissiveColorFormat = emissiveImage ? emissiveImage->GetOpts().colorFormat : CFM_DEFAULT;
     ResolveSmokeMaterialAlphaInfo(material, info->hasAlphaTest, info->alphaCutoff);
     info->additiveDecal = IsSmokeAdditiveDecalMaterial(material);
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    info->filterDecal = IsSmokeTranslucentOverlayCardMaterial(material, classifier);
+    if (info->filterDecal)
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || stage->lighting != SL_AMBIENT || !stage->texture.image)
+            {
+                continue;
+            }
+
+            const uint64_t srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+            const uint64_t dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+            info->filterDecalBlackKey =
+                srcBlend == GLS_SRCBLEND_ZERO &&
+                dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR;
+            break;
+        }
+    }
+    info->alphaFromDiffuseLuma =
+        info->hasAlphaTest &&
+        diffuseImage != nullptr &&
+        alphaImage == diffuseImage &&
+        diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5;
+    info->forceFallbackAlbedo = IsSmokeReflectiveEyewearMaterial(material);
+    info->alphaFromDiffuseDarkKey = info->alphaFromDiffuseLuma && info->forceFallbackAlbedo;
+    info->portalWindowFallback = IsSmokePortalWindowFallbackMaterial(material);
+    info->objectGlassFallback = IsSmokeObjectGlassFallbackMaterial(material);
     info->emissiveColor = emissiveColor;
     info->emissive = info->hasEmissiveImage || emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f;
+    info->fallbackAlbedo = fallbackAlbedo;
+    info->hasFallbackAlbedo = hasFallbackAlbedo;
     RefreshSmokeMaterialTextureHandleState(*info);
     if (info->hasDiffuseImage && !info->hasSafeTexture)
     {
@@ -4059,6 +4426,198 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     return foundHit;
 }
 
+void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
+{
+    idVec3 hitPoint = vec3_origin;
+    int surfaceIndex = -1;
+    int triangleIndex = -1;
+    if (!FindCenterCameraRayAnchor(viewDef, hitPoint, surfaceIndex, triangleIndex))
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair material dump found no center-ray hit\n");
+        return;
+    }
+
+    if (!viewDef || surfaceIndex < 0 || surfaceIndex >= viewDef->numDrawSurfs)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair material dump invalid hit surface=%d triangle=%d\n", surfaceIndex, triangleIndex);
+        return;
+    }
+
+    const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+    const srfTriangles_t* tri = nullptr;
+    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr) || !drawSurf || !drawSurf->material || !tri)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair material dump failed validation surface=%d triangle=%d\n", surfaceIndex, triangleIndex);
+        return;
+    }
+
+    const idMaterial* material = drawSurf->material;
+    const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+    const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const uint32_t materialId = SmokeMaterialId(material);
+    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
+
+    int tableIndex = -1;
+    for (int index = 0; index < static_cast<int>(table.materialIds.size()); ++index)
+    {
+        if (table.materialIds[index] == materialId)
+        {
+            tableIndex = index;
+            break;
+        }
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair material hit surface=%d triangle=%d point=(%.2f %.2f %.2f) material='%s' id=%u tableIndex=%d class=%s subtype=%s coverage=%s sort=%.2f deform=%s cull=%d stages=%d guiSurface=%d\n",
+        surfaceIndex,
+        triangleIndex,
+        hitPoint.x,
+        hitPoint.y,
+        hitPoint.z,
+        material->GetName(),
+        materialId,
+        tableIndex,
+        SmokeSurfaceClassName(surfaceClass),
+        SmokeTranslucentSubtypeName(translucentSubtype),
+        SmokeCoverageName(material->Coverage()),
+        material->GetSort(),
+        SmokeDeformName(material->Deform()),
+        static_cast<int>(material->GetCullType()),
+        material->GetNumStages(),
+        IsSmokeGuiDrawSurface(drawSurf) ? 1 : 0);
+
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
+        classifier.sortIsGuiOrSubview ? 1 : 0,
+        classifier.sortIsDecal ? 1 : 0,
+        classifier.sortIsPostProcess ? 1 : 0,
+        classifier.polygonOffsetDecal ? 1 : 0,
+        classifier.hasScreenTexgen ? 1 : 0,
+        classifier.hasAdditiveBlend ? 1 : 0,
+        classifier.hasAmbientStage ? 1 : 0,
+        classifier.hasAmbientBlendStage ? 1 : 0,
+        classifier.hasDiffuseStage ? 1 : 0,
+        classifier.nameLooksGui ? 1 : 0,
+        classifier.nameLooksParticle ? 1 : 0,
+        classifier.nameLooksDecal ? 1 : 0,
+        classifier.nameLooksGlass ? 1 : 0,
+        classifier.nameLooksGlow ? 1 : 0,
+        classifier.nameLooksSignage ? 1 : 0);
+
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' image=%d handle=%d safe=%d reason='%s' alpha='%s' image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d normal='%s' safe=%d specular='%s' safe=%d emissive='%s' safe=%d emissive=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
+        info.diffuseImageName.c_str(),
+        info.hasDiffuseImage ? 1 : 0,
+        info.hasTextureHandle ? 1 : 0,
+        info.hasSafeTexture ? 1 : 0,
+        info.fallbackReason.c_str(),
+        info.alphaImageName.c_str(),
+        info.hasAlphaImage ? 1 : 0,
+        info.hasAlphaTextureHandle ? 1 : 0,
+        info.hasSafeAlphaTexture ? 1 : 0,
+        info.alphaReason.c_str(),
+        info.hasAlphaTest ? 1 : 0,
+        info.alphaCutoff,
+        info.alphaFromDiffuseLuma ? 1 : 0,
+        info.alphaFromDiffuseDarkKey ? 1 : 0,
+        info.normalImageName.c_str(),
+        info.hasSafeNormalTexture ? 1 : 0,
+        info.specularImageName.c_str(),
+        info.hasSafeSpecularTexture ? 1 : 0,
+        info.emissiveImageName.c_str(),
+        info.hasSafeEmissiveTexture ? 1 : 0,
+        info.emissive ? 1 : 0,
+        info.filterDecal ? 1 : 0,
+        info.filterDecalBlackKey ? 1 : 0,
+        info.forceFallbackAlbedo ? 1 : 0,
+        info.portalWindowFallback ? 1 : 0,
+        info.objectGlassFallback ? 1 : 0,
+        info.hasFallbackAlbedo ? 1 : 0,
+        info.fallbackAlbedo.x,
+        info.fallbackAlbedo.y,
+        info.fallbackAlbedo.z);
+
+    if (tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size()))
+    {
+        const PathTraceSmokeMaterial& rtMaterial = table.materials[tableIndex];
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair RT material debugAlbedo=(%.2f %.2f %.2f %.2f) flags=0x%08x diffuseSlot=%d alphaSlot=%d normalSlot=%d specSlot=%d emissiveSlot=%d alphaCutoff=%.3f\n",
+            rtMaterial.debugAlbedo[0],
+            rtMaterial.debugAlbedo[1],
+            rtMaterial.debugAlbedo[2],
+            rtMaterial.debugAlbedo[3],
+            rtMaterial.flags,
+            rtMaterial.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.diffuseTextureIndex),
+            rtMaterial.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.alphaTextureIndex),
+            rtMaterial.normalTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.normalTextureIndex),
+            rtMaterial.specularTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.specularTextureIndex),
+            rtMaterial.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.emissiveTextureIndex),
+            rtMaterial.alphaCutoff);
+    }
+
+    const int indexBase = triangleIndex * 3;
+    if (indexBase >= 0 && indexBase + 2 < tri->numIndexes)
+    {
+        const int i0 = tri->indexes[indexBase + 0];
+        const int i1 = tri->indexes[indexBase + 1];
+        const int i2 = tri->indexes[indexBase + 2];
+        if (i0 >= 0 && i1 >= 0 && i2 >= 0 && i0 < tri->numVerts && i1 < tri->numVerts && i2 < tri->numVerts)
+        {
+            common->Printf("PathTracePrimaryPass: RT smoke crosshair triangle indexes=%d/%d/%d vertexColors=(%u %u %u %u),(%u %u %u %u),(%u %u %u %u)\n",
+                i0, i1, i2,
+                tri->verts[i0].color[0], tri->verts[i0].color[1], tri->verts[i0].color[2], tri->verts[i0].color[3],
+                tri->verts[i1].color[0], tri->verts[i1].color[1], tri->verts[i1].color[2], tri->verts[i1].color[3],
+                tri->verts[i2].color[0], tri->verts[i2].color[1], tri->verts[i2].color[2], tri->verts[i2].color[3]);
+        }
+    }
+
+    const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
+    const int registerCount = material->GetNumRegisters();
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+
+        idVec4 stageColor(1.0f, 1.0f, 1.0f, 1.0f);
+        if (regs)
+        {
+            for (int component = 0; component < 4; ++component)
+            {
+                const int colorRegister = stage->color.registers[component];
+                if (colorRegister >= 0 && colorRegister < registerCount)
+                {
+                    stageColor[component] = regs[colorRegister];
+                }
+            }
+        }
+
+        const float condition = regs && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount ? regs[stage->conditionRegister] : 1.0f;
+        const float alphaTest = regs && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount ? regs[stage->alphaTestRegister] : -1.0f;
+        idImage* image = stage->texture.image;
+        const bool imageSafe = image && IsSmokeDiffuseImageSafeForRayTracing(image);
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] lighting=%s condition=%.3f color=(%.3f %.3f %.3f %.3f) drawState=0x%llx srcBlend=%llu dstBlend=%llu alphaTest=%d alphaReg=%d alphaValue=%.3f ignoreAlpha=%d texgen=%s dynamic=%d cinematic=%d image='%s' safe=%d\n",
+            stageIndex,
+            SmokeStageLightingName(stage->lighting),
+            condition,
+            stageColor.x,
+            stageColor.y,
+            stageColor.z,
+            stageColor.w,
+            static_cast<unsigned long long>(stage->drawStateBits),
+            static_cast<unsigned long long>((stage->drawStateBits & GLS_SRCBLEND_BITS) >> 0),
+            static_cast<unsigned long long>((stage->drawStateBits & GLS_DSTBLEND_BITS) >> 3),
+            stage->hasAlphaTest ? 1 : 0,
+            stage->alphaTestRegister,
+            alphaTest,
+            stage->ignoreAlphaTest ? 1 : 0,
+            SmokeTexgenName(stage->texture.texgen),
+            static_cast<int>(stage->texture.dynamic),
+            stage->texture.cinematic ? 1 : 0,
+            image ? image->GetName() : "<none>",
+            imageSafe ? 1 : 0);
+    }
+}
+
 PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints)
 {
     const idDrawVert& drawVert = tri->verts[vertexIndex];
@@ -4871,6 +5430,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         LogSmokeTranslucentSubtypeDump(materialStats);
         r_pathTracingTranslucentDump.SetInteger(0);
     }
+    if (r_pathTracingCrosshairMaterialDump.GetInteger() != 0)
+    {
+        LogSmokeCrosshairMaterialDump(viewDef, materialTable);
+        r_pathTracingCrosshairMaterialDump.SetInteger(0);
+    }
     if (enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0)
     {
         LogSmokeTextureActiveWindow(materialTable);
@@ -5427,6 +5991,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.lightInfo[3] =
         (r_pathTracingSmokeParticleDither.GetInteger() != 0 ? 1.0f : 0.0f) +
         (r_pathTracingSmokeParticleEdgeFade.GetInteger() != 0 ? 2.0f : 0.0f);
+    constants.portalWindowInfo[0] = r_pathTracingPortalWindowStochastic.GetInteger() != 0 ? 1.0f : 0.0f;
+    constants.portalWindowInfo[1] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingPortalWindowAlphaScale.GetFloat());
+    constants.portalWindowInfo[2] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingPortalWindowMinOpacity.GetFloat());
+    constants.portalWindowInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingPortalWindowShadowOpacity.GetFloat());
+    constants.lightSpriteInfo[0] = r_pathTracingLightSpriteProxies.GetInteger() != 0 ? 1.0f : 0.0f;
+    constants.lightSpriteInfo[1] = idMath::ClampFloat(0.001f, 0.25f, r_pathTracingLightSpriteRadiusScale.GetFloat());
+    constants.lightSpriteInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingLightSpriteIntensity.GetFloat());
+    constants.lightSpriteInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -5445,7 +6017,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             lightSelectionMode == 0 ? "nearest" : "cameraInfluence");
         for (int i = 0; i < selectedLightCount; i++)
         {
-            common->Printf("  light[%d]: index=%d origin=(%.2f %.2f %.2f) radius=%.2f distance=%.2f score=%.6f color=(%.3f %.3f %.3f) intensity=%.3f\n",
+            common->Printf("  light[%d]: index=%d origin=(%.2f %.2f %.2f) radius=%.2f distance=%.2f score=%.6f color=(%.3f %.3f %.3f) intensity=%.3f shader='%s'\n",
                 i,
                 selectedLights[i].index,
                 selectedLights[i].origin.x,
@@ -5457,7 +6029,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 selectedLights[i].color.x,
                 selectedLights[i].color.y,
                 selectedLights[i].color.z,
-                selectedLights[i].color.w);
+                selectedLights[i].color.w,
+                selectedLights[i].shaderName.c_str());
         }
         r_pathTracingLightDump.SetInteger(0);
     }
