@@ -25,10 +25,12 @@ struct PathTraceSmokeVertex
 struct PathTraceSmokeMaterial
 {
     float4 debugAlbedo;
+    float4 emissiveColor;
     uint diffuseTextureIndex;
     uint alphaTextureIndex;
     uint normalTextureIndex;
     uint specularTextureIndex;
+    uint emissiveTextureIndex;
     float alphaCutoff;
     uint flags;
     uint textureWidth;
@@ -39,8 +41,11 @@ struct PathTraceSmokeMaterial
     uint normalTextureHeight;
     uint specularTextureWidth;
     uint specularTextureHeight;
+    uint emissiveTextureWidth;
+    uint emissiveTextureHeight;
     uint padding0;
     uint padding1;
+    uint padding2;
 };
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
@@ -76,13 +81,16 @@ static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
 static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
+static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -343,6 +351,34 @@ float3 EvaluateSmokeSpecular(float3 specularColor, float3 normal, float3 lightDi
     return specularColor * lightColor * specularTerm;
 }
 
+float4 SampleSmokeEmissiveTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    return SampleSmokeTexture(
+        material.emissiveTextureIndex,
+        material.emissiveTextureWidth,
+        material.emissiveTextureHeight,
+        texCoord,
+        float4(1.0, 1.0, 1.0, 1.0));
+}
+
+float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uint surfaceClass)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) == 0u))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 emissive = max(material.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
+    if (material.emissiveTextureIndex != 0xffffffffu)
+    {
+        emissive *= saturate(SampleSmokeEmissiveTexture(material, texCoord).rgb);
+    }
+
+    return emissive * 1.75;
+}
+
 float SmokeAdditiveDecalOpacity(float3 albedo)
 {
     return max(max(albedo.r, albedo.g), albedo.b);
@@ -390,10 +426,12 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material;
     material.debugAlbedo = float4(1.0, 0.0, 1.0, 1.0);
+    material.emissiveColor = float4(0.0, 0.0, 0.0, 1.0);
     material.diffuseTextureIndex = 0xffffffffu;
     material.alphaTextureIndex = 0xffffffffu;
     material.normalTextureIndex = 0xffffffffu;
     material.specularTextureIndex = 0xffffffffu;
+    material.emissiveTextureIndex = 0xffffffffu;
     material.alphaCutoff = 0.0;
     material.flags = 0u;
     material.textureWidth = 1u;
@@ -404,8 +442,11 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
     material.normalTextureHeight = 1u;
     material.specularTextureWidth = 1u;
     material.specularTextureHeight = 1u;
+    material.emissiveTextureWidth = 1u;
+    material.emissiveTextureHeight = 1u;
     material.padding0 = 0u;
     material.padding1 = 0u;
+    material.padding2 = 0u;
 
     const uint materialCount = (uint)TextureInfo.z;
     if (materialIndex < materialCount)
@@ -681,7 +722,8 @@ void RayGen()
         if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
             const float opacity = SmokeAdditiveDecalOpacity(albedo);
-            SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25)), 1.0);
+            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+            SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25) + emissive), 1.0);
         }
         else
         {
@@ -711,6 +753,7 @@ void RayGen()
             const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
             const float3 viewDir = SafeNormalize(ray.Origin - hitPosition, -ray.Direction);
             const float3 specularColor = debugMode == 14 ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
+            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
             const float3 ambient = albedo * 0.12;
             const float3 unshadowedFill = albedo * 0.18;
             float3 direct = float3(0.0, 0.0, 0.0);
@@ -773,7 +816,7 @@ void RayGen()
             }
             else
             {
-                SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct), 1.0);
+                SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive), 1.0);
             }
         }
     }

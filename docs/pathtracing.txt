@@ -37,6 +37,8 @@ Current validated feature set:
 - Debug selected-light direct lighting with RT shadow rays.
 - Mode 14 normal-map lighting using Doom/RBDoom's DXT5-style normal decode.
 - Mode 14 simple Blinn-style specular from Doom spec maps.
+- Mode 14 unshadowed emissive/glow material preview from safe ambient/additive
+  stages.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -84,7 +86,7 @@ Implemented debug CVars:
 
 - r_pathTracingTextureTableLimit / r_pathTracingTextureTableStart
   Selects a window of safe captured diffuse textures for debug mode 8. The
-  active slot count currently supports up to 512 descriptors for broader albedo
+  active slot count currently supports up to 2048 descriptors for broader albedo
   coverage while texture sampling remains experimental.
 
 - r_pathTracingTextureSampleMethod
@@ -115,6 +117,15 @@ Implemented debug CVars:
   Enables sampled specular maps in debug mode 14 selected point-light direct
   lighting. Defaults to 1. This is a simple Blinn-style diagnostic highlight
   using Doom's specular color map, not the final PBR material model.
+
+- r_pathTracingUseEmissiveMaps
+  Enables debug-only emissive/glow material contribution in mode 14. Defaults
+  to 1. The RT smoke path looks for safe ambient/additive or glow/signage-like
+  material stages, binds their texture when available, and adds the result as
+  an unshadowed emissive term. This is a visibility/material-capture diagnostic,
+  not light-source sampling yet. GUI/screen, particle, glass/window, animated,
+  view-dependent stage textures, and skinned/deformed hits are rejected for now
+  to avoid broad white false positives and game-logic-driven overlays.
 
 - r_pathTracingSmokeParticleDither
   Enables a cheap smoke-card visibility hack for RT smoke particle materials.
@@ -149,12 +160,13 @@ Implemented debug CVars:
   set to 1, GUI surfaces are allowed through RT smoke capture and classified as
   particle/alpha with the GUI-screen translucent subtype.
 
-Normal and specular material textures are discovered through the same cached
-material metadata path as albedo. They are bound into the shared RT smoke
+Normal, specular, and emissive material textures are discovered through the same
+cached material metadata path as albedo. They are bound into the shared RT smoke
 bindless texture table. Debug mode 16 previews sampled normal maps, debug mode
 17 previews sampled specular maps, and debug mode 14 can apply normal maps to
-its selected point-light direct lighting when r_pathTracingUseNormalMaps is 1
-and specular maps when r_pathTracingUseSpecularMaps is 1.
+its selected point-light direct lighting when r_pathTracingUseNormalMaps is 1,
+specular maps when r_pathTracingUseSpecularMaps is 1, and an unshadowed emissive
+term when r_pathTracingUseEmissiveMaps is 1.
 
 - r_pathTracingTextureBindlessEnable
   1 samples through the bindless descriptor table. 0 samples a regular fallback
@@ -390,11 +402,11 @@ Important history:
 Mode 8 is still only a probe. Texture.Load does not yet implement mip selection
 or full Doom material behavior.
 
-The active texture table was expanded to 512 descriptors after diagnostics
+The active texture table was expanded to 2048 descriptors after diagnostics
 showed the earlier conservative limits left many valid captured materials on
-fallback debug colors. With Texture.Load as the default fetch path, 512
-descriptors covered the tested scenes without the earlier SWF/GUI terminal
-crash pattern.
+fallback debug colors. With Texture.Load as the default fetch path, larger
+descriptor windows cover longer traversal tests without the earlier SWF/GUI
+terminal crash pattern.
 
 
 Alpha, Albedo, and Lighting Debug Modes
@@ -436,7 +448,9 @@ Albedo and simple lighting exploration:
   previous direct .xyz normal decode made most surfaces face away from lights
   and killed the selected-light response. Mode 14 can also add a simple
   Blinn-style direct specular highlight from the sampled Doom specular map when
-  r_pathTracingUseSpecularMaps is 1. This is diagnostic shading, not final PBR.
+  r_pathTracingUseSpecularMaps is 1, plus an unshadowed emissive/glow preview
+  from safe ambient/additive material stages when r_pathTracingUseEmissiveMaps
+  is 1. This is diagnostic shading, not final PBR or light-source sampling.
 - Mode 15 visualizes the dominant selected light at each primary hit. It uses
   the same selected-light payload and alpha-aware shadow rays as mode 14, but
   shades by light slot instead of final albedo lighting so selection and
@@ -534,7 +548,7 @@ Typical runtime commands:
 For texture probe testing:
 
     r_pathTracingDebugMode 8
-    r_pathTracingTextureTableLimit 512
+    r_pathTracingTextureTableLimit 2048
     r_pathTracingTextureSampleMethod 2
     r_pathTracingTextureFilter 1
     r_pathTracingTextureDecode 1
@@ -545,7 +559,7 @@ For texture probe testing:
 For albedo and simple lighting:
 
     r_pathTracingDebugMode 10
-    r_pathTracingTextureTableLimit 512
+    r_pathTracingTextureTableLimit 2048
     r_pathTracingTextureSampleMethod 2
     r_pathTracingTextureFilter 1
     r_pathTracingTextureDecode 1
@@ -568,6 +582,7 @@ For nearest-light shadow inspection:
     r_pathTracingLightDump 1
     r_pathTracingUseNormalMaps 1
     r_pathTracingUseSpecularMaps 1
+    r_pathTracingUseEmissiveMaps 1
 
 For selected-light influence inspection:
 
