@@ -235,6 +235,18 @@ idCVar r_pathTracingToyEmissiveScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Scale emissive material contribution in mode 18 toy path tracing" );
 
+idCVar r_pathTracingToyAccumulation(
+    "r_pathTracingToyAccumulation",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Accumulate mode 18 toy path tracing across stable camera frames" );
+
+idCVar r_pathTracingToyAccumMaxFrames(
+    "r_pathTracingToyAccumMaxFrames",
+    "64",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum accumulated frames for mode 18 toy path tracing" );
+
 idCVar r_pathTracingSmokeParticleDither(
     "r_pathTracingSmokeParticleDither",
     "1",
@@ -4862,6 +4874,12 @@ uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size)
     return hash;
 }
 
+uint64 HashSmokeFloatQuantized(uint64 hash, float value, float scale)
+{
+    const int quantized = idMath::Ftoi(value * scale);
+    return HashSmokeBytes(hash, &quantized, sizeof(quantized));
+}
+
 RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(const std::vector<PathTraceSmokeVertex>& vertexData, const std::vector<uint32_t>& indexData, const std::vector<uint32_t>& triangleClassData, const std::vector<uint32_t>& triangleMaterialData, const RtSmokeBucketRange& staticRange, const idVec3& sceneOrigin)
 {
     RtSmokeStaticBlasSignature signature;
@@ -5912,6 +5930,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(15));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
@@ -5989,7 +6008,7 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
         return false;
     }
 
-    if (m_smokeOutputTexture && m_smokeReadbackTexture && width == m_smokeOutputWidth && height == m_smokeOutputHeight)
+    if (m_smokeOutputTexture && m_smokeAccumulationTexture && m_smokeReadbackTexture && width == m_smokeOutputWidth && height == m_smokeOutputHeight)
     {
         return true;
     }
@@ -6019,6 +6038,14 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
         return false;
     }
 
+    outputDesc.debugName = "PathTraceSmokeAccumulation";
+    nvrhi::TextureHandle accumulationTexture = device->createTexture(outputDesc);
+    if (!accumulationTexture)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT smoke accumulation UAV (%dx%d)\n", width, height);
+        return false;
+    }
+
     nvrhi::TextureDesc readbackDesc = outputDesc;
     readbackDesc.isShaderResource = false;
     readbackDesc.isUAV = false;
@@ -6034,9 +6061,12 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     }
 
     m_smokeOutputTexture = outputTexture;
+    m_smokeAccumulationTexture = accumulationTexture;
     m_smokeReadbackTexture = readbackTexture;
     m_smokeOutputWidth = width;
     m_smokeOutputHeight = height;
+    m_smokeAccumulationSignature = 0;
+    m_smokeAccumulationFrameCount = 0;
     m_smokeBindingSet = nullptr;
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;
@@ -6489,6 +6519,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, fallbackTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(15, m_smokeAccumulationTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
     nvrhi::BindingSetHandle smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
     if (!smokeBindingSet)
@@ -6679,7 +6710,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 {
     const int executeStartMs = Sys_Milliseconds();
-    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer ||
+    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
         !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer)
     {
@@ -6708,6 +6739,44 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     cameraForward.Normalize();
     cameraLeft.Normalize();
     cameraUp.Normalize();
+
+    const int requestedLightCount = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingLightCount.GetInteger());
+    const int lightSelectionMode = idMath::ClampInt(0, 1, r_pathTracingLightSelection.GetInteger());
+
+    uint64 accumulationSignature = 1469598103934665603ull;
+    accumulationSignature = HashSmokeBytes(accumulationSignature, &debugMode, sizeof(debugMode));
+    accumulationSignature = HashSmokeBytes(accumulationSignature, &m_smokeOutputWidth, sizeof(m_smokeOutputWidth));
+    accumulationSignature = HashSmokeBytes(accumulationSignature, &m_smokeOutputHeight, sizeof(m_smokeOutputHeight));
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraOrigin.x, 100.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraOrigin.y, 100.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraOrigin.z, 100.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraForward.x, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraForward.y, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraForward.z, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraLeft.x, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraLeft.y, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraLeft.z, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraUp.x, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraUp.y, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, cameraUp.z, 10000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, viewDef->renderView.fov_x, 100.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, viewDef->renderView.fov_y, 100.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_forceAmbient.GetFloat(), 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyLightScale.GetFloat(), 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyEmissiveScale.GetFloat(), 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyMaxRayDistance.GetFloat(), 10.0f);
+    accumulationSignature = HashSmokeMaterialCacheValue(accumulationSignature, static_cast<uint64>(requestedLightCount));
+    accumulationSignature = HashSmokeMaterialCacheValue(accumulationSignature, static_cast<uint64>(lightSelectionMode));
+    accumulationSignature = HashSmokeMaterialCacheValue(accumulationSignature, static_cast<uint64>(r_pathTracingToyAccumulation.GetInteger() != 0 ? 1 : 0));
+    if (debugMode != 18 || r_pathTracingToyAccumulation.GetInteger() == 0 || accumulationSignature != m_smokeAccumulationSignature)
+    {
+        m_smokeAccumulationSignature = accumulationSignature;
+        m_smokeAccumulationFrameCount = 0;
+    }
+    const int accumulationMaxFrames = idMath::ClampInt(1, 4096, r_pathTracingToyAccumMaxFrames.GetInteger());
+    const int accumulationFrameCount = debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0
+        ? Min(m_smokeAccumulationFrameCount, accumulationMaxFrames - 1)
+        : 0;
 
     PathTraceSmokeConstants constants = {};
     constants.cameraOriginAndTMax[0] = cameraOrigin.x;
@@ -6741,8 +6810,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 32u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
-    const int requestedLightCount = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingLightCount.GetInteger());
-    const int lightSelectionMode = idMath::ClampInt(0, 1, r_pathTracingLightSelection.GetInteger());
     const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18)
         ? CollectSelectedSmokePointLights(viewDef, cameraOrigin, selectedLights, requestedLightCount, lightSelectionMode)
         : 0;
@@ -6763,7 +6830,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.toyPathInfo[0] = idMath::ClampFloat(64.0f, 100000.0f, r_pathTracingToyMaxRayDistance.GetFloat());
     constants.toyPathInfo[1] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingToyLightScale.GetFloat());
     constants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
-    constants.toyPathInfo[3] = 0.0f;
+    constants.toyPathInfo[3] = static_cast<float>(accumulationFrameCount);
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -6821,8 +6888,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
     commandList->clearTextureFloat(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
+    if (accumulationFrameCount == 0)
+    {
+        commandList->clearTextureFloat(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+    }
     commandList->setRayTracingState(state);
 
     nvrhi::rt::DispatchRaysArguments args;
@@ -6830,6 +6902,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.height = m_smokeOutputHeight;
     args.depth = 1;
     commandList->dispatchRays(args);
+    if (debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0)
+    {
+        m_smokeAccumulationFrameCount = Min(m_smokeAccumulationFrameCount + 1, accumulationMaxFrames);
+    }
+    else
+    {
+        m_smokeAccumulationFrameCount = 0;
+    }
     const int dispatchSubmitMs = Sys_Milliseconds() - executeStartMs;
     if (ShouldLogSmokeTiming(dispatchSubmitMs, Sys_Milliseconds(), g_smokeLastDispatchTimingLogMs))
     {

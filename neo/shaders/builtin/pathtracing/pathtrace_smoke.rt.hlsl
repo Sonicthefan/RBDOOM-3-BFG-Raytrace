@@ -54,6 +54,7 @@ struct PathTraceSmokeMaterial
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -899,7 +900,8 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         pixel.x * 1973u ^
         pixel.y * 9277u ^
         primaryPayload.materialId * 26699u ^
-        ((uint)primaryPayload.hitT) * 7919u;
+        ((uint)primaryPayload.hitT) * 7919u ^
+        ((uint)max(ToyPathInfo.w, 0.0)) * 104729u;
     const float3 bounceDir = SmokeCosineHemisphereDirection(primaryNormal, bounceSeed);
     PathTraceSmokePayload bouncePayload = InitSmokePayload();
     RayDesc bounceRay;
@@ -1261,7 +1263,26 @@ void RayGen()
     }
     else if (debugMode == 18)
     {
-        SmokeOutput[pixel] = EvaluateSmokeToyPathTrace(ray.Origin, ray.Direction, payload, pixel);
+        const float4 sampleColor = EvaluateSmokeToyPathTrace(ray.Origin, ray.Direction, payload, pixel);
+        const uint accumulationFrame = (uint)max(ToyPathInfo.w, 0.0);
+        if (accumulationFrame == 0u)
+        {
+            SmokeAccumulation[pixel] = sampleColor;
+            SmokeOutput[pixel] = sampleColor;
+        }
+        else
+        {
+            float4 history = SmokeAccumulation[pixel];
+            if (!all(history == history) || any(abs(history) > 65504.0))
+            {
+                history = sampleColor;
+            }
+            const float weight = 1.0 / ((float)accumulationFrame + 1.0);
+            float4 accumulated = lerp(history, sampleColor, weight);
+            accumulated.a = 1.0;
+            SmokeAccumulation[pixel] = accumulated;
+            SmokeOutput[pixel] = accumulated;
+        }
     }
     else
     {

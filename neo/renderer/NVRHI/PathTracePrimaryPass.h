@@ -72,6 +72,7 @@ private:
     nvrhi::BufferHandle m_smokeMaterialTableBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
+    nvrhi::TextureHandle m_smokeAccumulationTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;
     nvrhi::rt::AccelStructDesc m_smokeStaticBlasDesc;
     nvrhi::rt::AccelStructDesc m_smokeDynamicBlasDesc;
@@ -84,6 +85,8 @@ private:
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     int m_smokeMaterialTableEntryCount = 0;
+    uint64 m_smokeAccumulationSignature = 0;
+    int m_smokeAccumulationFrameCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
