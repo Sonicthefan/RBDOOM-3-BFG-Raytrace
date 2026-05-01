@@ -271,6 +271,12 @@ idCVar r_pathTracingAllowGuiSurfaces(
     CVAR_RENDERER | CVAR_INTEGER,
     "Allow GUI/SWF draw-surface geometry cards into RT smoke capture diagnostics" );
 
+idCVar r_pathTracingSkipCallbackEntities(
+    "r_pathTracingSkipCallbackEntities",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Skip deferred callback render entities in RT smoke capture to avoid item/pickup lifetime hazards" );
+
 idCVar r_pathTracingMaterialMetadataCache(
     "r_pathTracingMaterialMetadataCache",
     "1",
@@ -556,6 +562,7 @@ struct RtSmokeSurfaceSkipStats
     int zeroAreaOnly = 0;
     int emptyClassBuffer = 0;
     int guiSurface = 0;
+    int callbackEntity = 0;
 };
 
 struct RtSmokeDynamicGeometryStats
@@ -3077,6 +3084,15 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         if (skipStats)
         {
             ++skipStats->nullModel;
+        }
+        return false;
+    }
+
+    if (!guiDrawSurface && renderEntity && renderEntity->callback && r_pathTracingSkipCallbackEntities.GetInteger() != 0)
+    {
+        if (skipStats)
+        {
+            ++skipStats->callbackEntity;
         }
         return false;
     }
@@ -6077,7 +6093,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     if (r_pathTracingSmokeLog.GetInteger() != 0 && m_smokeSceneLogCooldownFrames <= 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke scene capture %d surfaces (dynamic cap %d), %d/%d verts, %d/%d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d gui=%d allowGuiSurfaces=%d space=%d model=%d indexes=%d cache=%d limits=%d zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
+        common->Printf("PathTracePrimaryPass: RT smoke scene capture %d surfaces (dynamic cap %d), %d/%d verts, %d/%d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d gui=%d allowGuiSurfaces=%d space=%d model=%d callback=%d skipCallbacks=%d indexes=%d cache=%d limits=%d zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
             sourceSurfaces, RT_SMOKE_MAX_SURFACES,
             sourceVerts, RT_SMOKE_MAX_VERTS,
             sourceIndexes, RT_SMOKE_MAX_INDEXES,
@@ -6089,6 +6105,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingAllowGuiSurfaces.GetInteger() != 0 ? 1 : 0,
             skipStats.nullSpace,
             skipStats.nullModel,
+            skipStats.callbackEntity,
+            r_pathTracingSkipCallbackEntities.GetInteger() != 0 ? 1 : 0,
             skipStats.invalidIndexCount,
             skipStats.nonCurrentCache,
             skipStats.limitExceeded,
