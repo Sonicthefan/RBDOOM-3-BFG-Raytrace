@@ -362,6 +362,7 @@ const uint32_t RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
 const uint32_t RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
 const uint32_t RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 const uint32_t RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
+const uint32_t RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 
 struct PathTraceSmokeConstants
 {
@@ -776,6 +777,7 @@ struct RtSmokeMaterialTextureInfo
     bool hasSafeEmissiveTexture = false;
     bool hasAlphaTest = false;
     bool additiveDecal = false;
+    bool additiveDecalWhiteKey = false;
     bool filterDecal = false;
     bool filterDecalBlackKey = false;
     bool alphaFromDiffuseLuma = false;
@@ -788,6 +790,11 @@ struct RtSmokeMaterialTextureInfo
     idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
     idVec4 fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
     bool hasFallbackAlbedo = false;
+    textureUsage_t diffuseUsage = TD_DEFAULT;
+    textureUsage_t alphaUsage = TD_DEFAULT;
+    textureUsage_t normalUsage = TD_DEFAULT;
+    textureUsage_t specularUsage = TD_DEFAULT;
+    textureUsage_t emissiveUsage = TD_DEFAULT;
     textureColor_t diffuseColorFormat = CFM_DEFAULT;
     textureColor_t alphaColorFormat = CFM_DEFAULT;
     textureColor_t normalColorFormat = CFM_DEFAULT;
@@ -1080,6 +1087,141 @@ const char* SmokeTexgenName(texgen_t texgen)
     }
 }
 
+const char* SmokeTextureUsageName(textureUsage_t usage)
+{
+    switch (usage)
+    {
+        case TD_SPECULAR:
+            return "TD_SPECULAR";
+        case TD_DIFFUSE:
+            return "TD_DIFFUSE";
+        case TD_DEFAULT:
+            return "TD_DEFAULT";
+        case TD_BUMP:
+            return "TD_BUMP";
+        case TD_COVERAGE:
+            return "TD_COVERAGE";
+        default:
+            return va("TD_%d", static_cast<int>(usage));
+    }
+}
+
+const char* SmokeTextureColorFormatName(textureColor_t colorFormat)
+{
+    switch (colorFormat)
+    {
+        case CFM_DEFAULT:
+            return "CFM_DEFAULT";
+        case CFM_NORMAL_DXT5:
+            return "CFM_NORMAL_DXT5";
+        case CFM_YCOCG_DXT5:
+            return "CFM_YCOCG_DXT5";
+        case CFM_GREEN_ALPHA:
+            return "CFM_GREEN_ALPHA";
+        default:
+            return va("CFM_%d", static_cast<int>(colorFormat));
+    }
+}
+
+bool SmokeStageBlendUsesSourceAlpha(const shaderStage_t* stage)
+{
+    if (!stage)
+    {
+        return false;
+    }
+
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    return srcBlend == GLS_SRCBLEND_SRC_ALPHA ||
+        srcBlend == GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA ||
+        dstBlend == GLS_DSTBLEND_SRC_ALPHA ||
+        dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+}
+
+bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage)
+{
+    if (!stage)
+    {
+        return false;
+    }
+
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE;
+}
+
+bool SmokeStageIsFilterBlend(const shaderStage_t* stage, bool& blackKey)
+{
+    blackKey = false;
+    if (!stage)
+    {
+        return false;
+    }
+
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    if (srcBlend == GLS_SRCBLEND_DST_COLOR && dstBlend == GLS_DSTBLEND_ZERO)
+    {
+        blackKey = false;
+        return true;
+    }
+    if (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_SRC_COLOR)
+    {
+        blackKey = false;
+        return true;
+    }
+    if (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR)
+    {
+        blackKey = true;
+        return true;
+    }
+    if (srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR && dstBlend == GLS_DSTBLEND_ONE)
+    {
+        blackKey = true;
+        return true;
+    }
+
+    return false;
+}
+
+const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage)
+{
+    if (!stage || !stage->texture.image)
+    {
+        return "none";
+    }
+
+    const idImage* image = stage->texture.image;
+    const textureUsage_t usage = image->GetUsage();
+    const textureColor_t colorFormat = image->GetOpts().colorFormat;
+    if (usage == TD_COVERAGE || colorFormat == CFM_GREEN_ALPHA || stage->lighting == SL_COVERAGE)
+    {
+        return "coverage/cutout";
+    }
+    if (colorFormat == CFM_YCOCG_DXT5)
+    {
+        return "YCoCg-color-reconstruct";
+    }
+    if (colorFormat == CFM_NORMAL_DXT5 || usage == TD_BUMP)
+    {
+        return "normal-packed";
+    }
+    if (usage == TD_SPECULAR)
+    {
+        return "specular-no-alpha";
+    }
+    if (colorFormat == CFM_DEFAULT && (stage->hasAlphaTest || SmokeStageBlendUsesSourceAlpha(stage)))
+    {
+        return "material-alpha";
+    }
+    if (colorFormat == CFM_DEFAULT)
+    {
+        return "rgba-unused-alpha";
+    }
+
+    return "unknown";
+}
+
 const char* SmokeSurfaceClassNameByIndex(int classIndex)
 {
     if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
@@ -1205,7 +1347,7 @@ RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMat
 
         const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
         const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-        if ((srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE)
+        if (SmokeStageIsAdditiveBlend(stage))
         {
             info.hasAdditiveBlend = true;
         }
@@ -1375,6 +1517,93 @@ bool IsSmokeAdditiveDecalMaterial(const idMaterial* material)
         info.nameLooksGlow;
 }
 
+bool IsSmokeAdditiveWhiteKeyMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    if (!material || material->Coverage() != MC_TRANSLUCENT || !classifier.hasAdditiveBlend)
+    {
+        return false;
+    }
+    if (classifier.hasScreenTexgen || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !SmokeStageIsAdditiveBlend(stage) || !stage->texture.image)
+        {
+            continue;
+        }
+
+        const idImage* image = stage->texture.image;
+        if (image->GetUsage() == TD_DEFAULT && image->GetOpts().colorFormat == CFM_DEFAULT && (classifier.nameLooksGlow || classifier.nameLooksSignage))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool IsSmokeRgbKeyedBlendDecalMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    if (!material || material->Coverage() != MC_TRANSLUCENT)
+    {
+        return false;
+    }
+    if (classifier.hasScreenTexgen || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
+    {
+        return false;
+    }
+    if (!classifier.sortIsDecal && !classifier.polygonOffsetDecal && !classifier.nameLooksDecal)
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || (stage->lighting != SL_AMBIENT && stage->lighting != SL_DIFFUSE) || !stage->texture.image)
+        {
+            continue;
+        }
+
+        const idImage* image = stage->texture.image;
+        if (image->GetUsage() == TD_DIFFUSE || image->GetOpts().colorFormat == CFM_YCOCG_DXT5)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool IsSmokeYCoCgDiffuseMapDecalMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    if (!IsSmokeRgbKeyedBlendDecalMaterial(material, classifier))
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_DIFFUSE || !stage->texture.image)
+        {
+            continue;
+        }
+
+        const idImage* image = stage->texture.image;
+        if (image->GetUsage() == TD_DIFFUSE || image->GetOpts().colorFormat == CFM_YCOCG_DXT5)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
 {
     std::vector<uint32_t>::iterator existing = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
@@ -1410,9 +1639,14 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     {
         material.flags |= RT_SMOKE_MATERIAL_DIFFUSE_YCOCG;
     }
-    if (info.additiveDecal && r_pathTracingAdditiveDecalKey.GetInteger() != 0)
+    const bool useAdditiveDecalKey = info.additiveDecalWhiteKey || (info.additiveDecal && r_pathTracingAdditiveDecalKey.GetInteger() != 0);
+    if (useAdditiveDecalKey)
     {
         material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL;
+        if (info.additiveDecalWhiteKey)
+        {
+            material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
+        }
         ++table.materialsAdditiveDecals;
     }
     if (info.filterDecal)
@@ -1615,6 +1849,36 @@ idImage* FindSmokeImageByTextureCode(const idMaterial* material, RtSmokeTextureC
     return nullptr;
 }
 
+idImage* FindSmokeImageByUsageAndFormat(const idMaterial* material, textureUsage_t wantedUsage, textureColor_t wantedFormat, stageLighting_t wantedLighting, idStr& reason)
+{
+    if (!material)
+    {
+        return nullptr;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !stage->texture.image)
+        {
+            continue;
+        }
+        if (wantedLighting != SL_AMBIENT && stage->lighting != wantedLighting)
+        {
+            continue;
+        }
+
+        idImage* image = stage->texture.image;
+        if (image->GetUsage() == wantedUsage || image->GetOpts().colorFormat == wantedFormat)
+        {
+            reason = va("stage %d %s/%s", stageIndex, SmokeTextureUsageName(image->GetUsage()), SmokeTextureColorFormatName(image->GetOpts().colorFormat));
+            return image;
+        }
+    }
+
+    return nullptr;
+}
+
 idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
 {
     if (!material)
@@ -1627,6 +1891,12 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
     if (image)
     {
         reason = "fastPathDiffuse";
+        return image;
+    }
+
+    image = FindSmokeImageByUsageAndFormat(material, TD_DIFFUSE, CFM_YCOCG_DXT5, SL_DIFFUSE, reason);
+    if (image)
+    {
         return image;
     }
 
@@ -1719,6 +1989,12 @@ idImage* FindSmokeNormalImage(const idMaterial* material, idStr& reason)
         return image;
     }
 
+    image = FindSmokeImageByUsageAndFormat(material, TD_BUMP, CFM_NORMAL_DXT5, SL_BUMP, reason);
+    if (image)
+    {
+        return image;
+    }
+
     image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::Normal0300, reason);
     if (image)
     {
@@ -1753,6 +2029,12 @@ idImage* FindSmokeSpecularImage(const idMaterial* material, idStr& reason)
     if (image)
     {
         reason = "fastPathSpecular";
+        return image;
+    }
+
+    image = FindSmokeImageByUsageAndFormat(material, TD_SPECULAR, CFM_DEFAULT, SL_SPECULAR, reason);
+    if (image)
+    {
         return image;
     }
 
@@ -2000,7 +2282,9 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
         }
 
         const bool additiveStage = SmokeStageIsAdditiveOrGlowLike(stage);
-        const bool stageLooksEmissive = additiveStage || (nameLooksEmissive && classifier.hasAmbientBlendStage && !classifier.nameLooksDecal);
+        bool filterBlackKey = false;
+        const bool filterStage = SmokeStageIsFilterBlend(stage, filterBlackKey);
+        const bool stageLooksEmissive = additiveStage || (nameLooksEmissive && classifier.hasAmbientBlendStage && !classifier.nameLooksDecal && !filterStage);
         if (!stageLooksEmissive)
         {
             continue;
@@ -2059,7 +2343,7 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
         return nullptr;
     }
 
-    idImage* image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::AlphaClip1000, reason);
+    idImage* image = FindSmokeImageByUsageAndFormat(material, TD_COVERAGE, CFM_GREEN_ALPHA, SL_COVERAGE, reason);
     if (image)
     {
         return image;
@@ -2080,12 +2364,23 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
         }
     }
 
+    image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::AlphaClip1000, reason);
+    if (image)
+    {
+        return image;
+    }
+
     if (allowTranslucentCutout)
     {
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
         {
             const shaderStage_t* stage = material->GetStage(stageIndex);
             if (!stage || !stage->hasAlphaTest || stage->ignoreAlphaTest || !stage->texture.image)
+            {
+                continue;
+            }
+
+            if (stage->texture.image->GetOpts().colorFormat == CFM_YCOCG_DXT5)
             {
                 continue;
             }
@@ -2364,6 +2659,11 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->normalImageName = normalImage ? normalImage->GetName() : "<none>";
     info->specularImageName = specularImage ? specularImage->GetName() : "<none>";
     info->emissiveImageName = emissiveImage ? emissiveImage->GetName() : "<none>";
+    info->diffuseUsage = diffuseImage ? diffuseImage->GetUsage() : TD_DEFAULT;
+    info->alphaUsage = alphaImage ? alphaImage->GetUsage() : TD_DEFAULT;
+    info->normalUsage = normalImage ? normalImage->GetUsage() : TD_DEFAULT;
+    info->specularUsage = specularImage ? specularImage->GetUsage() : TD_DEFAULT;
+    info->emissiveUsage = emissiveImage ? emissiveImage->GetUsage() : TD_DEFAULT;
     info->diffuseColorFormat = diffuseImage ? diffuseImage->GetOpts().colorFormat : CFM_DEFAULT;
     info->alphaColorFormat = alphaImage ? alphaImage->GetOpts().colorFormat : CFM_DEFAULT;
     info->normalColorFormat = normalImage ? normalImage->GetOpts().colorFormat : CFM_DEFAULT;
@@ -2372,9 +2672,14 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     ResolveSmokeMaterialAlphaInfo(material, info->hasAlphaTest, info->alphaCutoff);
     info->additiveDecal = IsSmokeAdditiveDecalMaterial(material);
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    info->filterDecal = IsSmokeTranslucentOverlayCardMaterial(material, classifier);
+    info->additiveDecalWhiteKey = IsSmokeAdditiveWhiteKeyMaterial(material, classifier);
+    const bool rgbKeyedBlendDecal = IsSmokeRgbKeyedBlendDecalMaterial(material, classifier);
+    const bool yCoCgDiffuseMapDecal = IsSmokeYCoCgDiffuseMapDecalMaterial(material, classifier);
+    info->filterDecal = !info->additiveDecal && (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
+    info->filterDecalBlackKey = false;
     if (info->filterDecal)
     {
+        bool foundFilterBlend = false;
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
         {
             const shaderStage_t* stage = material->GetStage(stageIndex);
@@ -2383,25 +2688,49 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
                 continue;
             }
 
-            const uint64_t srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-            const uint64_t dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-            info->filterDecalBlackKey =
-                srcBlend == GLS_SRCBLEND_ZERO &&
-                dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR;
-            break;
+            bool blackKey = false;
+            if (SmokeStageIsFilterBlend(stage, blackKey))
+            {
+                info->filterDecalBlackKey = blackKey;
+                foundFilterBlend = true;
+                break;
+            }
+        }
+        if (!foundFilterBlend && yCoCgDiffuseMapDecal)
+        {
+            info->filterDecalBlackKey = true;
         }
     }
     info->alphaFromDiffuseLuma =
         info->hasAlphaTest &&
         diffuseImage != nullptr &&
         alphaImage == diffuseImage &&
-        diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5;
+        (diffuseImage->GetUsage() == TD_DIFFUSE || diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5);
     info->forceFallbackAlbedo = IsSmokeReflectiveEyewearMaterial(material);
     info->alphaFromDiffuseDarkKey = info->alphaFromDiffuseLuma && info->forceFallbackAlbedo;
     info->portalWindowFallback = IsSmokePortalWindowFallbackMaterial(material);
     info->objectGlassFallback = IsSmokeObjectGlassFallbackMaterial(material);
     info->emissiveColor = emissiveColor;
     info->emissive = info->hasEmissiveImage || emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f;
+    if (info->emissive)
+    {
+        info->hasAlphaTest = false;
+        info->alphaImage = nullptr;
+        info->alphaImageName = "<none>";
+        info->alphaReason = "emissive stage ignores alpha/blend semantics";
+        info->hasAlphaImage = false;
+        info->hasAlphaTextureHandle = false;
+        info->hasSafeAlphaTexture = false;
+        info->alphaUsage = TD_DEFAULT;
+        info->alphaColorFormat = CFM_DEFAULT;
+        info->alphaCutoff = 0.0f;
+        info->additiveDecal = false;
+        info->additiveDecalWhiteKey = false;
+        info->filterDecal = false;
+        info->filterDecalBlackKey = false;
+        info->alphaFromDiffuseLuma = false;
+        info->alphaFromDiffuseDarkKey = false;
+    }
     info->fallbackAlbedo = fallbackAlbedo;
     info->hasFallbackAlbedo = hasFallbackAlbedo;
     RefreshSmokeMaterialTextureHandleState(*info);
@@ -2786,6 +3115,13 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
                 table.materials[safeIndex].emissiveTextureHeight = Max(1u, emissiveTextureDesc.height);
                 ++table.materialsWithEmissiveTextures;
             }
+        }
+        if (info.emissiveImage && info.emissiveImage == info.diffuseImage && table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX && table.materials[safeIndex].diffuseTextureIndex != UINT32_MAX)
+        {
+            table.materials[safeIndex].emissiveTextureIndex = table.materials[safeIndex].diffuseTextureIndex;
+            table.materials[safeIndex].emissiveTextureWidth = table.materials[safeIndex].textureWidth;
+            table.materials[safeIndex].emissiveTextureHeight = table.materials[safeIndex].textureHeight;
+            ++table.materialsWithEmissiveTextures;
         }
 
         if (info.hasEmissiveImage && table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX)
@@ -4730,13 +5066,17 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         classifier.nameLooksGlow ? 1 : 0,
         classifier.nameLooksSignage ? 1 : 0);
 
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' image=%d handle=%d safe=%d reason='%s' alpha='%s' image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d normal='%s' safe=%d specular='%s' safe=%d emissive='%s' safe=%d emissive=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
         info.diffuseImageName.c_str(),
+        SmokeTextureUsageName(info.diffuseUsage),
+        SmokeTextureColorFormatName(info.diffuseColorFormat),
         info.hasDiffuseImage ? 1 : 0,
         info.hasTextureHandle ? 1 : 0,
         info.hasSafeTexture ? 1 : 0,
         info.fallbackReason.c_str(),
         info.alphaImageName.c_str(),
+        SmokeTextureUsageName(info.alphaUsage),
+        SmokeTextureColorFormatName(info.alphaColorFormat),
         info.hasAlphaImage ? 1 : 0,
         info.hasAlphaTextureHandle ? 1 : 0,
         info.hasSafeAlphaTexture ? 1 : 0,
@@ -4746,12 +5086,20 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         info.alphaFromDiffuseLuma ? 1 : 0,
         info.alphaFromDiffuseDarkKey ? 1 : 0,
         info.normalImageName.c_str(),
+        SmokeTextureUsageName(info.normalUsage),
+        SmokeTextureColorFormatName(info.normalColorFormat),
         info.hasSafeNormalTexture ? 1 : 0,
         info.specularImageName.c_str(),
+        SmokeTextureUsageName(info.specularUsage),
+        SmokeTextureColorFormatName(info.specularColorFormat),
         info.hasSafeSpecularTexture ? 1 : 0,
         info.emissiveImageName.c_str(),
+        SmokeTextureUsageName(info.emissiveUsage),
+        SmokeTextureColorFormatName(info.emissiveColorFormat),
         info.hasSafeEmissiveTexture ? 1 : 0,
         info.emissive ? 1 : 0,
+        info.additiveDecal ? 1 : 0,
+        info.additiveDecalWhiteKey ? 1 : 0,
         info.filterDecal ? 1 : 0,
         info.filterDecalBlackKey ? 1 : 0,
         info.forceFallbackAlbedo ? 1 : 0,
@@ -4822,7 +5170,9 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         const float alphaTest = regs && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount ? regs[stage->alphaTestRegister] : -1.0f;
         idImage* image = stage->texture.image;
         const bool imageSafe = image && IsSmokeDiffuseImageSafeForRayTracing(image);
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] lighting=%s condition=%.3f color=(%.3f %.3f %.3f %.3f) drawState=0x%llx srcBlend=%llu dstBlend=%llu alphaTest=%d alphaReg=%d alphaValue=%.3f ignoreAlpha=%d texgen=%s dynamic=%d cinematic=%d image='%s' safe=%d\n",
+        const textureUsage_t imageUsage = image ? image->GetUsage() : TD_DEFAULT;
+        const textureColor_t imageColorFormat = image ? image->GetOpts().colorFormat : CFM_DEFAULT;
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] lighting=%s condition=%.3f color=(%.3f %.3f %.3f %.3f) drawState=0x%llx srcBlend=%llu dstBlend=%llu alphaTest=%d alphaReg=%d alphaValue=%.3f ignoreAlpha=%d alphaSemantic=%s texgen=%s dynamic=%d cinematic=%d image='%s' usage=%s color=%s safe=%d\n",
             stageIndex,
             SmokeStageLightingName(stage->lighting),
             condition,
@@ -4837,10 +5187,13 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
             stage->alphaTestRegister,
             alphaTest,
             stage->ignoreAlphaTest ? 1 : 0,
+            SmokeStageAlphaSemanticName(stage),
             SmokeTexgenName(stage->texture.texgen),
             static_cast<int>(stage->texture.dynamic),
             stage->texture.cinematic ? 1 : 0,
             image ? image->GetName() : "<none>",
+            SmokeTextureUsageName(imageUsage),
+            SmokeTextureColorFormatName(imageColorFormat),
             imageSafe ? 1 : 0);
     }
 }

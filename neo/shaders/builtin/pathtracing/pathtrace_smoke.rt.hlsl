@@ -104,6 +104,7 @@ static const uint RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
 static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
+static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
@@ -444,6 +445,16 @@ float SmokeAdditiveDecalOpacity(float3 albedo)
     return max(max(albedo.r, albedo.g), albedo.b);
 }
 
+float SmokeAdditiveDecalMaterialOpacity(PathTraceSmokeMaterial material, float3 albedo)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY) != 0u)
+    {
+        return 1.0 - min(min(albedo.r, albedo.g), albedo.b);
+    }
+
+    return SmokeAdditiveDecalOpacity(albedo);
+}
+
 bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, bool shadowRay)
 {
     if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) == 0u)
@@ -456,7 +467,8 @@ bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
         return true;
     }
 
-    const float opacity = SmokeAdditiveDecalOpacity(SampleSmokeDiffuseTexture(material, texCoord).rgb);
+    const float3 albedo = SampleSmokeDiffuseTexture(material, texCoord).rgb;
+    const float opacity = SmokeAdditiveDecalMaterialOpacity(material, albedo);
     return opacity < 0.035;
 }
 
@@ -1021,7 +1033,7 @@ void RayGen()
         const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
         if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
-            const float opacity = SmokeAdditiveDecalOpacity(albedo);
+            const float opacity = SmokeAdditiveDecalMaterialOpacity(material, albedo);
             const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
             SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25) + emissive), 1.0);
         }
@@ -1046,8 +1058,9 @@ void RayGen()
         const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
         if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
-            const float opacity = SmokeAdditiveDecalOpacity(albedo);
-            SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25)), 1.0);
+            const float opacity = SmokeAdditiveDecalMaterialOpacity(material, albedo);
+            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+            SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25) + emissive), 1.0);
         }
         else
         {
