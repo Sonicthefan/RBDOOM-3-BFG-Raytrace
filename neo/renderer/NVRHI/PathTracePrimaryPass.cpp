@@ -223,6 +223,18 @@ idCVar r_pathTracingToyMaxRayDistance(
     CVAR_RENDERER | CVAR_FLOAT,
     "Maximum mode 18 toy path-tracing secondary/direct ray distance; reduces leaks through incomplete visible-surface TLAS geometry" );
 
+idCVar r_pathTracingToyLightScale(
+    "r_pathTracingToyLightScale",
+    "0.3",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Scale selected point-light contribution in mode 18 toy path tracing" );
+
+idCVar r_pathTracingToyEmissiveScale(
+    "r_pathTracingToyEmissiveScale",
+    "4.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Scale emissive material contribution in mode 18 toy path tracing" );
+
 idCVar r_pathTracingSmokeParticleDither(
     "r_pathTracingSmokeParticleDither",
     "1",
@@ -6749,8 +6761,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.lightSpriteInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingLightSpriteIntensity.GetFloat());
     constants.lightSpriteInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_forceAmbient.GetFloat());
     constants.toyPathInfo[0] = idMath::ClampFloat(64.0f, 100000.0f, r_pathTracingToyMaxRayDistance.GetFloat());
-    constants.toyPathInfo[1] = 0.0f;
-    constants.toyPathInfo[2] = 0.0f;
+    constants.toyPathInfo[1] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingToyLightScale.GetFloat());
+    constants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
     constants.toyPathInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)
     {

@@ -832,7 +832,9 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
     const float3 hitPosition = rayOrigin + rayDirection * payload.hitT;
     const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
     const float3 specularColor = useSpecular ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
-    const float3 emissive = includeEmissive ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+    const float lightScale = max(ToyPathInfo.y, 0.0);
+    const float emissiveScale = max(ToyPathInfo.z, 0.0);
+    const float3 emissive = includeEmissive ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) * emissiveScale : float3(0.0, 0.0, 0.0);
     const float ambientScale = saturate(LightSpriteInfo.w);
     const float maxToyRayDistance = max(ToyPathInfo.x, 64.0);
     float3 direct = albedo * ambientScale + emissive;
@@ -872,8 +874,8 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
         const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
         const float directScale = 0.10 + lightAttenuation * lightAttenuation * 0.70;
         const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
-        direct += albedo * lightColor * (ndotl * directScale * visibility);
-        direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale, visibility);
+        direct += albedo * lightColor * (ndotl * directScale * visibility * lightScale);
+        direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale * lightScale, visibility);
     }
 
     return direct;
