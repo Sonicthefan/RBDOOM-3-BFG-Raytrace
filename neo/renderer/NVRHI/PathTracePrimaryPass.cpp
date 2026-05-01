@@ -752,6 +752,9 @@ struct PathTraceSmokeEmissiveTriangle
 {
     float centerAndArea[4];
     float normalAndLuminance[4];
+    float uvBounds[4];
+    float centroidUvAndWeight[4];
+    float estimatedRadianceAndLuminance[4];
     uint32_t materialIndex = 0;
     uint32_t instanceId = 0;
     uint32_t primitiveIndex = 0;
@@ -4395,6 +4398,9 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const idVec3 p0 = SmokeVertexPosition(vertices[i0]);
         const idVec3 p1 = SmokeVertexPosition(vertices[i1]);
         const idVec3 p2 = SmokeVertexPosition(vertices[i2]);
+        const idVec2 uv0 = SmokeVertexTexCoord(vertices[i0]);
+        const idVec2 uv1 = SmokeVertexTexCoord(vertices[i1]);
+        const idVec2 uv2 = SmokeVertexTexCoord(vertices[i2]);
         const idVec3 edge01 = p1 - p0;
         const idVec3 edge02 = p2 - p0;
         idVec3 areaNormal = edge01.Cross(edge02);
@@ -4407,6 +4413,10 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const float area = doubleArea * 0.5f;
         areaNormal *= 1.0f / doubleArea;
         const float luminance = SmokeMaterialEmissiveLuminance(material);
+        const idVec3 estimatedRadiance(
+            Max(0.0f, material.emissiveColor[0]),
+            Max(0.0f, material.emissiveColor[1]),
+            Max(0.0f, material.emissiveColor[2]));
         stats.totalArea += area;
         stats.totalWeightedLuminance += area * luminance;
 
@@ -4426,6 +4436,18 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.normalAndLuminance[1] = areaNormal.y;
         record.normalAndLuminance[2] = areaNormal.z;
         record.normalAndLuminance[3] = luminance;
+        record.uvBounds[0] = Min(uv0.x, Min(uv1.x, uv2.x));
+        record.uvBounds[1] = Min(uv0.y, Min(uv1.y, uv2.y));
+        record.uvBounds[2] = Max(uv0.x, Max(uv1.x, uv2.x));
+        record.uvBounds[3] = Max(uv0.y, Max(uv1.y, uv2.y));
+        record.centroidUvAndWeight[0] = (uv0.x + uv1.x + uv2.x) * (1.0f / 3.0f);
+        record.centroidUvAndWeight[1] = (uv0.y + uv1.y + uv2.y) * (1.0f / 3.0f);
+        record.centroidUvAndWeight[2] = area * luminance;
+        record.centroidUvAndWeight[3] = 0.0f;
+        record.estimatedRadianceAndLuminance[0] = estimatedRadiance.x;
+        record.estimatedRadianceAndLuminance[1] = estimatedRadiance.y;
+        record.estimatedRadianceAndLuminance[2] = estimatedRadiance.z;
+        record.estimatedRadianceAndLuminance[3] = luminance;
         record.materialIndex = materialIndex;
         record.instanceId = instanceId;
         record.primitiveIndex = static_cast<uint32_t>(primitiveIndex);
@@ -4556,7 +4578,7 @@ void LogSmokeEmissiveInventoryDump(const RtSmokeMaterialTableBuild& table, const
         const int materialIndex = static_cast<int>(record.materialIndex);
         const uint32_t materialId = materialIndex >= 0 && materialIndex < static_cast<int>(table.materialIds.size()) ? table.materialIds[materialIndex] : 0u;
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
-        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u area=%.2f lum=%.3f center=(%.2f %.2f %.2f) emissiveSlot=%d emissiveSize=%ux%u material='%s' emissive='%s'\n",
+        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u area=%.2f lum=%.3f weight=%.3f center=(%.2f %.2f %.2f) centroidUV=(%.3f %.3f) uvBounds=(%.3f %.3f %.3f %.3f) estRadiance=(%.3f %.3f %.3f) emissiveSlot=%d emissiveSize=%ux%u material='%s' emissive='%s'\n",
             sampleIndex,
             record.instanceId,
             record.primitiveIndex,
@@ -4564,9 +4586,19 @@ void LogSmokeEmissiveInventoryDump(const RtSmokeMaterialTableBuild& table, const
             materialId,
             record.centerAndArea[3],
             record.normalAndLuminance[3],
+            record.centroidUvAndWeight[2],
             record.centerAndArea[0],
             record.centerAndArea[1],
             record.centerAndArea[2],
+            record.centroidUvAndWeight[0],
+            record.centroidUvAndWeight[1],
+            record.uvBounds[0],
+            record.uvBounds[1],
+            record.uvBounds[2],
+            record.uvBounds[3],
+            record.estimatedRadianceAndLuminance[0],
+            record.estimatedRadianceAndLuminance[1],
+            record.estimatedRadianceAndLuminance[2],
             record.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(record.emissiveTextureIndex),
             record.emissiveTextureWidth,
             record.emissiveTextureHeight,

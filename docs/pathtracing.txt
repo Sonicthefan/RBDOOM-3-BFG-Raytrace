@@ -164,8 +164,9 @@ Implemented debug CVars:
 - r_pathTracingEmissiveInventoryDump
   One-shot dump of the current emissive triangle inventory: total/captured
   static/dynamic candidate counts, unique material count, area, approximate
-  luminance, per-material summary rows, emissive texture slot/dimensions, and
-  a short triangle sample list.
+  luminance, candidate weight, estimated radiance, per-material summary rows,
+  emissive texture slot/dimensions, and a short triangle sample list with UV
+  bounds.
 
 - r_pathTracingEmissiveInventoryMaxTriangles
   Caps the CPU/GPU emissive triangle records captured for future light-sampling
@@ -925,9 +926,17 @@ Near term:
    duplicating the sampler itself.
    - Keep mode 19 as a broad CPU material/triangle inventory plus texel-tight
      debug view.
-   - Add metadata that future reservoir sampling will need: UV bounds, area,
-     luminance proxy, and transform stability. Emissive texture slot and
-     dimensions are already recorded per candidate.
+   - Add metadata that future reservoir sampling will need: area, luminance
+     proxy, and transform stability. Emissive texture slot/dimensions and
+     triangle UV bounds are already recorded per candidate. Candidate records
+     also carry centroid UV, estimated radiance/luminance, and area*luminance
+     weight; the shader has a helper for centroid emissive texture evaluation.
+     The current CPU estimated radiance/luminance is only the material emissive
+     color proxy, so many Doom emissive stages report white `(1,1,1)`. The
+     stored candidate weight is `area * estimatedLuminance` and is useful as a
+     placeholder, but final ReSTIR/PT light preparation should replace or
+     augment it in a GPU pass that samples `emissiveSlot` at `centroidUV` or
+     over `uvBounds`.
    - Current dumps show sane material variety in clustered emissive scenes:
      static/dynamic split, real texture slots/sizes, and skinned/game-logic
      dissolve overlays excluded.

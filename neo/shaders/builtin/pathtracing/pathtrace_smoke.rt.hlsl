@@ -56,6 +56,9 @@ struct PathTraceSmokeEmissiveTriangle
 {
     float4 centerAndArea;
     float4 normalAndLuminance;
+    float4 uvBounds;
+    float4 centroidUvAndWeight;
+    float4 estimatedRadianceAndLuminance;
     uint materialIndex;
     uint instanceId;
     uint primitiveIndex;
@@ -440,6 +443,8 @@ float4 SampleSmokeEmissiveTexture(PathTraceSmokeMaterial material, float2 texCoo
         float4(1.0, 1.0, 1.0, 1.0));
 }
 
+PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex);
+
 float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uint surfaceClass)
 {
     if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
@@ -456,6 +461,19 @@ float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uin
     }
 
     return emissive * 1.75;
+}
+
+float4 EstimateSmokeEmissiveTriangleRadiance(PathTraceSmokeEmissiveTriangle emissiveTriangle)
+{
+    if (emissiveTriangle.materialIndex >= (uint)TextureInfo.z)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    const PathTraceSmokeMaterial material = LoadSmokeMaterial(emissiveTriangle.materialIndex);
+    const float3 radiance = SampleSmokeEmissive(material, emissiveTriangle.centroidUvAndWeight.xy, 0u);
+    const float luminance = dot(max(radiance, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
+    return float4(radiance, luminance);
 }
 
 float SmokeAdditiveDecalOpacity(float3 albedo)
