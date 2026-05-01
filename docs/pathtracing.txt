@@ -39,6 +39,13 @@ Current validated feature set:
 - Mode 14 simple Blinn-style specular from Doom spec maps.
 - Mode 14 unshadowed emissive/glow material preview from safe ambient/additive
   stages.
+- Mode 18 toy one-bounce path tracing with selected Doom lights, texture
+  sampling, force-ambient control, simple secondary rays, and temporal
+  accumulation.
+- Mode 19 emissive triangle inventory visualization. The CPU inventory is a
+  broad material/triangle candidate list for future ReSTIR/PT work, while the
+  debug view samples emissive texture luminance and skips skinned/deformed
+  character dissolve overlays.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -70,6 +77,8 @@ Implemented debug CVars:
   15 = selected point-light influence debug
   16 = normal map preview
   17 = specular map preview
+  18 = toy one-bounce path trace
+  19 = emissive triangle inventory
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -136,6 +145,31 @@ Implemented debug CVars:
   not light-source sampling yet. GUI/screen, particle, glass/window, animated,
   view-dependent stage textures, and skinned/deformed hits are rejected for now
   to avoid broad white false positives and game-logic-driven overlays.
+
+- r_pathTracingToyMaxRayDistance
+  Maximum secondary/direct ray length for mode 18 toy path tracing. Defaults to
+  1024 Doom units. This helps reduce leaks from holes in the current
+  visible-surface TLAS.
+
+- r_pathTracingToyLightScale / r_pathTracingToyEmissiveScale
+  Separate multipliers for mode 18 selected-light and emissive material
+  contribution. Current useful defaults are 0.3 for lights and 4.0 for
+  emissives.
+
+- r_pathTracingToyAccumulation / r_pathTracingToyAccumMaxFrames
+  Enables mode 18 temporal accumulation across stable camera frames and caps
+  the accumulated frame count. Accumulation resets on camera/FOV/output-size
+  changes and on relevant lighting, ambient, and toy-path CVar changes.
+
+- r_pathTracingEmissiveInventoryDump
+  One-shot dump of the current emissive triangle inventory: total/captured
+  static/dynamic candidate counts, unique material count, area, approximate
+  luminance, and a short sample list.
+
+- r_pathTracingEmissiveInventoryMaxTriangles
+  Caps the CPU/GPU emissive triangle records captured for future light-sampling
+  infrastructure. The default is 4096. This is intentionally an inventory for
+  later ReSTIR/PT integration, not a hand-rolled area-light sampler.
 
 - r_pathTracingSmokeParticleDither
   Enables a cheap smoke-card visibility hack for RT smoke particle materials.
@@ -704,8 +738,11 @@ Open issues:
   opt-in diagnostic only and can occlude unrelated geometry or layer panels
   incorrectly. A rasterized offscreen panel texture projected onto the physical
   panel surface is the intended future direction.
-- No bounce rays, MIS, denoising, or accumulation exists yet. Mode 14 has up to
-  32 selected point-light direct-shadow rays only.
+- Mode 18 has a crude one-bounce toy path tracer with accumulation, selected
+  point lights, texture sampling, and emissive visibility. It is deliberately
+  simple and does not include MIS, denoising, ReSTIR, or emissive area-light
+  sampling yet. Mode 14 remains the selected point-light direct-shadow
+  diagnostic path.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
 - Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
   acceptable for now but not final.
@@ -819,6 +856,21 @@ For portal/window glass placeholder testing:
     r_pathTracingPortalWindowMinOpacity 0.05
     r_pathTracingPortalWindowShadowOpacity 0.05
 
+For the current toy path tracing baseline:
+
+    r_pathTracingDebugMode 18
+    r_forceAmbient 0.0
+    r_pathTracingLightCount 4
+    r_pathTracingToyLightScale 0.3
+    r_pathTracingToyEmissiveScale 4.0
+    r_pathTracingToyAccumulation 1
+    r_pathTracingToyAccumMaxFrames 64
+
+For emissive candidate inspection:
+
+    r_pathTracingDebugMode 19
+    r_pathTracingEmissiveInventoryDump 1
+
 For quieter traversal testing:
 
     r_pathTracingSmokeLog 0
@@ -835,6 +887,10 @@ Useful Commits
 
 Recent milestone commits on this branch:
 
+- 1341e2ca Add toy path tracing accumulation
+- 805eb9f5 Tune toy path tracing lighting scales
+- 2b28217d Add toy path tracing debug mode
+- c23a6d6e Improve RT smoke decal emissive semantics
 - 9648cf11 Add RT smoke Lambert debug mode
 - 4cb0419d Add RT smoke particle dithering
 - 8eb40def Add RT smoke normal specular lighting
@@ -864,11 +920,14 @@ Recommended Next Steps
 
 Near term:
 
-1. Add emissive/glow material capture and display.
-   - Inspect Doom material stages for glow/emissive/additive signals.
-   - Bind or derive emissive textures/colors.
-   - Add an unshadowed emissive term to mode 14 first.
-   - Later, treat emissive surfaces as path-traced light sources.
+1. Prepare emissive inventory data for NVIDIA ReSTIR PT integration without
+   duplicating the sampler itself.
+   - Keep mode 19 as a broad CPU material/triangle inventory plus texel-tight
+     debug view.
+   - Add metadata that future reservoir sampling will need: UV bounds,
+     emissive texture slot, area, luminance proxy, and transform stability.
+   - Continue excluding game-logic/skinned dissolve emissive overlays from
+     light candidates.
 
 2. Start a deliberate Doom material to RT/PBR conversion.
    - Base color from albedo.
@@ -894,12 +953,11 @@ Medium term:
 
 2. Split static-world cache from dynamic scene update code more cleanly.
 
-3. Start a true path tracing output mode:
-   - primary hit albedo
-   - direct emissive/light debug
-   - simple shadow ray
-   - one diffuse bounce
-   - accumulation
+3. Evolve mode 18 into a real PT integration point:
+   - keep the current low-bounce/low-sample baseline as a debugging reference
+   - feed ReSTIR/PT-ready scene, material, and emissive candidate buffers
+   - replace the placeholder direct/emissive logic with reservoir-based light
+     sampling when NVIDIA's implementation is brought in
 
 4. Add explicit material fields needed by path tracing:
    - base color

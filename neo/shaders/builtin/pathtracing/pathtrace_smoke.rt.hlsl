@@ -52,6 +52,16 @@ struct PathTraceSmokeMaterial
     uint padding2;
 };
 
+struct PathTraceSmokeEmissiveTriangle
+{
+    float4 centerAndArea;
+    float4 normalAndLuminance;
+    uint materialIndex;
+    uint instanceId;
+    uint primitiveIndex;
+    uint flags;
+};
+
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
@@ -67,6 +77,7 @@ StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
+StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -83,6 +94,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 PortalWindowInfo;
     float4 LightSpriteInfo;
     float4 ToyPathInfo;
+    float4 EmissiveInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -1010,7 +1022,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18)
+        else if (debugMode == 18 || debugMode == 19)
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -1259,6 +1271,27 @@ void RayGen()
                 const float3 lightSprites = EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, payload.hitT);
                 SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive + lightSprites), 1.0);
             }
+        }
+    }
+    else if (debugMode == 19)
+    {
+        const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+        const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
+        const float3 emissive = SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) * max(ToyPathInfo.z, 0.0);
+        const float luminance = dot(max(emissive, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
+        if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+            payload.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
+            luminance <= 0.01)
+        {
+            SmokeOutput[pixel] = float4(albedo * 0.04, 1.0);
+        }
+        else
+        {
+            const float heat = saturate(log2(1.0 + luminance) * 0.25);
+            const float stripe = frac((payload.texCoord.x + payload.texCoord.y) * 16.0) > 0.5 ? 1.0 : 0.0;
+            const float3 heatColor = lerp(float3(0.05, 0.25, 1.0), float3(1.0, 0.85, 0.08), heat);
+            const float inventoryPresent = EmissiveInfo.x > 0.0 ? 1.0 : 0.0;
+            SmokeOutput[pixel] = float4(saturate(heatColor * (0.35 + stripe * 0.15) + emissive * 0.65 + inventoryPresent * 0.05), 1.0);
         }
     }
     else if (debugMode == 18)

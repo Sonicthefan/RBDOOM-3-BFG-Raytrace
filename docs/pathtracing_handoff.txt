@@ -1,0 +1,647 @@
+RBDoom3 BFG Path Tracing Handoff
+================================
+
+This document is for a fresh Codex or human contributor picking up the
+path-tracing experiment without reading the full chat history.
+
+Current Snapshot - 2026-05-02
+-----------------------------
+
+Repository:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Branch:
+
+    path-tracing-experiment
+
+Prepared game folder used for testing:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+Known unrelated dirty worktree entries to leave alone unless explicitly asked:
+
+    M neo/CMakeLists.txt
+    m neo/extern/RTXPT
+    ?? neo/renderer/NVRHI/RTXPT/
+
+Also do not casually stage this handoff file unless the user asks:
+
+    ?? docs/pathtracing_handoff.txt
+
+Current local branch state:
+
+    path-tracing-experiment is ahead of origin/path-tracing-experiment.
+    Run `git status -sb` for the exact count after local documentation/source
+    commits.
+
+Latest local commits:
+
+    1341e2ca Add toy path tracing accumulation
+    805eb9f5 Tune toy path tracing lighting scales
+    2b28217d Add toy path tracing debug mode
+    c23a6d6e Improve RT smoke decal emissive semantics
+    f959bbce Document Doom BFG texture code rules
+    fc08aff1 Add texture code discovery hints
+    ad7e67e1 Skip callback entities in RT smoke capture
+    cc94d5d5 Add RT smoke GUI panel diagnostics
+    21617a28 Improve RT smoke translucent material placeholders
+    97abdd57 Add RT smoke emissive material preview
+    1ca78a82 Update path tracing experiment notes
+    4cb0419d Add RT smoke particle dithering
+    8eb40def Add RT smoke normal specular lighting
+    e545feaa Add RT smoke GUI texture diagnostics
+    75229a99 Add RT smoke normal and specular texture previews
+    db666d56 Decode Doom diffuse textures in RT smoke path
+
+The RT smoke path currently supports:
+
+- Primary camera rays through NVRHI RT.
+- Static/dynamic geometry split with BLAS/TLAS.
+- CPU-skinned MD5 capture as a temporary correctness bridge.
+- Bindless material texture table using Texture.Load.
+- Manual bilinear Texture.Load filtering.
+- Diffuse/albedo texture decode, including Doom diffuse YCoCg.
+- Alpha any-hit for cutouts/perforated materials.
+- Normal/specular material texture discovery and preview modes.
+- Mode 14 selected point-light direct lighting with RT shadow rays.
+- Mode 14 normal-map lighting using Doom/RBDoom normal decode:
+  normal X from texture alpha, normal Y from green, normal Z reconstructed.
+- Mode 14 simple Blinn-style diagnostic specular from Doom spec maps.
+- Mode 14 unshadowed emissive/glow preview from safe ambient/additive stages.
+- Mode 18 toy one-bounce path tracing with selected point lights, texture
+  sampling, force-ambient control, tunable light/emissive scale, secondary ray
+  distance clamp, and temporal accumulation.
+- Mode 19 emissive triangle inventory/debug visualization. CPU records are a
+  broad material/triangle candidate list for future ReSTIR/PT work; the debug
+  view samples emissive texel luminance and skips skinned/deformed character
+  dissolve overlays.
+- GUI/SWF texture and surface diagnostics behind opt-in CVars.
+- Smoke particle placeholder dithering behind CVars.
+- Portal/window and object-glass stochastic transparency placeholders.
+- Debug-only selected-light sprite proxies for strobe/flare-like light shaders.
+- Narrow callback-entity skip for custom-shader item shells to avoid the disk
+  pickup/delete crash without hiding normal skinned/dynamic characters.
+
+Current debug modes:
+
+    0  hit/miss
+    1  depth
+    2  interpolated normal
+    3  surface class
+    4  UV
+    5  geometric normal
+    6  material ID hash color
+    7  material table debug color
+    8  sampled diffuse texture probe
+    9  alpha/coverage preview
+    10 albedo
+    11 translucent overlay inspection
+    12 translucent subtype classification
+    13 fixed Lambert lighting
+    14 selected point-light shadows/direct lighting
+    15 selected point-light influence debug
+    16 normal map preview
+    17 specular map preview
+    18 toy one-bounce path trace
+    19 emissive triangle inventory/debug view
+
+Important current CVars:
+
+    r_pathTracing 1
+    r_pathTracingDebugWidth 1280
+    r_pathTracingDebugHeight 720
+    r_pathTracingTextureTableLimit 2048
+    r_pathTracingTextureSampleMethod 2
+    r_pathTracingTextureFilter 1
+    r_pathTracingTextureDecode 1
+    r_pathTracingMaterialMetadataCache 1
+    r_pathTracingDebugMode 14
+    r_pathTracingLightSelection 1
+    r_pathTracingLightCount 4
+    r_pathTracingUseNormalMaps 1
+    r_pathTracingUseSpecularMaps 1
+    r_pathTracingUseEmissiveMaps 1
+    r_pathTracingToyMaxRayDistance 1024
+    r_pathTracingToyLightScale 0.3
+    r_pathTracingToyEmissiveScale 4.0
+    r_pathTracingToyAccumulation 1
+    r_pathTracingToyAccumMaxFrames 64
+    r_pathTracingEmissiveInventoryMaxTriangles 4096
+    r_pathTracingSmokeParticleDither 1
+    r_pathTracingSmokeParticleAlphaScale 0.25
+    r_pathTracingSmokeParticleEdgeFade 1
+    r_pathTracingPortalWindowStochastic 1
+    r_pathTracingPortalWindowAlphaScale 0.35
+    r_pathTracingPortalWindowMinOpacity 0.05
+    r_pathTracingPortalWindowShadowOpacity 0.05
+    r_pathTracingAdditiveDecalKey 1
+    r_pathTracingLightSpriteProxies 1
+    r_pathTracingSkipCallbackEntities 1
+
+Useful A/B toggles:
+
+    r_pathTracingUseNormalMaps 0/1
+    r_pathTracingUseSpecularMaps 0/1
+    r_pathTracingUseEmissiveMaps 0/1
+    r_pathTracingToyAccumulation 0/1
+    r_pathTracingToyLightScale 0.1/0.3/1.0
+    r_pathTracingToyEmissiveScale 1.0/4.0/8.0
+    r_pathTracingSmokeParticleDither 0/1
+    r_pathTracingSmokeParticleEdgeFade 0/1
+    r_pathTracingSmokeParticleAlphaScale 0.1/0.25/0.5/1.0
+    r_pathTracingPortalWindowStochastic 0/1
+    r_pathTracingLightSpriteProxies 0/1
+
+Testing copy commands after build:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+If the RT shader changes, also copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+
+Recently tested observations:
+
+- Normal/spec texture previews work.
+- Mode 14 normal mapping initially broke lighting because Doom normal maps are
+  DXT5-style packed; matching raster G-buffer decode fixed it.
+- Mode 14 specular map highlights look good as a diagnostic path.
+- Smoke particle dithering is passable as a placeholder, but still visibly
+  noisy/card-like. It should be treated as a cheap hack, not final translucency.
+- `r_pathTracingSmokeParticleAlphaScale` had little visible impact in one test
+  before the texture-mask/edge-fade adjustment; retest if this becomes relevant.
+- GUI/SWF surfaces/textures appear safe behind the current opt-in diagnostics,
+  but default behavior remains conservative.
+- Emissive/glow material capture is broadly useful in mode 14. Important
+  exclusions were added for GUI, particle, glass/window, animated/view-dependent
+  stages, and skinned/deformed hits to avoid false positives.
+- The early emissive pass exposed a texture table limit symptom. The active
+  descriptor table has since been raised to 2048 in the notes/workflow, and
+  long traversal texture coverage became acceptable.
+- Portal/window glass and small object glass have a stochastic transparency
+  placeholder. It is "good enough" for debug mode, not physically correct.
+- Reflective eyewear/glasses/goggles needed special cutout handling and dark
+  fallback albedo. Glasses are currently fixed enough for placeholder mode.
+- GUI/SWF panels are visible only via a fragile opt-in direct-quad diagnostic.
+  Doom generates many painter-order SWF/GUI polygons around the same physical
+  panel plane. Tracing those quads directly causes layer-order artifacts and can
+  hide nearby world geometry. The correct long-term approach is to keep Doom's
+  GUI raster path, render each panel offscreen, then project the composited
+  texture onto the physical panel surface. Do not treat the current GUI TLAS
+  path as a viable renderer.
+- A repeatable hang/exit when collecting a desk disk item was fixed by skipping
+  non-GUI callback render entities that also use a custom shader. A broad
+  callback skip hid all skinned/dynamic characters; the current narrow
+  custom-shader guard resolved both the crash and the invisible-character
+  regression.
+- Doom BFG generated image names use #__%02d%02d, where the first two digits are
+  textureUsage_t and the second two are cubeFiles_t. Useful 2D codes:
+      #__0000 = TD_SPECULAR / CFM_DEFAULT
+      #__0100 = TD_DIFFUSE / CFM_YCOCG_DXT5
+      #__0200 = TD_DEFAULT / CFM_DEFAULT
+      #__0300 = TD_BUMP / CFM_NORMAL_DXT5
+      #__1000 = TD_COVERAGE / CFM_GREEN_ALPHA
+- Never treat #__0100 / CFM_YCOCG_DXT5 alpha as material alpha in the general
+  case. The sampled alpha is Y/luminance for CoCg_Y color reconstruction.
+- #__0200 / CFM_DEFAULT is ordinary RGBA; if it has alpha and the material
+  stage/blend uses it, that alpha is real.
+- #__1000 / CFM_GREEN_ALPHA is the dedicated coverage/cutout path.
+- Classic Doom 3 decal intent survives strongly in paths and material stages.
+  /decals/ + #__0100/CFM_YCOCG_DXT5 usually means a blend decal using decoded
+  RGB as the effect, not an alpha decal. Lighten/additive decals use black as
+  the no-effect key; darken/filter decals use white as the no-effect key.
+- Emissive stages on characters are often game-logic overlays such as death
+  dissolve/fire effects. The RT smoke material path hides those from emissive
+  lighting/debug by skipping skinned/deformed hits and sampling emissive
+  luminance for the mode 19 overlay.
+- Mode 18 is now a surprisingly useful crude PT reference, but it is not the
+  intended final integrator. It has low-bounce path tracing and accumulation;
+  no MIS, denoiser, ReSTIR, or sampled emissive area lights yet.
+- Mode 19 inventory is intentionally non-final lighting work. It provides
+  ReSTIR/PT-friendly candidate infrastructure: emissive triangle center, area,
+  normal, luminance proxy, material index, instance id, primitive index, and
+  flags.
+
+Recommended next work:
+
+1. Prepare the emissive triangle inventory for NVIDIA ReSTIR PT without
+   duplicating its sampler.
+   - Add UV bounds and emissive texture slot metadata to each candidate.
+   - Preserve the broad material/triangle candidate list while keeping the
+     debug overlay texel-tight.
+   - Keep game-logic/skinned dissolve emissive overlays excluded.
+
+2. Improve decal/blend material correctness using the new texture rules.
+   - Prefer image->GetOpts().colorFormat and image->GetUsage() over filename
+     parsing when classifying alpha/coverage/color payloads.
+   - Treat CFM_YCOCG_DXT5 alpha as color reconstruction, not transparency.
+   - Treat CFM_DEFAULT alpha as real only when the stage/blend/alpha-test uses
+     it.
+   - Classify /decals/ + CFM_YCOCG_DXT5 as RGB-keyed blend decals.
+   - Split additive/lighten black-key decals from filter/darken white-key
+     decals using drawStateBits/blend state.
+   - Extend r_pathTracingCrosshairMaterialDump to print image usage,
+     colorFormat, and inferred alpha semantic per stage.
+
+3. Start Doom material to RT/PBR conversion.
+   - Base color from albedo.
+   - Shading normal from normal map.
+   - Specular/F0 from Doom spec map.
+   - Roughness approximation is important for future NVIDIA ray reconstruction.
+
+4. Improve/replace smoke translucency later.
+   - Current dither is a placeholder for visibility.
+   - Proper options include stochastic transparency, temporal accumulation, or
+     sorted/approximated compositing.
+
+5. Evolve mode 18 into a real PT integration point.
+   - Keep the current low-bounce accumulated toy path as a baseline.
+   - Feed ReSTIR/PT-ready scene, material, and emissive candidate buffers.
+   - Replace placeholder direct/emissive logic when NVIDIA's ReSTIR PT path is
+     integrated.
+
+
+Overall Goal
+------------
+
+Evolve the Vulkan/NVRHI renderer in RBDoom3 BFG toward a Quake II RTX style
+brute-force path traced renderer. The target hardware is an RTX 4090 class GPU.
+Early priorities are correctness, image quality, and learning. Broad hardware
+support and performance are secondary for now.
+
+Current work is intentionally debug-only. The "RT smoke" path in
+PathTracePrimaryPass is a ladder of small tests that prove primary rays,
+geometry capture, BLAS/TLAS, material tables, bindless albedo, alpha cutouts,
+and simple lighting before replacing the main 3D renderer.
+
+
+Current Branch and Build Status
+-------------------------------
+
+Branch:
+
+    path-tracing-experiment
+
+Latest pushed commit at handoff time:
+
+    cc94d5d5 Add RT smoke GUI panel diagnostics
+
+Latest local commit at handoff time:
+
+    f959bbce Document Doom BFG texture code rules
+
+The local branch is currently 3 commits ahead of origin/path-tracing-experiment:
+
+    f959bbce Document Doom BFG texture code rules
+    fc08aff1 Add texture code discovery hints
+    ad7e67e1 Skip callback entities in RT smoke capture
+
+Recent important commits:
+
+    cc94d5d5 Add RT smoke GUI panel diagnostics
+    21617a28 Improve RT smoke translucent material placeholders
+    97abdd57 Add RT smoke emissive material preview
+    1ca78a82 Update path tracing experiment notes
+    4cb0419d Add RT smoke particle dithering
+    8eb40def Add RT smoke normal specular lighting
+    e545feaa Add RT smoke GUI texture diagnostics
+    75229a99 Add RT smoke normal and specular texture previews
+    db666d56 Decode Doom diffuse textures in RT smoke path
+    9648cf11 Add RT smoke Lambert debug mode
+    fc802458 Add RT smoke translucent subtype debug mode
+    9de51c53 Add RT smoke albedo texture diagnostics
+    bab07b5b Add RT smoke alpha any-hit traversal
+    3fab923f Add RT smoke alpha coverage texture preview
+    ab85af6b Harden RT smoke texture table lifetime
+    352c6f75 Stabilize RT smoke texture probe sampling
+    5005d0a9 Add bindless RT smoke texture probe
+    847fc6f9 Add RT smoke material table lookup
+    f9343e4a Add RT smoke material ID debug mode
+    862d8833 Add RT smoke vertex attributes
+    70954940 Add RT smoke CPU skinning path
+
+Build status:
+
+- Debug build succeeds with CMake/MSBuild.
+- The user has tested the copied Debug executable in a prepared Doom 3 BFG
+  folder.
+- RT debug modes 0-13 have run in game.
+- The last tested milestone, mode 13 fixed Lambert lighting, looked decent.
+
+Known dirty worktree entries to leave alone unless explicitly asked:
+
+    M neo/CMakeLists.txt
+    m neo/extern/RTXPT
+    ?? neo/renderer/NVRHI/RTXPT/
+
+These are older failed/experimental RTXPT/Donut/CMake integration leftovers.
+Do not stage, commit, revert, or build work around them unless the user asks.
+
+
+Files Changed and Why
+---------------------
+
+Main implementation files:
+
+    neo/renderer/NVRHI/PathTracePrimaryPass.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+PathTracePrimaryPass.cpp currently owns too much, but it contains the working
+prototype:
+
+- RT smoke CVars.
+- Visible draw-surface capture.
+- Static-world and dynamic-candidate classification.
+- Persistent static-world geometry cache.
+- Per-frame dynamic geometry capture.
+- BLAS/TLAS creation through NVRHI.
+- Static and dynamic vertex/index/attribute/material buffers.
+- RT-only CPU skinning for MD5/skinned surfaces when raster GPU skinning is on.
+- Material discovery, texture descriptor table population, alpha discovery.
+- Debug logging and one-shot dumps.
+
+pathtrace_smoke.rt.hlsl contains the RT library:
+
+- Raygen shader for 2D debug output.
+- Closest-hit shader with static/dynamic buffer selection.
+- Any-hit shader for alpha-tested cutout/perforated materials.
+- Debug modes for hit/miss, depth, normals, UVs, classes, material IDs,
+  material colors, bindless albedo, alpha preview, translucent subtypes, and
+  fixed Lambert lighting.
+
+Documentation:
+
+    docs/pathtracing.txt
+    docs/pathtracing_handoff.txt
+
+pathtracing.txt is the longer running project note. This handoff is the concise
+"start here" version.
+
+
+Current Texture and Material Binding Architecture
+-------------------------------------------------
+
+Current RT material flow:
+
+1. During RT smoke scene capture, each captured Doom draw surface is assigned a
+   compact RT material table index.
+
+2. Per-triangle metadata stores:
+   - surface class
+   - material table index
+   - flags such as "force geometric normal"
+   - translucent subtype data for debug mode 12
+
+3. CPU material discovery looks for safe, already available diffuse/base-color
+   textures:
+   - fast-path diffuse images
+   - explicit diffuse material stages
+   - no editor-image fallback
+   - no forced image loading during RT capture
+
+4. A bindless NVRHI Texture_SRV descriptor table is used for sampled textures.
+   Current active capacity is 512 descriptors.
+
+5. RT material table entries store descriptor indexes for diffuse/albedo and,
+   where discovered, alpha/coverage textures.
+
+6. Shader sampling uses Texture.Load by default. SampleLevel is kept as a
+   diagnostic path only because it caused device-removed crashes near active
+   SWF/GUI screens.
+
+Relevant CVars:
+
+    r_pathTracingTextureTableLimit
+    r_pathTracingTextureTableStart
+    r_pathTracingTextureSampleMethod
+    r_pathTracingTextureBindlessEnable
+    r_pathTracingTextureForceFallback
+    r_pathTracingTextureProbeDump
+    r_pathTracingTextureFallbackDump
+    r_pathTracingAlphaDump
+    r_pathTracingTranslucentDump
+
+Important defaults for stable texture testing:
+
+    r_pathTracingTextureTableLimit 512
+    r_pathTracingTextureSampleMethod 2
+
+
+Game Directory and Copying Files for Testing
+--------------------------------------------
+
+Repository:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Prepared game folder used by the user:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+After building, copy the executable:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+If the RT shader changes, also copy the SPIR-V blob:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+
+The user launches the copied game manually from the prepared folder.
+
+idTech retains CVars between sessions. The user may reset important CVars in a
+launch .bat. Do not assume a fresh game starts with default RT CVars.
+
+
+Important Design Decisions
+--------------------------
+
+- Keep the experiment behind r_pathTracing.
+- Present the RT output as the 3D scene layer only; keep Doom HUD, GUI, and
+  menus drawn on top by the existing renderer.
+- Use NVRHI RT APIs and bindless descriptor tables rather than raw Vulkan
+  descriptors.
+- Use a persistent static-world cache and rebuild dynamic-candidate geometry
+  every frame.
+- Keep static and dynamic geometry in separate buffers so BLAS geometry and
+  closest-hit attribute fetches stay matched.
+- Rebuild TLAS every frame.
+- Prefer conservative classification over unsafe static caching.
+- Use RT-only CPU skinning for MD5/skinned surfaces when raster GPU skinning is
+  enabled. This is a correctness bridge, not a final performance plan.
+- Use Texture.Load for RT texture fetches until sampler/mip/synchronization
+  issues near SWF/GUI surfaces are understood.
+- Do not try to make translucent/decal/glow semantics perfect yet. Mode 12 is a
+  classifier/debug tool, not final rendering.
+
+
+Failed Approaches to Avoid Repeating
+------------------------------------
+
+- Do not call idMaterial::GetEditorImage() during RT texture discovery. It can
+  force missing image loads and caused repeatable device-removed crashes.
+
+- Do not force-load missing images during RT scene capture.
+
+- Do not use SampleLevel as the normal RT texture path yet. It caused
+  device-removed crashes near active animated SWF/GUI terminals, even when
+  sampling fallback textures.
+
+- Do not reuse a cached BLAS with different shader-side vertex/index/attribute
+  buffers. The BLAS geometry and closest-hit fetch buffers must match.
+
+- Do not treat Doom draw-surface order as stable identity.
+
+- Do not break the whole capture loop when one surface exceeds a limit. Skip
+  suspect/oversized surfaces and keep scanning.
+
+- Do not merge static and dynamic triangle metadata casually. InstanceID is used
+  to choose the correct buffer set in closest-hit.
+
+- Do not revive the old Donut/RTXPT CMake integration attempt unless explicitly
+  planning a clean integration. It caused dependency/version confusion.
+
+
+Known Bugs and Unresolved Issues
+--------------------------------
+
+- Mode 18 is a crude real-time PT baseline with selected-light shadow rays,
+  one diffuse-ish bounce, texture sampling, and accumulation. It is not a final
+  integrator: no MIS, no denoiser, no ReSTIR, no real emissive area-light
+  sampling, and only partial Doom light/material integration.
+
+- Mode 13 is simple fixed-direction Lambert lighting only.
+
+- Texture.Load has a manual bilinear path, but still does not implement mip
+  selection, ray cones, derivatives, or anisotropy.
+
+- SampleLevel/sampler path is unstable near active SWF/GUI surfaces.
+
+- Material support is incomplete:
+  - diffuse/albedo
+  - alpha/coverage for cutout/perforated materials
+  - diagnostic normal/specular/emissive maps
+  - no roughness/metalness approximation
+  - no final emissive area-light sampling
+  - no blended translucent compositing
+
+- Translucent subtype classification is approximate. Some glow/signage/object
+  glass classifications are useful diagnostics but not final material behavior.
+
+- The floor alpha issue seen in one spot appears to exist in the base game, not
+  the RT path.
+
+- Per-frame dynamic capture and RT-only CPU skinning are not optimized.
+
+- PathTracePrimaryPass.cpp is too large and mixes too many responsibilities.
+
+
+Temporary Hacks and Cleanup Needed
+----------------------------------
+
+- Split RT smoke scene capture, material discovery, and BLAS/TLAS management
+  out of PathTracePrimaryPass.cpp.
+
+- Move debug CVars/logging into a cleaner namespace or module.
+
+- Replace the ad hoc material table with a deliberate RT material system.
+
+- Replace point Texture.Load albedo with a stable filtered/mip-aware strategy.
+
+- Promote alpha any-hit from debug-only cutout handling into real material
+  traversal once opaque lighting is further along.
+
+- Keep or remove mode 12 translucent subtype classification after the real
+  material system exists.
+
+- Decide what to do with the stale RTXPT/Donut files in the worktree.
+
+
+Exact Next Steps in Priority Order
+----------------------------------
+
+1. Extend the mode 19 emissive inventory with metadata useful to NVIDIA
+   ReSTIR/PT integration.
+   - UV bounds or representative UVs.
+   - Emissive texture slot and dimensions.
+   - Area/luminance proxy suitable for later importance/reservoir setup.
+   - Stable identity where possible for static-world candidates.
+
+2. Keep improving Doom material classification without overbuilding a custom
+   sampler.
+   - Decal/blend correctness.
+   - Doom specular-to-PBR/F0/roughness approximation.
+   - Safer exclusion of game-logic/generated emissive overlays.
+
+3. Start separating the RT smoke code into helper files.
+   - First extraction target: surface capture + classification structs.
+   - Second extraction target: material table + texture descriptor table.
+   - Avoid changing behavior during extraction.
+
+4. Improve texture sampling quality safely.
+   - Stay on Texture.Load/manual bilinear initially.
+   - Add mip/LOD strategy later.
+   - Do not switch default back to SampleLevel until SWF/GUI crash is solved.
+
+5. Evolve mode 18 only as a baseline/integration test.
+   - Keep low sample/bounce counts.
+   - Use accumulation to make changes inspectable.
+   - Replace placeholder direct/emissive logic with ReSTIR/PT once integrated.
+
+6. Later, revisit translucent/decal/glow behavior with a more complete material
+   model. Do not get stuck perfecting mode 12 before real lighting exists.
+
+
+Configure, Build, and Test Commands
+-----------------------------------
+
+Build executable:
+
+    cmake --build build --config Debug --target RBDoom3BFG
+
+Build RT shader target if pathtrace_smoke.rt.hlsl changed:
+
+    cmake --build build --config Debug --target PathTracingShaders
+
+Copy executable to game folder:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+Copy RT shader blob to game folder:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+
+Useful runtime commands:
+
+    r_pathTracing 1
+    r_pathTracingDebugWidth 1280
+    r_pathTracingDebugHeight 720
+    r_pathTracingTextureTableLimit 512
+    r_pathTracingTextureSampleMethod 2
+
+Common debug modes:
+
+    r_pathTracingDebugMode 3    // surface class
+    r_pathTracingDebugMode 8    // sampled diffuse texture probe
+    r_pathTracingDebugMode 9    // alpha/coverage preview
+    r_pathTracingDebugMode 10   // albedo
+    r_pathTracingDebugMode 12   // translucent subtype
+    r_pathTracingDebugMode 13   // fixed Lambert lighting
+    r_pathTracingDebugMode 14   // selected point-light direct shadows
+    r_pathTracingDebugMode 18   // toy one-bounce PT
+    r_pathTracingDebugMode 19   // emissive triangle inventory
+
+Quieter traversal:
+
+    r_pathTracingSmokeLog 0
+
+One-shot dumps:
+
+    r_pathTracingTextureProbeDump 1
+    r_pathTracingTextureFallbackDump 1
+    r_pathTracingAlphaDump 1
+    r_pathTracingTranslucentDump 1
+    r_pathTracingEmissiveInventoryDump 1
+
+If the game starts in an unexpected RT mode, remember that idTech persists CVars
+between sessions. Reset the relevant CVars explicitly.

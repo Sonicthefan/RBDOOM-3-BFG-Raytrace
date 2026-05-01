@@ -23,7 +23,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -96,6 +96,18 @@ idCVar r_pathTracingGuiDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump captured RT smoke in-world GUI draw surfaces once" );
+
+idCVar r_pathTracingEmissiveInventoryDump(
+    "r_pathTracingEmissiveInventoryDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current RT smoke emissive triangle inventory once" );
+
+idCVar r_pathTracingEmissiveInventoryMaxTriangles(
+    "r_pathTracingEmissiveInventoryMaxTriangles",
+    "4096",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum emissive triangles captured into the RT smoke inventory buffer" );
 
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
@@ -376,6 +388,7 @@ const int RT_SMOKE_TEXTURE_PROBE_DUMP_CANDIDATES = 64;
 const int RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY = 2048;
 const int RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP = 2048;
 const int RT_SMOKE_MAX_DEBUG_LIGHTS = 32;
+const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const int RT_SMOKE_VERTEX_STRIDE = sizeof(PathTraceSmokeVertex);
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
@@ -407,6 +420,7 @@ struct PathTraceSmokeConstants
     float portalWindowInfo[4];
     float lightSpriteInfo[4];
     float toyPathInfo[4];
+    float emissiveInfo[4];
 };
 
 struct RtSmokeSelectedLight
@@ -733,6 +747,32 @@ struct PathTraceSmokeMaterial
     uint32_t padding2 = 0;
 };
 static_assert((sizeof(PathTraceSmokeMaterial) % 16) == 0, "PathTraceSmokeMaterial must stay 16-byte aligned for HLSL StructuredBuffer reads");
+
+struct PathTraceSmokeEmissiveTriangle
+{
+    float centerAndArea[4];
+    float normalAndLuminance[4];
+    uint32_t materialIndex = 0;
+    uint32_t instanceId = 0;
+    uint32_t primitiveIndex = 0;
+    uint32_t flags = 0;
+};
+static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
+
+struct RtSmokeEmissiveInventoryStats
+{
+    int totalTriangles = 0;
+    int staticTriangles = 0;
+    int dynamicTriangles = 0;
+    int capturedTriangles = 0;
+    int skippedSkinnedTriangles = 0;
+    int skippedInvalidMaterialTriangles = 0;
+    int cappedTriangles = 0;
+    int uniqueMaterials = 0;
+    float totalArea = 0.0f;
+    float totalWeightedLuminance = 0.0f;
+    std::vector<uint32_t> materialIndexes;
+};
 
 struct RtSmokeMaterialTableBuild
 {
@@ -4268,6 +4308,183 @@ void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
     common->Printf("\n");
 }
 
+float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material)
+{
+    const float r = Max(0.0f, material.emissiveColor[0]);
+    const float g = Max(0.0f, material.emissiveColor[1]);
+    const float b = Max(0.0f, material.emissiveColor[2]);
+    return r * 0.2126f + g * 0.7152f + b * 0.0722f;
+}
+
+void AppendSmokeEmissiveInventoryForGeometry(
+    const RtSmokeMaterialTableBuild& table,
+    const std::vector<PathTraceSmokeVertex>& vertices,
+    const std::vector<uint32_t>& indexes,
+    const std::vector<uint32_t>& triangleClasses,
+    const std::vector<uint32_t>& triangleMaterialIndexes,
+    uint32_t instanceId,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    const int triangleCount = Min(static_cast<int>(triangleMaterialIndexes.size()), static_cast<int>(indexes.size() / 3));
+    for (int primitiveIndex = 0; primitiveIndex < triangleCount; ++primitiveIndex)
+    {
+        const uint32_t materialIndex = triangleMaterialIndexes[primitiveIndex];
+        if (materialIndex >= table.materials.size())
+        {
+            ++stats.skippedInvalidMaterialTriangles;
+            continue;
+        }
+
+        const PathTraceSmokeMaterial& material = table.materials[materialIndex];
+        if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0)
+        {
+            continue;
+        }
+
+        const uint32_t triangleClassAndFlags = primitiveIndex < static_cast<int>(triangleClasses.size()) ? triangleClasses[primitiveIndex] : 0u;
+        const uint32_t surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+        if (surfaceClass == static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed))
+        {
+            ++stats.skippedSkinnedTriangles;
+            continue;
+        }
+
+        ++stats.totalTriangles;
+        if (instanceId == 0)
+        {
+            ++stats.staticTriangles;
+        }
+        else
+        {
+            ++stats.dynamicTriangles;
+        }
+        if (std::find(stats.materialIndexes.begin(), stats.materialIndexes.end(), materialIndex) == stats.materialIndexes.end())
+        {
+            stats.materialIndexes.push_back(materialIndex);
+        }
+
+        const int indexOffset = primitiveIndex * 3;
+        const uint32_t i0 = indexes[indexOffset + 0];
+        const uint32_t i1 = indexes[indexOffset + 1];
+        const uint32_t i2 = indexes[indexOffset + 2];
+        if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size())
+        {
+            ++stats.skippedInvalidMaterialTriangles;
+            continue;
+        }
+
+        const idVec3 p0 = SmokeVertexPosition(vertices[i0]);
+        const idVec3 p1 = SmokeVertexPosition(vertices[i1]);
+        const idVec3 p2 = SmokeVertexPosition(vertices[i2]);
+        const idVec3 edge01 = p1 - p0;
+        const idVec3 edge02 = p2 - p0;
+        idVec3 areaNormal = edge01.Cross(edge02);
+        const float doubleArea = areaNormal.Length();
+        if (doubleArea <= 1.0e-6f)
+        {
+            continue;
+        }
+
+        const float area = doubleArea * 0.5f;
+        areaNormal *= 1.0f / doubleArea;
+        const float luminance = SmokeMaterialEmissiveLuminance(material);
+        stats.totalArea += area;
+        stats.totalWeightedLuminance += area * luminance;
+
+        if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
+        {
+            ++stats.cappedTriangles;
+            continue;
+        }
+
+        PathTraceSmokeEmissiveTriangle record = {};
+        const idVec3 center = (p0 + p1 + p2) * (1.0f / 3.0f);
+        record.centerAndArea[0] = center.x;
+        record.centerAndArea[1] = center.y;
+        record.centerAndArea[2] = center.z;
+        record.centerAndArea[3] = area;
+        record.normalAndLuminance[0] = areaNormal.x;
+        record.normalAndLuminance[1] = areaNormal.y;
+        record.normalAndLuminance[2] = areaNormal.z;
+        record.normalAndLuminance[3] = luminance;
+        record.materialIndex = materialIndex;
+        record.instanceId = instanceId;
+        record.primitiveIndex = static_cast<uint32_t>(primitiveIndex);
+        record.flags = material.flags;
+        emissiveTriangles.push_back(record);
+    }
+
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+}
+
+std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
+    const RtSmokeMaterialTableBuild& table,
+    const std::vector<PathTraceSmokeVertex>& staticVertices,
+    const std::vector<uint32_t>& staticIndexes,
+    const std::vector<uint32_t>& staticTriangleClasses,
+    const std::vector<uint32_t>& staticTriangleMaterialIndexes,
+    const std::vector<PathTraceSmokeVertex>& dynamicVertices,
+    const std::vector<uint32_t>& dynamicIndexes,
+    const std::vector<uint32_t>& dynamicTriangleClasses,
+    const std::vector<uint32_t>& dynamicTriangleMaterialIndexes,
+    int maxRecords,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    stats = RtSmokeEmissiveInventoryStats();
+    std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
+    maxRecords = idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, maxRecords);
+    emissiveTriangles.reserve(Min(maxRecords, 1024));
+    AppendSmokeEmissiveInventoryForGeometry(table, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(table, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, maxRecords, emissiveTriangles, stats);
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    if (emissiveTriangles.empty())
+    {
+        emissiveTriangles.resize(1);
+    }
+    return emissiveTriangles;
+}
+
+void LogSmokeEmissiveInventoryDump(const RtSmokeMaterialTableBuild& table, const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles, const RtSmokeEmissiveInventoryStats& stats)
+{
+    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d dynamic=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
+        stats.totalTriangles,
+        stats.capturedTriangles,
+        stats.staticTriangles,
+        stats.dynamicTriangles,
+        stats.uniqueMaterials,
+        stats.cappedTriangles,
+        stats.skippedSkinnedTriangles,
+        stats.skippedInvalidMaterialTriangles,
+        stats.totalArea,
+        stats.totalWeightedLuminance);
+
+    const int maxLogged = Min(16, stats.capturedTriangles);
+    for (int sampleIndex = 0; sampleIndex < maxLogged; ++sampleIndex)
+    {
+        const PathTraceSmokeEmissiveTriangle& record = emissiveTriangles[sampleIndex];
+        const int materialIndex = static_cast<int>(record.materialIndex);
+        const uint32_t materialId = materialIndex >= 0 && materialIndex < static_cast<int>(table.materialIds.size()) ? table.materialIds[materialIndex] : 0u;
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
+        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u area=%.2f lum=%.3f center=(%.2f %.2f %.2f) material='%s' emissive='%s'\n",
+            sampleIndex,
+            record.instanceId,
+            record.primitiveIndex,
+            record.materialIndex,
+            materialId,
+            record.centerAndArea[3],
+            record.normalAndLuminance[3],
+            record.centerAndArea[0],
+            record.centerAndArea[1],
+            record.centerAndArea[2],
+            info.materialName.c_str(),
+            info.emissiveImageName.c_str());
+    }
+}
+
 void LogSmokeTextureProbe(const RtSmokeMaterialTableBuild& table)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
@@ -5931,6 +6148,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(15));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
@@ -6087,8 +6305,12 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     m_smokeDynamicTriangleMaterialBuffer = nullptr;
     m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
     m_smokeMaterialTableBuffer = nullptr;
+    m_smokeEmissiveTriangleBuffer = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
+    m_smokeEmissiveTriangleCount = 0;
+    m_smokeEmissiveStaticTriangleCount = 0;
+    m_smokeEmissiveDynamicTriangleCount = 0;
 
     common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
     return true;
@@ -6098,10 +6320,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 {
     const int sceneStartMs = Sys_Milliseconds();
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 18, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 17) || requestedDebugMode == 18;
+    const int requestedDebugMode = idMath::ClampInt(0, 19, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 19);
 
-    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeConstantsBuffer)
+    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeConstantsBuffer)
     {
         return;
     }
@@ -6229,6 +6451,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         LogSmokeTextureActiveWindow(materialTable);
     }
 
+    RtSmokeEmissiveInventoryStats emissiveInventoryStats;
+    std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
+        materialTable,
+        m_smokeStaticVertexCache,
+        m_smokeStaticIndexCache,
+        m_smokeStaticTriangleClassCache,
+        materialTable.staticMaterialIndexes,
+        dynamicVertexData,
+        dynamicIndexData,
+        dynamicTriangleClassData,
+        materialTable.dynamicMaterialIndexes,
+        r_pathTracingEmissiveInventoryMaxTriangles.GetInteger(),
+        emissiveInventoryStats);
+    if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0)
+    {
+        LogSmokeEmissiveInventoryDump(materialTable, emissiveTriangles, emissiveInventoryStats);
+        r_pathTracingEmissiveInventoryDump.SetInteger(0);
+    }
+
     const int bufferCreateStartMs = Sys_Milliseconds();
     nvrhi::BufferHandle smokeStaticVertexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldVertices", m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]), RT_SMOKE_VERTEX_STRIDE, true, false, true);
     nvrhi::BufferHandle smokeStaticIndexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeStaticWorldIndices", m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]), sizeof(uint32_t), false, true, true);
@@ -6241,8 +6482,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeDynamicCandidateTriangleMaterials", dynamicTriangleMaterialData.size() * sizeof(dynamicTriangleMaterialData[0]), sizeof(uint32_t), false, false, false);
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes", materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]), sizeof(uint32_t), false, false, false);
     nvrhi::BufferHandle smokeMaterialTableBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeMaterialTable", materialTable.materials.size() * sizeof(materialTable.materials[0]), sizeof(PathTraceSmokeMaterial), false, false, false);
+    nvrhi::BufferHandle smokeEmissiveTriangleBuffer = CreateSmokeGeometryBuffer(device, "PathTraceSmokeEmissiveTriangles", emissiveTriangles.size() * sizeof(emissiveTriangles[0]), sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
 
-    if (!smokeStaticVertexBuffer || !smokeStaticIndexBuffer || !smokeStaticTriangleClassBuffer || !smokeStaticTriangleMaterialBuffer || !smokeStaticTriangleMaterialIndexBuffer || !smokeDynamicVertexBuffer || !smokeDynamicIndexBuffer || !smokeDynamicTriangleClassBuffer || !smokeDynamicTriangleMaterialBuffer || !smokeDynamicTriangleMaterialIndexBuffer || !smokeMaterialTableBuffer)
+    if (!smokeStaticVertexBuffer || !smokeStaticIndexBuffer || !smokeStaticTriangleClassBuffer || !smokeStaticTriangleMaterialBuffer || !smokeStaticTriangleMaterialIndexBuffer || !smokeDynamicVertexBuffer || !smokeDynamicIndexBuffer || !smokeDynamicTriangleClassBuffer || !smokeDynamicTriangleMaterialBuffer || !smokeDynamicTriangleMaterialIndexBuffer || !smokeMaterialTableBuffer || !smokeEmissiveTriangleBuffer)
     {
         common->Printf("PathTracePrimaryPass: failed to create RT smoke geometry buffers\n");
         return;
@@ -6346,6 +6588,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->beginTrackingBufferState(smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::Common);
     commandList->beginTrackingBufferState(smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::Common);
     commandList->beginTrackingBufferState(smokeMaterialTableBuffer, nvrhi::ResourceStates::Common);
+    commandList->beginTrackingBufferState(smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::Common);
     const int bufferUploadStartMs = Sys_Milliseconds();
     if (!staticBlasCacheHit && !m_smokeStaticVertexCache.empty())
     {
@@ -6391,6 +6634,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         commandList->writeBuffer(smokeMaterialTableBuffer, materialTable.materials.data(), materialTable.materials.size() * sizeof(materialTable.materials[0]));
     }
+    if (!emissiveTriangles.empty())
+    {
+        commandList->writeBuffer(smokeEmissiveTriangleBuffer, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(emissiveTriangles[0]));
+    }
     if (!staticBlasCacheHit)
     {
         commandList->setBufferState(smokeStaticVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
@@ -6405,6 +6652,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     commandList->setBufferState(smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
     const int bufferUploadMs = Sys_Milliseconds() - bufferUploadStartMs;
 
@@ -6520,6 +6768,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, fallbackTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(15, m_smokeAccumulationTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, smokeEmissiveTriangleBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
     nvrhi::BindingSetHandle smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
     if (!smokeBindingSet)
@@ -6539,6 +6788,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeDynamicTriangleMaterialBuffer = smokeDynamicTriangleMaterialBuffer;
     m_smokeDynamicTriangleMaterialIndexBuffer = smokeDynamicTriangleMaterialIndexBuffer;
     m_smokeMaterialTableBuffer = smokeMaterialTableBuffer;
+    m_smokeEmissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
     m_smokeStaticBlasDesc = smokeStaticBlasDesc;
     m_smokeDynamicBlasDesc = smokeDynamicBlasDesc;
     m_smokeStaticBlas = smokeStaticBlas;
@@ -6552,6 +6802,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeTextureDescriptorTable = smokeTextureDescriptorTable;
     m_smokeActiveTextureTable = smokeActiveTextureTable;
     m_smokeMaterialTableEntryCount = static_cast<int>(materialTable.materials.size());
+    m_smokeEmissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
+    m_smokeEmissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
+    m_smokeEmissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
     m_smokeSceneBuilt = true;
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
@@ -6712,7 +6965,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int executeStartMs = Sys_Milliseconds();
     if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
-        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer)
+        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer)
     {
         return;
     }
@@ -6726,8 +6979,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 18, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 19, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -6807,7 +7060,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
         (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 8u : 0u) |
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && debugMode == 14 ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 32u : 0u);
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19) ? 32u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18)
@@ -6831,6 +7084,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.toyPathInfo[1] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingToyLightScale.GetFloat());
     constants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
     constants.toyPathInfo[3] = static_cast<float>(accumulationFrameCount);
+    constants.emissiveInfo[0] = static_cast<float>(m_smokeEmissiveTriangleCount);
+    constants.emissiveInfo[1] = static_cast<float>(m_smokeEmissiveStaticTriangleCount);
+    constants.emissiveInfo[2] = static_cast<float>(m_smokeEmissiveDynamicTriangleCount);
+    constants.emissiveInfo[3] = static_cast<float>(RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS);
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -6880,6 +7137,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
     for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
     {
         if (texture)
