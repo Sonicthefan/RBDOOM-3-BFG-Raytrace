@@ -104,6 +104,14 @@ Implemented debug CVars:
   Enables decode of Doom texture encodings in the RT texture path. Defaults to
   1. Currently this decodes diffuse YCoCg textures before albedo/lighting use.
 
+- r_pathTracingForceTextureCodeUse
+  Opt-in experiment for Doom texture filename usage codes. Defaults to 0. When
+  set to 1, RT smoke material discovery treats four-digit filename codes near
+  the end of image names as usage hints: 0300 = normal, 1000 = hard alpha/cutout,
+  0100 = diffuse with alpha, and 0000 = specular. These hints are used as
+  tie-breakers before the older stage-lighting discovery paths, not as final
+  material semantics.
+
 - r_pathTracingUseNormalMaps
   Enables sampled normal maps in debug mode 14 selected point-light direct
   lighting. Defaults to 1. The normal map is decoded in the shader and applied
@@ -192,14 +200,15 @@ Implemented debug CVars:
   their synthetic GUI view entity has no normal render model.
 
 - r_pathTracingSkipCallbackEntities
-  Skips non-GUI deferred callback render entities in RT smoke capture. Defaults
-  to 1. This was added after a repeatable hang/exit when the player collected a
-  desk disk item: collision/pickup deleted the mesh while the RT smoke path was
-  still able to touch callback-driven item geometry, likely the pulse/highlight
-  shell using idItem::ModelCallback. Skipping callback entities immediately
-  fixed that pickup crash. This may omit some callback-driven visuals from RT
-  smoke, but it is the safer default until entity lifetime rules are handled
-  deliberately.
+  Skips non-GUI deferred callback render entities that also use a custom shader
+  in RT smoke capture. Defaults to 1. This was added after a repeatable
+  hang/exit when the player collected a desk disk item: collision/pickup deleted
+  the mesh while the RT smoke path was still able to touch callback-driven item
+  geometry, likely the pulse/highlight shell using idItem::ModelCallback and a
+  custom shell material. A broad callback skip fixed the crash but hid animated
+  and skinned characters because MD5 entities also use idEntity::ModelCallback.
+  The current narrower custom-shader callback guard keeps those characters
+  visible while still fixing the disk pickup crash.
 
 Normal, specular, and emissive material textures are discovered through the same
 cached material metadata path as albedo. They are bound into the shared RT smoke
@@ -601,10 +610,9 @@ Known limitations:
   can erase the mirrored-side convention used by some Doom 3 assets. A proper
   fix should preserve/import the engine tangent basis or add a narrowly scoped
   handedness path, rather than flipping all normal maps globally.
-- Deferred callback render entities are skipped by default in RT smoke capture.
-  This avoids a confirmed pickup/delete crash on an item disk, but it also means
-  some callback-generated visuals, such as item pulse shells or other deferred
-  dynamic models, may be absent from the debug RT scene.
+- Custom-shader deferred callback render entities are skipped by default in RT
+  smoke capture. This avoids a confirmed pickup/delete crash on an item disk
+  without hiding normal animated/skinned entities that use model callbacks.
 
 Material table performance:
 
@@ -639,10 +647,10 @@ Current safe approach:
   state ownership is better understood.
 - Use Texture.Load for RT texture debug mode 8. Treat SampleLevel as unsafe near
   animated SWF/GUI terminals until the sampler/state interaction is understood.
-- Skip deferred callback render entities by default. A repeatable crash on disk
-  pickup was fixed by r_pathTracingSkipCallbackEntities 1, strongly suggesting
-  callback-driven item geometry can become invalid during pickup/delete
-  transitions.
+- Skip custom-shader deferred callback render entities by default. A repeatable
+  crash on disk pickup was fixed by r_pathTracingSkipCallbackEntities 1,
+  strongly suggesting callback-driven item shell geometry can become invalid
+  during pickup/delete transitions.
 
 Open issues:
 

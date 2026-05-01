@@ -193,6 +193,12 @@ idCVar r_pathTracingTextureDecode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Decode RT smoke material texture encodings such as Doom diffuse YCoCg" );
 
+idCVar r_pathTracingForceTextureCodeUse(
+    "r_pathTracingForceTextureCodeUse",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use four-digit Doom texture filename codes as RT smoke material image discovery hints" );
+
 idCVar r_pathTracingUseNormalMaps(
     "r_pathTracingUseNormalMaps",
     "1",
@@ -275,7 +281,7 @@ idCVar r_pathTracingSkipCallbackEntities(
     "r_pathTracingSkipCallbackEntities",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Skip deferred callback render entities in RT smoke capture to avoid item/pickup lifetime hazards" );
+    "Skip custom-shader deferred callback render entities in RT smoke capture to avoid item/pickup lifetime hazards" );
 
 idCVar r_pathTracingMaterialMetadataCache(
     "r_pathTracingMaterialMetadataCache",
@@ -1507,6 +1513,108 @@ const char* SmokeTextureFallbackReason(const RtSmokeMaterialTableBuild& table, i
     return "texture table limit/window";
 }
 
+enum class RtSmokeTextureCodeHint
+{
+    Unknown,
+    Specular0000,
+    DiffuseAlpha0100,
+    Normal0300,
+    AlphaClip1000
+};
+
+const char* SmokeTextureCodeHintName(RtSmokeTextureCodeHint hint)
+{
+    switch (hint)
+    {
+        case RtSmokeTextureCodeHint::Specular0000:
+            return "0000/specular";
+        case RtSmokeTextureCodeHint::DiffuseAlpha0100:
+            return "0100/diffuse-alpha";
+        case RtSmokeTextureCodeHint::Normal0300:
+            return "0300/normal";
+        case RtSmokeTextureCodeHint::AlphaClip1000:
+            return "1000/alpha-clip";
+        default:
+            return "unknown";
+    }
+}
+
+RtSmokeTextureCodeHint SmokeTextureCodeHintFromImageName(const char* imageName)
+{
+    if (!imageName || !imageName[0])
+    {
+        return RtSmokeTextureCodeHint::Unknown;
+    }
+
+    idStr name = imageName;
+    name.BackSlashesToSlashes();
+    const int length = name.Length();
+    for (int start = Max(0, length - 12); start <= length - 4; ++start)
+    {
+        const bool fourDigits =
+            name[start + 0] >= '0' && name[start + 0] <= '9' &&
+            name[start + 1] >= '0' && name[start + 1] <= '9' &&
+            name[start + 2] >= '0' && name[start + 2] <= '9' &&
+            name[start + 3] >= '0' && name[start + 3] <= '9';
+        if (!fourDigits)
+        {
+            continue;
+        }
+
+        const bool boundedBefore = start == 0 || name[start - 1] == '_' || name[start - 1] == '-' || name[start - 1] == '/' || name[start - 1] == '.';
+        const bool boundedAfter = start + 4 >= length || name[start + 4] == '_' || name[start + 4] == '-' || name[start + 4] == '.' || name[start + 4] == '/';
+        if (!boundedBefore || !boundedAfter)
+        {
+            continue;
+        }
+
+        if (idStr::Cmpn(name.c_str() + start, "0000", 4) == 0)
+        {
+            return RtSmokeTextureCodeHint::Specular0000;
+        }
+        if (idStr::Cmpn(name.c_str() + start, "0100", 4) == 0)
+        {
+            return RtSmokeTextureCodeHint::DiffuseAlpha0100;
+        }
+        if (idStr::Cmpn(name.c_str() + start, "0300", 4) == 0)
+        {
+            return RtSmokeTextureCodeHint::Normal0300;
+        }
+        if (idStr::Cmpn(name.c_str() + start, "1000", 4) == 0)
+        {
+            return RtSmokeTextureCodeHint::AlphaClip1000;
+        }
+    }
+
+    return RtSmokeTextureCodeHint::Unknown;
+}
+
+idImage* FindSmokeImageByTextureCode(const idMaterial* material, RtSmokeTextureCodeHint wantedHint, idStr& reason)
+{
+    if (!material || wantedHint == RtSmokeTextureCodeHint::Unknown || r_pathTracingForceTextureCodeUse.GetInteger() == 0)
+    {
+        return nullptr;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !stage->texture.image)
+        {
+            continue;
+        }
+
+        const RtSmokeTextureCodeHint hint = SmokeTextureCodeHintFromImageName(stage->texture.image->GetName());
+        if (hint == wantedHint)
+        {
+            reason = va("stage %d texture code %s", stageIndex, SmokeTextureCodeHintName(hint));
+            return stage->texture.image;
+        }
+    }
+
+    return nullptr;
+}
+
 idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
 {
     if (!material)
@@ -1519,6 +1627,12 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
     if (image)
     {
         reason = "fastPathDiffuse";
+        return image;
+    }
+
+    image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::DiffuseAlpha0100, reason);
+    if (image)
+    {
         return image;
     }
 
@@ -1605,6 +1719,12 @@ idImage* FindSmokeNormalImage(const idMaterial* material, idStr& reason)
         return image;
     }
 
+    image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::Normal0300, reason);
+    if (image)
+    {
+        return image;
+    }
+
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
@@ -1633,6 +1753,12 @@ idImage* FindSmokeSpecularImage(const idMaterial* material, idStr& reason)
     if (image)
     {
         reason = "fastPathSpecular";
+        return image;
+    }
+
+    image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::Specular0000, reason);
+    if (image)
+    {
         return image;
     }
 
@@ -1931,6 +2057,12 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
     {
         reason = "not perforated or translucent cutout";
         return nullptr;
+    }
+
+    idImage* image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::AlphaClip1000, reason);
+    if (image)
+    {
+        return image;
     }
 
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -3088,7 +3220,11 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         return false;
     }
 
-    if (!guiDrawSurface && renderEntity && renderEntity->callback && r_pathTracingSkipCallbackEntities.GetInteger() != 0)
+    const bool riskyCallbackSurface =
+        renderEntity &&
+        renderEntity->callback &&
+        renderEntity->customShader != nullptr;
+    if (!guiDrawSurface && riskyCallbackSurface && r_pathTracingSkipCallbackEntities.GetInteger() != 0)
     {
         if (skipStats)
         {
