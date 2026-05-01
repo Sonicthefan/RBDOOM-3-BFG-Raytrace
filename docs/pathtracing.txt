@@ -108,9 +108,11 @@ Implemented debug CVars:
   Opt-in experiment for Doom texture filename usage codes. Defaults to 0. When
   set to 1, RT smoke material discovery treats four-digit filename codes near
   the end of image names as usage hints: 0300 = normal, 1000 = hard alpha/cutout,
-  0100 = diffuse with alpha, and 0000 = specular. These hints are used as
-  tie-breakers before the older stage-lighting discovery paths, not as final
-  material semantics.
+  0100 = diffuse/YCoCg payload, 0200 = default RGBA, and 0000 = specular. These
+  hints are used as tie-breakers before the older stage-lighting discovery
+  paths, not as final material semantics. The code is generated from image usage
+  and cube-file enums, so image->GetOpts().colorFormat and the material stage
+  remain better truth sources when they are available.
 
 - r_pathTracingUseNormalMaps
   Enables sampled normal maps in debug mode 14 selected point-light direct
@@ -469,6 +471,38 @@ Important history:
 
 Mode 8 is still only a probe. Texture.Load does not yet implement mip selection
 or full Doom material behavior.
+
+Doom BFG generated .bimage names append a storage hint as #__%02d%02d, where
+the first two digits are textureUsage_t and the second two are cubeFiles_t.
+Observed 2D material texture codes are:
+
+- #__0000 = TD_SPECULAR / CFM_DEFAULT. Specular/control texture. Its alpha is
+  not material opacity.
+- #__0100 = TD_DIFFUSE / CFM_YCOCG_DXT5. This is a CoCg_Y diffuse payload:
+  sampled alpha stores Y/luminance for color reconstruction, not transparency.
+  Never use this alpha as material alpha in the general case.
+- #__0200 = TD_DEFAULT / CFM_DEFAULT. This is ordinary RGBA/default storage. If
+  an alpha channel is present and the material stage/blend uses it, it should be
+  treated as real alpha.
+- #__0300 = TD_BUMP / CFM_NORMAL_DXT5. Normal-map payload. The raster convention
+  reads normal X from alpha, normal Y from green, and reconstructs Z.
+- #__1000 = TD_COVERAGE / CFM_GREEN_ALPHA. Coverage/cutout data for clipping or
+  stencil-style visibility.
+
+The safest RT material rule is: first trust image->GetOpts().colorFormat, then
+the material stage lighting/blend/alpha-test state, and use filenames or paths
+only as tie-breakers. In particular, CFM_YCOCG_DXT5 means alpha is occupied by
+color reconstruction, CFM_DEFAULT means alpha can be real material data, and
+CFM_GREEN_ALPHA/TD_COVERAGE is the dedicated coverage path.
+
+Classic Doom 3 decal intent also survives strongly in paths and material
+stages. Textures under /decals/ that are #__0100/CFM_YCOCG_DXT5 generally do
+not have real alpha; they are blend decals using decoded RGB as the effect.
+Lighten/additive decals tend to use black as the no-effect key, while
+darken/filter decals tend to use white as the no-effect key. Their visibility
+should be inferred from decoded RGB and blend state, not from the YCoCg alpha
+channel. #__0200 decal/default textures with alpha are different: because they
+are CFM_DEFAULT RGBA, their alpha can be real if the stage uses it.
 
 The active texture table was expanded to 2048 descriptors after diagnostics
 showed the earlier conservative limits left many valid captured materials on
