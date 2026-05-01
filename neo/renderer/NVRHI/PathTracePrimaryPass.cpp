@@ -756,6 +756,10 @@ struct PathTraceSmokeEmissiveTriangle
     uint32_t instanceId = 0;
     uint32_t primitiveIndex = 0;
     uint32_t flags = 0;
+    uint32_t emissiveTextureIndex = UINT32_MAX;
+    uint32_t emissiveTextureWidth = 1;
+    uint32_t emissiveTextureHeight = 1;
+    uint32_t padding0 = 0;
 };
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
@@ -772,6 +776,19 @@ struct RtSmokeEmissiveInventoryStats
     float totalArea = 0.0f;
     float totalWeightedLuminance = 0.0f;
     std::vector<uint32_t> materialIndexes;
+};
+
+struct RtSmokeEmissiveInventoryMaterialSummary
+{
+    uint32_t materialIndex = 0;
+    int triangles = 0;
+    int staticTriangles = 0;
+    int dynamicTriangles = 0;
+    float area = 0.0f;
+    float weightedLuminance = 0.0f;
+    uint32_t emissiveTextureIndex = UINT32_MAX;
+    uint32_t emissiveTextureWidth = 1;
+    uint32_t emissiveTextureHeight = 1;
 };
 
 struct RtSmokeMaterialTableBuild
@@ -4413,6 +4430,9 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.instanceId = instanceId;
         record.primitiveIndex = static_cast<uint32_t>(primitiveIndex);
         record.flags = material.flags;
+        record.emissiveTextureIndex = material.emissiveTextureIndex;
+        record.emissiveTextureWidth = material.emissiveTextureWidth;
+        record.emissiveTextureHeight = material.emissiveTextureHeight;
         emissiveTriangles.push_back(record);
     }
 
@@ -4462,6 +4482,73 @@ void LogSmokeEmissiveInventoryDump(const RtSmokeMaterialTableBuild& table, const
         stats.totalArea,
         stats.totalWeightedLuminance);
 
+    std::vector<RtSmokeEmissiveInventoryMaterialSummary> materialSummaries;
+    materialSummaries.reserve(stats.uniqueMaterials);
+    for (int triangleIndex = 0; triangleIndex < stats.capturedTriangles; ++triangleIndex)
+    {
+        const PathTraceSmokeEmissiveTriangle& record = emissiveTriangles[triangleIndex];
+        RtSmokeEmissiveInventoryMaterialSummary* summary = nullptr;
+        for (RtSmokeEmissiveInventoryMaterialSummary& candidate : materialSummaries)
+        {
+            if (candidate.materialIndex == record.materialIndex)
+            {
+                summary = &candidate;
+                break;
+            }
+        }
+        if (!summary)
+        {
+            RtSmokeEmissiveInventoryMaterialSummary newSummary = {};
+            newSummary.materialIndex = record.materialIndex;
+            newSummary.emissiveTextureIndex = record.emissiveTextureIndex;
+            newSummary.emissiveTextureWidth = record.emissiveTextureWidth;
+            newSummary.emissiveTextureHeight = record.emissiveTextureHeight;
+            materialSummaries.push_back(newSummary);
+            summary = &materialSummaries.back();
+        }
+
+        ++summary->triangles;
+        if (record.instanceId == 0)
+        {
+            ++summary->staticTriangles;
+        }
+        else
+        {
+            ++summary->dynamicTriangles;
+        }
+        summary->area += record.centerAndArea[3];
+        summary->weightedLuminance += record.centerAndArea[3] * record.normalAndLuminance[3];
+    }
+
+    std::sort(materialSummaries.begin(), materialSummaries.end(),
+        [](const RtSmokeEmissiveInventoryMaterialSummary& lhs, const RtSmokeEmissiveInventoryMaterialSummary& rhs)
+        {
+            return lhs.weightedLuminance > rhs.weightedLuminance;
+        });
+
+    const int maxSummaryLogged = Min(16, static_cast<int>(materialSummaries.size()));
+    for (int summaryIndex = 0; summaryIndex < maxSummaryLogged; ++summaryIndex)
+    {
+        const RtSmokeEmissiveInventoryMaterialSummary& summary = materialSummaries[summaryIndex];
+        const int materialIndex = static_cast<int>(summary.materialIndex);
+        const uint32_t materialId = materialIndex >= 0 && materialIndex < static_cast<int>(table.materialIds.size()) ? table.materialIds[materialIndex] : 0u;
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
+        common->Printf("  material[%d]: materialIndex=%u materialId=%u triangles=%d static=%d dynamic=%d area=%.2f areaLum=%.3f emissiveSlot=%d emissiveSize=%ux%u material='%s' emissive='%s'\n",
+            summaryIndex,
+            summary.materialIndex,
+            materialId,
+            summary.triangles,
+            summary.staticTriangles,
+            summary.dynamicTriangles,
+            summary.area,
+            summary.weightedLuminance,
+            summary.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(summary.emissiveTextureIndex),
+            summary.emissiveTextureWidth,
+            summary.emissiveTextureHeight,
+            info.materialName.c_str(),
+            info.emissiveImageName.c_str());
+    }
+
     const int maxLogged = Min(16, stats.capturedTriangles);
     for (int sampleIndex = 0; sampleIndex < maxLogged; ++sampleIndex)
     {
@@ -4469,7 +4556,7 @@ void LogSmokeEmissiveInventoryDump(const RtSmokeMaterialTableBuild& table, const
         const int materialIndex = static_cast<int>(record.materialIndex);
         const uint32_t materialId = materialIndex >= 0 && materialIndex < static_cast<int>(table.materialIds.size()) ? table.materialIds[materialIndex] : 0u;
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
-        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u area=%.2f lum=%.3f center=(%.2f %.2f %.2f) material='%s' emissive='%s'\n",
+        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u area=%.2f lum=%.3f center=(%.2f %.2f %.2f) emissiveSlot=%d emissiveSize=%ux%u material='%s' emissive='%s'\n",
             sampleIndex,
             record.instanceId,
             record.primitiveIndex,
@@ -4480,6 +4567,9 @@ void LogSmokeEmissiveInventoryDump(const RtSmokeMaterialTableBuild& table, const
             record.centerAndArea[0],
             record.centerAndArea[1],
             record.centerAndArea[2],
+            record.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(record.emissiveTextureIndex),
+            record.emissiveTextureWidth,
+            record.emissiveTextureHeight,
             info.materialName.c_str(),
             info.emissiveImageName.c_str());
     }

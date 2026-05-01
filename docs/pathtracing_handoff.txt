@@ -220,14 +220,19 @@ Recently tested observations:
   no MIS, denoiser, ReSTIR, or sampled emissive area lights yet.
 - Mode 19 inventory is intentionally non-final lighting work. It provides
   ReSTIR/PT-friendly candidate infrastructure: emissive triangle center, area,
-  normal, luminance proxy, material index, instance id, primitive index, and
-  flags.
+  normal, luminance proxy, material index, instance id, primitive index, flags,
+  and emissive texture slot/dimensions. Its dump prints both per-material
+  summary rows and per-triangle samples.
+- The latest in-game emissive dump from a clustered Mars City scene looked
+  healthy: 11 unique emissive materials, real texture slots/sizes for all
+  printed materials, no cap pressure, no invalid material refs, and 930
+  skinned/game-logic dissolve candidates skipped.
 
 Recommended next work:
 
 1. Prepare the emissive triangle inventory for NVIDIA ReSTIR PT without
    duplicating its sampler.
-   - Add UV bounds and emissive texture slot metadata to each candidate.
+   - Add UV bounds or representative UV metadata to each candidate.
    - Preserve the broad material/triangle candidate list while keeping the
      debug overlay texel-tight.
    - Keep game-logic/skinned dissolve emissive overlays excluded.
@@ -337,6 +342,19 @@ Known dirty worktree entries to leave alone unless explicitly asked:
 
 These are older failed/experimental RTXPT/Donut/CMake integration leftovers.
 Do not stage, commit, revert, or build work around them unless the user asks.
+
+
+Local Reference Checkouts
+-------------------------
+
+NVIDIA RTXDI/ReSTIR reference source and manuals are available locally at:
+
+    E:\prog\references\RTXDI-main
+
+Treat this as read-only reference material for integration planning. It is
+intentionally outside the repo so future sessions can inspect/search it without
+polluting the RBDoom3 BFG worktree or reviving the stale in-tree RTXPT/Donut
+leftovers.
 
 
 Files Changed and Why
@@ -563,8 +581,8 @@ Exact Next Steps in Priority Order
 1. Extend the mode 19 emissive inventory with metadata useful to NVIDIA
    ReSTIR/PT integration.
    - UV bounds or representative UVs.
-   - Emissive texture slot and dimensions.
-   - Area/luminance proxy suitable for later importance/reservoir setup.
+   - Sampled or texture-aware luminance proxy suitable for later
+     importance/reservoir setup.
    - Stable identity where possible for static-world candidates.
 
 2. Keep improving Doom material classification without overbuilding a custom

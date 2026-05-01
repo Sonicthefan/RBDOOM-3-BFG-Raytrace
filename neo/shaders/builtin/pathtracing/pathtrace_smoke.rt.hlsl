@@ -60,6 +60,10 @@ struct PathTraceSmokeEmissiveTriangle
     uint instanceId;
     uint primitiveIndex;
     uint flags;
+    uint emissiveTextureIndex;
+    uint emissiveTextureWidth;
+    uint emissiveTextureHeight;
+    uint padding0;
 };
 
 RaytracingAccelerationStructure SmokeScene : register(t0);

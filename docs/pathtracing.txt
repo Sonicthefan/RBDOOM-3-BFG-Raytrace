@@ -164,7 +164,8 @@ Implemented debug CVars:
 - r_pathTracingEmissiveInventoryDump
   One-shot dump of the current emissive triangle inventory: total/captured
   static/dynamic candidate counts, unique material count, area, approximate
-  luminance, and a short sample list.
+  luminance, per-material summary rows, emissive texture slot/dimensions, and
+  a short triangle sample list.
 
 - r_pathTracingEmissiveInventoryMaxTriangles
   Caps the CPU/GPU emissive triangle records captured for future light-sampling
@@ -924,8 +925,12 @@ Near term:
    duplicating the sampler itself.
    - Keep mode 19 as a broad CPU material/triangle inventory plus texel-tight
      debug view.
-   - Add metadata that future reservoir sampling will need: UV bounds,
-     emissive texture slot, area, luminance proxy, and transform stability.
+   - Add metadata that future reservoir sampling will need: UV bounds, area,
+     luminance proxy, and transform stability. Emissive texture slot and
+     dimensions are already recorded per candidate.
+   - Current dumps show sane material variety in clustered emissive scenes:
+     static/dynamic split, real texture slots/sizes, and skinned/game-logic
+     dissolve overlays excluded.
    - Continue excluding game-logic/skinned dissolve emissive overlays from
      light candidates.
 
@@ -985,6 +990,19 @@ Longer term:
    material handling, bindless texture tables, light sampling, accumulation,
    and denoiser integration. The Doom 3 renderer differs enough that code should
    be adapted carefully rather than copied wholesale.
+
+
+Local References
+----------------
+
+The user keeps NVIDIA RTXDI/ReSTIR reference source and manuals here for
+read-only study during integration planning:
+
+    E:\prog\references\RTXDI-main
+
+Keep this checkout outside the RBDoom3 BFG repo. Use it as reference material
+for reservoir/light-sampling architecture and manuals; do not mix it with the
+old in-tree RTXPT/Donut leftovers unless doing a deliberate clean integration.
 
 
 Notes for Future Contributors
