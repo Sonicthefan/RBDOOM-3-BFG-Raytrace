@@ -23,7 +23,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -217,6 +217,12 @@ idCVar r_pathTracingUseEmissiveMaps(
     CVAR_RENDERER | CVAR_INTEGER,
     "Use sampled emissive/glow material stages for RT smoke debug mode 14 direct lighting" );
 
+idCVar r_pathTracingToyMaxRayDistance(
+    "r_pathTracingToyMaxRayDistance",
+    "1024",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Maximum mode 18 toy path-tracing secondary/direct ray distance; reduces leaks through incomplete visible-surface TLAS geometry" );
+
 idCVar r_pathTracingSmokeParticleDither(
     "r_pathTracingSmokeParticleDither",
     "1",
@@ -376,6 +382,7 @@ struct PathTraceSmokeConstants
     float lightInfo[4];
     float portalWindowInfo[4];
     float lightSpriteInfo[4];
+    float toyPathInfo[4];
 };
 
 struct RtSmokeSelectedLight
@@ -2284,6 +2291,17 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
         const bool additiveStage = SmokeStageIsAdditiveOrGlowLike(stage);
         bool filterBlackKey = false;
         const bool filterStage = SmokeStageIsFilterBlend(stage, filterBlackKey);
+        const bool skyOrCubeTexgen =
+            stage->texture.texgen == TG_DIFFUSE_CUBE ||
+            stage->texture.texgen == TG_REFLECT_CUBE ||
+            stage->texture.texgen == TG_REFLECT_CUBE2 ||
+            stage->texture.texgen == TG_SKYBOX_CUBE ||
+            stage->texture.texgen == TG_WOBBLESKY_CUBE;
+        if (skyOrCubeTexgen)
+        {
+            reason = va("stage %d rejected sky/cube emissive texgen", stageIndex);
+            continue;
+        }
         const bool stageLooksEmissive = additiveStage || (nameLooksEmissive && classifier.hasAmbientBlendStage && !classifier.nameLooksDecal && !filterStage);
         if (!stageLooksEmissive)
         {
@@ -6038,8 +6056,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 {
     const int sceneStartMs = Sys_Milliseconds();
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 17, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = requestedDebugMode >= 8 && requestedDebugMode <= 17;
+    const int requestedDebugMode = idMath::ClampInt(0, 18, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 17) || requestedDebugMode == 18;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeConstantsBuffer)
     {
@@ -6665,8 +6683,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 17, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 18, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -6706,14 +6724,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && debugMode == 14 ? 8u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 8u : 0u) |
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && debugMode == 14 ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && debugMode == 14 ? 32u : 0u);
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 32u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const int requestedLightCount = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingLightCount.GetInteger());
     const int lightSelectionMode = idMath::ClampInt(0, 1, r_pathTracingLightSelection.GetInteger());
-    const int selectedLightCount = (debugMode == 14 || debugMode == 15)
+    const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18)
         ? CollectSelectedSmokePointLights(viewDef, cameraOrigin, selectedLights, requestedLightCount, lightSelectionMode)
         : 0;
     constants.lightInfo[0] = static_cast<float>(selectedLightCount);
@@ -6729,7 +6747,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.lightSpriteInfo[0] = r_pathTracingLightSpriteProxies.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.lightSpriteInfo[1] = idMath::ClampFloat(0.001f, 0.25f, r_pathTracingLightSpriteRadiusScale.GetFloat());
     constants.lightSpriteInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingLightSpriteIntensity.GetFloat());
-    constants.lightSpriteInfo[3] = 0.0f;
+    constants.lightSpriteInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_forceAmbient.GetFloat());
+    constants.toyPathInfo[0] = idMath::ClampFloat(64.0f, 100000.0f, r_pathTracingToyMaxRayDistance.GetFloat());
+    constants.toyPathInfo[1] = 0.0f;
+    constants.toyPathInfo[2] = 0.0f;
+    constants.toyPathInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -6741,7 +6763,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         constants.lightColorAndIntensity[i][2] = selectedLights[i].color.z;
         constants.lightColorAndIntensity[i][3] = selectedLights[i].spriteProxy ? 1.0f : 0.0f;
     }
-    if ((debugMode == 14 || debugMode == 15) && r_pathTracingLightDump.GetInteger() != 0)
+    if ((debugMode == 14 || debugMode == 15 || debugMode == 18) && r_pathTracingLightDump.GetInteger() != 0)
     {
         common->Printf("PathTracePrimaryPass: RT smoke selected %d debug point lights selection=%s\n",
             selectedLightCount,

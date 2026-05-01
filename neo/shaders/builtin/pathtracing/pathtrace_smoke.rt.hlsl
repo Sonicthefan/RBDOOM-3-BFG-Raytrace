@@ -81,6 +81,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 LightInfo;
     float4 PortalWindowInfo;
     float4 LightSpriteInfo;
+    float4 ToyPathInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -766,6 +767,9 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax)
     return shadowPayload.value == 0 ? 1.0 : 0.0;
 }
 
+bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
+float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
+
 float3 EvaluateSmokeLightSpriteProxies(float3 rayOrigin, float3 rayDirection, float sceneHitT)
 {
     if (LightSpriteInfo.x <= 0.0)
@@ -803,6 +807,116 @@ float3 EvaluateSmokeLightSpriteProxies(float3 rayOrigin, float3 rayDirection, fl
     }
 
     return sprites;
+}
+
+float3 SmokeCosineHemisphereDirection(float3 normal, uint seed)
+{
+    const float r1 = SmokeHashToUnitFloat(seed ^ 0x9e3779b9u);
+    const float r2 = SmokeHashToUnitFloat(seed ^ 0x85ebca6bu);
+    const float phi = 6.2831853 * r1;
+    const float radius = sqrt(r2);
+    const float x = cos(phi) * radius;
+    const float y = sin(phi) * radius;
+    const float z = sqrt(max(0.0, 1.0 - r2));
+    const float3 tangent = BuildPerpendicular(normal);
+    const float3 bitangent = SafeNormalize(cross(normal, tangent), float3(0.0, 1.0, 0.0));
+    return SafeNormalize(tangent * x + bitangent * y + normal * z, normal);
+}
+
+float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap, bool useSpecular, bool includeEmissive)
+{
+    const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+    const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
+    const float3 baseNormal = SafeNormalize(payload.normal, payload.geometricNormal);
+    const float3 normal = useNormalMap ? DecodeSmokeNormalTexture(material, payload.texCoord, baseNormal, payload.tangent, payload.bitangent) : baseNormal;
+    const float3 hitPosition = rayOrigin + rayDirection * payload.hitT;
+    const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
+    const float3 specularColor = useSpecular ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
+    const float3 emissive = includeEmissive ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+    const float ambientScale = saturate(LightSpriteInfo.w);
+    const float maxToyRayDistance = max(ToyPathInfo.x, 64.0);
+    float3 direct = albedo * ambientScale + emissive;
+
+    const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
+    if (lightCount == 0u)
+    {
+        return direct;
+    }
+
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < lightCount; lightIndex++)
+    {
+        const float4 lightOriginAndRadius = LightOriginAndRadius[lightIndex];
+        const float3 toLight = lightOriginAndRadius.xyz - hitPosition;
+        const float lightDistance = length(toLight);
+        if (lightDistance <= 1.0e-3)
+        {
+            continue;
+        }
+        if (lightDistance > maxToyRayDistance)
+        {
+            continue;
+        }
+
+        const float3 lightDir = toLight / lightDistance;
+        const float ndotl = saturate(dot(normal, lightDir));
+        if (ndotl <= 0.0)
+        {
+            continue;
+        }
+
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = min(max(lightDistance - 0.5, 0.01), maxToyRayDistance);
+        const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+        const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
+        const float directScale = 0.10 + lightAttenuation * lightAttenuation * 0.70;
+        const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
+        direct += albedo * lightColor * (ndotl * directScale * visibility);
+        direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale, visibility);
+    }
+
+    return direct;
+}
+
+float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload primaryPayload, uint2 pixel)
+{
+    if (SmokePayloadIsGuiScreen(primaryPayload))
+    {
+        return CompositeSmokeGuiLayers(rayOrigin, rayDirection, primaryPayload);
+    }
+
+    const PathTraceSmokeMaterial primaryMaterial = LoadSmokeMaterial(primaryPayload.materialIndex);
+    const float3 primaryAlbedo = SampleSmokeSurfaceAlbedo(primaryMaterial, primaryPayload.texCoord, primaryPayload.surfaceClass, primaryPayload.translucentSubtype, primaryPayload.vertexColor, primaryPayload.vertexColorAdd).rgb;
+    const float3 baseNormal = SafeNormalize(primaryPayload.normal, primaryPayload.geometricNormal);
+    const float3 primaryNormal = DecodeSmokeNormalTexture(primaryMaterial, primaryPayload.texCoord, baseNormal, primaryPayload.tangent, primaryPayload.bitangent);
+    const float3 primaryHit = rayOrigin + rayDirection * primaryPayload.hitT;
+    float3 radiance = EvaluateSmokeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, false, true);
+
+    const uint bounceSeed =
+        pixel.x * 1973u ^
+        pixel.y * 9277u ^
+        primaryPayload.materialId * 26699u ^
+        ((uint)primaryPayload.hitT) * 7919u;
+    const float3 bounceDir = SmokeCosineHemisphereDirection(primaryNormal, bounceSeed);
+    PathTraceSmokePayload bouncePayload = InitSmokePayload();
+    RayDesc bounceRay;
+    bounceRay.Origin = primaryHit + primaryNormal * 0.75 + bounceDir * 0.25;
+    bounceRay.Direction = bounceDir;
+    bounceRay.TMin = 0.01;
+    bounceRay.TMax = min(CameraOriginAndTMax.w, max(ToyPathInfo.x, 64.0));
+    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, bounceRay, bouncePayload);
+
+    if (bouncePayload.value != 0u && !SmokePayloadIsGuiScreen(bouncePayload))
+    {
+        const PathTraceSmokeMaterial bounceMaterial = LoadSmokeMaterial(bouncePayload.materialIndex);
+        const float3 bounceAlbedo = SampleSmokeSurfaceAlbedo(bounceMaterial, bouncePayload.texCoord, bouncePayload.surfaceClass, bouncePayload.translucentSubtype, bouncePayload.vertexColor, bouncePayload.vertexColorAdd).rgb;
+        const float3 bounceDirect = EvaluateSmokeDirectLighting(bouncePayload, bounceRay.Origin, bounceRay.Direction, true, false, true);
+        radiance += primaryAlbedo * bounceDirect * (0.28 + 0.22 * max(max(bounceAlbedo.r, bounceAlbedo.g), bounceAlbedo.b));
+    }
+
+    radiance += EvaluateSmokeLightSpriteProxies(rayOrigin, rayDirection, primaryPayload.hitT) * 0.35;
+    return float4(saturate(radiance), 1.0);
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
@@ -891,6 +1005,10 @@ void RayGen()
         if (debugMode == 14)
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
+        }
+        else if (debugMode == 18)
+        {
+            SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
         else
         {
@@ -1138,6 +1256,10 @@ void RayGen()
                 SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive + lightSprites), 1.0);
             }
         }
+    }
+    else if (debugMode == 18)
+    {
+        SmokeOutput[pixel] = EvaluateSmokeToyPathTrace(ray.Origin, ray.Direction, payload, pixel);
     }
     else
     {
