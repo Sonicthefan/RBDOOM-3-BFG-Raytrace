@@ -1,19 +1,12 @@
 #pragma once
 
+#include "PathTraceGeometry.h"
+
 #include <nvrhi/nvrhi.h>
 #include <vector>
 
 class idRenderBackend;
 struct viewDef_t;
-
-struct PathTraceSmokeVertex
-{
-    float position[4];
-    float normal[4];
-    float texCoord[4];
-    float color[4];
-    float color2[4];
-};
 
 class PathTracePrimaryPass {
 public:
