@@ -67,3 +67,5 @@ extern idCVar r_pathTracingTimingLogInterval;
 extern idCVar r_pathTracingReadbackEnable;
 extern idCVar r_pathTracingMaterialCache;
 extern idCVar r_pathTracingMaterialUniverseValidate;
+extern idCVar r_pathTracingMaterialUniverseTable;
+extern idCVar r_pathTracingMaterialUniverseTableValidate;

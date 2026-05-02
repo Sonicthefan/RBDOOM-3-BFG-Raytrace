@@ -12,6 +12,7 @@
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
+#include <cstring>
 #include <unordered_map>
 
 
@@ -599,6 +600,48 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
 }
 
+void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe)
+{
+    table = RtSmokeMaterialTableBuild();
+    table.materialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
+    table.materials.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
+    table.staticMaterialIndexes.reserve(staticMaterialIds.size());
+    table.dynamicMaterialIndexes.reserve(dynamicMaterialIds.size());
+
+    std::unordered_map<uint32_t, uint32_t> materialIndexLookup;
+    materialIndexLookup.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
+
+    for (uint32_t materialId : staticMaterialIds)
+    {
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        if (existing != materialIndexLookup.end())
+        {
+            table.staticMaterialIndexes.push_back(existing->second);
+            continue;
+        }
+
+        const uint32_t tableIndex = AddSmokeMaterialTableEntry(table, materialId);
+        materialIndexLookup.emplace(materialId, tableIndex);
+        table.staticMaterialIndexes.push_back(tableIndex);
+    }
+
+    for (uint32_t materialId : dynamicMaterialIds)
+    {
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        if (existing != materialIndexLookup.end())
+        {
+            table.dynamicMaterialIndexes.push_back(existing->second);
+            continue;
+        }
+
+        const uint32_t tableIndex = AddSmokeMaterialTableEntry(table, materialId);
+        materialIndexLookup.emplace(materialId, tableIndex);
+        table.dynamicMaterialIndexes.push_back(tableIndex);
+    }
+
+    PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+}
+
 void RebuildSmokeMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds)
 {
     table.staticMaterialIndexes.clear();
@@ -627,6 +670,105 @@ bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::
     cacheHit = false;
     BuildSmokeMaterialTable(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
     return false;
+}
+
+RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMaterialTableBuild& expected, const RtSmokeMaterialTableBuild& actual)
+{
+    RtSmokeMaterialTableCompareStats stats;
+    stats.checks = 1;
+
+    if (expected.materialIds.size() != actual.materialIds.size() ||
+        expected.materials.size() != actual.materials.size())
+    {
+        ++stats.materialCountMismatches;
+    }
+
+    std::unordered_map<uint32_t, int> actualMaterialIndexes;
+    actualMaterialIndexes.reserve(actual.materialIds.size());
+    for (int materialIndex = 0; materialIndex < static_cast<int>(actual.materialIds.size()); ++materialIndex)
+    {
+        actualMaterialIndexes.emplace(actual.materialIds[materialIndex], materialIndex);
+    }
+
+    const int expectedMaterialCount = Min(static_cast<int>(expected.materialIds.size()), static_cast<int>(expected.materials.size()));
+    for (int expectedIndex = 0; expectedIndex < expectedMaterialCount; ++expectedIndex)
+    {
+        const uint32_t materialId = expected.materialIds[expectedIndex];
+        const std::unordered_map<uint32_t, int>::const_iterator actualIndex = actualMaterialIndexes.find(materialId);
+        if (actualIndex == actualMaterialIndexes.end() || actualIndex->second < 0 || actualIndex->second >= static_cast<int>(actual.materials.size()))
+        {
+            ++stats.materialIdMismatches;
+            continue;
+        }
+        if (std::memcmp(&expected.materials[expectedIndex], &actual.materials[actualIndex->second], sizeof(expected.materials[expectedIndex])) != 0)
+        {
+            ++stats.materialRecordMismatches;
+        }
+    }
+
+    if (expected.staticMaterialIndexes.size() != actual.staticMaterialIndexes.size())
+    {
+        ++stats.staticIndexMismatches;
+    }
+    else
+    {
+        for (size_t index = 0; index < expected.staticMaterialIndexes.size(); ++index)
+        {
+            const uint32_t expectedMaterialIndex = expected.staticMaterialIndexes[index];
+            const uint32_t actualMaterialIndex = actual.staticMaterialIndexes[index];
+            const uint32_t expectedMaterialId = expectedMaterialIndex < expected.materialIds.size() ? expected.materialIds[expectedMaterialIndex] : 0;
+            const uint32_t actualMaterialId = actualMaterialIndex < actual.materialIds.size() ? actual.materialIds[actualMaterialIndex] : 0;
+            if (expectedMaterialId != actualMaterialId)
+            {
+                ++stats.staticIndexMismatches;
+                break;
+            }
+        }
+    }
+
+    if (expected.dynamicMaterialIndexes.size() != actual.dynamicMaterialIndexes.size())
+    {
+        ++stats.dynamicIndexMismatches;
+    }
+    else
+    {
+        for (size_t index = 0; index < expected.dynamicMaterialIndexes.size(); ++index)
+        {
+            const uint32_t expectedMaterialIndex = expected.dynamicMaterialIndexes[index];
+            const uint32_t actualMaterialIndex = actual.dynamicMaterialIndexes[index];
+            const uint32_t expectedMaterialId = expectedMaterialIndex < expected.materialIds.size() ? expected.materialIds[expectedMaterialIndex] : 0;
+            const uint32_t actualMaterialId = actualMaterialIndex < actual.materialIds.size() ? actual.materialIds[actualMaterialIndex] : 0;
+            if (expectedMaterialId != actualMaterialId)
+            {
+                ++stats.dynamicIndexMismatches;
+                break;
+            }
+        }
+    }
+
+    if (expected.diffuseTextures.size() != actual.diffuseTextures.size())
+    {
+        ++stats.textureCountMismatches;
+    }
+    const int textureCount = Min(static_cast<int>(expected.diffuseTextures.size()), static_cast<int>(actual.diffuseTextures.size()));
+    for (int textureIndex = 0; textureIndex < textureCount; ++textureIndex)
+    {
+        if (expected.diffuseTextures[textureIndex].Get() != actual.diffuseTextures[textureIndex].Get())
+        {
+            ++stats.textureHandleMismatches;
+            break;
+        }
+    }
+
+    stats.mismatches =
+        stats.materialCountMismatches +
+        stats.materialIdMismatches +
+        stats.materialRecordMismatches +
+        stats.staticIndexMismatches +
+        stats.dynamicIndexMismatches +
+        stats.textureCountMismatches +
+        stats.textureHandleMismatches;
+    return stats;
 }
 
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats()

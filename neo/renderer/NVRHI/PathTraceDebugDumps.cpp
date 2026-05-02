@@ -266,7 +266,7 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -311,6 +311,15 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.materialUniverseStats.rebuilds,
         desc.materialUniverseStats.validationChecks,
         desc.materialUniverseStats.validationMismatches,
+        desc.materialUniverseTableCompareStats.checks,
+        desc.materialUniverseTableCompareStats.mismatches,
+        desc.materialUniverseTableCompareStats.materialCountMismatches,
+        desc.materialUniverseTableCompareStats.materialIdMismatches,
+        desc.materialUniverseTableCompareStats.materialRecordMismatches,
+        desc.materialUniverseTableCompareStats.staticIndexMismatches,
+        desc.materialUniverseTableCompareStats.dynamicIndexMismatches,
+        desc.materialUniverseTableCompareStats.textureCountMismatches,
+        desc.materialUniverseTableCompareStats.textureHandleMismatches,
         desc.materialMetadataCacheEnabled ? 1 : 0,
         desc.metadataCacheRefreshes,
         desc.metadataFullDiscovers,
@@ -361,6 +370,16 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialUniverseStats.rebuilds,
         desc.materialUniverseStats.validationChecks,
         desc.materialUniverseStats.validationMismatches);
+    common->Printf("PathTracePrimaryPass: RT smoke material universe table compare checks=%d mismatches=%d material=%d/%d/%d indexes=%d/%d textures=%d/%d\n",
+        desc.materialUniverseTableCompareStats.checks,
+        desc.materialUniverseTableCompareStats.mismatches,
+        desc.materialUniverseTableCompareStats.materialCountMismatches,
+        desc.materialUniverseTableCompareStats.materialIdMismatches,
+        desc.materialUniverseTableCompareStats.materialRecordMismatches,
+        desc.materialUniverseTableCompareStats.staticIndexMismatches,
+        desc.materialUniverseTableCompareStats.dynamicIndexMismatches,
+        desc.materialUniverseTableCompareStats.textureCountMismatches,
+        desc.materialUniverseTableCompareStats.textureHandleMismatches);
     if (desc.emissiveInventoryStats)
     {
         common->Printf("PathTracePrimaryPass: RT smoke light candidates materials=%d textured=%d untextured=%d bufferBytes=%d uploaded=%d\n",
@@ -1368,7 +1387,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
 {
     if (!desc.lastSceneTimingLogMs || !desc.sceneRebuildLogged || !desc.sceneLogCooldownFrames ||
         !desc.classStats || !desc.skipStats || !desc.dynamicStats || !desc.attributeStats ||
-        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.emissiveInventoryStats || !desc.materialTableCacheStats || !desc.materialUniverseStats || !desc.textureCoverageStats)
+        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.emissiveInventoryStats || !desc.materialTableCacheStats || !desc.materialUniverseStats || !desc.materialUniverseTableCompareStats || !desc.textureCoverageStats)
     {
         return;
     }
@@ -1414,6 +1433,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         slowLog.materialTableCacheHits = desc.materialTableCacheStats->hits;
         slowLog.materialTableCacheMisses = desc.materialTableCacheStats->misses;
         slowLog.materialUniverseStats = *desc.materialUniverseStats;
+        slowLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
         slowLog.materialUniverseMaterialCount = desc.materialUniverseStats->universeMaterials;
         slowLog.materialMetadataCacheEnabled = r_pathTracingMaterialMetadataCache.GetInteger() != 0;
         slowLog.metadataCacheRefreshes = g_smokeMaterialMetadataFrameStats.cacheRefreshes;
@@ -1456,6 +1476,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.materialTableSignature = desc.materialTableSignature;
     sceneSummaryLog.materialTableCacheStats = *desc.materialTableCacheStats;
     sceneSummaryLog.materialUniverseStats = *desc.materialUniverseStats;
+    sceneSummaryLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
     sceneSummaryLog.materialStats = desc.materialStats;
     sceneSummaryLog.materialTable = desc.materialTable;
     sceneSummaryLog.emissiveInventoryStats = desc.emissiveInventoryStats;

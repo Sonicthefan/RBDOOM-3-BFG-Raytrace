@@ -362,3 +362,15 @@ idCVar r_pathTracingMaterialUniverseValidate(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Validate persistent RT smoke material records against a fresh direct rebuild and log mismatches" );
+
+idCVar r_pathTracingMaterialUniverseTable(
+    "r_pathTracingMaterialUniverseTable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Build the RT smoke frame material table from stable material-universe records instead of the legacy active order" );
+
+idCVar r_pathTracingMaterialUniverseTableValidate(
+    "r_pathTracingMaterialUniverseTableValidate",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Build old and universe-derived RT smoke material tables and report whether their active material contents match" );

@@ -74,6 +74,7 @@ struct RtSmokeSlowSceneBuildLogDesc
     int materialTableCacheHits = 0;
     int materialTableCacheMisses = 0;
     RtSmokeMaterialUniverseStats materialUniverseStats;
+    RtSmokeMaterialTableCompareStats materialUniverseTableCompareStats;
     int materialUniverseMaterialCount = 0;
     bool materialMetadataCacheEnabled = false;
     int metadataCacheRefreshes = 0;
@@ -116,6 +117,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
     uint64 materialTableSignature = 0;
     RtSmokeMaterialTableCacheStats materialTableCacheStats;
     RtSmokeMaterialUniverseStats materialUniverseStats;
+    RtSmokeMaterialTableCompareStats materialUniverseTableCompareStats;
     const RtSmokeMaterialStats* materialStats = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
     const RtSmokeEmissiveInventoryStats* emissiveInventoryStats = nullptr;
@@ -185,6 +187,7 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int lightCandidateBytes = 0;
     const RtSmokeMaterialTableCacheStats* materialTableCacheStats = nullptr;
     const RtSmokeMaterialUniverseStats* materialUniverseStats = nullptr;
+    const RtSmokeMaterialTableCompareStats* materialUniverseTableCompareStats = nullptr;
     const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;
     const RtSmokeSurfaceClassReasonSamples* reasonSamples = nullptr;
     int* lastSceneTimingLogMs = nullptr;

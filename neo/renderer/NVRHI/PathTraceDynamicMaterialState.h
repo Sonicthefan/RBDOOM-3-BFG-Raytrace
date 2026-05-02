@@ -66,6 +66,19 @@ struct RtSmokeMaterialTableCacheStats
     int misses = 0;
 };
 
+struct RtSmokeMaterialTableCompareStats
+{
+    int checks = 0;
+    int mismatches = 0;
+    int materialCountMismatches = 0;
+    int materialIdMismatches = 0;
+    int materialRecordMismatches = 0;
+    int staticIndexMismatches = 0;
+    int dynamicIndexMismatches = 0;
+    int textureCountMismatches = 0;
+    int textureHandleMismatches = 0;
+};
+
 int GetSmokeTextureTableRequestedLimit();
 int GetSmokeTextureTableEffectiveLimit();
 uint32_t HashSmokeMaterialName(const char* materialName);
@@ -73,5 +86,7 @@ uint32_t SmokeMaterialId(const idMaterial* material);
 bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table);
 bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int tableIndex);
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table);
+void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe);
 bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit);
+RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMaterialTableBuild& expected, const RtSmokeMaterialTableBuild& actual);
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats();
