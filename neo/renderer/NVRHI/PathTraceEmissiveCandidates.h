@@ -65,6 +65,7 @@ struct PathTraceSmokeLightCandidate
     float emissiveColorAndLuminance[4];
     float areaAndWeightedLuminance[4];
     uint32_t materialId = 0;
+    uint32_t universeMaterialIndex = UINT32_MAX;
     uint32_t materialIndex = 0;
     uint32_t triangleCount = 0;
     uint32_t flags = 0;
@@ -73,7 +74,6 @@ struct PathTraceSmokeLightCandidate
     uint32_t emissiveTextureIndex = UINT32_MAX;
     uint32_t emissiveTextureWidth = 1;
     uint32_t emissiveTextureHeight = 1;
-    uint32_t padding0 = 0;
     uint32_t padding1 = 0;
     uint32_t padding2 = 0;
 };
@@ -82,6 +82,7 @@ static_assert((sizeof(PathTraceSmokeLightCandidate) % 16) == 0, "PathTraceSmokeL
 struct RtSmokeEmissiveLightCandidateSummary
 {
     uint32_t materialId = 0;
+    uint32_t universeMaterialIndex = UINT32_MAX;
     uint32_t materialIndex = 0;
     int triangles = 0;
     int staticTriangles = 0;

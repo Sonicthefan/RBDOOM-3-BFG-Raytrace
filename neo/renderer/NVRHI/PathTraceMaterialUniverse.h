@@ -12,6 +12,7 @@
 struct RtSmokeMaterialUniverseFacts
 {
     uint32_t materialId = 0;
+    uint32_t universeIndex = UINT32_MAX;
     uint32_t materialFlags = 0;
     bool hasFallbackAlbedo = false;
     idVec4 fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -47,6 +48,7 @@ struct RtSmokePersistentMaterialRecord
 {
     bool valid = false;
     uint64 signature = 0;
+    uint32_t universeIndex = UINT32_MAX;
     PathTraceSmokeMaterial material = {};
     RtSmokeMaterialUniverseFacts facts;
     int additiveDecalContribution = 0;
@@ -55,6 +57,7 @@ struct RtSmokePersistentMaterialRecord
 struct RtSmokeMaterialUniverseStats
 {
     int records = 0;
+    int universeMaterials = 0;
     int hits = 0;
     int misses = 0;
     int rebuilds = 0;

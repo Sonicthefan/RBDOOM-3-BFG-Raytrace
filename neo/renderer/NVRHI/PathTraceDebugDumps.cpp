@@ -266,7 +266,7 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d materialUniverse=%d/%d/%d/%d validate=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -305,6 +305,7 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.materialTableCacheHits,
         desc.materialTableCacheMisses,
         desc.materialUniverseStats.records,
+        desc.materialUniverseMaterialCount,
         desc.materialUniverseStats.hits,
         desc.materialUniverseStats.misses,
         desc.materialUniverseStats.rebuilds,
@@ -352,8 +353,9 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialTableCacheStats.misses,
         static_cast<int>(desc.materialTable->materials.size()),
         static_cast<int>(desc.materialTable->diffuseTextures.size()));
-    common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d hits=%d misses=%d rebuilds=%d validation=%d/%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d universeMaterials=%d hits=%d misses=%d rebuilds=%d validation=%d/%d\n",
         desc.materialUniverseStats.records,
+        desc.materialUniverseStats.universeMaterials,
         desc.materialUniverseStats.hits,
         desc.materialUniverseStats.misses,
         desc.materialUniverseStats.rebuilds,
@@ -1412,6 +1414,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         slowLog.materialTableCacheHits = desc.materialTableCacheStats->hits;
         slowLog.materialTableCacheMisses = desc.materialTableCacheStats->misses;
         slowLog.materialUniverseStats = *desc.materialUniverseStats;
+        slowLog.materialUniverseMaterialCount = desc.materialUniverseStats->universeMaterials;
         slowLog.materialMetadataCacheEnabled = r_pathTracingMaterialMetadataCache.GetInteger() != 0;
         slowLog.metadataCacheRefreshes = g_smokeMaterialMetadataFrameStats.cacheRefreshes;
         slowLog.metadataFullDiscovers = g_smokeMaterialMetadataFrameStats.fullDiscovers;

@@ -224,6 +224,7 @@ void BuildSmokeEmissiveLightCandidateSummaries(
             const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
             RtSmokeEmissiveLightCandidateSummary newCandidate = {};
             newCandidate.materialId = materialId;
+            newCandidate.universeMaterialIndex = facts.universeIndex;
             newCandidate.materialIndex = record.materialIndex;
             newCandidate.emissiveColor = facts.emissiveColor;
             newCandidate.emissiveLuminance = facts.emissiveLuminance;
@@ -291,6 +292,7 @@ std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
         candidate.areaAndWeightedLuminance[2] = 0.0f;
         candidate.areaAndWeightedLuminance[3] = 0.0f;
         candidate.materialId = summary.materialId;
+        candidate.universeMaterialIndex = summary.universeMaterialIndex;
         candidate.materialIndex = summary.materialIndex;
         candidate.triangleCount = static_cast<uint32_t>(Max(0, summary.triangles));
         candidate.staticTriangleCount = static_cast<uint32_t>(Max(0, summary.staticTriangles));
@@ -388,9 +390,10 @@ void LogSmokeEmissiveInventoryDump(
     {
         const RtSmokeEmissiveLightCandidateSummary& candidate = stats.lightCandidates[candidateIndex];
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(candidate.materialId, static_cast<int>(candidate.materialIndex));
-        common->Printf("  candidate[%d]: materialId=%u materialIndex=%u triangles=%d static=%d dynamic=%d area=%.2f areaLum=%.3f lum=%.3f emissiveSlot=%d safeEmissive=%d material='%s' emissive='%s'\n",
+        common->Printf("  candidate[%d]: materialId=%u universeIndex=%u materialIndex=%u triangles=%d static=%d dynamic=%d area=%.2f areaLum=%.3f lum=%.3f emissiveSlot=%d safeEmissive=%d material='%s' emissive='%s'\n",
             candidateIndex,
             candidate.materialId,
+            candidate.universeMaterialIndex,
             candidate.materialIndex,
             candidate.triangles,
             candidate.staticTriangles,

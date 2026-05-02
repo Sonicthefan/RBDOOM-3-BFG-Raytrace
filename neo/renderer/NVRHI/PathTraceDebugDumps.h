@@ -74,6 +74,7 @@ struct RtSmokeSlowSceneBuildLogDesc
     int materialTableCacheHits = 0;
     int materialTableCacheMisses = 0;
     RtSmokeMaterialUniverseStats materialUniverseStats;
+    int materialUniverseMaterialCount = 0;
     bool materialMetadataCacheEnabled = false;
     int metadataCacheRefreshes = 0;
     int metadataFullDiscovers = 0;

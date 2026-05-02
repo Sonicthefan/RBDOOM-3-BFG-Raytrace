@@ -19,6 +19,7 @@ namespace {
 std::unordered_map<uint32_t, RtSmokePersistentMaterialRecord> g_smokePersistentMaterialRecords;
 RtSmokeMaterialUniverseStats g_smokeMaterialUniverseStats;
 int g_smokeMaterialUniverseValidationLogs = 0;
+uint32_t g_smokeNextMaterialUniverseIndex = 0;
 
 uint64 HashSmokeMaterialUniverseValue(uint64 hash, uint64 value)
 {
@@ -110,11 +111,12 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     return hash;
 }
 
-RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, uint64 signature)
+RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, uint64 signature, uint32_t universeIndex)
 {
     RtSmokePersistentMaterialRecord record;
     record.valid = true;
     record.signature = signature;
+    record.universeIndex = universeIndex;
 
     const idVec3 color = SmokeMaterialIdToDebugColor(materialId);
     record.material.debugAlbedo[0] = color.x;
@@ -190,6 +192,7 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     }
 
     record.facts.materialId = materialId;
+    record.facts.universeIndex = universeIndex;
     record.facts.materialFlags = record.material.flags;
     record.facts.hasFallbackAlbedo = info.hasFallbackAlbedo;
     record.facts.fallbackAlbedo = info.hasFallbackAlbedo ? info.fallbackAlbedo : idVec4(record.material.debugAlbedo[0], record.material.debugAlbedo[1], record.material.debugAlbedo[2], record.material.debugAlbedo[3]);
@@ -226,7 +229,9 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
 bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& lhs, const RtSmokePersistentMaterialRecord& rhs)
 {
     return lhs.additiveDecalContribution == rhs.additiveDecalContribution &&
+        lhs.universeIndex == rhs.universeIndex &&
         lhs.facts.materialId == rhs.facts.materialId &&
+        lhs.facts.universeIndex == rhs.facts.universeIndex &&
         lhs.facts.materialFlags == rhs.facts.materialFlags &&
         lhs.facts.hasFallbackAlbedo == rhs.facts.hasFallbackAlbedo &&
         lhs.facts.fallbackAlbedo == rhs.facts.fallbackAlbedo &&
@@ -268,12 +273,13 @@ const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t
     if (!record.valid)
     {
         ++g_smokeMaterialUniverseStats.misses;
-        record = BuildSmokePersistentMaterialRecord(materialId, info, signature);
+        const uint32_t universeIndex = g_smokeNextMaterialUniverseIndex++;
+        record = BuildSmokePersistentMaterialRecord(materialId, info, signature, universeIndex);
     }
     else if (record.signature != signature)
     {
         ++g_smokeMaterialUniverseStats.rebuilds;
-        record = BuildSmokePersistentMaterialRecord(materialId, info, signature);
+        record = BuildSmokePersistentMaterialRecord(materialId, info, signature, record.universeIndex);
     }
     else
     {
@@ -283,7 +289,7 @@ const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t
     if (r_pathTracingMaterialUniverseValidate.GetInteger() != 0)
     {
         ++g_smokeMaterialUniverseStats.validationChecks;
-        const RtSmokePersistentMaterialRecord validationRecord = BuildSmokePersistentMaterialRecord(materialId, info, signature);
+        const RtSmokePersistentMaterialRecord validationRecord = BuildSmokePersistentMaterialRecord(materialId, info, signature, record.universeIndex);
         if (!SmokePersistentMaterialRecordsEqual(record, validationRecord))
         {
             ++g_smokeMaterialUniverseStats.validationMismatches;
@@ -311,5 +317,6 @@ RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats()
 {
     RtSmokeMaterialUniverseStats stats = g_smokeMaterialUniverseStats;
     stats.records = static_cast<int>(g_smokePersistentMaterialRecords.size());
+    stats.universeMaterials = static_cast<int>(g_smokeNextMaterialUniverseIndex);
     return stats;
 }
