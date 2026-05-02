@@ -12,7 +12,6 @@
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
-#include <cstring>
 #include <unordered_map>
 
 
@@ -29,205 +28,10 @@ struct RtSmokeMaterialTableCache
 
 RtSmokeMaterialTableCache g_smokeMaterialTableCache;
 
-struct RtSmokePersistentMaterialRecord
-{
-    bool valid = false;
-    uint64 signature = 0;
-    PathTraceSmokeMaterial material = {};
-    int additiveDecalContribution = 0;
-};
-
-std::unordered_map<uint32_t, RtSmokePersistentMaterialRecord> g_smokePersistentMaterialRecords;
-RtSmokeMaterialUniverseStats g_smokeMaterialUniverseStats;
-int g_smokeMaterialUniverseValidationLogs = 0;
-
-idVec3 SmokeMaterialIdToDebugColor(uint32_t materialId);
-
 uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
     return hash;
-}
-
-uint64 HashSmokeMaterialFloat(uint64 hash, float value)
-{
-    uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return HashSmokeMaterialCacheValue(hash, bits);
-}
-
-uint64 HashSmokeMaterialString(uint64 hash, const idStr& value)
-{
-    const char* cursor = value.c_str();
-    while (*cursor)
-    {
-        hash = HashSmokeMaterialCacheValue(hash, static_cast<uint8_t>(*cursor));
-        ++cursor;
-    }
-    return HashSmokeMaterialCacheValue(hash, 0xffu);
-}
-
-uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
-{
-    uint64 hash = 1469598103934665603ull;
-    hash = HashSmokeMaterialCacheValue(hash, materialId);
-    hash = HashSmokeMaterialString(hash, info.materialName);
-    hash = HashSmokeMaterialCacheValue(hash, info.hasFallbackAlbedo ? 1u : 0u);
-    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.x);
-    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.y);
-    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.z);
-    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.w);
-    hash = HashSmokeMaterialCacheValue(hash, info.hasAlphaTest ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.hasAlphaImage ? 1u : 0u);
-    hash = HashSmokeMaterialFloat(hash, info.alphaCutoff);
-    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(info.diffuseColorFormat));
-    hash = HashSmokeMaterialCacheValue(hash, info.additiveDecal ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.additiveDecalWhiteKey ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, r_pathTracingAdditiveDecalKey.GetInteger() != 0 ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.filterDecal ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.filterDecalBlackKey ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.forceFallbackAlbedo ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.portalWindowFallback ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.objectGlassFallback ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.emissive ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.hasEmissiveImage ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, info.hasSafeEmissiveTexture ? 1u : 0u);
-    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.x);
-    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.y);
-    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.z);
-    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.w);
-    return hash;
-}
-
-RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, uint64 signature)
-{
-    RtSmokePersistentMaterialRecord record;
-    record.valid = true;
-    record.signature = signature;
-
-    const idVec3 color = SmokeMaterialIdToDebugColor(materialId);
-    record.material.debugAlbedo[0] = color.x;
-    record.material.debugAlbedo[1] = color.y;
-    record.material.debugAlbedo[2] = color.z;
-    record.material.debugAlbedo[3] = 1.0f;
-    record.material.emissiveColor[0] = 0.0f;
-    record.material.emissiveColor[1] = 0.0f;
-    record.material.emissiveColor[2] = 0.0f;
-    record.material.emissiveColor[3] = 1.0f;
-
-    if (info.hasFallbackAlbedo)
-    {
-        record.material.debugAlbedo[0] = info.fallbackAlbedo.x;
-        record.material.debugAlbedo[1] = info.fallbackAlbedo.y;
-        record.material.debugAlbedo[2] = info.fallbackAlbedo.z;
-        record.material.debugAlbedo[3] = info.fallbackAlbedo.w;
-    }
-    if (info.hasAlphaTest && info.hasAlphaImage)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_TEST;
-        record.material.alphaCutoff = info.alphaCutoff;
-    }
-    if (info.diffuseColorFormat == CFM_YCOCG_DXT5)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_DIFFUSE_YCOCG;
-    }
-    const bool useAdditiveDecalKey = info.additiveDecalWhiteKey || (info.additiveDecal && r_pathTracingAdditiveDecalKey.GetInteger() != 0);
-    if (useAdditiveDecalKey)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL;
-        if (info.additiveDecalWhiteKey)
-        {
-            record.material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
-        }
-        record.additiveDecalContribution = 1;
-    }
-    if (info.filterDecal)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL;
-    }
-    if (info.filterDecalBlackKey)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY;
-    }
-    if (info.alphaFromDiffuseLuma)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA;
-    }
-    if (info.forceFallbackAlbedo)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO;
-    }
-    if (info.alphaFromDiffuseDarkKey)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY;
-    }
-    if (info.portalWindowFallback)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK;
-    }
-    if (info.objectGlassFallback)
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK;
-    }
-    if (info.emissive && (info.hasSafeEmissiveTexture || !info.hasEmissiveImage))
-    {
-        record.material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
-        record.material.emissiveColor[0] = info.emissiveColor.x;
-        record.material.emissiveColor[1] = info.emissiveColor.y;
-        record.material.emissiveColor[2] = info.emissiveColor.z;
-        record.material.emissiveColor[3] = info.emissiveColor.w;
-    }
-
-    return record;
-}
-
-bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& lhs, const RtSmokePersistentMaterialRecord& rhs)
-{
-    return lhs.additiveDecalContribution == rhs.additiveDecalContribution &&
-        std::memcmp(&lhs.material, &rhs.material, sizeof(lhs.material)) == 0;
-}
-
-const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
-{
-    const uint64 signature = ComputeSmokePersistentMaterialSignature(materialId, info);
-    RtSmokePersistentMaterialRecord& record = g_smokePersistentMaterialRecords[materialId];
-    if (!record.valid)
-    {
-        ++g_smokeMaterialUniverseStats.misses;
-        record = BuildSmokePersistentMaterialRecord(materialId, info, signature);
-    }
-    else if (record.signature != signature)
-    {
-        ++g_smokeMaterialUniverseStats.rebuilds;
-        record = BuildSmokePersistentMaterialRecord(materialId, info, signature);
-    }
-    else
-    {
-        ++g_smokeMaterialUniverseStats.hits;
-    }
-
-    if (r_pathTracingMaterialUniverseValidate.GetInteger() != 0)
-    {
-        ++g_smokeMaterialUniverseStats.validationChecks;
-        const RtSmokePersistentMaterialRecord validationRecord = BuildSmokePersistentMaterialRecord(materialId, info, signature);
-        if (!SmokePersistentMaterialRecordsEqual(record, validationRecord))
-        {
-            ++g_smokeMaterialUniverseStats.validationMismatches;
-            if (g_smokeMaterialUniverseValidationLogs < 8)
-            {
-                common->Printf("PathTracePrimaryPass: RT smoke material universe validation mismatch materialId=%u material='%s' signature=%llu\n",
-                    materialId,
-                    info.materialName.c_str(),
-                    static_cast<unsigned long long>(signature));
-                ++g_smokeMaterialUniverseValidationLogs;
-            }
-            record = validationRecord;
-        }
-    }
-
-    return record;
 }
 
 uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
@@ -261,21 +65,6 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(latchedTextureProbeRequestedIndex + 0x80000000u));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(SmokeMaterialTextureRegistrySize()));
     return hash;
-}
-
-idVec3 SmokeMaterialIdToDebugColor(uint32_t materialId)
-{
-    uint32_t hash = materialId;
-    hash ^= hash >> 16;
-    hash *= 2246822519u;
-    hash ^= hash >> 13;
-    hash *= 3266489917u;
-    hash ^= hash >> 16;
-
-    return idVec3(
-        0.15f + static_cast<float>((hash >> 0) & 255u) * (0.85f / 255.0f),
-        0.15f + static_cast<float>((hash >> 8) & 255u) * (0.85f / 255.0f),
-        0.15f + static_cast<float>((hash >> 16) & 255u) * (0.85f / 255.0f));
 }
 
 }
@@ -845,12 +634,5 @@ RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats()
     RtSmokeMaterialTableCacheStats stats;
     stats.hits = g_smokeMaterialTableCache.hits;
     stats.misses = g_smokeMaterialTableCache.misses;
-    return stats;
-}
-
-RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats()
-{
-    RtSmokeMaterialUniverseStats stats = g_smokeMaterialUniverseStats;
-    stats.records = static_cast<int>(g_smokePersistentMaterialRecords.size());
     return stats;
 }

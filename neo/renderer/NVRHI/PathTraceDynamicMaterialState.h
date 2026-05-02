@@ -7,6 +7,7 @@
 // and texture registry state; it does not own Doom materials or NVRHI textures.
 
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceMaterialUniverse.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -65,16 +66,6 @@ struct RtSmokeMaterialTableCacheStats
     int misses = 0;
 };
 
-struct RtSmokeMaterialUniverseStats
-{
-    int records = 0;
-    int hits = 0;
-    int misses = 0;
-    int rebuilds = 0;
-    int validationChecks = 0;
-    int validationMismatches = 0;
-};
-
 int GetSmokeTextureTableRequestedLimit();
 int GetSmokeTextureTableEffectiveLimit();
 uint32_t HashSmokeMaterialName(const char* materialName);
@@ -84,4 +75,3 @@ bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int 
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table);
 bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit);
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats();
-RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats();
