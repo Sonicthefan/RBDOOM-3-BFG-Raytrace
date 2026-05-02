@@ -1,6 +1,7 @@
 #pragma once
 
 class idMaterial;
+struct viewDef_t;
 
 struct RtSmokeMaterialMetadataFrameStats
 {
@@ -11,6 +12,14 @@ struct RtSmokeMaterialMetadataFrameStats
     int duplicateSkips = 0;
 };
 
+struct RtSmokeMaterialMetadataRegistrationTiming
+{
+    int metadataMs = 0;
+    int validationMs = 0;
+    int registrationMs = 0;
+};
+
 extern RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material);
+RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled);

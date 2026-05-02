@@ -6,8 +6,10 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceSceneCapture.h"
 #include "PathTraceTextureRegistry.h"
 
+#include <algorithm>
 
 RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 
@@ -837,4 +839,43 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             info->fallbackReason = va("%s; rejected texture desc", reason.c_str());
         }
     }
+}
+
+RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled)
+{
+    RtSmokeMaterialMetadataRegistrationTiming timing;
+    g_smokeMaterialMetadataFrameStats = RtSmokeMaterialMetadataFrameStats();
+
+    const int metadataStartMs = Sys_Milliseconds();
+    if (enabled && viewDef)
+    {
+        std::vector<uint32_t> registeredMaterialIds;
+        registeredMaterialIds.reserve(viewDef->numDrawSurfs);
+        for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+        {
+            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            const srfTriangles_t* tri = nullptr;
+            const int validationStartMs = Sys_Milliseconds();
+            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+            {
+                timing.validationMs += Sys_Milliseconds() - validationStartMs;
+                continue;
+            }
+            timing.validationMs += Sys_Milliseconds() - validationStartMs;
+
+            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+            if (std::find(registeredMaterialIds.begin(), registeredMaterialIds.end(), materialId) != registeredMaterialIds.end())
+            {
+                ++g_smokeMaterialMetadataFrameStats.duplicateSkips;
+                continue;
+            }
+
+            registeredMaterialIds.push_back(materialId);
+            const int registrationStartMs = Sys_Milliseconds();
+            RegisterSmokeMaterialTextureInfo(drawSurf->material);
+            timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
+        }
+    }
+    timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+    return timing;
 }

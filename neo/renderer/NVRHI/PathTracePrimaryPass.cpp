@@ -26,7 +26,6 @@
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
 
-#include <algorithm>
 #include <vector>
 
 extern DeviceManager* deviceManager;
@@ -176,40 +175,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    g_smokeMaterialMetadataFrameStats = RtSmokeMaterialMetadataFrameStats();
-    const int metadataStartMs = Sys_Milliseconds();
-    int metadataValidationMs = 0;
-    int metadataRegistrationMs = 0;
-    if (enableTextureProbe)
-    {
-        std::vector<uint32_t> registeredMaterialIds;
-        registeredMaterialIds.reserve(viewDef->numDrawSurfs);
-        for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
-        {
-            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
-            const srfTriangles_t* tri = nullptr;
-            const int validationStartMs = Sys_Milliseconds();
-            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
-            {
-                metadataValidationMs += Sys_Milliseconds() - validationStartMs;
-                continue;
-            }
-            metadataValidationMs += Sys_Milliseconds() - validationStartMs;
-
-            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
-            if (std::find(registeredMaterialIds.begin(), registeredMaterialIds.end(), materialId) != registeredMaterialIds.end())
-            {
-                ++g_smokeMaterialMetadataFrameStats.duplicateSkips;
-                continue;
-            }
-
-            registeredMaterialIds.push_back(materialId);
-            const int registrationStartMs = Sys_Milliseconds();
-            RegisterSmokeMaterialTextureInfo(drawSurf->material);
-            metadataRegistrationMs += Sys_Milliseconds() - registrationStartMs;
-        }
-    }
-    const int metadataMs = Sys_Milliseconds() - metadataStartMs;
+    const RtSmokeMaterialMetadataRegistrationTiming metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
+    const int metadataMs = metadataTiming.metadataMs;
+    const int metadataValidationMs = metadataTiming.validationMs;
+    const int metadataRegistrationMs = metadataTiming.registrationMs;
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
