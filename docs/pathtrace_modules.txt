@@ -1,0 +1,570 @@
+RBDoom3 BFG RT/PT module map
+============================
+
+This document maps the experimental Vulkan/NVRHI RT smoke/path tracing files and
+the main feature flows that pass through them. It is meant as a navigation guide
+for humans working on the branch, not as a replacement for the implementation or
+the broader path tracing handoff notes.
+
+Current scope
+-------------
+
+The current RT/PT path is still an experimental "smoke" path:
+
+- r_pathTracing mode 18: toy path tracer / textured smoke path with selected
+  lights, emissives, accumulation, ambient/lighting CVars, and debug modes.
+- r_pathTracing mode 19: emissive inventory/debug pass for future ReSTIR/PT
+  preparation.
+- Many dynamic Doom 3 material behaviors are not fully represented yet. Some are
+  deliberately hidden, rejected, or forced to fallback/debug handling rather than
+  guessed incorrectly.
+
+Most files live under:
+
+    neo/renderer/NVRHI
+
+File map
+--------
+
+PathTracePrimaryPass.h
+    Declares PathTracePrimaryPass, the frame-level owner for the experimental
+    RT smoke state. The class still owns the persistent m_smoke* handles,
+    caches, counters, and private pass methods, but most behavior is implemented
+    in smaller PathTrace* modules.
+
+PathTracePrimaryPass.cpp
+    Thin pass shell. Performs RT feature detection, per-frame entry flow, output
+    sizing, and debug-present blit. Avoid putting scene build, dispatch,
+    resource lifetime, or diagnostics back here unless the pass shell itself
+    truly owns the work.
+
+PathTraceSmokeSceneBuild.cpp
+    Per-frame scene build orchestration. It calls scene capture, material table
+    construction, emissive inventory generation, buffer creation/upload,
+    BLAS/TLAS submission, binding creation, resource commit, and scene build
+    diagnostics. This is the right place to adjust high-level build order, but
+    it should delegate specialized work to narrower modules.
+
+PathTraceSmokeResources.h
+    Resource-facing structs for smoke geometry buffers, binding build inputs,
+    binding build results, scene resource commit descriptors, and resource
+    commit packaging.
+
+PathTraceSmokeResources.cpp
+    Persistent NVRHI resource lifetime. Creates pipeline/output/readback
+    resources, creates scene geometry buffers and binding resources, packages
+    committed scene resources, resets smoke state, and commits successful scene
+    builds back into PathTracePrimaryPass state.
+
+PathTraceSmokeDispatch.h
+    Exposes the smoke constants buffer size without exposing the full constants
+    layout.
+
+PathTraceSmokeDispatch.cpp
+    Ray tracing dispatch path. Builds raygen constants, selects debug lights,
+    sets resource states, manages accumulation, dispatches the NVRHI RT pipeline,
+    and queues optional readback.
+
+PathTraceSmokeReadback.cpp
+    Optional diagnostic readback of the smoke output texture. Handles delayed
+    map/unmap and throttled terminal logging.
+
+PathTraceAcceleration.h
+    Acceleration helper declarations and small structs for geometry ranges,
+    BLAS creation inputs/results, buffer upload batches, TLAS/BLAS submit inputs,
+    and timing results.
+
+PathTraceAcceleration.cpp
+    Pure-ish acceleration helpers. Initializes NVRHI triangle geometry, creates
+    BLAS objects, computes the static BLAS signature, uploads acceleration input
+    buffers, and submits BLAS/TLAS builds. Long-lived cache state is not owned
+    here.
+
+PathTraceSceneCapture.h
+    Scene capture constants, stats structs, bucket range structs, reason sample
+    structs, and the capture entry points. This is the main interface for
+    converting Doom draw surfaces into RT smoke triangle buckets.
+
+PathTraceSceneCapture.cpp
+    Doom draw-surface capture implementation. Walks view draw surfaces, chooses
+    static/rigid/skinned/particle buckets, transforms vertices, records skip and
+    classification stats, and appends captured geometry for the scene builder.
+
+PathTraceGeometry.h
+    Shared GPU-facing vertex layout and common geometry helper declarations.
+    PathTraceSmokeVertex is consumed by NVRHI buffers and shader code, so layout
+    changes here must be treated as shader/resource contract changes.
+
+PathTraceGeometry.cpp
+    Pure geometry/math helpers such as finite checks, normal packing support,
+    and triangle/UV calculations shared by capture, acceleration, and emissive
+    candidate code.
+
+PathTraceSkinning.h
+    Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
+    surfaces. Kept small so the data source can later move GPU-side.
+
+PathTraceSkinning.cpp
+    Current CPU skinning implementation used by scene capture. Handles joint
+    lookup, skinned vertex position/normal transforms, and base-pose detection.
+
+PathTraceSurfaceClassification.h
+    Surface bucket classification enums, subtype constants, and classification
+    helper declarations.
+
+PathTraceSurfaceClassification.cpp
+    Maps Doom draw surfaces into RT smoke buckets: static world, rigid entity,
+    skinned/deformed, particle/alpha, or unknown. This is surface-level
+    classification, not full material declaration analysis.
+
+PathTraceDoomMaterialClassifier.h
+    Doom material classification structs and helper declarations. This is where
+    material declarations and stage properties become coarse traits for the RT
+    smoke path.
+
+PathTraceDoomMaterialClassifier.cpp
+    Material classifier implementation. Interprets Doom material coverage,
+    lighting, blend modes, texgen, deform/dynamic model hints, and translucent
+    subtypes for capture, material table construction, and diagnostics.
+
+PathTraceMaterialTextureDiscovery.h
+    Per-frame visible-material texture discovery interface and timing/stat
+    structs.
+
+PathTraceMaterialTextureDiscovery.cpp
+    Walks visible Doom materials, discovers usable diffuse/alpha/normal/specular
+    /emissive textures, records fallback/rejection reasons, and updates the
+    texture registry. This is separate from material classification.
+
+PathTraceTextureRegistry.h
+    Texture metadata registry interface. Stores safe texture handles, image
+    names, dimensions, usage flags, and fallback reasons keyed by material id.
+
+PathTraceTextureRegistry.cpp
+    Texture registry implementation. Owns frame-persistent material texture
+    metadata used by dynamic material table construction and debug dumps.
+
+PathTraceDynamicMaterialState.h
+    GPU-facing material table structs, material flags, texture descriptor limits,
+    cache stats, and material table build APIs.
+
+PathTraceDynamicMaterialState.cpp
+    Builds and caches the smoke material table from captured material ids plus
+    texture registry state. Produces the material records and per-triangle
+    material indexes consumed by dispatch/shaders.
+
+PathTraceGuiSurfaces.h
+    Small GUI surface admission helper declaration.
+
+PathTraceGuiSurfaces.cpp
+    Tests whether a Doom draw surface should be admitted as a GUI surface in the
+    RT smoke scene. Currently CVar-gated and conservative.
+
+PathTraceEmissiveCandidates.h
+    GPU-facing emissive triangle record layout, inventory stats, and emissive
+    inventory APIs.
+
+PathTraceEmissiveCandidates.cpp
+    Builds compact emissive triangle metadata from static/dynamic triangle
+    buckets after material table construction. Used by mode 19 diagnostics and
+    as a boundary for future path tracing light sampling.
+
+PathTraceLightSelection.h
+    Debug light selection structs and constants used by smoke dispatch.
+
+PathTraceLightSelection.cpp
+    Chooses a small set of Doom lights for debug/direct-lighting constants in
+    the smoke raygen path.
+
+PathTraceDebugDumps.h
+    Shared diagnostic structs and dump/trigger APIs for scene build, material,
+    texture, timing, and one-shot diagnostic CVars.
+
+PathTraceDebugDumps.cpp
+    Console diagnostics implementation and diagnostic trigger/reset orchestration.
+    Should format and gate terminal output, not own render resources.
+
+PathTraceSurfaceDebugDumps.h
+    Surface-targeted diagnostic dump declarations.
+
+PathTraceSurfaceDebugDumps.cpp
+    Crosshair material and GUI surface diagnostic dump implementation. Uses the
+    already-built material table and current view.
+
+PathTraceCVars.h
+    Central extern declarations for experimental RT/PT CVars used by the
+    extracted modules.
+
+PathTraceCVars.cpp
+    CVar definitions for the smoke/path tracing prototype.
+
+Feature-flow guide
+------------------
+
+Material processing / classification
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceDoomMaterialClassifier.*
+- PathTraceSurfaceClassification.*
+- PathTraceMaterialTextureDiscovery.*
+- PathTraceTextureRegistry.*
+- PathTraceDynamicMaterialState.*
+- PathTraceSceneCapture.*
+- PathTraceDebugDumps.*
+- PathTraceSurfaceDebugDumps.*
+- PathTraceCVars.*
+
+Typical flow:
+
+1. PathTraceSceneCapture walks Doom draw surfaces.
+2. PathTraceSurfaceClassification decides the surface bucket.
+3. PathTraceDoomMaterialClassifier extracts coarse material traits.
+4. PathTraceMaterialTextureDiscovery registers visible material texture metadata.
+5. PathTraceTextureRegistry stores safe texture handles and fallback reasons.
+6. PathTraceDynamicMaterialState builds the GPU-facing material table and
+   triangle material indexes.
+7. PathTraceDebugDumps and PathTraceSurfaceDebugDumps report what happened.
+
+Safer places to touch:
+
+- Add a new material trait name or diagnostic string in
+  PathTraceDoomMaterialClassifier or PathTraceDebugDumps.
+- Add a fallback reason or registry metadata field if it does not change shader
+  layout.
+- Add a diagnostic dump for a suspected material class.
+- Extend material texture discovery to record more metadata while preserving
+  current fallback behavior.
+
+Riskier places to touch:
+
+- PathTraceSmokeMaterial layout in PathTraceEmissiveCandidates.h. This is
+  shader-facing data.
+- Material flag bit values in PathTraceDynamicMaterialState.h. These are read by
+  shaders and debug code.
+- Per-triangle material index generation in PathTraceDynamicMaterialState.cpp.
+  Bad indexes can break shader reads.
+- Capture filtering in PathTraceSceneCapture.cpp. It can make geometry appear or
+  disappear from the RT scene.
+
+Rule of thumb:
+
+If the change only improves classification metadata or diagnostics, it is usually
+safe. If it changes what surfaces/materials are admitted, which texture slot is
+bound, or the GPU material layout, test mode 18, mode 19, crosshair dump, texture
+fallback dump, and scene rebuild behavior.
+
+BVH / BLAS / TLAS
+~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceSmokeSceneBuild.cpp
+- PathTraceAcceleration.*
+- PathTraceSmokeResources.*
+- PathTraceGeometry.*
+- PathTraceSceneCapture.*
+- PathTraceSmokeDispatch.cpp
+
+Typical flow:
+
+1. PathTraceSceneCapture produces static/dynamic triangle buckets.
+2. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
+   eligibility.
+3. PathTraceSmokeResources creates geometry/material/emissive buffers.
+4. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
+   submits BLAS/TLAS builds.
+5. PathTraceSmokeResources commits the successful handles to pass state.
+6. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
+
+Safer places to touch:
+
+- Add timing/stat fields around acceleration helpers.
+- Improve debug names for buffers/accel structures.
+- Add validation/logging around build inputs.
+- Change helper packaging structs when the same fields are passed through.
+
+Riskier places to touch:
+
+- Static BLAS cache eligibility in PathTraceSmokeSceneBuild.cpp.
+- Upload skip flags in the RtSmokeBufferUploadItem array.
+- Resource state transitions in PathTraceSmokeDispatch.cpp.
+- PathTraceSmokeVertex layout or index/vertex counts.
+- Any TLAS instance setup in PathTraceAcceleration.cpp.
+
+Rule of thumb:
+
+Treat BLAS/TLAS state as behavior-sensitive. A tiny cache or upload mistake can
+look like a rendering bug, stale geometry, or a performance regression. Prefer
+diagnostic additions before ownership changes.
+
+Doom 3 interactive GUIs
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceGuiSurfaces.*
+- PathTraceSceneCapture.*
+- PathTraceSurfaceClassification.*
+- PathTraceMaterialTextureDiscovery.*
+- PathTraceTextureRegistry.*
+- PathTraceDynamicMaterialState.*
+- PathTraceSurfaceDebugDumps.*
+- PathTraceDebugDumps.*
+- PathTraceCVars.*
+
+Current state:
+
+Interactive GUI surfaces can be admitted into the RT smoke scene through the
+GUI-surface path, but this is still conservative and diagnostic-oriented. Doom
+GUIs are not "just a texture"; they are generated by Doom's GUI system and may
+change due to game/menu interaction.
+
+How to pipe in a better GUI idea:
+
+1. Start in PathTraceGuiSurfaces.cpp.
+   - Keep the CVar gate intact.
+   - Make the admission test explicit and easy to dump.
+
+2. Ensure PathTraceSceneCapture.cpp gets the surface into the intended bucket.
+   - Do not silently merge GUI behavior into unrelated translucent/particle
+     handling.
+   - Record reason samples so r_pathTracingGuiDump and related diagnostics can
+     explain the decision.
+
+3. Make texture discovery explicit.
+   - If the GUI can provide a stable image/texture handle, record it through
+     PathTraceMaterialTextureDiscovery and PathTraceTextureRegistry.
+   - If it cannot, preserve a fallback reason rather than binding a guessed or
+     unsafe texture.
+
+4. Keep material table changes isolated.
+   - PathTraceDynamicMaterialState should receive registry metadata and produce
+     material records. It should not know Doom GUI internals.
+
+5. Add diagnostics before broadening behavior.
+   - Use PathTraceSurfaceDebugDumps for view/crosshair/GUI details.
+   - Use PathTraceDebugDumps for one-shot CVar trigger/reset behavior.
+
+6. Test with:
+   - r_pathTracingAllowGuiSurfaces
+   - r_pathTracingGuiDump
+   - r_pathTracingCrosshairMaterialDump
+   - mode 18 at normal and high resolution
+   - a live interactive GUI surface, not just a static menu texture
+
+What to avoid:
+
+- Do not make scene capture reach directly into unrelated Doom GUI systems if a
+  narrow bridge can expose the needed texture/state.
+- Do not treat all GUI-like translucent surfaces as safe GUI surfaces.
+- Do not overwrite fallback/rejection diagnostics just to force a texture to
+  appear. It makes later debugging much harder.
+
+Skinning
+~~~~~~~~
+
+Primary files involved:
+
+- PathTraceSkinning.*
+- PathTraceSceneCapture.*
+- PathTraceSurfaceClassification.*
+- PathTraceGeometry.*
+- PathTraceAcceleration.*
+
+Current state:
+
+Skinned/deformed surfaces are captured through a CPU skinning bridge. This works
+as a temporary path but is expected to move GPU-side later.
+
+Safer places to touch:
+
+- Improve base-pose detection or diagnostics in PathTraceSkinning.cpp.
+- Add stats in PathTraceSceneCapture for skinned surface counts.
+- Add validation around joint availability.
+- Add a new narrow data-source abstraction if it preserves current CPU behavior.
+
+Riskier places to touch:
+
+- Vertex transform math in PathTraceSkinning.cpp.
+- Bucket assignment for skinned surfaces in PathTraceSurfaceClassification.cpp.
+- BLAS range/index accounting for dynamic buckets.
+
+Future GPU-side direction:
+
+Keep PathTraceSkinning as the bridge boundary. A future GPU path should provide
+already-skinned vertex data or a GPU-readable skinning source to scene build /
+acceleration code without making material classification or surface bucketing
+depend on GPU skinning details.
+
+Dynamic game logic driven materials
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceDoomMaterialClassifier.*
+- PathTraceMaterialTextureDiscovery.*
+- PathTraceTextureRegistry.*
+- PathTraceDynamicMaterialState.*
+- PathTraceSceneCapture.*
+- PathTraceDebugDumps.*
+
+Current state:
+
+This area is intentionally incomplete. Many Doom materials driven by game logic,
+dynamic expressions, animated stages, special texgens, overlays, post-process
+behavior, or callbacks are hidden, rejected, forced to fallback, or represented
+only through coarse diagnostics. That is preferable to rendering them as if the
+RT path understood them.
+
+Safer places to touch:
+
+- Add explicit classifier fields for a dynamic behavior.
+- Add fallback/rejection reasons that explain why a material is hidden.
+- Add diagnostics that report counts, examples, or material names.
+- Add a narrow bridge that exposes a specific dynamic state without changing the
+  whole material system.
+
+Riskier places to touch:
+
+- Broadly enabling callback/dynamic materials in scene capture.
+- Treating animated/generated textures as stable bindless textures.
+- Collapsing several dynamic cases into one "good enough" material flag.
+- Changing fallback behavior without adding diagnostics.
+
+Rule of thumb:
+
+Make unsupported dynamic material behavior more visible before making it more
+rendered. First improve detection, names, and dumps; then add one narrow dynamic
+bridge at a time.
+
+Higher-level path tracing / emissives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceEmissiveCandidates.*
+- PathTraceDynamicMaterialState.*
+- PathTraceSmokeDispatch.cpp
+- PathTraceLightSelection.*
+- PathTraceSmokeSceneBuild.cpp
+- PathTraceDebugDumps.*
+- PathTraceCVars.*
+
+Current state:
+
+Mode 18 uses a toy path tracing/debug lighting path. Mode 19 builds and dumps an
+emissive inventory that can become a future sampling input. This is not yet the
+NVIDIA RTXPT/ReSTIR implementation.
+
+Safer places to touch:
+
+- Add emissive inventory stats or dumps.
+- Improve candidate weighting diagnostics.
+- Add dispatch constants for debug-only experiments if shader layout is updated
+  carefully.
+- Add feature gates/CVars in PathTraceCVars.
+
+Riskier places to touch:
+
+- PathTraceSmokeEmissiveTriangle layout. It is GPU-facing.
+- Dispatch constants layout. It must match shader expectations.
+- Accumulation signature inputs in PathTraceSmokeDispatch.cpp.
+- Blending future RTXPT/ReSTIR ownership into smoke helper modules without a
+  clear boundary.
+
+Suggested future boundary:
+
+Keep emissive inventory generation as a smoke-path input producer. A future PT
+or ReSTIR module should consume a clear candidate buffer/metadata contract rather
+than reaching back into scene capture or material discovery directly.
+
+Texture binding and fallback behavior
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceMaterialTextureDiscovery.*
+- PathTraceTextureRegistry.*
+- PathTraceDynamicMaterialState.*
+- PathTraceSmokeResources.*
+- PathTraceSmokeDispatch.cpp
+- PathTraceDebugDumps.*
+
+Current state:
+
+Textures are discovered from visible materials, validated into safe handles, then
+packed into the active bindless texture table. Unsupported or unsafe cases keep
+fallback reasons for diagnostics.
+
+Safer places to touch:
+
+- Better fallback names/reasons.
+- Additional texture metadata that does not change shader layout.
+- More diagnostic dumps around active texture windows.
+
+Riskier places to touch:
+
+- Descriptor table capacity and active texture cap.
+- Force-fallback behavior.
+- Texture index assignment in material table records.
+- Binding set/layout creation in PathTraceSmokeResources.cpp.
+
+Diagnostics and CVars
+~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTraceCVars.*
+- PathTraceDebugDumps.*
+- PathTraceSurfaceDebugDumps.*
+- PathTraceSmokeReadback.cpp
+- PathTraceSmokeDispatch.cpp
+
+Current state:
+
+Diagnostics are intentionally terminal-heavy. Several CVars are one-shot and
+reset themselves after printing.
+
+Safer places to touch:
+
+- Add new one-shot dumps in PathTraceDebugDumps.
+- Add output fields to existing summary structs.
+- Add CVar declarations/definitions in PathTraceCVars.
+
+Riskier places to touch:
+
+- One-shot reset behavior. Users depend on dumps printing once.
+- Readback timing/cooldown. Bad timing can stall or spam.
+- CVar names used in existing testing notes.
+
+Scene build ownership
+~~~~~~~~~~~~~~~~~~~~~
+
+Primary files involved:
+
+- PathTracePrimaryPass.*
+- PathTraceSmokeSceneBuild.cpp
+- PathTraceSmokeResources.*
+- PathTraceSmokeDispatch.cpp
+- PathTraceSmokeReadback.cpp
+
+Current state:
+
+PathTracePrimaryPass still owns persistent m_smoke* state. Several modules define
+private PathTracePrimaryPass methods so they can work with that state without a
+large public state object. This is intentional for the current refactor phase.
+
+Safe next architectural step:
+
+Design a PathTraceSmokeState or PathTraceSmokeScene object first, then move state
+ownership in one dedicated architecture change. Do not gradually leak pieces of
+m_smoke* state into unrelated helper modules without a plan.
+
+What to avoid:
+
+- Moving files into folders before deciding how CMake/project layout should be
+  updated.
+- Mixing NVIDIA RTXPT/ReSTIR ownership into the smoke scene builder.
+- Reorganizing base RBDoom3 renderer systems as part of RT/PT cleanup.
