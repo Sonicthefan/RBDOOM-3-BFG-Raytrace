@@ -96,5 +96,24 @@ struct RtSmokeSceneResourceCommitDesc
     int emissiveDynamicTriangleCount = 0;
 };
 
+struct RtSmokeSceneResourceCommitBuildDesc
+{
+    RtSmokeSceneBufferHandles buffers;
+    nvrhi::rt::AccelStructDesc staticBlasDesc;
+    nvrhi::rt::AccelStructDesc dynamicBlasDesc;
+    nvrhi::rt::AccelStructHandle staticBlas;
+    nvrhi::rt::AccelStructHandle dynamicBlas;
+    bool hasStaticBlas = false;
+    uint64 staticBlasSignature = 0;
+    nvrhi::BindingSetHandle bindingSet;
+    nvrhi::DescriptorTableHandle textureDescriptorTable;
+    const std::vector<nvrhi::TextureHandle>* activeTextureTable = nullptr;
+    int materialTableEntryCount = 0;
+    int emissiveTriangleCount = 0;
+    int emissiveStaticTriangleCount = 0;
+    int emissiveDynamicTriangleCount = 0;
+};
+
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);
 RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildDesc& desc, RtSmokeMaterialTableBuild& materialTable);
+RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeSceneResourceCommitBuildDesc& desc);

@@ -148,6 +148,29 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     return result;
 }
 
+RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeSceneResourceCommitBuildDesc& desc)
+{
+    RtSmokeSceneResourceCommitDesc commitDesc;
+    commitDesc.buffers = desc.buffers;
+    commitDesc.staticBlasDesc = desc.staticBlasDesc;
+    commitDesc.dynamicBlasDesc = desc.dynamicBlasDesc;
+    commitDesc.staticBlas = desc.staticBlas;
+    commitDesc.dynamicBlas = desc.dynamicBlas;
+    commitDesc.hasStaticBlas = desc.hasStaticBlas;
+    commitDesc.staticBlasSignature = desc.staticBlasSignature;
+    commitDesc.bindingSet = desc.bindingSet;
+    commitDesc.textureDescriptorTable = desc.textureDescriptorTable;
+    if (desc.activeTextureTable)
+    {
+        commitDesc.activeTextureTable = *desc.activeTextureTable;
+    }
+    commitDesc.materialTableEntryCount = desc.materialTableEntryCount;
+    commitDesc.emissiveTriangleCount = desc.emissiveTriangleCount;
+    commitDesc.emissiveStaticTriangleCount = desc.emissiveStaticTriangleCount;
+    commitDesc.emissiveDynamicTriangleCount = desc.emissiveDynamicTriangleCount;
+    return commitDesc;
+}
+
 void PathTracePrimaryPass::InitRayTracingSmokeTest()
 {
     if (m_smokeTestInitialized)

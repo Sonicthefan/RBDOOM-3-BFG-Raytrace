@@ -352,21 +352,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    RtSmokeSceneResourceCommitDesc resourceCommitDesc;
-    resourceCommitDesc.buffers = smokeBuffers;
-    resourceCommitDesc.staticBlasDesc = smokeStaticBlasDesc;
-    resourceCommitDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
-    resourceCommitDesc.staticBlas = smokeStaticBlas;
-    resourceCommitDesc.dynamicBlas = smokeDynamicBlas;
-    resourceCommitDesc.hasStaticBlas = hasStaticBlas;
-    resourceCommitDesc.staticBlasSignature = staticSignature.hash;
-    resourceCommitDesc.bindingSet = bindingBuildResult.bindingSet;
-    resourceCommitDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
-    resourceCommitDesc.activeTextureTable = bindingBuildResult.activeTextureTable;
-    resourceCommitDesc.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
-    resourceCommitDesc.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
-    resourceCommitDesc.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
-    resourceCommitDesc.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
+    RtSmokeSceneResourceCommitBuildDesc resourceCommitBuildDesc;
+    resourceCommitBuildDesc.buffers = smokeBuffers;
+    resourceCommitBuildDesc.staticBlasDesc = smokeStaticBlasDesc;
+    resourceCommitBuildDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
+    resourceCommitBuildDesc.staticBlas = smokeStaticBlas;
+    resourceCommitBuildDesc.dynamicBlas = smokeDynamicBlas;
+    resourceCommitBuildDesc.hasStaticBlas = hasStaticBlas;
+    resourceCommitBuildDesc.staticBlasSignature = staticSignature.hash;
+    resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
+    resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+    resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
+    resourceCommitBuildDesc.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
+    resourceCommitBuildDesc.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
+    resourceCommitBuildDesc.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
+    resourceCommitBuildDesc.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
+    const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
     CommitRayTracingSmokeSceneResources(resourceCommitDesc);
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
