@@ -9,9 +9,16 @@ RBDoom3 BFG toward a Quake II RTX style brute-force path traced renderer. The
 target hardware is currently an RTX 4090 class GPU, so the early goal is image
 quality and learning rather than broad hardware support or high performance.
 
-The current work is intentionally staged as "RT smoke" debug functionality
-inside PathTracePrimaryPass. It proves pieces of the path tracing pipeline in
-small, testable steps before replacing the main renderer.
+The current work is intentionally staged as "RT smoke" debug functionality. It
+proves pieces of the path tracing pipeline in small, testable steps before
+replacing the main renderer.
+
+This file is the broad chronology/status document: what the branch is trying to
+do, what has been tried, what works, what remains risky, and how it is tested.
+For a file-by-file map of the extracted PathTrace* modules and feature-specific
+"where to touch" guidance, see:
+
+    docs/pathtrace_modules.txt
 
 
 Current State
@@ -21,6 +28,13 @@ The renderer has a debug-only path tracing smoke pass behind r_pathTracing.
 It traces primary camera rays through an NVRHI ray tracing pipeline and displays
 the RT output as the 3D scene layer while leaving the normal Doom HUD, GUI, and
 menus drawn on top.
+
+PathTracePrimaryPass used to own nearly all of the prototype. It has now been
+reduced to a small frame-level shell: feature detection, per-frame entry,
+output sizing, and present/blit glue. The scene build, resource lifetime,
+dispatch, readback, material processing, diagnostics, acceleration helpers,
+skinning bridge, GUI admission, and emissive inventory are split across
+PathTrace* modules under neo/renderer/NVRHI.
 
 Current validated feature set:
 
@@ -48,6 +62,37 @@ Current validated feature set:
   character dissolve overlays.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
+
+Current module/refactor state:
+
+- PathTracePrimaryPass is intentionally small and still owns the persistent
+  m_smoke* state.
+- PathTraceSmokeSceneBuild owns the high-level per-frame scene build sequence.
+- PathTraceSmokeResources owns NVRHI smoke resource creation/reset/commit.
+- PathTraceSmokeDispatch owns constants, resource transitions, dispatch, and
+  accumulation/readback queueing.
+- Scene capture, material classification, texture discovery, texture registry,
+  dynamic material table construction, skinning, GUI surface admission,
+  emissive candidates, diagnostics, acceleration helpers, light selection, and
+  geometry helpers are extracted into dedicated PathTrace* modules.
+- The current split is still conservative. A future PathTraceSmokeState or
+  PathTraceSmokeScene object may be useful, but that should be a deliberate
+  architecture change rather than another mechanical extraction.
+
+Refactor chronology:
+
+1. The first phase proved the RT smoke path in one place, mostly inside
+   PathTracePrimaryPass, so feature work could move quickly.
+2. Geometry, skinning, GUI admission, material classification, texture registry,
+   dynamic material state, emissive candidates, diagnostics, scene capture,
+   light selection, smoke dispatch, readback, resources, acceleration helpers,
+   CVars, and metadata registration were then extracted into PathTrace* modules.
+3. The last broad extraction moved BuildRayTracingSmokeTestScene into
+   PathTraceSmokeSceneBuild.cpp and left PathTracePrimaryPass as the pass shell.
+4. docs/pathtrace_modules.txt was added after the extraction pass as the detailed
+   file/feature map. This file remains the broader chronology and status guide.
+5. The next phase should be targeted feature work or measured optimization, not
+   broad refactoring, unless a specific ownership problem appears.
 
 Implemented debug CVars:
 
@@ -889,6 +934,21 @@ Useful Commits
 
 Recent milestone commits on this branch:
 
+- a4dca266 Add path trace module comments
+- 34be0103 Document path trace module map
+- 59f00215 Extract path trace scene resource commit packaging
+- 7b9a4f4c Move path trace smoke scene build
+- 355ac29e Extract path trace scene build diagnostic logs
+- d2d06b57 Extract path trace diagnostic triggers
+- c5194175 Extract path trace scene summary diagnostics
+- c66ce58b Extract path trace slow scene diagnostics
+- 010724b6 Extract path trace material metadata registration
+- 2ba361d3 Extract path trace CVars
+- c4165bdd Extract path trace scene buffer creation
+- 9f4df79e Extract path trace acceleration buffer uploads
+- 20db5d49 Extract path trace acceleration submit helpers
+- 6c8868d0 Extract path trace scene resource handoff
+- 406f71f5 Move path trace smoke resource lifecycle
 - 1341e2ca Add toy path tracing accumulation
 - 805eb9f5 Tune toy path tracing lighting scales
 - 2b28217d Add toy path tracing debug mode
@@ -960,27 +1020,32 @@ Near term:
 
 Medium term:
 
-1. Move RT smoke scene building out of PathTracePrimaryPass into a dedicated
-   helper/module. The pass file has grown large and now owns too many unrelated
-   concerns: surface capture, classification, BLAS/TLAS management, material
-   table building, CPU skinning, and debug logging.
+1. Keep focused changes small and feature-specific now that the broad extraction
+   pass is complete. The current module split is good enough for targeted work;
+   do not keep splitting purely for line count.
 
-2. Split static-world cache from dynamic scene update code more cleanly.
+2. Consider a dedicated PathTraceSmokeState / PathTraceSmokeScene ownership
+   design only when there is a concrete reason to change state ownership. The
+   current PathTracePrimaryPass m_smoke* ownership is still intentional.
 
-3. Evolve mode 18 into a real PT integration point:
+3. Split static-world cache from dynamic scene update code more cleanly if
+   acceleration ownership becomes an active task. This is stateful and should be
+   tested as a behavior change, not as a cosmetic extraction.
+
+4. Evolve mode 18 into a real PT integration point:
    - keep the current low-bounce/low-sample baseline as a debugging reference
    - feed ReSTIR/PT-ready scene, material, and emissive candidate buffers
    - replace the placeholder direct/emissive logic with reservoir-based light
      sampling when NVIDIA's implementation is brought in
 
-4. Add explicit material fields needed by path tracing:
+5. Add explicit material fields needed by path tracing:
    - base color
    - alpha/cutout
    - normal map
    - roughness/specular/metalness approximation
    - emissive/light material support
 
-5. Replace the smoke particle dithering placeholder with a better translucent
+6. Replace the smoke particle dithering placeholder with a better translucent
    strategy if it becomes important:
    - stochastic transparency with accumulation
    - sorted or approximate compositing
