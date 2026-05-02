@@ -1,6 +1,13 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Doom draw-surface capture implementation for the RT smoke scene.
+//
+// The capture pass is intentionally conservative: it buckets surfaces into the
+// few categories the prototype can render, records skip/classification reasons
+// for diagnostics, and leaves unsupported dynamic material behavior hidden until
+// a later material system can represent it safely.
+
 #include "PathTraceCVars.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceAcceleration.h"

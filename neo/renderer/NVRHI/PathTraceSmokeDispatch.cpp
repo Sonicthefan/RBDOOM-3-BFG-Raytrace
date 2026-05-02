@@ -1,6 +1,13 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Ray tracing dispatch for the RT smoke/path tracing path.
+//
+// Builds the per-frame raygen constants, transitions committed scene resources
+// for shader access, dispatches the smoke RT pipeline, manages accumulation, and
+// queues optional readback. Scene capture/resource ownership is intentionally
+// outside this module.
+
 #include "PathTraceCVars.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTracePrimaryPass.h"

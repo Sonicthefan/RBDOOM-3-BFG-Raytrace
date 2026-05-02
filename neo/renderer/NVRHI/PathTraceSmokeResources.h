@@ -1,5 +1,11 @@
 #pragma once
 
+// NVRHI resource descriptions and helpers for the RT smoke path.
+//
+// Owns creation/packaging of smoke resources: geometry buffers, binding
+// resources, output/readback textures, shader state, and the final commit
+// descriptor consumed by PathTracePrimaryPass state.
+
 #include "PathTraceDynamicMaterialState.h"
 
 #include <nvrhi/nvrhi.h>

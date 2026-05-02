@@ -1,5 +1,11 @@
 #pragma once
 
+// Thin frame-level shell for the experimental RT smoke/path tracing path.
+//
+// PathTracePrimaryPass owns the persistent smoke test state and exposes the
+// frame entry/present hooks used by the renderer. Scene build, resource
+// lifetime, dispatch, readback, and diagnostics live in PathTrace* modules.
+
 #include "PathTraceGeometry.h"
 
 #include <nvrhi/nvrhi.h>

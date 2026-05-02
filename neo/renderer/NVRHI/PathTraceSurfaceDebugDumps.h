@@ -1,5 +1,10 @@
 #pragma once
 
+// Surface-targeted diagnostic dumps.
+//
+// Prints crosshair material and GUI surface details using the already-built
+// material table. Trigger/reset policy lives in PathTraceDebugDumps.
+
 #include "PathTraceDynamicMaterialState.h"
 
 struct viewDef_t;

@@ -1,5 +1,11 @@
 #pragma once
 
+// Shared GPU-facing geometry structs and pure geometry helpers.
+//
+// Keep these definitions small and layout-conscious: PathTraceSmokeVertex is
+// consumed by NVRHI buffers and shader code, while the helpers are common math
+// utilities used by capture, acceleration, and emissive inventory code.
+
 struct PathTraceSmokeVertex
 {
     float position[4];

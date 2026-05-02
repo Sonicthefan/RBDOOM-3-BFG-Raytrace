@@ -1,5 +1,11 @@
 #pragma once
 
+// Surface bucket classification for captured Doom draw surfaces.
+//
+// Maps draw surfaces into the static, rigid, skinned, particle, or unknown
+// triangle buckets consumed by the RT smoke scene builder. Doom material traits
+// are classified separately in PathTraceDoomMaterialClassifier.
+
 #include <stdint.h>
 
 struct drawSurf_t;

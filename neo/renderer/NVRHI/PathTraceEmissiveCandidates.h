@@ -1,5 +1,11 @@
 #pragma once
 
+// Emissive triangle inventory for mode 19 diagnostics and future sampling work.
+//
+// Scans static and dynamic triangle buckets after material table creation,
+// records compact emissive candidate metadata, and keeps summary data for debug
+// dumps and later ReSTIR/PT integration boundaries.
+
 #include "PathTraceGeometry.h"
 
 #include <vector>

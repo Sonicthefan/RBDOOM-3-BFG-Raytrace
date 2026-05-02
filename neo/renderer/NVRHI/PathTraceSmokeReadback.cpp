@@ -1,6 +1,11 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Optional center-pixel/full-frame debug readback for the smoke output texture.
+//
+// Readback is deliberately delayed and throttled so diagnostic logging can sample
+// GPU output without becoming part of the normal frame path.
+
 #include "PathTraceCVars.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceDebugDumps.h"

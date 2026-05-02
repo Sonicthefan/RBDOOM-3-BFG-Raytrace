@@ -1,5 +1,11 @@
 #pragma once
 
+// Debug light selection for smoke ray generation constants.
+//
+// Dispatch uses this module to choose a small, stable set of Doom lights for
+// modes that exercise direct lighting before full path tracing light sampling
+// exists.
+
 #include "../RenderCommon.h"
 
 const int RT_SMOKE_MAX_DEBUG_LIGHTS = 32;

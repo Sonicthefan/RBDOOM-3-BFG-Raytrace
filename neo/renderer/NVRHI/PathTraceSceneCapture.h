@@ -1,5 +1,11 @@
 #pragma once
 
+// Doom render-surface capture for the RT smoke/path tracing scene.
+//
+// Converts the current view's draw surfaces into compact static and dynamic
+// triangle buckets. This is the boundary where Doom material/surface
+// classification, CPU skinning, GUI admission, and scene-origin anchoring meet.
+
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGeometry.h"
 #include "PathTraceSurfaceClassification.h"

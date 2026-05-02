@@ -1,5 +1,11 @@
 #pragma once
 
+// Runtime material table and texture-slot state for the RT smoke path.
+//
+// Captured material ids enter here and become the GPU-facing material table plus
+// per-triangle material indexes. The cache is keyed from captured material ids
+// and texture registry state; it does not own Doom materials or NVRHI textures.
+
 #include "PathTraceEmissiveCandidates.h"
 
 #include <nvrhi/nvrhi.h>

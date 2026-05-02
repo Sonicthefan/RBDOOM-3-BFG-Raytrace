@@ -1,5 +1,11 @@
 #pragma once
 
+// Doom material classification for the RT smoke/path tracing prototype.
+//
+// Reduces Doom material declarations and stage properties into coarse material
+// traits used by capture, texture discovery, dynamic material table construction,
+// and diagnostic dumps.
+
 #include "../Material.h"
 
 struct RtSmokeTranslucentClassifierInfo

@@ -1,5 +1,11 @@
 #pragma once
 
+// Console diagnostics for the RT smoke/path tracing prototype.
+//
+// Formats scene, material, texture, timing, and one-shot CVar dumps. This module
+// should not own render resources or mutate scene state except for explicit
+// diagnostic CVar reset/latch behavior.
+
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceSceneCapture.h"
 #include "../Image.h"

@@ -1,5 +1,10 @@
 #pragma once
 
+// Central CVar declarations for the experimental RT smoke/path tracing path.
+//
+// Keeping declarations here lets the extracted PathTrace* modules share debug
+// and feature gates without adding CVar declarations to unrelated renderer files.
+
 class idCVar;
 
 extern idCVar r_pathTracingDebugMode;

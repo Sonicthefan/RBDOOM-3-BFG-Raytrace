@@ -1,5 +1,11 @@
 #pragma once
 
+// Per-frame Doom material texture discovery.
+//
+// Inspects visible Doom materials and registers texture metadata for later
+// material table construction. Classification decides what kind of material we
+// have; discovery records usable texture handles and fallback reasons.
+
 class idMaterial;
 struct viewDef_t;
 

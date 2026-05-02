@@ -1,6 +1,11 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Console diagnostics and one-shot dump orchestration for RT smoke state.
+//
+// Keep formatting and CVar-trigger reset behavior here so the scene builder and
+// dispatch path can stay focused on data flow rather than terminal output.
+
 #include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceEmissiveCandidates.h"

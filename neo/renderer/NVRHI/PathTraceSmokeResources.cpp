@@ -1,6 +1,13 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Persistent NVRHI resource lifetime for the RT smoke path.
+//
+// This module creates the long-lived pipeline/output resources and commits each
+// successfully built scene into PathTracePrimaryPass state. Scene build code may
+// package handles here, but it should not reset or mutate persistent ownership
+// directly.
+
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"

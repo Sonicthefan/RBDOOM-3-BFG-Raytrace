@@ -1,6 +1,12 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Runtime material table assembly and cache for captured RT smoke triangles.
+//
+// The table produced here is the CPU-side mirror of what the shader consumes.
+// Keep the cache signature in sync with any inputs that can change material
+// records, texture slots, or probe/fallback behavior.
+
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceTextureRegistry.h"

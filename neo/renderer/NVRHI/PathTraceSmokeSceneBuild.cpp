@@ -1,6 +1,14 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Per-frame scene build orchestration for the RT smoke/path tracing path.
+//
+// This file keeps the top-level build order visible: capture Doom surfaces,
+// build material/emissive data, create and upload buffers, submit acceleration
+// structures, create bindings, commit resources, then run scene diagnostics.
+// Lower-level classification, capture, resource, and diagnostic work stays in
+// the narrower PathTrace* modules.
+
 #include "PathTraceAcceleration.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"

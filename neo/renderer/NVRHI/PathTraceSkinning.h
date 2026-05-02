@@ -1,5 +1,11 @@
 #pragma once
 
+// CPU skinning bridge for captured Doom surfaces.
+//
+// This is the temporary CPU path for skinned/deformed geometry capture. The
+// functions are narrow so a future GPU skinning implementation can replace the
+// data source without disturbing scene capture classification rules.
+
 class idDrawVert;
 class idJointMat;
 class idVec3;

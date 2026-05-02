@@ -1,6 +1,12 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Frame-level shell for the experimental RT smoke/path tracing path.
+//
+// Keep this file focused on renderer entry/present flow. The private methods it
+// calls are split into PathTraceSmoke* modules so the pass class remains a small
+// owner of state rather than the place where every RT detail accumulates.
+
 #include "PathTraceCVars.h"
 #include "PathTracePrimaryPass.h"
 #include "../RenderCommon.h"

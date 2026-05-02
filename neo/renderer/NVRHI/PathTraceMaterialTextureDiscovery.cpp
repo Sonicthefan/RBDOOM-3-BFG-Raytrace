@@ -1,6 +1,12 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+// Doom material texture discovery for the RT smoke texture registry.
+//
+// This pass walks visible material declarations and records the texture metadata
+// that the dynamic material table can safely bind. Rejections are preserved as
+// diagnostics because many Doom materials are still intentionally unsupported.
+
 #include "PathTraceCVars.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceDebugDumps.h"

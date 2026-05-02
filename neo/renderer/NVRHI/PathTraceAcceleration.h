@@ -1,5 +1,11 @@
 #pragma once
 
+// Small acceleration-structure helpers for the RT smoke scene.
+//
+// Prepares BLAS/TLAS geometry descriptors, computes the static BLAS cache
+// signature, uploads build-input buffers, and submits NVRHI acceleration builds.
+// Long-lived cache ownership remains with PathTracePrimaryPass state.
+
 #include "PathTraceGeometry.h"
 
 #include <nvrhi/nvrhi.h>

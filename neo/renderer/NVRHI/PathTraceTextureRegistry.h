@@ -1,5 +1,11 @@
 #pragma once
 
+// Frame-persistent texture metadata registry for RT smoke materials.
+//
+// Material texture discovery writes safe texture handles and rejection reasons
+// here. Dynamic material table construction reads the registry to populate
+// bindless texture slots without depending directly on Doom image internals.
+
 #include <nvrhi/nvrhi.h>
 #include "../Image.h"
 #include "../Material.h"
