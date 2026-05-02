@@ -24,6 +24,31 @@ struct RtSmokeSceneBufferHandles
     bool IsValid() const;
 };
 
+struct RtSmokeSceneBufferCreateDesc
+{
+    nvrhi::IDevice* device = nullptr;
+    size_t staticVertexBytes = 0;
+    size_t staticIndexBytes = 0;
+    size_t staticTriangleClassBytes = 0;
+    size_t staticTriangleMaterialBytes = 0;
+    size_t staticTriangleMaterialIndexBytes = 0;
+    size_t dynamicVertexBytes = 0;
+    size_t dynamicIndexBytes = 0;
+    size_t dynamicTriangleClassBytes = 0;
+    size_t dynamicTriangleMaterialBytes = 0;
+    size_t dynamicTriangleMaterialIndexBytes = 0;
+    size_t materialTableBytes = 0;
+    size_t emissiveTriangleBytes = 0;
+};
+
+struct RtSmokeSceneBufferCreateResult
+{
+    RtSmokeSceneBufferHandles buffers;
+    const char* errorMessage = nullptr;
+
+    bool Succeeded() const { return buffers.IsValid() && errorMessage == nullptr; }
+};
+
 struct RtSmokeBindingBuildDesc
 {
     nvrhi::IDevice* device = nullptr;
@@ -71,5 +96,5 @@ struct RtSmokeSceneResourceCommitDesc
     int emissiveDynamicTriangleCount = 0;
 };
 
-nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput);
+RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);
 RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildDesc& desc, RtSmokeMaterialTableBuild& materialTable);

@@ -16,7 +16,7 @@ bool RtSmokeSceneBufferHandles::IsValid() const
         materialTableBuffer && emissiveTriangleBuffer;
 }
 
-nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput)
+static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput)
 {
     if (!device)
     {
@@ -33,6 +33,29 @@ nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char
     desc.initialState = nvrhi::ResourceStates::Common;
     desc.keepInitialState = true;
     return device->createBuffer(desc);
+}
+
+RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc)
+{
+    RtSmokeSceneBufferCreateResult result;
+    result.buffers.staticVertexBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeStaticWorldVertices", desc.staticVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true);
+    result.buffers.staticIndexBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeStaticWorldIndices", desc.staticIndexBytes, sizeof(uint32_t), false, true, true);
+    result.buffers.staticTriangleClassBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeStaticWorldTriangleClasses", desc.staticTriangleClassBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.staticTriangleMaterialBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeStaticWorldTriangleMaterials", desc.staticTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.staticTriangleMaterialIndexBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeStaticWorldTriangleMaterialIndexes", desc.staticTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.dynamicVertexBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeDynamicCandidateVertices", desc.dynamicVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true);
+    result.buffers.dynamicIndexBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeDynamicCandidateIndices", desc.dynamicIndexBytes, sizeof(uint32_t), false, true, true);
+    result.buffers.dynamicTriangleClassBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeDynamicCandidateTriangleClasses", desc.dynamicTriangleClassBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.dynamicTriangleMaterialBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeDynamicCandidateTriangleMaterials", desc.dynamicTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.dynamicTriangleMaterialIndexBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes", desc.dynamicTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.materialTableBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false);
+    result.buffers.emissiveTriangleBuffer = CreateSmokeGeometryBuffer(desc.device, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
+
+    if (!result.buffers.IsValid())
+    {
+        result.errorMessage = "failed to create RT smoke geometry buffers";
+    }
+    return result;
 }
 
 RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildDesc& desc, RtSmokeMaterialTableBuild& materialTable)
