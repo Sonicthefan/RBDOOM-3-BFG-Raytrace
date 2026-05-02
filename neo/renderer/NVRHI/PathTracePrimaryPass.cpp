@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceDebugDumps.h"
+#include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSkinning.h"
@@ -437,8 +438,6 @@ struct RtSmokeSelectedLight
     idStr shaderName;
 };
 
-bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int tokenCount);
-
 idVec4 EvaluateSmokeLightColor(const viewLight_t* vLight)
 {
     if (!vLight || !vLight->lightShader || !vLight->shaderRegisters)
@@ -655,25 +654,6 @@ struct RtSmokeMaterialSample
     int surfaces = 0;
     int triangles = 0;
     idStr name;
-};
-
-struct RtSmokeTranslucentClassifierInfo
-{
-    bool sortIsGuiOrSubview = false;
-    bool sortIsDecal = false;
-    bool sortIsPostProcess = false;
-    bool polygonOffsetDecal = false;
-    bool hasScreenTexgen = false;
-    bool hasAdditiveBlend = false;
-    bool hasAmbientStage = false;
-    bool hasAmbientBlendStage = false;
-    bool hasDiffuseStage = false;
-    bool nameLooksGui = false;
-    bool nameLooksParticle = false;
-    bool nameLooksDecal = false;
-    bool nameLooksGlass = false;
-    bool nameLooksGlow = false;
-    bool nameLooksSignage = false;
 };
 
 enum class RtSmokeTranslucentSubtype
@@ -1054,105 +1034,6 @@ const char* SmokeSurfaceClassName(RtSmokeSurfaceClass surfaceClass)
     }
 }
 
-bool SmokeStageBlendUsesSourceAlpha(const shaderStage_t* stage)
-{
-    if (!stage)
-    {
-        return false;
-    }
-
-    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return srcBlend == GLS_SRCBLEND_SRC_ALPHA ||
-        srcBlend == GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA ||
-        dstBlend == GLS_DSTBLEND_SRC_ALPHA ||
-        dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
-}
-
-bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage)
-{
-    if (!stage)
-    {
-        return false;
-    }
-
-    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE;
-}
-
-bool SmokeStageIsFilterBlend(const shaderStage_t* stage, bool& blackKey)
-{
-    blackKey = false;
-    if (!stage)
-    {
-        return false;
-    }
-
-    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-    if (srcBlend == GLS_SRCBLEND_DST_COLOR && dstBlend == GLS_DSTBLEND_ZERO)
-    {
-        blackKey = false;
-        return true;
-    }
-    if (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_SRC_COLOR)
-    {
-        blackKey = false;
-        return true;
-    }
-    if (srcBlend == GLS_SRCBLEND_ZERO && dstBlend == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR)
-    {
-        blackKey = true;
-        return true;
-    }
-    if (srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR && dstBlend == GLS_DSTBLEND_ONE)
-    {
-        blackKey = true;
-        return true;
-    }
-
-    return false;
-}
-
-const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage)
-{
-    if (!stage || !stage->texture.image)
-    {
-        return "none";
-    }
-
-    const idImage* image = stage->texture.image;
-    const textureUsage_t usage = image->GetUsage();
-    const textureColor_t colorFormat = image->GetOpts().colorFormat;
-    if (usage == TD_COVERAGE || colorFormat == CFM_GREEN_ALPHA || stage->lighting == SL_COVERAGE)
-    {
-        return "coverage/cutout";
-    }
-    if (colorFormat == CFM_YCOCG_DXT5)
-    {
-        return "YCoCg-color-reconstruct";
-    }
-    if (colorFormat == CFM_NORMAL_DXT5 || usage == TD_BUMP)
-    {
-        return "normal-packed";
-    }
-    if (usage == TD_SPECULAR)
-    {
-        return "specular-no-alpha";
-    }
-    if (colorFormat == CFM_DEFAULT && (stage->hasAlphaTest || SmokeStageBlendUsesSourceAlpha(stage)))
-    {
-        return "material-alpha";
-    }
-    if (colorFormat == CFM_DEFAULT)
-    {
-        return "rgba-unused-alpha";
-    }
-
-    return "unknown";
-}
-
 const char* SmokeSurfaceClassNameByIndex(int classIndex)
 {
     if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
@@ -1215,82 +1096,6 @@ const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex)
     return SmokeTranslucentSubtypeName(static_cast<RtSmokeTranslucentSubtype>(subtypeIndex));
 }
 
-bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int tokenCount)
-{
-    for (int tokenIndex = 0; tokenIndex < tokenCount; ++tokenIndex)
-    {
-        if (name.Find(tokens[tokenIndex], false) >= 0)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material)
-{
-    RtSmokeTranslucentClassifierInfo info;
-    if (!material)
-    {
-        return info;
-    }
-
-    idStr materialName = material->GetName();
-    const float sort = material->GetSort();
-    info.sortIsGuiOrSubview = sort <= SS_GUI;
-    info.sortIsDecal = sort >= SS_DECAL && sort < SS_FAR;
-    info.sortIsPostProcess = sort >= SS_POST_PROCESS;
-    info.polygonOffsetDecal = material->TestMaterialFlag(MF_POLYGONOFFSET);
-
-    static const char* guiTokens[] = { "gui", "guis/", "video", "cinematic", "terminal", "console", "pda", "cursor" };
-    static const char* particleTokens[] = { "particle", "smoke", "dust", "steam", "fog", "muzzle", "spark", "bloodcloud" };
-    static const char* decalTokens[] = { "decal", "stain", "grime", "dirt", "scorch", "burn", "bullet", "mud", "blood", "splat", "mark" };
-    static const char* glassTokens[] = { "glass", "window", "visor", "transparent" };
-    static const char* glowTokens[] = { "glow", "light", "lamp", "beam", "flare", "strip", "striplight", "tube", "neon", "emissive", "emit", "bulb", "fluoro", "flouro" };
-    static const char* signageTokens[] = { "logo", "sign", "label", "snack", "soda", "cola", "add", "screen", "monitor" };
-    info.nameLooksGui = SmokeNameContainsAny(materialName, guiTokens, sizeof(guiTokens) / sizeof(guiTokens[0]));
-    info.nameLooksParticle = SmokeNameContainsAny(materialName, particleTokens, sizeof(particleTokens) / sizeof(particleTokens[0]));
-    info.nameLooksDecal = SmokeNameContainsAny(materialName, decalTokens, sizeof(decalTokens) / sizeof(decalTokens[0]));
-    info.nameLooksGlass = SmokeNameContainsAny(materialName, glassTokens, sizeof(glassTokens) / sizeof(glassTokens[0]));
-    info.nameLooksGlow = SmokeNameContainsAny(materialName, glowTokens, sizeof(glowTokens) / sizeof(glowTokens[0]));
-    info.nameLooksSignage = SmokeNameContainsAny(materialName, signageTokens, sizeof(signageTokens) / sizeof(signageTokens[0]));
-
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-    {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage)
-        {
-            continue;
-        }
-
-        if (stage->texture.texgen == TG_SCREEN || stage->texture.texgen == TG_SCREEN2)
-        {
-            info.hasScreenTexgen = true;
-        }
-        if (stage->lighting == SL_AMBIENT)
-        {
-            info.hasAmbientStage = true;
-        }
-        else if (stage->lighting == SL_DIFFUSE)
-        {
-            info.hasDiffuseStage = true;
-        }
-
-        const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-        const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-        if (SmokeStageIsAdditiveBlend(stage))
-        {
-            info.hasAdditiveBlend = true;
-        }
-        if (stage->lighting == SL_AMBIENT && (dstBlend != GLS_DSTBLEND_ZERO || srcBlend == GLS_SRCBLEND_DST_COLOR || srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR))
-        {
-            info.hasAmbientBlendStage = true;
-        }
-    }
-
-    return info;
-}
-
 uint32_t HashSmokeMaterialName(const char* materialName)
 {
     uint32_t hash = 2166136261u;
@@ -1325,170 +1130,9 @@ idVec3 SmokeMaterialIdToDebugColor(uint32_t materialId)
         0.15f + static_cast<float>((hash >> 16) & 255u) * (0.85f / 255.0f));
 }
 
-void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTest, float& alphaCutoff)
-{
-    hasAlphaTest = false;
-    alphaCutoff = 0.0f;
-    if (!material)
-    {
-        return;
-    }
-
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const bool allowTranslucentCutout =
-        material->Coverage() == MC_TRANSLUCENT &&
-        !classifier.hasScreenTexgen &&
-        !classifier.nameLooksGui &&
-        !classifier.nameLooksParticle &&
-        (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);
-    if (material->Coverage() != MC_PERFORATED && !allowTranslucentCutout)
-    {
-        return;
-    }
-
-    const float* constantRegisters = material->ConstantRegisters();
-    const int registerCount = material->GetNumRegisters();
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-    {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || !stage->hasAlphaTest || stage->ignoreAlphaTest)
-        {
-            continue;
-        }
-
-        hasAlphaTest = true;
-        alphaCutoff = 0.5f;
-        if (constantRegisters && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount)
-        {
-            alphaCutoff = idMath::ClampFloat(0.0f, 1.0f, constantRegisters[stage->alphaTestRegister]);
-        }
-        return;
-    }
-
-    if (material->Coverage() == MC_PERFORATED)
-    {
-        hasAlphaTest = true;
-        alphaCutoff = 0.5f;
-    }
-}
-
 bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material);
 bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material);
 bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
-
-bool IsSmokeAdditiveDecalMaterial(const idMaterial* material)
-{
-    if (!material)
-    {
-        return false;
-    }
-
-    const RtSmokeTranslucentClassifierInfo info = BuildSmokeTranslucentClassifierInfo(material);
-    if (!info.hasAdditiveBlend)
-    {
-        return false;
-    }
-
-    if (info.hasScreenTexgen || info.nameLooksGui || info.nameLooksParticle || info.nameLooksGlass)
-    {
-        return false;
-    }
-
-    return material->Coverage() == MC_TRANSLUCENT ||
-        info.hasAmbientStage ||
-        info.sortIsDecal ||
-        info.polygonOffsetDecal ||
-        info.nameLooksDecal ||
-        info.nameLooksSignage ||
-        info.nameLooksGlow;
-}
-
-bool IsSmokeAdditiveWhiteKeyMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
-{
-    if (!material || material->Coverage() != MC_TRANSLUCENT || !classifier.hasAdditiveBlend)
-    {
-        return false;
-    }
-    if (classifier.hasScreenTexgen || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
-    {
-        return false;
-    }
-
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-    {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || !SmokeStageIsAdditiveBlend(stage) || !stage->texture.image)
-        {
-            continue;
-        }
-
-        const idImage* image = stage->texture.image;
-        if (image->GetUsage() == TD_DEFAULT && image->GetOpts().colorFormat == CFM_DEFAULT && (classifier.nameLooksGlow || classifier.nameLooksSignage))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool IsSmokeRgbKeyedBlendDecalMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
-{
-    if (!material || material->Coverage() != MC_TRANSLUCENT)
-    {
-        return false;
-    }
-    if (classifier.hasScreenTexgen || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
-    {
-        return false;
-    }
-    if (!classifier.sortIsDecal && !classifier.polygonOffsetDecal && !classifier.nameLooksDecal)
-    {
-        return false;
-    }
-
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-    {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || (stage->lighting != SL_AMBIENT && stage->lighting != SL_DIFFUSE) || !stage->texture.image)
-        {
-            continue;
-        }
-
-        const idImage* image = stage->texture.image;
-        if (image->GetUsage() == TD_DIFFUSE || image->GetOpts().colorFormat == CFM_YCOCG_DXT5)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool IsSmokeYCoCgDiffuseMapDecalMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
-{
-    if (!IsSmokeRgbKeyedBlendDecalMaterial(material, classifier))
-    {
-        return false;
-    }
-
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-    {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || stage->lighting != SL_DIFFUSE || !stage->texture.image)
-        {
-            continue;
-        }
-
-        const idImage* image = stage->texture.image;
-        if (image->GetUsage() == TD_DIFFUSE || image->GetOpts().colorFormat == CFM_YCOCG_DXT5)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
 
 uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
 {
