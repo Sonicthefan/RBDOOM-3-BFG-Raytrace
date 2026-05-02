@@ -48,6 +48,9 @@ Current validated feature set:
 - Doom diffuse YCoCg decode.
 - Alpha any-hit for cutout/perforated materials.
 - Albedo, normal, and specular texture discovery.
+- Persistent RT smoke material universe records with stable material indexes,
+  cached material facts, emissive facts, and an active material table now built
+  from the universe by default.
 - Debug selected-light direct lighting with RT shadow rays.
 - Mode 14 normal-map lighting using Doom/RBDoom's DXT5-style normal decode.
 - Mode 14 simple Blinn-style specular from Doom spec maps.
@@ -72,9 +75,10 @@ Current module/refactor state:
 - PathTraceSmokeDispatch owns constants, resource transitions, dispatch, and
   accumulation/readback queueing.
 - Scene capture, material classification, texture discovery, texture registry,
-  dynamic material table construction, skinning, GUI surface admission,
-  emissive candidates, diagnostics, acceleration helpers, light selection, and
-  geometry helpers are extracted into dedicated PathTrace* modules.
+  persistent material universe records, active material table construction,
+  skinning, GUI surface admission, emissive candidates, diagnostics,
+  acceleration helpers, light selection, and geometry helpers are extracted into
+  dedicated PathTrace* modules.
 - The current split is still conservative. A future PathTraceSmokeState or
   PathTraceSmokeScene object may be useful, but that should be a deliberate
   architecture change rather than another mechanical extraction.
@@ -373,15 +377,31 @@ term when r_pathTracingUseEmissiveMaps is 1.
   waits for the GPU to idle and can cause large profiling hitches.
 
 - r_pathTracingMaterialCache
-  Experimental RT smoke material-table cache toggle. The cache path is currently
-  ignored because changing visible material sets can corrupt material-to-texture
-  mapping unless the frame-local material index mapping stays compatible with
-  cached static BLAS metadata.
+  Caches the universe-derived RT smoke active material table when the material
+  ID set, texture registry generation, descriptor/probe options, and relevant
+  material CVars are unchanged. Defaults to 1. Set to 0 to measure the uncached
+  active-table build path.
 
 - r_pathTracingMaterialMetadataCache
   Caches stable per-material texture metadata such as diffuse/alpha image
-  discovery, cutoff, and texture safety. The compact material table and
-  triangle material indexes are still rebuilt every frame.
+  discovery, cutoff, and texture safety. This feeds the persistent material
+  universe and active material table.
+
+- r_pathTracingMaterialUniverseValidate
+  Validates persistent RT smoke material universe records against a fresh direct
+  rebuild and logs mismatches. This is for checking cached record/fact
+  correctness, not the active frame table.
+
+- r_pathTracingMaterialUniverseTable
+  Builds the active RT smoke frame material table from persistent material
+  universe records. Defaults to 1. The shader-facing table remains compact and
+  preserves the legacy active row order so cached static triangle material-index
+  buffers stay compatible.
+
+- r_pathTracingMaterialUniverseTableValidate
+  Builds both the legacy and universe-derived active material tables and compares
+  them. When the universe table is active and validation finds a mismatch, the
+  frame falls back to the legacy table and logs materialTablePath=legacyFallback.
 
 
 Geometry and BVH Work Completed
@@ -731,14 +751,23 @@ Known limitations:
 
 Material table performance:
 
-- RT smoke has an experimental material-table cache behind
-  r_pathTracingMaterialCache, but the path is currently ignored after testing
-  showed material-to-texture mapping corruption when visible material order
-  changed. The correct baseline keeps static materials first so cached static
-  triangle material-index buffers remain valid across dynamic material changes.
-- Per-material texture metadata is cached independently of the material table.
-  This avoids repeatedly scanning material stages for already discovered
-  materials while preserving the safe per-frame table/index rebuild.
+- RT smoke caches the universe-derived active material table by default with
+  r_pathTracingMaterialCache. The cached-table hit path keeps static materials
+  first and rebuilds per-triangle material indexes from stable material IDs so
+  cached static triangle material-index buffers remain valid across dynamic
+  material changes.
+- Per-material texture metadata is cached independently of the active material
+  table. This avoids repeatedly scanning material stages for already discovered
+  materials.
+- PathTraceMaterialUniverse owns persistent per-material records, stable
+  universe indexes, material facts, and emissive facts.
+  PathTraceDynamicMaterialState now builds the active shader-facing table from
+  those records by default while preserving the legacy compact row order needed
+  by cached static material-index buffers.
+- Timing logs report materialTablePath=universe/legacy/legacyFallback,
+  materialUniverse record counters, and optional universeTableCompare counters.
+  In testing, the universe table path reduced single-threaded material build
+  cost without visible material corruption after the row-order compatibility fix.
 - Diagnostic texture coverage stats are skipped unless smoke logging is
   enabled.
 
@@ -928,12 +957,34 @@ For hitch diagnostics:
     r_pathTracingTimingThreshold 40
     r_pathTracingReadbackEnable 0
 
+For material universe table validation:
+
+    r_pathTracingMaterialUniverseTable 1
+    r_pathTracingMaterialUniverseTableValidate 1
+    r_pathTracingTimingLog 1
+    r_pathTracingTimingThreshold 0
+    r_pathTracingSmokeLog 0
+
+Clean validation reports materialTablePath=universe and
+universeTableCompare=1/0 in the slow scene-build timing line. If validation
+finds a mismatch while the universe table is active, the frame falls back to
+the legacy table and logs materialTablePath=legacyFallback.
+
 
 Useful Commits
 --------------
 
 Recent milestone commits on this branch:
 
+- 90719330 Default to material universe table
+- d8e6ca22 Add universe-derived material table path
+- 7004b522 Add stable material universe indexes
+- 68237ab6 Upload emissive light candidate buffer
+- 5c94ac5c Add emissive light candidate summaries
+- d37f1238 Add material universe facts
+- 4b179101 Use material universe for emissive inventory
+- f79870ee Extract RT smoke material universe module
+- 4d1e5cda Add RT smoke material universe validation
 - a4dca266 Add path trace module comments
 - 34be0103 Document path trace module map
 - 59f00215 Extract path trace scene resource commit packaging
@@ -982,7 +1033,17 @@ Recommended Next Steps
 
 Near term:
 
-1. Prepare emissive inventory data for NVIDIA ReSTIR PT integration without
+1. Continue reducing per-frame material-table work now that the universe table
+   is the default producer.
+   - Keep the compact shader table and triangle material-index buffers
+     compatible with cached static geometry until a larger shader/resource
+     contract change is made.
+   - Move more descriptor/fact preparation toward persistent universe records
+     where it can be validated safely.
+   - Use r_pathTracingMaterialUniverseTableValidate when changing material table
+     behavior; a clean frame reports universeTableCompare=1/0.
+
+2. Prepare emissive inventory data for NVIDIA ReSTIR PT integration without
    duplicating the sampler itself.
    - Keep mode 19 as a broad CPU material/triangle inventory plus texel-tight
      debug view.
@@ -1003,19 +1064,19 @@ Near term:
    - Continue excluding game-logic/skinned dissolve emissive overlays from
      light candidates.
 
-2. Start a deliberate Doom material to RT/PBR conversion.
+3. Start a deliberate Doom material to RT/PBR conversion.
    - Base color from albedo.
    - Shading normal from normal map.
    - Specular/F0 from Doom spec map.
    - Roughness approximation for denoising/ray reconstruction.
 
-3. Keep missing, unsafe, or dynamically generated materials on fallback debug
+4. Keep missing, unsafe, or dynamically generated materials on fallback debug
    colors instead of forcing image loads.
 
-4. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
+5. Investigate why SampleLevel in RT removes the device near animated SWF/GUI
    surfaces while Texture.Load survives.
 
-5. Start separating decal/blend/translucent behavior from opaque albedo. The
+6. Start separating decal/blend/translucent behavior from opaque albedo. The
    current subtype classifier is useful for inspection but not a renderer.
 
 Medium term:

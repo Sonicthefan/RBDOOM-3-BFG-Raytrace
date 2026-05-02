@@ -28,6 +28,7 @@ struct RtSmokeMaterialTableCache
 };
 
 RtSmokeMaterialTableCache g_smokeMaterialTableCache;
+RtSmokeMaterialTableBuildStats g_smokeMaterialTableBuildStats;
 
 uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
 {
@@ -37,12 +38,26 @@ uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
 
 uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
 {
+    std::unordered_map<uint32_t, bool> materialSeen;
+    const int expectedUniqueMaterials = SmokeMaterialTextureRegistrySize() + 64;
+    materialSeen.reserve(expectedUniqueMaterials);
     std::vector<uint32_t> uniqueMaterialIds;
-    uniqueMaterialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
-    uniqueMaterialIds.insert(uniqueMaterialIds.end(), staticMaterialIds.begin(), staticMaterialIds.end());
-    uniqueMaterialIds.insert(uniqueMaterialIds.end(), dynamicMaterialIds.begin(), dynamicMaterialIds.end());
+    uniqueMaterialIds.reserve(Min(static_cast<int>(staticMaterialIds.size() + dynamicMaterialIds.size()), expectedUniqueMaterials));
+    for (uint32_t materialId : staticMaterialIds)
+    {
+        if (materialSeen.emplace(materialId, true).second)
+        {
+            uniqueMaterialIds.push_back(materialId);
+        }
+    }
+    for (uint32_t materialId : dynamicMaterialIds)
+    {
+        if (materialSeen.emplace(materialId, true).second)
+        {
+            uniqueMaterialIds.push_back(materialId);
+        }
+    }
     std::sort(uniqueMaterialIds.begin(), uniqueMaterialIds.end());
-    uniqueMaterialIds.erase(std::unique(uniqueMaterialIds.begin(), uniqueMaterialIds.end()), uniqueMaterialIds.end());
 
     uint64 hash = 1469598103934665603ull;
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(uniqueMaterialIds.size()));
@@ -60,11 +75,14 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureDecode.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureForceFallback.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingAdditiveDecalKey.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingAllowGuiTextures.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeIndex.GetInteger() + 0x80000000u));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeReset.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, latchedTextureProbeMaterialId);
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(latchedTextureProbeRequestedIndex + 0x80000000u));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(SmokeMaterialTextureRegistrySize()));
+    hash = HashSmokeMaterialCacheValue(hash, SmokeMaterialTextureRegistryGeneration());
     return hash;
 }
 
@@ -111,6 +129,8 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     const RtSmokePersistentMaterialRecord& record = GetSmokePersistentMaterialRecord(materialId, info);
     table.materialIds.push_back(materialId);
     table.materials.push_back(record.material);
+    table.materialInfos.push_back(info);
+    table.materialFacts.push_back(record.facts);
     table.materialsAdditiveDecals += record.additiveDecalContribution;
     return static_cast<uint32_t>(table.materials.size() - 1);
 }
@@ -134,14 +154,18 @@ bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table)
         }
     }
 
-    return table.materialIds.size() == table.materials.size();
+    return table.materialIds.size() == table.materials.size() &&
+        table.materialInfos.size() == table.materials.size() &&
+        table.materialFacts.size() == table.materials.size();
 }
 
 bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int tableIndex)
 {
     return tableIndex >= 0 &&
         tableIndex < static_cast<int>(table.materialIds.size()) &&
-        tableIndex < static_cast<int>(table.materials.size());
+        tableIndex < static_cast<int>(table.materials.size()) &&
+        tableIndex < static_cast<int>(table.materialInfos.size()) &&
+        tableIndex < static_cast<int>(table.materialFacts.size());
 }
 
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table, const std::vector<RtSmokeMaterialTextureInfo>& materialInfos)
@@ -154,31 +178,32 @@ std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuil
     for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
     {
         const RtSmokeMaterialTextureInfo& info = materialInfos[tableIndex];
-        if (info.diffuseImage && info.hasTextureHandle && info.hasSafeTexture)
+        const RtSmokeMaterialUniverseFacts& facts = table.materialFacts[tableIndex];
+        if (info.diffuseImage && facts.hasSafeDiffuseTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
             continue;
         }
 
-        if (info.alphaImage && info.hasAlphaTextureHandle && info.hasSafeAlphaTexture)
+        if (info.alphaImage && facts.hasSafeAlphaTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
             continue;
         }
 
-        if (info.normalImage && info.hasNormalTextureHandle && info.hasSafeNormalTexture)
+        if (info.normalImage && facts.hasSafeNormalTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
             continue;
         }
 
-        if (info.specularImage && info.hasSpecularTextureHandle && info.hasSafeSpecularTexture)
+        if (info.specularImage && facts.hasSafeSpecularTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
             continue;
         }
 
-        if (info.emissiveImage && info.hasEmissiveTextureHandle && info.hasSafeEmissiveTexture)
+        if (info.emissiveImage && facts.hasSafeEmissiveTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
         }
@@ -291,8 +316,10 @@ void AccumulateSmokeGuiTextureDiagnostic(RtSmokeMaterialTableBuild& table, idIma
 
 void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_t& latchedMaterialId, int& latchedRequestedIndex, bool enableTextureProbe)
 {
+    const int populateStartMs = Sys_Milliseconds();
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
 
+    const int resetStartMs = Sys_Milliseconds();
     table.diffuseTextures.clear();
     table.materialsWithTextures = 0;
     table.materialsWithNormalTextures = 0;
@@ -332,18 +359,17 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         table.materials[tableIndex].emissiveTextureWidth = 1;
         table.materials[tableIndex].emissiveTextureHeight = 1;
     }
+    g_smokeMaterialTableBuildStats.resetMs += Sys_Milliseconds() - resetStartMs;
 
     if (!enableTextureProbe)
     {
+        g_smokeMaterialTableBuildStats.tableMaterials = materialTableCount;
+        g_smokeMaterialTableBuildStats.populateMs += Sys_Milliseconds() - populateStartMs;
         return;
     }
 
-    std::vector<RtSmokeMaterialTextureInfo> materialInfos;
-    materialInfos.reserve(materialTableCount);
-    for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
-    {
-        materialInfos.push_back(ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex));
-    }
+    const std::vector<RtSmokeMaterialTextureInfo>& materialInfos = table.materialInfos;
+    const std::vector<RtSmokeMaterialUniverseFacts>& materialFacts = table.materialFacts;
 
     const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
@@ -355,37 +381,46 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         r_pathTracingTextureProbeReset.SetInteger(0);
     }
 
+    const int diagnosticStartMs = Sys_Milliseconds();
     for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
     {
         const RtSmokeMaterialTextureInfo& info = materialInfos[tableIndex];
-        if (info.hasAlphaTest)
+        const RtSmokeMaterialUniverseFacts& facts = materialFacts[tableIndex];
+        if (facts.alphaTested)
         {
             ++table.materialsAlphaTested;
         }
-        if (info.emissive)
+        if (facts.emissive)
         {
             ++table.materialsEmissive;
         }
 
-        AccumulateSmokeGuiTextureDiagnostic(table, info.diffuseImage, info.hasSafeTexture);
-        AccumulateSmokeGuiTextureDiagnostic(table, info.alphaImage, info.hasSafeAlphaTexture);
-        AccumulateSmokeGuiTextureDiagnostic(table, info.normalImage, info.hasSafeNormalTexture);
-        AccumulateSmokeGuiTextureDiagnostic(table, info.specularImage, info.hasSafeSpecularTexture);
-        AccumulateSmokeGuiTextureDiagnostic(table, info.emissiveImage, info.hasSafeEmissiveTexture);
+        if (facts.guiTextureCandidate)
+        {
+            AccumulateSmokeGuiTextureDiagnostic(table, info.diffuseImage, facts.hasSafeDiffuseTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.alphaImage, facts.hasSafeAlphaTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.normalImage, facts.hasSafeNormalTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.specularImage, facts.hasSafeSpecularTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.emissiveImage, facts.hasSafeEmissiveTexture);
+        }
 
-        if (!info.diffuseImage || !info.hasTextureHandle)
+        if (!facts.hasDiffuseImage || !info.hasTextureHandle)
         {
             ++table.materialsMissingTextures;
             continue;
         }
-        if (!info.hasSafeTexture)
+        if (!facts.hasSafeDiffuseTexture)
         {
             ++table.materialsRejectedTextures;
         }
 
     }
+    g_smokeMaterialTableBuildStats.diagnosticMs += Sys_Milliseconds() - diagnosticStartMs;
 
+    const int safeOrderStartMs = Sys_Milliseconds();
     const std::vector<int> safeMaterialIndexes = BuildSmokeSafeMaterialIndexOrder(table, materialInfos);
+    g_smokeMaterialTableBuildStats.safeOrderMs += Sys_Milliseconds() - safeOrderStartMs;
+    g_smokeMaterialTableBuildStats.safeMaterials = static_cast<int>(safeMaterialIndexes.size());
 
     if (textureTableLimit <= 0)
     {
@@ -406,9 +441,12 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             table.textureProbeBoundIndex = selectedMaterialIndex;
             table.textureProbeBoundMaterialId = table.materialIds[selectedMaterialIndex];
         }
+        g_smokeMaterialTableBuildStats.tableMaterials = materialTableCount;
+        g_smokeMaterialTableBuildStats.populateMs += Sys_Milliseconds() - populateStartMs;
         return;
     }
 
+    const int descriptorStartMs = Sys_Milliseconds();
     int skippedUniqueTextures = 0;
     std::vector<nvrhi::TextureHandle> skippedTextures;
     for (int safeIndex : safeMaterialIndexes)
@@ -497,7 +535,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             ++table.materialsWithEmissiveTextures;
         }
 
-        if (info.hasEmissiveImage && table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX)
+        const RtSmokeMaterialUniverseFacts& facts = materialFacts[safeIndex];
+        if (facts.hasEmissiveImage && table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX)
         {
             table.materials[safeIndex].flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
             table.materials[safeIndex].emissiveColor[0] = 0.0f;
@@ -506,7 +545,10 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             table.materials[safeIndex].emissiveColor[3] = 1.0f;
         }
     }
+    g_smokeMaterialTableBuildStats.descriptorMs += Sys_Milliseconds() - descriptorStartMs;
+    g_smokeMaterialTableBuildStats.descriptorTextures = static_cast<int>(table.diffuseTextures.size());
 
+    const int probeStartMs = Sys_Milliseconds();
     int selectedMaterialIndex = -1;
     if (latchedMaterialId != 0)
     {
@@ -544,7 +586,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
     {
         return;
     }
-    const RtSmokeMaterialTextureInfo selectedInfo = ResolveSmokeMaterialTextureInfo(table.materialIds[selectedMaterialIndex], selectedMaterialIndex);
+    const RtSmokeMaterialTextureInfo& selectedInfo = materialInfos[selectedMaterialIndex];
     if (!selectedInfo.diffuseImage || !selectedInfo.hasSafeTexture)
     {
         return;
@@ -556,10 +598,15 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
     {
         latchedMaterialId = table.textureProbeBoundMaterialId;
     }
+    g_smokeMaterialTableBuildStats.probeMs += Sys_Milliseconds() - probeStartMs;
+    g_smokeMaterialTableBuildStats.tableMaterials = materialTableCount;
+    g_smokeMaterialTableBuildStats.populateMs += Sys_Milliseconds() - populateStartMs;
 }
 
 void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe)
 {
+    g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
+    ++g_smokeMaterialTableBuildStats.buildCalls;
     table = RtSmokeMaterialTableBuild();
     table.materialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.materials.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
@@ -569,6 +616,7 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     std::unordered_map<uint32_t, uint32_t> materialIndexLookup;
     materialIndexLookup.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
 
+    const int entryStartMs = Sys_Milliseconds();
     for (uint32_t materialId : staticMaterialIds)
     {
         const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
@@ -596,12 +644,15 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
         materialIndexLookup.emplace(materialId, tableIndex);
         table.dynamicMaterialIndexes.push_back(tableIndex);
     }
+    g_smokeMaterialTableBuildStats.entryMs += Sys_Milliseconds() - entryStartMs;
 
     PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
 }
 
 void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe)
 {
+    g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
+    ++g_smokeMaterialTableBuildStats.buildCalls;
     table = RtSmokeMaterialTableBuild();
     table.materialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.materials.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
@@ -611,6 +662,7 @@ void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const
     std::unordered_map<uint32_t, uint32_t> materialIndexLookup;
     materialIndexLookup.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
 
+    const int entryStartMs = Sys_Milliseconds();
     for (uint32_t materialId : staticMaterialIds)
     {
         const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
@@ -638,6 +690,7 @@ void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const
         materialIndexLookup.emplace(materialId, tableIndex);
         table.dynamicMaterialIndexes.push_back(tableIndex);
     }
+    g_smokeMaterialTableBuildStats.entryMs += Sys_Milliseconds() - entryStartMs;
 
     PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
 }
@@ -649,17 +702,82 @@ void RebuildSmokeMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild& table
     table.staticMaterialIndexes.reserve(staticMaterialIds.size());
     table.dynamicMaterialIndexes.reserve(dynamicMaterialIds.size());
 
+    std::unordered_map<uint32_t, uint32_t> materialIndexLookup;
+    materialIndexLookup.reserve(table.materialIds.size());
+    for (int tableIndex = 0; tableIndex < static_cast<int>(table.materialIds.size()); ++tableIndex)
+    {
+        materialIndexLookup.emplace(table.materialIds[tableIndex], static_cast<uint32_t>(tableIndex));
+    }
+
     for (uint32_t materialId : staticMaterialIds)
     {
-        const std::vector<uint32_t>::iterator existing = std::lower_bound(table.materialIds.begin(), table.materialIds.end(), materialId);
-        table.staticMaterialIndexes.push_back(existing != table.materialIds.end() && *existing == materialId ? static_cast<uint32_t>(existing - table.materialIds.begin()) : UINT32_MAX);
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        table.staticMaterialIndexes.push_back(existing != materialIndexLookup.end() ? existing->second : UINT32_MAX);
     }
 
     for (uint32_t materialId : dynamicMaterialIds)
     {
-        const std::vector<uint32_t>::iterator existing = std::lower_bound(table.materialIds.begin(), table.materialIds.end(), materialId);
-        table.dynamicMaterialIndexes.push_back(existing != table.materialIds.end() && *existing == materialId ? static_cast<uint32_t>(existing - table.materialIds.begin()) : UINT32_MAX);
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        table.dynamicMaterialIndexes.push_back(existing != materialIndexLookup.end() ? existing->second : UINT32_MAX);
     }
+}
+
+void RebuildSmokeDynamicMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& dynamicMaterialIds)
+{
+    table.dynamicMaterialIndexes.clear();
+    table.dynamicMaterialIndexes.reserve(dynamicMaterialIds.size());
+
+    std::unordered_map<uint32_t, uint32_t> materialIndexLookup;
+    materialIndexLookup.reserve(table.materialIds.size());
+    for (int tableIndex = 0; tableIndex < static_cast<int>(table.materialIds.size()); ++tableIndex)
+    {
+        materialIndexLookup.emplace(table.materialIds[tableIndex], static_cast<uint32_t>(tableIndex));
+    }
+
+    for (uint32_t materialId : dynamicMaterialIds)
+    {
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        table.dynamicMaterialIndexes.push_back(existing != materialIndexLookup.end() ? existing->second : UINT32_MAX);
+    }
+}
+
+bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit)
+{
+    signature = ComputeSmokeMaterialTableSignature(staticMaterialIds, dynamicMaterialIds, enableTextureProbe, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex);
+    cacheHit = false;
+    if (r_pathTracingMaterialCache.GetInteger() != 0 && g_smokeMaterialTableCache.valid && g_smokeMaterialTableCache.signature == signature)
+    {
+        table = g_smokeMaterialTableCache.table;
+        if (table.staticMaterialIndexes.size() == staticMaterialIds.size())
+        {
+            RebuildSmokeDynamicMaterialIndexesFromCachedTable(table, dynamicMaterialIds);
+        }
+        else
+        {
+            RebuildSmokeMaterialIndexesFromCachedTable(table, staticMaterialIds, dynamicMaterialIds);
+            if (ValidateSmokeMaterialIndexes(table))
+            {
+                g_smokeMaterialTableCache.table.staticMaterialIndexes = table.staticMaterialIndexes;
+            }
+        }
+        cacheHit = true;
+        ++g_smokeMaterialTableCache.hits;
+        g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
+        g_smokeMaterialTableBuildStats.tableMaterials = static_cast<int>(table.materials.size());
+        g_smokeMaterialTableBuildStats.safeMaterials = table.materialsWithTextures + table.materialsWithAlphaTextures + table.materialsWithNormalTextures + table.materialsWithSpecularTextures + table.materialsWithEmissiveTextures;
+        g_smokeMaterialTableBuildStats.descriptorTextures = static_cast<int>(table.diffuseTextures.size());
+        return true;
+    }
+
+    ++g_smokeMaterialTableCache.misses;
+    BuildSmokeMaterialTableFromUniverse(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+    if (r_pathTracingMaterialCache.GetInteger() != 0 && ValidateSmokeMaterialIndexes(table))
+    {
+        g_smokeMaterialTableCache.valid = true;
+        g_smokeMaterialTableCache.signature = signature;
+        g_smokeMaterialTableCache.table = table;
+    }
+    return false;
 }
 
 bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit)
@@ -777,4 +895,9 @@ RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats()
     stats.hits = g_smokeMaterialTableCache.hits;
     stats.misses = g_smokeMaterialTableCache.misses;
     return stats;
+}
+
+RtSmokeMaterialTableBuildStats GetSmokeMaterialTableBuildStats()
+{
+    return g_smokeMaterialTableBuildStats;
 }

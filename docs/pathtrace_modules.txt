@@ -144,14 +144,27 @@ PathTraceTextureRegistry.cpp
     Texture registry implementation. Owns frame-persistent material texture
     metadata used by dynamic material table construction and debug dumps.
 
+PathTraceMaterialUniverse.h
+    Persistent material record and fact declarations for the RT smoke path.
+    Records carry stable universe indexes, shader-facing base material data, and
+    cached facts used by emissive inventory and future PT/ReSTIR preparation.
+
+PathTraceMaterialUniverse.cpp
+    Owns the persistent material universe cache. Builds/rebuilds per-material
+    records from texture registry metadata, preserves stable universe indexes,
+    validates cached records on request, and exposes material facts without
+    requiring each consumer to reclassify Doom material metadata.
+
 PathTraceDynamicMaterialState.h
     GPU-facing material table structs, material flags, texture descriptor limits,
-    cache stats, and material table build APIs.
+    cache/compare stats, and material table build APIs.
 
 PathTraceDynamicMaterialState.cpp
-    Builds and caches the smoke material table from captured material ids plus
-    texture registry state. Produces the material records and per-triangle
-    material indexes consumed by dispatch/shaders.
+    Builds the active smoke material table from captured material ids and
+    persistent material universe records. Produces the compact shader-facing
+    material records, per-triangle material indexes, and texture descriptor
+    slots consumed by dispatch/shaders. The legacy active-table builder remains
+    available for validation and fallback.
 
 PathTraceGuiSurfaces.h
     Small GUI surface admission helper declaration.
@@ -210,6 +223,7 @@ Primary files involved:
 - PathTraceSurfaceClassification.*
 - PathTraceMaterialTextureDiscovery.*
 - PathTraceTextureRegistry.*
+- PathTraceMaterialUniverse.*
 - PathTraceDynamicMaterialState.*
 - PathTraceSceneCapture.*
 - PathTraceDebugDumps.*
@@ -223,9 +237,11 @@ Typical flow:
 3. PathTraceDoomMaterialClassifier extracts coarse material traits.
 4. PathTraceMaterialTextureDiscovery registers visible material texture metadata.
 5. PathTraceTextureRegistry stores safe texture handles and fallback reasons.
-6. PathTraceDynamicMaterialState builds the GPU-facing material table and
-   triangle material indexes.
-7. PathTraceDebugDumps and PathTraceSurfaceDebugDumps report what happened.
+6. PathTraceMaterialUniverse builds or reuses persistent material records and
+   exposes stable material facts.
+7. PathTraceDynamicMaterialState builds the compact GPU-facing active material
+   table and triangle material indexes from the universe records.
+8. PathTraceDebugDumps and PathTraceSurfaceDebugDumps report what happened.
 
 Safer places to touch:
 
@@ -233,6 +249,9 @@ Safer places to touch:
   PathTraceDoomMaterialClassifier or PathTraceDebugDumps.
 - Add a fallback reason or registry metadata field if it does not change shader
   layout.
+- Add cached material facts in PathTraceMaterialUniverse when they avoid
+  repeated per-frame classification and can be validated against existing
+  metadata.
 - Add a diagnostic dump for a suspected material class.
 - Extend material texture discovery to record more metadata while preserving
   current fallback behavior.
@@ -245,6 +264,9 @@ Riskier places to touch:
   shaders and debug code.
 - Per-triangle material index generation in PathTraceDynamicMaterialState.cpp.
   Bad indexes can break shader reads.
+- Active material table row order. It must stay compatible with cached static
+  triangle material-index buffers unless the static cache/resource contract is
+  deliberately changed.
 - Capture filtering in PathTraceSceneCapture.cpp. It can make geometry appear or
   disappear from the RT scene.
 
@@ -252,8 +274,9 @@ Rule of thumb:
 
 If the change only improves classification metadata or diagnostics, it is usually
 safe. If it changes what surfaces/materials are admitted, which texture slot is
-bound, or the GPU material layout, test mode 18, mode 19, crosshair dump, texture
-fallback dump, and scene rebuild behavior.
+bound, the active material row order, or the GPU material layout, test mode 18,
+mode 19, crosshair dump, texture fallback dump, universe table validation, and
+scene rebuild behavior.
 
 BVH / BLAS / TLAS
 ~~~~~~~~~~~~~~~~~
@@ -406,6 +429,7 @@ Primary files involved:
 - PathTraceDoomMaterialClassifier.*
 - PathTraceMaterialTextureDiscovery.*
 - PathTraceTextureRegistry.*
+- PathTraceMaterialUniverse.*
 - PathTraceDynamicMaterialState.*
 - PathTraceSceneCapture.*
 - PathTraceDebugDumps.*
@@ -445,6 +469,7 @@ Higher-level path tracing / emissives
 Primary files involved:
 
 - PathTraceEmissiveCandidates.*
+- PathTraceMaterialUniverse.*
 - PathTraceDynamicMaterialState.*
 - PathTraceSmokeDispatch.cpp
 - PathTraceLightSelection.*
@@ -457,6 +482,11 @@ Current state:
 Mode 18 uses a toy path tracing/debug lighting path. Mode 19 builds and dumps an
 emissive inventory that can become a future sampling input. This is not yet the
 NVIDIA RTXPT/ReSTIR implementation.
+
+Emissive summaries and uploaded light-candidate records now carry stable
+material universe indexes in addition to active material-table indexes. This is
+intended to let future ReSTIR/PT code refer to persistent material identity even
+while the shader-facing active table remains compact and frame-local.
 
 Safer places to touch:
 
@@ -487,6 +517,7 @@ Primary files involved:
 
 - PathTraceMaterialTextureDiscovery.*
 - PathTraceTextureRegistry.*
+- PathTraceMaterialUniverse.*
 - PathTraceDynamicMaterialState.*
 - PathTraceSmokeResources.*
 - PathTraceSmokeDispatch.cpp
@@ -495,8 +526,11 @@ Primary files involved:
 Current state:
 
 Textures are discovered from visible materials, validated into safe handles, then
-packed into the active bindless texture table. Unsupported or unsafe cases keep
-fallback reasons for diagnostics.
+stored in the texture registry and reflected into persistent material-universe
+records. PathTraceDynamicMaterialState then packs the current active bindless
+texture table and patches descriptor indexes into the compact shader-facing
+material records. Unsupported or unsafe cases keep fallback reasons for
+diagnostics.
 
 Safer places to touch:
 

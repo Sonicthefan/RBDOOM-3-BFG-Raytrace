@@ -35,6 +35,8 @@ struct RtSmokeMaterialTableBuild
 {
     std::vector<uint32_t> materialIds;
     std::vector<PathTraceSmokeMaterial> materials;
+    std::vector<RtSmokeMaterialTextureInfo> materialInfos;
+    std::vector<RtSmokeMaterialUniverseFacts> materialFacts;
     std::vector<uint32_t> staticMaterialIndexes;
     std::vector<uint32_t> dynamicMaterialIndexes;
     std::vector<nvrhi::TextureHandle> diffuseTextures;
@@ -66,6 +68,21 @@ struct RtSmokeMaterialTableCacheStats
     int misses = 0;
 };
 
+struct RtSmokeMaterialTableBuildStats
+{
+    int buildCalls = 0;
+    int entryMs = 0;
+    int populateMs = 0;
+    int resetMs = 0;
+    int diagnosticMs = 0;
+    int safeOrderMs = 0;
+    int descriptorMs = 0;
+    int probeMs = 0;
+    int tableMaterials = 0;
+    int safeMaterials = 0;
+    int descriptorTextures = 0;
+};
+
 struct RtSmokeMaterialTableCompareStats
 {
     int checks = 0;
@@ -87,6 +104,8 @@ bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table);
 bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int tableIndex);
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table);
 void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe);
+bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit);
 bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit);
 RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMaterialTableBuild& expected, const RtSmokeMaterialTableBuild& actual);
+RtSmokeMaterialTableBuildStats GetSmokeMaterialTableBuildStats();
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats();

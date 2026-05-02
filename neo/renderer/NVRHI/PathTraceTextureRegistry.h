@@ -86,3 +86,4 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info);
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
 const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info);
 int SmokeMaterialTextureRegistrySize();
+uint64 SmokeMaterialTextureRegistryGeneration();

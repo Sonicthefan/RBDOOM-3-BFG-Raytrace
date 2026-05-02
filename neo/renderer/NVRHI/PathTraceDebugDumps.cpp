@@ -266,7 +266,7 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -305,6 +305,16 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.materialTableCacheHit ? 1 : 0,
         desc.materialTableCacheHits,
         desc.materialTableCacheMisses,
+        desc.materialTableBuildStats.entryMs,
+        desc.materialTableBuildStats.populateMs,
+        desc.materialTableBuildStats.resetMs,
+        desc.materialTableBuildStats.diagnosticMs,
+        desc.materialTableBuildStats.safeOrderMs,
+        desc.materialTableBuildStats.descriptorMs,
+        desc.materialTableBuildStats.probeMs,
+        desc.materialTableBuildStats.tableMaterials,
+        desc.materialTableBuildStats.safeMaterials,
+        desc.materialTableBuildStats.descriptorTextures,
         desc.materialUniverseStats.records,
         desc.materialUniverseMaterialCount,
         desc.materialUniverseStats.hits,
@@ -356,14 +366,24 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.staticSurfaceCacheSize,
         desc.staticBlasCacheHitCount,
         desc.staticBlasCacheMissCount);
-    common->Printf("PathTracePrimaryPass: RT smoke material table path=%s cache=%s signature=%llu hits=%d misses=%d materials=%d textures=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke material table path=%s cache=%s signature=%llu hits=%d misses=%d materials=%d textures=%d buildMs=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d\n",
         desc.materialTablePath ? desc.materialTablePath : "unknown",
         desc.materialTableCacheHit ? "hit" : "rebuild",
         static_cast<unsigned long long>(desc.materialTableSignature),
         desc.materialTableCacheStats.hits,
         desc.materialTableCacheStats.misses,
         static_cast<int>(desc.materialTable->materials.size()),
-        static_cast<int>(desc.materialTable->diffuseTextures.size()));
+        static_cast<int>(desc.materialTable->diffuseTextures.size()),
+        desc.materialTableBuildStats.entryMs,
+        desc.materialTableBuildStats.populateMs,
+        desc.materialTableBuildStats.resetMs,
+        desc.materialTableBuildStats.diagnosticMs,
+        desc.materialTableBuildStats.safeOrderMs,
+        desc.materialTableBuildStats.descriptorMs,
+        desc.materialTableBuildStats.probeMs,
+        desc.materialTableBuildStats.tableMaterials,
+        desc.materialTableBuildStats.safeMaterials,
+        desc.materialTableBuildStats.descriptorTextures);
     common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d universeMaterials=%d hits=%d misses=%d rebuilds=%d validation=%d/%d\n",
         desc.materialUniverseStats.records,
         desc.materialUniverseStats.universeMaterials,
@@ -1389,7 +1409,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
 {
     if (!desc.lastSceneTimingLogMs || !desc.sceneRebuildLogged || !desc.sceneLogCooldownFrames ||
         !desc.classStats || !desc.skipStats || !desc.dynamicStats || !desc.attributeStats ||
-        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.emissiveInventoryStats || !desc.materialTableCacheStats || !desc.materialUniverseStats || !desc.materialUniverseTableCompareStats || !desc.textureCoverageStats)
+        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.emissiveInventoryStats || !desc.materialTableCacheStats || !desc.materialTableBuildStats || !desc.materialUniverseStats || !desc.materialUniverseTableCompareStats || !desc.textureCoverageStats)
     {
         return;
     }
@@ -1435,6 +1455,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         slowLog.materialTablePath = desc.materialTablePath;
         slowLog.materialTableCacheHits = desc.materialTableCacheStats->hits;
         slowLog.materialTableCacheMisses = desc.materialTableCacheStats->misses;
+        slowLog.materialTableBuildStats = *desc.materialTableBuildStats;
         slowLog.materialUniverseStats = *desc.materialUniverseStats;
         slowLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
         slowLog.materialUniverseMaterialCount = desc.materialUniverseStats->universeMaterials;
@@ -1479,6 +1500,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.materialTablePath = desc.materialTablePath;
     sceneSummaryLog.materialTableSignature = desc.materialTableSignature;
     sceneSummaryLog.materialTableCacheStats = *desc.materialTableCacheStats;
+    sceneSummaryLog.materialTableBuildStats = *desc.materialTableBuildStats;
     sceneSummaryLog.materialUniverseStats = *desc.materialUniverseStats;
     sceneSummaryLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
     sceneSummaryLog.materialStats = desc.materialStats;

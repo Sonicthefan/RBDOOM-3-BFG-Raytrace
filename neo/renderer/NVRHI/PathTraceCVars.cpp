@@ -353,9 +353,9 @@ idCVar r_pathTracingReadbackEnable(
 
 idCVar r_pathTracingMaterialCache(
     "r_pathTracingMaterialCache",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental RT smoke material-table cache; currently ignored while material-index stability is validated" );
+    "Cache the universe-derived RT smoke active material table when the material/signature inputs are unchanged" );
 
 idCVar r_pathTracingMaterialUniverseValidate(
     "r_pathTracingMaterialUniverseValidate",

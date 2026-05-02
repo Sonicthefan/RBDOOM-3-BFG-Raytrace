@@ -12,6 +12,7 @@ namespace {
 
 std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
 std::unordered_map<uint32_t, int> g_smokeMaterialTextureRegistryLookup;
+uint64 g_smokeMaterialTextureRegistryGeneration = 1;
 
 }
 
@@ -197,11 +198,23 @@ RtSmokeMaterialTextureInfo& AddSmokeMaterialTextureInfo(uint32_t materialId, con
     newInfo.materialName = materialName ? materialName : "<none>";
     g_smokeMaterialTextureRegistry.push_back(newInfo);
     g_smokeMaterialTextureRegistryLookup[materialId] = static_cast<int>(g_smokeMaterialTextureRegistry.size() - 1);
+    ++g_smokeMaterialTextureRegistryGeneration;
     return g_smokeMaterialTextureRegistry.back();
 }
 
 void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
 {
+    const bool oldHasTextureHandle = info.hasTextureHandle;
+    const bool oldHasAlphaTextureHandle = info.hasAlphaTextureHandle;
+    const bool oldHasNormalTextureHandle = info.hasNormalTextureHandle;
+    const bool oldHasSpecularTextureHandle = info.hasSpecularTextureHandle;
+    const bool oldHasEmissiveTextureHandle = info.hasEmissiveTextureHandle;
+    const bool oldHasSafeTexture = info.hasSafeTexture;
+    const bool oldHasSafeAlphaTexture = info.hasSafeAlphaTexture;
+    const bool oldHasSafeNormalTexture = info.hasSafeNormalTexture;
+    const bool oldHasSafeSpecularTexture = info.hasSafeSpecularTexture;
+    const bool oldHasSafeEmissiveTexture = info.hasSafeEmissiveTexture;
+
     info.hasTextureHandle = info.diffuseImage && info.diffuseImage->GetTextureHandle();
     info.hasAlphaTextureHandle = info.alphaImage && info.alphaImage->GetTextureHandle();
     info.hasNormalTextureHandle = info.normalImage && info.normalImage->GetTextureHandle();
@@ -212,6 +225,20 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
     info.hasSafeNormalTexture = info.hasNormalTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage);
     info.hasSafeSpecularTexture = info.hasSpecularTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage);
     info.hasSafeEmissiveTexture = info.hasEmissiveTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.emissiveImage);
+
+    if (oldHasTextureHandle != info.hasTextureHandle ||
+        oldHasAlphaTextureHandle != info.hasAlphaTextureHandle ||
+        oldHasNormalTextureHandle != info.hasNormalTextureHandle ||
+        oldHasSpecularTextureHandle != info.hasSpecularTextureHandle ||
+        oldHasEmissiveTextureHandle != info.hasEmissiveTextureHandle ||
+        oldHasSafeTexture != info.hasSafeTexture ||
+        oldHasSafeAlphaTexture != info.hasSafeAlphaTexture ||
+        oldHasSafeNormalTexture != info.hasSafeNormalTexture ||
+        oldHasSafeSpecularTexture != info.hasSafeSpecularTexture ||
+        oldHasSafeEmissiveTexture != info.hasSafeEmissiveTexture)
+    {
+        ++g_smokeMaterialTextureRegistryGeneration;
+    }
 }
 
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex)
@@ -257,4 +284,9 @@ const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info)
 int SmokeMaterialTextureRegistrySize()
 {
     return static_cast<int>(g_smokeMaterialTextureRegistry.size());
+}
+
+uint64 SmokeMaterialTextureRegistryGeneration()
+{
+    return g_smokeMaterialTextureRegistryGeneration;
 }

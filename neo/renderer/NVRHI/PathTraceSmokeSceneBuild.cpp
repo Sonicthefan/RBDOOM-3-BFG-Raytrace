@@ -114,7 +114,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             uint32_t legacyLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
             int legacyLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
             BuildSmokeMaterialTableCached(legacyMaterialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, legacyLatchedTextureProbeMaterialId, legacyLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
-            BuildSmokeMaterialTableFromUniverse(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
             materialUniverseTableCompareStats = CompareSmokeMaterialTables(legacyMaterialTable, materialTable);
             if (materialUniverseTableCompareStats.mismatches > 0)
             {
@@ -135,9 +135,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         else
         {
-            materialTableSignature = 0;
-            materialTableCacheHit = false;
-            BuildSmokeMaterialTableFromUniverse(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
         }
     }
     else
@@ -153,6 +151,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const RtSmokeMaterialTableCacheStats materialTableCacheStats = GetSmokeMaterialTableCacheStats();
+    const RtSmokeMaterialTableBuildStats materialTableBuildStats = GetSmokeMaterialTableBuildStats();
     const RtSmokeMaterialUniverseStats materialUniverseStats = GetSmokeMaterialUniverseStats();
     if (!ValidateSmokeMaterialIndexes(materialTable))
     {
@@ -273,7 +272,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     staticGeometryRange.indexCount = staticBucketRange.indexCount;
     staticGeometryRange.triangleOffset = staticBucketRange.triangleOffset;
     staticGeometryRange.triangleCount = staticBucketRange.triangleCount;
-    const RtSmokeStaticBlasSignature staticSignature = ComputeSmokeStaticBlasSignature(m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticGeometryRange, vec3_origin);
+    RtSmokeStaticBlasSignature staticSignature;
+    staticSignature.vertexCount = staticGeometryRange.vertexCount;
+    staticSignature.indexCount = staticGeometryRange.indexCount;
+    staticSignature.triangleCount = staticGeometryRange.triangleCount;
+    if (!staticCacheChanged && m_smokeStaticBlasCacheValid && m_smokeStaticBlasSignature != 0)
+    {
+        staticSignature.hash = m_smokeStaticBlasSignature;
+    }
+    else
+    {
+        staticSignature = ComputeSmokeStaticBlasSignature(m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticGeometryRange, vec3_origin);
+    }
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
         m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
         !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;
@@ -493,6 +503,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.emissiveInventoryStats = &emissiveInventoryStats;
     sceneLogDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     sceneLogDesc.materialTableCacheStats = &materialTableCacheStats;
+    sceneLogDesc.materialTableBuildStats = &materialTableBuildStats;
     sceneLogDesc.materialUniverseStats = &materialUniverseStats;
     sceneLogDesc.materialUniverseTableCompareStats = &materialUniverseTableCompareStats;
     sceneLogDesc.textureCoverageStats = &textureCoverageStats;
