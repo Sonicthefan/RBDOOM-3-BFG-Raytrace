@@ -1,12 +1,12 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceTextureRegistry.h"
 #include "../Image.h"
 
 #include <unordered_map>
 
-extern idCVar r_pathTracingAllowGuiTextures;
 
 namespace {
 

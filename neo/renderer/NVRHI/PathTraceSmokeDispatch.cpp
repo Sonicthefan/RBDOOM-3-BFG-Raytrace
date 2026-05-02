@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceAcceleration.h"
@@ -10,36 +11,6 @@
 #include "../RenderCommon.h"
 
 extern idCVar r_forceAmbient;
-extern idCVar r_pathTracingDebugMode;
-extern idCVar r_pathTracingLightCount;
-extern idCVar r_pathTracingLightDump;
-extern idCVar r_pathTracingLightSelection;
-extern idCVar r_pathTracingLightSpriteIntensity;
-extern idCVar r_pathTracingLightSpriteProxies;
-extern idCVar r_pathTracingLightSpriteRadiusScale;
-extern idCVar r_pathTracingPortalWindowAlphaScale;
-extern idCVar r_pathTracingPortalWindowMinOpacity;
-extern idCVar r_pathTracingPortalWindowShadowOpacity;
-extern idCVar r_pathTracingPortalWindowStochastic;
-extern idCVar r_pathTracingReadbackEnable;
-extern idCVar r_pathTracingSmokeLog;
-extern idCVar r_pathTracingSmokeParticleAlphaScale;
-extern idCVar r_pathTracingSmokeParticleDither;
-extern idCVar r_pathTracingSmokeParticleEdgeFade;
-extern idCVar r_pathTracingTextureBindlessEnable;
-extern idCVar r_pathTracingTextureDecode;
-extern idCVar r_pathTracingTextureFilter;
-extern idCVar r_pathTracingTextureSampleEnable;
-extern idCVar r_pathTracingTextureSampleMethod;
-extern idCVar r_pathTracingTextureTableLimit;
-extern idCVar r_pathTracingToyAccumulation;
-extern idCVar r_pathTracingToyAccumMaxFrames;
-extern idCVar r_pathTracingToyEmissiveScale;
-extern idCVar r_pathTracingToyLightScale;
-extern idCVar r_pathTracingToyMaxRayDistance;
-extern idCVar r_pathTracingUseEmissiveMaps;
-extern idCVar r_pathTracingUseNormalMaps;
-extern idCVar r_pathTracingUseSpecularMaps;
 
 namespace {
 

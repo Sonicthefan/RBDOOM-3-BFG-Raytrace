@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceAcceleration.h"
 #include "PathTraceDynamicMaterialState.h"
@@ -12,8 +13,6 @@
 
 #include <algorithm>
 
-extern idCVar r_pathTracingAllowGuiSurfaces;
-extern idCVar r_pathTracingSkipCallbackEntities;
 
 void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint)
 {

@@ -1,15 +1,13 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceTextureRegistry.h"
 
-extern idCVar r_pathTracingAllowGuiTextures;
-extern idCVar r_pathTracingForceTextureCodeUse;
-extern idCVar r_pathTracingMaterialMetadataCache;
 
 RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 

@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
@@ -11,8 +12,6 @@
 
 #include <algorithm>
 
-extern idCVar r_pathTracingAllowGuiSurfaces;
-extern idCVar r_pathTracingAllowGuiTextures;
 
 void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
 {

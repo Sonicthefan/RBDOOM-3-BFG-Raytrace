@@ -1,20 +1,10 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
 
-extern idCVar r_pathTracingAllowGuiTextures;
-extern idCVar r_pathTracingTimingLog;
-extern idCVar r_pathTracingTimingLogInterval;
-extern idCVar r_pathTracingTimingThreshold;
-extern idCVar r_pathTracingTextureBindlessEnable;
-extern idCVar r_pathTracingTextureForceFallback;
-extern idCVar r_pathTracingTextureProbeDumpCount;
-extern idCVar r_pathTracingTextureProbeDumpStart;
-extern idCVar r_pathTracingTextureSampleEnable;
-extern idCVar r_pathTracingTextureSampleMethod;
-extern idCVar r_pathTracingTextureTableStart;
 
 namespace {
 

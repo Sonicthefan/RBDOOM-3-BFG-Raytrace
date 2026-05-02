@@ -1,13 +1,12 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceCVars.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceDebugDumps.h"
 #include "../../sys/DeviceManager.h"
 
 extern DeviceManager* deviceManager;
-extern idCVar r_pathTracingReadbackEnable;
-extern idCVar r_pathTracingSmokeLog;
 
 namespace {
 
