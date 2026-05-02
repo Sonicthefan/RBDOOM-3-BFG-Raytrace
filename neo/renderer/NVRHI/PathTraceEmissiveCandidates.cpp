@@ -152,6 +152,7 @@ std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::v
     {
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialIds[materialIndex], materialIndex);
         const RtSmokePersistentMaterialRecord& universeRecord = GetSmokePersistentMaterialRecord(materialIds[materialIndex], info);
+        const RtSmokeMaterialUniverseFacts& universeFacts = universeRecord.facts;
         PathTraceSmokeMaterial material = universeRecord.material;
 
         // Texture descriptor slots are frame-local; stable flags/color come from the universe.
@@ -171,7 +172,7 @@ std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::v
         material.emissiveTextureWidth = frameMaterials[materialIndex].emissiveTextureWidth;
         material.emissiveTextureHeight = frameMaterials[materialIndex].emissiveTextureHeight;
 
-        if ((frameMaterials[materialIndex].flags & emissiveMaterialFlag) == 0)
+        if (!universeFacts.emissive || (frameMaterials[materialIndex].flags & emissiveMaterialFlag) == 0)
         {
             material.flags &= ~emissiveMaterialFlag;
             material.emissiveColor[0] = 0.0f;

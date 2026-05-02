@@ -59,6 +59,23 @@ idVec3 SmokeMaterialIdToDebugColor(uint32_t materialId)
         0.15f + static_cast<float>((hash >> 16) & 255u) * (0.85f / 255.0f));
 }
 
+float SmokeUniverseEmissiveLuminance(const idVec4& color)
+{
+    const float r = Max(0.0f, color.x);
+    const float g = Max(0.0f, color.y);
+    const float b = Max(0.0f, color.z);
+    return r * 0.2126f + g * 0.7152f + b * 0.0722f;
+}
+
+bool SmokeUniverseHasGuiTextureCandidate(const RtSmokeMaterialTextureInfo& info)
+{
+    return IsSmokeImageNameGuiLike(info.diffuseImageName.c_str()) ||
+        IsSmokeImageNameGuiLike(info.alphaImageName.c_str()) ||
+        IsSmokeImageNameGuiLike(info.normalImageName.c_str()) ||
+        IsSmokeImageNameGuiLike(info.specularImageName.c_str()) ||
+        IsSmokeImageNameGuiLike(info.emissiveImageName.c_str());
+}
+
 uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
 {
     uint64 hash = 1469598103934665603ull;
@@ -172,12 +189,73 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
         record.material.emissiveColor[3] = info.emissiveColor.w;
     }
 
+    record.facts.materialId = materialId;
+    record.facts.materialFlags = record.material.flags;
+    record.facts.hasFallbackAlbedo = info.hasFallbackAlbedo;
+    record.facts.fallbackAlbedo = info.hasFallbackAlbedo ? info.fallbackAlbedo : idVec4(record.material.debugAlbedo[0], record.material.debugAlbedo[1], record.material.debugAlbedo[2], record.material.debugAlbedo[3]);
+    record.facts.alphaTested = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0;
+    record.facts.alphaCutoff = record.material.alphaCutoff;
+    record.facts.diffuseYCoCg = (record.material.flags & RT_SMOKE_MATERIAL_DIFFUSE_YCOCG) != 0;
+    record.facts.additiveDecal = (record.material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0;
+    record.facts.additiveDecalWhiteKey = (record.material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY) != 0;
+    record.facts.filterDecal = (record.material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0;
+    record.facts.filterDecalBlackKey = (record.material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0;
+    record.facts.alphaFromDiffuseLuma = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA) != 0;
+    record.facts.forceFallbackAlbedo = (record.material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0;
+    record.facts.alphaFromDiffuseDarkKey = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY) != 0;
+    record.facts.portalWindowFallback = (record.material.flags & RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK) != 0;
+    record.facts.objectGlassFallback = (record.material.flags & RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0;
+    record.facts.emissive = (record.material.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0;
+    record.facts.emissiveColor = idVec4(record.material.emissiveColor[0], record.material.emissiveColor[1], record.material.emissiveColor[2], record.material.emissiveColor[3]);
+    record.facts.emissiveLuminance = SmokeUniverseEmissiveLuminance(record.facts.emissiveColor);
+    record.facts.hasDiffuseImage = info.hasDiffuseImage;
+    record.facts.hasSafeDiffuseTexture = info.hasTextureHandle && info.hasSafeTexture;
+    record.facts.hasAlphaImage = info.hasAlphaImage;
+    record.facts.hasSafeAlphaTexture = info.hasAlphaTextureHandle && info.hasSafeAlphaTexture;
+    record.facts.hasNormalImage = info.hasNormalImage;
+    record.facts.hasSafeNormalTexture = info.hasNormalTextureHandle && info.hasSafeNormalTexture;
+    record.facts.hasSpecularImage = info.hasSpecularImage;
+    record.facts.hasSafeSpecularTexture = info.hasSpecularTextureHandle && info.hasSafeSpecularTexture;
+    record.facts.hasEmissiveImage = info.hasEmissiveImage;
+    record.facts.hasSafeEmissiveTexture = info.hasEmissiveTextureHandle && info.hasSafeEmissiveTexture;
+    record.facts.guiTextureCandidate = SmokeUniverseHasGuiTextureCandidate(info);
+
     return record;
 }
 
 bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& lhs, const RtSmokePersistentMaterialRecord& rhs)
 {
     return lhs.additiveDecalContribution == rhs.additiveDecalContribution &&
+        lhs.facts.materialId == rhs.facts.materialId &&
+        lhs.facts.materialFlags == rhs.facts.materialFlags &&
+        lhs.facts.hasFallbackAlbedo == rhs.facts.hasFallbackAlbedo &&
+        lhs.facts.fallbackAlbedo == rhs.facts.fallbackAlbedo &&
+        lhs.facts.alphaTested == rhs.facts.alphaTested &&
+        lhs.facts.alphaCutoff == rhs.facts.alphaCutoff &&
+        lhs.facts.diffuseYCoCg == rhs.facts.diffuseYCoCg &&
+        lhs.facts.additiveDecal == rhs.facts.additiveDecal &&
+        lhs.facts.additiveDecalWhiteKey == rhs.facts.additiveDecalWhiteKey &&
+        lhs.facts.filterDecal == rhs.facts.filterDecal &&
+        lhs.facts.filterDecalBlackKey == rhs.facts.filterDecalBlackKey &&
+        lhs.facts.alphaFromDiffuseLuma == rhs.facts.alphaFromDiffuseLuma &&
+        lhs.facts.forceFallbackAlbedo == rhs.facts.forceFallbackAlbedo &&
+        lhs.facts.alphaFromDiffuseDarkKey == rhs.facts.alphaFromDiffuseDarkKey &&
+        lhs.facts.portalWindowFallback == rhs.facts.portalWindowFallback &&
+        lhs.facts.objectGlassFallback == rhs.facts.objectGlassFallback &&
+        lhs.facts.emissive == rhs.facts.emissive &&
+        lhs.facts.emissiveColor == rhs.facts.emissiveColor &&
+        lhs.facts.emissiveLuminance == rhs.facts.emissiveLuminance &&
+        lhs.facts.hasDiffuseImage == rhs.facts.hasDiffuseImage &&
+        lhs.facts.hasSafeDiffuseTexture == rhs.facts.hasSafeDiffuseTexture &&
+        lhs.facts.hasAlphaImage == rhs.facts.hasAlphaImage &&
+        lhs.facts.hasSafeAlphaTexture == rhs.facts.hasSafeAlphaTexture &&
+        lhs.facts.hasNormalImage == rhs.facts.hasNormalImage &&
+        lhs.facts.hasSafeNormalTexture == rhs.facts.hasSafeNormalTexture &&
+        lhs.facts.hasSpecularImage == rhs.facts.hasSpecularImage &&
+        lhs.facts.hasSafeSpecularTexture == rhs.facts.hasSafeSpecularTexture &&
+        lhs.facts.hasEmissiveImage == rhs.facts.hasEmissiveImage &&
+        lhs.facts.hasSafeEmissiveTexture == rhs.facts.hasSafeEmissiveTexture &&
+        lhs.facts.guiTextureCandidate == rhs.facts.guiTextureCandidate &&
         std::memcmp(&lhs.material, &rhs.material, sizeof(lhs.material)) == 0;
 }
 
@@ -222,6 +300,11 @@ const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t
     }
 
     return record;
+}
+
+const RtSmokeMaterialUniverseFacts& GetSmokeMaterialUniverseFacts(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
+{
+    return GetSmokePersistentMaterialRecord(materialId, info).facts;
 }
 
 RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats()
