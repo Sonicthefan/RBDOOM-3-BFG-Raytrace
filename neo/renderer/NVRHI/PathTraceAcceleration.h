@@ -64,8 +64,25 @@ struct RtSmokeAccelSubmitTiming
     int instanceCount = 0;
 };
 
+struct RtSmokeBufferUploadItem
+{
+    nvrhi::BufferHandle buffer;
+    const void* data = nullptr;
+    size_t byteSize = 0;
+    nvrhi::ResourceStates finalState = nvrhi::ResourceStates::ShaderResource;
+    bool skip = false;
+};
+
+struct RtSmokeBufferUploadBatchDesc
+{
+    nvrhi::ICommandList* commandList = nullptr;
+    const RtSmokeBufferUploadItem* items = nullptr;
+    int itemCount = 0;
+};
+
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount);
 RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc);
+int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc);
 bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAccelSubmitTiming& timing);
 uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size);
 uint64 HashSmokeFloatQuantized(uint64 hash, float value, float scale);

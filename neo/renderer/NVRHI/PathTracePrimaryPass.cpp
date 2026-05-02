@@ -757,87 +757,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         smokeDynamicBlas = dynamicBlasCreateResult.accelStruct;
     }
 
-    if (!staticBlasCacheHit)
-    {
-        commandList->beginTrackingBufferState(smokeStaticVertexBuffer, nvrhi::ResourceStates::Common);
-        commandList->beginTrackingBufferState(smokeStaticIndexBuffer, nvrhi::ResourceStates::Common);
-        commandList->beginTrackingBufferState(smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::Common);
-        commandList->beginTrackingBufferState(smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::Common);
-        commandList->beginTrackingBufferState(smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::Common);
-    }
-    commandList->beginTrackingBufferState(smokeDynamicVertexBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(smokeDynamicIndexBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(smokeMaterialTableBuffer, nvrhi::ResourceStates::Common);
-    commandList->beginTrackingBufferState(smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::Common);
-    const int bufferUploadStartMs = Sys_Milliseconds();
-    if (!staticBlasCacheHit && !m_smokeStaticVertexCache.empty())
-    {
-        commandList->writeBuffer(smokeStaticVertexBuffer, m_smokeStaticVertexCache.data(), m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]));
-    }
-    if (!staticBlasCacheHit && !m_smokeStaticIndexCache.empty())
-    {
-        commandList->writeBuffer(smokeStaticIndexBuffer, m_smokeStaticIndexCache.data(), m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]));
-    }
-    if (!staticBlasCacheHit && !m_smokeStaticTriangleClassCache.empty())
-    {
-        commandList->writeBuffer(smokeStaticTriangleClassBuffer, m_smokeStaticTriangleClassCache.data(), m_smokeStaticTriangleClassCache.size() * sizeof(m_smokeStaticTriangleClassCache[0]));
-    }
-    if (!staticBlasCacheHit && !m_smokeStaticTriangleMaterialCache.empty())
-    {
-        commandList->writeBuffer(smokeStaticTriangleMaterialBuffer, m_smokeStaticTriangleMaterialCache.data(), m_smokeStaticTriangleMaterialCache.size() * sizeof(m_smokeStaticTriangleMaterialCache[0]));
-    }
-    if (!staticBlasCacheHit && !materialTable.staticMaterialIndexes.empty())
-    {
-        commandList->writeBuffer(smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes.data(), materialTable.staticMaterialIndexes.size() * sizeof(materialTable.staticMaterialIndexes[0]));
-    }
-    if (!dynamicVertexData.empty())
-    {
-        commandList->writeBuffer(smokeDynamicVertexBuffer, dynamicVertexData.data(), dynamicVertexData.size() * sizeof(dynamicVertexData[0]));
-    }
-    if (!dynamicIndexData.empty())
-    {
-        commandList->writeBuffer(smokeDynamicIndexBuffer, dynamicIndexData.data(), dynamicIndexData.size() * sizeof(dynamicIndexData[0]));
-    }
-    if (!dynamicTriangleClassData.empty())
-    {
-        commandList->writeBuffer(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData.data(), dynamicTriangleClassData.size() * sizeof(dynamicTriangleClassData[0]));
-    }
-    if (!dynamicTriangleMaterialData.empty())
-    {
-        commandList->writeBuffer(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData.data(), dynamicTriangleMaterialData.size() * sizeof(dynamicTriangleMaterialData[0]));
-    }
-    if (!materialTable.dynamicMaterialIndexes.empty())
-    {
-        commandList->writeBuffer(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes.data(), materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]));
-    }
-    if (!materialTable.materials.empty())
-    {
-        commandList->writeBuffer(smokeMaterialTableBuffer, materialTable.materials.data(), materialTable.materials.size() * sizeof(materialTable.materials[0]));
-    }
-    if (!emissiveTriangles.empty())
-    {
-        commandList->writeBuffer(smokeEmissiveTriangleBuffer, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(emissiveTriangles[0]));
-    }
-    if (!staticBlasCacheHit)
-    {
-        commandList->setBufferState(smokeStaticVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-        commandList->setBufferState(smokeStaticIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-        commandList->setBufferState(smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-    }
-    commandList->setBufferState(smokeDynamicVertexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-    commandList->setBufferState(smokeDynamicIndexBuffer, nvrhi::ResourceStates::AccelStructBuildInput);
-    commandList->setBufferState(smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->commitBarriers();
-    const int bufferUploadMs = Sys_Milliseconds() - bufferUploadStartMs;
+    const RtSmokeBufferUploadItem uploadItems[] = {
+        { smokeStaticVertexBuffer, m_smokeStaticVertexCache.data(), m_smokeStaticVertexCache.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
+        { smokeStaticIndexBuffer, m_smokeStaticIndexCache.data(), m_smokeStaticIndexCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
+        { smokeStaticTriangleClassBuffer, m_smokeStaticTriangleClassCache.data(), m_smokeStaticTriangleClassCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
+        { smokeStaticTriangleMaterialBuffer, m_smokeStaticTriangleMaterialCache.data(), m_smokeStaticTriangleMaterialCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
+        { smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes.data(), materialTable.staticMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
+        { smokeDynamicVertexBuffer, dynamicVertexData.data(), dynamicVertexData.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, false },
+        { smokeDynamicIndexBuffer, dynamicIndexData.data(), dynamicIndexData.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, false },
+        { smokeDynamicTriangleClassBuffer, dynamicTriangleClassData.data(), dynamicTriangleClassData.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
+        { smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData.data(), dynamicTriangleMaterialData.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
+        { smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes.data(), materialTable.dynamicMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
+        { smokeMaterialTableBuffer, materialTable.materials.data(), materialTable.materials.size() * sizeof(PathTraceSmokeMaterial), nvrhi::ResourceStates::ShaderResource, false },
+        { smokeEmissiveTriangleBuffer, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle), nvrhi::ResourceStates::ShaderResource, false }
+    };
+    RtSmokeBufferUploadBatchDesc uploadBatchDesc;
+    uploadBatchDesc.commandList = commandList;
+    uploadBatchDesc.items = uploadItems;
+    uploadBatchDesc.itemCount = static_cast<int>(sizeof(uploadItems) / sizeof(uploadItems[0]));
+    const int bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
     accelSubmitDesc.commandList = commandList;

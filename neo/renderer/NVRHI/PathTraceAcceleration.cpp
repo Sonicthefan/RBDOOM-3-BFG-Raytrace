@@ -45,6 +45,45 @@ RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
     return result;
 }
 
+int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc)
+{
+    if (!desc.commandList || !desc.items || desc.itemCount <= 0)
+    {
+        return 0;
+    }
+
+    for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
+    {
+        const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
+        if (!item.skip && item.buffer)
+        {
+            desc.commandList->beginTrackingBufferState(item.buffer, nvrhi::ResourceStates::Common);
+        }
+    }
+
+    const int bufferUploadStartMs = Sys_Milliseconds();
+    for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
+    {
+        const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
+        if (!item.skip && item.buffer && item.data && item.byteSize > 0)
+        {
+            desc.commandList->writeBuffer(item.buffer, item.data, item.byteSize);
+        }
+    }
+
+    for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
+    {
+        const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
+        if (!item.skip && item.buffer)
+        {
+            desc.commandList->setBufferState(item.buffer, item.finalState);
+        }
+    }
+    desc.commandList->commitBarriers();
+
+    return Sys_Milliseconds() - bufferUploadStartMs;
+}
+
 bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAccelSubmitTiming& timing)
 {
     timing = RtSmokeAccelSubmitTiming();
