@@ -53,5 +53,23 @@ struct RtSmokeBindingBuildResult
     bool Succeeded() const { return bindingSet && textureDescriptorTable && errorMessage == nullptr; }
 };
 
+struct RtSmokeSceneResourceCommitDesc
+{
+    RtSmokeSceneBufferHandles buffers;
+    nvrhi::rt::AccelStructDesc staticBlasDesc;
+    nvrhi::rt::AccelStructDesc dynamicBlasDesc;
+    nvrhi::rt::AccelStructHandle staticBlas;
+    nvrhi::rt::AccelStructHandle dynamicBlas;
+    bool hasStaticBlas = false;
+    uint64 staticBlasSignature = 0;
+    nvrhi::BindingSetHandle bindingSet;
+    nvrhi::DescriptorTableHandle textureDescriptorTable;
+    std::vector<nvrhi::TextureHandle> activeTextureTable;
+    int materialTableEntryCount = 0;
+    int emissiveTriangleCount = 0;
+    int emissiveStaticTriangleCount = 0;
+    int emissiveDynamicTriangleCount = 0;
+};
+
 nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput);
 RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildDesc& desc, RtSmokeMaterialTableBuild& materialTable);

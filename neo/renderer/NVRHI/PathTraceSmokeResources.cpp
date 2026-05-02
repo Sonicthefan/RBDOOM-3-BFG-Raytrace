@@ -359,6 +359,14 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     m_smokeReadbackTexture = readbackTexture;
     m_smokeOutputWidth = width;
     m_smokeOutputHeight = height;
+    ResetRayTracingSmokeSceneResources();
+
+    common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
+    return true;
+}
+
+void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
+{
     m_smokeAccumulationSignature = 0;
     m_smokeAccumulationFrameCount = 0;
     m_smokeBindingSet = nullptr;
@@ -387,7 +395,37 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     m_smokeEmissiveTriangleCount = 0;
     m_smokeEmissiveStaticTriangleCount = 0;
     m_smokeEmissiveDynamicTriangleCount = 0;
+}
 
-    common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
-    return true;
+void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc)
+{
+    m_smokeStaticVertexBuffer = desc.buffers.staticVertexBuffer;
+    m_smokeStaticIndexBuffer = desc.buffers.staticIndexBuffer;
+    m_smokeStaticTriangleClassBuffer = desc.buffers.staticTriangleClassBuffer;
+    m_smokeStaticTriangleMaterialBuffer = desc.buffers.staticTriangleMaterialBuffer;
+    m_smokeStaticTriangleMaterialIndexBuffer = desc.buffers.staticTriangleMaterialIndexBuffer;
+    m_smokeDynamicVertexBuffer = desc.buffers.dynamicVertexBuffer;
+    m_smokeDynamicIndexBuffer = desc.buffers.dynamicIndexBuffer;
+    m_smokeDynamicTriangleClassBuffer = desc.buffers.dynamicTriangleClassBuffer;
+    m_smokeDynamicTriangleMaterialBuffer = desc.buffers.dynamicTriangleMaterialBuffer;
+    m_smokeDynamicTriangleMaterialIndexBuffer = desc.buffers.dynamicTriangleMaterialIndexBuffer;
+    m_smokeMaterialTableBuffer = desc.buffers.materialTableBuffer;
+    m_smokeEmissiveTriangleBuffer = desc.buffers.emissiveTriangleBuffer;
+    m_smokeStaticBlasDesc = desc.staticBlasDesc;
+    m_smokeDynamicBlasDesc = desc.dynamicBlasDesc;
+    m_smokeStaticBlas = desc.staticBlas;
+    m_smokeDynamicBlas = desc.dynamicBlas;
+    if (desc.hasStaticBlas)
+    {
+        m_smokeStaticBlasCacheValid = true;
+        m_smokeStaticBlasSignature = desc.staticBlasSignature;
+    }
+    m_smokeBindingSet = desc.bindingSet;
+    m_smokeTextureDescriptorTable = desc.textureDescriptorTable;
+    m_smokeActiveTextureTable = desc.activeTextureTable;
+    m_smokeMaterialTableEntryCount = desc.materialTableEntryCount;
+    m_smokeEmissiveTriangleCount = desc.emissiveTriangleCount;
+    m_smokeEmissiveStaticTriangleCount = desc.emissiveStaticTriangleCount;
+    m_smokeEmissiveDynamicTriangleCount = desc.emissiveDynamicTriangleCount;
+    m_smokeSceneBuilt = true;
 }

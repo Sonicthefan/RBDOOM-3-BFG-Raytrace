@@ -934,35 +934,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    m_smokeStaticVertexBuffer = smokeStaticVertexBuffer;
-    m_smokeStaticIndexBuffer = smokeStaticIndexBuffer;
-    m_smokeStaticTriangleClassBuffer = smokeStaticTriangleClassBuffer;
-    m_smokeStaticTriangleMaterialBuffer = smokeStaticTriangleMaterialBuffer;
-    m_smokeStaticTriangleMaterialIndexBuffer = smokeStaticTriangleMaterialIndexBuffer;
-    m_smokeDynamicVertexBuffer = smokeDynamicVertexBuffer;
-    m_smokeDynamicIndexBuffer = smokeDynamicIndexBuffer;
-    m_smokeDynamicTriangleClassBuffer = smokeDynamicTriangleClassBuffer;
-    m_smokeDynamicTriangleMaterialBuffer = smokeDynamicTriangleMaterialBuffer;
-    m_smokeDynamicTriangleMaterialIndexBuffer = smokeDynamicTriangleMaterialIndexBuffer;
-    m_smokeMaterialTableBuffer = smokeMaterialTableBuffer;
-    m_smokeEmissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
-    m_smokeStaticBlasDesc = smokeStaticBlasDesc;
-    m_smokeDynamicBlasDesc = smokeDynamicBlasDesc;
-    m_smokeStaticBlas = smokeStaticBlas;
-    m_smokeDynamicBlas = smokeDynamicBlas;
-    if (hasStaticBlas)
-    {
-        m_smokeStaticBlasCacheValid = true;
-        m_smokeStaticBlasSignature = staticSignature.hash;
-    }
-    m_smokeBindingSet = bindingBuildResult.bindingSet;
-    m_smokeTextureDescriptorTable = bindingBuildResult.textureDescriptorTable;
-    m_smokeActiveTextureTable = bindingBuildResult.activeTextureTable;
-    m_smokeMaterialTableEntryCount = static_cast<int>(materialTable.materials.size());
-    m_smokeEmissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
-    m_smokeEmissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
-    m_smokeEmissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
-    m_smokeSceneBuilt = true;
+    RtSmokeSceneResourceCommitDesc resourceCommitDesc;
+    resourceCommitDesc.buffers = smokeBuffers;
+    resourceCommitDesc.staticBlasDesc = smokeStaticBlasDesc;
+    resourceCommitDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
+    resourceCommitDesc.staticBlas = smokeStaticBlas;
+    resourceCommitDesc.dynamicBlas = smokeDynamicBlas;
+    resourceCommitDesc.hasStaticBlas = hasStaticBlas;
+    resourceCommitDesc.staticBlasSignature = staticSignature.hash;
+    resourceCommitDesc.bindingSet = bindingBuildResult.bindingSet;
+    resourceCommitDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+    resourceCommitDesc.activeTextureTable = bindingBuildResult.activeTextureTable;
+    resourceCommitDesc.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
+    resourceCommitDesc.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
+    resourceCommitDesc.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
+    resourceCommitDesc.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
+    CommitRayTracingSmokeSceneResources(resourceCommitDesc);
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     if (ShouldLogSmokeTiming(sceneMs, Sys_Milliseconds(), g_smokeLastSceneTimingLogMs))

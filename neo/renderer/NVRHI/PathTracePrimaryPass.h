@@ -6,6 +6,7 @@
 #include <vector>
 
 class idRenderBackend;
+struct RtSmokeSceneResourceCommitDesc;
 struct viewDef_t;
 
 class PathTracePrimaryPass {
@@ -21,6 +22,8 @@ public:
 private:
     void InitRayTracingSmokeTest();
     bool ResizeRayTracingSmokeOutput(int width, int height);
+    void ResetRayTracingSmokeSceneResources();
+    void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
