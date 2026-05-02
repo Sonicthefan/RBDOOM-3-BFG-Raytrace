@@ -256,6 +256,49 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
     return true;
 }
 
+void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
+{
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d validate=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCount=%d debugMode=%d\n",
+        desc.sceneMs,
+        desc.captureMs,
+        desc.captureValidationMs,
+        desc.captureAppendMs,
+        desc.captureBucketMergeMs,
+        desc.metadataMs,
+        desc.metadataValidationMs,
+        desc.metadataRegistrationMs,
+        desc.materialMs,
+        desc.emissiveMs,
+        desc.bufferCreateMs,
+        desc.bufferUploadMs,
+        desc.accelSubmitMs,
+        desc.blasSubmitMs,
+        desc.tlasSubmitMs,
+        desc.sourceSurfaces,
+        desc.sourceVerts,
+        desc.sourceIndexes,
+        desc.dynamicIndexCount,
+        desc.skinnedRtCpuSurfaces,
+        desc.skinnedRtCpuIndexes,
+        desc.staticBlasCacheHit ? 1 : 0,
+        desc.materialTableCacheHit ? 1 : 0,
+        desc.materialTableCacheHits,
+        desc.materialTableCacheMisses,
+        desc.materialMetadataCacheEnabled ? 1 : 0,
+        desc.metadataCacheRefreshes,
+        desc.metadataFullDiscovers,
+        desc.metadataNewEntries,
+        desc.metadataRegistrations,
+        desc.metadataDuplicateSkips,
+        desc.metadataRegistrySize,
+        desc.guiTextureCandidates,
+        desc.guiTexturesAccepted,
+        desc.guiTexturesRejected,
+        desc.additiveDecals,
+        desc.lightCount,
+        desc.debugMode);
+}
+
 void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& samples)
 {
     for (int classIndex = 0; classIndex < RT_SMOKE_CLASS_COUNT; ++classIndex)

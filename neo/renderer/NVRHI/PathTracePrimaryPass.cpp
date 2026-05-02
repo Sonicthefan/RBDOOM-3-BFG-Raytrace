@@ -496,45 +496,46 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     if (ShouldLogSmokeTiming(sceneMs, Sys_Milliseconds(), g_smokeLastSceneTimingLogMs))
     {
-        common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d validate=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCount=%d debugMode=%d\n",
-            sceneMs,
-            captureMs,
-            captureTiming.validationMs,
-            captureTiming.appendMs,
-            captureTiming.bucketMergeMs,
-            metadataMs,
-            metadataValidationMs,
-            metadataRegistrationMs,
-            materialMs,
-            emissiveMs,
-            bufferCreateMs,
-            bufferUploadMs,
-            accelSubmitMs,
-            blasSubmitMs,
-            tlasSubmitMs,
-            sourceSurfaces,
-            sourceVerts,
-            sourceIndexes,
-            dynamicIndexCount,
-            dynamicStats.skinnedRtCpuSkinnedSurfaces,
-            dynamicStats.skinnedRtCpuSkinnedIndexes,
-            staticBlasCacheHit ? 1 : 0,
-            materialTableCacheHit ? 1 : 0,
-            materialTableCacheStats.hits,
-            materialTableCacheStats.misses,
-            r_pathTracingMaterialMetadataCache.GetInteger() != 0 ? 1 : 0,
-            g_smokeMaterialMetadataFrameStats.cacheRefreshes,
-            g_smokeMaterialMetadataFrameStats.fullDiscovers,
-            g_smokeMaterialMetadataFrameStats.newEntries,
-            g_smokeMaterialMetadataFrameStats.registrations,
-            g_smokeMaterialMetadataFrameStats.duplicateSkips,
-            SmokeMaterialTextureRegistrySize(),
-            materialTable.guiTextureCandidates,
-            materialTable.guiTexturesAccepted,
-            materialTable.guiTexturesRejected,
-            materialTable.materialsAdditiveDecals,
-            r_pathTracingLightCount.GetInteger(),
-            requestedDebugMode);
+        RtSmokeSlowSceneBuildLogDesc slowLog;
+        slowLog.sceneMs = sceneMs;
+        slowLog.captureMs = captureMs;
+        slowLog.captureValidationMs = captureTiming.validationMs;
+        slowLog.captureAppendMs = captureTiming.appendMs;
+        slowLog.captureBucketMergeMs = captureTiming.bucketMergeMs;
+        slowLog.metadataMs = metadataMs;
+        slowLog.metadataValidationMs = metadataValidationMs;
+        slowLog.metadataRegistrationMs = metadataRegistrationMs;
+        slowLog.materialMs = materialMs;
+        slowLog.emissiveMs = emissiveMs;
+        slowLog.bufferCreateMs = bufferCreateMs;
+        slowLog.bufferUploadMs = bufferUploadMs;
+        slowLog.accelSubmitMs = accelSubmitMs;
+        slowLog.blasSubmitMs = blasSubmitMs;
+        slowLog.tlasSubmitMs = tlasSubmitMs;
+        slowLog.sourceSurfaces = sourceSurfaces;
+        slowLog.sourceVerts = sourceVerts;
+        slowLog.sourceIndexes = sourceIndexes;
+        slowLog.dynamicIndexCount = dynamicIndexCount;
+        slowLog.skinnedRtCpuSurfaces = dynamicStats.skinnedRtCpuSkinnedSurfaces;
+        slowLog.skinnedRtCpuIndexes = dynamicStats.skinnedRtCpuSkinnedIndexes;
+        slowLog.staticBlasCacheHit = staticBlasCacheHit;
+        slowLog.materialTableCacheHit = materialTableCacheHit;
+        slowLog.materialTableCacheHits = materialTableCacheStats.hits;
+        slowLog.materialTableCacheMisses = materialTableCacheStats.misses;
+        slowLog.materialMetadataCacheEnabled = r_pathTracingMaterialMetadataCache.GetInteger() != 0;
+        slowLog.metadataCacheRefreshes = g_smokeMaterialMetadataFrameStats.cacheRefreshes;
+        slowLog.metadataFullDiscovers = g_smokeMaterialMetadataFrameStats.fullDiscovers;
+        slowLog.metadataNewEntries = g_smokeMaterialMetadataFrameStats.newEntries;
+        slowLog.metadataRegistrations = g_smokeMaterialMetadataFrameStats.registrations;
+        slowLog.metadataDuplicateSkips = g_smokeMaterialMetadataFrameStats.duplicateSkips;
+        slowLog.metadataRegistrySize = SmokeMaterialTextureRegistrySize();
+        slowLog.guiTextureCandidates = materialTable.guiTextureCandidates;
+        slowLog.guiTexturesAccepted = materialTable.guiTexturesAccepted;
+        slowLog.guiTexturesRejected = materialTable.guiTexturesRejected;
+        slowLog.additiveDecals = materialTable.materialsAdditiveDecals;
+        slowLog.lightCount = r_pathTracingLightCount.GetInteger();
+        slowLog.debugMode = requestedDebugMode;
+        LogSmokeSlowSceneBuild(slowLog);
     }
 
     if (r_pathTracingSmokeLog.GetInteger() != 0 && !m_smokeSceneRebuildLogged)
