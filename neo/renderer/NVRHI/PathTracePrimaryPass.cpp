@@ -17,7 +17,6 @@
 
 #include <nvrhi/utils.h>
 #include <algorithm>
-#include <unordered_map>
 #include <vector>
 
 extern DeviceManager* deviceManager;
@@ -835,69 +834,6 @@ struct RtSmokeMaterialTableCache
     int misses = 0;
 };
 
-struct RtSmokeMaterialTextureInfo
-{
-    uint32_t materialId = 0;
-    idStr materialName;
-    idStr diffuseImageName;
-    idStr alphaImageName;
-    idStr normalImageName;
-    idStr specularImageName;
-    idStr emissiveImageName;
-    idStr fallbackReason;
-    idStr alphaReason;
-    idStr normalReason;
-    idStr specularReason;
-    idStr emissiveReason;
-    idImage* diffuseImage = nullptr;
-    idImage* alphaImage = nullptr;
-    idImage* normalImage = nullptr;
-    idImage* specularImage = nullptr;
-    idImage* emissiveImage = nullptr;
-    bool hasDiffuseImage = false;
-    bool hasAlphaImage = false;
-    bool hasNormalImage = false;
-    bool hasSpecularImage = false;
-    bool hasEmissiveImage = false;
-    bool hasTextureHandle = false;
-    bool hasAlphaTextureHandle = false;
-    bool hasNormalTextureHandle = false;
-    bool hasSpecularTextureHandle = false;
-    bool hasEmissiveTextureHandle = false;
-    bool hasSafeTexture = false;
-    bool hasSafeAlphaTexture = false;
-    bool hasSafeNormalTexture = false;
-    bool hasSafeSpecularTexture = false;
-    bool hasSafeEmissiveTexture = false;
-    bool hasAlphaTest = false;
-    bool additiveDecal = false;
-    bool additiveDecalWhiteKey = false;
-    bool filterDecal = false;
-    bool filterDecalBlackKey = false;
-    bool alphaFromDiffuseLuma = false;
-    bool forceFallbackAlbedo = false;
-    bool alphaFromDiffuseDarkKey = false;
-    bool portalWindowFallback = false;
-    bool objectGlassFallback = false;
-    bool emissive = false;
-    float alphaCutoff = 0.0f;
-    idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
-    idVec4 fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
-    bool hasFallbackAlbedo = false;
-    textureUsage_t diffuseUsage = TD_DEFAULT;
-    textureUsage_t alphaUsage = TD_DEFAULT;
-    textureUsage_t normalUsage = TD_DEFAULT;
-    textureUsage_t specularUsage = TD_DEFAULT;
-    textureUsage_t emissiveUsage = TD_DEFAULT;
-    textureColor_t diffuseColorFormat = CFM_DEFAULT;
-    textureColor_t alphaColorFormat = CFM_DEFAULT;
-    textureColor_t normalColorFormat = CFM_DEFAULT;
-    textureColor_t specularColorFormat = CFM_DEFAULT;
-    textureColor_t emissiveColorFormat = CFM_DEFAULT;
-    materialCoverage_t coverage = MC_BAD;
-    int tableIndex = -1;
-};
-
 struct RtSmokeMaterialMetadataFrameStats
 {
     int registrations = 0;
@@ -955,8 +891,6 @@ enum class RtSmokeSurfaceClass
     Unknown
 };
 
-std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
-std::unordered_map<uint32_t, int> g_smokeMaterialTextureRegistryLookup;
 RtSmokeMaterialTableCache g_smokeMaterialTableCache;
 RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 int g_smokeLastSceneTimingLogMs = -1000000;
@@ -1030,7 +964,7 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeReset.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, latchedTextureProbeMaterialId);
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(latchedTextureProbeRequestedIndex + 0x80000000u));
-    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(g_smokeMaterialTextureRegistry.size()));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(SmokeMaterialTextureRegistrySize()));
     return hash;
 }
 
@@ -1438,7 +1372,6 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTes
     }
 }
 
-RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
 bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material);
 bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material);
 bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
@@ -2358,38 +2291,6 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
     return nullptr;
 }
 
-RtSmokeMaterialTextureInfo* FindSmokeMaterialTextureInfo(uint32_t materialId)
-{
-    std::unordered_map<uint32_t, int>::const_iterator lookup = g_smokeMaterialTextureRegistryLookup.find(materialId);
-    if (lookup == g_smokeMaterialTextureRegistryLookup.end())
-    {
-        return nullptr;
-    }
-
-    const int index = lookup->second;
-    if (index < 0 || index >= static_cast<int>(g_smokeMaterialTextureRegistry.size()))
-    {
-        return nullptr;
-    }
-
-    RtSmokeMaterialTextureInfo& info = g_smokeMaterialTextureRegistry[index];
-    return info.materialId == materialId ? &info : nullptr;
-}
-
-void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
-{
-    info.hasTextureHandle = info.diffuseImage && info.diffuseImage->GetTextureHandle();
-    info.hasAlphaTextureHandle = info.alphaImage && info.alphaImage->GetTextureHandle();
-    info.hasNormalTextureHandle = info.normalImage && info.normalImage->GetTextureHandle();
-    info.hasSpecularTextureHandle = info.specularImage && info.specularImage->GetTextureHandle();
-    info.hasEmissiveTextureHandle = info.emissiveImage && info.emissiveImage->GetTextureHandle();
-    info.hasSafeTexture = info.hasTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage);
-    info.hasSafeAlphaTexture = info.hasAlphaTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.alphaImage);
-    info.hasSafeNormalTexture = info.hasNormalTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage);
-    info.hasSafeSpecularTexture = info.hasSpecularTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage);
-    info.hasSafeEmissiveTexture = info.hasEmissiveTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.emissiveImage);
-}
-
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 {
     ++g_smokeMaterialMetadataFrameStats.registrations;
@@ -2416,12 +2317,7 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     if (!info)
     {
         ++g_smokeMaterialMetadataFrameStats.newEntries;
-        RtSmokeMaterialTextureInfo newInfo;
-        newInfo.materialId = materialId;
-        newInfo.materialName = materialName;
-        g_smokeMaterialTextureRegistry.push_back(newInfo);
-        g_smokeMaterialTextureRegistryLookup[materialId] = static_cast<int>(g_smokeMaterialTextureRegistry.size() - 1);
-        info = &g_smokeMaterialTextureRegistry.back();
+        info = &AddSmokeMaterialTextureInfo(materialId, materialName);
     }
 
     ++g_smokeMaterialMetadataFrameStats.fullDiscovers;
@@ -2556,46 +2452,6 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             info->fallbackReason = va("%s; rejected texture desc", reason.c_str());
         }
     }
-}
-
-RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex)
-{
-    const RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
-    if (existing)
-    {
-        RtSmokeMaterialTextureInfo resolved = *existing;
-        resolved.tableIndex = tableIndex;
-        return resolved;
-    }
-
-    RtSmokeMaterialTextureInfo missing;
-    missing.materialId = materialId;
-    missing.tableIndex = tableIndex;
-    missing.materialName = "<unseen material>";
-    missing.diffuseImageName = "<none>";
-    missing.fallbackReason = "material metadata not seen this session";
-    return missing;
-}
-
-const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info)
-{
-    if (info.hasSafeTexture)
-    {
-        return info.diffuseImageName;
-    }
-    if (info.hasSafeAlphaTexture)
-    {
-        return info.alphaImageName;
-    }
-    if (info.hasSafeNormalTexture)
-    {
-        return info.normalImageName;
-    }
-    if (info.hasSafeSpecularTexture)
-    {
-        return info.specularImageName;
-    }
-    return info.emissiveImageName;
 }
 
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table)
@@ -6496,7 +6352,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             g_smokeMaterialMetadataFrameStats.fullDiscovers,
             g_smokeMaterialMetadataFrameStats.newEntries,
             g_smokeMaterialMetadataFrameStats.registrations,
-            static_cast<int>(g_smokeMaterialTextureRegistry.size()),
+            SmokeMaterialTextureRegistrySize(),
             materialTable.guiTextureCandidates,
             materialTable.guiTexturesAccepted,
             materialTable.guiTexturesRejected,

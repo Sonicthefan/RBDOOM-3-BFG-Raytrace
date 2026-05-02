@@ -4,7 +4,16 @@
 #include "PathTraceTextureRegistry.h"
 #include "../Image.h"
 
+#include <unordered_map>
+
 extern idCVar r_pathTracingAllowGuiTextures;
+
+namespace {
+
+std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
+std::unordered_map<uint32_t, int> g_smokeMaterialTextureRegistryLookup;
+
+}
 
 bool IsSmokeDiffuseTextureSafeForRayTracing(nvrhi::ITexture* texture)
 {
@@ -161,4 +170,91 @@ bool SmokeTextureHandleListsEqual(const std::vector<nvrhi::TextureHandle>& lhs, 
     }
 
     return true;
+}
+
+RtSmokeMaterialTextureInfo* FindSmokeMaterialTextureInfo(uint32_t materialId)
+{
+    std::unordered_map<uint32_t, int>::const_iterator lookup = g_smokeMaterialTextureRegistryLookup.find(materialId);
+    if (lookup == g_smokeMaterialTextureRegistryLookup.end())
+    {
+        return nullptr;
+    }
+
+    const int index = lookup->second;
+    if (index < 0 || index >= static_cast<int>(g_smokeMaterialTextureRegistry.size()))
+    {
+        return nullptr;
+    }
+
+    RtSmokeMaterialTextureInfo& info = g_smokeMaterialTextureRegistry[index];
+    return info.materialId == materialId ? &info : nullptr;
+}
+
+RtSmokeMaterialTextureInfo& AddSmokeMaterialTextureInfo(uint32_t materialId, const char* materialName)
+{
+    RtSmokeMaterialTextureInfo newInfo;
+    newInfo.materialId = materialId;
+    newInfo.materialName = materialName ? materialName : "<none>";
+    g_smokeMaterialTextureRegistry.push_back(newInfo);
+    g_smokeMaterialTextureRegistryLookup[materialId] = static_cast<int>(g_smokeMaterialTextureRegistry.size() - 1);
+    return g_smokeMaterialTextureRegistry.back();
+}
+
+void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
+{
+    info.hasTextureHandle = info.diffuseImage && info.diffuseImage->GetTextureHandle();
+    info.hasAlphaTextureHandle = info.alphaImage && info.alphaImage->GetTextureHandle();
+    info.hasNormalTextureHandle = info.normalImage && info.normalImage->GetTextureHandle();
+    info.hasSpecularTextureHandle = info.specularImage && info.specularImage->GetTextureHandle();
+    info.hasEmissiveTextureHandle = info.emissiveImage && info.emissiveImage->GetTextureHandle();
+    info.hasSafeTexture = info.hasTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage);
+    info.hasSafeAlphaTexture = info.hasAlphaTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.alphaImage);
+    info.hasSafeNormalTexture = info.hasNormalTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage);
+    info.hasSafeSpecularTexture = info.hasSpecularTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage);
+    info.hasSafeEmissiveTexture = info.hasEmissiveTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.emissiveImage);
+}
+
+RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex)
+{
+    const RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
+    if (existing)
+    {
+        RtSmokeMaterialTextureInfo resolved = *existing;
+        resolved.tableIndex = tableIndex;
+        return resolved;
+    }
+
+    RtSmokeMaterialTextureInfo missing;
+    missing.materialId = materialId;
+    missing.tableIndex = tableIndex;
+    missing.materialName = "<unseen material>";
+    missing.diffuseImageName = "<none>";
+    missing.fallbackReason = "material metadata not seen this session";
+    return missing;
+}
+
+const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info)
+{
+    if (info.hasSafeTexture)
+    {
+        return info.diffuseImageName;
+    }
+    if (info.hasSafeAlphaTexture)
+    {
+        return info.alphaImageName;
+    }
+    if (info.hasSafeNormalTexture)
+    {
+        return info.normalImageName;
+    }
+    if (info.hasSafeSpecularTexture)
+    {
+        return info.specularImageName;
+    }
+    return info.emissiveImageName;
+}
+
+int SmokeMaterialTextureRegistrySize()
+{
+    return static_cast<int>(g_smokeMaterialTextureRegistry.size());
 }
