@@ -26,6 +26,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle materialTableBuffer;
     nvrhi::BufferHandle emissiveTriangleBuffer;
+    nvrhi::BufferHandle lightCandidateBuffer;
 
     bool IsValid() const;
 };
@@ -46,6 +47,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t dynamicTriangleMaterialIndexBytes = 0;
     size_t materialTableBytes = 0;
     size_t emissiveTriangleBytes = 0;
+    size_t lightCandidateBytes = 0;
 };
 
 struct RtSmokeSceneBufferCreateResult
@@ -101,6 +103,9 @@ struct RtSmokeSceneResourceCommitDesc
     int emissiveTriangleCount = 0;
     int emissiveStaticTriangleCount = 0;
     int emissiveDynamicTriangleCount = 0;
+    int lightCandidateCount = 0;
+    int texturedLightCandidateCount = 0;
+    int lightCandidateBytes = 0;
 };
 
 struct RtSmokeSceneResourceCommitBuildDesc
@@ -119,6 +124,9 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int emissiveTriangleCount = 0;
     int emissiveStaticTriangleCount = 0;
     int emissiveDynamicTriangleCount = 0;
+    int lightCandidateCount = 0;
+    int texturedLightCandidateCount = 0;
+    int lightCandidateBytes = 0;
 };
 
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);

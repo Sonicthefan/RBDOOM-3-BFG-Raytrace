@@ -85,6 +85,9 @@ struct RtSmokeSlowSceneBuildLogDesc
     int guiTexturesAccepted = 0;
     int guiTexturesRejected = 0;
     int additiveDecals = 0;
+    int lightCandidateCount = 0;
+    int texturedLightCandidateCount = 0;
+    int lightCandidateBytes = 0;
     int lightCount = 0;
     int debugMode = 0;
 };
@@ -114,6 +117,8 @@ struct RtSmokeSceneBuildSummaryLogDesc
     RtSmokeMaterialUniverseStats materialUniverseStats;
     const RtSmokeMaterialStats* materialStats = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
+    const RtSmokeEmissiveInventoryStats* emissiveInventoryStats = nullptr;
+    int lightCandidateBytes = 0;
     bool enableTextureProbe = false;
     const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;
     const RtSmokeAttributeStats* attributeStats = nullptr;
@@ -175,6 +180,8 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     const RtSmokeMaterialStats* materialStats = nullptr;
     const RtSmokeBucketRanges* bucketRanges = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
+    const RtSmokeEmissiveInventoryStats* emissiveInventoryStats = nullptr;
+    int lightCandidateBytes = 0;
     const RtSmokeMaterialTableCacheStats* materialTableCacheStats = nullptr;
     const RtSmokeMaterialUniverseStats* materialUniverseStats = nullptr;
     const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;

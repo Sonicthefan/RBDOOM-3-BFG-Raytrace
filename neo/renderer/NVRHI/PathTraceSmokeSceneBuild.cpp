@@ -147,6 +147,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
         idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger()),
         emissiveInventoryStats);
+    std::vector<PathTraceSmokeLightCandidate> lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
     RtSmokeEmissiveInventoryDiagnosticTriggerDesc emissiveInventoryDiagnosticDesc;
     emissiveInventoryDiagnosticDesc.materialTable = &materialTable;
@@ -169,6 +170,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    bufferCreateDesc.existingBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
     bufferCreateDesc.staticVertexBytes = m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]);
     bufferCreateDesc.staticIndexBytes = m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]);
     bufferCreateDesc.staticTriangleClassBytes = m_smokeStaticTriangleClassCache.size() * sizeof(m_smokeStaticTriangleClassCache[0]);
@@ -181,6 +183,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
     bufferCreateDesc.materialTableBytes = materialTable.materials.size() * sizeof(materialTable.materials[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
+    bufferCreateDesc.lightCandidateBytes = lightCandidates.size() * sizeof(lightCandidates[0]);
     const RtSmokeSceneBufferCreateResult bufferCreateResult = CreateSmokeSceneBuffers(bufferCreateDesc);
     if (!bufferCreateResult.Succeeded())
     {
@@ -200,6 +203,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = smokeBuffers.dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeMaterialTableBuffer = smokeBuffers.materialTableBuffer;
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
+    nvrhi::BufferHandle smokeLightCandidateBuffer = smokeBuffers.lightCandidateBuffer;
     const int bufferCreateMs = Sys_Milliseconds() - bufferCreateStartMs;
 
     const int staticVertexCount = static_cast<int>(m_smokeStaticVertexCache.size());
@@ -308,7 +312,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         { smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData.data(), dynamicTriangleMaterialData.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
         { smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes.data(), materialTable.dynamicMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
         { smokeMaterialTableBuffer, materialTable.materials.data(), materialTable.materials.size() * sizeof(PathTraceSmokeMaterial), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeEmissiveTriangleBuffer, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle), nvrhi::ResourceStates::ShaderResource, false }
+        { smokeEmissiveTriangleBuffer, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle), nvrhi::ResourceStates::ShaderResource, false },
+        { smokeLightCandidateBuffer, lightCandidates.data(), lightCandidates.size() * sizeof(PathTraceSmokeLightCandidate), nvrhi::ResourceStates::ShaderResource, false }
     };
     RtSmokeBufferUploadBatchDesc uploadBatchDesc;
     uploadBatchDesc.commandList = commandList;
@@ -389,6 +394,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     resourceCommitBuildDesc.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
     resourceCommitBuildDesc.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
+    resourceCommitBuildDesc.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
+    resourceCommitBuildDesc.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
+    resourceCommitBuildDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
     CommitRayTracingSmokeSceneResources(resourceCommitDesc);
 
@@ -432,6 +440,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.materialStats = &materialStats;
     sceneLogDesc.bucketRanges = &bucketRanges;
     sceneLogDesc.materialTable = &materialTable;
+    sceneLogDesc.emissiveInventoryStats = &emissiveInventoryStats;
+    sceneLogDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     sceneLogDesc.materialTableCacheStats = &materialTableCacheStats;
     sceneLogDesc.materialUniverseStats = &materialUniverseStats;
     sceneLogDesc.textureCoverageStats = &textureCoverageStats;

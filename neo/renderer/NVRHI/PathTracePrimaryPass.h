@@ -73,6 +73,7 @@ private:
     nvrhi::BufferHandle m_smokeDynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeMaterialTableBuffer;
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
+    nvrhi::BufferHandle m_smokeLightCandidateBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::TextureHandle m_smokeAccumulationTexture;
@@ -91,6 +92,9 @@ private:
     int m_smokeEmissiveTriangleCount = 0;
     int m_smokeEmissiveStaticTriangleCount = 0;
     int m_smokeEmissiveDynamicTriangleCount = 0;
+    int m_smokeLightCandidateCount = 0;
+    int m_smokeTexturedLightCandidateCount = 0;
+    int m_smokeLightCandidateBytes = 0;
     uint64 m_smokeAccumulationSignature = 0;
     int m_smokeAccumulationFrameCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;

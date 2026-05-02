@@ -275,6 +275,55 @@ void BuildSmokeEmissiveLightCandidateSummaries(
     }
 }
 
+std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(const RtSmokeEmissiveInventoryStats& stats)
+{
+    std::vector<PathTraceSmokeLightCandidate> candidates;
+    candidates.reserve(Max(1, stats.candidateMaterials));
+    for (const RtSmokeEmissiveLightCandidateSummary& summary : stats.lightCandidates)
+    {
+        PathTraceSmokeLightCandidate candidate = {};
+        candidate.emissiveColorAndLuminance[0] = summary.emissiveColor.x;
+        candidate.emissiveColorAndLuminance[1] = summary.emissiveColor.y;
+        candidate.emissiveColorAndLuminance[2] = summary.emissiveColor.z;
+        candidate.emissiveColorAndLuminance[3] = summary.emissiveLuminance;
+        candidate.areaAndWeightedLuminance[0] = summary.area;
+        candidate.areaAndWeightedLuminance[1] = summary.weightedLuminance;
+        candidate.areaAndWeightedLuminance[2] = 0.0f;
+        candidate.areaAndWeightedLuminance[3] = 0.0f;
+        candidate.materialId = summary.materialId;
+        candidate.materialIndex = summary.materialIndex;
+        candidate.triangleCount = static_cast<uint32_t>(Max(0, summary.triangles));
+        candidate.staticTriangleCount = static_cast<uint32_t>(Max(0, summary.staticTriangles));
+        candidate.dynamicTriangleCount = static_cast<uint32_t>(Max(0, summary.dynamicTriangles));
+        candidate.emissiveTextureIndex = summary.emissiveTextureIndex;
+        candidate.emissiveTextureWidth = summary.emissiveTextureWidth;
+        candidate.emissiveTextureHeight = summary.emissiveTextureHeight;
+        if (summary.hasEmissiveTexture)
+        {
+            candidate.flags |= RT_SMOKE_LIGHT_CANDIDATE_TEXTURED;
+        }
+        if (summary.hasSafeEmissiveTexture)
+        {
+            candidate.flags |= RT_SMOKE_LIGHT_CANDIDATE_SAFE_TEXTURE;
+        }
+        if (summary.staticTriangles > 0)
+        {
+            candidate.flags |= RT_SMOKE_LIGHT_CANDIDATE_HAS_STATIC_TRIANGLES;
+        }
+        if (summary.dynamicTriangles > 0)
+        {
+            candidate.flags |= RT_SMOKE_LIGHT_CANDIDATE_HAS_DYNAMIC_TRIANGLES;
+        }
+        candidates.push_back(candidate);
+    }
+
+    if (candidates.empty())
+    {
+        candidates.resize(1);
+    }
+    return candidates;
+}
+
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

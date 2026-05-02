@@ -20,7 +20,7 @@ bool RtSmokeSceneBufferHandles::IsValid() const
 {
     return staticVertexBuffer && staticIndexBuffer && staticTriangleClassBuffer && staticTriangleMaterialBuffer && staticTriangleMaterialIndexBuffer &&
         dynamicVertexBuffer && dynamicIndexBuffer && dynamicTriangleClassBuffer && dynamicTriangleMaterialBuffer && dynamicTriangleMaterialIndexBuffer &&
-        materialTableBuffer && emissiveTriangleBuffer;
+        materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer;
 }
 
 static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
@@ -77,6 +77,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.dynamicTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialIndexBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes", desc.dynamicTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.materialTableBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialTableBuffer, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false);
     result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
+    result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false);
 
     if (!result.buffers.IsValid())
     {
@@ -195,6 +196,9 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.emissiveTriangleCount = desc.emissiveTriangleCount;
     commitDesc.emissiveStaticTriangleCount = desc.emissiveStaticTriangleCount;
     commitDesc.emissiveDynamicTriangleCount = desc.emissiveDynamicTriangleCount;
+    commitDesc.lightCandidateCount = desc.lightCandidateCount;
+    commitDesc.texturedLightCandidateCount = desc.texturedLightCandidateCount;
+    commitDesc.lightCandidateBytes = desc.lightCandidateBytes;
     return commitDesc;
 }
 
@@ -463,11 +467,15 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
     m_smokeMaterialTableBuffer = nullptr;
     m_smokeEmissiveTriangleBuffer = nullptr;
+    m_smokeLightCandidateBuffer = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;
     m_smokeEmissiveStaticTriangleCount = 0;
     m_smokeEmissiveDynamicTriangleCount = 0;
+    m_smokeLightCandidateCount = 0;
+    m_smokeTexturedLightCandidateCount = 0;
+    m_smokeLightCandidateBytes = 0;
 }
 
 void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc)
@@ -484,6 +492,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeDynamicTriangleMaterialIndexBuffer = desc.buffers.dynamicTriangleMaterialIndexBuffer;
     m_smokeMaterialTableBuffer = desc.buffers.materialTableBuffer;
     m_smokeEmissiveTriangleBuffer = desc.buffers.emissiveTriangleBuffer;
+    m_smokeLightCandidateBuffer = desc.buffers.lightCandidateBuffer;
     m_smokeStaticBlasDesc = desc.staticBlasDesc;
     m_smokeDynamicBlasDesc = desc.dynamicBlasDesc;
     m_smokeStaticBlas = desc.staticBlas;
@@ -500,5 +509,8 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeEmissiveTriangleCount = desc.emissiveTriangleCount;
     m_smokeEmissiveStaticTriangleCount = desc.emissiveStaticTriangleCount;
     m_smokeEmissiveDynamicTriangleCount = desc.emissiveDynamicTriangleCount;
+    m_smokeLightCandidateCount = desc.lightCandidateCount;
+    m_smokeTexturedLightCandidateCount = desc.texturedLightCandidateCount;
+    m_smokeLightCandidateBytes = desc.lightCandidateBytes;
     m_smokeSceneBuilt = true;
 }
