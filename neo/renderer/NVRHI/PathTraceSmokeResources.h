@@ -33,6 +33,7 @@ struct RtSmokeSceneBufferHandles
 struct RtSmokeSceneBufferCreateDesc
 {
     nvrhi::IDevice* device = nullptr;
+    RtSmokeSceneBufferHandles existingBuffers;
     size_t staticVertexBytes = 0;
     size_t staticIndexBytes = 0;
     size_t staticTriangleClassBytes = 0;

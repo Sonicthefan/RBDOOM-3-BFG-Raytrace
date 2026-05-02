@@ -128,9 +128,21 @@ struct RtSmokeBucketRanges
 
 struct RtSmokeSceneCaptureTiming
 {
+    int anchorMs = 0;
+    int anchorSurfaceTests = 0;
+    int anchorBoundsRejects = 0;
+    int anchorTriangleTests = 0;
     int validationMs = 0;
+    int staticPassClassifyMs = 0;
+    int staticCacheLookupMs = 0;
+    int staticAppendMs = 0;
+    int dynamicPassClassifyMs = 0;
+    int dynamicAppendMs = 0;
+    int rtCpuSkinningAppendMs = 0;
     int appendMs = 0;
     int bucketMergeMs = 0;
+    int staticCachedSurfaces = 0;
+    int staticNewSurfaces = 0;
 };
 
 struct RtSmokeSurfaceClassReason
@@ -218,7 +230,7 @@ struct RtSmokeAttributeStats
 void TransformSurfacePointToWorld(const drawSurf_t* drawSurf, const idVec3& localPoint, idVec3& worldPoint);
 void TransformSurfaceVectorToWorld(const drawSurf_t* drawSurf, const idVec3& localVector, idVec3& worldVector);
 bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats);
-bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle);
+bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle, RtSmokeSceneCaptureTiming* captureTiming = nullptr);
 PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints);
 void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition);
 int AppendSmokeSurfaceGeometry(

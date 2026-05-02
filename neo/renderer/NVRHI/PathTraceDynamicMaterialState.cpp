@@ -12,6 +12,8 @@
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
+#include <cstring>
+#include <unordered_map>
 
 
 namespace {
@@ -27,10 +29,205 @@ struct RtSmokeMaterialTableCache
 
 RtSmokeMaterialTableCache g_smokeMaterialTableCache;
 
+struct RtSmokePersistentMaterialRecord
+{
+    bool valid = false;
+    uint64 signature = 0;
+    PathTraceSmokeMaterial material = {};
+    int additiveDecalContribution = 0;
+};
+
+std::unordered_map<uint32_t, RtSmokePersistentMaterialRecord> g_smokePersistentMaterialRecords;
+RtSmokeMaterialUniverseStats g_smokeMaterialUniverseStats;
+int g_smokeMaterialUniverseValidationLogs = 0;
+
+idVec3 SmokeMaterialIdToDebugColor(uint32_t materialId);
+
 uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
     return hash;
+}
+
+uint64 HashSmokeMaterialFloat(uint64 hash, float value)
+{
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return HashSmokeMaterialCacheValue(hash, bits);
+}
+
+uint64 HashSmokeMaterialString(uint64 hash, const idStr& value)
+{
+    const char* cursor = value.c_str();
+    while (*cursor)
+    {
+        hash = HashSmokeMaterialCacheValue(hash, static_cast<uint8_t>(*cursor));
+        ++cursor;
+    }
+    return HashSmokeMaterialCacheValue(hash, 0xffu);
+}
+
+uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
+{
+    uint64 hash = 1469598103934665603ull;
+    hash = HashSmokeMaterialCacheValue(hash, materialId);
+    hash = HashSmokeMaterialString(hash, info.materialName);
+    hash = HashSmokeMaterialCacheValue(hash, info.hasFallbackAlbedo ? 1u : 0u);
+    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.x);
+    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.y);
+    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.z);
+    hash = HashSmokeMaterialFloat(hash, info.fallbackAlbedo.w);
+    hash = HashSmokeMaterialCacheValue(hash, info.hasAlphaTest ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.hasAlphaImage ? 1u : 0u);
+    hash = HashSmokeMaterialFloat(hash, info.alphaCutoff);
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(info.diffuseColorFormat));
+    hash = HashSmokeMaterialCacheValue(hash, info.additiveDecal ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.additiveDecalWhiteKey ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, r_pathTracingAdditiveDecalKey.GetInteger() != 0 ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.filterDecal ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.filterDecalBlackKey ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.forceFallbackAlbedo ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.portalWindowFallback ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.objectGlassFallback ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.emissive ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.hasEmissiveImage ? 1u : 0u);
+    hash = HashSmokeMaterialCacheValue(hash, info.hasSafeEmissiveTexture ? 1u : 0u);
+    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.x);
+    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.y);
+    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.z);
+    hash = HashSmokeMaterialFloat(hash, info.emissiveColor.w);
+    return hash;
+}
+
+RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, uint64 signature)
+{
+    RtSmokePersistentMaterialRecord record;
+    record.valid = true;
+    record.signature = signature;
+
+    const idVec3 color = SmokeMaterialIdToDebugColor(materialId);
+    record.material.debugAlbedo[0] = color.x;
+    record.material.debugAlbedo[1] = color.y;
+    record.material.debugAlbedo[2] = color.z;
+    record.material.debugAlbedo[3] = 1.0f;
+    record.material.emissiveColor[0] = 0.0f;
+    record.material.emissiveColor[1] = 0.0f;
+    record.material.emissiveColor[2] = 0.0f;
+    record.material.emissiveColor[3] = 1.0f;
+
+    if (info.hasFallbackAlbedo)
+    {
+        record.material.debugAlbedo[0] = info.fallbackAlbedo.x;
+        record.material.debugAlbedo[1] = info.fallbackAlbedo.y;
+        record.material.debugAlbedo[2] = info.fallbackAlbedo.z;
+        record.material.debugAlbedo[3] = info.fallbackAlbedo.w;
+    }
+    if (info.hasAlphaTest && info.hasAlphaImage)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_TEST;
+        record.material.alphaCutoff = info.alphaCutoff;
+    }
+    if (info.diffuseColorFormat == CFM_YCOCG_DXT5)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_DIFFUSE_YCOCG;
+    }
+    const bool useAdditiveDecalKey = info.additiveDecalWhiteKey || (info.additiveDecal && r_pathTracingAdditiveDecalKey.GetInteger() != 0);
+    if (useAdditiveDecalKey)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL;
+        if (info.additiveDecalWhiteKey)
+        {
+            record.material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
+        }
+        record.additiveDecalContribution = 1;
+    }
+    if (info.filterDecal)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL;
+    }
+    if (info.filterDecalBlackKey)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY;
+    }
+    if (info.alphaFromDiffuseLuma)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA;
+    }
+    if (info.forceFallbackAlbedo)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO;
+    }
+    if (info.alphaFromDiffuseDarkKey)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY;
+    }
+    if (info.portalWindowFallback)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK;
+    }
+    if (info.objectGlassFallback)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK;
+    }
+    if (info.emissive && (info.hasSafeEmissiveTexture || !info.hasEmissiveImage))
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+        record.material.emissiveColor[0] = info.emissiveColor.x;
+        record.material.emissiveColor[1] = info.emissiveColor.y;
+        record.material.emissiveColor[2] = info.emissiveColor.z;
+        record.material.emissiveColor[3] = info.emissiveColor.w;
+    }
+
+    return record;
+}
+
+bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& lhs, const RtSmokePersistentMaterialRecord& rhs)
+{
+    return lhs.additiveDecalContribution == rhs.additiveDecalContribution &&
+        std::memcmp(&lhs.material, &rhs.material, sizeof(lhs.material)) == 0;
+}
+
+const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
+{
+    const uint64 signature = ComputeSmokePersistentMaterialSignature(materialId, info);
+    RtSmokePersistentMaterialRecord& record = g_smokePersistentMaterialRecords[materialId];
+    if (!record.valid)
+    {
+        ++g_smokeMaterialUniverseStats.misses;
+        record = BuildSmokePersistentMaterialRecord(materialId, info, signature);
+    }
+    else if (record.signature != signature)
+    {
+        ++g_smokeMaterialUniverseStats.rebuilds;
+        record = BuildSmokePersistentMaterialRecord(materialId, info, signature);
+    }
+    else
+    {
+        ++g_smokeMaterialUniverseStats.hits;
+    }
+
+    if (r_pathTracingMaterialUniverseValidate.GetInteger() != 0)
+    {
+        ++g_smokeMaterialUniverseStats.validationChecks;
+        const RtSmokePersistentMaterialRecord validationRecord = BuildSmokePersistentMaterialRecord(materialId, info, signature);
+        if (!SmokePersistentMaterialRecordsEqual(record, validationRecord))
+        {
+            ++g_smokeMaterialUniverseStats.validationMismatches;
+            if (g_smokeMaterialUniverseValidationLogs < 8)
+            {
+                common->Printf("PathTracePrimaryPass: RT smoke material universe validation mismatch materialId=%u material='%s' signature=%llu\n",
+                    materialId,
+                    info.materialName.c_str(),
+                    static_cast<unsigned long long>(signature));
+                ++g_smokeMaterialUniverseValidationLogs;
+            }
+            record = validationRecord;
+        }
+    }
+
+    return record;
 }
 
 uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
@@ -120,81 +317,11 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
         return static_cast<uint32_t>(existing - table.materialIds.begin());
     }
 
-    const idVec3 color = SmokeMaterialIdToDebugColor(materialId);
-    PathTraceSmokeMaterial material = {};
-    material.debugAlbedo[0] = color.x;
-    material.debugAlbedo[1] = color.y;
-    material.debugAlbedo[2] = color.z;
-    material.debugAlbedo[3] = 1.0f;
-    material.emissiveColor[0] = 0.0f;
-    material.emissiveColor[1] = 0.0f;
-    material.emissiveColor[2] = 0.0f;
-    material.emissiveColor[3] = 1.0f;
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, static_cast<int>(table.materials.size()));
-    if (info.hasFallbackAlbedo)
-    {
-        material.debugAlbedo[0] = info.fallbackAlbedo.x;
-        material.debugAlbedo[1] = info.fallbackAlbedo.y;
-        material.debugAlbedo[2] = info.fallbackAlbedo.z;
-        material.debugAlbedo[3] = info.fallbackAlbedo.w;
-    }
-    if (info.hasAlphaTest && info.hasAlphaImage)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_ALPHA_TEST;
-        material.alphaCutoff = info.alphaCutoff;
-    }
-    if (info.diffuseColorFormat == CFM_YCOCG_DXT5)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_DIFFUSE_YCOCG;
-    }
-    const bool useAdditiveDecalKey = info.additiveDecalWhiteKey || (info.additiveDecal && r_pathTracingAdditiveDecalKey.GetInteger() != 0);
-    if (useAdditiveDecalKey)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL;
-        if (info.additiveDecalWhiteKey)
-        {
-            material.flags |= RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY;
-        }
-        ++table.materialsAdditiveDecals;
-    }
-    if (info.filterDecal)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL;
-    }
-    if (info.filterDecalBlackKey)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY;
-    }
-    if (info.alphaFromDiffuseLuma)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA;
-    }
-    if (info.forceFallbackAlbedo)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO;
-    }
-    if (info.alphaFromDiffuseDarkKey)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY;
-    }
-    if (info.portalWindowFallback)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK;
-    }
-    if (info.objectGlassFallback)
-    {
-        material.flags |= RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK;
-    }
-    if (info.emissive && (info.hasSafeEmissiveTexture || !info.hasEmissiveImage))
-    {
-        material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
-        material.emissiveColor[0] = info.emissiveColor.x;
-        material.emissiveColor[1] = info.emissiveColor.y;
-        material.emissiveColor[2] = info.emissiveColor.z;
-        material.emissiveColor[3] = info.emissiveColor.w;
-    }
+    const RtSmokePersistentMaterialRecord& record = GetSmokePersistentMaterialRecord(materialId, info);
     table.materialIds.push_back(materialId);
-    table.materials.push_back(material);
+    table.materials.push_back(record.material);
+    table.materialsAdditiveDecals += record.additiveDecalContribution;
     return static_cast<uint32_t>(table.materials.size() - 1);
 }
 
@@ -227,7 +354,7 @@ bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int 
         tableIndex < static_cast<int>(table.materials.size());
 }
 
-std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table)
+std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table, const std::vector<RtSmokeMaterialTextureInfo>& materialInfos)
 {
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
 
@@ -236,7 +363,7 @@ std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuil
 
     for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
     {
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
+        const RtSmokeMaterialTextureInfo& info = materialInfos[tableIndex];
         if (info.diffuseImage && info.hasTextureHandle && info.hasSafeTexture)
         {
             safeMaterialIndexes.push_back(tableIndex);
@@ -268,15 +395,15 @@ std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuil
     }
 
     std::stable_sort(safeMaterialIndexes.begin(), safeMaterialIndexes.end(),
-        [&table](int lhs, int rhs)
+        [&table, &materialInfos](int lhs, int rhs)
         {
             if (!SmokeMaterialTableIndexIsValid(table, lhs) || !SmokeMaterialTableIndexIsValid(table, rhs))
             {
                 return lhs < rhs;
             }
 
-            const RtSmokeMaterialTextureInfo leftInfo = ResolveSmokeMaterialTextureInfo(table.materialIds[lhs], lhs);
-            const RtSmokeMaterialTextureInfo rightInfo = ResolveSmokeMaterialTextureInfo(table.materialIds[rhs], rhs);
+            const RtSmokeMaterialTextureInfo& leftInfo = materialInfos[lhs];
+            const RtSmokeMaterialTextureInfo& rightInfo = materialInfos[rhs];
 
             const idStr& leftName = SmokeBestSafeTextureName(leftInfo);
             const idStr& rightName = SmokeBestSafeTextureName(rightInfo);
@@ -296,6 +423,19 @@ std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuil
         });
 
     return safeMaterialIndexes;
+}
+
+std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table)
+{
+    const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
+    std::vector<RtSmokeMaterialTextureInfo> materialInfos;
+    materialInfos.reserve(materialTableCount);
+    for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
+    {
+        materialInfos.push_back(ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex));
+    }
+
+    return BuildSmokeSafeMaterialIndexOrder(table, materialInfos);
 }
 
 uint32_t AddSmokeMaterialTextureSlot(RtSmokeMaterialTableBuild& table, nvrhi::TextureHandle texture, int textureTableLimit, int textureTableStart, int& skippedUniqueTextures, std::vector<nvrhi::TextureHandle>& skippedTextures)
@@ -408,6 +548,13 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         return;
     }
 
+    std::vector<RtSmokeMaterialTextureInfo> materialInfos;
+    materialInfos.reserve(materialTableCount);
+    for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
+    {
+        materialInfos.push_back(ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex));
+    }
+
     const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
 
@@ -420,7 +567,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
 
     for (int tableIndex = 0; tableIndex < materialTableCount; ++tableIndex)
     {
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[tableIndex], tableIndex);
+        const RtSmokeMaterialTextureInfo& info = materialInfos[tableIndex];
         if (info.hasAlphaTest)
         {
             ++table.materialsAlphaTested;
@@ -448,7 +595,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
 
     }
 
-    const std::vector<int> safeMaterialIndexes = BuildSmokeSafeMaterialIndexOrder(table);
+    const std::vector<int> safeMaterialIndexes = BuildSmokeSafeMaterialIndexOrder(table, materialInfos);
 
     if (textureTableLimit <= 0)
     {
@@ -482,7 +629,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             continue;
         }
 
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(table.materialIds[safeIndex], safeIndex);
+        const RtSmokeMaterialTextureInfo& info = materialInfos[safeIndex];
         const nvrhi::TextureHandle texture = info.diffuseImage ? info.diffuseImage->GetTextureHandle() : nullptr;
         if (texture && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage))
         {
@@ -629,14 +776,35 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     table.staticMaterialIndexes.reserve(staticMaterialIds.size());
     table.dynamicMaterialIndexes.reserve(dynamicMaterialIds.size());
 
+    std::unordered_map<uint32_t, uint32_t> materialIndexLookup;
+    materialIndexLookup.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
+
     for (uint32_t materialId : staticMaterialIds)
     {
-        table.staticMaterialIndexes.push_back(AddSmokeMaterialTableEntry(table, materialId));
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        if (existing != materialIndexLookup.end())
+        {
+            table.staticMaterialIndexes.push_back(existing->second);
+            continue;
+        }
+
+        const uint32_t tableIndex = AddSmokeMaterialTableEntry(table, materialId);
+        materialIndexLookup.emplace(materialId, tableIndex);
+        table.staticMaterialIndexes.push_back(tableIndex);
     }
 
     for (uint32_t materialId : dynamicMaterialIds)
     {
-        table.dynamicMaterialIndexes.push_back(AddSmokeMaterialTableEntry(table, materialId));
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator existing = materialIndexLookup.find(materialId);
+        if (existing != materialIndexLookup.end())
+        {
+            table.dynamicMaterialIndexes.push_back(existing->second);
+            continue;
+        }
+
+        const uint32_t tableIndex = AddSmokeMaterialTableEntry(table, materialId);
+        materialIndexLookup.emplace(materialId, tableIndex);
+        table.dynamicMaterialIndexes.push_back(tableIndex);
     }
 
     PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
@@ -677,5 +845,12 @@ RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats()
     RtSmokeMaterialTableCacheStats stats;
     stats.hits = g_smokeMaterialTableCache.hits;
     stats.misses = g_smokeMaterialTableCache.misses;
+    return stats;
+}
+
+RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats()
+{
+    RtSmokeMaterialUniverseStats stats = g_smokeMaterialUniverseStats;
+    stats.records = static_cast<int>(g_smokePersistentMaterialRecords.size());
     return stats;
 }

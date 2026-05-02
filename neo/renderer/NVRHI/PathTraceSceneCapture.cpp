@@ -151,7 +151,30 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     return true;
 }
 
-bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle)
+bool SmokeSurfaceBoundsMayHitRay(const drawSurf_t* drawSurf, const srfTriangles_t* tri, const idVec3& rayOrigin, const idVec3& rayDirection)
+{
+    if (!drawSurf || !tri)
+    {
+        return false;
+    }
+
+    idVec3 localPoints[8];
+    tri->bounds.Expand(1.0f).ToPoints(localPoints);
+
+    idBounds worldBounds;
+    worldBounds.Clear();
+    for (int pointIndex = 0; pointIndex < 8; ++pointIndex)
+    {
+        idVec3 worldPoint;
+        TransformSurfacePointToWorld(drawSurf, localPoints[pointIndex], worldPoint);
+        worldBounds.AddPoint(worldPoint);
+    }
+
+    float boundsHitScale = 0.0f;
+    return worldBounds.RayIntersection(rayOrigin, rayDirection, boundsHitScale) && boundsHitScale >= 0.0f;
+}
+
+bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle, RtSmokeSceneCaptureTiming* captureTiming)
 {
     const idVec3 rayOrigin = viewDef->renderView.vieworg;
     idVec3 rayDirection = viewDef->renderView.viewaxis[0];
@@ -162,50 +185,71 @@ bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, in
     anchorSurface = -1;
     anchorTriangle = -1;
 
-    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    for (int anchorPass = 0; anchorPass < 2 && !foundHit; ++anchorPass)
     {
-        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
-        if (!drawSurf || !drawSurf->frontEndGeo)
+        const bool useBoundsCull = anchorPass == 0;
+        for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
-            continue;
-        }
-
-        const srfTriangles_t* tri = nullptr;
-        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
-        {
-            continue;
-        }
-
-        const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
-        for (int index = 0; index + 2 < tri->numIndexes; index += 3)
-        {
-            const int i0 = tri->indexes[index + 0];
-            const int i1 = tri->indexes[index + 1];
-            const int i2 = tri->indexes[index + 2];
-            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            if (!drawSurf || !drawSurf->frontEndGeo)
             {
                 continue;
             }
 
-            idVec3 p0;
-            idVec3 p1;
-            idVec3 p2;
-            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
-            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
-            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
-            if (IsZeroAreaSmokeTriangle(p0, p1, p2))
+            const srfTriangles_t* tri = nullptr;
+            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
             {
                 continue;
             }
 
-            float hitDistance = 0.0f;
-            if (IntersectRayTriangle(rayOrigin, rayDirection, p0, p1, p2, hitDistance) && hitDistance < closestHit)
+            if (captureTiming && useBoundsCull)
             {
-                closestHit = hitDistance;
-                anchorPoint = rayOrigin + rayDirection * hitDistance;
-                anchorSurface = surfaceIndex;
-                anchorTriangle = index / 3;
-                foundHit = true;
+                ++captureTiming->anchorSurfaceTests;
+            }
+            if (useBoundsCull && !SmokeSurfaceBoundsMayHitRay(drawSurf, tri, rayOrigin, rayDirection))
+            {
+                if (captureTiming)
+                {
+                    ++captureTiming->anchorBoundsRejects;
+                }
+                continue;
+            }
+
+            const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
+            for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+            {
+                if (captureTiming && useBoundsCull)
+                {
+                    ++captureTiming->anchorTriangleTests;
+                }
+                const int i0 = tri->indexes[index + 0];
+                const int i1 = tri->indexes[index + 1];
+                const int i2 = tri->indexes[index + 2];
+                if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+                {
+                    continue;
+                }
+
+                idVec3 p0;
+                idVec3 p1;
+                idVec3 p2;
+                TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
+                TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
+                TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
+                if (IsZeroAreaSmokeTriangle(p0, p1, p2))
+                {
+                    continue;
+                }
+
+                float hitDistance = 0.0f;
+                if (IntersectRayTriangle(rayOrigin, rayDirection, p0, p1, p2, hitDistance) && hitDistance < closestHit)
+                {
+                    closestHit = hitDistance;
+                    anchorPoint = rayOrigin + rayDirection * hitDistance;
+                    anchorSurface = surfaceIndex;
+                    anchorTriangle = index / 3;
+                    foundHit = true;
+                }
             }
         }
     }
@@ -705,10 +749,18 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         return false;
     }
 
-    if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle))
+    const int anchorStartMs = Sys_Milliseconds();
+    if (r_pathTracingAnchorRaycast.GetInteger() == 0)
     {
+        sceneOrigin = viewDef->renderView.vieworg;
+        anchorSurface = 0;
+    }
+    else if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle, &captureTiming))
+    {
+        captureTiming.anchorMs = Sys_Milliseconds() - anchorStartMs;
         return false;
     }
+    captureTiming.anchorMs = Sys_Milliseconds() - anchorStartMs;
 
     vertexData.clear();
     indexData.clear();
@@ -747,7 +799,9 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         }
         captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
+        const int classifyStartMs = Sys_Milliseconds();
         const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        captureTiming.staticPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
         if (surfaceClass != RtSmokeSurfaceClass::StaticWorld)
         {
             continue;
@@ -757,13 +811,16 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
         const uint32_t materialId = SmokeMaterialId(drawSurf->material);
         const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
+        const int cacheLookupStartMs = Sys_Milliseconds();
         const bool staticSurfaceCached = std::find(staticSurfaceKeys.begin(), staticSurfaceKeys.end(), staticSurfaceKey) != staticSurfaceKeys.end();
+        captureTiming.staticCacheLookupMs += Sys_Milliseconds() - cacheLookupStartMs;
         ++sourceSurfaces;
         ++bucketRanges.buckets[0].surfaceCount;
         AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
 
         if (staticSurfaceCached)
         {
+            ++captureTiming.staticCachedSurfaces;
             sourceVerts += tri->numVerts;
             sourceIndexes += tri->numIndexes;
             AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
@@ -799,12 +856,15 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             staticTriangleMaterialCache,
             skipStats,
             attributeStats);
-        captureTiming.appendMs += Sys_Milliseconds() - appendStartMs;
+        const int appendMs = Sys_Milliseconds() - appendStartMs;
+        captureTiming.staticAppendMs += appendMs;
+        captureTiming.appendMs += appendMs;
         if (emittedIndexes <= 0)
         {
             continue;
         }
 
+        ++captureTiming.staticNewSurfaces;
         staticSurfaceKeys.push_back(staticSurfaceKey);
         staticCacheChanged = true;
         sourceVerts += tri->numVerts;
@@ -835,7 +895,9 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             break;
         }
 
+        const int classifyStartMs = Sys_Milliseconds();
         const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
         const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
         const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
         const uint32_t materialId = SmokeMaterialId(drawSurf->material);
@@ -859,6 +921,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
         std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+        const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
         const int appendStartMs = Sys_Milliseconds();
         const int emittedIndexes = AppendSmokeSurfaceGeometry(
             drawSurf,
@@ -875,7 +938,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             bucketMaterials,
             skipStats,
             attributeStats);
-        captureTiming.appendMs += Sys_Milliseconds() - appendStartMs;
+        const int appendMs = Sys_Milliseconds() - appendStartMs;
+        captureTiming.dynamicAppendMs += appendMs;
+        captureTiming.appendMs += appendMs;
+        if (usesRtCpuSkinning)
+        {
+            captureTiming.rtCpuSkinningAppendMs += appendMs;
+        }
         if (emittedIndexes <= 0)
         {
             continue;

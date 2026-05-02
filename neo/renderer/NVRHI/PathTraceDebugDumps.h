@@ -38,7 +38,14 @@ struct RtSmokeSlowSceneBuildLogDesc
 {
     int sceneMs = 0;
     int captureMs = 0;
+    int captureAnchorMs = 0;
     int captureValidationMs = 0;
+    int captureStaticPassClassifyMs = 0;
+    int captureStaticCacheLookupMs = 0;
+    int captureStaticAppendMs = 0;
+    int captureDynamicPassClassifyMs = 0;
+    int captureDynamicAppendMs = 0;
+    int captureRtCpuSkinningAppendMs = 0;
     int captureAppendMs = 0;
     int captureBucketMergeMs = 0;
     int metadataMs = 0;
@@ -55,12 +62,18 @@ struct RtSmokeSlowSceneBuildLogDesc
     int sourceVerts = 0;
     int sourceIndexes = 0;
     int dynamicIndexCount = 0;
+    int staticCachedSurfaces = 0;
+    int staticNewSurfaces = 0;
+    int anchorSurfaceTests = 0;
+    int anchorBoundsRejects = 0;
+    int anchorTriangleTests = 0;
     int skinnedRtCpuSurfaces = 0;
     int skinnedRtCpuIndexes = 0;
     bool staticBlasCacheHit = false;
     bool materialTableCacheHit = false;
     int materialTableCacheHits = 0;
     int materialTableCacheMisses = 0;
+    RtSmokeMaterialUniverseStats materialUniverseStats;
     bool materialMetadataCacheEnabled = false;
     int metadataCacheRefreshes = 0;
     int metadataFullDiscovers = 0;
@@ -98,6 +111,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
     bool materialTableCacheHit = false;
     uint64 materialTableSignature = 0;
     RtSmokeMaterialTableCacheStats materialTableCacheStats;
+    RtSmokeMaterialUniverseStats materialUniverseStats;
     const RtSmokeMaterialStats* materialStats = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
     bool enableTextureProbe = false;
@@ -162,6 +176,7 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     const RtSmokeBucketRanges* bucketRanges = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
     const RtSmokeMaterialTableCacheStats* materialTableCacheStats = nullptr;
+    const RtSmokeMaterialUniverseStats* materialUniverseStats = nullptr;
     const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;
     const RtSmokeSurfaceClassReasonSamples* reasonSamples = nullptr;
     int* lastSceneTimingLogMs = nullptr;

@@ -309,6 +309,12 @@ idCVar r_pathTracingSkipCallbackEntities(
     CVAR_RENDERER | CVAR_INTEGER,
     "Skip custom-shader deferred callback render entities in RT smoke capture to avoid item/pickup lifetime hazards" );
 
+idCVar r_pathTracingAnchorRaycast(
+    "r_pathTracingAnchorRaycast",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use center-ray scene anchor and dynamic-surface ordering for RT smoke capture; slower but useful when surface caps hide important geometry" );
+
 idCVar r_pathTracingMaterialMetadataCache(
     "r_pathTracingMaterialMetadataCache",
     "1",
@@ -350,3 +356,9 @@ idCVar r_pathTracingMaterialCache(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental RT smoke material-table cache; currently ignored while material-index stability is validated" );
+
+idCVar r_pathTracingMaterialUniverseValidate(
+    "r_pathTracingMaterialUniverseValidate",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Validate persistent RT smoke material records against a fresh direct rebuild and log mismatches" );

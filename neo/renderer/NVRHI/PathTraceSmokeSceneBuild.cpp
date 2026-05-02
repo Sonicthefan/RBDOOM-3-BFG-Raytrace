@@ -104,6 +104,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bool materialTableCacheHit = false;
     BuildSmokeMaterialTableCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
     const RtSmokeMaterialTableCacheStats materialTableCacheStats = GetSmokeMaterialTableCacheStats();
+    const RtSmokeMaterialUniverseStats materialUniverseStats = GetSmokeMaterialUniverseStats();
     if (!ValidateSmokeMaterialIndexes(materialTable))
     {
         common->Printf("PathTracePrimaryPass: invalid RT smoke material table, skipping scene build\n");
@@ -155,6 +156,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int bufferCreateStartMs = Sys_Milliseconds();
     RtSmokeSceneBufferCreateDesc bufferCreateDesc;
     bufferCreateDesc.device = device;
+    bufferCreateDesc.existingBuffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
+    bufferCreateDesc.existingBuffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
+    bufferCreateDesc.existingBuffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
+    bufferCreateDesc.existingBuffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
+    bufferCreateDesc.existingBuffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+    bufferCreateDesc.existingBuffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
+    bufferCreateDesc.existingBuffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+    bufferCreateDesc.existingBuffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
+    bufferCreateDesc.existingBuffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
+    bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+    bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
+    bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
     bufferCreateDesc.staticVertexBytes = m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]);
     bufferCreateDesc.staticIndexBytes = m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]);
     bufferCreateDesc.staticTriangleClassBytes = m_smokeStaticTriangleClassCache.size() * sizeof(m_smokeStaticTriangleClassCache[0]);
@@ -419,6 +432,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.bucketRanges = &bucketRanges;
     sceneLogDesc.materialTable = &materialTable;
     sceneLogDesc.materialTableCacheStats = &materialTableCacheStats;
+    sceneLogDesc.materialUniverseStats = &materialUniverseStats;
     sceneLogDesc.textureCoverageStats = &textureCoverageStats;
     sceneLogDesc.reasonSamples = &reasonSamples;
     sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
