@@ -15,7 +15,6 @@
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceSurfaceClassification.h"
-#include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
 #include "../GLMatrix.h"
@@ -459,100 +458,52 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     CommitRayTracingSmokeSceneResources(resourceCommitDesc);
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
-    if (ShouldLogSmokeTiming(sceneMs, Sys_Milliseconds(), g_smokeLastSceneTimingLogMs))
-    {
-        RtSmokeSlowSceneBuildLogDesc slowLog;
-        slowLog.sceneMs = sceneMs;
-        slowLog.captureMs = captureMs;
-        slowLog.captureValidationMs = captureTiming.validationMs;
-        slowLog.captureAppendMs = captureTiming.appendMs;
-        slowLog.captureBucketMergeMs = captureTiming.bucketMergeMs;
-        slowLog.metadataMs = metadataMs;
-        slowLog.metadataValidationMs = metadataValidationMs;
-        slowLog.metadataRegistrationMs = metadataRegistrationMs;
-        slowLog.materialMs = materialMs;
-        slowLog.emissiveMs = emissiveMs;
-        slowLog.bufferCreateMs = bufferCreateMs;
-        slowLog.bufferUploadMs = bufferUploadMs;
-        slowLog.accelSubmitMs = accelSubmitMs;
-        slowLog.blasSubmitMs = blasSubmitMs;
-        slowLog.tlasSubmitMs = tlasSubmitMs;
-        slowLog.sourceSurfaces = sourceSurfaces;
-        slowLog.sourceVerts = sourceVerts;
-        slowLog.sourceIndexes = sourceIndexes;
-        slowLog.dynamicIndexCount = dynamicIndexCount;
-        slowLog.skinnedRtCpuSurfaces = dynamicStats.skinnedRtCpuSkinnedSurfaces;
-        slowLog.skinnedRtCpuIndexes = dynamicStats.skinnedRtCpuSkinnedIndexes;
-        slowLog.staticBlasCacheHit = staticBlasCacheHit;
-        slowLog.materialTableCacheHit = materialTableCacheHit;
-        slowLog.materialTableCacheHits = materialTableCacheStats.hits;
-        slowLog.materialTableCacheMisses = materialTableCacheStats.misses;
-        slowLog.materialMetadataCacheEnabled = r_pathTracingMaterialMetadataCache.GetInteger() != 0;
-        slowLog.metadataCacheRefreshes = g_smokeMaterialMetadataFrameStats.cacheRefreshes;
-        slowLog.metadataFullDiscovers = g_smokeMaterialMetadataFrameStats.fullDiscovers;
-        slowLog.metadataNewEntries = g_smokeMaterialMetadataFrameStats.newEntries;
-        slowLog.metadataRegistrations = g_smokeMaterialMetadataFrameStats.registrations;
-        slowLog.metadataDuplicateSkips = g_smokeMaterialMetadataFrameStats.duplicateSkips;
-        slowLog.metadataRegistrySize = SmokeMaterialTextureRegistrySize();
-        slowLog.guiTextureCandidates = materialTable.guiTextureCandidates;
-        slowLog.guiTexturesAccepted = materialTable.guiTexturesAccepted;
-        slowLog.guiTexturesRejected = materialTable.guiTexturesRejected;
-        slowLog.additiveDecals = materialTable.materialsAdditiveDecals;
-        slowLog.lightCount = r_pathTracingLightCount.GetInteger();
-        slowLog.debugMode = requestedDebugMode;
-        LogSmokeSlowSceneBuild(slowLog);
-    }
-
-    RtSmokeSceneBuildSummaryLogDesc sceneSummaryLog;
-    sceneSummaryLog.sourceSurfaces = sourceSurfaces;
-    sceneSummaryLog.sourceVerts = sourceVerts;
-    sceneSummaryLog.sourceIndexes = sourceIndexes;
-    sceneSummaryLog.anchorTriangle = anchorTriangle;
-    sceneSummaryLog.staticIndexCount = staticIndexCount;
-    sceneSummaryLog.dynamicIndexCount = dynamicIndexCount;
-    sceneSummaryLog.instanceCount = instanceCount;
-    sceneSummaryLog.classStats = classStats;
-    sceneSummaryLog.skipStats = skipStats;
-    sceneSummaryLog.dynamicStats = dynamicStats;
-    sceneSummaryLog.allowGuiSurfaces = r_pathTracingAllowGuiSurfaces.GetInteger() != 0;
-    sceneSummaryLog.skipCallbackEntities = r_pathTracingSkipCallbackEntities.GetInteger() != 0;
-    sceneSummaryLog.staticBlasCacheHit = staticBlasCacheHit;
-    sceneSummaryLog.staticBlasSignature = staticSignature.hash;
-    sceneSummaryLog.staticSurfaceCacheSize = static_cast<int>(m_smokeStaticSurfaceKeys.size());
-    sceneSummaryLog.staticBlasCacheHitCount = m_smokeStaticBlasCacheHitCount;
-    sceneSummaryLog.staticBlasCacheMissCount = m_smokeStaticBlasCacheMissCount;
-    sceneSummaryLog.materialTableCacheHit = materialTableCacheHit;
-    sceneSummaryLog.materialTableSignature = materialTableSignature;
-    sceneSummaryLog.materialTableCacheStats = materialTableCacheStats;
-    sceneSummaryLog.materialStats = &materialStats;
-    sceneSummaryLog.materialTable = &materialTable;
-    sceneSummaryLog.enableTextureProbe = enableTextureProbe;
-    sceneSummaryLog.textureCoverageStats = &textureCoverageStats;
-    sceneSummaryLog.attributeStats = &attributeStats;
-    sceneSummaryLog.bucketRanges = &bucketRanges;
-
-    if (r_pathTracingSmokeLog.GetInteger() != 0 && !m_smokeSceneRebuildLogged)
-    {
-        LogSmokeSceneRebuildSummary(sceneSummaryLog);
-        m_smokeSceneRebuildLogged = true;
-    }
-
-    if (dumpClassReasons)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke one-shot surface classification sample dump\n");
-        LogSmokeSurfaceClassReasonSamples(reasonSamples);
-        r_pathTracingClassDump.SetInteger(0);
-    }
-
-    if (r_pathTracingSmokeLog.GetInteger() != 0 && m_smokeSceneLogCooldownFrames <= 0)
-    {
-        LogSmokeSceneCaptureSummary(sceneSummaryLog);
-        m_smokeSceneLogCooldownFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;
-    }
-    else
-    {
-        --m_smokeSceneLogCooldownFrames;
-    }
+    RtSmokeSceneBuildDiagnosticLogDesc sceneLogDesc;
+    sceneLogDesc.sceneMs = sceneMs;
+    sceneLogDesc.captureMs = captureMs;
+    sceneLogDesc.metadataMs = metadataMs;
+    sceneLogDesc.metadataValidationMs = metadataValidationMs;
+    sceneLogDesc.metadataRegistrationMs = metadataRegistrationMs;
+    sceneLogDesc.materialMs = materialMs;
+    sceneLogDesc.emissiveMs = emissiveMs;
+    sceneLogDesc.bufferCreateMs = bufferCreateMs;
+    sceneLogDesc.bufferUploadMs = bufferUploadMs;
+    sceneLogDesc.accelSubmitMs = accelSubmitMs;
+    sceneLogDesc.blasSubmitMs = blasSubmitMs;
+    sceneLogDesc.tlasSubmitMs = tlasSubmitMs;
+    sceneLogDesc.sourceSurfaces = sourceSurfaces;
+    sceneLogDesc.sourceVerts = sourceVerts;
+    sceneLogDesc.sourceIndexes = sourceIndexes;
+    sceneLogDesc.anchorTriangle = anchorTriangle;
+    sceneLogDesc.staticIndexCount = staticIndexCount;
+    sceneLogDesc.dynamicIndexCount = dynamicIndexCount;
+    sceneLogDesc.instanceCount = instanceCount;
+    sceneLogDesc.requestedDebugMode = requestedDebugMode;
+    sceneLogDesc.staticSurfaceCacheSize = static_cast<int>(m_smokeStaticSurfaceKeys.size());
+    sceneLogDesc.staticBlasCacheHitCount = m_smokeStaticBlasCacheHitCount;
+    sceneLogDesc.staticBlasCacheMissCount = m_smokeStaticBlasCacheMissCount;
+    sceneLogDesc.sceneCaptureLogIntervalFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;
+    sceneLogDesc.staticBlasCacheHit = staticBlasCacheHit;
+    sceneLogDesc.materialTableCacheHit = materialTableCacheHit;
+    sceneLogDesc.enableTextureProbe = enableTextureProbe;
+    sceneLogDesc.dumpClassReasons = dumpClassReasons;
+    sceneLogDesc.staticBlasSignature = staticSignature.hash;
+    sceneLogDesc.materialTableSignature = materialTableSignature;
+    sceneLogDesc.captureTiming = captureTiming;
+    sceneLogDesc.classStats = &classStats;
+    sceneLogDesc.skipStats = &skipStats;
+    sceneLogDesc.dynamicStats = &dynamicStats;
+    sceneLogDesc.attributeStats = &attributeStats;
+    sceneLogDesc.materialStats = &materialStats;
+    sceneLogDesc.bucketRanges = &bucketRanges;
+    sceneLogDesc.materialTable = &materialTable;
+    sceneLogDesc.materialTableCacheStats = &materialTableCacheStats;
+    sceneLogDesc.textureCoverageStats = &textureCoverageStats;
+    sceneLogDesc.reasonSamples = &reasonSamples;
+    sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
+    sceneLogDesc.sceneRebuildLogged = &m_smokeSceneRebuildLogged;
+    sceneLogDesc.sceneLogCooldownFrames = &m_smokeSceneLogCooldownFrames;
+    RunSmokeSceneBuildDiagnosticLogs(sceneLogDesc);
 }
 
 void PathTracePrimaryPass::PresentDebugOutput()

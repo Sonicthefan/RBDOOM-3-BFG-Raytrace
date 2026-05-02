@@ -4,6 +4,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
 
@@ -1316,5 +1317,110 @@ void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryD
     {
         LogSmokeEmissiveInventoryDump(desc.materialTable->materialIds, *desc.emissiveTriangles, *desc.emissiveInventoryStats);
         r_pathTracingEmissiveInventoryDump.SetInteger(0);
+    }
+}
+
+void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& desc)
+{
+    if (!desc.lastSceneTimingLogMs || !desc.sceneRebuildLogged || !desc.sceneLogCooldownFrames ||
+        !desc.classStats || !desc.skipStats || !desc.dynamicStats || !desc.attributeStats ||
+        !desc.materialStats || !desc.bucketRanges || !desc.materialTable || !desc.materialTableCacheStats || !desc.textureCoverageStats)
+    {
+        return;
+    }
+
+    if (ShouldLogSmokeTiming(desc.sceneMs, Sys_Milliseconds(), *desc.lastSceneTimingLogMs))
+    {
+        RtSmokeSlowSceneBuildLogDesc slowLog;
+        slowLog.sceneMs = desc.sceneMs;
+        slowLog.captureMs = desc.captureMs;
+        slowLog.captureValidationMs = desc.captureTiming.validationMs;
+        slowLog.captureAppendMs = desc.captureTiming.appendMs;
+        slowLog.captureBucketMergeMs = desc.captureTiming.bucketMergeMs;
+        slowLog.metadataMs = desc.metadataMs;
+        slowLog.metadataValidationMs = desc.metadataValidationMs;
+        slowLog.metadataRegistrationMs = desc.metadataRegistrationMs;
+        slowLog.materialMs = desc.materialMs;
+        slowLog.emissiveMs = desc.emissiveMs;
+        slowLog.bufferCreateMs = desc.bufferCreateMs;
+        slowLog.bufferUploadMs = desc.bufferUploadMs;
+        slowLog.accelSubmitMs = desc.accelSubmitMs;
+        slowLog.blasSubmitMs = desc.blasSubmitMs;
+        slowLog.tlasSubmitMs = desc.tlasSubmitMs;
+        slowLog.sourceSurfaces = desc.sourceSurfaces;
+        slowLog.sourceVerts = desc.sourceVerts;
+        slowLog.sourceIndexes = desc.sourceIndexes;
+        slowLog.dynamicIndexCount = desc.dynamicIndexCount;
+        slowLog.skinnedRtCpuSurfaces = desc.dynamicStats->skinnedRtCpuSkinnedSurfaces;
+        slowLog.skinnedRtCpuIndexes = desc.dynamicStats->skinnedRtCpuSkinnedIndexes;
+        slowLog.staticBlasCacheHit = desc.staticBlasCacheHit;
+        slowLog.materialTableCacheHit = desc.materialTableCacheHit;
+        slowLog.materialTableCacheHits = desc.materialTableCacheStats->hits;
+        slowLog.materialTableCacheMisses = desc.materialTableCacheStats->misses;
+        slowLog.materialMetadataCacheEnabled = r_pathTracingMaterialMetadataCache.GetInteger() != 0;
+        slowLog.metadataCacheRefreshes = g_smokeMaterialMetadataFrameStats.cacheRefreshes;
+        slowLog.metadataFullDiscovers = g_smokeMaterialMetadataFrameStats.fullDiscovers;
+        slowLog.metadataNewEntries = g_smokeMaterialMetadataFrameStats.newEntries;
+        slowLog.metadataRegistrations = g_smokeMaterialMetadataFrameStats.registrations;
+        slowLog.metadataDuplicateSkips = g_smokeMaterialMetadataFrameStats.duplicateSkips;
+        slowLog.metadataRegistrySize = SmokeMaterialTextureRegistrySize();
+        slowLog.guiTextureCandidates = desc.materialTable->guiTextureCandidates;
+        slowLog.guiTexturesAccepted = desc.materialTable->guiTexturesAccepted;
+        slowLog.guiTexturesRejected = desc.materialTable->guiTexturesRejected;
+        slowLog.additiveDecals = desc.materialTable->materialsAdditiveDecals;
+        slowLog.lightCount = r_pathTracingLightCount.GetInteger();
+        slowLog.debugMode = desc.requestedDebugMode;
+        LogSmokeSlowSceneBuild(slowLog);
+    }
+
+    RtSmokeSceneBuildSummaryLogDesc sceneSummaryLog;
+    sceneSummaryLog.sourceSurfaces = desc.sourceSurfaces;
+    sceneSummaryLog.sourceVerts = desc.sourceVerts;
+    sceneSummaryLog.sourceIndexes = desc.sourceIndexes;
+    sceneSummaryLog.anchorTriangle = desc.anchorTriangle;
+    sceneSummaryLog.staticIndexCount = desc.staticIndexCount;
+    sceneSummaryLog.dynamicIndexCount = desc.dynamicIndexCount;
+    sceneSummaryLog.instanceCount = desc.instanceCount;
+    sceneSummaryLog.classStats = *desc.classStats;
+    sceneSummaryLog.skipStats = *desc.skipStats;
+    sceneSummaryLog.dynamicStats = *desc.dynamicStats;
+    sceneSummaryLog.allowGuiSurfaces = r_pathTracingAllowGuiSurfaces.GetInteger() != 0;
+    sceneSummaryLog.skipCallbackEntities = r_pathTracingSkipCallbackEntities.GetInteger() != 0;
+    sceneSummaryLog.staticBlasCacheHit = desc.staticBlasCacheHit;
+    sceneSummaryLog.staticBlasSignature = desc.staticBlasSignature;
+    sceneSummaryLog.staticSurfaceCacheSize = desc.staticSurfaceCacheSize;
+    sceneSummaryLog.staticBlasCacheHitCount = desc.staticBlasCacheHitCount;
+    sceneSummaryLog.staticBlasCacheMissCount = desc.staticBlasCacheMissCount;
+    sceneSummaryLog.materialTableCacheHit = desc.materialTableCacheHit;
+    sceneSummaryLog.materialTableSignature = desc.materialTableSignature;
+    sceneSummaryLog.materialTableCacheStats = *desc.materialTableCacheStats;
+    sceneSummaryLog.materialStats = desc.materialStats;
+    sceneSummaryLog.materialTable = desc.materialTable;
+    sceneSummaryLog.enableTextureProbe = desc.enableTextureProbe;
+    sceneSummaryLog.textureCoverageStats = desc.textureCoverageStats;
+    sceneSummaryLog.attributeStats = desc.attributeStats;
+    sceneSummaryLog.bucketRanges = desc.bucketRanges;
+
+    if (r_pathTracingSmokeLog.GetInteger() != 0 && !*desc.sceneRebuildLogged)
+    {
+        LogSmokeSceneRebuildSummary(sceneSummaryLog);
+        *desc.sceneRebuildLogged = true;
+    }
+
+    if (desc.dumpClassReasons && desc.reasonSamples)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke one-shot surface classification sample dump\n");
+        LogSmokeSurfaceClassReasonSamples(*desc.reasonSamples);
+        r_pathTracingClassDump.SetInteger(0);
+    }
+
+    if (r_pathTracingSmokeLog.GetInteger() != 0 && *desc.sceneLogCooldownFrames <= 0)
+    {
+        LogSmokeSceneCaptureSummary(sceneSummaryLog);
+        *desc.sceneLogCooldownFrames = desc.sceneCaptureLogIntervalFrames;
+    }
+    else
+    {
+        --*desc.sceneLogCooldownFrames;
     }
 }
