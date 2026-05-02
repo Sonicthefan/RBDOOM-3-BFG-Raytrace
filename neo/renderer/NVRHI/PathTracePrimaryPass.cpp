@@ -9,6 +9,7 @@
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSkinning.h"
+#include "PathTraceSmokeResources.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
@@ -3074,20 +3075,6 @@ void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, n
     triangleGeometry.vertexStride = RT_SMOKE_VERTEX_STRIDE;
 }
 
-nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput)
-{
-    nvrhi::BufferDesc desc;
-    desc.byteSize = byteSize > structStride ? byteSize : structStride;
-    desc.debugName = debugName;
-    desc.structStride = structStride;
-    desc.isVertexBuffer = vertexBuffer;
-    desc.isIndexBuffer = indexBuffer;
-    desc.isAccelStructBuildInput = accelStructInput;
-    desc.initialState = nvrhi::ResourceStates::Common;
-    desc.keepInitialState = true;
-    return device->createBuffer(desc);
-}
-
 uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size)
 {
     const byte* bytes = static_cast<const byte*>(data);
@@ -4584,23 +4571,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
     const int accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
 
-    nvrhi::BindingSetDesc bindingSetDesc;
-    bindingSetDesc.bindings = {
-        nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
-        nvrhi::BindingSetItem::Texture_UAV(1, m_smokeOutputTexture),
-        nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(3, smokeStaticVertexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(4, smokeStaticIndexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(5, smokeStaticTriangleClassBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(6, smokeDynamicVertexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(7, smokeDynamicIndexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(8, smokeDynamicTriangleClassBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(9, smokeStaticTriangleMaterialBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(10, smokeDynamicTriangleMaterialBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(11, smokeStaticTriangleMaterialIndexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(12, smokeDynamicTriangleMaterialIndexBuffer),
-        nvrhi::BindingSetItem::StructuredBuffer_SRV(13, smokeMaterialTableBuffer)
-    };
     const nvrhi::TextureHandle fallbackTexture = globalImages && globalImages->whiteImage ? globalImages->whiteImage->GetTextureHandle() : nullptr;
     if (!fallbackTexture)
     {
@@ -4608,63 +4578,47 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    nvrhi::DescriptorTableHandle smokeTextureDescriptorTable = m_smokeTextureDescriptorTable;
-    std::vector<nvrhi::TextureHandle> smokeActiveTextureTable;
-    smokeActiveTextureTable.push_back(fallbackTexture);
-    if (enableTextureProbe)
+    RtSmokeSceneBufferHandles smokeBuffers;
+    smokeBuffers.staticVertexBuffer = smokeStaticVertexBuffer;
+    smokeBuffers.staticIndexBuffer = smokeStaticIndexBuffer;
+    smokeBuffers.staticTriangleClassBuffer = smokeStaticTriangleClassBuffer;
+    smokeBuffers.staticTriangleMaterialBuffer = smokeStaticTriangleMaterialBuffer;
+    smokeBuffers.staticTriangleMaterialIndexBuffer = smokeStaticTriangleMaterialIndexBuffer;
+    smokeBuffers.dynamicVertexBuffer = smokeDynamicVertexBuffer;
+    smokeBuffers.dynamicIndexBuffer = smokeDynamicIndexBuffer;
+    smokeBuffers.dynamicTriangleClassBuffer = smokeDynamicTriangleClassBuffer;
+    smokeBuffers.dynamicTriangleMaterialBuffer = smokeDynamicTriangleMaterialBuffer;
+    smokeBuffers.dynamicTriangleMaterialIndexBuffer = smokeDynamicTriangleMaterialIndexBuffer;
+    smokeBuffers.materialTableBuffer = smokeMaterialTableBuffer;
+    smokeBuffers.emissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
+
+    RtSmokeBindingBuildDesc bindingBuildDesc;
+    bindingBuildDesc.device = device;
+    bindingBuildDesc.tlas = m_smokeTlas;
+    bindingBuildDesc.outputTexture = m_smokeOutputTexture;
+    bindingBuildDesc.accumulationTexture = m_smokeAccumulationTexture;
+    bindingBuildDesc.fallbackTexture = fallbackTexture;
+    bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
+    bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
+    bindingBuildDesc.textureBindlessLayout = m_smokeTextureBindlessLayout;
+    bindingBuildDesc.existingTextureDescriptorTable = m_smokeTextureDescriptorTable;
+    bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
+    bindingBuildDesc.buffers = smokeBuffers;
+    bindingBuildDesc.enableTextureProbe = enableTextureProbe;
+    bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
+    bindingBuildDesc.maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;
+
+    RtSmokeBindingBuildResult bindingBuildResult = CreateSmokeBindingResources(bindingBuildDesc, materialTable);
+    if (!bindingBuildResult.Succeeded())
     {
-        const bool forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
-        if (!smokeTextureDescriptorTable)
+        if (bindingBuildResult.failedTextureSlot >= 0)
         {
-            smokeTextureDescriptorTable = device->createDescriptorTable(m_smokeTextureBindlessLayout);
+            common->Printf("PathTracePrimaryPass: %s %d\n", bindingBuildResult.errorMessage, bindingBuildResult.failedTextureSlot);
         }
-        if (!smokeTextureDescriptorTable)
+        else
         {
-            common->Printf("PathTracePrimaryPass: failed to create RT smoke texture descriptor table\n");
-            return;
+            common->Printf("PathTracePrimaryPass: %s\n", bindingBuildResult.errorMessage ? bindingBuildResult.errorMessage : "failed to create RT smoke binding resources");
         }
-
-        const int textureSlotCount = idMath::ClampInt(1, RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP, Max(static_cast<int>(materialTable.diffuseTextures.size()), 1));
-        smokeActiveTextureTable.reserve(textureSlotCount + 1);
-        for (int textureSlot = 0; textureSlot < textureSlotCount; ++textureSlot)
-        {
-            nvrhi::TextureHandle texture = fallbackTexture;
-            if (!forceFallbackTexture && textureSlot >= 0 && textureSlot < static_cast<int>(materialTable.diffuseTextures.size()))
-            {
-                const nvrhi::TextureHandle candidateTexture = materialTable.diffuseTextures[textureSlot];
-                if (candidateTexture)
-                {
-                    texture = candidateTexture;
-                }
-            }
-            if (!IsSmokeTextureHandleSafeForDescriptor(texture))
-            {
-                ++materialTable.descriptorsReplacedWithFallback;
-                texture = fallbackTexture;
-            }
-
-            smokeActiveTextureTable.push_back(texture);
-        }
-
-        for (int textureSlot = 0; textureSlot < textureSlotCount; ++textureSlot)
-        {
-            nvrhi::TextureHandle texture = smokeActiveTextureTable[textureSlot + 1];
-            if (!device->writeDescriptorTable(smokeTextureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))
-            {
-                common->Printf("PathTracePrimaryPass: failed to write RT smoke bindless texture descriptor slot %d\n", textureSlot);
-                return;
-            }
-        }
-    }
-
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, fallbackTexture));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(15, m_smokeAccumulationTexture));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, smokeEmissiveTriangleBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
-    nvrhi::BindingSetHandle smokeBindingSet = device->createBindingSet(bindingSetDesc, m_smokeBindingLayout);
-    if (!smokeBindingSet)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke binding set\n");
         return;
     }
 
@@ -4689,9 +4643,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticBlasCacheValid = true;
         m_smokeStaticBlasSignature = staticSignature.hash;
     }
-    m_smokeBindingSet = smokeBindingSet;
-    m_smokeTextureDescriptorTable = smokeTextureDescriptorTable;
-    m_smokeActiveTextureTable = smokeActiveTextureTable;
+    m_smokeBindingSet = bindingBuildResult.bindingSet;
+    m_smokeTextureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+    m_smokeActiveTextureTable = bindingBuildResult.activeTextureTable;
     m_smokeMaterialTableEntryCount = static_cast<int>(materialTable.materials.size());
     m_smokeEmissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     m_smokeEmissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
