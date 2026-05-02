@@ -68,6 +68,36 @@ struct RtSmokeSlowSceneBuildLogDesc
     int debugMode = 0;
 };
 
+struct RtSmokeSceneBuildSummaryLogDesc
+{
+    int sourceSurfaces = 0;
+    int sourceVerts = 0;
+    int sourceIndexes = 0;
+    int anchorTriangle = -1;
+    int staticIndexCount = 0;
+    int dynamicIndexCount = 0;
+    int instanceCount = 0;
+    RtSmokeSurfaceClassStats classStats;
+    RtSmokeSurfaceSkipStats skipStats;
+    RtSmokeDynamicGeometryStats dynamicStats;
+    bool allowGuiSurfaces = false;
+    bool skipCallbackEntities = false;
+    bool staticBlasCacheHit = false;
+    uint64 staticBlasSignature = 0;
+    int staticSurfaceCacheSize = 0;
+    int staticBlasCacheHitCount = 0;
+    int staticBlasCacheMissCount = 0;
+    bool materialTableCacheHit = false;
+    uint64 materialTableSignature = 0;
+    RtSmokeMaterialTableCacheStats materialTableCacheStats;
+    const RtSmokeMaterialStats* materialStats = nullptr;
+    const RtSmokeMaterialTableBuild* materialTable = nullptr;
+    bool enableTextureProbe = false;
+    const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;
+    const RtSmokeAttributeStats* attributeStats = nullptr;
+    const RtSmokeBucketRanges* bucketRanges = nullptr;
+};
+
 const char* SmokeCoverageName(materialCoverage_t coverage);
 const char* SmokeStageLightingName(stageLighting_t lighting);
 const char* SmokeTexgenName(texgen_t texgen);
@@ -78,6 +108,8 @@ const char* SmokeDynamicModelName(dynamicModel_t dynamicModel);
 
 bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs);
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc);
+void LogSmokeSceneRebuildSummary(const RtSmokeSceneBuildSummaryLogDesc& desc);
+void LogSmokeSceneCaptureSummary(const RtSmokeSceneBuildSummaryLogDesc& desc);
 void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& samples);
 void LogSmokeBucketRanges(const RtSmokeBucketRanges& ranges);
 void LogSmokeAttributeStats(const RtSmokeAttributeStats& stats);

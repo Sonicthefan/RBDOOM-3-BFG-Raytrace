@@ -538,48 +538,37 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         LogSmokeSlowSceneBuild(slowLog);
     }
 
+    RtSmokeSceneBuildSummaryLogDesc sceneSummaryLog;
+    sceneSummaryLog.sourceSurfaces = sourceSurfaces;
+    sceneSummaryLog.sourceVerts = sourceVerts;
+    sceneSummaryLog.sourceIndexes = sourceIndexes;
+    sceneSummaryLog.anchorTriangle = anchorTriangle;
+    sceneSummaryLog.staticIndexCount = staticIndexCount;
+    sceneSummaryLog.dynamicIndexCount = dynamicIndexCount;
+    sceneSummaryLog.instanceCount = instanceCount;
+    sceneSummaryLog.classStats = classStats;
+    sceneSummaryLog.skipStats = skipStats;
+    sceneSummaryLog.dynamicStats = dynamicStats;
+    sceneSummaryLog.allowGuiSurfaces = r_pathTracingAllowGuiSurfaces.GetInteger() != 0;
+    sceneSummaryLog.skipCallbackEntities = r_pathTracingSkipCallbackEntities.GetInteger() != 0;
+    sceneSummaryLog.staticBlasCacheHit = staticBlasCacheHit;
+    sceneSummaryLog.staticBlasSignature = staticSignature.hash;
+    sceneSummaryLog.staticSurfaceCacheSize = static_cast<int>(m_smokeStaticSurfaceKeys.size());
+    sceneSummaryLog.staticBlasCacheHitCount = m_smokeStaticBlasCacheHitCount;
+    sceneSummaryLog.staticBlasCacheMissCount = m_smokeStaticBlasCacheMissCount;
+    sceneSummaryLog.materialTableCacheHit = materialTableCacheHit;
+    sceneSummaryLog.materialTableSignature = materialTableSignature;
+    sceneSummaryLog.materialTableCacheStats = materialTableCacheStats;
+    sceneSummaryLog.materialStats = &materialStats;
+    sceneSummaryLog.materialTable = &materialTable;
+    sceneSummaryLog.enableTextureProbe = enableTextureProbe;
+    sceneSummaryLog.textureCoverageStats = &textureCoverageStats;
+    sceneSummaryLog.attributeStats = &attributeStats;
+    sceneSummaryLog.bucketRanges = &bucketRanges;
+
     if (r_pathTracingSmokeLog.GetInteger() != 0 && !m_smokeSceneRebuildLogged)
     {
-        common->Printf("PathTracePrimaryPass: rebuilding RT smoke BLAS/TLAS every frame from current visible Doom surfaces (first frame: %d surfaces, %d verts, %d indexes, anchor triangle %d)\n",
-            sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle);
-        common->Printf("PathTracePrimaryPass: RT smoke capture buckets static-world=%d rigid-entity=%d skinned=%d particle/alpha=%d unknown=%d\n",
-            classStats.staticWorldSurfaces,
-            classStats.rigidEntitySurfaces,
-            classStats.skinnedDeformedSurfaces,
-            classStats.particleAlphaSurfaces,
-            classStats.unknownSurfaces);
-        common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
-            staticIndexCount, dynamicIndexCount, instanceCount);
-        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedRtCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
-            dynamicStats.rigidSurfaces, dynamicStats.rigidIndexes,
-            dynamicStats.skinnedCpuCurrentSurfaces, dynamicStats.skinnedCpuCurrentIndexes,
-            dynamicStats.skinnedRtCpuSkinnedSurfaces, dynamicStats.skinnedRtCpuSkinnedIndexes,
-            dynamicStats.skinnedLikelyBasePoseSurfaces, dynamicStats.skinnedLikelyBasePoseIndexes,
-            dynamicStats.particleAlphaSurfaces, dynamicStats.particleAlphaIndexes,
-            dynamicStats.unknownSurfaces, dynamicStats.unknownIndexes);
-        common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu cacheSurfaces=%d hits=%d misses=%d\n",
-            staticBlasCacheHit ? "hit" : "rebuild",
-            static_cast<unsigned long long>(staticSignature.hash),
-            static_cast<int>(m_smokeStaticSurfaceKeys.size()),
-            m_smokeStaticBlasCacheHitCount,
-            m_smokeStaticBlasCacheMissCount);
-        common->Printf("PathTracePrimaryPass: RT smoke material table cache %s signature=%llu hits=%d misses=%d materials=%d textures=%d\n",
-            materialTableCacheHit ? "hit" : "rebuild",
-            static_cast<unsigned long long>(materialTableSignature),
-            materialTableCacheStats.hits,
-            materialTableCacheStats.misses,
-            static_cast<int>(materialTable.materials.size()),
-            static_cast<int>(materialTable.diffuseTextures.size()));
-        LogSmokeMaterialStats(materialStats);
-        LogSmokeMaterialTable(materialTable);
-        if (enableTextureProbe)
-        {
-            LogSmokeTextureProbe(materialTable);
-            LogSmokeTextureCoverage(textureCoverageStats);
-            LogSmokeMaterialTextureDiscovery(materialTable);
-        }
-        LogSmokeAttributeStats(attributeStats);
-        LogSmokeBucketRanges(bucketRanges);
+        LogSmokeSceneRebuildSummary(sceneSummaryLog);
         m_smokeSceneRebuildLogged = true;
     }
 
@@ -592,62 +581,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     if (r_pathTracingSmokeLog.GetInteger() != 0 && m_smokeSceneLogCooldownFrames <= 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke scene capture %d surfaces (dynamic cap %d), %d/%d verts, %d/%d indexes, anchor triangle %d; skipped null=%d geo=%d material=%d gui=%d allowGuiSurfaces=%d space=%d model=%d callback=%d skipCallbacks=%d indexes=%d cache=%d limits=%d zeroArea=%d emptyClass=%d; buckets static-world=%d(%dv/%di/%dt) rigid-entity=%d(%dv/%di/%dt) skinned=%d(%dv/%di/%dt) particle/alpha=%d(%dv/%di/%dt) unknown=%d(%dv/%di/%dt)\n",
-            sourceSurfaces, RT_SMOKE_MAX_SURFACES,
-            sourceVerts, RT_SMOKE_MAX_VERTS,
-            sourceIndexes, RT_SMOKE_MAX_INDEXES,
-            anchorTriangle,
-            skipStats.nullSurface,
-            skipStats.missingGeometry,
-            skipStats.nullMaterial,
-            skipStats.guiSurface,
-            r_pathTracingAllowGuiSurfaces.GetInteger() != 0 ? 1 : 0,
-            skipStats.nullSpace,
-            skipStats.nullModel,
-            skipStats.callbackEntity,
-            r_pathTracingSkipCallbackEntities.GetInteger() != 0 ? 1 : 0,
-            skipStats.invalidIndexCount,
-            skipStats.nonCurrentCache,
-            skipStats.limitExceeded,
-            skipStats.zeroAreaOnly,
-            skipStats.emptyClassBuffer,
-            classStats.staticWorldSurfaces, classStats.staticWorldVerts, classStats.staticWorldIndexes, classStats.staticWorldTriangles,
-            classStats.rigidEntitySurfaces, classStats.rigidEntityVerts, classStats.rigidEntityIndexes, classStats.rigidEntityTriangles,
-            classStats.skinnedDeformedSurfaces, classStats.skinnedDeformedVerts, classStats.skinnedDeformedIndexes, classStats.skinnedDeformedTriangles,
-            classStats.particleAlphaSurfaces, classStats.particleAlphaVerts, classStats.particleAlphaIndexes, classStats.particleAlphaTriangles,
-            classStats.unknownSurfaces, classStats.unknownVerts, classStats.unknownIndexes, classStats.unknownTriangles);
-        common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
-            staticIndexCount, dynamicIndexCount, instanceCount);
-        common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedRtCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
-            dynamicStats.rigidSurfaces, dynamicStats.rigidIndexes,
-            dynamicStats.skinnedCpuCurrentSurfaces, dynamicStats.skinnedCpuCurrentIndexes,
-            dynamicStats.skinnedRtCpuSkinnedSurfaces, dynamicStats.skinnedRtCpuSkinnedIndexes,
-            dynamicStats.skinnedLikelyBasePoseSurfaces, dynamicStats.skinnedLikelyBasePoseIndexes,
-            dynamicStats.particleAlphaSurfaces, dynamicStats.particleAlphaIndexes,
-            dynamicStats.unknownSurfaces, dynamicStats.unknownIndexes);
-        common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu cacheSurfaces=%d hits=%d misses=%d\n",
-            staticBlasCacheHit ? "hit" : "rebuild",
-            static_cast<unsigned long long>(staticSignature.hash),
-            static_cast<int>(m_smokeStaticSurfaceKeys.size()),
-            m_smokeStaticBlasCacheHitCount,
-            m_smokeStaticBlasCacheMissCount);
-        common->Printf("PathTracePrimaryPass: RT smoke material table cache %s signature=%llu hits=%d misses=%d materials=%d textures=%d\n",
-            materialTableCacheHit ? "hit" : "rebuild",
-            static_cast<unsigned long long>(materialTableSignature),
-            materialTableCacheStats.hits,
-            materialTableCacheStats.misses,
-            static_cast<int>(materialTable.materials.size()),
-            static_cast<int>(materialTable.diffuseTextures.size()));
-        LogSmokeMaterialStats(materialStats);
-        LogSmokeMaterialTable(materialTable);
-        if (enableTextureProbe)
-        {
-            LogSmokeTextureProbe(materialTable);
-            LogSmokeTextureCoverage(textureCoverageStats);
-            LogSmokeMaterialTextureDiscovery(materialTable);
-        }
-        LogSmokeAttributeStats(attributeStats);
-        LogSmokeBucketRanges(bucketRanges);
+        LogSmokeSceneCaptureSummary(sceneSummaryLog);
         m_smokeSceneLogCooldownFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;
     }
     else
