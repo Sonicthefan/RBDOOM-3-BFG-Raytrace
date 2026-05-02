@@ -24,7 +24,49 @@ struct RtSmokeStaticBlasSignature
     int triangleCount = 0;
 };
 
+struct RtSmokeBlasCreateDesc
+{
+    nvrhi::IDevice* device = nullptr;
+    nvrhi::BufferHandle vertexBuffer;
+    nvrhi::BufferHandle indexBuffer;
+    int vertexCount = 0;
+    int indexCount = 0;
+    const char* debugName = nullptr;
+};
+
+struct RtSmokeBlasCreateResult
+{
+    nvrhi::rt::AccelStructDesc accelStructDesc;
+    nvrhi::rt::AccelStructHandle accelStruct;
+    const char* errorMessage = nullptr;
+
+    bool Succeeded() const { return accelStruct && errorMessage == nullptr; }
+};
+
+struct RtSmokeAccelSubmitDesc
+{
+    nvrhi::ICommandList* commandList = nullptr;
+    nvrhi::rt::AccelStructHandle tlas;
+    nvrhi::rt::AccelStructHandle staticBlas;
+    nvrhi::rt::AccelStructHandle dynamicBlas;
+    nvrhi::rt::AccelStructDesc staticBlasDesc;
+    nvrhi::rt::AccelStructDesc dynamicBlasDesc;
+    bool hasStaticBlas = false;
+    bool hasDynamicBlas = false;
+    bool staticBlasCacheHit = false;
+};
+
+struct RtSmokeAccelSubmitTiming
+{
+    int blasSubmitMs = 0;
+    int tlasSubmitMs = 0;
+    int accelSubmitMs = 0;
+    int instanceCount = 0;
+};
+
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount);
+RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc);
+bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAccelSubmitTiming& timing);
 uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size);
 uint64 HashSmokeFloatQuantized(uint64 hash, float value, float scale);
 RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(

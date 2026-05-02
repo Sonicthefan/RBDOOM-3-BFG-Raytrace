@@ -3,6 +3,8 @@
 
 #include "PathTraceAcceleration.h"
 
+#include <nvrhi/utils.h>
+
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount)
 {
     triangleGeometry.indexBuffer = indexBuffer;
@@ -14,6 +16,85 @@ void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, n
     triangleGeometry.indexCount = static_cast<uint32_t>(indexCount);
     triangleGeometry.vertexCount = static_cast<uint32_t>(totalVertexCount);
     triangleGeometry.vertexStride = sizeof(PathTraceSmokeVertex);
+}
+
+RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
+{
+    RtSmokeBlasCreateResult result;
+    if (!desc.device || !desc.vertexBuffer || !desc.indexBuffer || desc.vertexCount <= 0 || desc.indexCount <= 0)
+    {
+        result.errorMessage = "invalid RT smoke BLAS create inputs";
+        return result;
+    }
+
+    nvrhi::rt::GeometryTriangles triangleGeometry;
+    InitSmokeTriangleGeometry(triangleGeometry, desc.vertexBuffer, desc.indexBuffer, desc.vertexCount, 0, desc.indexCount);
+
+    nvrhi::rt::GeometryDesc geometryDesc;
+    geometryDesc.setTriangles(triangleGeometry);
+
+    result.accelStructDesc = nvrhi::rt::AccelStructDesc()
+        .addBottomLevelGeometry(geometryDesc)
+        .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
+        .setDebugName(desc.debugName);
+    result.accelStruct = desc.device->createAccelStruct(result.accelStructDesc);
+    if (!result.accelStruct)
+    {
+        result.errorMessage = "failed to create RT smoke BLAS";
+    }
+    return result;
+}
+
+bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAccelSubmitTiming& timing)
+{
+    timing = RtSmokeAccelSubmitTiming();
+    if (!desc.commandList || !desc.tlas || (!desc.hasStaticBlas && !desc.hasDynamicBlas))
+    {
+        return false;
+    }
+
+    const int accelSubmitStartMs = Sys_Milliseconds();
+    const int blasSubmitStartMs = Sys_Milliseconds();
+    if (desc.hasStaticBlas && !desc.staticBlasCacheHit)
+    {
+        nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.staticBlas, desc.staticBlasDesc);
+    }
+
+    if (desc.hasDynamicBlas)
+    {
+        nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.dynamicBlas, desc.dynamicBlasDesc);
+    }
+    timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
+
+    nvrhi::rt::InstanceDesc instanceDescs[2];
+    int instanceCount = 0;
+    if (desc.hasStaticBlas)
+    {
+        instanceDescs[instanceCount]
+            .setInstanceID(0)
+            .setInstanceMask(0xff)
+            .setInstanceContributionToHitGroupIndex(0)
+            .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
+            .setBLAS(desc.staticBlas);
+        ++instanceCount;
+    }
+    if (desc.hasDynamicBlas)
+    {
+        instanceDescs[instanceCount]
+            .setInstanceID(1)
+            .setInstanceMask(0xff)
+            .setInstanceContributionToHitGroupIndex(0)
+            .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
+            .setBLAS(desc.dynamicBlas);
+        ++instanceCount;
+    }
+
+    const int tlasSubmitStartMs = Sys_Milliseconds();
+    desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs, instanceCount, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+    timing.tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
+    timing.accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
+    timing.instanceCount = instanceCount;
+    return true;
 }
 
 uint64 HashSmokeBytes(uint64 hash, const void* data, size_t size)
