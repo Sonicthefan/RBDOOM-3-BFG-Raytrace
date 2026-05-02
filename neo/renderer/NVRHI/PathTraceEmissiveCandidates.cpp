@@ -187,6 +187,94 @@ std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::v
     return materialViews;
 }
 
+void BuildSmokeEmissiveLightCandidateSummaries(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    stats.lightCandidates.clear();
+    stats.lightCandidates.reserve(stats.uniqueMaterials);
+    stats.candidateMaterials = 0;
+    stats.texturedCandidateMaterials = 0;
+    stats.untexturedCandidateMaterials = 0;
+
+    for (int triangleIndex = 0; triangleIndex < stats.capturedTriangles; ++triangleIndex)
+    {
+        const PathTraceSmokeEmissiveTriangle& record = emissiveTriangles[triangleIndex];
+        const int materialIndex = static_cast<int>(record.materialIndex);
+        if (materialIndex < 0 || materialIndex >= static_cast<int>(materialIds.size()))
+        {
+            continue;
+        }
+
+        const uint32_t materialId = materialIds[materialIndex];
+        RtSmokeEmissiveLightCandidateSummary* candidate = nullptr;
+        for (RtSmokeEmissiveLightCandidateSummary& existing : stats.lightCandidates)
+        {
+            if (existing.materialId == materialId)
+            {
+                candidate = &existing;
+                break;
+            }
+        }
+
+        if (!candidate)
+        {
+            const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
+            const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
+            RtSmokeEmissiveLightCandidateSummary newCandidate = {};
+            newCandidate.materialId = materialId;
+            newCandidate.materialIndex = record.materialIndex;
+            newCandidate.emissiveColor = facts.emissiveColor;
+            newCandidate.emissiveLuminance = facts.emissiveLuminance;
+            newCandidate.hasEmissiveTexture = facts.hasEmissiveImage;
+            newCandidate.hasSafeEmissiveTexture = facts.hasSafeEmissiveTexture;
+            newCandidate.emissiveTextureIndex = record.emissiveTextureIndex;
+            newCandidate.emissiveTextureWidth = record.emissiveTextureWidth;
+            newCandidate.emissiveTextureHeight = record.emissiveTextureHeight;
+            stats.lightCandidates.push_back(newCandidate);
+            candidate = &stats.lightCandidates.back();
+        }
+
+        ++candidate->triangles;
+        if (record.instanceId == 0)
+        {
+            ++candidate->staticTriangles;
+        }
+        else
+        {
+            ++candidate->dynamicTriangles;
+        }
+        candidate->area += record.centerAndArea[3];
+        candidate->weightedLuminance += record.centroidUvAndWeight[2];
+        if (candidate->emissiveTextureIndex == UINT32_MAX && record.emissiveTextureIndex != UINT32_MAX)
+        {
+            candidate->emissiveTextureIndex = record.emissiveTextureIndex;
+            candidate->emissiveTextureWidth = record.emissiveTextureWidth;
+            candidate->emissiveTextureHeight = record.emissiveTextureHeight;
+        }
+    }
+
+    std::sort(stats.lightCandidates.begin(), stats.lightCandidates.end(),
+        [](const RtSmokeEmissiveLightCandidateSummary& lhs, const RtSmokeEmissiveLightCandidateSummary& rhs)
+        {
+            return lhs.weightedLuminance > rhs.weightedLuminance;
+        });
+
+    stats.candidateMaterials = static_cast<int>(stats.lightCandidates.size());
+    for (const RtSmokeEmissiveLightCandidateSummary& candidate : stats.lightCandidates)
+    {
+        if (candidate.emissiveTextureIndex != UINT32_MAX)
+        {
+            ++stats.texturedCandidateMaterials;
+        }
+        else
+        {
+            ++stats.untexturedCandidateMaterials;
+        }
+    }
+}
+
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
@@ -213,6 +301,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     AppendSmokeEmissiveInventoryForGeometry(materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    BuildSmokeEmissiveLightCandidateSummaries(materialIds, emissiveTriangles, stats);
     if (emissiveTriangles.empty())
     {
         emissiveTriangles.resize(1);
@@ -236,6 +325,35 @@ void LogSmokeEmissiveInventoryDump(
         stats.skippedInvalidMaterialTriangles,
         stats.totalArea,
         stats.totalWeightedLuminance);
+
+    common->Printf("PathTracePrimaryPass: RT smoke emissive candidates materials=%d textured=%d untextured=%d triangles=%d area=%.2f areaWeightedLum=%.3f\n",
+        stats.candidateMaterials,
+        stats.texturedCandidateMaterials,
+        stats.untexturedCandidateMaterials,
+        stats.capturedTriangles,
+        stats.totalArea,
+        stats.totalWeightedLuminance);
+
+    const int maxCandidateLogged = Min(8, static_cast<int>(stats.lightCandidates.size()));
+    for (int candidateIndex = 0; candidateIndex < maxCandidateLogged; ++candidateIndex)
+    {
+        const RtSmokeEmissiveLightCandidateSummary& candidate = stats.lightCandidates[candidateIndex];
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(candidate.materialId, static_cast<int>(candidate.materialIndex));
+        common->Printf("  candidate[%d]: materialId=%u materialIndex=%u triangles=%d static=%d dynamic=%d area=%.2f areaLum=%.3f lum=%.3f emissiveSlot=%d safeEmissive=%d material='%s' emissive='%s'\n",
+            candidateIndex,
+            candidate.materialId,
+            candidate.materialIndex,
+            candidate.triangles,
+            candidate.staticTriangles,
+            candidate.dynamicTriangles,
+            candidate.area,
+            candidate.weightedLuminance,
+            candidate.emissiveLuminance,
+            candidate.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(candidate.emissiveTextureIndex),
+            candidate.hasSafeEmissiveTexture ? 1 : 0,
+            info.materialName.c_str(),
+            info.emissiveImageName.c_str());
+    }
 
     std::vector<RtSmokeEmissiveInventoryMaterialSummary> materialSummaries;
     materialSummaries.reserve(stats.uniqueMaterials);

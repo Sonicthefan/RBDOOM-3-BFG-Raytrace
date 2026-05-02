@@ -55,6 +55,24 @@ struct PathTraceSmokeEmissiveTriangle
 };
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
+struct RtSmokeEmissiveLightCandidateSummary
+{
+    uint32_t materialId = 0;
+    uint32_t materialIndex = 0;
+    int triangles = 0;
+    int staticTriangles = 0;
+    int dynamicTriangles = 0;
+    float area = 0.0f;
+    float weightedLuminance = 0.0f;
+    float emissiveLuminance = 0.0f;
+    idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    bool hasEmissiveTexture = false;
+    bool hasSafeEmissiveTexture = false;
+    uint32_t emissiveTextureIndex = UINT32_MAX;
+    uint32_t emissiveTextureWidth = 1;
+    uint32_t emissiveTextureHeight = 1;
+};
+
 struct RtSmokeEmissiveInventoryStats
 {
     int totalTriangles = 0;
@@ -68,6 +86,10 @@ struct RtSmokeEmissiveInventoryStats
     float totalArea = 0.0f;
     float totalWeightedLuminance = 0.0f;
     std::vector<uint32_t> materialIndexes;
+    std::vector<RtSmokeEmissiveLightCandidateSummary> lightCandidates;
+    int candidateMaterials = 0;
+    int texturedCandidateMaterials = 0;
+    int untexturedCandidateMaterials = 0;
 };
 
 struct RtSmokeEmissiveInventoryMaterialSummary
