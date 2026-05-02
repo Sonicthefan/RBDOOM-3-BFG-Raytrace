@@ -93,3 +93,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
     RtSmokeEmissiveInventoryStats& stats);
+void LogSmokeEmissiveInventoryDump(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    const RtSmokeEmissiveInventoryStats& stats);
