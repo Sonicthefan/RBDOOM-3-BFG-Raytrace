@@ -719,6 +719,7 @@ struct RtSmokeMaterialMetadataFrameStats
     int cacheRefreshes = 0;
     int fullDiscovers = 0;
     int newEntries = 0;
+    int duplicateSkips = 0;
 };
 
 struct RtSmokeBucketRange
@@ -735,6 +736,13 @@ struct RtSmokeBucketRange
 struct RtSmokeBucketRanges
 {
     RtSmokeBucketRange buckets[RT_SMOKE_CLASS_COUNT];
+};
+
+struct RtSmokeSceneCaptureTiming
+{
+    int validationMs = 0;
+    int appendMs = 0;
+    int bucketMergeMs = 0;
 };
 
 struct RtSmokeTextureCoverageClassStats
@@ -4249,7 +4257,7 @@ void LogSmokeGuiSurfaceDump(const viewDef_t* viewDef, const RtSmokeMaterialTable
         logged);
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint64>& staticSurfaceKeys, std::vector<PathTraceSmokeVertex>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, std::vector<uint32_t>& staticTriangleMaterialCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint64>& staticSurfaceKeys, std::vector<PathTraceSmokeVertex>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, std::vector<uint32_t>& staticTriangleMaterialCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
     sourceSurfaces = 0;
     sourceVerts = 0;
@@ -4263,6 +4271,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     attributeStats = RtSmokeAttributeStats();
     materialStats = RtSmokeMaterialStats();
     bucketRanges = RtSmokeBucketRanges();
+    captureTiming = RtSmokeSceneCaptureTiming();
     if (reasonSamples)
     {
         *reasonSamples = RtSmokeSurfaceClassReasonSamples();
@@ -4307,10 +4316,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     {
         const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
         const srfTriangles_t* tri = nullptr;
+        const int validationStartMs = Sys_Milliseconds();
         if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
         {
+            captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
             continue;
         }
+        captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
         const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
         if (surfaceClass != RtSmokeSurfaceClass::StaticWorld)
@@ -4348,6 +4360,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             continue;
         }
 
+        const int appendStartMs = Sys_Milliseconds();
         const int emittedIndexes = AppendSmokeSurfaceGeometry(
             drawSurf,
             tri,
@@ -4363,6 +4376,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             staticTriangleMaterialCache,
             skipStats,
             attributeStats);
+        captureTiming.appendMs += Sys_Milliseconds() - appendStartMs;
         if (emittedIndexes <= 0)
         {
             continue;
@@ -4384,10 +4398,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
         const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
         const srfTriangles_t* tri = nullptr;
+        const int validationStartMs = Sys_Milliseconds();
         if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
         {
+            captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
             continue;
         }
+        captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
         if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
         {
@@ -4419,6 +4436,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
         std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+        const int appendStartMs = Sys_Milliseconds();
         const int emittedIndexes = AppendSmokeSurfaceGeometry(
             drawSurf,
             tri,
@@ -4434,6 +4452,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             bucketMaterials,
             skipStats,
             attributeStats);
+        captureTiming.appendMs += Sys_Milliseconds() - appendStartMs;
         if (emittedIndexes <= 0)
         {
             continue;
@@ -4459,6 +4478,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         }
     }
 
+    const int bucketMergeStartMs = Sys_Milliseconds();
     RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];
     staticRange.vertexOffset = 0;
     staticRange.indexOffset = 0;
@@ -4491,6 +4511,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
         triangleMaterialData.insert(triangleMaterialData.end(), bucketTriangleMaterialData[bucketIndex].begin(), bucketTriangleMaterialData[bucketIndex].end());
     }
+    captureTiming.bucketMergeMs = Sys_Milliseconds() - bucketMergeStartMs;
 
     if ((staticTriangleClassCache.empty() && triangleClassData.empty()) ||
         (staticTriangleMaterialCache.empty() && triangleMaterialData.empty()))
@@ -4888,8 +4909,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool dumpClassReasons = r_pathTracingClassDump.GetInteger() != 0;
     RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
+    RtSmokeSceneCaptureTiming captureTiming;
     const int captureStartMs = Sys_Milliseconds();
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, dumpClassReasons ? &reasonSamples : nullptr);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
     const int captureMs = Sys_Milliseconds() - captureStartMs;
     if (!usingDoomSurfaces)
     {
@@ -4903,18 +4925,35 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     g_smokeMaterialMetadataFrameStats = RtSmokeMaterialMetadataFrameStats();
     const int metadataStartMs = Sys_Milliseconds();
+    int metadataValidationMs = 0;
+    int metadataRegistrationMs = 0;
     if (enableTextureProbe)
     {
+        std::vector<uint32_t> registeredMaterialIds;
+        registeredMaterialIds.reserve(viewDef->numDrawSurfs);
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
             const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
             const srfTriangles_t* tri = nullptr;
+            const int validationStartMs = Sys_Milliseconds();
             if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
             {
+                metadataValidationMs += Sys_Milliseconds() - validationStartMs;
+                continue;
+            }
+            metadataValidationMs += Sys_Milliseconds() - validationStartMs;
+
+            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+            if (std::find(registeredMaterialIds.begin(), registeredMaterialIds.end(), materialId) != registeredMaterialIds.end())
+            {
+                ++g_smokeMaterialMetadataFrameStats.duplicateSkips;
                 continue;
             }
 
+            registeredMaterialIds.push_back(materialId);
+            const int registrationStartMs = Sys_Milliseconds();
             RegisterSmokeMaterialTextureInfo(drawSurf->material);
+            metadataRegistrationMs += Sys_Milliseconds() - registrationStartMs;
         }
     }
     const int metadataMs = Sys_Milliseconds() - metadataStartMs;
@@ -4983,6 +5022,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
+    const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
         materialTable.materials,
         m_smokeStaticVertexCache,
@@ -4998,6 +5038,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
         idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger()),
         emissiveInventoryStats);
+    const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
     if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0)
     {
         LogSmokeEmissiveInventoryDump(materialTable.materialIds, emissiveTriangles, emissiveInventoryStats);
@@ -5191,6 +5232,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int bufferUploadMs = Sys_Milliseconds() - bufferUploadStartMs;
 
     const int accelSubmitStartMs = Sys_Milliseconds();
+    const int blasSubmitStartMs = Sys_Milliseconds();
     if (hasStaticBlas && !staticBlasCacheHit)
     {
         nvrhi::utils::BuildBottomLevelAccelStruct(commandList, smokeStaticBlas, smokeStaticBlasDesc);
@@ -5200,6 +5242,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         nvrhi::utils::BuildBottomLevelAccelStruct(commandList, smokeDynamicBlas, smokeDynamicBlasDesc);
     }
+    const int blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
 
     nvrhi::rt::InstanceDesc instanceDescs[2];
     int instanceCount = 0;
@@ -5224,7 +5267,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         ++instanceCount;
     }
 
+    const int tlasSubmitStartMs = Sys_Milliseconds();
     commandList->buildTopLevelAccelStruct(m_smokeTlas, instanceDescs, instanceCount, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+    const int tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
     const int accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
 
     nvrhi::BindingSetDesc bindingSetDesc;
@@ -5344,14 +5389,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     if (ShouldLogSmokeTiming(sceneMs, Sys_Milliseconds(), g_smokeLastSceneTimingLogMs))
     {
-        common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d metadata=%d material=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCount=%d debugMode=%d\n",
+        common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d validate=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialCacheHit=%d materialCache=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCount=%d debugMode=%d\n",
             sceneMs,
             captureMs,
+            captureTiming.validationMs,
+            captureTiming.appendMs,
+            captureTiming.bucketMergeMs,
             metadataMs,
+            metadataValidationMs,
+            metadataRegistrationMs,
             materialMs,
+            emissiveMs,
             bufferCreateMs,
             bufferUploadMs,
             accelSubmitMs,
+            blasSubmitMs,
+            tlasSubmitMs,
             sourceSurfaces,
             sourceVerts,
             sourceIndexes,
@@ -5367,6 +5420,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             g_smokeMaterialMetadataFrameStats.fullDiscovers,
             g_smokeMaterialMetadataFrameStats.newEntries,
             g_smokeMaterialMetadataFrameStats.registrations,
+            g_smokeMaterialMetadataFrameStats.duplicateSkips,
             SmokeMaterialTextureRegistrySize(),
             materialTable.guiTextureCandidates,
             materialTable.guiTexturesAccepted,
