@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceMaterialUniverse.h"
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
@@ -143,7 +144,50 @@ void AppendSmokeEmissiveInventoryForGeometry(
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
 }
 
+std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::vector<uint32_t>& materialIds, const std::vector<PathTraceSmokeMaterial>& frameMaterials, uint32_t emissiveMaterialFlag)
+{
+    std::vector<PathTraceSmokeMaterial> materialViews = frameMaterials;
+    const int materialCount = Min(static_cast<int>(materialIds.size()), static_cast<int>(frameMaterials.size()));
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialIds[materialIndex], materialIndex);
+        const RtSmokePersistentMaterialRecord& universeRecord = GetSmokePersistentMaterialRecord(materialIds[materialIndex], info);
+        PathTraceSmokeMaterial material = universeRecord.material;
+
+        // Texture descriptor slots are frame-local; stable flags/color come from the universe.
+        material.diffuseTextureIndex = frameMaterials[materialIndex].diffuseTextureIndex;
+        material.alphaTextureIndex = frameMaterials[materialIndex].alphaTextureIndex;
+        material.normalTextureIndex = frameMaterials[materialIndex].normalTextureIndex;
+        material.specularTextureIndex = frameMaterials[materialIndex].specularTextureIndex;
+        material.emissiveTextureIndex = frameMaterials[materialIndex].emissiveTextureIndex;
+        material.textureWidth = frameMaterials[materialIndex].textureWidth;
+        material.textureHeight = frameMaterials[materialIndex].textureHeight;
+        material.alphaTextureWidth = frameMaterials[materialIndex].alphaTextureWidth;
+        material.alphaTextureHeight = frameMaterials[materialIndex].alphaTextureHeight;
+        material.normalTextureWidth = frameMaterials[materialIndex].normalTextureWidth;
+        material.normalTextureHeight = frameMaterials[materialIndex].normalTextureHeight;
+        material.specularTextureWidth = frameMaterials[materialIndex].specularTextureWidth;
+        material.specularTextureHeight = frameMaterials[materialIndex].specularTextureHeight;
+        material.emissiveTextureWidth = frameMaterials[materialIndex].emissiveTextureWidth;
+        material.emissiveTextureHeight = frameMaterials[materialIndex].emissiveTextureHeight;
+
+        if ((frameMaterials[materialIndex].flags & emissiveMaterialFlag) == 0)
+        {
+            material.flags &= ~emissiveMaterialFlag;
+            material.emissiveColor[0] = 0.0f;
+            material.emissiveColor[1] = 0.0f;
+            material.emissiveColor[2] = 0.0f;
+            material.emissiveColor[3] = 1.0f;
+        }
+
+        materialViews[materialIndex] = material;
+    }
+
+    return materialViews;
+}
+
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
     const std::vector<PathTraceSmokeVertex>& staticVertices,
     const std::vector<uint32_t>& staticIndexes,
@@ -163,8 +207,9 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     maxRecords = Max(1, maxRecords);
     emissiveTriangles.reserve(Min(maxRecords, 1024));
-    AppendSmokeEmissiveInventoryForGeometry(materials, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
-    AppendSmokeEmissiveInventoryForGeometry(materials, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    const std::vector<PathTraceSmokeMaterial> materialViews = BuildSmokeEmissiveMaterialViews(materialIds, materials, emissiveMaterialFlag);
+    AppendSmokeEmissiveInventoryForGeometry(materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
     if (emissiveTriangles.empty())

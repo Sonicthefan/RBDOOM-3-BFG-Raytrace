@@ -85,6 +85,7 @@ struct RtSmokeEmissiveInventoryMaterialSummary
 
 float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
     const std::vector<PathTraceSmokeVertex>& staticVertices,
     const std::vector<uint32_t>& staticIndexes,

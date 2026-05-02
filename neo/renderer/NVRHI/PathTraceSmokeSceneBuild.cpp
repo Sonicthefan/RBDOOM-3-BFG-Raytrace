@@ -132,6 +132,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
+        materialTable.materialIds,
         materialTable.materials,
         m_smokeStaticVertexCache,
         m_smokeStaticIndexCache,
