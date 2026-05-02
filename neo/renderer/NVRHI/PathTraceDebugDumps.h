@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceSceneCapture.h"
 #include "../Image.h"
 #include "../Material.h"
 #include "../Model.h"
@@ -33,6 +34,12 @@ const char* SmokeTextureColorFormatName(textureColor_t colorFormat);
 const char* SmokeDeformName(deform_t deform);
 const char* SmokeDynamicModelName(dynamicModel_t dynamicModel);
 
+bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs);
+void LogSmokeSurfaceClassReasonSamples(const RtSmokeSurfaceClassReasonSamples& samples);
+void LogSmokeBucketRanges(const RtSmokeBucketRanges& ranges);
+void LogSmokeAttributeStats(const RtSmokeAttributeStats& stats);
+void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats);
+void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats);
 RtSmokeTextureCoverageStats BuildSmokeTextureCoverageStats(
     const RtSmokeMaterialTableBuild& table,
     const std::vector<uint32_t>& staticTriangleClassData,
