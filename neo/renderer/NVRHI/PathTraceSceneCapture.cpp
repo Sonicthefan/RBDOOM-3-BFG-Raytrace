@@ -2,10 +2,15 @@
 #pragma hdrstop
 
 #include "PathTraceSceneCapture.h"
+#include "PathTraceAcceleration.h"
+#include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceSkinning.h"
+#include "PathTraceSurfaceClassification.h"
 #include "../GLMatrix.h"
 #include "../RenderCommon.h"
+
+#include <algorithm>
 
 extern idCVar r_pathTracingAllowGuiSurfaces;
 extern idCVar r_pathTracingSkipCallbackEntities;
@@ -361,4 +366,577 @@ int AppendSmokeSurfaceGeometry(
     }
 
     return emittedIndexes;
+}
+
+namespace {
+
+void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype translucentSubtype)
+{
+    const char* materialName = material ? material->GetName() : "<none>";
+    const uint32_t materialId = HashSmokeMaterialName(materialName);
+    ++stats.totalSurfaces;
+    stats.totalTriangles += indexes / 3;
+
+    const bool firstMaterial = std::find(stats.materialIds.begin(), stats.materialIds.end(), materialId) == stats.materialIds.end();
+    if (firstMaterial)
+    {
+        stats.materialIds.push_back(materialId);
+        ++stats.uniqueMaterials;
+    }
+
+    for (int sampleIndex = 0; sampleIndex < stats.sampleCount; ++sampleIndex)
+    {
+        RtSmokeMaterialSample& sample = stats.samples[sampleIndex];
+        if (sample.id == materialId)
+        {
+            ++sample.surfaces;
+            sample.triangles += indexes / 3;
+            return;
+        }
+    }
+
+    if (stats.sampleCount < RT_SMOKE_MATERIAL_REASON_SAMPLES)
+    {
+        RtSmokeMaterialSample& sample = stats.samples[stats.sampleCount];
+        sample.id = materialId;
+        sample.surfaces = 1;
+        sample.triangles = indexes / 3;
+        sample.name = materialName;
+        ++stats.sampleCount;
+    }
+
+    if (surfaceClass != RtSmokeSurfaceClass::ParticleAlpha)
+    {
+        return;
+    }
+
+    const int subtypeIndex = idMath::ClampInt(0, RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT - 1, static_cast<int>(SmokeTranslucentSubtypeId(translucentSubtype)));
+    ++stats.translucentSubtypeSurfaces[subtypeIndex];
+    stats.translucentSubtypeTriangles[subtypeIndex] += indexes / 3;
+
+    bool subtypeSampleFound = false;
+    for (int sampleIndex = 0; sampleIndex < stats.translucentSubtypeSampleCounts[subtypeIndex]; ++sampleIndex)
+    {
+        RtSmokeMaterialSample& sample = stats.translucentSubtypeSamples[subtypeIndex][sampleIndex];
+        if (sample.id == materialId)
+        {
+            ++sample.surfaces;
+            sample.triangles += indexes / 3;
+            subtypeSampleFound = true;
+            break;
+        }
+    }
+
+    if (!subtypeSampleFound && stats.translucentSubtypeSampleCounts[subtypeIndex] < RT_SMOKE_MATERIAL_REASON_SAMPLES)
+    {
+        RtSmokeMaterialSample& sample = stats.translucentSubtypeSamples[subtypeIndex][stats.translucentSubtypeSampleCounts[subtypeIndex]];
+        sample.id = materialId;
+        sample.surfaces = 1;
+        sample.triangles = indexes / 3;
+        sample.name = materialName;
+        ++stats.translucentSubtypeSampleCounts[subtypeIndex];
+    }
+
+    ++stats.translucentSurfaces;
+    stats.translucentTriangles += indexes / 3;
+    const bool firstTranslucentMaterial = std::find(stats.translucentMaterialIds.begin(), stats.translucentMaterialIds.end(), materialId) == stats.translucentMaterialIds.end();
+    if (firstTranslucentMaterial)
+    {
+        stats.translucentMaterialIds.push_back(materialId);
+        ++stats.translucentUniqueMaterials;
+    }
+
+    for (int sampleIndex = 0; sampleIndex < stats.translucentSampleCount; ++sampleIndex)
+    {
+        RtSmokeMaterialSample& sample = stats.translucentSamples[sampleIndex];
+        if (sample.id == materialId)
+        {
+            ++sample.surfaces;
+            sample.triangles += indexes / 3;
+            return;
+        }
+    }
+
+    if (stats.translucentSampleCount < RT_SMOKE_MATERIAL_REASON_SAMPLES)
+    {
+        RtSmokeMaterialSample& sample = stats.translucentSamples[stats.translucentSampleCount];
+        sample.id = materialId;
+        sample.surfaces = 1;
+        sample.triangles = indexes / 3;
+        sample.name = materialName;
+        ++stats.translucentSampleCount;
+    }
+}
+
+void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeTranslucentSubtype subtype)
+{
+    if (stats.translucentDebugSampleCount >= RT_SMOKE_TRANSLUCENT_REASON_SAMPLES)
+    {
+        return;
+    }
+
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    RtSmokeTranslucentSubtypeDebugSample& sample = stats.translucentDebugSamples[stats.translucentDebugSampleCount++];
+    sample.valid = true;
+    sample.subtype = subtype;
+    sample.surfaceIndex = surfaceIndex;
+    sample.verts = tri ? tri->numVerts : 0;
+    sample.indexes = tri ? tri->numIndexes : 0;
+    sample.materialName = material ? material->GetName() : "<none>";
+    sample.coverage = material ? material->Coverage() : MC_BAD;
+    sample.sort = material ? material->GetSort() : SS_BAD;
+    sample.deform = material ? material->Deform() : DFRM_NONE;
+    sample.info = BuildSmokeTranslucentClassifierInfo(material);
+}
+
+RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeSurfaceClass surfaceClass)
+{
+    RtSmokeSurfaceClassReason reason;
+    reason.valid = true;
+    reason.finalClass = surfaceClass;
+    reason.surfaceIndex = surfaceIndex;
+    reason.verts = tri ? tri->numVerts : 0;
+    reason.indexes = tri ? tri->numIndexes : 0;
+
+    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+
+    reason.hasEntityDef = entityDef != nullptr;
+    reason.isWorldSpace = viewDef && space == &viewDef->worldSpace;
+    reason.materialName = material ? material->GetName() : "<none>";
+    reason.coverage = material ? material->Coverage() : MC_BAD;
+    reason.sort = material ? material->GetSort() : SS_BAD;
+    reason.deform = material ? material->Deform() : DFRM_NONE;
+    reason.entityNum = renderEntity ? renderEntity->entityNum : -1;
+    reason.modelName = model ? model->Name() : "<none>";
+    reason.dynamicModel = model ? model->IsDynamicModel() : DM_STATIC;
+    reason.hasJointCache = drawSurf && drawSurf->jointCache != 0;
+    reason.hasStaticModelWithJoints = tri && tri->staticModelWithJoints != nullptr;
+    reason.hasRenderEntityJoints = renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0;
+    reason.ambientCacheStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache);
+    reason.indexCacheStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->indexCache);
+    reason.isStaticWorldModel = model && model->IsStaticWorldModel();
+    reason.hasDynamicModel = entityDef && entityDef->dynamicModel != nullptr;
+    reason.hasCachedDynamicModel = entityDef && entityDef->cachedDynamicModel != nullptr;
+    reason.hasCallback = renderEntity && renderEntity->callback != nullptr;
+    reason.forceUpdate = renderEntity && renderEntity->forceUpdate != 0;
+    reason.weaponDepthHack = renderEntity && renderEntity->weaponDepthHack;
+    reason.modelDepthHack = renderEntity ? renderEntity->modelDepthHack : (space ? space->modelDepthHack : 0.0f);
+    reason.cpuVertsAvailable = tri && tri->verts != nullptr;
+    reason.cpuVertexCacheCurrent = tri && tri->ambientCache != 0 && vertexCache.CacheIsCurrent(tri->ambientCache);
+    reason.cpuIndexCacheCurrent = tri && tri->indexCache != 0 && vertexCache.CacheIsCurrent(tri->indexCache);
+    reason.skinnedLikelyBasePose = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed && SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
+    reason.rtCpuSkinned = surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed && GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+    if (renderEntity)
+    {
+        reason.entityOrigin = renderEntity->origin;
+        reason.entityAxis = renderEntity->axis;
+        reason.entityBounds = renderEntity->bounds;
+        reason.hasEntityBounds = true;
+    }
+    if (tri)
+    {
+        reason.surfaceBounds = tri->bounds;
+        reason.hasSurfaceBounds = true;
+    }
+    if (entityDef)
+    {
+        reason.localReferenceBounds = entityDef->localReferenceBounds;
+        reason.globalReferenceBounds = entityDef->globalReferenceBounds;
+        reason.hasReferenceBounds = true;
+    }
+
+    return reason;
+}
+
+void AddSmokeDynamicGeometryStats(RtSmokeDynamicGeometryStats& stats, RtSmokeSurfaceClass surfaceClass, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int indexes)
+{
+    switch (surfaceClass)
+    {
+        case RtSmokeSurfaceClass::RigidEntity:
+            ++stats.rigidSurfaces;
+            stats.rigidIndexes += indexes;
+            break;
+        case RtSmokeSurfaceClass::SkinnedDeformed:
+            if (GetSmokeRtCpuSkinningJoints(tri) != nullptr)
+            {
+                ++stats.skinnedRtCpuSkinnedSurfaces;
+                stats.skinnedRtCpuSkinnedIndexes += indexes;
+            }
+            else if (SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri))
+            {
+                ++stats.skinnedLikelyBasePoseSurfaces;
+                stats.skinnedLikelyBasePoseIndexes += indexes;
+            }
+            else
+            {
+                ++stats.skinnedCpuCurrentSurfaces;
+                stats.skinnedCpuCurrentIndexes += indexes;
+            }
+            break;
+        case RtSmokeSurfaceClass::ParticleAlpha:
+            ++stats.particleAlphaSurfaces;
+            stats.particleAlphaIndexes += indexes;
+            break;
+        case RtSmokeSurfaceClass::Unknown:
+            ++stats.unknownSurfaces;
+            stats.unknownIndexes += indexes;
+            break;
+        default:
+            break;
+    }
+}
+
+void AddSmokeSurfaceClassStats(RtSmokeSurfaceClassStats& stats, RtSmokeSurfaceClass surfaceClass, int verts, int indexes)
+{
+    const int triangles = indexes / 3;
+    switch (surfaceClass)
+    {
+        case RtSmokeSurfaceClass::StaticWorld:
+            ++stats.staticWorldSurfaces;
+            stats.staticWorldVerts += verts;
+            stats.staticWorldIndexes += indexes;
+            stats.staticWorldTriangles += triangles;
+            break;
+        case RtSmokeSurfaceClass::RigidEntity:
+            ++stats.rigidEntitySurfaces;
+            stats.rigidEntityVerts += verts;
+            stats.rigidEntityIndexes += indexes;
+            stats.rigidEntityTriangles += triangles;
+            break;
+        case RtSmokeSurfaceClass::SkinnedDeformed:
+            ++stats.skinnedDeformedSurfaces;
+            stats.skinnedDeformedVerts += verts;
+            stats.skinnedDeformedIndexes += indexes;
+            stats.skinnedDeformedTriangles += triangles;
+            break;
+        case RtSmokeSurfaceClass::ParticleAlpha:
+            ++stats.particleAlphaSurfaces;
+            stats.particleAlphaVerts += verts;
+            stats.particleAlphaIndexes += indexes;
+            stats.particleAlphaTriangles += triangles;
+            break;
+        default:
+            ++stats.unknownSurfaces;
+            stats.unknownVerts += verts;
+            stats.unknownIndexes += indexes;
+            stats.unknownTriangles += triangles;
+            break;
+    }
+}
+
+void AddSmokeSurfaceClassReasonSample(RtSmokeSurfaceClassReasonSamples& samples, const RtSmokeSurfaceClassReason& reason)
+{
+    if (reason.finalClass == RtSmokeSurfaceClass::SkinnedDeformed && samples.skinnedCount < RT_SMOKE_CLASS_REASON_SAMPLES)
+    {
+        samples.skinnedSamples[samples.skinnedCount] = reason;
+        ++samples.skinnedCount;
+    }
+
+    const int classIndex = static_cast<int>(SmokeSurfaceClassId(reason.finalClass));
+    if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
+    {
+        return;
+    }
+
+    if (samples.counts[classIndex] >= RT_SMOKE_CLASS_REASON_SAMPLES)
+    {
+        return;
+    }
+
+    samples.samples[classIndex][samples.counts[classIndex]] = reason;
+    ++samples.counts[classIndex];
+}
+
+uint64 BuildSmokeStaticSurfaceKey(const drawSurf_t* drawSurf, const srfTriangles_t* tri)
+{
+    uint64 hash = 14695981039346656037ull;
+    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
+    const uintptr_t materialPtr = reinterpret_cast<uintptr_t>(drawSurf ? drawSurf->material : nullptr);
+    hash = HashSmokeBytes(hash, &triPtr, sizeof(triPtr));
+    hash = HashSmokeBytes(hash, &materialPtr, sizeof(materialPtr));
+    if (tri)
+    {
+        hash = HashSmokeBytes(hash, &tri->numVerts, sizeof(tri->numVerts));
+        hash = HashSmokeBytes(hash, &tri->numIndexes, sizeof(tri->numIndexes));
+        hash = HashSmokeBytes(hash, &tri->ambientCache, sizeof(tri->ambientCache));
+        hash = HashSmokeBytes(hash, &tri->indexCache, sizeof(tri->indexCache));
+    }
+    if (drawSurf && drawSurf->space)
+    {
+        hash = HashSmokeBytes(hash, drawSurf->space->modelMatrix, sizeof(drawSurf->space->modelMatrix));
+    }
+    return hash;
+}
+
+}
+
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint64>& staticSurfaceKeys, std::vector<PathTraceSmokeVertex>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, std::vector<uint32_t>& staticTriangleMaterialCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+{
+    sourceSurfaces = 0;
+    sourceVerts = 0;
+    sourceIndexes = 0;
+    staticCacheChanged = false;
+    int anchorSurface = -1;
+    anchorTriangle = -1;
+    classStats = RtSmokeSurfaceClassStats();
+    skipStats = RtSmokeSurfaceSkipStats();
+    dynamicStats = RtSmokeDynamicGeometryStats();
+    attributeStats = RtSmokeAttributeStats();
+    materialStats = RtSmokeMaterialStats();
+    bucketRanges = RtSmokeBucketRanges();
+    captureTiming = RtSmokeSceneCaptureTiming();
+    if (reasonSamples)
+    {
+        *reasonSamples = RtSmokeSurfaceClassReasonSamples();
+    }
+
+    if (!viewDef || !viewDef->drawSurfs)
+    {
+        return false;
+    }
+
+    if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle))
+    {
+        return false;
+    }
+
+    vertexData.clear();
+    indexData.clear();
+    triangleClassData.clear();
+    triangleMaterialData.clear();
+    vertexData.reserve(RT_SMOKE_MAX_VERTS);
+    indexData.reserve(RT_SMOKE_MAX_INDEXES);
+    triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+    triangleMaterialData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+
+    std::vector<PathTraceSmokeVertex> bucketVertexData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketTriangleClassData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketTriangleMaterialData[RT_SMOKE_CLASS_COUNT];
+    for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
+    {
+        bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
+        bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
+        bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+    }
+
+    int dynamicVerts = 0;
+    int dynamicIndexes = 0;
+    int dynamicSurfaces = 0;
+
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        const srfTriangles_t* tri = nullptr;
+        const int validationStartMs = Sys_Milliseconds();
+        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+        {
+            captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+            continue;
+        }
+        captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+
+        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        if (surfaceClass != RtSmokeSurfaceClass::StaticWorld)
+        {
+            continue;
+        }
+
+        const RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
+        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+        const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+        const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
+        const bool staticSurfaceCached = std::find(staticSurfaceKeys.begin(), staticSurfaceKeys.end(), staticSurfaceKey) != staticSurfaceKeys.end();
+        ++sourceSurfaces;
+        ++bucketRanges.buckets[0].surfaceCount;
+        AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
+
+        if (staticSurfaceCached)
+        {
+            sourceVerts += tri->numVerts;
+            sourceIndexes += tri->numIndexes;
+            AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
+            if (reasonSamples)
+            {
+                AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+            }
+            continue;
+        }
+
+        const int cachedVerts = static_cast<int>(staticVertexCache.size());
+        const int cachedIndexes = static_cast<int>(staticIndexCache.size());
+        if (cachedVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+            cachedIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+        {
+            ++skipStats.limitExceeded;
+            continue;
+        }
+
+        const int appendStartMs = Sys_Milliseconds();
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(
+            drawSurf,
+            tri,
+            surfaceClassId,
+            materialId,
+            RT_SMOKE_CLASS_COUNT,
+            RT_SMOKE_TRIANGLE_CLASS_MASK,
+            static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+            RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+            staticVertexCache,
+            staticIndexCache,
+            staticTriangleClassCache,
+            staticTriangleMaterialCache,
+            skipStats,
+            attributeStats);
+        captureTiming.appendMs += Sys_Milliseconds() - appendStartMs;
+        if (emittedIndexes <= 0)
+        {
+            continue;
+        }
+
+        staticSurfaceKeys.push_back(staticSurfaceKey);
+        staticCacheChanged = true;
+        sourceVerts += tri->numVerts;
+        sourceIndexes += emittedIndexes;
+        AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+        if (reasonSamples)
+        {
+            AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+        }
+    }
+
+    for (int surfaceOffset = 0; surfaceOffset < viewDef->numDrawSurfs; ++surfaceOffset)
+    {
+        const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        const srfTriangles_t* tri = nullptr;
+        const int validationStartMs = Sys_Milliseconds();
+        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
+        {
+            captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+            continue;
+        }
+        captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+
+        if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
+        {
+            ++skipStats.limitExceeded;
+            break;
+        }
+
+        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+        const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+        const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
+        const bool isStaticWorld = surfaceClass == RtSmokeSurfaceClass::StaticWorld;
+        if (isStaticWorld)
+        {
+            continue;
+        }
+
+        const int cachedVerts = static_cast<int>(staticVertexCache.size());
+        const int cachedIndexes = static_cast<int>(staticIndexCache.size());
+        if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+            cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+        {
+            ++skipStats.limitExceeded;
+            continue;
+        }
+
+        std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
+        std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
+        std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
+        std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+        const int appendStartMs = Sys_Milliseconds();
+        const int emittedIndexes = AppendSmokeSurfaceGeometry(
+            drawSurf,
+            tri,
+            surfaceClassId,
+            materialId,
+            RT_SMOKE_CLASS_COUNT,
+            RT_SMOKE_TRIANGLE_CLASS_MASK,
+            static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+            RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+            bucketVertices,
+            bucketIndexes,
+            bucketClasses,
+            bucketMaterials,
+            skipStats,
+            attributeStats);
+        captureTiming.appendMs += Sys_Milliseconds() - appendStartMs;
+        if (emittedIndexes <= 0)
+        {
+            continue;
+        }
+
+        AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
+        if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
+        {
+            AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
+        }
+        ++sourceSurfaces;
+        ++dynamicSurfaces;
+        sourceVerts += tri->numVerts;
+        sourceIndexes += emittedIndexes;
+        AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+        AddSmokeDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
+        ++bucketRanges.buckets[bucketIndex].surfaceCount;
+        dynamicVerts += tri->numVerts;
+        dynamicIndexes += emittedIndexes;
+        if (reasonSamples)
+        {
+            AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+        }
+    }
+
+    const int bucketMergeStartMs = Sys_Milliseconds();
+    RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];
+    staticRange.vertexOffset = 0;
+    staticRange.indexOffset = 0;
+    staticRange.triangleOffset = 0;
+    staticRange.vertexCount = static_cast<int>(staticVertexCache.size());
+    staticRange.indexCount = static_cast<int>(staticIndexCache.size());
+    staticRange.triangleCount = static_cast<int>(staticTriangleClassCache.size());
+
+    for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
+    {
+        if (bucketIndex == 0)
+        {
+            continue;
+        }
+
+        RtSmokeBucketRange& range = bucketRanges.buckets[bucketIndex];
+        range.vertexOffset = static_cast<int>(vertexData.size());
+        range.indexOffset = static_cast<int>(indexData.size());
+        range.triangleOffset = static_cast<int>(triangleClassData.size());
+        range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size());
+        range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
+        range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
+
+        const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
+        vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());
+        for (uint32_t localIndex : bucketIndexData[bucketIndex])
+        {
+            indexData.push_back(vertexOffset + localIndex);
+        }
+        triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
+        triangleMaterialData.insert(triangleMaterialData.end(), bucketTriangleMaterialData[bucketIndex].begin(), bucketTriangleMaterialData[bucketIndex].end());
+    }
+    captureTiming.bucketMergeMs = Sys_Milliseconds() - bucketMergeStartMs;
+
+    if ((staticTriangleClassCache.empty() && triangleClassData.empty()) ||
+        (staticTriangleMaterialCache.empty() && triangleMaterialData.empty()))
+    {
+        ++skipStats.emptyClassBuffer;
+    }
+
+    const bool hasStaticGeometry = !staticVertexCache.empty() && !staticIndexCache.empty() && !staticTriangleClassCache.empty() && !staticTriangleMaterialCache.empty();
+    const bool hasDynamicGeometry = !vertexData.empty() && !indexData.empty() && !triangleClassData.empty() && !triangleMaterialData.empty();
+    return sourceSurfaces > 0 && (hasStaticGeometry || hasDynamicGeometry);
 }
