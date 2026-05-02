@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceGuiSurfaces.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSkinning.h"
 #include "../RenderCommon.h"
@@ -3477,22 +3478,6 @@ void TransformSurfaceVectorToWorld(const drawSurf_t* drawSurf, const idVec3& loc
     }
 
     worldVector = localVector;
-}
-
-bool IsSmokeGuiDrawSurface(const drawSurf_t* drawSurf)
-{
-    if (!drawSurf)
-    {
-        return false;
-    }
-
-    if (drawSurf->space && drawSurf->space->isGuiSurface)
-    {
-        return true;
-    }
-
-    const idMaterial* material = drawSurf->material;
-    return material && material->HasGui();
 }
 
 bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats)
