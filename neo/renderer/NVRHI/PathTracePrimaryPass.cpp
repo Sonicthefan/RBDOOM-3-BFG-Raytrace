@@ -11,6 +11,7 @@
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSmokeResources.h"
+#include "PathTraceSurfaceClassification.h"
 #include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
@@ -387,8 +388,6 @@ const int RT_SMOKE_MAX_OUTPUT_WIDTH = 3840;
 const int RT_SMOKE_MAX_OUTPUT_HEIGHT = 2160;
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
-const int RT_SMOKE_CLASS_COUNT = 5;
-const int RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT = 7;
 const int RT_SMOKE_CLASS_REASON_SAMPLES = 8;
 const int RT_SMOKE_MATERIAL_REASON_SAMPLES = 12;
 const int RT_SMOKE_TRANSLUCENT_REASON_SAMPLES = 24;
@@ -399,8 +398,6 @@ const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const int RT_SMOKE_VERTEX_STRIDE = sizeof(PathTraceSmokeVertex);
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
-const uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
-const uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 
 struct PathTraceSmokeConstants
 {
@@ -618,17 +615,6 @@ struct RtSmokeMaterialSample
     idStr name;
 };
 
-enum class RtSmokeTranslucentSubtype
-{
-    DecalGrime,
-    ObjectGlass,
-    SmokeParticle,
-    SignageGlow,
-    PortalWindow,
-    GuiScreen,
-    Unknown
-};
-
 struct RtSmokeTranslucentSubtypeDebugSample
 {
     bool valid = false;
@@ -695,15 +681,6 @@ struct RtSmokeSceneCaptureTiming
     int validationMs = 0;
     int appendMs = 0;
     int bucketMergeMs = 0;
-};
-
-enum class RtSmokeSurfaceClass
-{
-    StaticWorld,
-    RigidEntity,
-    SkinnedDeformed,
-    ParticleAlpha,
-    Unknown
 };
 
 RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
@@ -790,102 +767,6 @@ struct RtSmokeSurfaceClassReasonSamples
     RtSmokeSurfaceClassReason skinnedSamples[RT_SMOKE_CLASS_REASON_SAMPLES];
     int skinnedCount = 0;
 };
-
-uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)
-{
-    switch (surfaceClass)
-    {
-        case RtSmokeSurfaceClass::StaticWorld:
-            return 0;
-        case RtSmokeSurfaceClass::RigidEntity:
-            return 1;
-        case RtSmokeSurfaceClass::SkinnedDeformed:
-            return 2;
-        case RtSmokeSurfaceClass::ParticleAlpha:
-            return 3;
-        default:
-            return 4;
-    }
-}
-
-const char* SmokeSurfaceClassName(RtSmokeSurfaceClass surfaceClass)
-{
-    switch (surfaceClass)
-    {
-        case RtSmokeSurfaceClass::StaticWorld:
-            return "static";
-        case RtSmokeSurfaceClass::RigidEntity:
-            return "rigid-entity";
-        case RtSmokeSurfaceClass::SkinnedDeformed:
-            return "skinned";
-        case RtSmokeSurfaceClass::ParticleAlpha:
-            return "particle/alpha";
-        default:
-            return "unknown";
-    }
-}
-
-const char* SmokeSurfaceClassNameByIndex(int classIndex)
-{
-    if (classIndex < 0 || classIndex >= RT_SMOKE_CLASS_COUNT)
-    {
-        return "invalid";
-    }
-
-    return SmokeSurfaceClassName(static_cast<RtSmokeSurfaceClass>(classIndex));
-}
-
-uint32_t SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype subtype)
-{
-    switch (subtype)
-    {
-        case RtSmokeTranslucentSubtype::DecalGrime:
-            return 0;
-        case RtSmokeTranslucentSubtype::ObjectGlass:
-            return 1;
-        case RtSmokeTranslucentSubtype::SmokeParticle:
-            return 2;
-        case RtSmokeTranslucentSubtype::SignageGlow:
-            return 3;
-        case RtSmokeTranslucentSubtype::GuiScreen:
-            return 5;
-        case RtSmokeTranslucentSubtype::PortalWindow:
-            return 4;
-        default:
-            return 6;
-    }
-}
-
-const char* SmokeTranslucentSubtypeName(RtSmokeTranslucentSubtype subtype)
-{
-    switch (subtype)
-    {
-        case RtSmokeTranslucentSubtype::DecalGrime:
-            return "decal/grime";
-        case RtSmokeTranslucentSubtype::ObjectGlass:
-            return "object-glass";
-        case RtSmokeTranslucentSubtype::SmokeParticle:
-            return "smoke/particle";
-        case RtSmokeTranslucentSubtype::SignageGlow:
-            return "signage/glow";
-        case RtSmokeTranslucentSubtype::PortalWindow:
-            return "portal/window";
-        case RtSmokeTranslucentSubtype::GuiScreen:
-            return "gui/screen";
-        default:
-            return "unknown";
-    }
-}
-
-const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex)
-{
-    if (subtypeIndex < 0 || subtypeIndex >= RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT)
-    {
-        return "invalid";
-    }
-
-    return SmokeTranslucentSubtypeName(static_cast<RtSmokeTranslucentSubtype>(subtypeIndex));
-}
 
 bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material);
 bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material);
@@ -1831,119 +1712,6 @@ void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_
     sample.info = BuildSmokeTranslucentClassifierInfo(material);
 }
 
-RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri)
-{
-    const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
-    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
-    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-
-    if ((drawSurf && drawSurf->jointCache != 0) ||
-        (tri && tri->staticModelWithJoints != nullptr) ||
-        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0))
-    {
-        return RtSmokeSurfaceClass::SkinnedDeformed;
-    }
-
-    if (material)
-    {
-        const deform_t deform = material->Deform();
-        if (IsSmokeGuiDrawSurface(drawSurf) ||
-            material->Coverage() == MC_TRANSLUCENT ||
-            deform == DFRM_SPRITE ||
-            deform == DFRM_TUBE ||
-            deform == DFRM_FLARE ||
-            deform == DFRM_PARTICLE ||
-            deform == DFRM_PARTICLE2 ||
-            material->GetSort() >= SS_MEDIUM ||
-            (space && space->modelDepthHack != 0.0f))
-        {
-            return RtSmokeSurfaceClass::ParticleAlpha;
-        }
-    }
-
-    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
-    if ((viewDef && space == &viewDef->worldSpace) ||
-        !entityDef ||
-        (model && model->IsStaticWorldModel()) ||
-        (drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache) && idVertexCache::CacheIsStatic(drawSurf->indexCache) && !entityDef))
-    {
-        return RtSmokeSurfaceClass::StaticWorld;
-    }
-
-    if (entityDef)
-    {
-        return RtSmokeSurfaceClass::RigidEntity;
-    }
-
-    return RtSmokeSurfaceClass::Unknown;
-}
-
-RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf)
-{
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-    if (!material)
-    {
-        return RtSmokeTranslucentSubtype::Unknown;
-    }
-
-    const deform_t deform = material->Deform();
-    const float sort = material->GetSort();
-    const RtSmokeTranslucentClassifierInfo info = BuildSmokeTranslucentClassifierInfo(material);
-
-    if (IsSmokeGuiDrawSurface(drawSurf) || info.hasScreenTexgen || info.nameLooksGui)
-    {
-        return RtSmokeTranslucentSubtype::GuiScreen;
-    }
-
-    if (info.sortIsPostProcess || info.sortIsGuiOrSubview)
-    {
-        return RtSmokeTranslucentSubtype::PortalWindow;
-    }
-
-    if (deform == DFRM_PARTICLE ||
-        deform == DFRM_PARTICLE2 ||
-        deform == DFRM_SPRITE ||
-        deform == DFRM_TUBE ||
-        deform == DFRM_FLARE ||
-        sort >= SS_ALMOST_NEAREST ||
-        info.nameLooksParticle)
-    {
-        return RtSmokeTranslucentSubtype::SmokeParticle;
-    }
-
-    if (info.nameLooksGlass)
-    {
-        return RtSmokeTranslucentSubtype::ObjectGlass;
-    }
-
-    if (info.hasAdditiveBlend ||
-        (info.hasAmbientStage && !info.hasDiffuseStage && info.nameLooksGlow) ||
-        (info.hasAmbientBlendStage && info.nameLooksGlow) ||
-        (info.nameLooksGlow && !info.nameLooksDecal) ||
-        info.nameLooksSignage)
-    {
-        return RtSmokeTranslucentSubtype::SignageGlow;
-    }
-
-    if (info.sortIsDecal || info.polygonOffsetDecal || info.nameLooksDecal)
-    {
-        return RtSmokeTranslucentSubtype::DecalGrime;
-    }
-
-    return RtSmokeTranslucentSubtype::Unknown;
-}
-
-uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype)
-{
-    uint32_t id = SmokeSurfaceClassId(surfaceClass);
-    if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
-    {
-        id |= (SmokeTranslucentSubtypeId(subtype) << RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT) & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK;
-    }
-    return id;
-}
-
 RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeSurfaceClass surfaceClass)
 {
     RtSmokeSurfaceClassReason reason;
@@ -2405,277 +2173,6 @@ uint64 BuildSmokeStaticSurfaceKey(const drawSurf_t* drawSurf, const srfTriangles
         hash = HashSmokeBytes(hash, drawSurf->space->modelMatrix, sizeof(drawSurf->space->modelMatrix));
     }
     return hash;
-}
-
-bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle)
-{
-    const idVec3 rayOrigin = viewDef->renderView.vieworg;
-    idVec3 rayDirection = viewDef->renderView.viewaxis[0];
-    rayDirection.Normalize();
-
-    bool foundHit = false;
-    float closestHit = 1.0e30f;
-    anchorSurface = -1;
-    anchorTriangle = -1;
-
-    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
-    {
-        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
-        if (!drawSurf || !drawSurf->frontEndGeo)
-        {
-            continue;
-        }
-
-        const srfTriangles_t* tri = nullptr;
-        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
-        {
-            continue;
-        }
-
-        const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
-        for (int index = 0; index + 2 < tri->numIndexes; index += 3)
-        {
-            const int i0 = tri->indexes[index + 0];
-            const int i1 = tri->indexes[index + 1];
-            const int i2 = tri->indexes[index + 2];
-            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
-            {
-                continue;
-            }
-
-            idVec3 p0;
-            idVec3 p1;
-            idVec3 p2;
-            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
-            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
-            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
-            if (IsZeroAreaSmokeTriangle(p0, p1, p2))
-            {
-                continue;
-            }
-
-            float hitDistance = 0.0f;
-            if (IntersectRayTriangle(rayOrigin, rayDirection, p0, p1, p2, hitDistance) && hitDistance < closestHit)
-            {
-                closestHit = hitDistance;
-                anchorPoint = rayOrigin + rayDirection * hitDistance;
-                anchorSurface = surfaceIndex;
-                anchorTriangle = index / 3;
-                foundHit = true;
-            }
-        }
-    }
-
-    return foundHit;
-}
-
-void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
-{
-    idVec3 hitPoint = vec3_origin;
-    int surfaceIndex = -1;
-    int triangleIndex = -1;
-    if (!FindCenterCameraRayAnchor(viewDef, hitPoint, surfaceIndex, triangleIndex))
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair material dump found no center-ray hit\n");
-        return;
-    }
-
-    if (!viewDef || surfaceIndex < 0 || surfaceIndex >= viewDef->numDrawSurfs)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair material dump invalid hit surface=%d triangle=%d\n", surfaceIndex, triangleIndex);
-        return;
-    }
-
-    const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
-    const srfTriangles_t* tri = nullptr;
-    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr) || !drawSurf || !drawSurf->material || !tri)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair material dump failed validation surface=%d triangle=%d\n", surfaceIndex, triangleIndex);
-        return;
-    }
-
-    const idMaterial* material = drawSurf->material;
-    const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-    const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const uint32_t materialId = SmokeMaterialId(material);
-    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
-
-    int tableIndex = -1;
-    for (int index = 0; index < static_cast<int>(table.materialIds.size()); ++index)
-    {
-        if (table.materialIds[index] == materialId)
-        {
-            tableIndex = index;
-            break;
-        }
-    }
-
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair material hit surface=%d triangle=%d point=(%.2f %.2f %.2f) material='%s' id=%u tableIndex=%d class=%s subtype=%s coverage=%s sort=%.2f deform=%s cull=%d stages=%d guiSurface=%d\n",
-        surfaceIndex,
-        triangleIndex,
-        hitPoint.x,
-        hitPoint.y,
-        hitPoint.z,
-        material->GetName(),
-        materialId,
-        tableIndex,
-        SmokeSurfaceClassName(surfaceClass),
-        SmokeTranslucentSubtypeName(translucentSubtype),
-        SmokeCoverageName(material->Coverage()),
-        material->GetSort(),
-        SmokeDeformName(material->Deform()),
-        static_cast<int>(material->GetCullType()),
-        material->GetNumStages(),
-        IsSmokeGuiDrawSurface(drawSurf) ? 1 : 0);
-
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
-        classifier.sortIsGuiOrSubview ? 1 : 0,
-        classifier.sortIsDecal ? 1 : 0,
-        classifier.sortIsPostProcess ? 1 : 0,
-        classifier.polygonOffsetDecal ? 1 : 0,
-        classifier.hasScreenTexgen ? 1 : 0,
-        classifier.hasAdditiveBlend ? 1 : 0,
-        classifier.hasAmbientStage ? 1 : 0,
-        classifier.hasAmbientBlendStage ? 1 : 0,
-        classifier.hasDiffuseStage ? 1 : 0,
-        classifier.nameLooksGui ? 1 : 0,
-        classifier.nameLooksParticle ? 1 : 0,
-        classifier.nameLooksDecal ? 1 : 0,
-        classifier.nameLooksGlass ? 1 : 0,
-        classifier.nameLooksGlow ? 1 : 0,
-        classifier.nameLooksSignage ? 1 : 0);
-
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
-        info.diffuseImageName.c_str(),
-        SmokeTextureUsageName(info.diffuseUsage),
-        SmokeTextureColorFormatName(info.diffuseColorFormat),
-        info.hasDiffuseImage ? 1 : 0,
-        info.hasTextureHandle ? 1 : 0,
-        info.hasSafeTexture ? 1 : 0,
-        info.fallbackReason.c_str(),
-        info.alphaImageName.c_str(),
-        SmokeTextureUsageName(info.alphaUsage),
-        SmokeTextureColorFormatName(info.alphaColorFormat),
-        info.hasAlphaImage ? 1 : 0,
-        info.hasAlphaTextureHandle ? 1 : 0,
-        info.hasSafeAlphaTexture ? 1 : 0,
-        info.alphaReason.c_str(),
-        info.hasAlphaTest ? 1 : 0,
-        info.alphaCutoff,
-        info.alphaFromDiffuseLuma ? 1 : 0,
-        info.alphaFromDiffuseDarkKey ? 1 : 0,
-        info.normalImageName.c_str(),
-        SmokeTextureUsageName(info.normalUsage),
-        SmokeTextureColorFormatName(info.normalColorFormat),
-        info.hasSafeNormalTexture ? 1 : 0,
-        info.specularImageName.c_str(),
-        SmokeTextureUsageName(info.specularUsage),
-        SmokeTextureColorFormatName(info.specularColorFormat),
-        info.hasSafeSpecularTexture ? 1 : 0,
-        info.emissiveImageName.c_str(),
-        SmokeTextureUsageName(info.emissiveUsage),
-        SmokeTextureColorFormatName(info.emissiveColorFormat),
-        info.hasSafeEmissiveTexture ? 1 : 0,
-        info.emissive ? 1 : 0,
-        info.additiveDecal ? 1 : 0,
-        info.additiveDecalWhiteKey ? 1 : 0,
-        info.filterDecal ? 1 : 0,
-        info.filterDecalBlackKey ? 1 : 0,
-        info.forceFallbackAlbedo ? 1 : 0,
-        info.portalWindowFallback ? 1 : 0,
-        info.objectGlassFallback ? 1 : 0,
-        info.hasFallbackAlbedo ? 1 : 0,
-        info.fallbackAlbedo.x,
-        info.fallbackAlbedo.y,
-        info.fallbackAlbedo.z);
-
-    if (tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size()))
-    {
-        const PathTraceSmokeMaterial& rtMaterial = table.materials[tableIndex];
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair RT material debugAlbedo=(%.2f %.2f %.2f %.2f) flags=0x%08x diffuseSlot=%d alphaSlot=%d normalSlot=%d specSlot=%d emissiveSlot=%d alphaCutoff=%.3f\n",
-            rtMaterial.debugAlbedo[0],
-            rtMaterial.debugAlbedo[1],
-            rtMaterial.debugAlbedo[2],
-            rtMaterial.debugAlbedo[3],
-            rtMaterial.flags,
-            rtMaterial.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.diffuseTextureIndex),
-            rtMaterial.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.alphaTextureIndex),
-            rtMaterial.normalTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.normalTextureIndex),
-            rtMaterial.specularTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.specularTextureIndex),
-            rtMaterial.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.emissiveTextureIndex),
-            rtMaterial.alphaCutoff);
-    }
-
-    const int indexBase = triangleIndex * 3;
-    if (indexBase >= 0 && indexBase + 2 < tri->numIndexes)
-    {
-        const int i0 = tri->indexes[indexBase + 0];
-        const int i1 = tri->indexes[indexBase + 1];
-        const int i2 = tri->indexes[indexBase + 2];
-        if (i0 >= 0 && i1 >= 0 && i2 >= 0 && i0 < tri->numVerts && i1 < tri->numVerts && i2 < tri->numVerts)
-        {
-            common->Printf("PathTracePrimaryPass: RT smoke crosshair triangle indexes=%d/%d/%d vertexColors=(%u %u %u %u),(%u %u %u %u),(%u %u %u %u)\n",
-                i0, i1, i2,
-                tri->verts[i0].color[0], tri->verts[i0].color[1], tri->verts[i0].color[2], tri->verts[i0].color[3],
-                tri->verts[i1].color[0], tri->verts[i1].color[1], tri->verts[i1].color[2], tri->verts[i1].color[3],
-                tri->verts[i2].color[0], tri->verts[i2].color[1], tri->verts[i2].color[2], tri->verts[i2].color[3]);
-        }
-    }
-
-    const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
-    const int registerCount = material->GetNumRegisters();
-    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
-    {
-        const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage)
-        {
-            continue;
-        }
-
-        idVec4 stageColor(1.0f, 1.0f, 1.0f, 1.0f);
-        if (regs)
-        {
-            for (int component = 0; component < 4; ++component)
-            {
-                const int colorRegister = stage->color.registers[component];
-                if (colorRegister >= 0 && colorRegister < registerCount)
-                {
-                    stageColor[component] = regs[colorRegister];
-                }
-            }
-        }
-
-        const float condition = regs && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount ? regs[stage->conditionRegister] : 1.0f;
-        const float alphaTest = regs && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount ? regs[stage->alphaTestRegister] : -1.0f;
-        idImage* image = stage->texture.image;
-        const bool imageSafe = image && IsSmokeDiffuseImageSafeForRayTracing(image);
-        const textureUsage_t imageUsage = image ? image->GetUsage() : TD_DEFAULT;
-        const textureColor_t imageColorFormat = image ? image->GetOpts().colorFormat : CFM_DEFAULT;
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair stage[%d] lighting=%s condition=%.3f color=(%.3f %.3f %.3f %.3f) drawState=0x%llx srcBlend=%llu dstBlend=%llu alphaTest=%d alphaReg=%d alphaValue=%.3f ignoreAlpha=%d alphaSemantic=%s texgen=%s dynamic=%d cinematic=%d image='%s' usage=%s color=%s safe=%d\n",
-            stageIndex,
-            SmokeStageLightingName(stage->lighting),
-            condition,
-            stageColor.x,
-            stageColor.y,
-            stageColor.z,
-            stageColor.w,
-            static_cast<unsigned long long>(stage->drawStateBits),
-            static_cast<unsigned long long>((stage->drawStateBits & GLS_SRCBLEND_BITS) >> 0),
-            static_cast<unsigned long long>((stage->drawStateBits & GLS_DSTBLEND_BITS) >> 3),
-            stage->hasAlphaTest ? 1 : 0,
-            stage->alphaTestRegister,
-            alphaTest,
-            stage->ignoreAlphaTest ? 1 : 0,
-            SmokeStageAlphaSemanticName(stage),
-            SmokeTexgenName(stage->texture.texgen),
-            static_cast<int>(stage->texture.dynamic),
-            stage->texture.cinematic ? 1 : 0,
-            image ? image->GetName() : "<none>",
-            SmokeTextureUsageName(imageUsage),
-            SmokeTextureColorFormatName(imageColorFormat),
-            imageSafe ? 1 : 0);
-    }
 }
 
 bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint64>& staticSurfaceKeys, std::vector<PathTraceSmokeVertex>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, std::vector<uint32_t>& staticTriangleMaterialCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)

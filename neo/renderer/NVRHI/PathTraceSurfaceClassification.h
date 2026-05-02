@@ -1,0 +1,42 @@
+#pragma once
+
+#include <stdint.h>
+
+struct drawSurf_t;
+struct srfTriangles_t;
+struct viewDef_t;
+
+constexpr int RT_SMOKE_CLASS_COUNT = 5;
+constexpr int RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT = 7;
+constexpr uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
+constexpr uint32_t RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+
+enum class RtSmokeSurfaceClass
+{
+    StaticWorld,
+    RigidEntity,
+    SkinnedDeformed,
+    ParticleAlpha,
+    Unknown
+};
+
+enum class RtSmokeTranslucentSubtype
+{
+    DecalGrime,
+    ObjectGlass,
+    SmokeParticle,
+    SignageGlow,
+    PortalWindow,
+    GuiScreen,
+    Unknown
+};
+
+uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass);
+const char* SmokeSurfaceClassName(RtSmokeSurfaceClass surfaceClass);
+const char* SmokeSurfaceClassNameByIndex(int classIndex);
+uint32_t SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype subtype);
+const char* SmokeTranslucentSubtypeName(RtSmokeTranslucentSubtype subtype);
+const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex);
+RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri);
+RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf);
+uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);

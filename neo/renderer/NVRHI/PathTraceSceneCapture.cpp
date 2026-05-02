@@ -140,6 +140,68 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
     return true;
 }
 
+bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle)
+{
+    const idVec3 rayOrigin = viewDef->renderView.vieworg;
+    idVec3 rayDirection = viewDef->renderView.viewaxis[0];
+    rayDirection.Normalize();
+
+    bool foundHit = false;
+    float closestHit = 1.0e30f;
+    anchorSurface = -1;
+    anchorTriangle = -1;
+
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        if (!drawSurf || !drawSurf->frontEndGeo)
+        {
+            continue;
+        }
+
+        const srfTriangles_t* tri = nullptr;
+        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+        {
+            continue;
+        }
+
+        const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
+        for (int index = 0; index + 2 < tri->numIndexes; index += 3)
+        {
+            const int i0 = tri->indexes[index + 0];
+            const int i1 = tri->indexes[index + 1];
+            const int i2 = tri->indexes[index + 2];
+            if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+            {
+                continue;
+            }
+
+            idVec3 p0;
+            idVec3 p1;
+            idVec3 p2;
+            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i0, rtCpuSkinningJoints, p0);
+            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i1, rtCpuSkinningJoints, p1);
+            TransformSmokeSurfaceVertexToWorld(drawSurf, tri, i2, rtCpuSkinningJoints, p2);
+            if (IsZeroAreaSmokeTriangle(p0, p1, p2))
+            {
+                continue;
+            }
+
+            float hitDistance = 0.0f;
+            if (IntersectRayTriangle(rayOrigin, rayDirection, p0, p1, p2, hitDistance) && hitDistance < closestHit)
+            {
+                closestHit = hitDistance;
+                anchorPoint = rayOrigin + rayDirection * hitDistance;
+                anchorSurface = surfaceIndex;
+                anchorTriangle = index / 3;
+                foundHit = true;
+            }
+        }
+    }
+
+    return foundHit;
+}
+
 PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints)
 {
     const idDrawVert& drawVert = tri->verts[vertexIndex];
