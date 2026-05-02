@@ -10,6 +10,8 @@
 
 const int RT_SMOKE_DEBUG_TEXTURE_COVERAGE_CLASS_COUNT = 5;
 
+struct viewDef_t;
+
 struct RtSmokeTextureCoverageClassStats
 {
     int triangles = 0;
@@ -98,6 +100,21 @@ struct RtSmokeSceneBuildSummaryLogDesc
     const RtSmokeBucketRanges* bucketRanges = nullptr;
 };
 
+struct RtSmokeMaterialDiagnosticTriggerDesc
+{
+    const viewDef_t* viewDef = nullptr;
+    const RtSmokeMaterialTableBuild* materialTable = nullptr;
+    const RtSmokeMaterialStats* materialStats = nullptr;
+    bool enableTextureProbe = false;
+};
+
+struct RtSmokeEmissiveInventoryDiagnosticTriggerDesc
+{
+    const RtSmokeMaterialTableBuild* materialTable = nullptr;
+    const std::vector<PathTraceSmokeEmissiveTriangle>* emissiveTriangles = nullptr;
+    const RtSmokeEmissiveInventoryStats* emissiveInventoryStats = nullptr;
+};
+
 const char* SmokeCoverageName(materialCoverage_t coverage);
 const char* SmokeStageLightingName(stageLighting_t lighting);
 const char* SmokeTexgenName(texgen_t texgen);
@@ -130,3 +147,5 @@ void LogSmokeTextureActiveWindow(const RtSmokeMaterialTableBuild& table);
 void LogSmokeTextureCoverage(const RtSmokeTextureCoverageStats& stats);
 void LogSmokeTextureFallbackDump(const RtSmokeMaterialTableBuild& table);
 void LogSmokeMaterialTextureDiscovery(const RtSmokeMaterialTableBuild& table);
+void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDesc& desc);
+void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryDiagnosticTriggerDesc& desc);

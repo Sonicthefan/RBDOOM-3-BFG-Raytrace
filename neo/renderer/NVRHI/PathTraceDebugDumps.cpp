@@ -3,6 +3,8 @@
 
 #include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"
+#include "PathTraceEmissiveCandidates.h"
+#include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
 
 
@@ -1248,5 +1250,71 @@ void LogSmokeMaterialTextureDiscovery(const RtSmokeMaterialTableBuild& table)
         }
 
         common->Printf("\n");
+    }
+}
+
+void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDesc& desc)
+{
+    if (!desc.materialTable || !desc.materialStats)
+    {
+        return;
+    }
+
+    const RtSmokeMaterialTableBuild& materialTable = *desc.materialTable;
+    const RtSmokeMaterialStats& materialStats = *desc.materialStats;
+
+    static uint32_t lastLoggedTextureProbeMaterialId = 0;
+    if (desc.enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0 && materialTable.textureProbeBoundMaterialId != lastLoggedTextureProbeMaterialId)
+    {
+        LogSmokeTextureProbeSwitch(materialTable);
+        lastLoggedTextureProbeMaterialId = materialTable.textureProbeBoundMaterialId;
+    }
+    if (desc.enableTextureProbe && r_pathTracingTextureProbeDump.GetInteger() != 0)
+    {
+        LogSmokeTextureProbeDump(materialTable);
+        r_pathTracingTextureProbeDump.SetInteger(0);
+    }
+    if (desc.enableTextureProbe && r_pathTracingAlphaDump.GetInteger() != 0)
+    {
+        LogSmokeAlphaMaterialDump(materialTable);
+        r_pathTracingAlphaDump.SetInteger(0);
+    }
+    if (desc.enableTextureProbe && r_pathTracingTextureFallbackDump.GetInteger() != 0)
+    {
+        LogSmokeTextureFallbackDump(materialTable);
+        r_pathTracingTextureFallbackDump.SetInteger(0);
+    }
+    if (r_pathTracingTranslucentDump.GetInteger() != 0)
+    {
+        LogSmokeTranslucentSubtypeDump(materialStats);
+        r_pathTracingTranslucentDump.SetInteger(0);
+    }
+    if (r_pathTracingCrosshairMaterialDump.GetInteger() != 0)
+    {
+        LogSmokeCrosshairMaterialDump(desc.viewDef, materialTable);
+        r_pathTracingCrosshairMaterialDump.SetInteger(0);
+    }
+    if (r_pathTracingGuiDump.GetInteger() != 0)
+    {
+        LogSmokeGuiSurfaceDump(desc.viewDef, materialTable);
+        r_pathTracingGuiDump.SetInteger(0);
+    }
+    if (desc.enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0)
+    {
+        LogSmokeTextureActiveWindow(materialTable);
+    }
+}
+
+void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryDiagnosticTriggerDesc& desc)
+{
+    if (!desc.materialTable || !desc.emissiveTriangles || !desc.emissiveInventoryStats)
+    {
+        return;
+    }
+
+    if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0)
+    {
+        LogSmokeEmissiveInventoryDump(desc.materialTable->materialIds, *desc.emissiveTriangles, *desc.emissiveInventoryStats);
+        r_pathTracingEmissiveInventoryDump.SetInteger(0);
     }
 }

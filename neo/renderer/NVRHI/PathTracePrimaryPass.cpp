@@ -15,7 +15,6 @@
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceSurfaceClassification.h"
-#include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
@@ -203,46 +202,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             materialTable.dynamicMaterialIndexes);
     }
     const int materialMs = Sys_Milliseconds() - materialStartMs;
-    static uint32_t lastLoggedTextureProbeMaterialId = 0;
-    if (enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0 && materialTable.textureProbeBoundMaterialId != lastLoggedTextureProbeMaterialId)
-    {
-        LogSmokeTextureProbeSwitch(materialTable);
-        lastLoggedTextureProbeMaterialId = materialTable.textureProbeBoundMaterialId;
-    }
-    if (enableTextureProbe && r_pathTracingTextureProbeDump.GetInteger() != 0)
-    {
-        LogSmokeTextureProbeDump(materialTable);
-        r_pathTracingTextureProbeDump.SetInteger(0);
-    }
-    if (enableTextureProbe && r_pathTracingAlphaDump.GetInteger() != 0)
-    {
-        LogSmokeAlphaMaterialDump(materialTable);
-        r_pathTracingAlphaDump.SetInteger(0);
-    }
-    if (enableTextureProbe && r_pathTracingTextureFallbackDump.GetInteger() != 0)
-    {
-        LogSmokeTextureFallbackDump(materialTable);
-        r_pathTracingTextureFallbackDump.SetInteger(0);
-    }
-    if (r_pathTracingTranslucentDump.GetInteger() != 0)
-    {
-        LogSmokeTranslucentSubtypeDump(materialStats);
-        r_pathTracingTranslucentDump.SetInteger(0);
-    }
-    if (r_pathTracingCrosshairMaterialDump.GetInteger() != 0)
-    {
-        LogSmokeCrosshairMaterialDump(viewDef, materialTable);
-        r_pathTracingCrosshairMaterialDump.SetInteger(0);
-    }
-    if (r_pathTracingGuiDump.GetInteger() != 0)
-    {
-        LogSmokeGuiSurfaceDump(viewDef, materialTable);
-        r_pathTracingGuiDump.SetInteger(0);
-    }
-    if (enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0)
-    {
-        LogSmokeTextureActiveWindow(materialTable);
-    }
+    RtSmokeMaterialDiagnosticTriggerDesc materialDiagnosticDesc;
+    materialDiagnosticDesc.viewDef = viewDef;
+    materialDiagnosticDesc.materialTable = &materialTable;
+    materialDiagnosticDesc.materialStats = &materialStats;
+    materialDiagnosticDesc.enableTextureProbe = enableTextureProbe;
+    RunSmokeMaterialDiagnosticTriggers(materialDiagnosticDesc);
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
@@ -262,11 +227,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger()),
         emissiveInventoryStats);
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
-    if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0)
-    {
-        LogSmokeEmissiveInventoryDump(materialTable.materialIds, emissiveTriangles, emissiveInventoryStats);
-        r_pathTracingEmissiveInventoryDump.SetInteger(0);
-    }
+    RtSmokeEmissiveInventoryDiagnosticTriggerDesc emissiveInventoryDiagnosticDesc;
+    emissiveInventoryDiagnosticDesc.materialTable = &materialTable;
+    emissiveInventoryDiagnosticDesc.emissiveTriangles = &emissiveTriangles;
+    emissiveInventoryDiagnosticDesc.emissiveInventoryStats = &emissiveInventoryStats;
+    RunSmokeEmissiveInventoryDiagnosticTriggers(emissiveInventoryDiagnosticDesc);
 
     const int bufferCreateStartMs = Sys_Milliseconds();
     RtSmokeSceneBufferCreateDesc bufferCreateDesc;
