@@ -71,6 +71,7 @@ struct RtSmokeSlowSceneBuildLogDesc
     int skinnedRtCpuIndexes = 0;
     bool staticBlasCacheHit = false;
     bool materialTableCacheHit = false;
+    const char* materialTablePath = "legacy";
     int materialTableCacheHits = 0;
     int materialTableCacheMisses = 0;
     RtSmokeMaterialUniverseStats materialUniverseStats;
@@ -114,6 +115,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
     int staticBlasCacheHitCount = 0;
     int staticBlasCacheMissCount = 0;
     bool materialTableCacheHit = false;
+    const char* materialTablePath = "legacy";
     uint64 materialTableSignature = 0;
     RtSmokeMaterialTableCacheStats materialTableCacheStats;
     RtSmokeMaterialUniverseStats materialUniverseStats;
@@ -171,6 +173,7 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int sceneCaptureLogIntervalFrames = 0;
     bool staticBlasCacheHit = false;
     bool materialTableCacheHit = false;
+    const char* materialTablePath = "legacy";
     bool enableTextureProbe = false;
     bool dumpClassReasons = false;
     uint64 staticBlasSignature = 0;

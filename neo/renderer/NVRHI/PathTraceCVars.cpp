@@ -365,9 +365,9 @@ idCVar r_pathTracingMaterialUniverseValidate(
 
 idCVar r_pathTracingMaterialUniverseTable(
     "r_pathTracingMaterialUniverseTable",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Build the RT smoke frame material table from stable material-universe records instead of the legacy active order" );
+    "Build the RT smoke frame material table from stable material-universe records instead of the legacy active order; default on" );
 
 idCVar r_pathTracingMaterialUniverseTableValidate(
     "r_pathTracingMaterialUniverseTableValidate",
