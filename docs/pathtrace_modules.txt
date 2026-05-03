@@ -105,16 +105,18 @@ PathTraceGeometryUniverse.h
     Persistent static-geometry universe declarations. This is the first
     ownership boundary for static-world geometry cache data and currently
     exposes the static surface keys, vertices, indexes, triangle classes,
-    triangle material IDs, and basic stats used by scene build. The universe
-    must evolve with previous-frame geometry history in mind so future motion
-    vector output can be generated from geometry, not guessed later.
+    triangle material IDs, static surface records, per-frame lifecycle fields,
+    previous range fields, and stats used by scene build. The universe must
+    evolve with previous-frame geometry history in mind so future motion vector
+    output can be generated from geometry, not guessed later.
 
 PathTraceGeometryUniverse.cpp
     Static geometry universe implementation. At this stage it owns the former
     PathTracePrimaryPass static-cache vectors and generation/stat tracking while
-    preserving the existing shader-facing buffer behavior. Static surface lookup
-    and append completion now go through the universe. Future work should expand
-    persistent records, dirty ranges, and GPU buffer ownership here, plus
+    preserving the existing shader-facing buffer behavior. Static surface lookup,
+    per-frame BeginFrame/Touch/EndFrame lifecycle updates, append completion,
+    and static record validation now go through the universe. Future work should
+    expand persistent records, dirty ranges, and GPU buffer ownership here, plus
     current/previous geometry or transform history needed for temporal
     reconstruction.
 
@@ -366,6 +368,9 @@ Implications for PathTraceGeometryUniverse:
 - Persistent surface/triangle records need stable identities across frames.
 - Records need current and previous range mapping, or explicit invalidation when
   a match is not trustworthy.
+- Static-world records already carry current/previous ranges and lifecycle
+  validity as CPU-side scaffolding, but no previous-position GPU buffers or
+  motion-vector output exist yet.
 - Static world can often reuse identical previous positions, but rigid entities
   need previous transforms and skinned/deformed geometry eventually needs
   previous skinned positions or a GPU skinning history source.

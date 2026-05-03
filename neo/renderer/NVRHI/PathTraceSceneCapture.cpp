@@ -816,13 +816,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         const uint32_t materialId = SmokeMaterialId(drawSurf->material);
         const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
         const int cacheLookupStartMs = Sys_Milliseconds();
-        const bool staticSurfaceCached = geometryUniverse.HasStaticSurface(staticSurfaceKey);
+        RtSmokePersistentStaticSurfaceRecord* staticSurfaceRecord = geometryUniverse.TouchStaticSurface(staticSurfaceKey);
         captureTiming.staticCacheLookupMs += Sys_Milliseconds() - cacheLookupStartMs;
         ++sourceSurfaces;
         ++bucketRanges.buckets[0].surfaceCount;
         AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
 
-        if (staticSurfaceCached)
+        if (staticSurfaceRecord)
         {
             ++captureTiming.staticCachedSurfaces;
             sourceVerts += tri->numVerts;

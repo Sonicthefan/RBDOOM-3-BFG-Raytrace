@@ -85,7 +85,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t>& staticTriangleClassCache = m_smokeGeometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterialCache = m_smokeGeometryUniverse.StaticTriangleMaterials();
     const int captureStartMs = Sys_Milliseconds();
+    m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex);
     const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
+    m_smokeGeometryUniverse.EndFrame();
     const int captureMs = Sys_Milliseconds() - captureStartMs;
     if (!usingDoomSurfaces)
     {
@@ -498,6 +500,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.staticVertexCacheCount = staticVertexCacheCount;
     sceneLogDesc.staticIndexCacheCount = staticIndexCacheCount;
     sceneLogDesc.staticTriangleCacheCount = staticTriangleCacheCount;
+    sceneLogDesc.staticSeenThisFrame = geometryUniverseStats.staticSeenThisFrame;
+    sceneLogDesc.staticNewThisFrame = geometryUniverseStats.staticNewThisFrame;
+    sceneLogDesc.staticDisappearedThisFrame = geometryUniverseStats.staticDisappearedThisFrame;
+    sceneLogDesc.staticHistoryValid = geometryUniverseStats.staticHistoryValid;
+    sceneLogDesc.staticPreviousRangeValid = geometryUniverseStats.staticPreviousRangeValid;
+    sceneLogDesc.staticDirty = geometryUniverseStats.staticDirty;
+    sceneLogDesc.staticValidationErrors = geometryUniverseStats.staticValidationErrors;
+    sceneLogDesc.staticRangeErrors = geometryUniverseStats.staticRangeErrors;
+    sceneLogDesc.staticDuplicateKeys = geometryUniverseStats.staticDuplicateKeys;
+    sceneLogDesc.staticHistoryErrors = geometryUniverseStats.staticHistoryErrors;
+    sceneLogDesc.staticKeyVectorMismatches = geometryUniverseStats.staticKeyVectorMismatches;
     sceneLogDesc.staticCacheBytesKB = staticCacheBytesKB;
     sceneLogDesc.staticBlasSignatureReused = staticBlasSignatureReused;
     sceneLogDesc.staticBlasSignatureMs = staticBlasSignatureMs;

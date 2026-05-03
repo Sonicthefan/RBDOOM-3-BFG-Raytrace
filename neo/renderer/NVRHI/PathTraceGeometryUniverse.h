@@ -18,8 +18,19 @@ struct RtSmokeGeometryUniverseStats
     int staticVerts = 0;
     int staticIndexes = 0;
     int staticTriangles = 0;
+    int staticSeenThisFrame = 0;
+    int staticNewThisFrame = 0;
+    int staticDisappearedThisFrame = 0;
     int staticHistoryValid = 0;
+    int staticPreviousRangeValid = 0;
+    int staticDirty = 0;
+    int staticValidationErrors = 0;
+    int staticRangeErrors = 0;
+    int staticDuplicateKeys = 0;
+    int staticHistoryErrors = 0;
+    int staticKeyVectorMismatches = 0;
     int staticBytesKB = 0;
+    uint64 frameIndex = 0;
     uint64 generation = 1;
 };
 
@@ -41,8 +52,16 @@ struct RtSmokePersistentStaticSurfaceRecord
     int triangleOffset = 0;
     int triangleCount = 0;
     int previousVertexOffset = -1;
+    int previousVertexCount = 0;
     int previousIndexOffset = -1;
+    int previousIndexCount = 0;
     int previousTriangleOffset = -1;
+    int previousTriangleCount = 0;
+    uint64 lastSeenFrame = 0;
+    uint64 previousSeenFrame = 0;
+    bool seenThisFrame = false;
+    bool newlyCreatedThisFrame = false;
+    bool disappearedThisFrame = false;
     bool previousRangeValid = false;
     bool historyValid = false;
     bool dirty = true;
@@ -65,8 +84,11 @@ class RtSmokeGeometryUniverse
 {
 public:
     void Clear();
+    void BeginFrame(uint64 frameIndex);
+    void EndFrame();
     void NotifyStaticCacheChanged();
     bool HasStaticSurface(uint64 key) const;
+    RtSmokePersistentStaticSurfaceRecord* TouchStaticSurface(uint64 key);
     bool CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const;
     RtSmokeStaticSurfaceAppend BeginStaticSurfaceAppend(uint64 key, uint32_t surfaceClassId, uint32_t materialId, int vertexCount, int indexCount) const;
     void CompleteStaticSurfaceAppend(const RtSmokeStaticSurfaceAppend& append, int emittedIndexCount);
@@ -92,6 +114,10 @@ public:
     RtSmokeGeometryUniverseStats GetStats() const;
 
 private:
+    RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
+
+    uint64 m_currentFrameIndex = 0;
+    bool m_frameActive = false;
     uint64 m_generation = 1;
     std::vector<RtSmokePersistentStaticSurfaceRecord> m_staticSurfaceRecords;
     std::vector<uint64> m_staticSurfaceKeys;

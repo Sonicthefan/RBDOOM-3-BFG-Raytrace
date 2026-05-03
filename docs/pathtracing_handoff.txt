@@ -1,10 +1,11 @@
-RBDoom3 BFG Path Tracing Handoff
-================================
+RBDoom3 BFG RT/PT handoff
+=========================
 
 This document is for a fresh Codex or human contributor picking up the
-path-tracing experiment without reading the full chat history.
+experimental Vulkan/NVRHI RT smoke/path tracing branch without reading the full
+chat history.
 
-Current Snapshot - 2026-05-02
+Current snapshot - 2026-05-03
 -----------------------------
 
 Repository:
@@ -13,68 +14,107 @@ Repository:
 
 Branch:
 
-    path-tracing-experiment
+    codex/refactor-pathtrace-smoke-modules
+
+Prepared stable/playable checkout:
+
+    E:\prog\rbdoom-3-bfg-rt-stable
 
 Prepared game folder used for testing:
 
     E:\prog\rbdoom-3-BFG-prebuilt
 
-Known unrelated dirty worktree entries to leave alone unless explicitly asked:
+External references:
 
-    M neo/CMakeLists.txt
-    m neo/extern/RTXPT
-    ?? neo/renderer/NVRHI/RTXPT/
+    E:\prog\references\RTXDI-main
+    E:\prog\references\Q2RTX-master
+    E:\prog\references\Q2RTX-rayreconstruction-master
+    https://iddevnet.dhewm3.org/doom3/materials.html
+    https://iddevnet.dhewm3.org/doom3/guis.html
 
-Also do not casually stage this handoff file unless the user asks:
+Important worktree rules:
 
-    ?? docs/pathtracing_handoff.txt
+- Leave these old unrelated RTXPT/Donut/CMake leftovers alone unless the user
+  explicitly asks to work on them:
 
-Current local branch state:
+      M neo/CMakeLists.txt
+      m neo/extern/RTXPT
+      ?? neo/renderer/NVRHI/RTXPT/
 
-    path-tracing-experiment is ahead of origin/path-tracing-experiment.
-    Run `git status -sb` for the exact count after local documentation/source
-    commits.
+- Do not stage or commit this handoff file unless the user explicitly asks.
 
-Latest local commits:
+Current git state at handoff update time:
 
-    1341e2ca Add toy path tracing accumulation
-    805eb9f5 Tune toy path tracing lighting scales
-    2b28217d Add toy path tracing debug mode
-    c23a6d6e Improve RT smoke decal emissive semantics
-    f959bbce Document Doom BFG texture code rules
-    fc08aff1 Add texture code discovery hints
-    ad7e67e1 Skip callback entities in RT smoke capture
-    cc94d5d5 Add RT smoke GUI panel diagnostics
-    21617a28 Improve RT smoke translucent material placeholders
-    97abdd57 Add RT smoke emissive material preview
-    1ca78a82 Update path tracing experiment notes
-    4cb0419d Add RT smoke particle dithering
-    8eb40def Add RT smoke normal specular lighting
-    e545feaa Add RT smoke GUI texture diagnostics
-    75229a99 Add RT smoke normal and specular texture previews
-    db666d56 Decode Doom diffuse textures in RT smoke path
+    Recent local committed work includes:
 
-The RT smoke path currently supports:
+        d40fe9fa Move static geometry lookup into universe
+        ddc2ec19 Update path tracing docs for geometry universe
+        e55ba1ab Add path trace geometry universe scaffold
+        9a78a170 Cache universe material table work
+        90719330 Default to material universe table
+        d8e6ca22 Add universe-derived material table path
+        7004b522 Add stable material universe indexes
 
-- Primary camera rays through NVRHI RT.
-- Static/dynamic geometry split with BLAS/TLAS.
-- CPU-skinned MD5 capture as a temporary correctness bridge.
+    Run `git status -sb` before staging anything. At the time this handoff was
+    updated, the intended dirty file from this action was this handoff file
+    plus known excluded leftovers and pre-existing debug dump edits:
+
+        M docs/pathtracing_handoff.txt
+        M neo/CMakeLists.txt
+        m neo/extern/RTXPT
+        M neo/renderer/NVRHI/PathTraceDebugDumps.cpp
+        M neo/renderer/NVRHI/PathTraceDebugDumps.h
+        ?? neo/renderer/NVRHI/RTXPT/
+
+    Do not stage docs/pathtracing_handoff.txt unless the user explicitly asks.
+    Do not stage the CMake/RTXPT leftovers. The debug dump edits predate this
+    handoff update; inspect them before deciding whether they are relevant.
+
+Documentation map
+-----------------
+
+Read these first in a new session:
+
+    docs/pathtracing_handoff.txt
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+
+Use them this way:
+
+- pathtracing_handoff.txt: current operational handoff and next-step guidance.
+- pathtracing.txt: broader chronology, current feature state, testing commands,
+  known traps, and historical context.
+- pathtrace_modules.txt: file-by-file PathTrace* module map and feature flow
+  guide, including "what to touch / what to avoid" guidance.
+
+Current feature state to preserve
+---------------------------------
+
+The current RT smoke path supports:
+
+- Primary camera rays through NVRHI ray tracing.
+- Static and dynamic BLAS/TLAS with separate geometry buffers.
+- Persistent static-world geometry cache now owned by PathTraceGeometryUniverse,
+  with static surface records and universe-owned key lookup/append completion.
+- Per-frame dynamic geometry capture.
+- RT-only CPU skinning for skinned MD5 characters as a temporary correctness
+  bridge.
 - Bindless material texture table using Texture.Load.
 - Manual bilinear Texture.Load filtering.
-- Diffuse/albedo texture decode, including Doom diffuse YCoCg.
-- Alpha any-hit for cutouts/perforated materials.
-- Normal/specular material texture discovery and preview modes.
+- Doom diffuse YCoCg decode.
+- Alpha any-hit for cutout/perforated materials.
+- Albedo, normal, specular, and emissive texture discovery/diagnostics.
 - Mode 14 selected point-light direct lighting with RT shadow rays.
-- Mode 14 normal-map lighting using Doom/RBDoom normal decode:
+- Mode 14 normal-map lighting using Doom/RBDoom's DXT5-style normal decode:
   normal X from texture alpha, normal Y from green, normal Z reconstructed.
 - Mode 14 simple Blinn-style diagnostic specular from Doom spec maps.
 - Mode 14 unshadowed emissive/glow preview from safe ambient/additive stages.
-- Mode 18 toy one-bounce path tracing with selected point lights, texture
-  sampling, force-ambient control, tunable light/emissive scale, secondary ray
-  distance clamp, and temporal accumulation.
-- Mode 19 emissive triangle inventory/debug visualization. CPU records are a
-  broad material/triangle candidate list for future ReSTIR/PT work; the debug
-  view samples emissive texel luminance and skips skinned/deformed character
+- Mode 18 toy one-bounce path tracing with selected Doom lights, texture
+  sampling, force-ambient control, simple secondary rays, temporal accumulation,
+  and lighting scale CVars.
+- Mode 19 emissive triangle inventory/debug visualization. The CPU inventory is
+  a broad material/triangle candidate list for future ReSTIR/PT work; the debug
+  view samples emissive texture luminance and skips skinned/deformed character
   dissolve overlays.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Smoke particle placeholder dithering behind CVars.
@@ -82,8 +122,13 @@ The RT smoke path currently supports:
 - Debug-only selected-light sprite proxies for strobe/flare-like light shaders.
 - Narrow callback-entity skip for custom-shader item shells to avoid the disk
   pickup/delete crash without hiding normal skinned/dynamic characters.
+- Persistent material universe records with stable material indexes, material
+  facts, emissive facts, and universe-derived active material table enabled by
+  default.
+- Cached universe-derived active material table enabled by default through
+  r_pathTracingMaterialCache.
 
-Current debug modes:
+Debug modes:
 
     0  hit/miss
     1  depth
@@ -106,568 +151,503 @@ Current debug modes:
     18 toy one-bounce path trace
     19 emissive triangle inventory/debug view
 
-Important current CVars:
-
-    r_pathTracing 1
-    r_pathTracingDebugWidth 1280
-    r_pathTracingDebugHeight 720
-    r_pathTracingTextureTableLimit 2048
-    r_pathTracingTextureSampleMethod 2
-    r_pathTracingTextureFilter 1
-    r_pathTracingTextureDecode 1
-    r_pathTracingMaterialMetadataCache 1
-    r_pathTracingDebugMode 14
-    r_pathTracingLightSelection 1
-    r_pathTracingLightCount 4
-    r_pathTracingUseNormalMaps 1
-    r_pathTracingUseSpecularMaps 1
-    r_pathTracingUseEmissiveMaps 1
-    r_pathTracingToyMaxRayDistance 1024
-    r_pathTracingToyLightScale 0.3
-    r_pathTracingToyEmissiveScale 4.0
-    r_pathTracingToyAccumulation 1
-    r_pathTracingToyAccumMaxFrames 64
-    r_pathTracingEmissiveInventoryMaxTriangles 4096
-    r_pathTracingSmokeParticleDither 1
-    r_pathTracingSmokeParticleAlphaScale 0.25
-    r_pathTracingSmokeParticleEdgeFade 1
-    r_pathTracingPortalWindowStochastic 1
-    r_pathTracingPortalWindowAlphaScale 0.35
-    r_pathTracingPortalWindowMinOpacity 0.05
-    r_pathTracingPortalWindowShadowOpacity 0.05
-    r_pathTracingAdditiveDecalKey 1
-    r_pathTracingLightSpriteProxies 1
-    r_pathTracingSkipCallbackEntities 1
-
-Useful A/B toggles:
-
-    r_pathTracingUseNormalMaps 0/1
-    r_pathTracingUseSpecularMaps 0/1
-    r_pathTracingUseEmissiveMaps 0/1
-    r_pathTracingToyAccumulation 0/1
-    r_pathTracingToyLightScale 0.1/0.3/1.0
-    r_pathTracingToyEmissiveScale 1.0/4.0/8.0
-    r_pathTracingSmokeParticleDither 0/1
-    r_pathTracingSmokeParticleEdgeFade 0/1
-    r_pathTracingSmokeParticleAlphaScale 0.1/0.25/0.5/1.0
-    r_pathTracingPortalWindowStochastic 0/1
-    r_pathTracingLightSpriteProxies 0/1
-
-Testing copy commands after build:
-
-    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
-
-If the RT shader changes, also copy:
-
-    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
-
-Recently tested observations:
-
-- Normal/spec texture previews work.
-- Mode 14 normal mapping initially broke lighting because Doom normal maps are
-  DXT5-style packed; matching raster G-buffer decode fixed it.
-- Mode 14 specular map highlights look good as a diagnostic path.
-- Smoke particle dithering is passable as a placeholder, but still visibly
-  noisy/card-like. It should be treated as a cheap hack, not final translucency.
-- `r_pathTracingSmokeParticleAlphaScale` had little visible impact in one test
-  before the texture-mask/edge-fade adjustment; retest if this becomes relevant.
-- GUI/SWF surfaces/textures appear safe behind the current opt-in diagnostics,
-  but default behavior remains conservative.
-- Emissive/glow material capture is broadly useful in mode 14. Important
-  exclusions were added for GUI, particle, glass/window, animated/view-dependent
-  stages, and skinned/deformed hits to avoid false positives.
-- The early emissive pass exposed a texture table limit symptom. The active
-  descriptor table has since been raised to 2048 in the notes/workflow, and
-  long traversal texture coverage became acceptable.
-- Portal/window glass and small object glass have a stochastic transparency
-  placeholder. It is "good enough" for debug mode, not physically correct.
-- Reflective eyewear/glasses/goggles needed special cutout handling and dark
-  fallback albedo. Glasses are currently fixed enough for placeholder mode.
-- GUI/SWF panels are visible only via a fragile opt-in direct-quad diagnostic.
-  Doom generates many painter-order SWF/GUI polygons around the same physical
-  panel plane. Tracing those quads directly causes layer-order artifacts and can
-  hide nearby world geometry. The correct long-term approach is to keep Doom's
-  GUI raster path, render each panel offscreen, then project the composited
-  texture onto the physical panel surface. Do not treat the current GUI TLAS
-  path as a viable renderer.
-- A repeatable hang/exit when collecting a desk disk item was fixed by skipping
-  non-GUI callback render entities that also use a custom shader. A broad
-  callback skip hid all skinned/dynamic characters; the current narrow
-  custom-shader guard resolved both the crash and the invisible-character
-  regression.
-- Doom BFG generated image names use #__%02d%02d, where the first two digits are
-  textureUsage_t and the second two are cubeFiles_t. Useful 2D codes:
-      #__0000 = TD_SPECULAR / CFM_DEFAULT
-      #__0100 = TD_DIFFUSE / CFM_YCOCG_DXT5
-      #__0200 = TD_DEFAULT / CFM_DEFAULT
-      #__0300 = TD_BUMP / CFM_NORMAL_DXT5
-      #__1000 = TD_COVERAGE / CFM_GREEN_ALPHA
-- Never treat #__0100 / CFM_YCOCG_DXT5 alpha as material alpha in the general
-  case. The sampled alpha is Y/luminance for CoCg_Y color reconstruction.
-- #__0200 / CFM_DEFAULT is ordinary RGBA; if it has alpha and the material
-  stage/blend uses it, that alpha is real.
-- #__1000 / CFM_GREEN_ALPHA is the dedicated coverage/cutout path.
-- Classic Doom 3 decal intent survives strongly in paths and material stages.
-  /decals/ + #__0100/CFM_YCOCG_DXT5 usually means a blend decal using decoded
-  RGB as the effect, not an alpha decal. Lighten/additive decals use black as
-  the no-effect key; darken/filter decals use white as the no-effect key.
-- Emissive stages on characters are often game-logic overlays such as death
-  dissolve/fire effects. The RT smoke material path hides those from emissive
-  lighting/debug by skipping skinned/deformed hits and sampling emissive
-  luminance for the mode 19 overlay.
-- Mode 18 is now a surprisingly useful crude PT reference, but it is not the
-  intended final integrator. It has low-bounce path tracing and accumulation;
-  no MIS, denoiser, ReSTIR, or sampled emissive area lights yet.
-- Mode 19 inventory is intentionally non-final lighting work. It provides
-  ReSTIR/PT-friendly candidate infrastructure: emissive triangle center, area,
-  normal, UV bounds, centroid UV, estimated radiance/luminance, candidate
-  weight, material index, instance id, primitive index, flags, and emissive
-  texture slot/dimensions. Its dump prints both per-material summary rows and
-  per-triangle samples.
-- The current estimated radiance/luminance and candidate weight are CPU-side
-  placeholders. Radiance comes from the material emissive color proxy, so many
-  Doom emissive stages correctly print `estRadiance=(1,1,1)` even when the
-  actual glow shape/brightness lives in the emissive texture. Candidate weight
-  is stored as `area * estimatedLuminance`. A mature ReSTIR/PT path should
-  compute texture-aware radiance/weight in a GPU light-prep pass using
-  `emissiveSlot`, `centroidUV`, and/or `uvBounds`.
-- The latest in-game emissive dump from a clustered Mars City scene looked
-  healthy: 11 unique emissive materials, real texture slots/sizes for all
-  printed materials, no cap pressure, no invalid material refs, and 930
-  skinned/game-logic dissolve candidates skipped.
-
-Recommended next work:
-
-1. Prepare the emissive triangle inventory for NVIDIA ReSTIR PT without
-   duplicating its sampler.
-   - Replace the current CPU material-color luminance proxy with sampled or
-     texture-aware candidate weighting when a GPU-side light prep pass exists.
-   - Preserve the broad material/triangle candidate list while keeping the
-     debug overlay texel-tight.
-   - Keep game-logic/skinned dissolve emissive overlays excluded.
-
-2. Improve decal/blend material correctness using the new texture rules.
-   - Prefer image->GetOpts().colorFormat and image->GetUsage() over filename
-     parsing when classifying alpha/coverage/color payloads.
-   - Treat CFM_YCOCG_DXT5 alpha as color reconstruction, not transparency.
-   - Treat CFM_DEFAULT alpha as real only when the stage/blend/alpha-test uses
-     it.
-   - Classify /decals/ + CFM_YCOCG_DXT5 as RGB-keyed blend decals.
-   - Split additive/lighten black-key decals from filter/darken white-key
-     decals using drawStateBits/blend state.
-   - Extend r_pathTracingCrosshairMaterialDump to print image usage,
-     colorFormat, and inferred alpha semantic per stage.
-
-3. Start Doom material to RT/PBR conversion.
-   - Base color from albedo.
-   - Shading normal from normal map.
-   - Specular/F0 from Doom spec map.
-   - Roughness approximation is important for future NVIDIA ray reconstruction.
-
-4. Improve/replace smoke translucency later.
-   - Current dither is a placeholder for visibility.
-   - Proper options include stochastic transparency, temporal accumulation, or
-     sorted/approximated compositing.
-
-5. Evolve mode 18 into a real PT integration point.
-   - Keep the current low-bounce accumulated toy path as a baseline.
-   - Feed ReSTIR/PT-ready scene, material, and emissive candidate buffers.
-   - Replace placeholder direct/emissive logic when NVIDIA's ReSTIR PT path is
-     integrated.
-
-
-Overall Goal
-------------
-
-Evolve the Vulkan/NVRHI renderer in RBDoom3 BFG toward a Quake II RTX style
-brute-force path traced renderer. The target hardware is an RTX 4090 class GPU.
-Early priorities are correctness, image quality, and learning. Broad hardware
-support and performance are secondary for now.
-
-Current work is intentionally debug-only. The "RT smoke" path in
-PathTracePrimaryPass is a ladder of small tests that prove primary rays,
-geometry capture, BLAS/TLAS, material tables, bindless albedo, alpha cutouts,
-and simple lighting before replacing the main 3D renderer.
-
-
-Current Branch and Build Status
--------------------------------
-
-Branch:
-
-    path-tracing-experiment
-
-Latest pushed commit at handoff time:
-
-    cc94d5d5 Add RT smoke GUI panel diagnostics
-
-Latest local commit at handoff time:
-
-    f959bbce Document Doom BFG texture code rules
-
-The local branch is currently 3 commits ahead of origin/path-tracing-experiment:
-
-    f959bbce Document Doom BFG texture code rules
-    fc08aff1 Add texture code discovery hints
-    ad7e67e1 Skip callback entities in RT smoke capture
-
-Recent important commits:
-
-    cc94d5d5 Add RT smoke GUI panel diagnostics
-    21617a28 Improve RT smoke translucent material placeholders
-    97abdd57 Add RT smoke emissive material preview
-    1ca78a82 Update path tracing experiment notes
-    4cb0419d Add RT smoke particle dithering
-    8eb40def Add RT smoke normal specular lighting
-    e545feaa Add RT smoke GUI texture diagnostics
-    75229a99 Add RT smoke normal and specular texture previews
-    db666d56 Decode Doom diffuse textures in RT smoke path
-    9648cf11 Add RT smoke Lambert debug mode
-    fc802458 Add RT smoke translucent subtype debug mode
-    9de51c53 Add RT smoke albedo texture diagnostics
-    bab07b5b Add RT smoke alpha any-hit traversal
-    3fab923f Add RT smoke alpha coverage texture preview
-    ab85af6b Harden RT smoke texture table lifetime
-    352c6f75 Stabilize RT smoke texture probe sampling
-    5005d0a9 Add bindless RT smoke texture probe
-    847fc6f9 Add RT smoke material table lookup
-    f9343e4a Add RT smoke material ID debug mode
-    862d8833 Add RT smoke vertex attributes
-    70954940 Add RT smoke CPU skinning path
-
-Build status:
-
-- Debug build succeeds with CMake/MSBuild.
-- The user has tested the copied Debug executable in a prepared Doom 3 BFG
-  folder.
-- RT debug modes 0-13 have run in game.
-- The last tested milestone, mode 13 fixed Lambert lighting, looked decent.
-
-Known dirty worktree entries to leave alone unless explicitly asked:
-
-    M neo/CMakeLists.txt
-    m neo/extern/RTXPT
-    ?? neo/renderer/NVRHI/RTXPT/
-
-These are older failed/experimental RTXPT/Donut/CMake integration leftovers.
-Do not stage, commit, revert, or build work around them unless the user asks.
-
-
-Local Reference Checkouts
--------------------------
-
-NVIDIA RTXDI/ReSTIR reference source and manuals are available locally at:
-
-    E:\prog\references\RTXDI-main
-
-Treat this as read-only reference material for integration planning. It is
-intentionally outside the repo so future sessions can inspect/search it without
-polluting the RBDoom3 BFG worktree or reviving the stale in-tree RTXPT/Donut
-leftovers.
-
-
-Files Changed and Why
----------------------
-
-Main implementation files:
-
-    neo/renderer/NVRHI/PathTracePrimaryPass.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
-
-PathTracePrimaryPass.cpp currently owns too much, but it contains the working
-prototype:
-
-- RT smoke CVars.
-- Visible draw-surface capture.
-- Static-world and dynamic-candidate classification.
-- Persistent static-world geometry cache.
-- Per-frame dynamic geometry capture.
-- BLAS/TLAS creation through NVRHI.
-- Static and dynamic vertex/index/attribute/material buffers.
-- RT-only CPU skinning for MD5/skinned surfaces when raster GPU skinning is on.
-- Material discovery, texture descriptor table population, alpha discovery.
-- Debug logging and one-shot dumps.
-
-pathtrace_smoke.rt.hlsl contains the RT library:
-
-- Raygen shader for 2D debug output.
-- Closest-hit shader with static/dynamic buffer selection.
-- Any-hit shader for alpha-tested cutout/perforated materials.
-- Debug modes for hit/miss, depth, normals, UVs, classes, material IDs,
-  material colors, bindless albedo, alpha preview, translucent subtypes, and
-  fixed Lambert lighting.
-
-Documentation:
-
-    docs/pathtracing.txt
-    docs/pathtracing_handoff.txt
-
-pathtracing.txt is the longer running project note. This handoff is the concise
-"start here" version.
-
-
-Current Texture and Material Binding Architecture
--------------------------------------------------
-
-Current RT material flow:
-
-1. During RT smoke scene capture, each captured Doom draw surface is assigned a
-   compact RT material table index.
-
-2. Per-triangle metadata stores:
-   - surface class
-   - material table index
-   - flags such as "force geometric normal"
-   - translucent subtype data for debug mode 12
-
-3. CPU material discovery looks for safe, already available diffuse/base-color
-   textures:
-   - fast-path diffuse images
-   - explicit diffuse material stages
-   - no editor-image fallback
-   - no forced image loading during RT capture
-
-4. A bindless NVRHI Texture_SRV descriptor table is used for sampled textures.
-   Current active capacity is 512 descriptors.
-
-5. RT material table entries store descriptor indexes for diffuse/albedo and,
-   where discovered, alpha/coverage textures.
-
-6. Shader sampling uses Texture.Load by default. SampleLevel is kept as a
-   diagnostic path only because it caused device-removed crashes near active
-   SWF/GUI screens.
-
-Relevant CVars:
-
-    r_pathTracingTextureTableLimit
-    r_pathTracingTextureTableStart
-    r_pathTracingTextureSampleMethod
-    r_pathTracingTextureBindlessEnable
-    r_pathTracingTextureForceFallback
-    r_pathTracingTextureProbeDump
-    r_pathTracingTextureFallbackDump
-    r_pathTracingAlphaDump
-    r_pathTracingTranslucentDump
-
-Important defaults for stable texture testing:
-
-    r_pathTracingTextureTableLimit 512
-    r_pathTracingTextureSampleMethod 2
-
-
-Game Directory and Copying Files for Testing
---------------------------------------------
-
-Repository:
-
-    E:\prog\rbdoom-3-bfg-rt
-
-Prepared game folder used by the user:
-
-    E:\prog\rbdoom-3-BFG-prebuilt
-
-After building, copy the executable:
-
-    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
-
-If the RT shader changes, also copy the SPIR-V blob:
-
-    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
-
-The user launches the copied game manually from the prepared folder.
-
-idTech retains CVars between sessions. The user may reset important CVars in a
-launch .bat. Do not assume a fresh game starts with default RT CVars.
-
-
-Important Design Decisions
---------------------------
-
-- Keep the experiment behind r_pathTracing.
-- Present the RT output as the 3D scene layer only; keep Doom HUD, GUI, and
-  menus drawn on top by the existing renderer.
-- Use NVRHI RT APIs and bindless descriptor tables rather than raw Vulkan
-  descriptors.
-- Use a persistent static-world cache and rebuild dynamic-candidate geometry
-  every frame.
-- Keep static and dynamic geometry in separate buffers so BLAS geometry and
-  closest-hit attribute fetches stay matched.
-- Rebuild TLAS every frame.
-- Prefer conservative classification over unsafe static caching.
-- Use RT-only CPU skinning for MD5/skinned surfaces when raster GPU skinning is
-  enabled. This is a correctness bridge, not a final performance plan.
-- Use Texture.Load for RT texture fetches until sampler/mip/synchronization
-  issues near SWF/GUI surfaces are understood.
-- Do not try to make translucent/decal/glow semantics perfect yet. Mode 12 is a
-  classifier/debug tool, not final rendering.
-
-
-Failed Approaches to Avoid Repeating
-------------------------------------
-
-- Do not call idMaterial::GetEditorImage() during RT texture discovery. It can
-  force missing image loads and caused repeatable device-removed crashes.
-
-- Do not force-load missing images during RT scene capture.
-
-- Do not use SampleLevel as the normal RT texture path yet. It caused
-  device-removed crashes near active animated SWF/GUI terminals, even when
-  sampling fallback textures.
-
-- Do not reuse a cached BLAS with different shader-side vertex/index/attribute
-  buffers. The BLAS geometry and closest-hit fetch buffers must match.
-
-- Do not treat Doom draw-surface order as stable identity.
-
-- Do not break the whole capture loop when one surface exceeds a limit. Skip
-  suspect/oversized surfaces and keep scanning.
-
-- Do not merge static and dynamic triangle metadata casually. InstanceID is used
-  to choose the correct buffer set in closest-hit.
-
-- Do not revive the old Donut/RTXPT CMake integration attempt unless explicitly
-  planning a clean integration. It caused dependency/version confusion.
-
-
-Known Bugs and Unresolved Issues
---------------------------------
-
-- Mode 18 is a crude real-time PT baseline with selected-light shadow rays,
-  one diffuse-ish bounce, texture sampling, and accumulation. It is not a final
-  integrator: no MIS, no denoiser, no ReSTIR, no real emissive area-light
-  sampling, and only partial Doom light/material integration.
-
-- Mode 13 is simple fixed-direction Lambert lighting only.
-
-- Texture.Load has a manual bilinear path, but still does not implement mip
-  selection, ray cones, derivatives, or anisotropy.
-
-- SampleLevel/sampler path is unstable near active SWF/GUI surfaces.
-
-- Material support is incomplete:
-  - diffuse/albedo
-  - alpha/coverage for cutout/perforated materials
-  - diagnostic normal/specular/emissive maps
-  - no roughness/metalness approximation
-  - no final emissive area-light sampling
-  - no blended translucent compositing
-
-- Translucent subtype classification is approximate. Some glow/signage/object
-  glass classifications are useful diagnostics but not final material behavior.
-
-- The floor alpha issue seen in one spot appears to exist in the base game, not
-  the RT path.
-
-- Per-frame dynamic capture and RT-only CPU skinning are not optimized.
-
-- PathTracePrimaryPass.cpp is too large and mixes too many responsibilities.
-
-
-Temporary Hacks and Cleanup Needed
-----------------------------------
-
-- Split RT smoke scene capture, material discovery, and BLAS/TLAS management
-  out of PathTracePrimaryPass.cpp.
-
-- Move debug CVars/logging into a cleaner namespace or module.
-
-- Replace the ad hoc material table with a deliberate RT material system.
-
-- Replace point Texture.Load albedo with a stable filtered/mip-aware strategy.
-
-- Promote alpha any-hit from debug-only cutout handling into real material
-  traversal once opaque lighting is further along.
-
-- Keep or remove mode 12 translucent subtype classification after the real
-  material system exists.
-
-- Decide what to do with the stale RTXPT/Donut files in the worktree.
-
-
-Exact Next Steps in Priority Order
-----------------------------------
-
-1. Extend the mode 19 emissive inventory with metadata useful to NVIDIA
-   ReSTIR/PT integration.
-   - Promote the shader centroid emissive texture estimate into an actual
-     prepared-light/candidate-weight buffer.
-   - Stable identity where possible for static-world candidates.
-
-2. Keep improving Doom material classification without overbuilding a custom
-   sampler.
-   - Decal/blend correctness.
-   - Doom specular-to-PBR/F0/roughness approximation.
-   - Safer exclusion of game-logic/generated emissive overlays.
-
-3. Start separating the RT smoke code into helper files.
-   - First extraction target: surface capture + classification structs.
-   - Second extraction target: material table + texture descriptor table.
-   - Avoid changing behavior during extraction.
-
-4. Improve texture sampling quality safely.
-   - Stay on Texture.Load/manual bilinear initially.
-   - Add mip/LOD strategy later.
-   - Do not switch default back to SampleLevel until SWF/GUI crash is solved.
-
-5. Evolve mode 18 only as a baseline/integration test.
-   - Keep low sample/bounce counts.
-   - Use accumulation to make changes inspectable.
-   - Replace placeholder direct/emissive logic with ReSTIR/PT once integrated.
-
-6. Later, revisit translucent/decal/glow behavior with a more complete material
-   model. Do not get stuck perfecting mode 12 before real lighting exists.
-
-
-Configure, Build, and Test Commands
------------------------------------
+Current module/refactor state
+-----------------------------
+
+PathTracePrimaryPass used to own nearly everything. It is now intentionally
+small: feature detection, per-frame entry, output sizing, and present/blit glue.
+It still owns most persistent m_smoke* handles/counters. Static-world geometry
+cache storage and static surface identity/append bookkeeping now live in
+PathTraceGeometryUniverse.
+
+Main module split:
+
+- PathTracePrimaryPass.*: frame-level pass shell and persistent state owner.
+- PathTraceSmokeSceneBuild.cpp: high-level per-frame scene build sequence.
+- PathTraceSmokeResources.*: NVRHI smoke resource creation, reset, binding, and
+  resource commit packaging.
+- PathTraceSmokeDispatch.*: constants, resource transitions, dispatch,
+  accumulation, and readback queueing.
+- PathTraceSmokeReadback.cpp: optional debug readback logging.
+- PathTraceAcceleration.*: BLAS/TLAS helpers, upload batch, static BLAS
+  signature, and acceleration submit helpers.
+- PathTraceSceneCapture.*: Doom draw-surface traversal, validation, bucketing,
+  stats, and dynamic geometry append. Static surface cache identity and append
+  completion now go through PathTraceGeometryUniverse.
+- PathTraceGeometry.*: shared RT smoke vertex layout and pure geometry helpers.
+- PathTraceGeometryUniverse.*: persistent static geometry universe scaffold,
+  static surface records, static cache vectors, static lookup/append ownership,
+  generation/stats, and future home for previous-frame geometry history.
+- PathTraceSkinning.*: temporary CPU skinning bridge.
+- PathTraceSurfaceClassification.*: surface bucket and translucent subtype
+  classification.
+- PathTraceDoomMaterialClassifier.*: Doom material/stage classification.
+- PathTraceMaterialTextureDiscovery.*: visible material texture discovery and
+  metadata registration.
+- PathTraceTextureRegistry.*: safe texture metadata registry.
+- PathTraceMaterialUniverse.*: persistent per-material records/facts and stable
+  material universe indexes.
+- PathTraceDynamicMaterialState.*: GPU-facing material table and cache.
+- PathTraceGuiSurfaces.*: GUI surface admission gate.
+- PathTraceEmissiveCandidates.*: emissive triangle candidate records and dumps.
+- PathTraceLightSelection.*: selected debug light ranking.
+- PathTraceDebugDumps.* and PathTraceSurfaceDebugDumps.*: terminal diagnostics
+  and one-shot CVar trigger/reset behavior.
+- PathTraceCVars.*: RT/PT CVar declarations and definitions.
+
+The broad extraction phase is probably complete. Do not keep splitting purely
+for line count. A future PathTraceSmokeState / PathTraceSmokeScene ownership
+object may be useful, but that should be a deliberate architecture change.
+
+Recent refactor/docs commits
+----------------------------
+
+Recent important commits on this branch:
+
+    d40fe9fa Move static geometry lookup into universe
+    ddc2ec19 Update path tracing docs for geometry universe
+    e55ba1ab Add path trace geometry universe scaffold
+    9a78a170 Cache universe material table work
+    90719330 Default to material universe table
+    d8e6ca22 Add universe-derived material table path
+    7004b522 Add stable material universe indexes
+    68237ab6 Upload emissive light candidate buffer
+    5c94ac5c Add emissive light candidate summaries
+    d37f1238 Add material universe facts
+    4b179101 Use material universe for emissive inventory
+    f79870ee Extract RT smoke material universe module
+    4d1e5cda Add RT smoke material universe validation
+    9338bcda Update path tracing refactor overview
+    a4dca266 Add path trace module comments
+    34be0103 Document path trace module map
+    59f00215 Extract path trace scene resource commit packaging
+    7b9a4f4c Move path trace smoke scene build
+    355ac29e Extract path trace scene build diagnostic logs
+    d2d06b57 Extract path trace diagnostic triggers
+    c5194175 Extract path trace scene summary diagnostics
+    c66ce58b Extract path trace slow scene diagnostics
+    010724b6 Extract path trace material metadata registration
+    2ba361d3 Extract path trace CVars
+    c4165bdd Extract path trace scene buffer creation
+    9f4df79e Extract path trace acceleration buffer uploads
+    20db5d49 Extract path trace acceleration submit helpers
+    6c8868d0 Extract path trace scene resource handoff
+    406f71f5 Move path trace smoke resource lifecycle
+    26a903f0 Move path trace smoke readback
+    48b89221 Extract path trace smoke dispatch
+    f0b593f4 Extract material texture discovery
+    d70b9b30 Extract path trace light selection
+    a61b595c Move path trace diagnostic dumps
+    6909be3a Move path trace scene capture body
+    bd24bacb Extract path trace surface diagnostics
+    72621425 Extract path trace GUI surface diagnostics
+    09fe3c38 Move material texture diagnostics
+    ab82fcf8 Extract path trace acceleration helpers
+    4a8d64c3 Extract path trace smoke binding resources
+    5dae6458 Extract path trace dynamic material state
+    be021f80 Add RT smoke scene timing details
+    48ee632a Extract path trace scene capture helpers
+    918569f4 Move emissive inventory dump
+    e9b463c2 Extract path trace emissive candidate builder
+    f1b853c0 Extract Doom material classifier helpers
+    4b7aad17 Move path trace material texture registry state
+    9eb1475a Extract path trace texture safety helpers
+    1896089e Extract path trace debug name helpers
+    4b35f553 Extract path trace GUI surface helper
+    72b2645e Extract path trace skinning helpers
+    cd4d0716 Extract path trace geometry helpers
+
+Build and copy workflow
+-----------------------
 
 Build executable:
 
     cmake --build build --config Debug --target RBDoom3BFG
 
-Build RT shader target if pathtrace_smoke.rt.hlsl changed:
-
-    cmake --build build --config Debug --target PathTracingShaders
-
 Copy executable to game folder:
 
     Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
 
-Copy RT shader blob to game folder:
+If pathtrace_smoke.rt.hlsl changes, also build/copy the RT shader blob:
+
+    cmake --build build --config Debug --target PathTracingShaders
 
     Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
 
-Useful runtime commands:
+If a new .cpp is added under neo/renderer/NVRHI, rerun:
+
+    cmake -S neo -B build
+
+The NVRHI PathTrace sources are globbed by CMake, so project regeneration is
+needed after adding a source file.
+
+Testing baseline
+----------------
+
+The user has repeatedly validated the refactor in game. Recent tested checks:
+
+- Game launches.
+- Mode 18 ray tracing still works.
+- Mode 19 emissive inventory/debug still works.
+- Crosshair material dump still prints material details.
+- GUI surfaces still appear when enabled.
+- Diagnostics still trigger and reset.
+- Scene capture, skinning, texture/material diagnostics, and emissive polygon
+  classifier stayed active across the extraction series.
+- Material universe active table path works without observed material jumping
+  after row-order compatibility fixes.
+- Geometry universe scaffold and static lookup/append move were tested by the
+  user with no visual regressions or crashes. User observed possible modest
+  early/high-FPS uplift, with the old longer-session decay still present but no
+  worse.
+
+Useful quick runtime tests:
 
     r_pathTracing 1
-    r_pathTracingDebugWidth 1280
-    r_pathTracingDebugHeight 720
-    r_pathTracingTextureTableLimit 512
-    r_pathTracingTextureSampleMethod 2
+    r_pathTracingDebugMode 18
+    r_pathTracingDebugMode 19
+    r_pathTracingCrosshairMaterialDump 1
+    r_pathTracingGuiDump 1
+    r_pathTracingClassDump 1
+    r_pathTracingSmokeLog 1
 
-Common debug modes:
+For CPU timing:
 
-    r_pathTracingDebugMode 3    // surface class
-    r_pathTracingDebugMode 8    // sampled diffuse texture probe
-    r_pathTracingDebugMode 9    // alpha/coverage preview
-    r_pathTracingDebugMode 10   // albedo
-    r_pathTracingDebugMode 12   // translucent subtype
-    r_pathTracingDebugMode 13   // fixed Lambert lighting
-    r_pathTracingDebugMode 14   // selected point-light direct shadows
-    r_pathTracingDebugMode 18   // toy one-bounce PT
-    r_pathTracingDebugMode 19   // emissive triangle inventory
+    r_pathTracingTimingLog 1
+    r_pathTracingTimingThreshold 0
+    r_pathTracingSmokeLog 0
+    r_pathTracingReadbackEnable 0
 
-Quieter traversal:
+For material universe active-table validation:
 
+    r_pathTracingMaterialUniverseTable 1
+    r_pathTracingMaterialUniverseTableValidate 1
+    r_pathTracingTimingLog 1
+    r_pathTracingTimingThreshold 0
     r_pathTracingSmokeLog 0
 
-One-shot dumps:
+Clean validation reports materialTablePath=universe and
+universeTableCompare=1/0 in timing logs. A mismatch while the universe table is
+active falls back to the legacy table for that frame and logs
+materialTablePath=legacyFallback.
 
-    r_pathTracingTextureProbeDump 1
-    r_pathTracingTextureFallbackDump 1
-    r_pathTracingAlphaDump 1
-    r_pathTracingTranslucentDump 1
-    r_pathTracingEmissiveInventoryDump 1
+Remember idTech persists CVars between sessions. Do not assume defaults.
 
-If the game starts in an unexpected RT mode, remember that idTech persists CVars
-between sessions. Reset the relevant CVars explicitly.
+Material universe status
+------------------------
+
+The material side is now fairly complete for easy single-threaded wins:
+
+- PathTraceMaterialUniverse owns persistent material records/facts.
+- Stable material universe indexes exist and are used by emissive summaries and
+  uploaded light candidate records.
+- PathTraceDynamicMaterialState builds the active shader-facing material table
+  from universe records by default.
+- r_pathTracingMaterialCache caches the universe-derived active table by default.
+- Static triangle material-index compatibility is preserved by keeping the
+  compact active row order compatible with cached static material-index buffers.
+- Optional validation can compare universe-derived and legacy active tables.
+
+Do not casually change active material row order. It is tied to static cached
+triangle material-index buffers. If changing this, use
+r_pathTracingMaterialUniverseTableValidate and test mode 18 in material-heavy
+areas.
+
+Geometry universe status
+------------------------
+
+Current geometry universe implementation:
+
+- PathTraceGeometryUniverse owns the persistent static-world cache vectors:
+  surface keys, vertices, indexes, triangle classes, and triangle material IDs.
+- It owns static surface records:
+  RtSmokePersistentStaticSurfaceRecord with key, class/material IDs,
+  current and previous vertex/index/triangle ranges, per-frame lifecycle flags,
+  history validity, dirty flag, and geometry format enum.
+- It owns static surface lookup:
+  HasStaticSurface / FindStaticSurface.
+- It owns append policy entry/completion:
+  CanAppendStaticSurface, BeginStaticSurfaceAppend, CompleteStaticSurfaceAppend.
+- It owns per-frame update bookkeeping:
+  BeginFrame, TouchStaticSurface, and EndFrame mark static records as seen,
+  newly created, disappeared, history-valid, invalidated, or dirty.
+- Static record validation is reported through existing smoke diagnostics:
+  validate=total/range/duplicate-key/history/key-vector. Clean tested frames
+  report validate=0/0/0/0/0.
+- PathTraceSceneCapture still builds the actual static vertex/index/class/material
+  data, but it touches cached static surfaces through the universe and completes
+  new appends through the universe.
+- PathTraceSmokeSceneBuild still consumes the same shader-facing arrays, so the
+  shader/resource contract is unchanged.
+- No previous-frame GPU buffers or motion-vector output exists yet.
+
+The next geometry work should be deliberate and behavior-preserving. The current
+records are still a bridge: they encode identity, current/previous ranges, and
+lifecycle state, but they do not yet own full previous-position buffers or
+dynamic/rigid/skinned history.
+
+Critical DLSS Ray Reconstruction / motion-vector requirement
+------------------------------------------------------------
+
+The user discovered this requirement during geometry-universe planning:
+
+- Stock Q2RTX does not support DLSS Ray Reconstruction because it cannot produce
+  the required motion-vector output.
+- A Q2RTX Ray Reconstruction fork exists at:
+
+      E:\prog\references\Q2RTX-rayreconstruction-master
+
+- That fork is useful as an architecture reference. In particular, its shader
+  path stores/uses previous triangle positions and previous instance transforms,
+  then projects current and previous hit positions to produce motion vectors.
+
+Design rule for this branch:
+
+    PathTraceGeometryUniverse must be designed to retain one previous frame of
+    geometry/history data. Geometry-derived motion vectors are a core future
+    requirement, not a denoiser/RR afterthought.
+
+Why this matters:
+
+- Camera-only motion vectors are insufficient for moving rigid entities,
+  animated/skinned meshes, reflected/refracted surfaces, and disocclusions.
+- Frame-local geometry rebuilds lose the identity/history needed for temporal
+  reconstruction.
+- If the universe only stores "current packed PathTraceSmokeVertex arrays",
+  adding DLSS RR later could require rebuilding the geometry ownership model.
+
+The long-term target:
+
+- Each persistent surface/triangle record should be able to map current and
+  previous geometry.
+- For static world, previous positions can often be identical or share the same
+  range.
+- For rigid entities, store current and previous transforms or equivalent
+  current/previous world-space ranges.
+- For skinned/deformed meshes, eventually store previous skinned positions or
+  provide a GPU skinning history source.
+- Records need invalidation/disocclusion flags when previous-frame mapping is
+  missing or untrustworthy.
+- Future GPU buffers should allow current/previous position data, position
+  deltas, or another explicit geometry-history representation.
+
+Compression/quantization note:
+
+- Static mesh compression or quantization may be useful later for bandwidth/VRAM
+  and cache behavior.
+- Do not implement it before stable records/history and buffer ownership exist.
+- Leave room in records for a geometry format enum/descriptor and bounds or
+  quantization basis.
+- Avoid making "std::vector<PathTraceSmokeVertex> forever" the permanent
+  universe contract.
+
+Geometry universe next-step plan
+--------------------------------
+
+Completed current step:
+
+- PathTraceGeometryUniverse now has BeginFrame / TouchStaticSurface / EndFrame.
+- Static records track lastSeenFrame, previousSeenFrame, seenThisFrame,
+  newlyCreatedThisFrame, disappearedThisFrame, previousRangeValid, historyValid,
+  and dirty.
+- Static records carry explicit previous vertex/index/triangle offsets and
+  counts. For static world, consecutive-frame history promotes the current
+  range as the previous range because the cached static geometry is unchanged.
+- Existing smoke logs report seen/new/gone, history/previous-range, dirty, and
+  validation counters. User-tested mode 18 showed no crashes or visible
+  regressions, history=N/N on stable seen surfaces, dirty=0 when standing still,
+  and validate=0/0/0/0/0.
+
+Recommended next step:
+
+1. Normalize current/previous range fields into explicit small range structs.
+
+   This is a code-cleanliness step before changing buffers:
+
+   - current vertex/index/triangle range,
+   - previous vertex/index/triangle range,
+   - helper validation for both ranges,
+   - no shader/resource behavior changes.
+
+2. Add a one-shot geometry-universe diagnostic dump if validation fails.
+
+   Useful dump fields:
+
+   - record key,
+   - current and previous ranges,
+   - seen/new/gone/history/dirty flags,
+   - validation failure category.
+
+3. Later, add previous-frame/range history beyond static identity.
+
+   Start with static world:
+
+   - Static world records can mark previous range valid when unchanged.
+   - Current and previous ranges may be identical for static surfaces.
+   - This is the safest way to validate the history model before dynamic objects.
+
+   Then rigid entities:
+
+   - They need stable identity separate from static world keys.
+   - Store current/previous model transforms and range mapping.
+   - Do not rely on Doom draw-surface order as identity.
+
+   Then skinned/deformed:
+
+   - The current CPU skinning path is temporary.
+   - Long term probably wants GPU-side skinned data or a history source.
+   - Do not build a large CPU threading solution for this unless profiling proves
+     it is worth it.
+
+4. Later, move static GPU buffer ownership/dirty uploads into the universe.
+
+   Only after CPU records/history are stable:
+
+   - persistent static vertex/index/class/material buffers,
+   - dirty ranges,
+   - current/previous position or delta buffers,
+   - buffer format descriptor/enum,
+   - BLAS build/update policy tied to dirty state.
+
+5. Later, generate motion vectors.
+
+   This requires shader/resource contract work:
+
+   - output motion/depth buffers,
+   - current and previous view/projection matrices,
+   - current/previous hit position reconstruction,
+   - sky/background motion,
+   - invalid/disoccluded motion handling,
+   - eventually reflection/refraction motion if those paths are added.
+
+   Use the Q2RTX Ray Reconstruction fork as a design reference, not as code to
+   drop in wholesale.
+
+Immediate next-work suggestions
+-------------------------------
+
+The heavy broad-refactor phase is complete. Next work should be focused and
+specific.
+
+1. CPU-bound performance investigation
+
+   The user observed that raising mode 18 output resolution to 4K did not
+   materially change FPS, strongly suggesting a CPU-side bottleneck.
+
+   First use existing timing logs to identify whether time is in:
+
+   - scene capture
+   - CPU skinning
+   - material metadata discovery
+   - material table build
+   - buffer creation/upload
+   - BLAS/TLAS submit
+   - dispatch preparation
+
+   Low-risk CPU optimizations to consider:
+
+   - Reuse/reserve per-frame scratch vectors.
+   - Avoid repeated static-world capture/material work.
+   - Strengthen material metadata caching.
+   - Add more timing/counters around PathTraceSceneCapture and CPU skinning.
+
+   Avoid building a large CPU job system unless profiling identifies a large,
+   isolated, data-parallel hotspot. GPU-side skinning and GPU-side light prep are
+   likely better long-term answers than elaborate CPU multithreading.
+
+2. Optick profiling
+
+   Optick is integrated but behind CMake option OPTICK, default OFF. Existing
+   evidence:
+
+   - neo/cmake-vs2022-win64-optick-profiling.bat exists.
+   - USE_OPTICK controls whether OPTICK_EVENT macros compile in.
+   - win_main.cpp has OPTICK_FRAME("MainThread").
+   - engine/backend/GPU markers exist.
+   - No obvious gameplay CVar for starting/stopping captures was found.
+
+   Useful if doing a small prep pass:
+
+   - Build with -DOPTICK=ON.
+   - Add OPTICK_EVENT scopes in the PathTrace* hot paths.
+   - Try external Optick capture again.
+
+   If capture remains awkward, the current r_pathTracingTimingLog path is still
+   simpler for immediate CPU bottleneck work.
+
+3. ReSTIR/PT bare-minimum vertical slice
+
+   Do not start by trying to integrate all of NVIDIA RTXPT. A good first slice:
+
+   - Promote mode 19 emissive inventory into a real GPU light candidate buffer
+     contract.
+   - Add reservoir buffers/swap resources in a new PathTraceReservoirs.* or
+     PathTraceReSTIR.* module.
+   - Add a new debug mode that does single-frame reservoir direct lighting from
+     emissive candidates.
+   - Add spatial reuse after a single-frame reservoir works.
+   - Add temporal reuse/reprojection after spatial/debug data are stable.
+
+   Files likely involved:
+
+   - PathTraceEmissiveCandidates.*
+   - PathTraceDynamicMaterialState.*
+   - PathTraceSmokeResources.*
+   - PathTraceSmokeDispatch.cpp
+   - pathtrace_smoke.rt.hlsl
+   - PathTraceCVars.*
+
+   Needed data contracts:
+
+   - GPU material record with base color, alpha/cutout, normal/specular/roughness
+     approximation, emissive color/texture, and unsupported/fallback flags.
+   - Emissive candidate buffer with area, normal, material/emissive texture slot,
+     approximate radiance/luminance, weight/pdf fields, and stable-ish identity.
+   - Reservoir buffers for current/previous/intermediate data.
+   - Reset rules when camera, output size, scene signature, material table, or
+     candidate buffer changes.
+
+4. Doom 3 interactive GUI surfaces
+
+   Current direct-GUI-surface tracing is diagnostic only. Long-term direction:
+
+   - Keep Doom's GUI/SWF raster path for panel contents.
+   - Render each live panel offscreen or expose its composited texture.
+   - Project that composited texture onto the physical panel surface.
+   - Keep generated painter-order GUI quads out of the TLAS.
+
+   Start in PathTraceGuiSurfaces.*, PathTraceSceneCapture.*, and
+   PathTraceMaterialTextureDiscovery.* if working here. Preserve diagnostics
+   before broadening behavior.
+
+Design traps to avoid
+---------------------
+
+- Do not call idMaterial::GetEditorImage() during RT texture discovery.
+- Do not force-load missing images during frame capture.
+- Do not switch default RT texture sampling back to SampleLevel until the
+  SWF/GUI device-removal issue is understood.
+- Do not reuse a cached BLAS with mismatched shader-side attribute buffers.
+- Do not treat Doom draw-surface order as stable identity.
+- Do not casually merge static and dynamic triangle metadata. InstanceID matters.
+- Do not broaden callback-entity capture without testing the disk pickup/delete
+  crash scenario.
+- Do not treat dynamic/game-logic-driven materials as static material truth.
+  Improve diagnostics and narrow bridges first.
+- Do not revive old in-tree RTXPT/Donut/CMake leftovers unless doing a deliberate
+  clean integration.
+
+End-of-phase recommendation
+---------------------------
+
+This is a good point to end high-reasoning broad refactor work and return to
+focused, measured tasks:
+
+- one CPU performance hotspot at a time,
+- one Doom material family at a time,
+- one GUI-surface experiment at a time,
+- one ReSTIR/PT vertical slice at a time.
+
+The module split is now readable enough that future sessions should start from
+docs/pathtrace_modules.txt, inspect only the relevant files, and avoid reopening
+the entire refactor unless a real ownership problem appears.

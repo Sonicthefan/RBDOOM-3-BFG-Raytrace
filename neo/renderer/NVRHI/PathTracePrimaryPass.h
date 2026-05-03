@@ -53,6 +53,7 @@ private:
     uint64 m_smokeStaticBlasSignature;
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;
+    uint64 m_smokeGeometryFrameIndex;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     uint32_t m_smokeTextureProbeMaterialId;
     int m_smokeTextureProbeRequestedIndex;

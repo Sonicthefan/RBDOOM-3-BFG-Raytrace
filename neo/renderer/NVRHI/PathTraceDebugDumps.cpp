@@ -266,7 +266,7 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -295,6 +295,24 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.dynamicIndexCount,
         desc.staticCachedSurfaces,
         desc.staticNewSurfaces,
+        desc.staticSurfaceCacheSize,
+        desc.staticVertexCacheCount,
+        desc.staticIndexCacheCount,
+        desc.staticTriangleCacheCount,
+        desc.staticCacheBytesKB,
+        desc.staticSeenThisFrame,
+        desc.staticNewThisFrame,
+        desc.staticDisappearedThisFrame,
+        desc.staticHistoryValid,
+        desc.staticPreviousRangeValid,
+        desc.staticDirty,
+        desc.staticValidationErrors,
+        desc.staticRangeErrors,
+        desc.staticDuplicateKeys,
+        desc.staticHistoryErrors,
+        desc.staticKeyVectorMismatches,
+        desc.staticBlasSignatureReused ? 1 : 0,
+        desc.staticBlasSignatureMs,
         desc.anchorSurfaceTests,
         desc.anchorBoundsRejects,
         desc.anchorTriangleTests,
@@ -360,10 +378,27 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.dynamicStats.skinnedLikelyBasePoseSurfaces, desc.dynamicStats.skinnedLikelyBasePoseIndexes,
         desc.dynamicStats.particleAlphaSurfaces, desc.dynamicStats.particleAlphaIndexes,
         desc.dynamicStats.unknownSurfaces, desc.dynamicStats.unknownIndexes);
-    common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu cacheSurfaces=%d hits=%d misses=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke static BLAS cache %s signature=%llu cacheSurfaces=%d verts=%d indexes=%d triangles=%d bytes=%dKB seen/new/gone=%d/%d/%d history=%d/%d dirty=%d validate=%d/%d/%d/%d/%d signatureReuse=%d signatureMs=%d hits=%d misses=%d\n",
         desc.staticBlasCacheHit ? "hit" : "rebuild",
         static_cast<unsigned long long>(desc.staticBlasSignature),
         desc.staticSurfaceCacheSize,
+        desc.staticVertexCacheCount,
+        desc.staticIndexCacheCount,
+        desc.staticTriangleCacheCount,
+        desc.staticCacheBytesKB,
+        desc.staticSeenThisFrame,
+        desc.staticNewThisFrame,
+        desc.staticDisappearedThisFrame,
+        desc.staticHistoryValid,
+        desc.staticPreviousRangeValid,
+        desc.staticDirty,
+        desc.staticValidationErrors,
+        desc.staticRangeErrors,
+        desc.staticDuplicateKeys,
+        desc.staticHistoryErrors,
+        desc.staticKeyVectorMismatches,
+        desc.staticBlasSignatureReused ? 1 : 0,
+        desc.staticBlasSignatureMs,
         desc.staticBlasCacheHitCount,
         desc.staticBlasCacheMissCount);
     common->Printf("PathTracePrimaryPass: RT smoke material table path=%s cache=%s signature=%llu hits=%d misses=%d materials=%d textures=%d buildMs=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d\n",
@@ -1445,6 +1480,24 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         slowLog.dynamicIndexCount = desc.dynamicIndexCount;
         slowLog.staticCachedSurfaces = desc.captureTiming.staticCachedSurfaces;
         slowLog.staticNewSurfaces = desc.captureTiming.staticNewSurfaces;
+        slowLog.staticSurfaceCacheSize = desc.staticSurfaceCacheSize;
+        slowLog.staticVertexCacheCount = desc.staticVertexCacheCount;
+        slowLog.staticIndexCacheCount = desc.staticIndexCacheCount;
+        slowLog.staticTriangleCacheCount = desc.staticTriangleCacheCount;
+        slowLog.staticSeenThisFrame = desc.staticSeenThisFrame;
+        slowLog.staticNewThisFrame = desc.staticNewThisFrame;
+        slowLog.staticDisappearedThisFrame = desc.staticDisappearedThisFrame;
+        slowLog.staticHistoryValid = desc.staticHistoryValid;
+        slowLog.staticPreviousRangeValid = desc.staticPreviousRangeValid;
+        slowLog.staticDirty = desc.staticDirty;
+        slowLog.staticValidationErrors = desc.staticValidationErrors;
+        slowLog.staticRangeErrors = desc.staticRangeErrors;
+        slowLog.staticDuplicateKeys = desc.staticDuplicateKeys;
+        slowLog.staticHistoryErrors = desc.staticHistoryErrors;
+        slowLog.staticKeyVectorMismatches = desc.staticKeyVectorMismatches;
+        slowLog.staticCacheBytesKB = desc.staticCacheBytesKB;
+        slowLog.staticBlasSignatureReused = desc.staticBlasSignatureReused;
+        slowLog.staticBlasSignatureMs = desc.staticBlasSignatureMs;
         slowLog.anchorSurfaceTests = desc.captureTiming.anchorSurfaceTests;
         slowLog.anchorBoundsRejects = desc.captureTiming.anchorBoundsRejects;
         slowLog.anchorTriangleTests = desc.captureTiming.anchorTriangleTests;
@@ -1494,6 +1547,23 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.staticBlasCacheHit = desc.staticBlasCacheHit;
     sceneSummaryLog.staticBlasSignature = desc.staticBlasSignature;
     sceneSummaryLog.staticSurfaceCacheSize = desc.staticSurfaceCacheSize;
+    sceneSummaryLog.staticVertexCacheCount = desc.staticVertexCacheCount;
+    sceneSummaryLog.staticIndexCacheCount = desc.staticIndexCacheCount;
+    sceneSummaryLog.staticTriangleCacheCount = desc.staticTriangleCacheCount;
+    sceneSummaryLog.staticSeenThisFrame = desc.staticSeenThisFrame;
+    sceneSummaryLog.staticNewThisFrame = desc.staticNewThisFrame;
+    sceneSummaryLog.staticDisappearedThisFrame = desc.staticDisappearedThisFrame;
+    sceneSummaryLog.staticHistoryValid = desc.staticHistoryValid;
+    sceneSummaryLog.staticPreviousRangeValid = desc.staticPreviousRangeValid;
+    sceneSummaryLog.staticDirty = desc.staticDirty;
+    sceneSummaryLog.staticValidationErrors = desc.staticValidationErrors;
+    sceneSummaryLog.staticRangeErrors = desc.staticRangeErrors;
+    sceneSummaryLog.staticDuplicateKeys = desc.staticDuplicateKeys;
+    sceneSummaryLog.staticHistoryErrors = desc.staticHistoryErrors;
+    sceneSummaryLog.staticKeyVectorMismatches = desc.staticKeyVectorMismatches;
+    sceneSummaryLog.staticCacheBytesKB = desc.staticCacheBytesKB;
+    sceneSummaryLog.staticBlasSignatureReused = desc.staticBlasSignatureReused;
+    sceneSummaryLog.staticBlasSignatureMs = desc.staticBlasSignatureMs;
     sceneSummaryLog.staticBlasCacheHitCount = desc.staticBlasCacheHitCount;
     sceneSummaryLog.staticBlasCacheMissCount = desc.staticBlasCacheMissCount;
     sceneSummaryLog.materialTableCacheHit = desc.materialTableCacheHit;

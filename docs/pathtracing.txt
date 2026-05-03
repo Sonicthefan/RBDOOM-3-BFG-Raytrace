@@ -788,12 +788,21 @@ Material table performance:
 Geometry universe status:
 
 - PathTraceGeometryUniverse owns the persistent static-world cache vectors and
-  exposes basic stats/generation tracking. It also owns static surface record
-  lookup and append completion for the existing static cache data.
+  exposes stats/generation tracking. It also owns static surface record lookup,
+  per-frame lifecycle bookkeeping, append completion, and validation for the
+  existing static cache data.
 - PathTraceSmokeSceneBuild still uses the same shader-facing static arrays as
   before. PathTraceSceneCapture builds static geometry through the universe
   rather than directly pushing surface keys itself, but no shader-visible buffer
   contract change has been made.
+- Static records now track last/previous seen frames, seen/new/gone flags,
+  dirty/history validity, and explicit current/previous vertex/index/triangle
+  ranges. For unchanged static world surfaces, consecutive-frame history maps
+  the previous range to the same cached range.
+- Existing diagnostics report static record lifecycle and validation through
+  the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
+  validate=total/range/duplicate-key/history/key-vector. User testing in mode
+  18 reported no crashes or visible regressions, with validate=0/0/0/0/0.
 - The geometry universe must be designed from here onward to retain one previous
   frame of geometry/history data. DLSS Ray Reconstruction and similar temporal
   reconstruction paths need accurate motion vectors; camera-only motion is not
@@ -811,10 +820,10 @@ Geometry universe status:
   to support static, rigid, and eventually skinned geometry. Avoid designs that
   only keep the current frame's packed buffers and throw away the previous
   geometry universe.
-- The next useful geometry step is to add real current/previous history updates
-  to the persistent records. After that, persistent GPU buffers, dirty ranges,
-  previous-frame buffers, and stronger static/dynamic separation can be
-  introduced.
+- The next useful geometry step is to cleanly package current/previous ranges
+  into explicit range structs and add a focused diagnostic dump for validation
+  failures. After that, persistent GPU buffers, dirty ranges, previous-frame
+  buffers, and stronger static/dynamic separation can be introduced.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,

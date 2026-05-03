@@ -5,6 +5,8 @@
 
 void RtSmokeGeometryUniverse::Clear()
 {
+    m_currentFrameIndex = 0;
+    m_frameActive = false;
     m_staticSurfaceRecords.clear();
     m_staticSurfaceKeys.clear();
     m_staticVertexCache.clear();
@@ -12,6 +14,54 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticTriangleClassCache.clear();
     m_staticTriangleMaterialCache.clear();
     ++m_generation;
+}
+
+void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex)
+{
+    m_currentFrameIndex = frameIndex;
+    m_frameActive = true;
+    for (RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
+    {
+        record.seenThisFrame = false;
+        record.newlyCreatedThisFrame = false;
+        record.disappearedThisFrame = false;
+    }
+}
+
+void RtSmokeGeometryUniverse::EndFrame()
+{
+    if (!m_frameActive)
+    {
+        return;
+    }
+
+    for (RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
+    {
+        if (!record.valid)
+        {
+            continue;
+        }
+
+        if (!record.seenThisFrame)
+        {
+            record.disappearedThisFrame = record.lastSeenFrame > 0 && record.lastSeenFrame + 1 == m_currentFrameIndex;
+            if (record.disappearedThisFrame)
+            {
+                record.previousRangeValid = false;
+                record.historyValid = false;
+                record.dirty = true;
+            }
+            else
+            {
+                record.dirty = false;
+            }
+            continue;
+        }
+
+        record.dirty = record.newlyCreatedThisFrame || !record.historyValid;
+    }
+
+    m_frameActive = false;
 }
 
 void RtSmokeGeometryUniverse::NotifyStaticCacheChanged()
@@ -22,6 +72,47 @@ void RtSmokeGeometryUniverse::NotifyStaticCacheChanged()
 bool RtSmokeGeometryUniverse::HasStaticSurface(uint64 key) const
 {
     return FindStaticSurface(key) != nullptr;
+}
+
+RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::TouchStaticSurface(uint64 key)
+{
+    RtSmokePersistentStaticSurfaceRecord* record = FindStaticSurfaceMutable(key);
+    if (!record || !record->valid)
+    {
+        return nullptr;
+    }
+
+    if (!record->seenThisFrame)
+    {
+        record->previousSeenFrame = record->lastSeenFrame;
+        record->lastSeenFrame = m_currentFrameIndex;
+        record->seenThisFrame = true;
+        record->newlyCreatedThisFrame = false;
+        record->disappearedThisFrame = false;
+        const bool consecutiveFrame =
+            record->previousSeenFrame > 0 &&
+            record->previousSeenFrame + 1 == m_currentFrameIndex;
+        if (consecutiveFrame)
+        {
+            record->previousVertexOffset = record->vertexOffset;
+            record->previousVertexCount = record->vertexCount;
+            record->previousIndexOffset = record->indexOffset;
+            record->previousIndexCount = record->indexCount;
+            record->previousTriangleOffset = record->triangleOffset;
+            record->previousTriangleCount = record->triangleCount;
+        }
+        record->previousRangeValid =
+            consecutiveFrame &&
+            record->previousVertexOffset >= 0 &&
+            record->previousVertexCount == record->vertexCount &&
+            record->previousIndexOffset >= 0 &&
+            record->previousIndexCount == record->indexCount &&
+            record->previousTriangleOffset >= 0 &&
+            record->previousTriangleCount == record->triangleCount;
+        record->historyValid = record->previousRangeValid;
+    }
+
+    return record;
 }
 
 bool RtSmokeGeometryUniverse::CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const
@@ -63,10 +154,18 @@ void RtSmokeGeometryUniverse::CompleteStaticSurfaceAppend(const RtSmokeStaticSur
     record.triangleOffset = append.triangleOffset;
     record.triangleCount = emittedIndexCount / 3;
     record.previousVertexOffset = record.vertexOffset;
+    record.previousVertexCount = 0;
     record.previousIndexOffset = record.indexOffset;
+    record.previousIndexCount = 0;
     record.previousTriangleOffset = record.triangleOffset;
-    record.previousRangeValid = true;
-    record.historyValid = true;
+    record.previousTriangleCount = 0;
+    record.lastSeenFrame = m_currentFrameIndex;
+    record.previousSeenFrame = 0;
+    record.seenThisFrame = true;
+    record.newlyCreatedThisFrame = true;
+    record.disappearedThisFrame = false;
+    record.previousRangeValid = false;
+    record.historyValid = false;
     record.dirty = true;
     record.geometryFormat = RtSmokeGeometryBufferFormat::LegacySmokeVertex;
 
@@ -78,6 +177,18 @@ void RtSmokeGeometryUniverse::CompleteStaticSurfaceAppend(const RtSmokeStaticSur
 const RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::FindStaticSurface(uint64 key) const
 {
     for (const RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
+    {
+        if (record.valid && record.key == key)
+        {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::FindStaticSurfaceMutable(uint64 key)
+{
+    for (RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
     {
         if (record.valid && record.key == key)
         {
@@ -150,13 +261,105 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats() const
     stats.staticVerts = static_cast<int>(m_staticVertexCache.size());
     stats.staticIndexes = static_cast<int>(m_staticIndexCache.size());
     stats.staticTriangles = static_cast<int>(m_staticTriangleClassCache.size());
-    for (const RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
+    if (m_staticSurfaceKeys.size() != m_staticSurfaceRecords.size())
     {
+        ++stats.staticKeyVectorMismatches;
+    }
+    for (size_t recordIndex = 0; recordIndex < m_staticSurfaceRecords.size(); ++recordIndex)
+    {
+        const RtSmokePersistentStaticSurfaceRecord& record = m_staticSurfaceRecords[recordIndex];
         if (record.valid && record.historyValid)
         {
             ++stats.staticHistoryValid;
         }
+        if (record.valid && record.seenThisFrame)
+        {
+            ++stats.staticSeenThisFrame;
+        }
+        if (record.valid && record.newlyCreatedThisFrame)
+        {
+            ++stats.staticNewThisFrame;
+        }
+        if (record.valid && record.disappearedThisFrame)
+        {
+            ++stats.staticDisappearedThisFrame;
+        }
+        if (record.valid && record.previousRangeValid)
+        {
+            ++stats.staticPreviousRangeValid;
+        }
+        if (record.valid && record.dirty)
+        {
+            ++stats.staticDirty;
+        }
+        if (!record.valid)
+        {
+            continue;
+        }
+
+        const bool vertexRangeValid =
+            record.vertexOffset >= 0 &&
+            record.vertexCount >= 0 &&
+            record.vertexOffset + record.vertexCount <= stats.staticVerts;
+        const bool indexRangeValid =
+            record.indexOffset >= 0 &&
+            record.indexCount >= 0 &&
+            record.indexOffset + record.indexCount <= stats.staticIndexes;
+        const bool triangleRangeValid =
+            record.triangleOffset >= 0 &&
+            record.triangleCount >= 0 &&
+            record.triangleOffset + record.triangleCount <= stats.staticTriangles;
+        const bool materialRangeValid =
+            record.triangleOffset >= 0 &&
+            record.triangleCount >= 0 &&
+            record.triangleOffset + record.triangleCount <= static_cast<int>(m_staticTriangleMaterialCache.size());
+        if (!vertexRangeValid || !indexRangeValid || !triangleRangeValid || !materialRangeValid ||
+            record.indexCount != record.triangleCount * 3)
+        {
+            ++stats.staticRangeErrors;
+        }
+        if (record.historyValid && !record.previousRangeValid)
+        {
+            ++stats.staticHistoryErrors;
+        }
+        if (record.previousRangeValid)
+        {
+            const bool previousRangeValid =
+                record.previousVertexOffset >= 0 &&
+                record.previousVertexCount >= 0 &&
+                record.previousIndexOffset >= 0 &&
+                record.previousIndexCount >= 0 &&
+                record.previousTriangleOffset >= 0 &&
+                record.previousTriangleCount >= 0 &&
+                record.previousVertexOffset + record.previousVertexCount <= stats.staticVerts &&
+                record.previousIndexOffset + record.previousIndexCount <= stats.staticIndexes &&
+                record.previousTriangleOffset + record.previousTriangleCount <= stats.staticTriangles &&
+                record.previousTriangleOffset + record.previousTriangleCount <= static_cast<int>(m_staticTriangleMaterialCache.size()) &&
+                record.previousIndexCount == record.previousTriangleCount * 3;
+            if (!previousRangeValid)
+            {
+                ++stats.staticHistoryErrors;
+            }
+        }
+        if (recordIndex >= m_staticSurfaceKeys.size() || m_staticSurfaceKeys[recordIndex] != record.key)
+        {
+            ++stats.staticKeyVectorMismatches;
+        }
+        for (size_t otherIndex = recordIndex + 1; otherIndex < m_staticSurfaceRecords.size(); ++otherIndex)
+        {
+            const RtSmokePersistentStaticSurfaceRecord& otherRecord = m_staticSurfaceRecords[otherIndex];
+            if (otherRecord.valid && otherRecord.key == record.key)
+            {
+                ++stats.staticDuplicateKeys;
+                break;
+            }
+        }
     }
+    stats.staticValidationErrors =
+        stats.staticRangeErrors +
+        stats.staticDuplicateKeys +
+        stats.staticHistoryErrors +
+        stats.staticKeyVectorMismatches;
     const size_t staticBytes =
         m_staticSurfaceRecords.size() * sizeof(m_staticSurfaceRecords[0]) +
         m_staticSurfaceKeys.size() * sizeof(m_staticSurfaceKeys[0]) +
@@ -165,6 +368,7 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats() const
         m_staticTriangleClassCache.size() * sizeof(m_staticTriangleClassCache[0]) +
         m_staticTriangleMaterialCache.size() * sizeof(m_staticTriangleMaterialCache[0]);
     stats.staticBytesKB = static_cast<int>((staticBytes + 1023) / 1024);
+    stats.frameIndex = m_currentFrameIndex;
     stats.generation = m_generation;
     return stats;
 }
