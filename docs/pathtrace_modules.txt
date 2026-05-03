@@ -28,9 +28,10 @@ File map
 
 PathTracePrimaryPass.h
     Declares PathTracePrimaryPass, the frame-level owner for the experimental
-    RT smoke state. The class still owns the persistent m_smoke* handles,
-    caches, counters, and private pass methods, but most behavior is implemented
-    in smaller PathTrace* modules.
+    RT smoke state. The class still owns most persistent m_smoke* handles,
+    counters, and private pass methods, but static-world geometry cache storage
+    now lives in PathTraceGeometryUniverse. Most behavior is implemented in
+    smaller PathTrace* modules.
 
 PathTracePrimaryPass.cpp
     Thin pass shell. Performs RT feature detection, per-frame entry flow, output
@@ -99,6 +100,19 @@ PathTraceGeometry.cpp
     Pure geometry/math helpers such as finite checks, normal packing support,
     and triangle/UV calculations shared by capture, acceleration, and emissive
     candidate code.
+
+PathTraceGeometryUniverse.h
+    Persistent static-geometry universe declarations. This is the first
+    ownership boundary for static-world geometry cache data and currently
+    exposes the static surface keys, vertices, indexes, triangle classes,
+    triangle material IDs, and basic stats used by scene build.
+
+PathTraceGeometryUniverse.cpp
+    Static geometry universe implementation. At this stage it owns the former
+    PathTracePrimaryPass static-cache vectors and generation/stat tracking while
+    preserving the existing capture/build behavior. Future work should move
+    static surface lookup, append policy, persistent records, dirty ranges, and
+    GPU buffer ownership here.
 
 PathTraceSkinning.h
     Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
@@ -287,19 +301,23 @@ Primary files involved:
 - PathTraceAcceleration.*
 - PathTraceSmokeResources.*
 - PathTraceGeometry.*
+- PathTraceGeometryUniverse.*
 - PathTraceSceneCapture.*
 - PathTraceSmokeDispatch.cpp
 
 Typical flow:
 
-1. PathTraceSceneCapture produces static/dynamic triangle buckets.
-2. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
+1. PathTraceSmokeSceneBuild borrows static cache storage from
+   PathTraceGeometryUniverse.
+2. PathTraceSceneCapture currently produces static/dynamic triangle buckets and
+   fills the universe-owned static cache vectors.
+3. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
-3. PathTraceSmokeResources creates geometry/material/emissive buffers.
-4. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
+4. PathTraceSmokeResources creates geometry/material/emissive buffers.
+5. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
    submits BLAS/TLAS builds.
-5. PathTraceSmokeResources commits the successful handles to pass state.
-6. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
+6. PathTraceSmokeResources commits the successful handles to pass state.
+7. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
 
 Safer places to touch:
 
@@ -307,10 +325,14 @@ Safer places to touch:
 - Improve debug names for buffers/accel structures.
 - Add validation/logging around build inputs.
 - Change helper packaging structs when the same fields are passed through.
+- Move static-cache bookkeeping into PathTraceGeometryUniverse when the capture
+  behavior remains equivalent and can be tested in isolation.
 
 Riskier places to touch:
 
 - Static BLAS cache eligibility in PathTraceSmokeSceneBuild.cpp.
+- Static surface identity or append semantics in PathTraceSceneCapture.cpp or
+  PathTraceGeometryUniverse.cpp.
 - Upload skip flags in the RtSmokeBufferUploadItem array.
 - Resource state transitions in PathTraceSmokeDispatch.cpp.
 - PathTraceSmokeVertex layout or index/vertex counts.
@@ -320,7 +342,9 @@ Rule of thumb:
 
 Treat BLAS/TLAS state as behavior-sensitive. A tiny cache or upload mistake can
 look like a rendering bug, stale geometry, or a performance regression. Prefer
-diagnostic additions before ownership changes.
+diagnostic additions before ownership changes. The geometry universe is now the
+intended home for persistent static-world records, but it is still a scaffold:
+move one responsibility at a time and keep mode 18 visual behavior stable.
 
 Doom 3 interactive GUIs
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -588,13 +612,23 @@ Current state:
 
 PathTracePrimaryPass still owns persistent m_smoke* state. Several modules define
 private PathTracePrimaryPass methods so they can work with that state without a
-large public state object. This is intentional for the current refactor phase.
+large public state object. Static-world geometry cache storage is the first
+exception: it now lives behind RtSmokeGeometryUniverse so persistent geometry can
+grow without making PathTracePrimaryPass larger.
 
 Safe next architectural step:
 
-Design a PathTraceSmokeState or PathTraceSmokeScene object first, then move state
-ownership in one dedicated architecture change. Do not gradually leak pieces of
-m_smoke* state into unrelated helper modules without a plan.
+For geometry, continue growing PathTraceGeometryUniverse deliberately:
+
+1. Move static surface key lookup and append policy out of scene capture.
+2. Add explicit persistent surface/range records.
+3. Move static GPU buffer and dirty-range ownership only after the CPU cache
+   record model is stable.
+
+For broader smoke pass state, design a PathTraceSmokeState or PathTraceSmokeScene
+object first, then move ownership in one dedicated architecture change. Do not
+gradually leak pieces of m_smoke* state into unrelated helper modules without a
+plan.
 
 What to avoid:
 
