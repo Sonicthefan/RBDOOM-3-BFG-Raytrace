@@ -80,8 +80,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
     RtSmokeSceneCaptureTiming captureTiming;
+    std::vector<uint64>& staticSurfaceKeys = m_smokeGeometryUniverse.StaticSurfaceKeys();
+    std::vector<PathTraceSmokeVertex>& staticVertexCache = m_smokeGeometryUniverse.StaticVertices();
+    std::vector<uint32_t>& staticIndexCache = m_smokeGeometryUniverse.StaticIndexes();
+    std::vector<uint32_t>& staticTriangleClassCache = m_smokeGeometryUniverse.StaticTriangleClasses();
+    std::vector<uint32_t>& staticTriangleMaterialCache = m_smokeGeometryUniverse.StaticTriangleMaterials();
     const int captureStartMs = Sys_Milliseconds();
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeStaticSurfaceKeys, m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, staticSurfaceKeys, staticVertexCache, staticIndexCache, staticTriangleClassCache, staticTriangleMaterialCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
     const int captureMs = Sys_Milliseconds() - captureStartMs;
     if (!usingDoomSurfaces)
     {
@@ -91,6 +96,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeWaitingForDoomSurfaceLogged = true;
         }
         return;
+    }
+    if (staticCacheChanged)
+    {
+        m_smokeGeometryUniverse.NotifyStaticCacheChanged();
     }
 
     const RtSmokeMaterialMetadataRegistrationTiming metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
@@ -113,8 +122,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtSmokeMaterialTableBuild legacyMaterialTable;
             uint32_t legacyLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
             int legacyLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
-            BuildSmokeMaterialTableCached(legacyMaterialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, legacyLatchedTextureProbeMaterialId, legacyLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
-            BuildSmokeMaterialTableFromUniverseCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableCached(legacyMaterialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, legacyLatchedTextureProbeMaterialId, legacyLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
             materialUniverseTableCompareStats = CompareSmokeMaterialTables(legacyMaterialTable, materialTable);
             if (materialUniverseTableCompareStats.mismatches > 0)
             {
@@ -135,18 +144,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         else
         {
-            BuildSmokeMaterialTableFromUniverseCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
         }
     }
     else
     {
-        BuildSmokeMaterialTableCached(materialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+        BuildSmokeMaterialTableCached(materialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
         if (validateMaterialUniverseTable)
         {
             RtSmokeMaterialTableBuild universeMaterialTable;
             uint32_t universeLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
             int universeLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
-            BuildSmokeMaterialTableFromUniverse(universeMaterialTable, m_smokeStaticTriangleMaterialCache, dynamicTriangleMaterialData, universeLatchedTextureProbeMaterialId, universeLatchedTextureProbeRequestedIndex, enableTextureProbe);
+            BuildSmokeMaterialTableFromUniverse(universeMaterialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, universeLatchedTextureProbeMaterialId, universeLatchedTextureProbeRequestedIndex, enableTextureProbe);
             materialUniverseTableCompareStats = CompareSmokeMaterialTables(materialTable, universeMaterialTable);
         }
     }
@@ -164,7 +173,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         textureCoverageStats = BuildSmokeTextureCoverageStats(
             materialTable,
-            m_smokeStaticTriangleClassCache,
+            staticTriangleClassCache,
             materialTable.staticMaterialIndexes,
             dynamicTriangleClassData,
             materialTable.dynamicMaterialIndexes);
@@ -182,9 +191,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
         materialTable.materialIds,
         materialTable.materials,
-        m_smokeStaticVertexCache,
-        m_smokeStaticIndexCache,
-        m_smokeStaticTriangleClassCache,
+        staticVertexCache,
+        staticIndexCache,
+        staticTriangleClassCache,
         materialTable.staticMaterialIndexes,
         dynamicVertexData,
         dynamicIndexData,
@@ -219,10 +228,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
     bufferCreateDesc.existingBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
-    bufferCreateDesc.staticVertexBytes = m_smokeStaticVertexCache.size() * sizeof(m_smokeStaticVertexCache[0]);
-    bufferCreateDesc.staticIndexBytes = m_smokeStaticIndexCache.size() * sizeof(m_smokeStaticIndexCache[0]);
-    bufferCreateDesc.staticTriangleClassBytes = m_smokeStaticTriangleClassCache.size() * sizeof(m_smokeStaticTriangleClassCache[0]);
-    bufferCreateDesc.staticTriangleMaterialBytes = m_smokeStaticTriangleMaterialCache.size() * sizeof(m_smokeStaticTriangleMaterialCache[0]);
+    bufferCreateDesc.staticVertexBytes = staticVertexCache.size() * sizeof(staticVertexCache[0]);
+    bufferCreateDesc.staticIndexBytes = staticIndexCache.size() * sizeof(staticIndexCache[0]);
+    bufferCreateDesc.staticTriangleClassBytes = staticTriangleClassCache.size() * sizeof(staticTriangleClassCache[0]);
+    bufferCreateDesc.staticTriangleMaterialBytes = staticTriangleMaterialCache.size() * sizeof(staticTriangleMaterialCache[0]);
     bufferCreateDesc.staticTriangleMaterialIndexBytes = materialTable.staticMaterialIndexes.size() * sizeof(materialTable.staticMaterialIndexes[0]);
     bufferCreateDesc.dynamicVertexBytes = dynamicVertexData.size() * sizeof(dynamicVertexData[0]);
     bufferCreateDesc.dynamicIndexBytes = dynamicIndexData.size() * sizeof(dynamicIndexData[0]);
@@ -254,7 +263,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeLightCandidateBuffer = smokeBuffers.lightCandidateBuffer;
     const int bufferCreateMs = Sys_Milliseconds() - bufferCreateStartMs;
 
-    const int staticVertexCount = static_cast<int>(m_smokeStaticVertexCache.size());
+    const int staticVertexCount = static_cast<int>(staticVertexCache.size());
     const int dynamicVertexCount = static_cast<int>(dynamicVertexData.size());
     const int staticIndexCount = bucketRanges.buckets[0].indexCount;
     const int dynamicIndexCount =
@@ -272,18 +281,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     staticGeometryRange.indexCount = staticBucketRange.indexCount;
     staticGeometryRange.triangleOffset = staticBucketRange.triangleOffset;
     staticGeometryRange.triangleCount = staticBucketRange.triangleCount;
+    const RtSmokeGeometryUniverseStats geometryUniverseStats = m_smokeGeometryUniverse.GetStats();
+    const int staticVertexCacheCount = geometryUniverseStats.staticVerts;
+    const int staticIndexCacheCount = geometryUniverseStats.staticIndexes;
+    const int staticTriangleCacheCount = geometryUniverseStats.staticTriangles;
+    const int staticCacheBytesKB = geometryUniverseStats.staticBytesKB;
     RtSmokeStaticBlasSignature staticSignature;
     staticSignature.vertexCount = staticGeometryRange.vertexCount;
     staticSignature.indexCount = staticGeometryRange.indexCount;
     staticSignature.triangleCount = staticGeometryRange.triangleCount;
+    const int staticSignatureStartMs = Sys_Milliseconds();
+    bool staticBlasSignatureReused = false;
     if (!staticCacheChanged && m_smokeStaticBlasCacheValid && m_smokeStaticBlasSignature != 0)
     {
         staticSignature.hash = m_smokeStaticBlasSignature;
+        staticBlasSignatureReused = true;
     }
     else
     {
-        staticSignature = ComputeSmokeStaticBlasSignature(m_smokeStaticVertexCache, m_smokeStaticIndexCache, m_smokeStaticTriangleClassCache, m_smokeStaticTriangleMaterialCache, staticGeometryRange, vec3_origin);
+        staticSignature = ComputeSmokeStaticBlasSignature(staticVertexCache, staticIndexCache, staticTriangleClassCache, staticTriangleMaterialCache, staticGeometryRange, vec3_origin);
     }
+    const int staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
         m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
         !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;
@@ -360,10 +378,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     const RtSmokeBufferUploadItem uploadItems[] = {
-        { smokeStaticVertexBuffer, m_smokeStaticVertexCache.data(), m_smokeStaticVertexCache.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
-        { smokeStaticIndexBuffer, m_smokeStaticIndexCache.data(), m_smokeStaticIndexCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
-        { smokeStaticTriangleClassBuffer, m_smokeStaticTriangleClassCache.data(), m_smokeStaticTriangleClassCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
-        { smokeStaticTriangleMaterialBuffer, m_smokeStaticTriangleMaterialCache.data(), m_smokeStaticTriangleMaterialCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
+        { smokeStaticVertexBuffer, staticVertexCache.data(), staticVertexCache.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
+        { smokeStaticIndexBuffer, staticIndexCache.data(), staticIndexCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
+        { smokeStaticTriangleClassBuffer, staticTriangleClassCache.data(), staticTriangleClassCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
+        { smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache.data(), staticTriangleMaterialCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
         { smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes.data(), materialTable.staticMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
         { smokeDynamicVertexBuffer, dynamicVertexData.data(), dynamicVertexData.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, false },
         { smokeDynamicIndexBuffer, dynamicIndexData.data(), dynamicIndexData.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, false },
@@ -481,7 +499,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.dynamicIndexCount = dynamicIndexCount;
     sceneLogDesc.instanceCount = instanceCount;
     sceneLogDesc.requestedDebugMode = requestedDebugMode;
-    sceneLogDesc.staticSurfaceCacheSize = static_cast<int>(m_smokeStaticSurfaceKeys.size());
+    sceneLogDesc.staticSurfaceCacheSize = geometryUniverseStats.staticSurfaces;
+    sceneLogDesc.staticVertexCacheCount = staticVertexCacheCount;
+    sceneLogDesc.staticIndexCacheCount = staticIndexCacheCount;
+    sceneLogDesc.staticTriangleCacheCount = staticTriangleCacheCount;
+    sceneLogDesc.staticCacheBytesKB = staticCacheBytesKB;
+    sceneLogDesc.staticBlasSignatureReused = staticBlasSignatureReused;
+    sceneLogDesc.staticBlasSignatureMs = staticBlasSignatureMs;
     sceneLogDesc.staticBlasCacheHitCount = m_smokeStaticBlasCacheHitCount;
     sceneLogDesc.staticBlasCacheMissCount = m_smokeStaticBlasCacheMissCount;
     sceneLogDesc.sceneCaptureLogIntervalFrames = RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES;

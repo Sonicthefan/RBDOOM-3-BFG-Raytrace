@@ -6,7 +6,7 @@
 // frame entry/present hooks used by the renderer. Scene build, resource
 // lifetime, dispatch, readback, and diagnostics live in PathTrace* modules.
 
-#include "PathTraceGeometry.h"
+#include "PathTraceGeometryUniverse.h"
 
 #include <nvrhi/nvrhi.h>
 #include <vector>
@@ -53,11 +53,7 @@ private:
     uint64 m_smokeStaticBlasSignature;
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;
-    std::vector<uint64> m_smokeStaticSurfaceKeys;
-    std::vector<PathTraceSmokeVertex> m_smokeStaticVertexCache;
-    std::vector<uint32_t> m_smokeStaticIndexCache;
-    std::vector<uint32_t> m_smokeStaticTriangleClassCache;
-    std::vector<uint32_t> m_smokeStaticTriangleMaterialCache;
+    RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     uint32_t m_smokeTextureProbeMaterialId;
     int m_smokeTextureProbeRequestedIndex;
     idVec3 m_smokeSceneOrigin;
