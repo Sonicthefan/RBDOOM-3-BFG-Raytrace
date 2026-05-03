@@ -105,14 +105,18 @@ PathTraceGeometryUniverse.h
     Persistent static-geometry universe declarations. This is the first
     ownership boundary for static-world geometry cache data and currently
     exposes the static surface keys, vertices, indexes, triangle classes,
-    triangle material IDs, and basic stats used by scene build.
+    triangle material IDs, and basic stats used by scene build. The universe
+    must evolve with previous-frame geometry history in mind so future motion
+    vector output can be generated from geometry, not guessed later.
 
 PathTraceGeometryUniverse.cpp
     Static geometry universe implementation. At this stage it owns the former
     PathTracePrimaryPass static-cache vectors and generation/stat tracking while
-    preserving the existing capture/build behavior. Future work should move
-    static surface lookup, append policy, persistent records, dirty ranges, and
-    GPU buffer ownership here.
+    preserving the existing shader-facing buffer behavior. Static surface lookup
+    and append completion now go through the universe. Future work should expand
+    persistent records, dirty ranges, and GPU buffer ownership here, plus
+    current/previous geometry or transform history needed for temporal
+    reconstruction.
 
 PathTraceSkinning.h
     Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
@@ -310,7 +314,7 @@ Typical flow:
 1. PathTraceSmokeSceneBuild borrows static cache storage from
    PathTraceGeometryUniverse.
 2. PathTraceSceneCapture currently produces static/dynamic triangle buckets and
-   fills the universe-owned static cache vectors.
+   asks the universe to look up or complete static surface appends.
 3. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
 4. PathTraceSmokeResources creates geometry/material/emissive buffers.
@@ -345,6 +349,31 @@ look like a rendering bug, stale geometry, or a performance regression. Prefer
 diagnostic additions before ownership changes. The geometry universe is now the
 intended home for persistent static-world records, but it is still a scaffold:
 move one responsibility at a time and keep mode 18 visual behavior stable.
+
+Motion-vector / Ray Reconstruction requirement:
+
+DLSS Ray Reconstruction needs high-quality motion-vector inputs. A path-traced
+renderer cannot get there with only current-frame packed geometry or camera-only
+motion: moving rigid instances, animated/skinned meshes, reflected/refracted
+hits, and disocclusions all need stable current-vs-previous geometry data. The
+Q2RTX Ray Reconstruction reference fork in
+E:\prog\references\Q2RTX-rayreconstruction-master stores previous triangle
+positions and previous instance transforms, then projects current and previous
+hit positions in shader to write motion.
+
+Implications for PathTraceGeometryUniverse:
+
+- Persistent surface/triangle records need stable identities across frames.
+- Records need current and previous range mapping, or explicit invalidation when
+  a match is not trustworthy.
+- Static world can often reuse identical previous positions, but rigid entities
+  need previous transforms and skinned/deformed geometry eventually needs
+  previous skinned positions or a GPU skinning history source.
+- Future GPU buffers should plan for current/previous position data or compact
+  position deltas, not only the current PathTraceSmokeVertex stream.
+- Motion-vector generation should be treated as part of the geometry-universe
+  contract before DLSS/RR integration begins. Retrofitting it after the universe
+  only stores current-frame data would risk another major rebuild.
 
 Doom 3 interactive GUIs
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -620,8 +649,11 @@ Safe next architectural step:
 
 For geometry, continue growing PathTraceGeometryUniverse deliberately:
 
-1. Move static surface key lookup and append policy out of scene capture.
-2. Add explicit persistent surface/range records.
+1. Expand the current static surface records into explicit persistent
+   surface/range records.
+2. Add one-frame history requirements to those records before finalizing the
+   range/buffer model: previous transform, previous range, previous vertex data
+   or delta data, and invalidation flags.
 3. Move static GPU buffer and dirty-range ownership only after the CPU cache
    record model is stable.
 

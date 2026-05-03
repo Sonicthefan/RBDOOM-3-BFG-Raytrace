@@ -724,7 +724,7 @@ uint64 BuildSmokeStaticSurfaceKey(const drawSurf_t* drawSurf, const srfTriangles
 
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint64>& staticSurfaceKeys, std::vector<PathTraceSmokeVertex>& staticVertexCache, std::vector<uint32_t>& staticIndexCache, std::vector<uint32_t>& staticTriangleClassCache, std::vector<uint32_t>& staticTriangleMaterialCache, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
     sourceSurfaces = 0;
     sourceVerts = 0;
@@ -770,6 +770,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     indexData.reserve(RT_SMOKE_MAX_INDEXES);
     triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
     triangleMaterialData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+    std::vector<PathTraceSmokeVertex>& staticVertexCache = geometryUniverse.StaticVertices();
+    std::vector<uint32_t>& staticIndexCache = geometryUniverse.StaticIndexes();
+    std::vector<uint32_t>& staticTriangleClassCache = geometryUniverse.StaticTriangleClasses();
+    std::vector<uint32_t>& staticTriangleMaterialCache = geometryUniverse.StaticTriangleMaterials();
 
     std::vector<PathTraceSmokeVertex> bucketVertexData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
@@ -812,7 +816,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         const uint32_t materialId = SmokeMaterialId(drawSurf->material);
         const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
         const int cacheLookupStartMs = Sys_Milliseconds();
-        const bool staticSurfaceCached = std::find(staticSurfaceKeys.begin(), staticSurfaceKeys.end(), staticSurfaceKey) != staticSurfaceKeys.end();
+        const bool staticSurfaceCached = geometryUniverse.HasStaticSurface(staticSurfaceKey);
         captureTiming.staticCacheLookupMs += Sys_Milliseconds() - cacheLookupStartMs;
         ++sourceSurfaces;
         ++bucketRanges.buckets[0].surfaceCount;
@@ -831,15 +835,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             continue;
         }
 
-        const int cachedVerts = static_cast<int>(staticVertexCache.size());
-        const int cachedIndexes = static_cast<int>(staticIndexCache.size());
-        if (cachedVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-            cachedIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+        if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, RT_SMOKE_MAX_VERTS, RT_SMOKE_MAX_INDEXES))
         {
             ++skipStats.limitExceeded;
             continue;
         }
 
+        const RtSmokeStaticSurfaceAppend staticAppend = geometryUniverse.BeginStaticSurfaceAppend(staticSurfaceKey, surfaceClassId, materialId, tri->numVerts, tri->numIndexes);
         const int appendStartMs = Sys_Milliseconds();
         const int emittedIndexes = AppendSmokeSurfaceGeometry(
             drawSurf,
@@ -865,7 +867,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         }
 
         ++captureTiming.staticNewSurfaces;
-        staticSurfaceKeys.push_back(staticSurfaceKey);
+        geometryUniverse.CompleteStaticSurfaceAppend(staticAppend, emittedIndexes);
         staticCacheChanged = true;
         sourceVerts += tri->numVerts;
         sourceIndexes += emittedIndexes;

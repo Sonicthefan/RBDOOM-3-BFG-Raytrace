@@ -8,6 +8,7 @@
 
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceGeometry.h"
+#include "PathTraceGeometryUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 
 #include <vector>
@@ -255,11 +256,7 @@ bool CaptureDoomSurfacesForSmokeTest(
     std::vector<uint32_t>& indexData,
     std::vector<uint32_t>& triangleClassData,
     std::vector<uint32_t>& triangleMaterialData,
-    std::vector<uint64>& staticSurfaceKeys,
-    std::vector<PathTraceSmokeVertex>& staticVertexCache,
-    std::vector<uint32_t>& staticIndexCache,
-    std::vector<uint32_t>& staticTriangleClassCache,
-    std::vector<uint32_t>& staticTriangleMaterialCache,
+    RtSmokeGeometryUniverse& geometryUniverse,
     bool& staticCacheChanged,
     idVec3& sceneOrigin,
     int& sourceSurfaces,

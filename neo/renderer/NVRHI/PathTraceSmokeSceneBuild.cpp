@@ -80,13 +80,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeSurfaceClassReasonSamples reasonSamples;
     bool staticCacheChanged = false;
     RtSmokeSceneCaptureTiming captureTiming;
-    std::vector<uint64>& staticSurfaceKeys = m_smokeGeometryUniverse.StaticSurfaceKeys();
     std::vector<PathTraceSmokeVertex>& staticVertexCache = m_smokeGeometryUniverse.StaticVertices();
     std::vector<uint32_t>& staticIndexCache = m_smokeGeometryUniverse.StaticIndexes();
     std::vector<uint32_t>& staticTriangleClassCache = m_smokeGeometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterialCache = m_smokeGeometryUniverse.StaticTriangleMaterials();
     const int captureStartMs = Sys_Milliseconds();
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, staticSurfaceKeys, staticVertexCache, staticIndexCache, staticTriangleClassCache, staticTriangleMaterialCache, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
+    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
     const int captureMs = Sys_Milliseconds() - captureStartMs;
     if (!usingDoomSurfaces)
     {
@@ -96,10 +95,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeWaitingForDoomSurfaceLogged = true;
         }
         return;
-    }
-    if (staticCacheChanged)
-    {
-        m_smokeGeometryUniverse.NotifyStaticCacheChanged();
     }
 
     const RtSmokeMaterialMetadataRegistrationTiming metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);

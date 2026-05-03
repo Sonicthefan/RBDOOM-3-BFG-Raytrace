@@ -788,14 +788,33 @@ Material table performance:
 Geometry universe status:
 
 - PathTraceGeometryUniverse owns the persistent static-world cache vectors and
-  exposes basic stats/generation tracking.
-- PathTraceSmokeSceneBuild still asks PathTraceSceneCapture to fill the same
-  static cache data as before. This was intentional for the first checkpoint:
-  no shader-visible or capture-behavior change was made.
-- The next useful geometry step is to move static surface lookup/append policy
-  into the geometry universe so capture requests persistent surface records
-  instead of directly managing cache vectors. After that, persistent GPU buffers,
-  dirty ranges, and stronger static/dynamic separation can be introduced.
+  exposes basic stats/generation tracking. It also owns static surface record
+  lookup and append completion for the existing static cache data.
+- PathTraceSmokeSceneBuild still uses the same shader-facing static arrays as
+  before. PathTraceSceneCapture builds static geometry through the universe
+  rather than directly pushing surface keys itself, but no shader-visible buffer
+  contract change has been made.
+- The geometry universe must be designed from here onward to retain one previous
+  frame of geometry/history data. DLSS Ray Reconstruction and similar temporal
+  reconstruction paths need accurate motion vectors; camera-only motion is not
+  sufficient for dynamic objects, animated/skinned meshes, moving rigid
+  instances, reflected/refracted surfaces, or disocclusion handling.
+- The long-term target is geometry-derived motion: for each persistent surface
+  or triangle range, the RT path should be able to access current and previous
+  world positions or equivalent current/previous local vertices plus
+  current/previous transforms. This lets the shader project both positions and
+  produce correct screen-space/depth motion instead of guessing from object
+  velocity or frame-local draw order.
+- This requirement should shape persistent record identity now. Surface records
+  need stable identities, previous/current range mapping, transform history,
+  invalidation/disocclusion flags, and enough per-vertex or per-triangle history
+  to support static, rigid, and eventually skinned geometry. Avoid designs that
+  only keep the current frame's packed buffers and throw away the previous
+  geometry universe.
+- The next useful geometry step is to add real current/previous history updates
+  to the persistent records. After that, persistent GPU buffers, dirty ranges,
+  previous-frame buffers, and stronger static/dynamic separation can be
+  introduced.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,
@@ -1062,10 +1081,14 @@ Recommended Next Steps
 Near term:
 
 1. Grow PathTraceGeometryUniverse into a real persistent geometry system.
-   - Move static surface key lookup and append policy out of
-     PathTraceSceneCapture and into the universe.
-   - Add persistent surface records that can later own or reference static
+   - Static surface key lookup and append policy now live in the universe.
+   - Expand the persistent surface records so they can own or reference static
      ranges, material IDs, BLAS/build signatures, and dirty state.
+   - Reserve a previous-frame/history model early: current and previous
+     transforms, stable range mapping, and previous vertex/triangle data where
+     transforms alone are insufficient.
+   - Treat geometry-derived motion vectors as a core requirement for future
+     DLSS Ray Reconstruction support, not as a late denoiser integration detail.
    - Keep the shader-facing buffers and material-index compatibility unchanged
      until a deliberate resource contract change is made.
    - Prefer persistent GPU buffers and dirty-range uploads over more
@@ -1172,9 +1195,21 @@ read-only study during integration planning:
 
     E:\prog\references\RTXDI-main
 
+The user also keeps a Q2RTX Ray Reconstruction reference fork here:
+
+    E:\prog\references\Q2RTX-rayreconstruction-master
+
+Use it for architecture study around DLSS Ray Reconstruction, motion-vector
+outputs, previous-frame geometry/transform history, and temporal reconstruction
+contracts. The relevant design lesson for this branch is that the geometry
+universe should preserve previous-frame geometry state so RT shaders can compute
+motion from current vs previous hit positions. Do not rely on camera-only motion
+or a frame-local geometry rebuild if Ray Reconstruction is a goal.
+
 Keep this checkout outside the RBDoom3 BFG repo. Use it as reference material
-for reservoir/light-sampling architecture and manuals; do not mix it with the
-old in-tree RTXPT/Donut leftovers unless doing a deliberate clean integration.
+for reservoir/light-sampling architecture, motion-vector architecture, and
+manuals; do not mix it with the old in-tree RTXPT/Donut leftovers unless doing
+a deliberate clean integration.
 
 
 Notes for Future Contributors
