@@ -39,24 +39,24 @@ enum class RtSmokeGeometryBufferFormat : uint32_t
     LegacySmokeVertex = 0
 };
 
+struct RtSmokeGeometryRangeRecord
+{
+    int vertexOffset = -1;
+    int vertexCount = 0;
+    int indexOffset = -1;
+    int indexCount = 0;
+    int triangleOffset = -1;
+    int triangleCount = 0;
+};
+
 struct RtSmokePersistentStaticSurfaceRecord
 {
     bool valid = false;
     uint64 key = 0;
     uint32_t surfaceClassId = 0;
     uint32_t materialId = 0;
-    int vertexOffset = 0;
-    int vertexCount = 0;
-    int indexOffset = 0;
-    int indexCount = 0;
-    int triangleOffset = 0;
-    int triangleCount = 0;
-    int previousVertexOffset = -1;
-    int previousVertexCount = 0;
-    int previousIndexOffset = -1;
-    int previousIndexCount = 0;
-    int previousTriangleOffset = -1;
-    int previousTriangleCount = 0;
+    RtSmokeGeometryRangeRecord currentRange;
+    RtSmokeGeometryRangeRecord previousRange;
     uint64 lastSeenFrame = 0;
     uint64 previousSeenFrame = 0;
     bool seenThisFrame = false;

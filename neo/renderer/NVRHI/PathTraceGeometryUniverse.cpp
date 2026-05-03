@@ -3,6 +3,34 @@
 
 #include "PathTraceGeometryUniverse.h"
 
+namespace {
+
+bool IsSmokeGeometryRangeValid(const RtSmokeGeometryRangeRecord& range, int vertexCount, int indexCount, int triangleCount, int materialTriangleCount)
+{
+    return
+        range.vertexOffset >= 0 &&
+        range.vertexCount >= 0 &&
+        range.vertexOffset + range.vertexCount <= vertexCount &&
+        range.indexOffset >= 0 &&
+        range.indexCount >= 0 &&
+        range.indexOffset + range.indexCount <= indexCount &&
+        range.triangleOffset >= 0 &&
+        range.triangleCount >= 0 &&
+        range.triangleOffset + range.triangleCount <= triangleCount &&
+        range.triangleOffset + range.triangleCount <= materialTriangleCount &&
+        range.indexCount == range.triangleCount * 3;
+}
+
+bool SmokeGeometryRangesMatchCounts(const RtSmokeGeometryRangeRecord& a, const RtSmokeGeometryRangeRecord& b)
+{
+    return
+        a.vertexCount == b.vertexCount &&
+        a.indexCount == b.indexCount &&
+        a.triangleCount == b.triangleCount;
+}
+
+}
+
 void RtSmokeGeometryUniverse::Clear()
 {
     m_currentFrameIndex = 0;
@@ -94,21 +122,14 @@ RtSmokePersistentStaticSurfaceRecord* RtSmokeGeometryUniverse::TouchStaticSurfac
             record->previousSeenFrame + 1 == m_currentFrameIndex;
         if (consecutiveFrame)
         {
-            record->previousVertexOffset = record->vertexOffset;
-            record->previousVertexCount = record->vertexCount;
-            record->previousIndexOffset = record->indexOffset;
-            record->previousIndexCount = record->indexCount;
-            record->previousTriangleOffset = record->triangleOffset;
-            record->previousTriangleCount = record->triangleCount;
+            record->previousRange = record->currentRange;
         }
         record->previousRangeValid =
             consecutiveFrame &&
-            record->previousVertexOffset >= 0 &&
-            record->previousVertexCount == record->vertexCount &&
-            record->previousIndexOffset >= 0 &&
-            record->previousIndexCount == record->indexCount &&
-            record->previousTriangleOffset >= 0 &&
-            record->previousTriangleCount == record->triangleCount;
+            record->previousRange.vertexOffset >= 0 &&
+            record->previousRange.indexOffset >= 0 &&
+            record->previousRange.triangleOffset >= 0 &&
+            SmokeGeometryRangesMatchCounts(record->previousRange, record->currentRange);
         record->historyValid = record->previousRangeValid;
     }
 
@@ -147,18 +168,12 @@ void RtSmokeGeometryUniverse::CompleteStaticSurfaceAppend(const RtSmokeStaticSur
     record.key = append.key;
     record.surfaceClassId = append.surfaceClassId;
     record.materialId = append.materialId;
-    record.vertexOffset = append.vertexOffset;
-    record.vertexCount = static_cast<int>(m_staticVertexCache.size()) - append.vertexOffset;
-    record.indexOffset = append.indexOffset;
-    record.indexCount = emittedIndexCount;
-    record.triangleOffset = append.triangleOffset;
-    record.triangleCount = emittedIndexCount / 3;
-    record.previousVertexOffset = record.vertexOffset;
-    record.previousVertexCount = 0;
-    record.previousIndexOffset = record.indexOffset;
-    record.previousIndexCount = 0;
-    record.previousTriangleOffset = record.triangleOffset;
-    record.previousTriangleCount = 0;
+    record.currentRange.vertexOffset = append.vertexOffset;
+    record.currentRange.vertexCount = static_cast<int>(m_staticVertexCache.size()) - append.vertexOffset;
+    record.currentRange.indexOffset = append.indexOffset;
+    record.currentRange.indexCount = emittedIndexCount;
+    record.currentRange.triangleOffset = append.triangleOffset;
+    record.currentRange.triangleCount = emittedIndexCount / 3;
     record.lastSeenFrame = m_currentFrameIndex;
     record.previousSeenFrame = 0;
     record.seenThisFrame = true;
@@ -297,24 +312,7 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats() const
             continue;
         }
 
-        const bool vertexRangeValid =
-            record.vertexOffset >= 0 &&
-            record.vertexCount >= 0 &&
-            record.vertexOffset + record.vertexCount <= stats.staticVerts;
-        const bool indexRangeValid =
-            record.indexOffset >= 0 &&
-            record.indexCount >= 0 &&
-            record.indexOffset + record.indexCount <= stats.staticIndexes;
-        const bool triangleRangeValid =
-            record.triangleOffset >= 0 &&
-            record.triangleCount >= 0 &&
-            record.triangleOffset + record.triangleCount <= stats.staticTriangles;
-        const bool materialRangeValid =
-            record.triangleOffset >= 0 &&
-            record.triangleCount >= 0 &&
-            record.triangleOffset + record.triangleCount <= static_cast<int>(m_staticTriangleMaterialCache.size());
-        if (!vertexRangeValid || !indexRangeValid || !triangleRangeValid || !materialRangeValid ||
-            record.indexCount != record.triangleCount * 3)
+        if (!IsSmokeGeometryRangeValid(record.currentRange, stats.staticVerts, stats.staticIndexes, stats.staticTriangles, static_cast<int>(m_staticTriangleMaterialCache.size())))
         {
             ++stats.staticRangeErrors;
         }
@@ -324,19 +322,7 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats() const
         }
         if (record.previousRangeValid)
         {
-            const bool previousRangeValid =
-                record.previousVertexOffset >= 0 &&
-                record.previousVertexCount >= 0 &&
-                record.previousIndexOffset >= 0 &&
-                record.previousIndexCount >= 0 &&
-                record.previousTriangleOffset >= 0 &&
-                record.previousTriangleCount >= 0 &&
-                record.previousVertexOffset + record.previousVertexCount <= stats.staticVerts &&
-                record.previousIndexOffset + record.previousIndexCount <= stats.staticIndexes &&
-                record.previousTriangleOffset + record.previousTriangleCount <= stats.staticTriangles &&
-                record.previousTriangleOffset + record.previousTriangleCount <= static_cast<int>(m_staticTriangleMaterialCache.size()) &&
-                record.previousIndexCount == record.previousTriangleCount * 3;
-            if (!previousRangeValid)
+            if (!IsSmokeGeometryRangeValid(record.previousRange, stats.staticVerts, stats.staticIndexes, stats.staticTriangles, static_cast<int>(m_staticTriangleMaterialCache.size())))
             {
                 ++stats.staticHistoryErrors;
             }
