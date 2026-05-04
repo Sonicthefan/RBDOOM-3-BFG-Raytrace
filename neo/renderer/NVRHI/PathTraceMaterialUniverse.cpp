@@ -3,9 +3,10 @@
 
 // Persistent material-record cache for the RT smoke/path tracing path.
 //
-// The records here intentionally mirror the stable part of the shader-facing
-// material table. Per-frame texture descriptor indexes are still assigned by
-// PathTraceDynamicMaterialState after the current visible texture set is known.
+// The records here intentionally mirror only the stable part of the material
+// model. Per-frame texture descriptor indexes and compact shader table row order
+// are still assigned by PathTraceDynamicMaterialState after the current visible
+// texture set is known.
 
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
@@ -16,7 +17,28 @@
 
 namespace {
 
-std::unordered_map<uint32_t, RtSmokePersistentMaterialRecord> g_smokePersistentMaterialRecords;
+struct RtSmokeMaterialUniverseKey
+{
+    uint32_t materialId = 0;
+    uint64 materialNameHash = 0;
+
+    bool operator==(const RtSmokeMaterialUniverseKey& rhs) const
+    {
+        return materialId == rhs.materialId && materialNameHash == rhs.materialNameHash;
+    }
+};
+
+struct RtSmokeMaterialUniverseKeyHash
+{
+    size_t operator()(const RtSmokeMaterialUniverseKey& key) const
+    {
+        uint64 hash = key.materialNameHash;
+        hash ^= static_cast<uint64>(key.materialId) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+        return static_cast<size_t>(hash ^ (hash >> 32));
+    }
+};
+
+std::unordered_map<RtSmokeMaterialUniverseKey, RtSmokePersistentMaterialRecord, RtSmokeMaterialUniverseKeyHash> g_smokePersistentMaterialRecords;
 RtSmokeMaterialUniverseStats g_smokeMaterialUniverseStats;
 int g_smokeMaterialUniverseValidationLogs = 0;
 uint32_t g_smokeNextMaterialUniverseIndex = 0;
@@ -43,6 +65,14 @@ uint64 HashSmokeMaterialUniverseString(uint64 hash, const idStr& value)
         ++cursor;
     }
     return HashSmokeMaterialUniverseValue(hash, 0xffu);
+}
+
+RtSmokeMaterialUniverseKey BuildSmokeMaterialUniverseKey(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
+{
+    RtSmokeMaterialUniverseKey key;
+    key.materialId = materialId;
+    key.materialNameHash = HashSmokeMaterialUniverseString(1469598103934665603ull, info.materialName);
+    return key;
 }
 
 idVec3 SmokeMaterialIdToDebugColor(uint32_t materialId)
@@ -266,33 +296,69 @@ bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& 
 
 }
 
+void BeginSmokeMaterialUniverseFrame()
+{
+    g_smokeMaterialUniverseStats.frameHits = 0;
+    g_smokeMaterialUniverseStats.frameMisses = 0;
+    g_smokeMaterialUniverseStats.frameRebuilds = 0;
+    g_smokeMaterialUniverseStats.frameSignatureChecks = 0;
+    g_smokeMaterialUniverseStats.frameValidationChecks = 0;
+    g_smokeMaterialUniverseStats.frameValidationMismatches = 0;
+}
+
+void ReserveSmokeMaterialUniverse(size_t expectedMaterialCount)
+{
+    if (expectedMaterialCount > g_smokePersistentMaterialRecords.bucket_count())
+    {
+        g_smokePersistentMaterialRecords.reserve(expectedMaterialCount);
+    }
+}
+
+void ClearSmokeMaterialUniverse()
+{
+    g_smokePersistentMaterialRecords.clear();
+    g_smokeMaterialUniverseStats = RtSmokeMaterialUniverseStats();
+    g_smokeMaterialUniverseValidationLogs = 0;
+    g_smokeNextMaterialUniverseIndex = 0;
+}
+
 const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info)
 {
+    ++g_smokeMaterialUniverseStats.signatureChecks;
+    ++g_smokeMaterialUniverseStats.frameSignatureChecks;
     const uint64 signature = ComputeSmokePersistentMaterialSignature(materialId, info);
-    RtSmokePersistentMaterialRecord& record = g_smokePersistentMaterialRecords[materialId];
+    const RtSmokeMaterialUniverseKey key = BuildSmokeMaterialUniverseKey(materialId, info);
+    std::pair<std::unordered_map<RtSmokeMaterialUniverseKey, RtSmokePersistentMaterialRecord, RtSmokeMaterialUniverseKeyHash>::iterator, bool> insertResult =
+        g_smokePersistentMaterialRecords.emplace(key, RtSmokePersistentMaterialRecord());
+    RtSmokePersistentMaterialRecord& record = insertResult.first->second;
     if (!record.valid)
     {
         ++g_smokeMaterialUniverseStats.misses;
+        ++g_smokeMaterialUniverseStats.frameMisses;
         const uint32_t universeIndex = g_smokeNextMaterialUniverseIndex++;
         record = BuildSmokePersistentMaterialRecord(materialId, info, signature, universeIndex);
     }
     else if (record.signature != signature)
     {
         ++g_smokeMaterialUniverseStats.rebuilds;
+        ++g_smokeMaterialUniverseStats.frameRebuilds;
         record = BuildSmokePersistentMaterialRecord(materialId, info, signature, record.universeIndex);
     }
     else
     {
         ++g_smokeMaterialUniverseStats.hits;
+        ++g_smokeMaterialUniverseStats.frameHits;
     }
 
     if (r_pathTracingMaterialUniverseValidate.GetInteger() != 0)
     {
         ++g_smokeMaterialUniverseStats.validationChecks;
+        ++g_smokeMaterialUniverseStats.frameValidationChecks;
         const RtSmokePersistentMaterialRecord validationRecord = BuildSmokePersistentMaterialRecord(materialId, info, signature, record.universeIndex);
         if (!SmokePersistentMaterialRecordsEqual(record, validationRecord))
         {
             ++g_smokeMaterialUniverseStats.validationMismatches;
+            ++g_smokeMaterialUniverseStats.frameValidationMismatches;
             if (g_smokeMaterialUniverseValidationLogs < 8)
             {
                 common->Printf("PathTracePrimaryPass: RT smoke material universe validation mismatch materialId=%u material='%s' signature=%llu\n",

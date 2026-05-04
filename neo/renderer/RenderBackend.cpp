@@ -40,6 +40,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "imgui/ImGui_Hooks.h"
 
 #include "RenderPass.h"
+#include "NVRHI/PathTraceCVars.h"
 #include "NVRHI/PathTracePrimaryPass.h"
 #include <sys/DeviceManager.h>
 #include <nvrhi/utils.h>
@@ -5658,7 +5659,11 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 	if( presentPathTraceDebugOutput )
 	{
 		RB_GetPathTracePrimaryPass( this ).Execute( _viewDef );
-		// return;   // uncomment this later when we want to skip raster completely
+		if( r_pathTracingSkipRaster3D.GetInteger() != 0 )
+		{
+			renderLog.CloseBlock();
+			return;
+		}
 	}
 
 	//-------------------------------------------------

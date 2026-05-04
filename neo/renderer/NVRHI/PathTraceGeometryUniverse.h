@@ -9,6 +9,7 @@
 
 #include "PathTraceGeometry.h"
 
+#include <unordered_map>
 #include <vector>
 
 struct RtSmokeGeometryUniverseStats
@@ -39,14 +40,17 @@ enum class RtSmokeGeometryBufferFormat : uint32_t
     LegacySmokeVertex = 0
 };
 
+struct RtSmokeGeometryElementRange
+{
+    int offset = -1;
+    int count = 0;
+};
+
 struct RtSmokeGeometryRangeRecord
 {
-    int vertexOffset = -1;
-    int vertexCount = 0;
-    int indexOffset = -1;
-    int indexCount = 0;
-    int triangleOffset = -1;
-    int triangleCount = 0;
+    RtSmokeGeometryElementRange vertices;
+    RtSmokeGeometryElementRange indexes;
+    RtSmokeGeometryElementRange triangles;
 };
 
 struct RtSmokePersistentStaticSurfaceRecord
@@ -87,6 +91,7 @@ public:
     void BeginFrame(uint64 frameIndex);
     void EndFrame();
     void NotifyStaticCacheChanged();
+    void ReserveStaticSurfaceRecords(size_t surfaceCount);
     bool HasStaticSurface(uint64 key) const;
     RtSmokePersistentStaticSurfaceRecord* TouchStaticSurface(uint64 key);
     bool CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const;
@@ -111,7 +116,8 @@ public:
     std::vector<uint32_t>& StaticTriangleMaterials();
     const std::vector<uint32_t>& StaticTriangleMaterials() const;
 
-    RtSmokeGeometryUniverseStats GetStats() const;
+    RtSmokeGeometryUniverseStats GetStats(bool validateRecords) const;
+    void LogStaticValidationFailures(int maxRecords) const;
 
 private:
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
@@ -120,6 +126,7 @@ private:
     bool m_frameActive = false;
     uint64 m_generation = 1;
     std::vector<RtSmokePersistentStaticSurfaceRecord> m_staticSurfaceRecords;
+    std::unordered_map<uint64, size_t> m_staticSurfaceLookup;
     std::vector<uint64> m_staticSurfaceKeys;
     std::vector<PathTraceSmokeVertex> m_staticVertexCache;
     std::vector<uint32_t> m_staticIndexCache;

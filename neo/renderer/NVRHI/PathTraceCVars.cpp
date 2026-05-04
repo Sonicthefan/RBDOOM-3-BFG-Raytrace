@@ -351,6 +351,12 @@ idCVar r_pathTracingTimingLogInterval(
     CVAR_RENDERER | CVAR_INTEGER,
     "Minimum milliseconds between repeated RT smoke timing log lines; 0 logs every threshold hit" );
 
+idCVar r_pathTracingSkipRaster3D(
+    "r_pathTracingSkipRaster3D",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Skip the normal 3D raster view after RT smoke/path tracing has produced its debug output; GUI views still render" );
+
 idCVar r_pathTracingReadbackEnable(
     "r_pathTracingReadbackEnable",
     "0",
@@ -380,3 +386,9 @@ idCVar r_pathTracingMaterialUniverseTableValidate(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Build old and universe-derived RT smoke material tables and report whether their active material contents match" );
+
+idCVar r_pathTracingGeometryUniverseValidate(
+    "r_pathTracingGeometryUniverseValidate",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Run expensive RT smoke geometry-universe static record validation; reports validate=total/range/duplicate/history/keyVector" );

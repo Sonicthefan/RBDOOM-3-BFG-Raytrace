@@ -2,12 +2,18 @@
 
 // Persistent RT smoke material records.
 //
-// This layer owns stable per-material data that can outlive a single frame's
-// GPU-facing material table. DynamicMaterialState still assembles the current
-// frame table and texture slots; the universe provides the cached base records.
+// This layer owns stable per-material facts that can outlive a single frame's
+// GPU-facing material table. Per-frame descriptor indexes, visible texture
+// bindings, and compact shader table row order remain owned by
+// PathTraceDynamicMaterialState.
+//
+// Mutation is render/main-thread owned. Worker jobs may prepare immutable
+// material candidates, but should not mutate the persistent record map directly.
 
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceTextureRegistry.h"
+
+#include <cstddef>
 
 struct RtSmokeMaterialUniverseFacts
 {
@@ -61,10 +67,20 @@ struct RtSmokeMaterialUniverseStats
     int hits = 0;
     int misses = 0;
     int rebuilds = 0;
+    int signatureChecks = 0;
     int validationChecks = 0;
     int validationMismatches = 0;
+    int frameHits = 0;
+    int frameMisses = 0;
+    int frameRebuilds = 0;
+    int frameSignatureChecks = 0;
+    int frameValidationChecks = 0;
+    int frameValidationMismatches = 0;
 };
 
+void BeginSmokeMaterialUniverseFrame();
+void ReserveSmokeMaterialUniverse(size_t expectedMaterialCount);
+void ClearSmokeMaterialUniverse();
 const RtSmokePersistentMaterialRecord& GetSmokePersistentMaterialRecord(uint32_t materialId, const RtSmokeMaterialTextureInfo& info);
 const RtSmokeMaterialUniverseFacts& GetSmokeMaterialUniverseFacts(uint32_t materialId, const RtSmokeMaterialTextureInfo& info);
 RtSmokeMaterialUniverseStats GetSmokeMaterialUniverseStats();

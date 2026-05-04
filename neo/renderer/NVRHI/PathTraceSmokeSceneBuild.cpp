@@ -14,6 +14,7 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSceneCapture.h"
@@ -33,13 +34,27 @@ namespace {
 
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
+const int RT_SMOKE_GEOMETRY_VALIDATION_DUMP_RECORDS = 16;
 
 int g_smokeLastSceneTimingLogMs = -1000000;
+uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
+int g_smokeLastGeometryValidationDumpErrors = 0;
+
+nvrhi::ObjectType GetPathTraceCommandObjectType()
+{
+    if (deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        return nvrhi::ObjectTypes::VK_CommandBuffer;
+    }
+    return nvrhi::ObjectTypes::D3D12_GraphicsCommandList;
+}
 
 }
 
 void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDef)
 {
+    OPTICK_EVENT("PT Build Scene");
+
     const int sceneStartMs = Sys_Milliseconds();
     m_smokeSceneBuilt = false;
     const int requestedDebugMode = idMath::ClampInt(0, 19, r_pathTracingDebugMode.GetInteger());
@@ -61,6 +76,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         return;
     }
+    OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
 
     std::vector<PathTraceSmokeVertex> dynamicVertexData;
     std::vector<uint32_t> dynamicIndexData;
@@ -85,9 +101,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t>& staticTriangleClassCache = m_smokeGeometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterialCache = m_smokeGeometryUniverse.StaticTriangleMaterials();
     const int captureStartMs = Sys_Milliseconds();
-    m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex);
-    const bool usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
-    m_smokeGeometryUniverse.EndFrame();
+    bool usingDoomSurfaces = false;
+    {
+        OPTICK_EVENT("PT Capture Doom Surfaces");
+        m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex);
+        usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
+        m_smokeGeometryUniverse.EndFrame();
+    }
     const int captureMs = Sys_Milliseconds() - captureStartMs;
     if (!usingDoomSurfaces)
     {
@@ -99,7 +119,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
-    const RtSmokeMaterialMetadataRegistrationTiming metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
+    RtSmokeMaterialMetadataRegistrationTiming metadataTiming;
+    {
+        OPTICK_EVENT("PT Register Material Metadata");
+        metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
+    }
     const int metadataMs = metadataTiming.metadataMs;
     const int metadataValidationMs = metadataTiming.validationMs;
     const int metadataRegistrationMs = metadataTiming.registrationMs;
@@ -112,6 +136,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool useMaterialUniverseTable = r_pathTracingMaterialUniverseTable.GetInteger() != 0;
     const bool validateMaterialUniverseTable = r_pathTracingMaterialUniverseTableValidate.GetInteger() != 0;
     const char* materialTablePath = useMaterialUniverseTable ? "universe" : "legacy";
+    BeginSmokeMaterialUniverseFrame();
     if (useMaterialUniverseTable)
     {
         if (validateMaterialUniverseTable)
@@ -185,23 +210,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
-    std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
-        materialTable.materialIds,
-        materialTable.materials,
-        staticVertexCache,
-        staticIndexCache,
-        staticTriangleClassCache,
-        materialTable.staticMaterialIndexes,
-        dynamicVertexData,
-        dynamicIndexData,
-        dynamicTriangleClassData,
-        materialTable.dynamicMaterialIndexes,
-        RT_SMOKE_MATERIAL_EMISSIVE,
-        RT_SMOKE_TRIANGLE_CLASS_MASK,
-        static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
-        idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger()),
-        emissiveInventoryStats);
-    std::vector<PathTraceSmokeLightCandidate> lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+    std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
+    std::vector<PathTraceSmokeLightCandidate> lightCandidates;
+    {
+        OPTICK_EVENT("PT Emissive Inventory");
+        emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
+            materialTable.materialIds,
+            materialTable.materials,
+            staticVertexCache,
+            staticIndexCache,
+            staticTriangleClassCache,
+            materialTable.staticMaterialIndexes,
+            dynamicVertexData,
+            dynamicIndexData,
+            dynamicTriangleClassData,
+            materialTable.dynamicMaterialIndexes,
+            RT_SMOKE_MATERIAL_EMISSIVE,
+            RT_SMOKE_TRIANGLE_CLASS_MASK,
+            static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
+            idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger()),
+            emissiveInventoryStats);
+        lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+    }
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;
     RtSmokeEmissiveInventoryDiagnosticTriggerDesc emissiveInventoryDiagnosticDesc;
     emissiveInventoryDiagnosticDesc.materialTable = &materialTable;
@@ -238,7 +268,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.materialTableBytes = materialTable.materials.size() * sizeof(materialTable.materials[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
     bufferCreateDesc.lightCandidateBytes = lightCandidates.size() * sizeof(lightCandidates[0]);
-    const RtSmokeSceneBufferCreateResult bufferCreateResult = CreateSmokeSceneBuffers(bufferCreateDesc);
+    RtSmokeSceneBufferCreateResult bufferCreateResult;
+    {
+        OPTICK_EVENT("PT Create Scene Buffers");
+        bufferCreateResult = CreateSmokeSceneBuffers(bufferCreateDesc);
+    }
     if (!bufferCreateResult.Succeeded())
     {
         common->Printf("PathTracePrimaryPass: %s\n", bufferCreateResult.errorMessage ? bufferCreateResult.errorMessage : "failed to create RT smoke geometry buffers");
@@ -278,7 +312,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     staticGeometryRange.indexCount = staticBucketRange.indexCount;
     staticGeometryRange.triangleOffset = staticBucketRange.triangleOffset;
     staticGeometryRange.triangleCount = staticBucketRange.triangleCount;
-    const RtSmokeGeometryUniverseStats geometryUniverseStats = m_smokeGeometryUniverse.GetStats();
+    const bool validateGeometryUniverse = r_pathTracingGeometryUniverseValidate.GetInteger() != 0;
+    const RtSmokeGeometryUniverseStats geometryUniverseStats = m_smokeGeometryUniverse.GetStats(validateGeometryUniverse);
+    if (validateGeometryUniverse && geometryUniverseStats.staticValidationErrors > 0)
+    {
+        if (g_smokeLastGeometryValidationDumpGeneration != geometryUniverseStats.generation ||
+            g_smokeLastGeometryValidationDumpErrors != geometryUniverseStats.staticValidationErrors)
+        {
+            m_smokeGeometryUniverse.LogStaticValidationFailures(RT_SMOKE_GEOMETRY_VALIDATION_DUMP_RECORDS);
+            g_smokeLastGeometryValidationDumpGeneration = geometryUniverseStats.generation;
+            g_smokeLastGeometryValidationDumpErrors = geometryUniverseStats.staticValidationErrors;
+        }
+    }
+    else if (geometryUniverseStats.staticValidationErrors == 0)
+    {
+        g_smokeLastGeometryValidationDumpErrors = 0;
+    }
     const int staticVertexCacheCount = geometryUniverseStats.staticVerts;
     const int staticIndexCacheCount = geometryUniverseStats.staticIndexes;
     const int staticTriangleCacheCount = geometryUniverseStats.staticTriangles;
@@ -296,7 +345,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     else
     {
-        staticSignature = ComputeSmokeStaticBlasSignature(staticVertexCache, staticIndexCache, staticTriangleClassCache, staticTriangleMaterialCache, staticGeometryRange, vec3_origin);
+        {
+            OPTICK_EVENT("PT Static BLAS Signature");
+            staticSignature = ComputeSmokeStaticBlasSignature(staticVertexCache, staticIndexCache, staticTriangleClassCache, staticTriangleMaterialCache, staticGeometryRange, vec3_origin);
+        }
     }
     const int staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
@@ -341,7 +393,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticBlasCreateDesc.vertexCount = staticVertexCount;
             staticBlasCreateDesc.indexCount = staticIndexCount;
             staticBlasCreateDesc.debugName = "PathTraceSmokeStaticWorldBLAS";
-            const RtSmokeBlasCreateResult staticBlasCreateResult = CreateSmokeBlas(staticBlasCreateDesc);
+            RtSmokeBlasCreateResult staticBlasCreateResult;
+            {
+                OPTICK_EVENT("PT Create Static BLAS");
+                staticBlasCreateResult = CreateSmokeBlas(staticBlasCreateDesc);
+            }
             if (!staticBlasCreateResult.Succeeded())
             {
                 common->Printf("PathTracePrimaryPass: failed to create RT smoke static BLAS\n");
@@ -364,7 +420,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         dynamicBlasCreateDesc.vertexCount = dynamicVertexCount;
         dynamicBlasCreateDesc.indexCount = dynamicIndexCount;
         dynamicBlasCreateDesc.debugName = "PathTraceSmokeDynamicCandidateBLAS";
-        const RtSmokeBlasCreateResult dynamicBlasCreateResult = CreateSmokeBlas(dynamicBlasCreateDesc);
+        RtSmokeBlasCreateResult dynamicBlasCreateResult;
+        {
+            OPTICK_EVENT("PT Create Dynamic BLAS");
+            dynamicBlasCreateResult = CreateSmokeBlas(dynamicBlasCreateDesc);
+        }
         if (!dynamicBlasCreateResult.Succeeded())
         {
             common->Printf("PathTracePrimaryPass: failed to create RT smoke dynamic BLAS\n");
@@ -393,7 +453,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     uploadBatchDesc.commandList = commandList;
     uploadBatchDesc.items = uploadItems;
     uploadBatchDesc.itemCount = static_cast<int>(sizeof(uploadItems) / sizeof(uploadItems[0]));
-    const int bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+    int bufferUploadMs = 0;
+    {
+        OPTICK_GPU_EVENT("PT GPU Upload Scene Buffers");
+        bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+    }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
     accelSubmitDesc.commandList = commandList;
@@ -406,7 +470,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelSubmitDesc.hasDynamicBlas = hasDynamicBlas;
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
     RtSmokeAccelSubmitTiming accelSubmitTiming;
-    if (!SubmitSmokeAccelerationBuilds(accelSubmitDesc, accelSubmitTiming))
+    bool accelSubmitSucceeded = false;
+    {
+        OPTICK_GPU_EVENT("PT GPU Submit Acceleration Builds");
+        accelSubmitSucceeded = SubmitSmokeAccelerationBuilds(accelSubmitDesc, accelSubmitTiming);
+    }
+    if (!accelSubmitSucceeded)
     {
         common->Printf("PathTracePrimaryPass: failed to submit RT smoke acceleration structures\n");
         return;
@@ -439,7 +508,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
     bindingBuildDesc.maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;
 
-    RtSmokeBindingBuildResult bindingBuildResult = CreateSmokeBindingResources(bindingBuildDesc, materialTable);
+    RtSmokeBindingBuildResult bindingBuildResult;
+    {
+        OPTICK_EVENT("PT Create Binding Resources");
+        bindingBuildResult = CreateSmokeBindingResources(bindingBuildDesc, materialTable);
+    }
     if (!bindingBuildResult.Succeeded())
     {
         if (bindingBuildResult.failedTextureSlot >= 0)
@@ -472,7 +545,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
     resourceCommitBuildDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
-    CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    {
+        OPTICK_EVENT("PT Commit Scene Resources");
+        CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    }
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     RtSmokeSceneBuildDiagnosticLogDesc sceneLogDesc;
