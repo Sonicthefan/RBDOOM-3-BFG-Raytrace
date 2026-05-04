@@ -10,6 +10,8 @@
 
 #include <vector>
 
+struct viewDef_t;
+
 struct PathTraceSmokeMaterial
 {
     float debugAlbedo[4];
@@ -108,6 +110,7 @@ struct RtSmokeEmissiveInventoryStats
     int totalTriangles = 0;
     int staticTriangles = 0;
     int dynamicTriangles = 0;
+    int fullLevelStaticTriangles = 0;
     int capturedTriangles = 0;
     int skippedSkinnedTriangles = 0;
     int skippedInvalidMaterialTriangles = 0;
@@ -142,6 +145,9 @@ std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
 RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles);
+void FinalizeSmokeEmissiveTriangleSamplingFields(
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    const RtSmokeEmissiveInventoryStats& stats);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
@@ -157,6 +163,16 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     uint32_t triangleClassMask,
     uint32_t skinnedSurfaceClassId,
     int maxRecords,
+    RtSmokeEmissiveInventoryStats& stats);
+std::vector<uint32_t> BuildSmokeWorldStaticEmissiveMaterialIds(const viewDef_t* viewDef);
+void AppendSmokeWorldStaticEmissiveTriangleInventory(
+    const viewDef_t* viewDef,
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    uint32_t emissiveMaterialFlag,
+    uint32_t staticSurfaceClassId,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats);
 void LogSmokeEmissiveInventoryDump(
     const std::vector<uint32_t>& materialIds,

@@ -259,11 +259,30 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
     float totalArea = 0.0f;
     float totalWeightedLuminance = 0.0f;
 
-    for (const PersistentEmissiveRecord& record : m_staticRecords)
+    for (const PathTraceSmokeEmissiveTriangle& triangle : dynamicFrameCandidates)
     {
         if (static_cast<int>(merged.size()) >= maxRecords)
         {
             break;
+        }
+        merged.push_back(triangle);
+        totalArea += triangle.centerAndArea[3];
+        totalWeightedLuminance += triangle.sampleWeightAndPdf[0];
+    }
+
+    for (const PersistentEmissiveRecord& record : m_staticRecords)
+    {
+        if (static_cast<int>(merged.size()) >= maxRecords)
+        {
+            if (record.seenThisFrame)
+            {
+                ++m_stats.staticSeenThisFrame;
+            }
+            else
+            {
+                ++m_stats.staticMissingThisFrame;
+            }
+            continue;
         }
         merged.push_back(record.triangle);
         totalArea += record.triangle.centerAndArea[3];
@@ -307,17 +326,6 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         totalWeightedLuminance += historyTriangle.sampleWeightAndPdf[0];
         ++m_stats.dynamicMissingThisFrame;
         ++m_stats.injectedMissingDynamicTriangles;
-    }
-
-    for (const PathTraceSmokeEmissiveTriangle& triangle : dynamicFrameCandidates)
-    {
-        if (static_cast<int>(merged.size()) >= maxRecords)
-        {
-            break;
-        }
-        merged.push_back(triangle);
-        totalArea += triangle.centerAndArea[3];
-        totalWeightedLuminance += triangle.sampleWeightAndPdf[0];
     }
 
     const float inverseTotalWeightedLuminance = totalWeightedLuminance > 1.0e-8f ? 1.0f / totalWeightedLuminance : 0.0f;

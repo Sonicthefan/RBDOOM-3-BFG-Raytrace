@@ -890,3 +890,54 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFra
     timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
     return timing;
 }
+
+RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextureInfo(const viewDef_t* viewDef, bool enabled)
+{
+    OPTICK_EVENT("PT Material Metadata World Static");
+
+    RtSmokeMaterialMetadataRegistrationTiming timing;
+    const int metadataStartMs = Sys_Milliseconds();
+    if (!enabled || !viewDef || !viewDef->renderWorld)
+    {
+        timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+        return timing;
+    }
+
+    std::vector<uint32_t> registeredMaterialIds;
+    registeredMaterialIds.reserve(256);
+    idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
+        const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+        if (!model || !model->IsStaticWorldModel())
+        {
+            continue;
+        }
+
+        for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+        {
+            const modelSurface_t* surface = model->Surface(surfaceIndex);
+            const idMaterial* material = surface ? surface->shader : nullptr;
+            if (!material)
+            {
+                continue;
+            }
+
+            const uint32_t materialId = SmokeMaterialId(material);
+            if (std::find(registeredMaterialIds.begin(), registeredMaterialIds.end(), materialId) != registeredMaterialIds.end())
+            {
+                ++g_smokeMaterialMetadataFrameStats.duplicateSkips;
+                continue;
+            }
+
+            registeredMaterialIds.push_back(materialId);
+            const int registrationStartMs = Sys_Milliseconds();
+            RegisterSmokeMaterialTextureInfo(material);
+            timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
+        }
+    }
+
+    timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+    return timing;
+}

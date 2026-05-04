@@ -132,6 +132,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Register Material Metadata");
         metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
+        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
+        {
+            const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming = RegisterSmokeWorldStaticMaterialTextureInfo(viewDef, enableTextureProbe);
+            metadataTiming.metadataMs += worldStaticMetadataTiming.metadataMs;
+            metadataTiming.registrationMs += worldStaticMetadataTiming.registrationMs;
+        }
     }
     const int metadataMs = metadataTiming.metadataMs;
     const int metadataValidationMs = metadataTiming.validationMs;
@@ -139,6 +145,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
+    std::vector<uint32_t> fullLevelStaticEmissiveMaterialIds;
+    if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
+    {
+        fullLevelStaticEmissiveMaterialIds = BuildSmokeWorldStaticEmissiveMaterialIds(viewDef);
+    }
+    std::vector<uint32_t> materialTableStaticIds = staticTriangleMaterialCache;
+    materialTableStaticIds.insert(materialTableStaticIds.end(), fullLevelStaticEmissiveMaterialIds.begin(), fullLevelStaticEmissiveMaterialIds.end());
     uint64 materialTableSignature = 0;
     bool materialTableCacheHit = false;
     RtSmokeMaterialTableCompareStats materialUniverseTableCompareStats;
@@ -153,8 +166,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtSmokeMaterialTableBuild legacyMaterialTable;
             uint32_t legacyLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
             int legacyLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
-            BuildSmokeMaterialTableCached(legacyMaterialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, legacyLatchedTextureProbeMaterialId, legacyLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
-            BuildSmokeMaterialTableFromUniverseCached(materialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableCached(legacyMaterialTable, materialTableStaticIds, dynamicTriangleMaterialData, legacyLatchedTextureProbeMaterialId, legacyLatchedTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
             materialUniverseTableCompareStats = CompareSmokeMaterialTables(legacyMaterialTable, materialTable);
             if (materialUniverseTableCompareStats.mismatches > 0)
             {
@@ -175,18 +188,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         else
         {
-            BuildSmokeMaterialTableFromUniverseCached(materialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+            BuildSmokeMaterialTableFromUniverseCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
         }
     }
     else
     {
-        BuildSmokeMaterialTableCached(materialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
+        BuildSmokeMaterialTableCached(materialTable, materialTableStaticIds, dynamicTriangleMaterialData, m_smokeTextureProbeMaterialId, m_smokeTextureProbeRequestedIndex, enableTextureProbe, materialTableSignature, materialTableCacheHit);
         if (validateMaterialUniverseTable)
         {
             RtSmokeMaterialTableBuild universeMaterialTable;
             uint32_t universeLatchedTextureProbeMaterialId = m_smokeTextureProbeMaterialId;
             int universeLatchedTextureProbeRequestedIndex = m_smokeTextureProbeRequestedIndex;
-            BuildSmokeMaterialTableFromUniverse(universeMaterialTable, staticTriangleMaterialCache, dynamicTriangleMaterialData, universeLatchedTextureProbeMaterialId, universeLatchedTextureProbeRequestedIndex, enableTextureProbe);
+            BuildSmokeMaterialTableFromUniverse(universeMaterialTable, materialTableStaticIds, dynamicTriangleMaterialData, universeLatchedTextureProbeMaterialId, universeLatchedTextureProbeRequestedIndex, enableTextureProbe);
             materialUniverseTableCompareStats = CompareSmokeMaterialTables(materialTable, universeMaterialTable);
         }
     }
@@ -240,6 +253,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
+        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
+        {
+            const int fullLevelStaticSupplementCap = idMath::ClampInt(0, maxEmissiveRecords, r_pathTracingWorldStaticEmissiveMaxTriangles.GetInteger());
+            const int fullLevelStaticSupplementLimit = Min(maxEmissiveRecords, static_cast<int>(emissiveTriangles.size()) + fullLevelStaticSupplementCap);
+            AppendSmokeWorldStaticEmissiveTriangleInventory(
+                viewDef,
+                materialTable.materialIds,
+                materialTable.materials,
+                RT_SMOKE_MATERIAL_EMISSIVE,
+                SmokeSurfaceClassId(RtSmokeSurfaceClass::StaticWorld),
+                fullLevelStaticSupplementLimit,
+                emissiveTriangles,
+                emissiveInventoryStats);
+        }
+        const int fullLevelStaticEmissiveTriangles = emissiveInventoryStats.fullLevelStaticTriangles;
+        const int runtimeInactiveEmissiveTrianglesBeforeStatsRebuild = emissiveInventoryStats.skippedRuntimeInactiveTriangles;
+        FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, emissiveInventoryStats);
+        emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
+        emissiveInventoryStats.fullLevelStaticTriangles = fullLevelStaticEmissiveTriangles;
+        emissiveInventoryStats.skippedRuntimeInactiveTriangles = runtimeInactiveEmissiveTrianglesBeforeStatsRebuild;
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
     const int emissiveMs = Sys_Milliseconds() - emissiveStartMs;

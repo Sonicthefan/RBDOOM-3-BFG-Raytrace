@@ -61,12 +61,14 @@ struct RtSmokeDynamicGeometryStats
     int skinnedRtCpuSkinnedSurfaces = 0;
     int particleAlphaSurfaces = 0;
     int unknownSurfaces = 0;
+    int retainedOccluderSurfaces = 0;
     int rigidIndexes = 0;
     int skinnedCpuCurrentIndexes = 0;
     int skinnedLikelyBasePoseIndexes = 0;
     int skinnedRtCpuSkinnedIndexes = 0;
     int particleAlphaIndexes = 0;
     int unknownIndexes = 0;
+    int retainedOccluderIndexes = 0;
 };
 
 struct RtSmokeMaterialSample

@@ -2,9 +2,11 @@
 #pragma hdrstop
 
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceTextureRegistry.h"
+#include "../RenderCommon.h"
 
 #include <algorithm>
 
@@ -26,6 +28,18 @@ uint64 BuildSmokeEmissiveTriangleIdentity(uint32_t materialId, uint32_t instance
     hash = HashSmokeEmissiveIdentityValue(hash, materialIndex);
     hash = HashSmokeEmissiveIdentityValue(hash, triangleClassAndFlags);
     return hash;
+}
+
+uint32_t FindSmokeMaterialTableIndexForId(const std::vector<uint32_t>& materialIds, uint32_t materialId)
+{
+    for (int materialIndex = 0; materialIndex < static_cast<int>(materialIds.size()); ++materialIndex)
+    {
+        if (materialIds[materialIndex] == materialId)
+        {
+            return static_cast<uint32_t>(materialIndex);
+        }
+    }
+    return UINT32_MAX;
 }
 
 }
@@ -200,6 +214,208 @@ void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmiss
         record.sampleWeightAndPdf[3] = record.centerAndArea[3] * inverseTotalArea;
         record.centroidUvAndWeight[3] = record.sampleWeightAndPdf[1];
     }
+}
+
+std::vector<uint32_t> BuildSmokeWorldStaticEmissiveMaterialIds(const viewDef_t* viewDef)
+{
+    OPTICK_EVENT("PT World Static Emissive Material Ids");
+
+    std::vector<uint32_t> materialIds;
+    if (!viewDef || !viewDef->renderWorld)
+    {
+        return materialIds;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
+        const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+        if (!model || !model->IsStaticWorldModel())
+        {
+            continue;
+        }
+
+        for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+        {
+            const modelSurface_t* surface = model->Surface(surfaceIndex);
+            const idMaterial* material = surface ? surface->shader : nullptr;
+            if (!material)
+            {
+                continue;
+            }
+
+            const uint32_t materialId = SmokeMaterialId(material);
+            const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
+            const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
+            if (!facts.emissive)
+            {
+                continue;
+            }
+
+            if (std::find(materialIds.begin(), materialIds.end(), materialId) == materialIds.end())
+            {
+                materialIds.push_back(materialId);
+            }
+        }
+    }
+
+    return materialIds;
+}
+
+void AppendSmokeWorldStaticEmissiveTriangleInventory(
+    const viewDef_t* viewDef,
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    uint32_t emissiveMaterialFlag,
+    uint32_t staticSurfaceClassId,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    OPTICK_EVENT("PT World Static Emissive Inventory");
+
+    if (!viewDef || !viewDef->renderWorld)
+    {
+        return;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    uint32_t worldPrimitiveId = 0;
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
+    {
+        const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
+        const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+        if (!model || !model->IsStaticWorldModel())
+        {
+            continue;
+        }
+
+        for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+        {
+            const modelSurface_t* surface = model->Surface(surfaceIndex);
+            const idMaterial* material = surface ? surface->shader : nullptr;
+            const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+            if (!material || !tri || !tri->verts || !tri->indexes)
+            {
+                continue;
+            }
+
+            const uint32_t materialId = SmokeMaterialId(material);
+            const uint32_t materialIndex = FindSmokeMaterialTableIndexForId(materialIds, materialId);
+            if (materialIndex == UINT32_MAX || materialIndex >= materials.size())
+            {
+                stats.skippedInvalidMaterialTriangles += tri->numIndexes / 3;
+                continue;
+            }
+
+            const PathTraceSmokeMaterial& smokeMaterial = materials[materialIndex];
+            if ((smokeMaterial.flags & emissiveMaterialFlag) == 0)
+            {
+                continue;
+            }
+
+            const float luminance = SmokeMaterialEmissiveLuminance(smokeMaterial);
+            const idVec3 estimatedRadiance(
+                Max(0.0f, smokeMaterial.emissiveColor[0]),
+                Max(0.0f, smokeMaterial.emissiveColor[1]),
+                Max(0.0f, smokeMaterial.emissiveColor[2]));
+
+            for (int indexOffset = 0; indexOffset + 2 < tri->numIndexes; indexOffset += 3)
+            {
+                ++worldPrimitiveId;
+                const int i0 = tri->indexes[indexOffset + 0];
+                const int i1 = tri->indexes[indexOffset + 1];
+                const int i2 = tri->indexes[indexOffset + 2];
+                if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
+                {
+                    ++stats.skippedInvalidMaterialTriangles;
+                    continue;
+                }
+
+                const idDrawVert& v0 = tri->verts[i0];
+                const idDrawVert& v1 = tri->verts[i1];
+                const idDrawVert& v2 = tri->verts[i2];
+                const idVec3 p0 = v0.xyz;
+                const idVec3 p1 = v1.xyz;
+                const idVec3 p2 = v2.xyz;
+                const idVec2 uv0 = v0.GetTexCoord();
+                const idVec2 uv1 = v1.GetTexCoord();
+                const idVec2 uv2 = v2.GetTexCoord();
+                const idVec3 edge01 = p1 - p0;
+                const idVec3 edge02 = p2 - p0;
+                idVec3 areaNormal = edge01.Cross(edge02);
+                const float doubleArea = areaNormal.Length();
+                if (doubleArea <= 1.0e-6f)
+                {
+                    continue;
+                }
+
+                const float area = doubleArea * 0.5f;
+                areaNormal *= 1.0f / doubleArea;
+                const float sampleWeight = area * luminance;
+                ++stats.totalTriangles;
+                ++stats.staticTriangles;
+                ++stats.fullLevelStaticTriangles;
+                stats.totalArea += area;
+                stats.totalWeightedLuminance += sampleWeight;
+
+                if (std::find(stats.materialIndexes.begin(), stats.materialIndexes.end(), materialIndex) == stats.materialIndexes.end())
+                {
+                    stats.materialIndexes.push_back(materialIndex);
+                }
+
+                if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
+                {
+                    ++stats.cappedTriangles;
+                    continue;
+                }
+
+                PathTraceSmokeEmissiveTriangle record = {};
+                const idVec3 center = (p0 + p1 + p2) * (1.0f / 3.0f);
+                record.centerAndArea[0] = center.x;
+                record.centerAndArea[1] = center.y;
+                record.centerAndArea[2] = center.z;
+                record.centerAndArea[3] = area;
+                record.normalAndLuminance[0] = areaNormal.x;
+                record.normalAndLuminance[1] = areaNormal.y;
+                record.normalAndLuminance[2] = areaNormal.z;
+                record.normalAndLuminance[3] = luminance;
+                record.uvBounds[0] = Min(uv0.x, Min(uv1.x, uv2.x));
+                record.uvBounds[1] = Min(uv0.y, Min(uv1.y, uv2.y));
+                record.uvBounds[2] = Max(uv0.x, Max(uv1.x, uv2.x));
+                record.uvBounds[3] = Max(uv0.y, Max(uv1.y, uv2.y));
+                record.centroidUvAndWeight[0] = (uv0.x + uv1.x + uv2.x) * (1.0f / 3.0f);
+                record.centroidUvAndWeight[1] = (uv0.y + uv1.y + uv2.y) * (1.0f / 3.0f);
+                record.centroidUvAndWeight[2] = sampleWeight;
+                record.estimatedRadianceAndLuminance[0] = estimatedRadiance.x;
+                record.estimatedRadianceAndLuminance[1] = estimatedRadiance.y;
+                record.estimatedRadianceAndLuminance[2] = estimatedRadiance.z;
+                record.estimatedRadianceAndLuminance[3] = luminance;
+                record.sampleWeightAndPdf[0] = sampleWeight;
+                record.sampleWeightAndPdf[2] = area;
+                record.materialIndex = materialIndex;
+                record.instanceId = 0;
+                record.primitiveIndex = worldPrimitiveId;
+                record.flags = smokeMaterial.flags;
+                record.emissiveTextureIndex = smokeMaterial.emissiveTextureIndex;
+                record.emissiveTextureWidth = smokeMaterial.emissiveTextureWidth;
+                record.emissiveTextureHeight = smokeMaterial.emissiveTextureHeight;
+                record.materialId = materialId;
+                const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, static_cast<int>(materialIndex));
+                record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(materialId, info).universeIndex;
+                const uint32_t classAndFlags = staticSurfaceClassId;
+                const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, 0, worldPrimitiveId, materialIndex, classAndFlags);
+                record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
+                record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
+                record.padding0 = classAndFlags;
+                emissiveTriangles.push_back(record);
+            }
+        }
+    }
+
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
 }
 
 std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::vector<uint32_t>& materialIds, const std::vector<PathTraceSmokeMaterial>& frameMaterials, uint32_t emissiveMaterialFlag)
@@ -471,10 +687,11 @@ void LogSmokeEmissiveInventoryDump(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const RtSmokeEmissiveInventoryStats& stats)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d dynamic=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedRuntimeInactive=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
+    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d fullLevelStatic=%d dynamic=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedRuntimeInactive=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
         stats.totalTriangles,
         stats.capturedTriangles,
         stats.staticTriangles,
+        stats.fullLevelStaticTriangles,
         stats.dynamicTriangles,
         stats.uniqueMaterials,
         stats.cappedTriangles,

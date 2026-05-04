@@ -29,3 +29,4 @@ extern RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled);
+RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextureInfo(const viewDef_t* viewDef, bool enabled);

@@ -93,6 +93,30 @@ idCVar r_pathTracingEmissiveInventoryMaxTriangles(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum emissive triangles captured into the RT smoke inventory buffer" );
 
+idCVar r_pathTracingWorldStaticEmissives(
+    "r_pathTracingWorldStaticEmissives",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental: supplement mode 19/20 emissive candidates from full-level static world models; off by default due current GPU/device-removal risk" );
+
+idCVar r_pathTracingWorldStaticEmissiveMaxTriangles(
+    "r_pathTracingWorldStaticEmissiveMaxTriangles",
+    "128",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum full-level static world emissive triangles to append when r_pathTracingWorldStaticEmissives is enabled" );
+
+idCVar r_pathTracingDynamicOccluderRadius(
+    "r_pathTracingDynamicOccluderRadius",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Radius around the camera that keeps rigid entity model surfaces in the RT dynamic BLAS even when raster visibility culls them; 0 disables" );
+
+idCVar r_pathTracingDynamicOccluderMaxSurfaces(
+    "r_pathTracingDynamicOccluderMaxSurfaces",
+    "64",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum nearby rigid entity surfaces appended as dynamic RT occluder safety geometry per frame" );
+
 idCVar r_pathTracingLightUniverseDump(
     "r_pathTracingLightUniverseDump",
     "0",
