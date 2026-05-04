@@ -248,6 +248,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     emissiveInventoryDiagnosticDesc.emissiveTriangles = &emissiveTriangles;
     emissiveInventoryDiagnosticDesc.emissiveInventoryStats = &emissiveInventoryStats;
     RunSmokeEmissiveInventoryDiagnosticTriggers(emissiveInventoryDiagnosticDesc);
+    const int runtimeInactiveEmissiveTriangles = emissiveInventoryStats.skippedRuntimeInactiveTriangles;
     {
         OPTICK_EVENT("PT Light Universe");
         emissiveTriangles = m_smokeLightUniverse.MergeFrameCandidates(
@@ -282,6 +283,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
             idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()),
             static_cast<unsigned long long>(lightUniverseStats.generation));
+        common->Printf("PathTracePrimaryPass: RT smoke light origins persistentStatic=%d/%d currentDynamic=%d frameOnlyDynamic=%d persistableDynamic=%d promotedDynamic=%d unpromotedDynamic=%d injectedMissingDynamic=%d runtimeActive=%d runtimeInactiveSkipped=%d spatialMembership=unassigned temporalReuse=off\n",
+            lightUniverseStats.staticMergedSeenTriangles,
+            lightUniverseStats.staticMergedMissingTriangles,
+            lightUniverseStats.dynamicFrameTriangles,
+            lightUniverseStats.dynamicFrameOnlyTriangles,
+            lightUniverseStats.dynamicPersistableFrameTriangles,
+            lightUniverseStats.dynamicPromotedFrameTriangles,
+            lightUniverseStats.dynamicUnpromotedFrameTriangles,
+            lightUniverseStats.injectedMissingDynamicTriangles,
+            emissiveInventoryStats.capturedTriangles,
+            runtimeInactiveEmissiveTriangles);
         r_pathTracingLightUniverseDump.SetInteger(0);
     }
 

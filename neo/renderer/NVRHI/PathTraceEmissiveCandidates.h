@@ -111,6 +111,7 @@ struct RtSmokeEmissiveInventoryStats
     int capturedTriangles = 0;
     int skippedSkinnedTriangles = 0;
     int skippedInvalidMaterialTriangles = 0;
+    int skippedRuntimeInactiveTriangles = 0;
     int cappedTriangles = 0;
     int uniqueMaterials = 0;
     float totalArea = 0.0f;

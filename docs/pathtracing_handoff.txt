@@ -46,6 +46,7 @@ Current git state at handoff update time:
 
     Recent local committed work includes:
 
+        33b52a18 Document interactive emissive surface behavior
         d40fe9fa Move static geometry lookup into universe
         ddc2ec19 Update path tracing docs for geometry universe
         e55ba1ab Add path trace geometry universe scaffold
@@ -69,6 +70,7 @@ Read these first in a new session:
     docs/pathtrace_modules.txt
     docs/pathtrace_geometry_universe.md
     docs/pathtrace_material_universe.md
+    docs/pathtrace_interactive_surfaces.md
     docs/pathtrace_raster_interaction_leak_plan.md
 
 Use them this way:
@@ -84,6 +86,9 @@ Use them this way:
 - pathtrace_material_universe.md: guardrails for persistent material facts,
   frame-local descriptor ownership, reset boundaries, key stability, validation
   cost, thread ownership, allocation, and churn stats.
+- pathtrace_interactive_surfaces.md: Doom material/register/runtime-state guide
+  for switchable fluorescent lights, colored panels, texture transforms, and
+  Q2RTX off-camera emissive design implications.
 - pathtrace_raster_interaction_leak_plan.md: resolved build-mode investigation
   for the location-specific raster/PT slowdown, plus retained notes on frontend
   interaction/shadow work if similar symptoms return.
@@ -298,11 +303,18 @@ Copy the preset-built executable from the matching build folder, for example:
 
     Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
 
-Legacy Debug build executable:
+Do not use the legacy Debug executable path for PT validation:
 
     cmake --build build --config Debug --target RBDoom3BFG
 
-Legacy Debug copy:
+This path is kept only as a compile/link sanity check. It is broken for branch
+validation: the generated legacy project can be stale until `cmake -S neo -B
+build` is rerun after NVRHI source additions, and the resulting
+`build\Debug\RBDoom3BFG.exe` is not representative for RT/PT behavior or
+performance. Do not copy it into the prepared game folder for normal PT testing.
+
+Avoid this old Debug copy path except when deliberately testing the broken
+legacy lane:
 
     Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
 
@@ -316,8 +328,10 @@ If a new .cpp is added under neo/renderer/NVRHI, rerun:
 
     cmake -S neo -B build
 
-The NVRHI PathTrace sources are globbed by CMake, so project regeneration is
-needed after adding a source file.
+The legacy Debug project does not reliably pick up new globbed NVRHI
+PathTrace sources until this regeneration is done. This is another reason not
+to treat `cmake --build build --config Debug --target RBDoom3BFG` as the branch
+validation path.
 
 For preset builds, rerun the relevant configure preset instead:
 
@@ -601,6 +615,51 @@ Recommended next step:
    Use the Q2RTX Ray Reconstruction fork as a design reference, not as code to
    drop in wholesale.
 
+Critical Q2RTX / ReSTIR light-list lesson
+-----------------------------------------
+
+The Q2RTX Ray Reconstruction reference fork was checked specifically for
+off-camera emissive behavior. Its useful lesson is not "keep the last visible
+emissive surface alive." Q2RTX promotes emissive surfaces into an explicit light
+sampling contract:
+
+- Static emissive BSP surfaces become persistent light polygon records.
+- Those light records are assigned to BSP clusters and gathered into
+  per-cluster light lists using PVS plus a light-influence test.
+- ReSTIR samples the light list for the cluster containing the shaded point,
+  not the set of emissive surfaces visible to the current camera.
+- Dynamic/model emissive lights are transformed and injected into the same
+  cluster light lists each frame.
+- Temporal ReSTIR history uses previous-to-current light identity remapping. If
+  a previous dynamic light cannot be matched to a current light, that history is
+  invalidated.
+
+Direction adjustment for this branch:
+
+- The current reservoir scaffold is still valid and should be kept.
+- Do not treat final ReSTIR input as "visible emissive candidates plus a little
+  persistence." That will keep producing screen-space-like behavior.
+- Static world emissives should become persistent light-universe records that
+  can be sampled independently of current camera visibility.
+- Stable rigid/entity emissives, such as object-like vending-machine panels,
+  need persistent identity plus current transform and some future
+  area/portal/cluster-style membership.
+- Game-logic emissives, such as switchable or dimming fluorescent lights, need
+  persistent identity but per-frame evaluated active/color/intensity state from
+  drawSurf->shaderRegisters.
+- Truly transient or currently unmatchable dynamic emissives should remain
+  current-frame injections until previous-to-current identity and matching
+  occluder geometry are trustworthy.
+- Temporal reuse should wait for stable light identity, previous-to-current
+  remapping, runtime emissive state signatures, and geometry/occluder
+  confidence.
+
+The next useful ReSTIR work is therefore light-universe quality and spatial
+membership diagnostics before spatial or temporal reuse. A Doom-side equivalent
+does not have to clone Q2RTX clusters exactly, but it needs some area/portal or
+leaf-style membership so off-camera emissives can affect nearby shaded points
+without relying on current screen visibility.
+
 Immediate next-work suggestions
 -------------------------------
 
@@ -660,7 +719,7 @@ specific.
 3. ReSTIR/PT bare-minimum vertical slice
 
    Do not start by trying to integrate all of NVIDIA RTXPT or by reviving the
-   removed Donut/RTXPT checkout. A good first slice:
+   removed Donut/RTXPT checkout. Current status:
 
    - Mode 19 emissive inventory now has a real GPU light-candidate contract:
      area, normal, UV bounds, material universe index, emissive texture slot,
@@ -693,8 +752,22 @@ specific.
      emissive state from drawSurf->shaderRegisters, including game-logic driven
      on/off/dimming behavior. Do not regress this back to material-only
      emissive decisions.
-   - Add spatial reuse after a single-frame reservoir works.
-   - Add temporal reuse/reprojection after spatial/debug data are stable.
+   - Mode 20 is a useful scaffold/debug view, not the final ReSTIR input model.
+     Q2RTX points toward a proper light universe with spatial membership:
+     persistent static lights, current dynamic injections, explicit
+     previous-to-current light id remapping, and invalidation when a dynamic
+     light cannot be matched.
+   - Add candidate-origin diagnostics before reuse: visible/frame candidate,
+     persistent static light, current dynamic injection, promoted/semi-static
+     rigid light, and runtime/game-driven light state.
+   - Start planning Doom-side spatial membership for light candidates before
+     spatial or temporal reuse. This may be area/portal/leaf-style rather than
+     a direct Q2RTX cluster clone.
+   - Add spatial reuse only after the light list/candidate origin model is less
+     screen-visible dependent.
+   - Add temporal reuse/reprojection only after stable light identity,
+     previous-to-current remapping, runtime emissive state signatures, and
+     matching geometry/occluder confidence are available.
 
    Files likely involved:
 
@@ -752,12 +825,16 @@ specific.
      PT Release build lanes.
    - OPTICK=ON is available through win64-pt-dev-optick and the matching batch
      files. Keep it off for final performance sanity checks.
-   - Visual Studio Debug executables are expected to be about 30 MB here while
-     Release executables are about 14-15 MB. The difference comes from /Od,
-     /Zi, /RTC1, debug CRT, and incremental debug linking. The legacy Debug
-     executable reproduced the broken raster/PT frame-pacing performance, while
-     fresh Release builds were clean. Use Debug for correctness/debugging, not
-     FPS conclusions.
+   - The legacy Visual Studio Debug compile path is broken for PT validation.
+     It can be used as a compile/link sanity check only, and even then the
+     generated project may need `cmake -S neo -B build` after NVRHI source
+     additions. Do not copy `build\Debug\RBDoom3BFG.exe` into the prepared game
+     folder for normal PT testing. Use the preset Release/PT lanes instead.
+     Debug executables are expected to be about 30 MB here while Release
+     executables are about 14-15 MB. The difference comes from /Od, /Zi, /RTC1,
+     debug CRT, and incremental debug linking. The legacy Debug executable
+     reproduced the broken raster/PT frame-pacing performance, while fresh
+     Release builds were clean.
    - r_useValidationLayers defaults to 1, which enables NVRHI validation.
      Launching Debug with `+set r_useValidationLayers 0` restored raster to the
      120 FPS cap, so validation was the main raster-side Debug multiplier. Use

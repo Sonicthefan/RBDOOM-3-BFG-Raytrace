@@ -1120,11 +1120,15 @@ Build/config notes from the GUI/video and raster-stall investigations:
   scopes for diagnosis, but `r_pathTracingOptickGpuMarkers` defaults to 0
   because enabling those PT-specific native command-object marker calls caused
   level-entry crashes during the diagnostics cleanup pass.
-- Visual Studio Debug executables are about 30 MB here, while Release
-  executables are about 14-15 MB. That difference is expected from /Od, /Zi,
-  /RTC1, debug CRT, and incremental debug linking; it is not a source-code size
-  clue. The old Debug executable reproduced the broken frame-pacing/performance
-  collapse, so do not use Debug for FPS conclusions.
+- The legacy Visual Studio Debug compile path is broken for PT validation. It
+  can be used only as a compile/link sanity check, and the generated project may
+  be stale until `cmake -S neo -B build` is rerun after NVRHI source additions.
+  Do not copy `build\Debug\RBDoom3BFG.exe` into the prepared game folder for
+  normal PT testing. Use the preset Release/PT lanes instead. Debug executables
+  are about 30 MB here, while Release executables are about 14-15 MB. That
+  difference is expected from /Od, /Zi, /RTC1, debug CRT, and incremental debug
+  linking; it is not a source-code size clue. The old Debug executable
+  reproduced the broken frame-pacing/performance collapse.
 - `r_useValidationLayers` defaults to 1, enabling NVRHI validation. Turning it
   off at startup restored raster Debug performance to the 120 FPS cap. Use
   validation for targeted resource/state/binding debugging, not performance
@@ -1141,7 +1145,8 @@ Build/config notes from the GUI/video and raster-stall investigations:
   clear with matching generated renderprogs2. Do not assume the PT/raster stall
   comes from upstream unless clean upstream starts reproducing again.
 
-Legacy Debug testing was done by copying:
+Do not use the legacy Debug copy path for normal PT testing. It is a broken
+validation lane and is kept only as historical context:
 
     build/Debug/RBDoom3BFG.exe
 

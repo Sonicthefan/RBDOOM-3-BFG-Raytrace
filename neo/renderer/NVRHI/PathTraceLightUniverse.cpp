@@ -135,13 +135,16 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         {
             if (!persistDynamic || !IsPersistableDynamicCandidate(triangle))
             {
+                ++m_stats.dynamicFrameOnlyTriangles;
                 dynamicFrameCandidates.push_back(triangle);
                 continue;
             }
 
+            ++m_stats.dynamicPersistableFrameTriangles;
             const uint64 key = DynamicCandidateKey(triangle);
             if (key == 0)
             {
+                ++m_stats.dynamicFrameOnlyTriangles;
                 dynamicFrameCandidates.push_back(triangle);
                 continue;
             }
@@ -162,6 +165,11 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
                 if (record.promoted)
                 {
                     ++m_stats.dynamicPromotedThisFrame;
+                    ++m_stats.dynamicPromotedFrameTriangles;
+                }
+                else
+                {
+                    ++m_stats.dynamicUnpromotedFrameTriangles;
                 }
                 continue;
             }
@@ -179,6 +187,14 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
             else
             {
                 ++m_stats.dynamicUpdatedThisFrame;
+            }
+            if (record.promoted)
+            {
+                ++m_stats.dynamicPromotedFrameTriangles;
+            }
+            else
+            {
+                ++m_stats.dynamicUnpromotedFrameTriangles;
             }
             dynamicFrameCandidates.push_back(triangle);
             continue;
@@ -255,10 +271,12 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         if (record.seenThisFrame)
         {
             ++m_stats.staticSeenThisFrame;
+            ++m_stats.staticMergedSeenTriangles;
         }
         else
         {
             ++m_stats.staticMissingThisFrame;
+            ++m_stats.staticMergedMissingTriangles;
         }
     }
 
@@ -288,6 +306,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         totalArea += historyTriangle.centerAndArea[3];
         totalWeightedLuminance += historyTriangle.sampleWeightAndPdf[0];
         ++m_stats.dynamicMissingThisFrame;
+        ++m_stats.injectedMissingDynamicTriangles;
     }
 
     for (const PathTraceSmokeEmissiveTriangle& triangle : dynamicFrameCandidates)

@@ -25,6 +25,13 @@ struct RtSmokeLightUniverseStats
     int dynamicMissingThisFrame = 0;
     int dynamicAgedOutThisFrame = 0;
     int dynamicFrameTriangles = 0;
+    int dynamicFrameOnlyTriangles = 0;
+    int dynamicPersistableFrameTriangles = 0;
+    int dynamicUnpromotedFrameTriangles = 0;
+    int dynamicPromotedFrameTriangles = 0;
+    int staticMergedSeenTriangles = 0;
+    int staticMergedMissingTriangles = 0;
+    int injectedMissingDynamicTriangles = 0;
     int mergedTriangles = 0;
     uint64 generation = 1;
 };

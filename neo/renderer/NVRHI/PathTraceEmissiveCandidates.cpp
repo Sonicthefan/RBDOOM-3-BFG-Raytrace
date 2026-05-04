@@ -76,6 +76,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const uint32_t surfaceClass = triangleClassAndFlags & triangleClassMask;
         if ((triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
         {
+            ++stats.skippedRuntimeInactiveTriangles;
             continue;
         }
         if (surfaceClass == skinnedSurfaceClassId)
@@ -470,7 +471,7 @@ void LogSmokeEmissiveInventoryDump(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const RtSmokeEmissiveInventoryStats& stats)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d dynamic=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
+    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d dynamic=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedRuntimeInactive=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
         stats.totalTriangles,
         stats.capturedTriangles,
         stats.staticTriangles,
@@ -478,6 +479,7 @@ void LogSmokeEmissiveInventoryDump(
         stats.uniqueMaterials,
         stats.cappedTriangles,
         stats.skippedSkinnedTriangles,
+        stats.skippedRuntimeInactiveTriangles,
         stats.skippedInvalidMaterialTriangles,
         stats.totalArea,
         stats.totalWeightedLuminance);
