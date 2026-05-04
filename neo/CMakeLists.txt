@@ -70,6 +70,9 @@ option(OPTICK
 option(RETAIL
 		"Strip certain developer features and cheats from shipping builds" OFF)
 
+option(PATH_TRACING_DEV
+		"Enable path-tracing development tools while preserving retail runtime behavior" OFF)
+
 option(FLATPAK
 		"Strip certain developer features and cheats from flatpak builds" OFF)
 		
@@ -304,6 +307,10 @@ if(RETAIL)
 	add_definitions(-DID_RETAIL)
 endif()
 
+if(PATH_TRACING_DEV)
+	add_definitions(-DID_PATH_TRACING_DEV)
+endif()
+
 if(REPRODUCIBLE_BUILD OR FLATPAK)
 	# don't use __DATE__ and __TIME__ macros so builds are reproducible
 	add_definitions(-DID_REPRODUCIBLE_BUILD)
@@ -433,6 +440,20 @@ add_definitions(-DUSE_NVRHI)
 
 set(SHADERMAKE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/ShaderMake)
 add_subdirectory(${SHADERMAKE_DIR})
+
+# === RTX PATH TRACING - SURGICAL CORE ONLY (local copy, no Donut hell) ===
+set(RTXPT_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/RTXPT)
+
+include_directories(
+    ${RTXPT_CORE_DIR}
+    ${RTXPT_CORE_DIR}/NRD
+    ${RTXPT_CORE_DIR}/RTXDI
+    ${RTXPT_CORE_DIR}/Shaders
+    ${RTXPT_CORE_DIR}/ProcessingPasses
+    ${RTXPT_CORE_DIR}/SampleCommon
+)
+
+
 
 if(USE_DX12)
 	# SRS - ShaderMake now finds dxc for DXIL when required
@@ -1472,8 +1493,8 @@ endif()
 # needs to come after nvrhi_d3d11 etc. for link order
 target_link_libraries(${APP_NAME} nvrhi)
 target_link_libraries(${APP_NAME} ShaderMakeBlob ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})
+           
 
 add_subdirectory(shaders)
 add_dependencies(Shaders ShaderMake)
 add_dependencies(${APP_NAME} Shaders ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})
-

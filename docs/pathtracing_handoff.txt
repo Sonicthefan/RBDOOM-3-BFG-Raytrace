@@ -5,7 +5,7 @@ This document is for a fresh Codex or human contributor picking up the
 experimental Vulkan/NVRHI RT smoke/path tracing branch without reading the full
 chat history.
 
-Current snapshot - 2026-05-03
+Current snapshot - 2026-05-04
 -----------------------------
 
 Repository:
@@ -34,10 +34,12 @@ External references:
 
 Important worktree rules:
 
-- Leave these old unrelated RTXPT/Donut/CMake leftovers alone unless the user
-  explicitly asks to work on them:
+- neo/CMakeLists.txt now contains intentional PT build-mode changes:
+  PATH_TRACING_DEV / ID_PATH_TRACING_DEV and local RTXPT include wiring.
+  Do not treat every CMakeLists.txt diff as an old leftover without inspection.
+- The submodule/RTXPT tree may still contain local experimental state. Inspect
+  before staging:
 
-      M neo/CMakeLists.txt
       m neo/extern/RTXPT
       ?? neo/renderer/NVRHI/RTXPT/
 
@@ -56,19 +58,23 @@ Current git state at handoff update time:
         7004b522 Add stable material universe indexes
 
     Run `git status -sb` before staging anything. At the time this handoff was
-    updated, the intended dirty file from this action was this handoff file
-    plus known excluded leftovers and pre-existing debug dump edits:
+    updated, the intended dirty files included this handoff file, PT build-mode
+    CMake/preset/batch additions, known RTXPT tree state, and pre-existing PT
+    edits:
 
         M docs/pathtracing_handoff.txt
+        M docs/pathtracing.txt
+        M docs/pathtrace_raster_interaction_leak_plan.md
         M neo/CMakeLists.txt
+        ?? neo/CMakePresets.json
+        ?? neo/cmake-vs2022-win64-pt-*.bat
+        ?? neo/cmake-build-vs2022-win64-pt-*.bat
         m neo/extern/RTXPT
-        M neo/renderer/NVRHI/PathTraceDebugDumps.cpp
-        M neo/renderer/NVRHI/PathTraceDebugDumps.h
         ?? neo/renderer/NVRHI/RTXPT/
 
     Do not stage docs/pathtracing_handoff.txt unless the user explicitly asks.
-    Do not stage the CMake/RTXPT leftovers. The debug dump edits predate this
-    handoff update; inspect them before deciding whether they are relevant.
+    Inspect RTXPT tree and other pre-existing PT edits before deciding whether
+    they are relevant.
 
 Documentation map
 -----------------
@@ -78,6 +84,9 @@ Read these first in a new session:
     docs/pathtracing_handoff.txt
     docs/pathtracing.txt
     docs/pathtrace_modules.txt
+    docs/pathtrace_geometry_universe.md
+    docs/pathtrace_material_universe.md
+    docs/pathtrace_raster_interaction_leak_plan.md
 
 Use them this way:
 
@@ -86,6 +95,15 @@ Use them this way:
   known traps, and historical context.
 - pathtrace_modules.txt: file-by-file PathTrace* module map and feature flow
   guide, including "what to touch / what to avoid" guidance.
+- pathtrace_geometry_universe.md: guardrails for persistent geometry lookup
+  cost, validation cost, lifecycle, thread ownership, material links,
+  allocation, and transient geometry exclusions.
+- pathtrace_material_universe.md: guardrails for persistent material facts,
+  frame-local descriptor ownership, reset boundaries, key stability, validation
+  cost, thread ownership, allocation, and churn stats.
+- pathtrace_raster_interaction_leak_plan.md: resolved build-mode investigation
+  for the location-specific raster/PT slowdown, plus retained notes on frontend
+  interaction/shadow work if similar symptoms return.
 
 Current feature state to preserve
 ---------------------------------
@@ -260,11 +278,43 @@ Recent important commits on this branch:
 Build and copy workflow
 -----------------------
 
-Build executable:
+Preferred Windows Release/PT builds now use the CMake presets in
+neo/CMakePresets.json. They keep performance testing on explicit Release build
+lanes and avoid accidentally launching the legacy Debug executable.
+
+Configure/build PT retail:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Configure/build PT dev:
+
+    cmake --preset win64-pt-dev
+    cmake --build --preset win64-pt-dev-release
+
+Configure/build PT dev with Optick:
+
+    cmake --preset win64-pt-dev-optick
+    cmake --build --preset win64-pt-dev-optick-release
+
+Equivalent .bat wrappers in neo:
+
+    cmake-vs2022-win64-pt-retail.bat
+    cmake-vs2022-win64-pt-dev.bat
+    cmake-vs2022-win64-pt-dev-optick.bat
+    cmake-build-vs2022-win64-pt-retail-release.bat
+    cmake-build-vs2022-win64-pt-dev-release.bat
+    cmake-build-vs2022-win64-pt-dev-optick-release.bat
+
+Copy the preset-built executable from the matching build folder, for example:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+Legacy Debug build executable:
 
     cmake --build build --config Debug --target RBDoom3BFG
 
-Copy executable to game folder:
+Legacy Debug copy:
 
     Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build\Debug\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
 
@@ -280,6 +330,10 @@ If a new .cpp is added under neo/renderer/NVRHI, rerun:
 
 The NVRHI PathTrace sources are globbed by CMake, so project regeneration is
 needed after adding a source file.
+
+For preset builds, rerun the relevant configure preset instead:
+
+    cmake --preset win64-pt-dev
 
 Testing baseline
 ----------------
@@ -339,14 +393,36 @@ Material universe status
 The material side is now fairly complete for easy single-threaded wins:
 
 - PathTraceMaterialUniverse owns persistent material records/facts.
+- Persistent records store stable material facts only. Per-frame descriptor
+  indexes, visible texture bindings, texture probe state, and compact active
+  material table row order stay in PathTraceDynamicMaterialState.
 - Stable material universe indexes exist and are used by emissive summaries and
   uploaded light candidate records.
+- Persistent lookup is keyed by materialId plus a 64-bit material-name hash.
+  The shader-facing materialId remains the Doom material-name hash used by
+  triangle material arrays and active material tables, but the stronger
+  persistent key reduces collision/oscillation risk.
+- BeginSmokeMaterialUniverseFrame resets frame-local churn counters before the
+  material table path. GetSmokeMaterialUniverseStats reports cumulative and
+  frame-local hits, misses, rebuilds, signature checks, validation checks, and
+  validation mismatches.
+- ReserveSmokeMaterialUniverse reserves the persistent unordered_map before
+  material table builds. Future level-load estimates should reserve closer to
+  expected level material count.
+- ClearSmokeMaterialUniverse exists for full reset boundaries: level unload,
+  renderer shutdown, vid_restart, map changes, or an explicit future PT cache
+  reset command.
 - PathTraceDynamicMaterialState builds the active shader-facing material table
   from universe records by default.
 - r_pathTracingMaterialCache caches the universe-derived active table by default.
 - Static triangle material-index compatibility is preserved by keeping the
   compact active row order compatible with cached static material-index buffers.
 - Optional validation can compare universe-derived and legacy active tables.
+- Persistent-record validation remains gated by
+  r_pathTracingMaterialUniverseValidate and defaults to off in normal gameplay.
+- Mutation is render/main-thread owned. Worker jobs may prepare immutable
+  material candidates, but should not mutate the persistent material universe
+  map directly without a deliberate synchronization design.
 
 Do not casually change active material row order. It is tied to static cached
 triangle material-index buffers. If changing this, use
@@ -365,15 +441,16 @@ Current geometry universe implementation:
   current and previous vertex/index/triangle ranges, per-frame lifecycle flags,
   history validity, dirty flag, and geometry format enum.
 - It owns static surface lookup:
-  HasStaticSurface / FindStaticSurface.
+  HasStaticSurface / FindStaticSurface through a key-to-record lookup map.
 - It owns append policy entry/completion:
   CanAppendStaticSurface, BeginStaticSurfaceAppend, CompleteStaticSurfaceAppend.
 - It owns per-frame update bookkeeping:
   BeginFrame, TouchStaticSurface, and EndFrame mark static records as seen,
   newly created, disappeared, history-valid, invalidated, or dirty.
 - Static record validation is reported through existing smoke diagnostics:
-  validate=total/range/duplicate-key/history/key-vector. Clean tested frames
-  report validate=0/0/0/0/0.
+  validate=total/range/duplicate-key/history/key-vector when
+  r_pathTracingGeometryUniverseValidate is enabled. Clean tested frames report
+  validate=0/0/0/0/0.
 - PathTraceSceneCapture still builds the actual static vertex/index/class/material
   data, but it touches cached static surfaces through the universe and completes
   new appends through the universe.
@@ -385,6 +462,19 @@ The next geometry work should be deliberate and behavior-preserving. The current
 records are still a bridge: they encode identity, current/previous ranges, and
 lifecycle state, but they do not yet own full previous-position buffers or
 dynamic/rigid/skinned history.
+
+Important guardrails:
+
+- Keep TouchStaticSurface on the key-to-record lookup path; do not return it to
+  per-surface O(n) scans.
+- Keep expensive validation and duplicate-key checks behind
+  r_pathTracingGeometryUniverseValidate or another explicit diagnostic gate.
+- Persistent records are for static/semi-static geometry with stable identity,
+  not muzzle flashes, particles, sparks, or one-frame transient effects.
+- The universe is single-owner mutable render-thread state unless a deliberate
+  synchronization design is added.
+- Record materialId is a persistent Doom/material-universe link, not a direct
+  shader table row.
 
 Critical DLSS Ray Reconstruction / motion-vector requirement
 ------------------------------------------------------------
@@ -564,13 +654,17 @@ specific.
    - USE_OPTICK controls whether OPTICK_EVENT macros compile in.
    - win_main.cpp has OPTICK_FRAME("MainThread").
    - engine/backend/GPU markers exist.
+   - PT scene build/dispatch and cinematic decode scopes have been added in the
+     hot paths that were useful during the GUI/video investigation.
    - No obvious gameplay CVar for starting/stopping captures was found.
 
    Useful if doing a small prep pass:
 
    - Build with -DOPTICK=ON.
-   - Add OPTICK_EVENT scopes in the PathTrace* hot paths.
    - Try external Optick capture again.
+   - Keep new scopes boring and non-behavioral. Avoid broad console breadcrumb
+     spam unless actively chasing a non-returning hitch; the temporary
+     r_pathTracingPhaseLog/r_pathTracingPhaseSlowThreshold path was removed.
 
    If capture remains awkward, the current r_pathTracingTimingLog path is still
    simpler for immediate CPU bottleneck work.
@@ -620,6 +714,54 @@ specific.
    PathTraceMaterialTextureDiscovery.* if working here. Preserve diagnostics
    before broadening behavior.
 
+   Important: do not reintroduce the old GuiModel.cpp generated-frontEndGeo or
+   layer-offset experiment as a normal path. It made Doom's painter-order GUI
+   layers become physical geometry, broke raster monitor/video screens, and
+   produced repeatable GUI/cinematic hitches. GuiModel.cpp has been restored to
+   original behavior: generated GUI drawSurfs have frontEndGeo = NULL. The RT
+   path should eventually consume a composited panel texture on the physical
+   screen surface, not the generated UI quads themselves.
+
+5. Build/profile configuration notes
+
+   - FFMPEG=ON/BINKDEC=OFF and FFMPEG=OFF/BINKDEC=ON were both tested in Debug
+     for the monitor/video route. Decoder choice did not change the remaining
+     behavior after GuiModel.cpp was restored.
+   - RETAIL=ON only defines ID_RETAIL. It strips/gates shipping-vs-dev behavior
+     and is not an optimization switch for Visual Studio multi-config builds.
+     It was an early suspect because the first fresh clean RT build was
+     retail-like, but a fresh generic Release non-retail control also ran at the
+     120 FPS cap. Do not treat ID_RETAIL as the proven cause of the stall.
+   - PATH_TRACING_DEV defines ID_PATH_TRACING_DEV on top of ID_RETAIL. Add
+     future PT-only diagnostics or commands under this define for the explicit
+     PT Release build lanes.
+   - OPTICK=ON is available through win64-pt-dev-optick and the matching batch
+     files. Keep it off for final performance sanity checks.
+   - Visual Studio Debug executables are expected to be about 30 MB here while
+     Release executables are about 14-15 MB. The difference comes from /Od,
+     /Zi, /RTC1, debug CRT, and incremental debug linking. The legacy Debug
+     executable reproduced the broken raster/PT frame-pacing performance, while
+     fresh Release builds were clean. Use Debug for correctness/debugging, not
+     FPS conclusions.
+   - r_useValidationLayers defaults to 1, which enables NVRHI validation.
+     Launching Debug with `+set r_useValidationLayers 0` restored raster to the
+     120 FPS cap, so validation was the main raster-side Debug multiplier. Use
+     validation only for targeted resource/state/binding investigations.
+   - PT remains much slower in Debug/RelWithDebInfo even with validation off.
+     The PT prototype does substantial CPU staging every frame: Doom draw-surface
+     capture, vertex transforms, material metadata/table work, emissive
+     inventory, buffer upload setup, and dynamic BLAS/TLAS preparation. Debug
+     CRT allocation checks, disabled/reduced inlining, /Od, /RTC1, and
+     debug-friendly codegen make that path non-representative. RelWithDebInfo is
+     optimized but this generated project still uses MultiThreadedDebugDLL and
+     weaker inlining than Release.
+   - Clean upstream/master was bisected from v1.6.0 to babd04b3 with matching
+     generated renderprogs2 and tested clear. Do not chase upstream again unless
+     a clean upstream Release build starts reproducing.
+   - r_pathTracing must be enabled before device creation for RT feature support
+     to be available. If PT appears dead in a Release build, launch with
+     +set r_pathTracing 1 or ensure the config sets it before renderer startup.
+
 Design traps to avoid
 ---------------------
 
@@ -634,6 +776,8 @@ Design traps to avoid
   crash scenario.
 - Do not treat dynamic/game-logic-driven materials as static material truth.
   Improve diagnostics and narrow bridges first.
+- Do not let generated GUI draw commands become persistent TLAS geometry. They
+  are UI painter-order layers, not physical panels.
 - Do not revive old in-tree RTXPT/Donut/CMake leftovers unless doing a deliberate
   clean integration.
 

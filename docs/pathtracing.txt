@@ -20,6 +20,19 @@ For a file-by-file map of the extracted PathTrace* modules and feature-specific
 
     docs/pathtrace_modules.txt
 
+For persistent geometry guardrails, see:
+
+    docs/pathtrace_geometry_universe.md
+
+For persistent material guardrails, see:
+
+    docs/pathtrace_material_universe.md
+
+For the current raster interaction/shadow slowdown investigation and PT leak
+plan, see:
+
+    docs/pathtrace_raster_interaction_leak_plan.md
+
 
 Current State
 -------------
@@ -28,6 +41,15 @@ The renderer has a debug-only path tracing smoke pass behind r_pathTracing.
 It traces primary camera rays through an NVRHI ray tracing pipeline and displays
 the RT output as the 3D scene layer while leaving the normal Doom HUD, GUI, and
 menus drawn on top.
+
+Mode 18 now skips the normal 3D raster view by default after the RT output has
+been produced, while still allowing later GUI/HUD/menu draw commands to rasterize
+on top. This is controlled by r_pathTracingSkipRaster3D. Leaving the full 3D
+raster path running underneath the path traced output roughly doubled frame cost
+in testing and also kept raster-side hitches in play, making RT/PT performance
+and stability work harder to interpret. Set r_pathTracingSkipRaster3D to 0 only
+for side-by-side regression checks or when explicitly hunting a raster side
+effect that the path traced mode still depends on.
 
 PathTracePrimaryPass used to own nearly all of the prototype. It has now been
 reduced to a small frame-level shell: feature detection, per-frame entry,
@@ -99,12 +121,39 @@ Refactor chronology:
    file/feature map. This file remains the broader chronology and status guide.
 5. The material universe then became the default producer for the active RT
    smoke material table, with optional legacy comparison/fallback validation.
+   Its persistent records store stable material facts and universe indexes only;
+   frame-local descriptor indexes and visible texture bindings stay in
+   PathTraceDynamicMaterialState.
 6. PathTraceGeometryUniverse was added as the first persistent-geometry
    ownership boundary. It currently owns the static-world cache vectors and
    stats while preserving the existing scene-capture/build behavior.
 7. The next phase should be targeted architecture/performance work, especially
    persistent geometry records and GPU buffer ownership, not broad refactoring
    for line count.
+8. Mode 18 was changed to behave more like a real PT integration point: the RT
+   output owns the 3D scene layer, and the old 3D raster path is skipped by
+   default while GUI/HUD/menu raster remains active. This removed the cost of
+   rendering both paths at once and isolated a repeatable hitch to the skipped
+   raster tail rather than the RT smoke build/dispatch path.
+9. The generated-GUI frontEndGeo/layer-offset experiment in GuiModel.cpp was
+   reverted. That experiment made Doom's painter-order GUI quads look like real
+   scene geometry, which broke in-world monitor/video panels, caused black or
+   overlapping screen layers, and triggered severe cinematic/GUI hitches in
+   raster and PT routes. GuiModel.cpp should keep the original behavior:
+   generated GUI drawSurfs have frontEndGeo = NULL.
+10. FFmpeg/Bink decoder choice, upstream/master, Debug-vs-Release, and RETAIL
+    were checked as possible explanations for the area-specific performance
+    drop. Codec choice did not change the result. A clean latest upstream source
+    bisect from v1.6.0 to babd04b3 tested clear; the final "first bad" commit
+    was README-only and the direct upstream tip build was also clear. The
+    decisive switch was Debug versus Release: fresh Release builds, including a
+    generic non-retail Release control, fix the raster stall, while the legacy
+    Debug executable reproduces the broken performance. Disabling
+    r_useValidationLayers restored raster Debug to the 120 FPS cap, while PT
+    remained much slower in Debug/RelWithDebInfo. The working theory is now two
+    overlapping debug costs: NVRHI validation for raster, and debug
+    runtime/codegen overhead in the CPU-heavy PT scene-build path. It is not
+    upstream renderer regression, PT GPU cost, codec choice, or ID_RETAIL.
 
 Implemented debug CVars:
 
@@ -280,13 +329,6 @@ Implemented debug CVars:
   set to 1, GUI surfaces are allowed through RT smoke capture and classified as
   particle/alpha with the GUI-screen translucent subtype.
 
-- r_pathTracingGuiLayerOffset
-  RT-smoke-only local-Z offset for generated in-world GUI draw surfaces.
-  Defaults to 0.003 after testing found this was the least bad placeholder
-  value. This attempts to separate Doom's painter-order GUI draw commands enough
-  for ray tracing to see multiple layers. It is a debug crutch, not a correct
-  solution.
-
 - r_pathTracingGuiDump
   One-shot dump of captured in-world GUI draw surfaces. This logs material name,
   capture status, material-table slot, vertex color/alpha range, UV range, stage
@@ -379,6 +421,14 @@ term when r_pathTracingUseEmissiveMaps is 1.
 - r_pathTracingTimingLogInterval
   Minimum milliseconds between repeated RT smoke timing log lines. Defaults to
   1000. Set to 0 to print every threshold hit while doing detailed profiling.
+
+- r_pathTracingSkipRaster3D
+  Skips the normal 3D raster view after the RT smoke/path tracing pass has
+  produced the 3D scene output. Defaults to 1. GUI/HUD/menu views still rasterize
+  afterward. In testing, leaving 3D raster enabled under mode 18 roughly doubled
+  frame cost and allowed raster-side hitches to appear even though the visible
+  3D scene was path traced. Set this to 0 only for regression comparisons or to
+  check whether a specific raster side effect is still required.
 
 - r_pathTracingReadbackEnable
   Enables RT smoke UAV readback diagnostics. Defaults to 0 because readback
@@ -721,10 +771,9 @@ GUI/SWF panel placeholder findings:
 - In-world Doom GUI panels are not ordinary textured screen meshes. The raster
   path calls the GUI/SWF system, emits many 2D painter-order draw commands into
   a synthetic GUI view entity, and then rasterizes those commands onto or around
-  the panel. Generated GUI drawSurfs normally had no frontEndGeo, so the RT
-  smoke capture initially skipped them. The experiment now creates a frame-local
-  CPU copy for these generated GUI triangles and lets them through validation
-  when r_pathTracingAllowGuiSurfaces is 1.
+  the panel. Generated GUI drawSurfs normally have no frontEndGeo, and that is
+  important: the generated painter-order rectangles are not the physical monitor
+  mesh.
 - The generated GUI surfaces do not belong to a normal render model. Validation
   therefore must exempt GUI draw surfaces from the usual entity hModel check;
   otherwise r_pathTracingGuiDump reports many GUI surfaces with captured=0 and
@@ -738,9 +787,15 @@ GUI/SWF panel placeholder findings:
   screens can need additional alpha clipping. Some circular panels happened to
   look better in one offset configuration while rectangular terminals became
   worse.
-- r_pathTracingGuiLayerOffset is therefore deliberately debug-only. Values near
-  0.003 were the least bad in one test, but this should not be mistaken for a
-  viable renderer.
+- The frame-local generated-GUI frontEndGeo/layer-offset experiment has been
+  removed. GuiModel.cpp is back to its original behavior, with generated GUI
+  draw surfaces not exposing synthetic frontEndGeo to PT capture.
+- This was not cosmetic. The bad GuiModel.cpp experiment affected the shared
+  raster path too: in-world video/GUI screens could become black or show only
+  leaking edges, layer panels could overlap the monitor shell, and Bink/GUI
+  update work could explode into multi-hundred-millisecond hitches. Reverting
+  GuiModel.cpp fixed the visible screen breakage and removed the repeatable
+  hitch route. Do not reintroduce generated-GUI frontEndGeo as a normal path.
 - The likely correct long-term design is to keep Doom's GUI/SWF raster path for
   panel contents: rasterize each live panel offscreen into a texture, identify
   the actual physical screen/panel surface, keep the generated painter-order GUI
@@ -789,8 +844,8 @@ Geometry universe status:
 
 - PathTraceGeometryUniverse owns the persistent static-world cache vectors and
   exposes stats/generation tracking. It also owns static surface record lookup,
-  per-frame lifecycle bookkeeping, append completion, and validation for the
-  existing static cache data.
+  per-frame lifecycle bookkeeping, append completion, and opt-in validation for
+  the existing static cache data.
 - PathTraceSmokeSceneBuild still uses the same shader-facing static arrays as
   before. PathTraceSceneCapture builds static geometry through the universe
   rather than directly pushing surface keys itself, but no shader-visible buffer
@@ -803,6 +858,13 @@ Geometry universe status:
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
   18 reported no crashes or visible regressions, with validate=0/0/0/0/0.
+- Static lookup is backed by a key-to-record map so per-surface touches do not
+  scale as O(n). Heavy validation, including duplicate-key scans, is gated by
+  r_pathTracingGeometryUniverseValidate.
+- Persistent geometry records are for static or future semi-static geometry with
+  stable identity. One-frame effects such as muzzle flashes, particles, sparks,
+  and temporary overlays should stay out of this model unless given a deliberate
+  separate identity/history design.
 - The geometry universe must be designed from here onward to retain one previous
   frame of geometry/history data. DLSS Ray Reconstruction and similar temporal
   reconstruction paths need accurate motion vectors; camera-only motion is not
@@ -881,13 +943,79 @@ Open issues:
 Testing Workflow Used So Far
 ----------------------------
 
-Build command:
+Preferred Windows PT build lanes now use CMake presets from neo/CMakePresets.json:
 
-    cmake --build build --config Debug --target RBDoom3BFG
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
 
-Runtime testing has been done by copying:
+    cmake --preset win64-pt-dev
+    cmake --build --preset win64-pt-dev-release
+
+    cmake --preset win64-pt-dev-optick
+    cmake --build --preset win64-pt-dev-optick-release
+
+Human-friendly wrappers live next to the older cmake-vs2022*.bat files:
+
+    neo/cmake-vs2022-win64-pt-retail.bat
+    neo/cmake-vs2022-win64-pt-dev.bat
+    neo/cmake-vs2022-win64-pt-dev-optick.bat
+    neo/cmake-build-vs2022-win64-pt-retail-release.bat
+    neo/cmake-build-vs2022-win64-pt-dev-release.bat
+    neo/cmake-build-vs2022-win64-pt-dev-optick-release.bat
+
+The presets generate separate build folders such as:
+
+    build-win64-pt-retail
+    build-win64-pt-dev
+    build-win64-pt-dev-optick
+
+Build/config notes from the GUI/video and raster-stall investigations:
+
+- Debug can be configured either as FFMPEG=ON/BINKDEC=OFF or
+  FFMPEG=OFF/BINKDEC=ON. The latter uses bundled libbinkdec, which can be slow
+  in unoptimized Debug builds, but switching to FFmpeg did not change the
+  observed monitor/area behavior after GuiModel.cpp was restored.
+- RETAIL=ON only adds ID_RETAIL. It strips most non-shipping console commands,
+  hides some dev UI, changes a few defaults, and enforces more shipping-like
+  behavior. It does not imply Release/RelWithDebInfo optimization in the Visual
+  Studio multi-config generator.
+- RETAIL=ON was an early suspect because the first fresh clean RT build was
+  retail-like, but it is not the proven performance switch. A fresh generic
+  Release non-retail build also ran at the 120 FPS cap.
+- PATH_TRACING_DEV adds ID_PATH_TRACING_DEV while keeping the stable PT Release
+  build lane. Use this for PT-specific diagnostics, commands, and cvars without
+  relying on Debug builds for performance testing.
+- OPTICK=ON is available through win64-pt-dev-optick for profiling. Keep Optick
+  off for final performance sanity checks unless the profile capture itself is
+  the point of the test.
+- Visual Studio Debug executables are about 30 MB here, while Release
+  executables are about 14-15 MB. That difference is expected from /Od, /Zi,
+  /RTC1, debug CRT, and incremental debug linking; it is not a source-code size
+  clue. The old Debug executable reproduced the broken frame-pacing/performance
+  collapse, so do not use Debug for FPS conclusions.
+- `r_useValidationLayers` defaults to 1, enabling NVRHI validation. Turning it
+  off at startup restored raster Debug performance to the 120 FPS cap. Use
+  validation for targeted resource/state/binding debugging, not performance
+  comparisons.
+- PT is still much slower in Debug/RelWithDebInfo than Release because the
+  prototype does heavy CPU staging every frame: Doom surface capture, vertex
+  transforms, material metadata/table work, emissive inventory, buffer upload
+  setup, and dynamic BLAS/TLAS preparation. Debug CRT allocation checks,
+  disabled/reduced inlining, `/Od`, `/RTC1`, and debug-friendly codegen make
+  that path non-representative. RelWithDebInfo in this generated project is
+  optimized but still uses `MultiThreadedDebugDLL` and weaker inlining than
+  Release.
+- Clean upstream/master from v1.6.0 through babd04b3 was bisected and tested
+  clear with matching generated renderprogs2. Do not assume the PT/raster stall
+  comes from upstream unless clean upstream starts reproducing again.
+
+Legacy Debug testing was done by copying:
 
     build/Debug/RBDoom3BFG.exe
+
+Current Release testing should copy from the relevant preset folder, for example:
+
+    build-win64-pt-dev/Release/RBDoom3BFG.exe
 
 into a prepared Doom 3 BFG game folder. When shaders change, also copy:
 
@@ -939,7 +1067,6 @@ For GUI/SWF panel diagnostics:
 
     r_pathTracingAllowGuiSurfaces 1
     r_pathTracingAllowGuiTextures 1
-    r_pathTracingGuiLayerOffset 0.003
     r_pathTracingGuiDump 1
 
 For nearest-light shadow inspection:
@@ -989,6 +1116,7 @@ For portal/window glass placeholder testing:
 For the current toy path tracing baseline:
 
     r_pathTracingDebugMode 18
+    r_pathTracingSkipRaster3D 1
     r_forceAmbient 0.0
     r_pathTracingLightCount 4
     r_pathTracingToyLightScale 0.3
@@ -1010,6 +1138,11 @@ For hitch diagnostics:
     r_pathTracingTimingLog 1
     r_pathTracingTimingThreshold 40
     r_pathTracingReadbackEnable 0
+
+If a hitch appears only with r_pathTracingSkipRaster3D 0, treat it as a raster
+tail issue unless another RT/PT diagnostic contradicts that. Skipping 3D raster
+removed the GUI/cinematic hitch during extended testing after GuiModel.cpp was
+restored to original behavior, while also producing a large FPS gain.
 
 For material universe table validation:
 
@@ -1168,14 +1301,20 @@ Medium term:
    - replace the placeholder direct/emissive logic with reservoir-based light
      sampling when NVIDIA's implementation is brought in
 
-5. Add explicit material fields needed by path tracing:
+5. Preserve the current PT-owns-3D / raster-owns-GUI split. Do not re-enable the
+   full 3D raster path underneath mode 18 as a default fallback; it doubles the
+   renderer workload and can make raster hitches look like path tracing hitches.
+   If a missing side effect is found, bring back that narrow side effect rather
+   than the whole 3D raster frame.
+
+6. Add explicit material fields needed by path tracing:
    - base color
    - alpha/cutout
    - normal map
    - roughness/specular/metalness approximation
    - emissive/light material support
 
-6. Replace the smoke particle dithering placeholder with a better translucent
+7. Replace the smoke particle dithering placeholder with a better translucent
    strategy if it becomes important:
    - stochastic transparency with accumulation
    - sorted or approximate compositing
@@ -1183,7 +1322,10 @@ Medium term:
 
 Longer term:
 
-1. Replace the raster 3D scene with a full path traced scene output.
+1. Continue replacing the raster 3D scene with a full path traced scene output.
+   Mode 18 now skips the normal 3D raster tail by default, but the RT scene is
+   still incomplete and should grow by adding missing PT data, not by relying on
+   hidden full-raster work underneath.
 
 2. Preserve raster GUI/HUD/menu composition on top.
 

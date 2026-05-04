@@ -1,0 +1,82 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "win64-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceParentDir}/build-${presetName}",
+      "cacheVariables": {
+        "BINKDEC": "ON",
+        "FFMPEG": "OFF",
+        "ISPC_EXECUTABLE": "${sourceParentDir}/tools/ispc/bin/ispc.exe"
+      }
+    },
+    {
+      "name": "win64-pt-retail",
+      "displayName": "Win64 PT Retail",
+      "description": "Retail runtime behavior for PT performance and regression testing.",
+      "inherits": "win64-base",
+      "cacheVariables": {
+        "OPTICK": "OFF",
+        "PATH_TRACING_DEV": "OFF",
+        "RETAIL": "ON"
+      }
+    },
+    {
+      "name": "win64-pt-dev",
+      "displayName": "Win64 PT Dev",
+      "description": "Retail runtime behavior plus the ID_PATH_TRACING_DEV compile define for surgical PT tools.",
+      "inherits": "win64-base",
+      "cacheVariables": {
+        "OPTICK": "OFF",
+        "PATH_TRACING_DEV": "ON",
+        "RETAIL": "ON"
+      }
+    },
+    {
+      "name": "win64-pt-dev-optick",
+      "displayName": "Win64 PT Dev Optick",
+      "description": "PT dev build with Optick instrumentation enabled.",
+      "inherits": "win64-pt-dev",
+      "cacheVariables": {
+        "OPTICK": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win64-pt-retail-release",
+      "displayName": "Win64 PT Retail Release",
+      "configurePreset": "win64-pt-retail",
+      "configuration": "Release",
+      "targets": [
+        "RBDoom3BFG"
+      ]
+    },
+    {
+      "name": "win64-pt-dev-release",
+      "displayName": "Win64 PT Dev Release",
+      "configurePreset": "win64-pt-dev",
+      "configuration": "Release",
+      "targets": [
+        "RBDoom3BFG"
+      ]
+    },
+    {
+      "name": "win64-pt-dev-optick-release",
+      "displayName": "Win64 PT Dev Optick Release",
+      "configurePreset": "win64-pt-dev-optick",
+      "configuration": "Release",
+      "targets": [
+        "RBDoom3BFG"
+      ]
+    }
+  ]
+}
