@@ -70,7 +70,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int executeStartMs = Sys_Milliseconds();
     if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
-        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer)
+        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokeLightCandidateBuffer)
     {
         return;
     }
@@ -93,8 +93,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 19, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 20, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -223,9 +223,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18) ? 8u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20) ? 8u : 0u) |
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && debugMode == 14 ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19) ? 32u : 0u);
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20) ? 32u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18)
@@ -252,7 +252,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.emissiveInfo[0] = static_cast<float>(m_smokeEmissiveTriangleCount);
     constants.emissiveInfo[1] = static_cast<float>(m_smokeEmissiveStaticTriangleCount);
     constants.emissiveInfo[2] = static_cast<float>(m_smokeEmissiveDynamicTriangleCount);
-    constants.emissiveInfo[3] = static_cast<float>(RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS);
+    constants.emissiveInfo[3] = static_cast<float>(m_smokeLightCandidateCount);
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -314,6 +314,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)
@@ -339,6 +343,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)

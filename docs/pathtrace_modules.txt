@@ -23,6 +23,9 @@ The current RT/PT path is still an experimental "smoke" path:
   lights, emissives, accumulation, ambient/lighting CVars, and debug modes.
 - r_pathTracing mode 19: emissive inventory/debug pass for future ReSTIR/PT
   preparation.
+- r_pathTracing mode 20: first single-frame reservoir direct-lighting debug view
+  from emissive candidates. It writes current reservoirs only; spatial and
+  temporal reuse are still off.
 - In mode 18, r_pathTracingSkipRaster3D defaults to 1 so the RT output owns the
   3D scene layer and the normal Doom 3D raster view is skipped. GUI/HUD/menu
   draw commands still rasterize afterward. Leaving full 3D raster enabled below
@@ -625,12 +628,20 @@ index, material id, emissive texture slot/dimensions, UV bounds, and a 64-bit
 identity hash derived from material/surface-side triangle identity. These are
 prep fields for ReSTIR/PT and are not a final light sampler.
 
-Reservoir resource ownership exists but remains no-visual-change scaffolding.
+Reservoir resource ownership exists and mode 20 consumes the first slice of it.
 Current, previous, and spatial scratch buffers are screen-sized and reset when
 the output, camera/FOV, material-table signature, emissive triangle records,
 light-candidate records, or static-BLAS signature change. Use
-r_pathTracingReservoirDump 1 to inspect the current signature/reset state. No
-reservoir data is consumed by shading yet.
+r_pathTracingReservoirDump 1 to inspect the current signature/reset state. Mode
+20 writes current reservoirs for one-frame direct emissive lighting; previous
+and spatial scratch reservoirs are not consumed yet.
+
+Important limitation: mode 20 samples the current frame's captured emissive
+inventory, not a persistent whole-world light set. It is therefore expected to
+behave partly like a screen-space debug view: emissive surfaces outside the
+current capture are not available as light candidates. Reducing that limitation
+requires promoting static emissives into a persistent light universe or cache
+before adding temporal/spatial reuse.
 
 Safer places to touch:
 

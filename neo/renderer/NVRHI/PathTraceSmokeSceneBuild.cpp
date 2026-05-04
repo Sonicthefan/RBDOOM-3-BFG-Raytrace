@@ -57,8 +57,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const int sceneStartMs = Sys_Milliseconds();
     m_smokeSceneBuilt = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 19, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 19);
+    const int requestedDebugMode = idMath::ClampInt(0, 20, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20);
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeConstantsBuffer)
     {
@@ -523,6 +523,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.existingTextureDescriptorTable = m_smokeTextureDescriptorTable;
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
+    bindingBuildDesc.reservoirBuffers = m_smokeReservoirBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
     bindingBuildDesc.maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;

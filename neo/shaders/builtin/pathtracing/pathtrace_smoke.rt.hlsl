@@ -74,6 +74,34 @@ struct PathTraceSmokeEmissiveTriangle
     uint padding0;
 };
 
+struct PathTraceSmokeLightCandidate
+{
+    float4 emissiveColorAndLuminance;
+    float4 areaAndWeightedLuminance;
+    uint materialId;
+    uint universeMaterialIndex;
+    uint materialIndex;
+    uint triangleCount;
+    uint flags;
+    uint staticTriangleCount;
+    uint dynamicTriangleCount;
+    uint emissiveTextureIndex;
+    uint emissiveTextureWidth;
+    uint emissiveTextureHeight;
+    uint padding1;
+    uint padding2;
+};
+
+struct PathTraceSmokeReservoir
+{
+    float4 radianceAndTargetPdf;
+    float4 weightSumAndSampleCount;
+    uint lightCandidateIndex;
+    uint emissiveTriangleIndex;
+    uint flags;
+    uint padding0;
+};
+
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
@@ -90,6 +118,10 @@ StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
+StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
+RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18);
+RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirPrevious : register(u19);
+RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirSpatialScratch : register(u20);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -921,6 +953,95 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
     return direct;
 }
 
+uint FindSmokeLightCandidateForTriangle(PathTraceSmokeEmissiveTriangle emissiveTriangle, uint candidateCount)
+{
+    const uint searchCount = min(candidateCount, 64u);
+    [loop]
+    for (uint candidateIndex = 0u; candidateIndex < searchCount; ++candidateIndex)
+    {
+        const PathTraceSmokeLightCandidate candidate = SmokeLightCandidates[candidateIndex];
+        if (candidate.materialId == emissiveTriangle.materialId &&
+            candidate.universeMaterialIndex == emissiveTriangle.universeMaterialIndex)
+        {
+            return candidateIndex;
+        }
+    }
+    return 0xffffffffu;
+}
+
+float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+{
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    const uint reservoirIndex = pixel.y * dimensions.x + pixel.x;
+
+    PathTraceSmokeReservoir reservoir = (PathTraceSmokeReservoir)0;
+    reservoir.lightCandidateIndex = 0xffffffffu;
+    reservoir.emissiveTriangleIndex = 0xffffffffu;
+
+    if (SmokePayloadIsGuiScreen(payload))
+    {
+        SmokeReservoirCurrent[reservoirIndex] = reservoir;
+        return CompositeSmokeGuiLayers(rayOrigin, rayDirection, payload);
+    }
+
+    const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+    const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
+    const float3 baseNormal = SafeNormalize(payload.normal, payload.geometricNormal);
+    const float3 normal = DecodeSmokeNormalTexture(material, payload.texCoord, baseNormal, payload.tangent, payload.bitangent);
+    const float3 hitPosition = rayOrigin + rayDirection * payload.hitT;
+    const float ambientScale = saturate(LightSpriteInfo.w);
+
+    const uint emissiveTriangleCount = (uint)max(EmissiveInfo.x, 0.0);
+    const uint lightCandidateCount = (uint)max(EmissiveInfo.w, 0.0);
+    if (emissiveTriangleCount == 0u)
+    {
+        SmokeReservoirCurrent[reservoirIndex] = reservoir;
+        return float4(saturate(albedo * ambientScale), 1.0);
+    }
+
+    const uint seed =
+        pixel.x * 1973u ^
+        pixel.y * 9277u ^
+        payload.materialId * 26699u ^
+        ((uint)payload.hitT) * 7919u ^
+        payload.materialIndex * 104729u;
+    const uint emissiveTriangleIndex = min((uint)(SmokeHashToUnitFloat(seed) * (float)emissiveTriangleCount), emissiveTriangleCount - 1u);
+    const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[emissiveTriangleIndex];
+    const float3 lightCenter = emissiveTriangle.centerAndArea.xyz;
+    const float area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
+    const float3 lightNormal = SafeNormalize(emissiveTriangle.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
+    const float3 toLight = lightCenter - hitPosition;
+    const float distanceSquared = max(dot(toLight, toLight), 1.0);
+    const float distance = sqrt(distanceSquared);
+    const float3 lightDir = toLight / distance;
+    const float ndotl = saturate(dot(normal, lightDir));
+    const float lightFacing = saturate(dot(lightNormal, -lightDir));
+    float3 direct = float3(0.0, 0.0, 0.0);
+    float visibility = 0.0;
+
+    if (ndotl > 0.0 && lightFacing > 0.0)
+    {
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = max(distance - 0.5, 0.01);
+        visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+        const float3 radiance = max(emissiveTriangle.estimatedRadianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
+        const float uniformPdf = 1.0 / max((float)emissiveTriangleCount, 1.0);
+        const float sampleWeight = area * ndotl * lightFacing * visibility / distanceSquared / max(uniformPdf, 1.0e-6);
+        direct = albedo * radiance * sampleWeight;
+
+        reservoir.radianceAndTargetPdf = float4(direct, uniformPdf);
+        reservoir.weightSumAndSampleCount = float4(sampleWeight, 1.0, area, distance);
+        reservoir.lightCandidateIndex = FindSmokeLightCandidateForTriangle(emissiveTriangle, lightCandidateCount);
+        reservoir.emissiveTriangleIndex = emissiveTriangleIndex;
+        reservoir.flags = 1u;
+    }
+
+    SmokeReservoirCurrent[reservoirIndex] = reservoir;
+    const float3 debugDirect = direct / (1.0 + direct);
+    return float4(saturate(albedo * (ambientScale * 0.04) + debugDirect), 1.0);
+}
+
 float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload primaryPayload, uint2 pixel)
 {
     if (SmokePayloadIsGuiScreen(primaryPayload))
@@ -1049,7 +1170,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19)
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20)
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -1299,6 +1420,11 @@ void RayGen()
                 SmokeOutput[pixel] = float4(saturate(ambient + unshadowedFill + direct + emissive + lightSprites), 1.0);
             }
         }
+    }
+    else if (debugMode == 20)
+    {
+        const float4 sampleColor = EvaluateSmokeReservoirDirectLighting(ray.Origin, ray.Direction, payload, pixel);
+        SmokeOutput[pixel] = sampleColor;
     }
     else if (debugMode == 19)
     {

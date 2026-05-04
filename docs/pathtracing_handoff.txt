@@ -664,8 +664,11 @@ specific.
      Reservoir history is cleared when output/camera/FOV, material table,
      emissive candidate records, light-candidate records, or static-BLAS
      signature changes. Use r_pathTracingReservoirDump 1 to inspect the state.
-   - Add a new debug mode that does single-frame reservoir direct lighting from
-     emissive candidates.
+   - Mode 20 now does single-frame reservoir direct lighting from emissive
+     candidates and writes current reservoir records. It is intentionally noisy
+     and has no spatial/temporal reuse yet. It currently samples only the
+     current captured emissive inventory, so screen-space-like behavior is
+     expected when emissive surfaces leave the frame/capture.
    - Add spatial reuse after a single-frame reservoir works.
    - Add temporal reuse/reprojection after spatial/debug data are stable.
 

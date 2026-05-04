@@ -7,6 +7,7 @@
 // descriptor consumed by PathTracePrimaryPass state.
 
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceReservoirs.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -71,6 +72,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::DescriptorTableHandle existingTextureDescriptorTable;
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
+    RtSmokeReservoirBufferHandles reservoirBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;
     int maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;

@@ -185,6 +185,7 @@ Implemented debug CVars:
   17 = specular map preview
   18 = toy one-bounce path trace
   19 = emissive triangle inventory
+  20 = single-frame reservoir direct lighting
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -293,7 +294,24 @@ Implemented debug CVars:
   emissive triangle counts, and light-candidate counts. Reservoir history
   currently resets on output size, camera/FOV, material table,
   emissive-candidate, light-candidate, or static-BLAS signature changes. The
-  buffers are cleared but not yet used for shading.
+  current reservoir is written by mode 20; previous and spatial scratch
+  reservoirs are still reset/cleared ownership scaffolding.
+
+- r_pathTracingDebugMode 20
+  Single-frame direct lighting debug view from the emissive candidate contract.
+  It samples one emissive triangle candidate per pixel, writes the current
+  reservoir buffer, traces a visibility ray, and shades the hit with that
+  sample. This is intentionally noisy and does not perform temporal reuse,
+  spatial reuse, MIS, or final light-sampler weighting yet. The light universe
+  is still the current frame's captured emissive inventory, so the result can
+  look screen-space: emissive surfaces that are not captured this frame are not
+  available as light samples.
+
+  Useful first test:
+
+      r_pathTracingTextureTableLimit 2048
+      r_pathTracingDebugMode 20
+      r_pathTracingReservoirDump 1
 
 - r_pathTracingSmokeParticleDither
   Enables a cheap smoke-card visibility hack for RT smoke particle materials.
@@ -1309,6 +1327,12 @@ Near term:
      emissive candidate records, light-candidate records, and static BLAS
      identity, and are cleared when that signature changes. They are not yet
      bound into a sampling shader.
+   - Mode 20 now binds the candidate/reservoir resources and writes a
+     single-frame current reservoir for direct emissive lighting. Spatial and
+     temporal reuse are still intentionally off. Because the candidate list is
+     still built from the current captured scene, mode 20 is expected to show
+     screen-space-like behavior where only current-frame captured emissives
+     participate.
 
 4. Start a deliberate Doom material to RT/PBR conversion.
    - Base color from albedo.
