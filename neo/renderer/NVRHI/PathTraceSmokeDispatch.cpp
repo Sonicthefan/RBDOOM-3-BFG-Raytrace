@@ -74,6 +74,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         return;
     }
+    if (!m_smokeReservoirBuffers.IsValidFor(m_smokeOutputWidth, m_smokeOutputHeight))
+    {
+        return;
+    }
 
     nvrhi::ICommandList* commandList = m_backend ? m_backend->GL_GetCommandList() : nullptr;
     if (!commandList)
@@ -145,6 +149,52 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int accumulationFrameCount = debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0
         ? Min(m_smokeAccumulationFrameCount, accumulationMaxFrames - 1)
         : 0;
+
+    uint64 reservoirDispatchSignature = 1469598103934665603ull;
+    reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_smokeReservoirSceneSignature, sizeof(m_smokeReservoirSceneSignature));
+    reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_smokeOutputWidth, sizeof(m_smokeOutputWidth));
+    reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_smokeOutputHeight, sizeof(m_smokeOutputHeight));
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraOrigin.x, 100.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraOrigin.y, 100.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraOrigin.z, 100.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraForward.x, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraForward.y, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraForward.z, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraLeft.x, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraLeft.y, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraLeft.z, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.x, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.y, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.z, 10000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, viewDef->renderView.fov_x, 100.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, viewDef->renderView.fov_y, 100.0f);
+    if (reservoirDispatchSignature != m_smokeReservoirDispatchSignature)
+    {
+        m_smokeReservoirDispatchSignature = reservoirDispatchSignature;
+        m_smokeReservoirNeedsClear = true;
+        ++m_smokeReservoirResetCount;
+    }
+
+    if (r_pathTracingReservoirDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke reservoirs output=%dx%d records=%d bytes=%d sceneSig=%llu dispatchSig=%llu needsClear=%d resets=%d clears=%d emissive=%d/%d/%d lightCandidates=%d/%d(%db)\n",
+            m_smokeOutputWidth,
+            m_smokeOutputHeight,
+            m_smokeReservoirBuffers.reservoirCount,
+            m_smokeReservoirBuffers.reservoirBytes,
+            static_cast<unsigned long long>(m_smokeReservoirSceneSignature),
+            static_cast<unsigned long long>(m_smokeReservoirDispatchSignature),
+            m_smokeReservoirNeedsClear ? 1 : 0,
+            m_smokeReservoirResetCount,
+            m_smokeReservoirClearCount,
+            m_smokeEmissiveTriangleCount,
+            m_smokeEmissiveStaticTriangleCount,
+            m_smokeEmissiveDynamicTriangleCount,
+            m_smokeLightCandidateCount,
+            m_smokeTexturedLightCandidateCount,
+            m_smokeLightCandidateBytes);
+        r_pathTracingReservoirDump.SetInteger(0);
+    }
 
     PathTraceSmokeConstants constants = {};
     constants.cameraOriginAndTMax[0] = cameraOrigin.x;
@@ -299,6 +349,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
+    }
+    if (m_smokeReservoirNeedsClear)
+    {
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU Clear Reservoirs");
+        }
+        if (ClearSmokeReservoirBuffers(commandList, m_smokeReservoirBuffers))
+        {
+            m_smokeReservoirNeedsClear = false;
+            ++m_smokeReservoirClearCount;
+        }
     }
     if (optickGpuMarkers)
     {

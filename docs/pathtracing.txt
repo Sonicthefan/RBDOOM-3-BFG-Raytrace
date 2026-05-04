@@ -287,6 +287,14 @@ Implemented debug CVars:
   infrastructure. The default is 4096. This is intentionally an inventory for
   later ReSTIR/PT integration, not a hand-rolled area-light sampler.
 
+- r_pathTracingReservoirDump
+  One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized
+  record count/bytes, scene and dispatch signatures, reset/clear counters,
+  emissive triangle counts, and light-candidate counts. Reservoir history
+  currently resets on output size, camera/FOV, material table,
+  emissive-candidate, light-candidate, or static-BLAS signature changes. The
+  buffers are cleared but not yet used for shading.
+
 - r_pathTracingSmokeParticleDither
   Enables a cheap smoke-card visibility hack for RT smoke particle materials.
   Defaults to 1. Particle/smoke translucent subtype hits use stable alpha
@@ -1296,6 +1304,11 @@ Near term:
      dissolve overlays excluded.
    - Continue excluding game-logic/skinned dissolve emissive overlays from
      light candidates.
+   - Reservoir current/previous/spatial buffers now exist as owned resources.
+     They have a reset signature covering camera/output, material table,
+     emissive candidate records, light-candidate records, and static BLAS
+     identity, and are cleared when that signature changes. They are not yet
+     bound into a sampling shader.
 
 4. Start a deliberate Doom material to RT/PBR conversion.
    - Base color from albedo.

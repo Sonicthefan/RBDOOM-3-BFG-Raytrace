@@ -241,6 +241,18 @@ PathTraceLightSelection.cpp
     Chooses a small set of Doom lights for debug/direct-lighting constants in
     the smoke raygen path.
 
+PathTraceReservoirs.h
+    ReSTIR/PT reservoir record layout and screen-sized buffer ownership
+    declarations. Owns current/previous reservoir buffers plus a spatial
+    scratch buffer, while keeping shading integration out of the smoke shader
+    until the sampler contract is ready.
+
+PathTraceReservoirs.cpp
+    Creates/reuses reservoir buffers, clears reservoir history, and builds the
+    scene-side reservoir reset signature from material-table, static-BLAS,
+    emissive-triangle, and light-candidate data. Dispatch adds output and
+    camera/FOV to form the full reset signature.
+
 PathTraceDebugDumps.h
     Shared diagnostic structs and dump/trigger APIs for scene build, material,
     texture, timing, and one-shot diagnostic CVars.
@@ -612,6 +624,13 @@ area-weighted luminance, normalized inventory PDF, area PDF, material universe
 index, material id, emissive texture slot/dimensions, UV bounds, and a 64-bit
 identity hash derived from material/surface-side triangle identity. These are
 prep fields for ReSTIR/PT and are not a final light sampler.
+
+Reservoir resource ownership exists but remains no-visual-change scaffolding.
+Current, previous, and spatial scratch buffers are screen-sized and reset when
+the output, camera/FOV, material-table signature, emissive triangle records,
+light-candidate records, or static-BLAS signature change. Use
+r_pathTracingReservoirDump 1 to inspect the current signature/reset state. No
+reservoir data is consumed by shading yet.
 
 Safer places to touch:
 

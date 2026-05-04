@@ -355,6 +355,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const int staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
+    const uint64 reservoirSceneSignature = ComputeSmokeReservoirSceneSignature(
+        materialTableSignature,
+        staticSignature.hash,
+        emissiveTriangles,
+        lightCandidates);
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
         m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
         !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;
@@ -558,6 +563,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
     resourceCommitBuildDesc.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
     resourceCommitBuildDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
+    resourceCommitBuildDesc.reservoirSceneSignature = reservoirSceneSignature;
     const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
     {
         OPTICK_EVENT("PT Commit Scene Resources");

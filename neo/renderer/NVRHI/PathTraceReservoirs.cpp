@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #pragma hdrstop
 
+#include "PathTraceAcceleration.h"
 #include "PathTraceReservoirs.h"
 
 namespace {
@@ -98,4 +99,47 @@ RtSmokeReservoirBufferCreateResult CreateSmokeReservoirBuffers(const RtSmokeRese
         result.errorMessage = "failed to create RT smoke ReSTIR reservoir buffers";
     }
     return result;
+}
+
+uint64 ComputeSmokeReservoirSceneSignature(
+    uint64 materialTableSignature,
+    uint64 staticBlasSignature,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    const std::vector<PathTraceSmokeLightCandidate>& lightCandidates)
+{
+    uint64 hash = 1469598103934665603ull;
+    const uint64 version = 1;
+    const uint64 emissiveCount = static_cast<uint64>(emissiveTriangles.size());
+    const uint64 lightCandidateCount = static_cast<uint64>(lightCandidates.size());
+    hash = HashSmokeBytes(hash, &version, sizeof(version));
+    hash = HashSmokeBytes(hash, &materialTableSignature, sizeof(materialTableSignature));
+    hash = HashSmokeBytes(hash, &staticBlasSignature, sizeof(staticBlasSignature));
+    hash = HashSmokeBytes(hash, &emissiveCount, sizeof(emissiveCount));
+    if (!emissiveTriangles.empty())
+    {
+        hash = HashSmokeBytes(hash, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(emissiveTriangles[0]));
+    }
+    hash = HashSmokeBytes(hash, &lightCandidateCount, sizeof(lightCandidateCount));
+    if (!lightCandidates.empty())
+    {
+        hash = HashSmokeBytes(hash, lightCandidates.data(), lightCandidates.size() * sizeof(lightCandidates[0]));
+    }
+    return hash;
+}
+
+bool ClearSmokeReservoirBuffers(nvrhi::ICommandList* commandList, const RtSmokeReservoirBufferHandles& buffers)
+{
+    if (!commandList || !buffers.current || !buffers.previous || !buffers.spatialScratch)
+    {
+        return false;
+    }
+
+    commandList->setBufferState(buffers.current, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(buffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(buffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->commitBarriers();
+    commandList->clearBufferUInt(buffers.current, 0);
+    commandList->clearBufferUInt(buffers.previous, 0);
+    commandList->clearBufferUInt(buffers.spatialScratch, 0);
+    return true;
 }

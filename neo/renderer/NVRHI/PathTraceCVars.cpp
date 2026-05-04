@@ -357,6 +357,12 @@ idCVar r_pathTracingOptickGpuMarkers(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable experimental Optick GPU markers inside the RT smoke/path tracing build and dispatch passes" );
 
+idCVar r_pathTracingReservoirDump(
+    "r_pathTracingReservoirDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current RT smoke reservoir ownership/reset state once" );
+
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",
     "1",

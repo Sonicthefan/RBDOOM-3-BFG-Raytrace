@@ -218,6 +218,7 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.lightCandidateCount = desc.lightCandidateCount;
     commitDesc.texturedLightCandidateCount = desc.texturedLightCandidateCount;
     commitDesc.lightCandidateBytes = desc.lightCandidateBytes;
+    commitDesc.reservoirSceneSignature = desc.reservoirSceneSignature;
     return commitDesc;
 }
 
@@ -509,6 +510,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeTexturedLightCandidateCount = 0;
     m_smokeLightCandidateBytes = 0;
     m_smokeReservoirBuffers.Reset();
+    m_smokeReservoirSceneSignature = 0;
+    m_smokeReservoirDispatchSignature = 0;
+    m_smokeReservoirNeedsClear = false;
+    m_smokeReservoirResetCount = 0;
+    m_smokeReservoirClearCount = 0;
 }
 
 void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc)
@@ -545,5 +551,10 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeLightCandidateCount = desc.lightCandidateCount;
     m_smokeTexturedLightCandidateCount = desc.texturedLightCandidateCount;
     m_smokeLightCandidateBytes = desc.lightCandidateBytes;
+    if (m_smokeReservoirSceneSignature != desc.reservoirSceneSignature)
+    {
+        m_smokeReservoirSceneSignature = desc.reservoirSceneSignature;
+        m_smokeReservoirNeedsClear = true;
+    }
     m_smokeSceneBuilt = true;
 }

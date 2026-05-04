@@ -59,6 +59,11 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeTextureProbeMaterialId(0)
     , m_smokeTextureProbeRequestedIndex(-1)
     , m_smokeSceneOrigin(vec3_origin)
+    , m_smokeReservoirSceneSignature(0)
+    , m_smokeReservoirDispatchSignature(0)
+    , m_smokeReservoirNeedsClear(false)
+    , m_smokeReservoirResetCount(0)
+    , m_smokeReservoirClearCount(0)
 {
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (device)

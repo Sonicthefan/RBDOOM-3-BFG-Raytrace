@@ -94,6 +94,11 @@ private:
     int m_smokeTexturedLightCandidateCount = 0;
     int m_smokeLightCandidateBytes = 0;
     RtSmokeReservoirBufferHandles m_smokeReservoirBuffers;
+    uint64 m_smokeReservoirSceneSignature = 0;
+    uint64 m_smokeReservoirDispatchSignature = 0;
+    bool m_smokeReservoirNeedsClear = false;
+    int m_smokeReservoirResetCount = 0;
+    int m_smokeReservoirClearCount = 0;
     uint64 m_smokeAccumulationSignature = 0;
     int m_smokeAccumulationFrameCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;

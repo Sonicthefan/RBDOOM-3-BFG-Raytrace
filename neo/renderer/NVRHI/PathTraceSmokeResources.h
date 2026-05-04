@@ -106,6 +106,7 @@ struct RtSmokeSceneResourceCommitDesc
     int lightCandidateCount = 0;
     int texturedLightCandidateCount = 0;
     int lightCandidateBytes = 0;
+    uint64 reservoirSceneSignature = 0;
 };
 
 struct RtSmokeSceneResourceCommitBuildDesc
@@ -127,6 +128,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int lightCandidateCount = 0;
     int texturedLightCandidateCount = 0;
     int lightCandidateBytes = 0;
+    uint64 reservoirSceneSignature = 0;
 };
 
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc);

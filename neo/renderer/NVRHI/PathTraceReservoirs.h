@@ -9,6 +9,9 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <vector>
+
+#include "PathTraceEmissiveCandidates.h"
 
 struct PathTraceSmokeReservoir
 {
@@ -52,3 +55,9 @@ struct RtSmokeReservoirBufferCreateResult
 };
 
 RtSmokeReservoirBufferCreateResult CreateSmokeReservoirBuffers(const RtSmokeReservoirBufferCreateDesc& desc);
+uint64 ComputeSmokeReservoirSceneSignature(
+    uint64 materialTableSignature,
+    uint64 staticBlasSignature,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    const std::vector<PathTraceSmokeLightCandidate>& lightCandidates);
+bool ClearSmokeReservoirBuffers(nvrhi::ICommandList* commandList, const RtSmokeReservoirBufferHandles& buffers);

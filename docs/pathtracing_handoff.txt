@@ -657,10 +657,13 @@ specific.
    Do not start by trying to integrate all of NVIDIA RTXPT or by reviving the
    removed Donut/RTXPT checkout. A good first slice:
 
-   - Promote mode 19 emissive inventory into a real GPU light candidate buffer
-     contract.
-   - Add reservoir buffers/swap resources in a new PathTraceReservoirs.* or
-     PathTraceReSTIR.* module.
+   - Mode 19 emissive inventory now has a real GPU light-candidate contract:
+     area, normal, UV bounds, material universe index, emissive texture slot,
+     placeholder weight/PDF fields, and stable-ish identity.
+   - PathTraceReservoirs.* now owns current/previous/spatial reservoir buffers.
+     Reservoir history is cleared when output/camera/FOV, material table,
+     emissive candidate records, light-candidate records, or static-BLAS
+     signature changes. Use r_pathTracingReservoirDump 1 to inspect the state.
    - Add a new debug mode that does single-frame reservoir direct lighting from
      emissive candidates.
    - Add spatial reuse after a single-frame reservoir works.
@@ -681,9 +684,10 @@ specific.
      approximation, emissive color/texture, and unsupported/fallback flags.
    - Emissive candidate buffer with area, normal, material/emissive texture slot,
      approximate radiance/luminance, weight/pdf fields, and stable-ish identity.
-   - Reservoir buffers for current/previous/intermediate data.
-   - Reset rules when camera, output size, scene signature, material table, or
-     candidate buffer changes.
+   - Reservoir buffers exist for current/previous/intermediate data; shading
+     does not consume them yet.
+   - Reset rules currently cover camera, FOV, output size, static BLAS,
+     material table, emissive candidates, and light candidates.
 
 4. Doom 3 interactive GUI surfaces
 
