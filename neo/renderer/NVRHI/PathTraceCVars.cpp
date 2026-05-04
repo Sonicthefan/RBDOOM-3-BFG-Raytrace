@@ -93,6 +93,36 @@ idCVar r_pathTracingEmissiveInventoryMaxTriangles(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum emissive triangles captured into the RT smoke inventory buffer" );
 
+idCVar r_pathTracingLightUniverseDump(
+    "r_pathTracingLightUniverseDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump persistent RT smoke emissive light-universe stats once" );
+
+idCVar r_pathTracingLightUniversePersistDynamic(
+    "r_pathTracingLightUniversePersistDynamic",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Persist stable rigid-entity emissives in the RT smoke light universe; particles/skinned/non-rigid dynamics remain frame-local" );
+
+idCVar r_pathTracingLightUniverseInjectMissingDynamic(
+    "r_pathTracingLightUniverseInjectMissingDynamic",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Inject missing semi-static dynamic emissives into the RT smoke light list; disabled by default because matching dynamic occluder geometry is not persistent yet" );
+
+idCVar r_pathTracingLightUniverseDynamicMinSeenFrames(
+    "r_pathTracingLightUniverseDynamicMinSeenFrames",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Frames a rigid-entity emissive must be seen before it is promoted to semi-static light-universe persistence" );
+
+idCVar r_pathTracingLightUniverseDynamicMaxMissingFrames(
+    "r_pathTracingLightUniverseDynamicMaxMissingFrames",
+    "90",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Frames a promoted semi-static dynamic emissive may be missing before it is aged out of the light universe" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",
@@ -248,6 +278,12 @@ idCVar r_pathTracingToyAccumMaxFrames(
     "64",
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum accumulated frames for mode 18 toy path tracing" );
+
+idCVar r_pathTracingReservoirTwoSidedEmissives(
+    "r_pathTracingReservoirTwoSidedEmissives",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Treat mode 20 reservoir emissive triangle samples as two-sided for diagnostics" );
 
 idCVar r_pathTracingSmokeParticleDither(
     "r_pathTracingSmokeParticleDither",

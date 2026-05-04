@@ -285,8 +285,37 @@ Implemented debug CVars:
 
 - r_pathTracingEmissiveInventoryMaxTriangles
   Caps the CPU/GPU emissive triangle records captured for future light-sampling
-  infrastructure. The default is 4096. This is intentionally an inventory for
-  later ReSTIR/PT integration, not a hand-rolled area-light sampler.
+  infrastructure. The default is 4096. This also caps the merged persistent
+  static + current dynamic light-candidate list. This is intentionally an
+  inventory for later ReSTIR/PT integration, not a hand-rolled area-light
+  sampler.
+
+- r_pathTracingLightUniverseDump
+  One-shot dump of persistent emissive light-universe stats: persistent static
+  triangle count, static seen/new/updated/missing this frame, semi-static
+  dynamic count, dynamic seen/promoted/updated/missing/aged this frame, current
+  frame-local dynamic triangle count, merged upload count, and generation.
+  Static emissives are retained by stable-ish identity across frames.
+
+- r_pathTracingLightUniversePersistDynamic
+  Defaults to 1. Allows stable rigid-entity emissives to be promoted into
+  semi-static light-universe persistence. Skinned/deformed, particle, and
+  other non-rigid dynamic emissives remain frame-local.
+
+- r_pathTracingLightUniverseInjectMissingDynamic
+  Defaults to 0. When enabled, promoted semi-static dynamic emissives that are
+  missing from the current capture are injected back into the light list. This
+  remains off by default because the matching dynamic occluder/object geometry
+  is not persistent yet; injecting only the light record can create inaccurate
+  ghost lighting.
+
+- r_pathTracingLightUniverseDynamicMinSeenFrames
+  Defaults to 2. Number of frames a rigid-entity emissive must be seen before
+  it is promoted into the semi-static light universe.
+
+- r_pathTracingLightUniverseDynamicMaxMissingFrames
+  Defaults to 90. Number of frames a promoted semi-static dynamic emissive may
+  be missing from the current capture before it ages out.
 
 - r_pathTracingReservoirDump
   One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized
@@ -302,16 +331,44 @@ Implemented debug CVars:
   It samples one emissive triangle candidate per pixel, writes the current
   reservoir buffer, traces a visibility ray, and shades the hit with that
   sample. This is intentionally noisy and does not perform temporal reuse,
-  spatial reuse, MIS, or final light-sampler weighting yet. The light universe
-  is still the current frame's captured emissive inventory, so the result can
-  look screen-space: emissive surfaces that are not captured this frame are not
-  available as light samples.
+  spatial reuse, MIS, or final light-sampler weighting yet. Static emissive
+  candidates now come from a persistent light universe. Rigid-entity emissives
+  can be promoted to semi-static persistence; other dynamic emissives remain
+  current-frame only. The result can still have screen-space-like gaps until an
+  area has been seen and promoted.
 
   Useful first test:
 
       r_pathTracingTextureTableLimit 2048
       r_pathTracingDebugMode 20
+      r_pathTracingReservoirTwoSidedEmissives 1
+      r_pathTracingLightUniversePersistDynamic 1
+      r_pathTracingLightUniverseInjectMissingDynamic 0
+      r_pathTracingLightUniverseDynamicMinSeenFrames 2
+      r_pathTracingLightUniverseDynamicMaxMissingFrames 90
+      r_pathTracingLightUniverseDump 1
       r_pathTracingReservoirDump 1
+
+- r_pathTracingReservoirTwoSidedEmissives
+  Defaults to 1. Treats mode 20 emissive triangle samples as two-sided for the
+  reservoir direct-lighting diagnostic. This matches Doom content better for
+  many emissive panels whose lighting intent is visible from both sides even
+  when the triangle winding is not helpful for the debug sampler.
+
+Runtime emissive state:
+
+- Stable material metadata means "this material can be emissive"; it is not
+  enough to decide whether a particular surface is emitting this frame. Doom
+  game/render logic can drive material stage condition/color registers per draw
+  surface, including switchable fluorescent lights that dim as they turn off.
+- PathTraceSceneCapture stamps captured triangles with the evaluated
+  draw-surface emissive state from drawSurf->shaderRegisters. The emissive
+  inventory and modes 18/19/20 honor that per-surface state, so switchable
+  light surfaces no longer glow just because their material has an emissive
+  stage in the declaration.
+- This is an important ReSTIR/PT contract: Material universe owns stable
+  capabilities/facts, while the per-frame capture path owns runtime facts such
+  as active emissive, dimming, and on/off state.
 
 - r_pathTracingSmokeParticleDither
   Enables a cheap smoke-card visibility hack for RT smoke particle materials.
@@ -1327,12 +1384,13 @@ Near term:
      emissive candidate records, light-candidate records, and static BLAS
      identity, and are cleared when that signature changes. They are not yet
      bound into a sampling shader.
-   - Mode 20 now binds the candidate/reservoir resources and writes a
-     single-frame current reservoir for direct emissive lighting. Spatial and
-     temporal reuse are still intentionally off. Because the candidate list is
-     still built from the current captured scene, mode 20 is expected to show
-     screen-space-like behavior where only current-frame captured emissives
-     participate.
+   - A persistent light universe now keeps static emissive candidates across
+     frames by stable-ish identity, tracks stable rigid-entity emissives as
+     semi-static dynamic records, and merges current-frame dynamic emissives
+     with the persistent static list. Missing dynamic records are not injected
+     by default because matching dynamic occluder geometry is not persistent
+     yet. Mode 20 samples that merged list, but spatial and temporal reuse are
+     still intentionally off.
 
 4. Start a deliberate Doom material to RT/PBR conversion.
    - Base color from albedo.

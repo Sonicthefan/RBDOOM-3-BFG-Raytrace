@@ -225,7 +225,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
         (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20) ? 8u : 0u) |
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && debugMode == 14 ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20) ? 32u : 0u);
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && debugMode == 20 ? 64u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18)

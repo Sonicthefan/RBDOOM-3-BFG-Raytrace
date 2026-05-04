@@ -11,6 +11,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceAcceleration.h"
+#include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceSkinning.h"
@@ -305,6 +306,62 @@ void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTri
     worldPosition.Set(vertex.position[0], vertex.position[1], vertex.position[2]);
 }
 
+static bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!material)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const bool nameLooksEmissive = classifier.nameLooksGlow || classifier.nameLooksSignage;
+    const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
+    const int registerCount = material->GetNumRegisters();
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_AMBIENT || !stage->texture.image)
+        {
+            continue;
+        }
+
+        if (regs && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount && regs[stage->conditionRegister] == 0.0f)
+        {
+            continue;
+        }
+
+        const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+        const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+        const bool ambientBlendStage = dstBlend != GLS_DSTBLEND_ZERO || srcBlend == GLS_SRCBLEND_DST_COLOR || srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR;
+        if (!SmokeStageIsAdditiveBlend(stage) && !(nameLooksEmissive && ambientBlendStage && !classifier.nameLooksDecal))
+        {
+            continue;
+        }
+
+        idVec4 stageColor(1.0f, 1.0f, 1.0f, 1.0f);
+        if (regs)
+        {
+            for (int component = 0; component < 4; ++component)
+            {
+                const int colorRegister = stage->color.registers[component];
+                if (colorRegister >= 0 && colorRegister < registerCount)
+                {
+                    stageColor[component] = regs[colorRegister];
+                }
+            }
+        }
+
+        const float stageLuminance = Max(stageColor.x, Max(stageColor.y, stageColor.z)) * Max(stageColor.w, 0.0f);
+        if (stageLuminance > 1.0e-4f)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 int AppendSmokeSurfaceGeometry(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -328,6 +385,8 @@ int AppendSmokeSurfaceGeometry(
     const uint32_t indexBase = static_cast<uint32_t>(vertices.size());
     const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
     const int classIndex = idMath::ClampInt(0, classCount - 1, static_cast<int>(surfaceClassId & triangleClassMask));
+    const bool activeEmissiveStage = SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf);
+    const uint32_t perSurfaceTriangleFlags = activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF;
 
     for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
     {
@@ -400,7 +459,7 @@ int AppendSmokeSurfaceGeometry(
             ++attributeStats.classes[classIndex].forcedGeometricNormalTriangles;
         }
 
-        triangleClasses.push_back(surfaceClassId | (preferGeometricNormal ? forceGeometricNormalFlag : 0u));
+        triangleClasses.push_back(surfaceClassId | perSurfaceTriangleFlags | (preferGeometricNormal ? forceGeometricNormalFlag : 0u));
         triangleMaterials.push_back(materialId);
     }
 

@@ -7,6 +7,7 @@
 // lifetime, dispatch, readback, and diagnostics live in PathTrace* modules.
 
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceLightUniverse.h"
 #include "PathTraceReservoirs.h"
 
 #include <nvrhi/nvrhi.h>
@@ -56,6 +57,8 @@ private:
     int m_smokeStaticBlasCacheMissCount;
     uint64 m_smokeGeometryFrameIndex;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
+    RtSmokeLightUniverse m_smokeLightUniverse;
+    const void* m_smokeLightUniverseRenderWorld = nullptr;
     uint32_t m_smokeTextureProbeMaterialId;
     int m_smokeTextureProbeRequestedIndex;
     idVec3 m_smokeSceneOrigin;

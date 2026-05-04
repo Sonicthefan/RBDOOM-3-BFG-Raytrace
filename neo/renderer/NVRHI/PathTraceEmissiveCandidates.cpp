@@ -3,6 +3,7 @@
 
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceMaterialUniverse.h"
+#include "PathTraceSceneCapture.h"
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
@@ -73,6 +74,10 @@ void AppendSmokeEmissiveInventoryForGeometry(
 
         const uint32_t triangleClassAndFlags = primitiveIndex < static_cast<int>(triangleClasses.size()) ? triangleClasses[primitiveIndex] : 0u;
         const uint32_t surfaceClass = triangleClassAndFlags & triangleClassMask;
+        if ((triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
+        {
+            continue;
+        }
         if (surfaceClass == skinnedSurfaceClassId)
         {
             ++stats.skippedSkinnedTriangles;
@@ -174,6 +179,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, instanceId, static_cast<uint32_t>(primitiveIndex), materialIndex, triangleClassAndFlags);
         record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
         record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
+        record.padding0 = triangleClassAndFlags;
         emissiveTriangles.push_back(record);
     }
 
@@ -381,6 +387,45 @@ std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
         candidates.resize(1);
     }
     return candidates;
+}
+
+RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles)
+{
+    OPTICK_EVENT("PT Emissive Stats From Records");
+
+    RtSmokeEmissiveInventoryStats stats;
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    for (const PathTraceSmokeEmissiveTriangle& record : emissiveTriangles)
+    {
+        if (record.centerAndArea[3] <= 0.0f)
+        {
+            continue;
+        }
+
+        ++stats.totalTriangles;
+        if (record.instanceId == 0)
+        {
+            ++stats.staticTriangles;
+        }
+        else
+        {
+            ++stats.dynamicTriangles;
+        }
+        stats.totalArea += record.centerAndArea[3];
+        stats.totalWeightedLuminance += record.sampleWeightAndPdf[0];
+
+        if (record.materialIndex < materialIds.size() &&
+            std::find(stats.materialIndexes.begin(), stats.materialIndexes.end(), record.materialIndex) == stats.materialIndexes.end())
+        {
+            stats.materialIndexes.push_back(record.materialIndex);
+        }
+    }
+
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    BuildSmokeEmissiveLightCandidateSummaries(materialIds, emissiveTriangles, stats);
+    return stats;
 }
 
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(

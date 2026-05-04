@@ -138,6 +138,9 @@ struct RtSmokeEmissiveInventoryMaterialSummary
 float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material);
 std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(
     const RtSmokeEmissiveInventoryStats& stats);
+RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

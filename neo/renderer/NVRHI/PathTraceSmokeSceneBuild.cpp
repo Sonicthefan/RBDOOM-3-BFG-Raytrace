@@ -64,6 +64,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         return;
     }
+    if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
+    {
+        m_smokeLightUniverse.Clear();
+        m_smokeLightUniverseRenderWorld = viewDef->renderWorld;
+    }
 
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (!device)
@@ -216,6 +221,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     std::vector<PathTraceSmokeLightCandidate> lightCandidates;
+    const int maxEmissiveRecords = idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger());
     {
         OPTICK_EVENT("PT Emissive Inventory");
         emissiveTriangles = BuildSmokeEmissiveTriangleInventory(
@@ -232,7 +238,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RT_SMOKE_MATERIAL_EMISSIVE,
             RT_SMOKE_TRIANGLE_CLASS_MASK,
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
-            idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger()),
+            maxEmissiveRecords,
             emissiveInventoryStats);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
@@ -242,6 +248,42 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     emissiveInventoryDiagnosticDesc.emissiveTriangles = &emissiveTriangles;
     emissiveInventoryDiagnosticDesc.emissiveInventoryStats = &emissiveInventoryStats;
     RunSmokeEmissiveInventoryDiagnosticTriggers(emissiveInventoryDiagnosticDesc);
+    {
+        OPTICK_EVENT("PT Light Universe");
+        emissiveTriangles = m_smokeLightUniverse.MergeFrameCandidates(
+            emissiveTriangles,
+            maxEmissiveRecords,
+            r_pathTracingLightUniversePersistDynamic.GetInteger() != 0,
+            r_pathTracingLightUniverseInjectMissingDynamic.GetInteger() != 0,
+            idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
+            idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()));
+        emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
+        lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+    }
+    const RtSmokeLightUniverseStats lightUniverseStats = m_smokeLightUniverse.GetStats();
+    if (r_pathTracingLightUniverseDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke light universe static=%d seen=%d new=%d updated=%d missing=%d semiStatic=%d dynSeen=%d dynPromoted=%d dynUpdated=%d dynMissing=%d dynAged=%d dynamicFrame=%d merged=%d persistDynamic=%d injectMissingDynamic=%d minSeen=%d maxMissing=%d generation=%llu\n",
+            lightUniverseStats.persistentStaticTriangles,
+            lightUniverseStats.staticSeenThisFrame,
+            lightUniverseStats.staticNewThisFrame,
+            lightUniverseStats.staticUpdatedThisFrame,
+            lightUniverseStats.staticMissingThisFrame,
+            lightUniverseStats.persistentDynamicTriangles,
+            lightUniverseStats.dynamicSeenThisFrame,
+            lightUniverseStats.dynamicPromotedThisFrame,
+            lightUniverseStats.dynamicUpdatedThisFrame,
+            lightUniverseStats.dynamicMissingThisFrame,
+            lightUniverseStats.dynamicAgedOutThisFrame,
+            lightUniverseStats.dynamicFrameTriangles,
+            lightUniverseStats.mergedTriangles,
+            r_pathTracingLightUniversePersistDynamic.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingLightUniverseInjectMissingDynamic.GetInteger() != 0 ? 1 : 0,
+            idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
+            idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()),
+            static_cast<unsigned long long>(lightUniverseStats.generation));
+        r_pathTracingLightUniverseDump.SetInteger(0);
+    }
 
     const int bufferCreateStartMs = Sys_Milliseconds();
     RtSmokeSceneBufferCreateDesc bufferCreateDesc;

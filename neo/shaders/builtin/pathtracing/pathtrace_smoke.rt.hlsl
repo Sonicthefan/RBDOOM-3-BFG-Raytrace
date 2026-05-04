@@ -13,8 +13,12 @@ struct PathTraceSmokePayload
     float4 vertexColorAdd;
     uint surfaceClass;
     uint translucentSubtype;
+    uint triangleClassAndFlags;
     uint materialId;
     uint materialIndex;
+    uint shadowIgnoreInstanceId;
+    uint shadowIgnorePrimitiveIndex;
+    uint shadowIgnoreMaterialId;
 };
 
 struct PathTraceSmokeVertex
@@ -143,6 +147,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
+static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
+static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
@@ -166,6 +172,7 @@ static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
+static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -482,9 +489,10 @@ float4 SampleSmokeEmissiveTexture(PathTraceSmokeMaterial material, float2 texCoo
 
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex);
 
-float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uint surfaceClass)
+float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uint surfaceClass, bool activeEmissiveStage)
 {
     if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        !activeEmissiveStage ||
         surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
         ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) == 0u))
     {
@@ -508,7 +516,7 @@ float4 EstimateSmokeEmissiveTriangleRadiance(PathTraceSmokeEmissiveTriangle emis
     }
 
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(emissiveTriangle.materialIndex);
-    const float3 radiance = SampleSmokeEmissive(material, emissiveTriangle.centroidUvAndWeight.xy, 0u);
+    const float3 radiance = SampleSmokeEmissive(material, emissiveTriangle.centroidUvAndWeight.xy, 0u, (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u);
     const float luminance = dot(max(radiance, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
     return float4(radiance, luminance);
 }
@@ -595,8 +603,12 @@ PathTraceSmokePayload InitSmokePayload()
     payload.vertexColorAdd = float4(0.5, 0.5, 0.5, 0.5);
     payload.surfaceClass = 4;
     payload.translucentSubtype = 5;
+    payload.triangleClassAndFlags = 4u;
     payload.materialId = 0;
     payload.materialIndex = 0;
+    payload.shadowIgnoreInstanceId = 0xffffffffu;
+    payload.shadowIgnorePrimitiveIndex = 0xffffffffu;
+    payload.shadowIgnoreMaterialId = 0xffffffffu;
     return payload;
 }
 
@@ -777,8 +789,9 @@ bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
     return opacity < SmokeHashToUnitFloat(hash);
 }
 
-bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
+bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, uint rayMode)
 {
+    const bool shadowRay = rayMode != 0u;
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex));
     const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
     const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
@@ -815,10 +828,13 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
     return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
 }
 
-float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax)
+float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
 {
     PathTraceSmokePayload shadowPayload = InitSmokePayload();
-    shadowPayload.value = 1;
+    shadowPayload.value = ignoreInstanceId != 0xffffffffu ? 2u : 1u;
+    shadowPayload.shadowIgnoreInstanceId = ignoreInstanceId;
+    shadowPayload.shadowIgnorePrimitiveIndex = ignorePrimitiveIndex;
+    shadowPayload.shadowIgnoreMaterialId = ignoreMaterialId;
 
     RayDesc shadowRay;
     shadowRay.Origin = origin;
@@ -826,9 +842,13 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax)
     shadowRay.TMin = 0.01;
     shadowRay.TMax = tMax;
 
+    const uint rayFlags = ignoreInstanceId != 0xffffffffu
+        ? (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_NON_OPAQUE)
+        : (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER);
+
     TraceRay(
         SmokeScene,
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+        rayFlags,
         0xff,
         0,
         1,
@@ -906,7 +926,8 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
     const float3 specularColor = useSpecular ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
     const float lightScale = max(ToyPathInfo.y, 0.0);
     const float emissiveScale = max(ToyPathInfo.z, 0.0);
-    const float3 emissive = includeEmissive ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) * emissiveScale : float3(0.0, 0.0, 0.0);
+    const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+    const float3 emissive = includeEmissive ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * emissiveScale : float3(0.0, 0.0, 0.0);
     const float ambientScale = saturate(LightSpriteInfo.w);
     const float maxToyRayDistance = max(ToyPathInfo.x, 64.0);
     float3 direct = albedo * ambientScale + emissive;
@@ -942,7 +963,7 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
         const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
         const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
         const float shadowTMax = min(max(lightDistance - 0.5, 0.01), maxToyRayDistance);
-        const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+        const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu);
         const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
         const float directScale = 0.10 + lightAttenuation * lightAttenuation * 0.70;
         const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
@@ -967,6 +988,34 @@ uint FindSmokeLightCandidateForTriangle(PathTraceSmokeEmissiveTriangle emissiveT
         }
     }
     return 0xffffffffu;
+}
+
+uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue)
+{
+    float cumulative = 0.0;
+    uint fallbackIndex = 0u;
+    float fallbackWeight = -1.0;
+    const float target = saturate(randomValue);
+
+    [loop]
+    for (uint triangleIndex = 0u; triangleIndex < emissiveTriangleCount; ++triangleIndex)
+    {
+        const PathTraceSmokeEmissiveTriangle candidate = SmokeEmissiveTriangles[triangleIndex];
+        const float pdf = max(candidate.sampleWeightAndPdf.y, 0.0);
+        const float weight = max(candidate.sampleWeightAndPdf.x, 0.0);
+        if (weight > fallbackWeight)
+        {
+            fallbackWeight = weight;
+            fallbackIndex = triangleIndex;
+        }
+        cumulative += pdf;
+        if (target <= cumulative && pdf > 0.0)
+        {
+            return triangleIndex;
+        }
+    }
+
+    return fallbackIndex;
 }
 
 float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
@@ -1005,7 +1054,8 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
         payload.materialId * 26699u ^
         ((uint)payload.hitT) * 7919u ^
         payload.materialIndex * 104729u;
-    const uint emissiveTriangleIndex = min((uint)(SmokeHashToUnitFloat(seed) * (float)emissiveTriangleCount), emissiveTriangleCount - 1u);
+    const float sampleXi = SmokeHashToUnitFloat(seed);
+    const uint emissiveTriangleIndex = SelectSmokeWeightedEmissiveTriangle(emissiveTriangleCount, sampleXi);
     const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[emissiveTriangleIndex];
     const float3 lightCenter = emissiveTriangle.centerAndArea.xyz;
     const float area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
@@ -1015,7 +1065,10 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
     const float distance = sqrt(distanceSquared);
     const float3 lightDir = toLight / distance;
     const float ndotl = saturate(dot(normal, lightDir));
-    const float lightFacing = saturate(dot(lightNormal, -lightDir));
+    const bool historicalDynamicEmissive = (emissiveTriangle.padding0 & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+    const bool twoSidedEmissive = !historicalDynamicEmissive && ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES) != 0u);
+    const float lightFacingRaw = dot(lightNormal, -lightDir);
+    const float lightFacing = twoSidedEmissive ? abs(lightFacingRaw) : saturate(lightFacingRaw);
     float3 direct = float3(0.0, 0.0, 0.0);
     float visibility = 0.0;
 
@@ -1024,13 +1077,15 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
         const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
         const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
         const float shadowTMax = max(distance - 0.5, 0.01);
-        visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+        const uint ignoreInstanceId = historicalDynamicEmissive ? 0xffffffffu : emissiveTriangle.instanceId;
+        const uint ignorePrimitiveIndex = historicalDynamicEmissive ? 0xffffffffu : emissiveTriangle.primitiveIndex;
+        visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, ignoreInstanceId, ignorePrimitiveIndex, emissiveTriangle.materialId);
         const float3 radiance = max(emissiveTriangle.estimatedRadianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
-        const float uniformPdf = 1.0 / max((float)emissiveTriangleCount, 1.0);
-        const float sampleWeight = area * ndotl * lightFacing * visibility / distanceSquared / max(uniformPdf, 1.0e-6);
+        const float candidatePdf = max(emissiveTriangle.sampleWeightAndPdf.y, 1.0 / max((float)emissiveTriangleCount, 1.0));
+        const float sampleWeight = area * ndotl * lightFacing * visibility / distanceSquared / max(candidatePdf, 1.0e-6);
         direct = albedo * radiance * sampleWeight;
 
-        reservoir.radianceAndTargetPdf = float4(direct, uniformPdf);
+        reservoir.radianceAndTargetPdf = float4(direct, candidatePdf);
         reservoir.weightSumAndSampleCount = float4(sampleWeight, 1.0, area, distance);
         reservoir.lightCandidateIndex = FindSmokeLightCandidateForTriangle(emissiveTriangle, lightCandidateCount);
         reservoir.emissiveTriangleIndex = emissiveTriangleIndex;
@@ -1316,7 +1371,8 @@ void RayGen()
         if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
             const float opacity = SmokeAdditiveDecalMaterialOpacity(material, albedo);
-            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+            const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) : float3(0.0, 0.0, 0.0);
             SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25) + emissive), 1.0);
         }
         else
@@ -1341,7 +1397,8 @@ void RayGen()
         if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
         {
             const float opacity = SmokeAdditiveDecalMaterialOpacity(material, albedo);
-            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+            const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) : float3(0.0, 0.0, 0.0);
             SmokeOutput[pixel] = float4(saturate(albedo * (0.35 + opacity * 1.25) + emissive), 1.0);
         }
         else
@@ -1353,7 +1410,8 @@ void RayGen()
             const float3 hitPosition = ray.Origin + ray.Direction * payload.hitT;
             const float3 viewDir = SafeNormalize(ray.Origin - hitPosition, -ray.Direction);
             const float3 specularColor = debugMode == 14 ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
-            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) : float3(0.0, 0.0, 0.0);
+            const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+            const float3 emissive = debugMode == 14 ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) : float3(0.0, 0.0, 0.0);
             const float3 ambient = albedo * 0.12;
             const float3 unshadowedFill = albedo * 0.18;
             float3 direct = float3(0.0, 0.0, 0.0);
@@ -1366,7 +1424,7 @@ void RayGen()
                 const float ndotl = saturate(dot(normal, lightDir));
                 const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
                 const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
-                const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w) : 0.0;
+                const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w, 0xffffffffu, 0xffffffffu, 0xffffffffu) : 0.0;
                 direct = albedo * (ndotl * 1.15 * visibility);
                 direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, float3(0.85, 0.85, 1.0), 1.15, visibility);
                 dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
@@ -1395,7 +1453,7 @@ void RayGen()
                     const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
                     const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
                     const float shadowTMax = max(lightDistance - 0.5, 0.01);
-                    const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax);
+                    const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu);
                     const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
                     const float directScale = 0.12 + lightAttenuation * lightAttenuation * 0.75;
                     const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
@@ -1430,7 +1488,8 @@ void RayGen()
     {
         const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
         const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
-        const float3 emissive = SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass) * max(ToyPathInfo.z, 0.0);
+        const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+        const float3 emissive = SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
         const float luminance = dot(max(emissive, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
         if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
             payload.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
@@ -1485,7 +1544,17 @@ void Miss(inout PathTraceSmokePayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, payload.value == 1u))
+    if (payload.value == 2u &&
+        InstanceID() == payload.shadowIgnoreInstanceId)
+    {
+        const uint materialId = InstanceID() == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
+        if (PrimitiveIndex() == payload.shadowIgnorePrimitiveIndex || materialId == payload.shadowIgnoreMaterialId)
+        {
+            IgnoreHit();
+            return;
+        }
+    }
+    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, payload.value))
     {
         IgnoreHit();
     }
@@ -1553,6 +1622,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.vertexColorAdd = saturate(c20 * barycentrics.x + c21 * barycentrics.y + c22 * barycentrics.z);
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     payload.translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+    payload.triangleClassAndFlags = triangleClassAndFlags;
     payload.materialId = instanceId == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
     payload.materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[PrimitiveIndex()] : SmokeDynamicTriangleMaterialIndexes[PrimitiveIndex()];
 }

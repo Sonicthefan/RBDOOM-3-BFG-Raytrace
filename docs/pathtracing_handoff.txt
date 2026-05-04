@@ -126,6 +126,10 @@ The current RT smoke path supports:
 - Persistent material universe records with stable material indexes, material
   facts, emissive facts, and universe-derived active material table enabled by
   default.
+- Per-draw-surface evaluated emissive state. Stable material facts describe
+  whether a material can emit; capture records whether this specific draw
+  surface is emitting right now from shader registers. Modes 18, 19, and 20
+  honor that runtime state, including switchable/dimming fluorescent lights.
 - Cached universe-derived active material table enabled by default through
   r_pathTracingMaterialCache.
 
@@ -151,6 +155,7 @@ Debug modes:
     17 specular map preview
     18 toy one-bounce path trace
     19 emissive triangle inventory/debug view
+    20 single-frame reservoir direct emissive lighting
 
 Current module/refactor state
 -----------------------------
@@ -666,9 +671,28 @@ specific.
      signature changes. Use r_pathTracingReservoirDump 1 to inspect the state.
    - Mode 20 now does single-frame reservoir direct lighting from emissive
      candidates and writes current reservoir records. It is intentionally noisy
-     and has no spatial/temporal reuse yet. It currently samples only the
-     current captured emissive inventory, so screen-space-like behavior is
-     expected when emissive surfaces leave the frame/capture.
+     and has no spatial/temporal reuse yet.
+   - PathTraceLightUniverse.* now keeps static emissive candidates persistent by
+     stable-ish identity, can promote stable rigid/object-like emissives into
+     semi-static dynamic records, and merges persistent static records with
+     current-frame dynamic emissives. Missing dynamic records are tracked but
+     not injected by default because their matching occluder geometry is not
+     persistent yet. Skinned/particle/non-rigid dynamic emissives remain
+     frame-local.
+     Use r_pathTracingLightUniverseDump 1 to inspect static seen/new/missing,
+     semi-static dynamic promoted/missing/aged counts, dynamic frame count, and
+     merged upload count.
+   - Relevant mode 20/light-universe CVars:
+     r_pathTracingReservoirTwoSidedEmissives,
+     r_pathTracingLightUniversePersistDynamic,
+     r_pathTracingLightUniverseInjectMissingDynamic,
+     r_pathTracingLightUniverseDynamicMinSeenFrames,
+     r_pathTracingLightUniverseDynamicMaxMissingFrames.
+   - Important material/runtime split: PathTraceMaterialUniverse stores stable
+     emissive capability/facts only. Per-frame capture owns evaluated runtime
+     emissive state from drawSurf->shaderRegisters, including game-logic driven
+     on/off/dimming behavior. Do not regress this back to material-only
+     emissive decisions.
    - Add spatial reuse after a single-frame reservoir works.
    - Add temporal reuse/reprojection after spatial/debug data are stable.
 

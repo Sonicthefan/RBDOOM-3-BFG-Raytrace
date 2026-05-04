@@ -114,6 +114,9 @@ PathTraceSceneCapture.cpp
     Doom draw-surface capture implementation. Walks view draw surfaces, chooses
     static/rigid/skinned/particle buckets, transforms vertices, records skip and
     classification stats, and appends captured geometry for the scene builder.
+    Also stamps per-triangle runtime emissive state from evaluated draw-surface
+    shader registers; stable material metadata only describes emissive
+    capability, not whether a surface is currently emitting.
 
 PathTraceGeometry.h
     Shared GPU-facing vertex layout and common geometry helper declarations.
@@ -243,6 +246,20 @@ PathTraceLightSelection.h
 PathTraceLightSelection.cpp
     Chooses a small set of Doom lights for debug/direct-lighting constants in
     the smoke raygen path.
+
+PathTraceLightUniverse.h
+    Persistent emissive light universe declarations. Static emissive triangles
+    are retained by stable-ish identity. Stable rigid-entity emissives can be
+    promoted into semi-static persistence; other dynamic emissives remain
+    frame-local.
+
+PathTraceLightUniverse.cpp
+    Merges persistent static records with current-frame dynamic emissive
+    candidates, tracks semi-static rigid/object-like dynamic emissives for
+    identity diagnostics, renormalizes inventory PDFs, and reports compact
+    universe stats. Missing dynamic records are not injected by default because
+    their matching occluder geometry is not persistent yet. The merged list is
+    still capped by r_pathTracingEmissiveInventoryMaxTriangles.
 
 PathTraceReservoirs.h
     ReSTIR/PT reservoir record layout and screen-sized buffer ownership
@@ -636,12 +653,19 @@ r_pathTracingReservoirDump 1 to inspect the current signature/reset state. Mode
 20 writes current reservoirs for one-frame direct emissive lighting; previous
 and spatial scratch reservoirs are not consumed yet.
 
-Important limitation: mode 20 samples the current frame's captured emissive
-inventory, not a persistent whole-world light set. It is therefore expected to
-behave partly like a screen-space debug view: emissive surfaces outside the
-current capture are not available as light candidates. Reducing that limitation
-requires promoting static emissives into a persistent light universe or cache
-before adding temporal/spatial reuse.
+Mode 20 now samples a merged light list: persistent static emissives plus
+current-frame dynamic emissives. Semi-static promoted dynamic records are
+tracked for identity/history diagnostics, but missing dynamic records are not
+injected by default because only retaining the light without the dynamic
+occluder geometry produces ghost lighting. Use r_pathTracingLightUniverseDump 1
+to inspect persistent/merged counts.
+
+Modes 18, 19, and 20 all honor per-surface evaluated emissive state.
+Switchable or dimming lights can have a material that is capable of emissive
+output while the current draw surface has its emissive stage disabled or dimmed
+by shader registers. Treat material-universe emissive facts as stable
+capability only; runtime active/dimmed emissive state belongs to
+capture/emissive-candidate records.
 
 Safer places to touch:
 
