@@ -47,45 +47,58 @@ RtSmokeBlasCreateResult CreateSmokeBlas(const RtSmokeBlasCreateDesc& desc)
 
 int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc)
 {
+    OPTICK_EVENT("PT Upload Scene Buffers Detail");
+
     if (!desc.commandList || !desc.items || desc.itemCount <= 0)
     {
         return 0;
     }
 
-    for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
     {
-        const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
-        if (!item.skip && item.buffer)
+        OPTICK_GPU_EVENT("PT GPU Begin Upload Tracking");
+        for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
         {
-            desc.commandList->beginTrackingBufferState(item.buffer, nvrhi::ResourceStates::Common);
+            const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
+            if (!item.skip && item.buffer)
+            {
+                desc.commandList->beginTrackingBufferState(item.buffer, nvrhi::ResourceStates::Common);
+            }
         }
     }
 
     const int bufferUploadStartMs = Sys_Milliseconds();
-    for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
     {
-        const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
-        if (!item.skip && item.buffer && item.data && item.byteSize > 0)
+        OPTICK_GPU_EVENT("PT GPU Write Scene Buffers");
+        for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
         {
-            desc.commandList->writeBuffer(item.buffer, item.data, item.byteSize);
+            const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
+            if (!item.skip && item.buffer && item.data && item.byteSize > 0)
+            {
+                desc.commandList->writeBuffer(item.buffer, item.data, item.byteSize);
+            }
         }
     }
 
-    for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
     {
-        const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
-        if (!item.skip && item.buffer)
+        OPTICK_GPU_EVENT("PT GPU Upload Buffer Barriers");
+        for (int itemIndex = 0; itemIndex < desc.itemCount; ++itemIndex)
         {
-            desc.commandList->setBufferState(item.buffer, item.finalState);
+            const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
+            if (!item.skip && item.buffer)
+            {
+                desc.commandList->setBufferState(item.buffer, item.finalState);
+            }
         }
+        desc.commandList->commitBarriers();
     }
-    desc.commandList->commitBarriers();
 
     return Sys_Milliseconds() - bufferUploadStartMs;
 }
 
 bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAccelSubmitTiming& timing)
 {
+    OPTICK_EVENT("PT Submit Acceleration Builds Detail");
+
     timing = RtSmokeAccelSubmitTiming();
     if (!desc.commandList || !desc.tlas || (!desc.hasStaticBlas && !desc.hasDynamicBlas))
     {
@@ -96,11 +109,13 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     const int blasSubmitStartMs = Sys_Milliseconds();
     if (desc.hasStaticBlas && !desc.staticBlasCacheHit)
     {
+        OPTICK_GPU_EVENT("PT GPU Build Static BLAS");
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.staticBlas, desc.staticBlasDesc);
     }
 
     if (desc.hasDynamicBlas)
     {
+        OPTICK_GPU_EVENT("PT GPU Build Dynamic BLAS");
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.dynamicBlas, desc.dynamicBlasDesc);
     }
     timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
@@ -129,7 +144,10 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     }
 
     const int tlasSubmitStartMs = Sys_Milliseconds();
-    desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs, instanceCount, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+    {
+        OPTICK_GPU_EVENT("PT GPU Build TLAS");
+        desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs, instanceCount, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+    }
     timing.tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
     timing.accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
     timing.instanceCount = instanceCount;

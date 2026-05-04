@@ -7,6 +7,7 @@
 // lifetime, dispatch, readback, and diagnostics live in PathTrace* modules.
 
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceReservoirs.h"
 
 #include <nvrhi/nvrhi.h>
 #include <vector>
@@ -92,6 +93,7 @@ private:
     int m_smokeLightCandidateCount = 0;
     int m_smokeTexturedLightCandidateCount = 0;
     int m_smokeLightCandidateBytes = 0;
+    RtSmokeReservoirBufferHandles m_smokeReservoirBuffers;
     uint64 m_smokeAccumulationSignature = 0;
     int m_smokeAccumulationFrameCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;

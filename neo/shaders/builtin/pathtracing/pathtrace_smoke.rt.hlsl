@@ -59,6 +59,7 @@ struct PathTraceSmokeEmissiveTriangle
     float4 uvBounds;
     float4 centroidUvAndWeight;
     float4 estimatedRadianceAndLuminance;
+    float4 sampleWeightAndPdf;
     uint materialIndex;
     uint instanceId;
     uint primitiveIndex;
@@ -66,6 +67,10 @@ struct PathTraceSmokeEmissiveTriangle
     uint emissiveTextureIndex;
     uint emissiveTextureWidth;
     uint emissiveTextureHeight;
+    uint materialId;
+    uint universeMaterialIndex;
+    uint identityHashLo;
+    uint identityHashHi;
     uint padding0;
 };
 

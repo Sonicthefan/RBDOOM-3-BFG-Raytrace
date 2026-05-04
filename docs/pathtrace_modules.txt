@@ -6,6 +6,14 @@ the main feature flows that pass through them. It is meant as a navigation guide
 for humans working on the branch, not as a replacement for the implementation or
 the broader path tracing handoff notes.
 
+For persistent geometry guardrails around lookup cost, validation cost,
+lifecycle, thread ownership, material links, allocation, and transient geometry
+exclusions, see docs/pathtrace_geometry_universe.md.
+
+For persistent material guardrails around stable facts, descriptor ownership,
+reset boundaries, lookup identity, validation cost, thread ownership, allocation,
+and churn stats, see docs/pathtrace_material_universe.md.
+
 Current scope
 -------------
 
@@ -15,6 +23,11 @@ The current RT/PT path is still an experimental "smoke" path:
   lights, emissives, accumulation, ambient/lighting CVars, and debug modes.
 - r_pathTracing mode 19: emissive inventory/debug pass for future ReSTIR/PT
   preparation.
+- In mode 18, r_pathTracingSkipRaster3D defaults to 1 so the RT output owns the
+  3D scene layer and the normal Doom 3D raster view is skipped. GUI/HUD/menu
+  draw commands still rasterize afterward. Leaving full 3D raster enabled below
+  the path traced output roughly doubled frame cost in testing and allowed
+  raster-side hitches to be misread as RT/PT hitches.
 - Many dynamic Doom 3 material behaviors are not fully represented yet. Some are
   deliberately hidden, rejected, or forced to fallback/debug handling rather than
   guessed incorrectly.
@@ -38,6 +51,14 @@ PathTracePrimaryPass.cpp
     sizing, and debug-present blit. Avoid putting scene build, dispatch,
     resource lifetime, or diagnostics back here unless the pass shell itself
     truly owns the work.
+
+RenderBackend.cpp
+    Calls PathTracePrimaryPass from DrawViewInternal for 3D views. When
+    r_pathTracingSkipRaster3D is 1, the backend returns after the RT output is
+    produced, so the normal 3D raster pipeline does not run underneath mode 18.
+    Later GUI/HUD/menu commands still pass through the raster backend. Keep this
+    PT-owns-3D / raster-owns-GUI split unless a specific missing side effect is
+    identified and restored narrowly.
 
 PathTraceSmokeSceneBuild.cpp
     Per-frame scene build orchestration. It calls scene capture, material table
@@ -168,12 +189,18 @@ PathTraceMaterialUniverse.h
     Persistent material record and fact declarations for the RT smoke path.
     Records carry stable universe indexes, shader-facing base material data, and
     cached facts used by emissive inventory and future PT/ReSTIR preparation.
+    Persistent records store stable material facts only; descriptor indexes,
+    visible texture bindings, and compact active table row order stay in
+    PathTraceDynamicMaterialState.
 
 PathTraceMaterialUniverse.cpp
     Owns the persistent material universe cache. Builds/rebuilds per-material
     records from texture registry metadata, preserves stable universe indexes,
-    validates cached records on request, and exposes material facts without
-    requiring each consumer to reclassify Doom material metadata.
+    validates cached records on request, exposes material facts without requiring
+    each consumer to reclassify Doom material metadata, and reports cumulative
+    plus frame-local churn counters. Lookup uses materialId plus a 64-bit
+    material-name hash so the shader-facing materialId contract can remain
+    unchanged while reducing persistent-record collision risk.
 
 PathTraceDynamicMaterialState.h
     GPU-facing material table structs, material flags, texture descriptor limits,
@@ -195,12 +222,17 @@ PathTraceGuiSurfaces.cpp
 
 PathTraceEmissiveCandidates.h
     GPU-facing emissive triangle record layout, inventory stats, and emissive
-    inventory APIs.
+    inventory APIs. The triangle record is the current ReSTIR/PT light-candidate
+    contract boundary: center/area, normal/luminance, UV bounds, centroid UV,
+    emissive texture slot, material table row, persistent material universe
+    index, stable-ish identity hash, and placeholder sampling weight/PDF fields.
 
 PathTraceEmissiveCandidates.cpp
     Builds compact emissive triangle metadata from static/dynamic triangle
     buckets after material table construction. Used by mode 19 diagnostics and
-    as a boundary for future path tracing light sampling.
+    as a boundary for future path tracing light sampling. It normalizes
+    per-triangle inventory PDFs from area-weighted luminance and total emissive
+    area, but deliberately does not build a full sampler yet.
 
 PathTraceLightSelection.h
     Debug light selection structs and constants used by smoke dispatch.
@@ -324,6 +356,9 @@ Typical flow:
    submits BLAS/TLAS builds.
 6. PathTraceSmokeResources commits the successful handles to pass state.
 7. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
+8. RenderBackend.cpp blits the RT output as the 3D scene. With
+   r_pathTracingSkipRaster3D enabled, the backend skips the remaining normal 3D
+   raster passes for that view; subsequent GUI/HUD/menu views still rasterize.
 
 Safer places to touch:
 
@@ -343,6 +378,9 @@ Riskier places to touch:
 - Resource state transitions in PathTraceSmokeDispatch.cpp.
 - PathTraceSmokeVertex layout or index/vertex counts.
 - Any TLAS instance setup in PathTraceAcceleration.cpp.
+- Re-enabling the full 3D raster tail under mode 18. This should be treated as
+  a diagnostic comparison path, not the default PT path, because it doubles work
+  and can reintroduce raster-only hitches.
 
 Rule of thumb:
 
@@ -351,6 +389,11 @@ look like a rendering bug, stale geometry, or a performance regression. Prefer
 diagnostic additions before ownership changes. The geometry universe is now the
 intended home for persistent static-world records, but it is still a scaffold:
 move one responsibility at a time and keep mode 18 visual behavior stable.
+
+For mode 18 performance validation, keep r_pathTracingSkipRaster3D at 1 unless
+the test explicitly compares against old raster-under-RT behavior. If something
+is missing with raster skipped, prefer restoring the narrow dependency rather
+than falling back to the full 3D raster frame.
 
 Motion-vector / Ray Reconstruction requirement:
 
@@ -402,6 +445,20 @@ GUI-surface path, but this is still conservative and diagnostic-oriented. Doom
 GUIs are not "just a texture"; they are generated by Doom's GUI system and may
 change due to game/menu interaction.
 
+Important postmortem:
+
+- Do not modify GuiModel.cpp to synthesize frontEndGeo for generated GUI draw
+  surfaces in normal play. That experiment made the UI painter-order quads look
+  like physical world geometry. It broke in-world monitors/video panels in the
+  shared raster path, produced black or overlapping screen layers, and caused
+  severe cinematic/GUI hitches. GuiModel.cpp is intentionally restored to the
+  original behavior where generated GUI drawSurfs keep frontEndGeo = NULL.
+- The viable long-term route is a narrow GUI bridge: keep Doom's raster GUI/SWF
+  system responsible for panel contents, expose or render a composited panel
+  texture, and project that texture onto the actual physical panel surface in
+  the PT material path. The generated GUI draw commands themselves should stay
+  out of the TLAS.
+
 How to pipe in a better GUI idea:
 
 1. Start in PathTraceGuiSurfaces.cpp.
@@ -437,6 +494,10 @@ How to pipe in a better GUI idea:
 
 What to avoid:
 
+- Do not reintroduce the abandoned generated-GUI frontEndGeo/layer-offset
+  experiment as a normal play path. It made painter-order panel layers stick out
+  or clip, and was the source of the broken monitor/screen behavior and
+  repeatable GUI/cinematic hitch route.
 - Do not make scene capture reach directly into unrelated Doom GUI systems if a
   narrow bridge can expose the needed texture/state.
 - Do not treat all GUI-like translucent surfaces as safe GUI surfaces.
@@ -546,6 +607,12 @@ material universe indexes in addition to active material-table indexes. This is
 intended to let future ReSTIR/PT code refer to persistent material identity even
 while the shader-facing active table remains compact and frame-local.
 
+Per-triangle emissive records also carry explicit sampling contract fields:
+area-weighted luminance, normalized inventory PDF, area PDF, material universe
+index, material id, emissive texture slot/dimensions, UV bounds, and a 64-bit
+identity hash derived from material/surface-side triangle identity. These are
+prep fields for ReSTIR/PT and are not a final light sampler.
+
 Safer places to touch:
 
 - Add emissive inventory stats or dumps.
@@ -553,6 +620,9 @@ Safer places to touch:
 - Add dispatch constants for debug-only experiments if shader layout is updated
   carefully.
 - Add feature gates/CVars in PathTraceCVars.
+- Add contract fields to PathTraceSmokeEmissiveTriangle when they are stable
+  light-candidate facts needed by future reservoir sampling, such as identity,
+  universe material index, weight, or PDF.
 
 Riskier places to touch:
 

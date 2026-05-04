@@ -608,6 +608,7 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
     ++g_smokeMaterialTableBuildStats.buildCalls;
     table = RtSmokeMaterialTableBuild();
+    ReserveSmokeMaterialUniverse(staticMaterialIds.size() + dynamicMaterialIds.size() + 64);
     table.materialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.materials.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.staticMaterialIndexes.reserve(staticMaterialIds.size());
@@ -654,6 +655,7 @@ void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const
     g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
     ++g_smokeMaterialTableBuildStats.buildCalls;
     table = RtSmokeMaterialTableBuild();
+    ReserveSmokeMaterialUniverse(staticMaterialIds.size() + dynamicMaterialIds.size() + 64);
     table.materialIds.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.materials.reserve(staticMaterialIds.size() + dynamicMaterialIds.size());
     table.staticMaterialIndexes.reserve(staticMaterialIds.size());

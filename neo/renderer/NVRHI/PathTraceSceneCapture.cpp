@@ -726,6 +726,8 @@ uint64 BuildSmokeStaticSurfaceKey(const drawSurf_t* drawSurf, const srfTriangles
 
 bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)
 {
+    OPTICK_EVENT("PT Capture Doom Surfaces Detail");
+
     sourceSurfaces = 0;
     sourceVerts = 0;
     sourceIndexes = 0;
@@ -750,30 +752,37 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     }
 
     const int anchorStartMs = Sys_Milliseconds();
-    if (r_pathTracingAnchorRaycast.GetInteger() == 0)
     {
-        sceneOrigin = viewDef->renderView.vieworg;
-        anchorSurface = 0;
-    }
-    else if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle, &captureTiming))
-    {
-        captureTiming.anchorMs = Sys_Milliseconds() - anchorStartMs;
-        return false;
+        OPTICK_EVENT("PT Capture Anchor");
+        if (r_pathTracingAnchorRaycast.GetInteger() == 0)
+        {
+            sceneOrigin = viewDef->renderView.vieworg;
+            anchorSurface = 0;
+        }
+        else if (!FindCenterCameraRayAnchor(viewDef, sceneOrigin, anchorSurface, anchorTriangle, &captureTiming))
+        {
+            captureTiming.anchorMs = Sys_Milliseconds() - anchorStartMs;
+            return false;
+        }
     }
     captureTiming.anchorMs = Sys_Milliseconds() - anchorStartMs;
 
-    vertexData.clear();
-    indexData.clear();
-    triangleClassData.clear();
-    triangleMaterialData.clear();
-    vertexData.reserve(RT_SMOKE_MAX_VERTS);
-    indexData.reserve(RT_SMOKE_MAX_INDEXES);
-    triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
-    triangleMaterialData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+    {
+        OPTICK_EVENT("PT Capture Reserve Buffers");
+        vertexData.clear();
+        indexData.clear();
+        triangleClassData.clear();
+        triangleMaterialData.clear();
+        vertexData.reserve(RT_SMOKE_MAX_VERTS);
+        indexData.reserve(RT_SMOKE_MAX_INDEXES);
+        triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+        triangleMaterialData.reserve(RT_SMOKE_MAX_INDEXES / 3);
+    }
     std::vector<PathTraceSmokeVertex>& staticVertexCache = geometryUniverse.StaticVertices();
     std::vector<uint32_t>& staticIndexCache = geometryUniverse.StaticIndexes();
     std::vector<uint32_t>& staticTriangleClassCache = geometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterialCache = geometryUniverse.StaticTriangleMaterials();
+    geometryUniverse.ReserveStaticSurfaceRecords(geometryUniverse.StaticSurfaceRecords().size() + static_cast<size_t>(viewDef->numDrawSurfs));
 
     std::vector<PathTraceSmokeVertex> bucketVertexData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
@@ -791,219 +800,228 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     int dynamicIndexes = 0;
     int dynamicSurfaces = 0;
 
-    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
     {
-        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
-        const srfTriangles_t* tri = nullptr;
-        const int validationStartMs = Sys_Milliseconds();
-        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+        OPTICK_EVENT("PT Capture Static Pass");
+        for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
+            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            const srfTriangles_t* tri = nullptr;
+            const int validationStartMs = Sys_Milliseconds();
+            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+            {
+                captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+                continue;
+            }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
-            continue;
-        }
-        captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
-        const int classifyStartMs = Sys_Milliseconds();
-        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-        captureTiming.staticPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
-        if (surfaceClass != RtSmokeSurfaceClass::StaticWorld)
-        {
-            continue;
-        }
+            const int classifyStartMs = Sys_Milliseconds();
+            const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+            captureTiming.staticPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
+            if (surfaceClass != RtSmokeSurfaceClass::StaticWorld)
+            {
+                continue;
+            }
 
-        const RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
-        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-        const uint32_t materialId = SmokeMaterialId(drawSurf->material);
-        const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
-        const int cacheLookupStartMs = Sys_Milliseconds();
-        RtSmokePersistentStaticSurfaceRecord* staticSurfaceRecord = geometryUniverse.TouchStaticSurface(staticSurfaceKey);
-        captureTiming.staticCacheLookupMs += Sys_Milliseconds() - cacheLookupStartMs;
-        ++sourceSurfaces;
-        ++bucketRanges.buckets[0].surfaceCount;
-        AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
+            const RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
+            const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+            const uint64 staticSurfaceKey = BuildSmokeStaticSurfaceKey(drawSurf, tri);
+            const int cacheLookupStartMs = Sys_Milliseconds();
+            RtSmokePersistentStaticSurfaceRecord* staticSurfaceRecord = geometryUniverse.TouchStaticSurface(staticSurfaceKey);
+            captureTiming.staticCacheLookupMs += Sys_Milliseconds() - cacheLookupStartMs;
+            ++sourceSurfaces;
+            ++bucketRanges.buckets[0].surfaceCount;
+            AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
 
-        if (staticSurfaceRecord)
-        {
-            ++captureTiming.staticCachedSurfaces;
+            if (staticSurfaceRecord)
+            {
+                ++captureTiming.staticCachedSurfaces;
+                sourceVerts += tri->numVerts;
+                sourceIndexes += tri->numIndexes;
+                AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
+                if (reasonSamples)
+                {
+                    AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+                }
+                continue;
+            }
+
+            if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, RT_SMOKE_MAX_VERTS, RT_SMOKE_MAX_INDEXES))
+            {
+                ++skipStats.limitExceeded;
+                continue;
+            }
+
+            const RtSmokeStaticSurfaceAppend staticAppend = geometryUniverse.BeginStaticSurfaceAppend(staticSurfaceKey, surfaceClassId, materialId, tri->numVerts, tri->numIndexes);
+            const int appendStartMs = Sys_Milliseconds();
+            const int emittedIndexes = AppendSmokeSurfaceGeometry(
+                drawSurf,
+                tri,
+                surfaceClassId,
+                materialId,
+                RT_SMOKE_CLASS_COUNT,
+                RT_SMOKE_TRIANGLE_CLASS_MASK,
+                static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+                RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+                staticVertexCache,
+                staticIndexCache,
+                staticTriangleClassCache,
+                staticTriangleMaterialCache,
+                skipStats,
+                attributeStats);
+            const int appendMs = Sys_Milliseconds() - appendStartMs;
+            captureTiming.staticAppendMs += appendMs;
+            captureTiming.appendMs += appendMs;
+            if (emittedIndexes <= 0)
+            {
+                continue;
+            }
+
+            ++captureTiming.staticNewSurfaces;
+            geometryUniverse.CompleteStaticSurfaceAppend(staticAppend, emittedIndexes);
+            staticCacheChanged = true;
             sourceVerts += tri->numVerts;
-            sourceIndexes += tri->numIndexes;
-            AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, tri->numIndexes);
+            sourceIndexes += emittedIndexes;
+            AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
             if (reasonSamples)
             {
                 AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
             }
-            continue;
-        }
-
-        if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, RT_SMOKE_MAX_VERTS, RT_SMOKE_MAX_INDEXES))
-        {
-            ++skipStats.limitExceeded;
-            continue;
-        }
-
-        const RtSmokeStaticSurfaceAppend staticAppend = geometryUniverse.BeginStaticSurfaceAppend(staticSurfaceKey, surfaceClassId, materialId, tri->numVerts, tri->numIndexes);
-        const int appendStartMs = Sys_Milliseconds();
-        const int emittedIndexes = AppendSmokeSurfaceGeometry(
-            drawSurf,
-            tri,
-            surfaceClassId,
-            materialId,
-            RT_SMOKE_CLASS_COUNT,
-            RT_SMOKE_TRIANGLE_CLASS_MASK,
-            static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
-            RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
-            staticVertexCache,
-            staticIndexCache,
-            staticTriangleClassCache,
-            staticTriangleMaterialCache,
-            skipStats,
-            attributeStats);
-        const int appendMs = Sys_Milliseconds() - appendStartMs;
-        captureTiming.staticAppendMs += appendMs;
-        captureTiming.appendMs += appendMs;
-        if (emittedIndexes <= 0)
-        {
-            continue;
-        }
-
-        ++captureTiming.staticNewSurfaces;
-        geometryUniverse.CompleteStaticSurfaceAppend(staticAppend, emittedIndexes);
-        staticCacheChanged = true;
-        sourceVerts += tri->numVerts;
-        sourceIndexes += emittedIndexes;
-        AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
-        if (reasonSamples)
-        {
-            AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
         }
     }
 
-    for (int surfaceOffset = 0; surfaceOffset < viewDef->numDrawSurfs; ++surfaceOffset)
     {
-        const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
-        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
-        const srfTriangles_t* tri = nullptr;
-        const int validationStartMs = Sys_Milliseconds();
-        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
+        OPTICK_EVENT("PT Capture Dynamic Pass");
+        for (int surfaceOffset = 0; surfaceOffset < viewDef->numDrawSurfs; ++surfaceOffset)
         {
+            const int surfaceIndex = (anchorSurface + surfaceOffset) % viewDef->numDrawSurfs;
+            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            const srfTriangles_t* tri = nullptr;
+            const int validationStartMs = Sys_Milliseconds();
+            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
+            {
+                captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+                continue;
+            }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
-            continue;
-        }
-        captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
-        if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
-        {
-            ++skipStats.limitExceeded;
-            break;
-        }
+            if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES)
+            {
+                ++skipStats.limitExceeded;
+                break;
+            }
 
-        const int classifyStartMs = Sys_Milliseconds();
-        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-        captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
-        const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
-        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-        const uint32_t materialId = SmokeMaterialId(drawSurf->material);
-        const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
-        const bool isStaticWorld = surfaceClass == RtSmokeSurfaceClass::StaticWorld;
-        if (isStaticWorld)
-        {
-            continue;
-        }
+            const int classifyStartMs = Sys_Milliseconds();
+            const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+            captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
+            const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+            const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+            const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
+            const bool isStaticWorld = surfaceClass == RtSmokeSurfaceClass::StaticWorld;
+            if (isStaticWorld)
+            {
+                continue;
+            }
 
-        const int cachedVerts = static_cast<int>(staticVertexCache.size());
-        const int cachedIndexes = static_cast<int>(staticIndexCache.size());
-        if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-            cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
-        {
-            ++skipStats.limitExceeded;
-            continue;
-        }
+            const int cachedVerts = static_cast<int>(staticVertexCache.size());
+            const int cachedIndexes = static_cast<int>(staticIndexCache.size());
+            if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+                cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+            {
+                ++skipStats.limitExceeded;
+                continue;
+            }
 
-        std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
-        std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
-        std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
-        std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
-        const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
-        const int appendStartMs = Sys_Milliseconds();
-        const int emittedIndexes = AppendSmokeSurfaceGeometry(
-            drawSurf,
-            tri,
-            surfaceClassId,
-            materialId,
-            RT_SMOKE_CLASS_COUNT,
-            RT_SMOKE_TRIANGLE_CLASS_MASK,
-            static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
-            RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
-            bucketVertices,
-            bucketIndexes,
-            bucketClasses,
-            bucketMaterials,
-            skipStats,
-            attributeStats);
-        const int appendMs = Sys_Milliseconds() - appendStartMs;
-        captureTiming.dynamicAppendMs += appendMs;
-        captureTiming.appendMs += appendMs;
-        if (usesRtCpuSkinning)
-        {
-            captureTiming.rtCpuSkinningAppendMs += appendMs;
-        }
-        if (emittedIndexes <= 0)
-        {
-            continue;
-        }
+            std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
+            std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
+            std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
+            std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+            const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+            const int appendStartMs = Sys_Milliseconds();
+            const int emittedIndexes = AppendSmokeSurfaceGeometry(
+                drawSurf,
+                tri,
+                surfaceClassId,
+                materialId,
+                RT_SMOKE_CLASS_COUNT,
+                RT_SMOKE_TRIANGLE_CLASS_MASK,
+                static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+                RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+                bucketVertices,
+                bucketIndexes,
+                bucketClasses,
+                bucketMaterials,
+                skipStats,
+                attributeStats);
+            const int appendMs = Sys_Milliseconds() - appendStartMs;
+            captureTiming.dynamicAppendMs += appendMs;
+            captureTiming.appendMs += appendMs;
+            if (usesRtCpuSkinning)
+            {
+                captureTiming.rtCpuSkinningAppendMs += appendMs;
+            }
+            if (emittedIndexes <= 0)
+            {
+                continue;
+            }
 
-        AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
-        if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
-        {
-            AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
-        }
-        ++sourceSurfaces;
-        ++dynamicSurfaces;
-        sourceVerts += tri->numVerts;
-        sourceIndexes += emittedIndexes;
-        AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
-        AddSmokeDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
-        ++bucketRanges.buckets[bucketIndex].surfaceCount;
-        dynamicVerts += tri->numVerts;
-        dynamicIndexes += emittedIndexes;
-        if (reasonSamples)
-        {
-            AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+            AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
+            if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
+            {
+                AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
+            }
+            ++sourceSurfaces;
+            ++dynamicSurfaces;
+            sourceVerts += tri->numVerts;
+            sourceIndexes += emittedIndexes;
+            AddSmokeSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+            AddSmokeDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
+            ++bucketRanges.buckets[bucketIndex].surfaceCount;
+            dynamicVerts += tri->numVerts;
+            dynamicIndexes += emittedIndexes;
+            if (reasonSamples)
+            {
+                AddSmokeSurfaceClassReasonSample(*reasonSamples, BuildSmokeSurfaceClassReason(viewDef, drawSurf, tri, surfaceIndex, surfaceClass));
+            }
         }
     }
 
     const int bucketMergeStartMs = Sys_Milliseconds();
-    RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];
-    staticRange.vertexOffset = 0;
-    staticRange.indexOffset = 0;
-    staticRange.triangleOffset = 0;
-    staticRange.vertexCount = static_cast<int>(staticVertexCache.size());
-    staticRange.indexCount = static_cast<int>(staticIndexCache.size());
-    staticRange.triangleCount = static_cast<int>(staticTriangleClassCache.size());
-
-    for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
     {
-        if (bucketIndex == 0)
-        {
-            continue;
-        }
+        OPTICK_EVENT("PT Capture Bucket Merge");
+        RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];
+        staticRange.vertexOffset = 0;
+        staticRange.indexOffset = 0;
+        staticRange.triangleOffset = 0;
+        staticRange.vertexCount = static_cast<int>(staticVertexCache.size());
+        staticRange.indexCount = static_cast<int>(staticIndexCache.size());
+        staticRange.triangleCount = static_cast<int>(staticTriangleClassCache.size());
 
-        RtSmokeBucketRange& range = bucketRanges.buckets[bucketIndex];
-        range.vertexOffset = static_cast<int>(vertexData.size());
-        range.indexOffset = static_cast<int>(indexData.size());
-        range.triangleOffset = static_cast<int>(triangleClassData.size());
-        range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size());
-        range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
-        range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
-
-        const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
-        vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());
-        for (uint32_t localIndex : bucketIndexData[bucketIndex])
+        for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
         {
-            indexData.push_back(vertexOffset + localIndex);
+            if (bucketIndex == 0)
+            {
+                continue;
+            }
+
+            RtSmokeBucketRange& range = bucketRanges.buckets[bucketIndex];
+            range.vertexOffset = static_cast<int>(vertexData.size());
+            range.indexOffset = static_cast<int>(indexData.size());
+            range.triangleOffset = static_cast<int>(triangleClassData.size());
+            range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size());
+            range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
+            range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
+
+            const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
+            vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());
+            for (uint32_t localIndex : bucketIndexData[bucketIndex])
+            {
+                indexData.push_back(vertexOffset + localIndex);
+            }
+            triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
+            triangleMaterialData.insert(triangleMaterialData.end(), bucketTriangleMaterialData[bucketIndex].begin(), bucketTriangleMaterialData[bucketIndex].end());
         }
-        triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
-        triangleMaterialData.insert(triangleMaterialData.end(), bucketTriangleMaterialData[bucketIndex].begin(), bucketTriangleMaterialData[bucketIndex].end());
     }
     captureTiming.bucketMergeMs = Sys_Milliseconds() - bucketMergeStartMs;
 

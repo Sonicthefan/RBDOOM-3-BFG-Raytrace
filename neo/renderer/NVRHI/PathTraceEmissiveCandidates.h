@@ -44,6 +44,7 @@ struct PathTraceSmokeEmissiveTriangle
     float uvBounds[4];
     float centroidUvAndWeight[4];
     float estimatedRadianceAndLuminance[4];
+    float sampleWeightAndPdf[4];
     uint32_t materialIndex = 0;
     uint32_t instanceId = 0;
     uint32_t primitiveIndex = 0;
@@ -51,6 +52,10 @@ struct PathTraceSmokeEmissiveTriangle
     uint32_t emissiveTextureIndex = UINT32_MAX;
     uint32_t emissiveTextureWidth = 1;
     uint32_t emissiveTextureHeight = 1;
+    uint32_t materialId = 0;
+    uint32_t universeMaterialIndex = UINT32_MAX;
+    uint32_t identityHashLo = 0;
+    uint32_t identityHashHi = 0;
     uint32_t padding0 = 0;
 };
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");

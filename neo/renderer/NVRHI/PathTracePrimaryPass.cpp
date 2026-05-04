@@ -24,6 +24,15 @@ const int RT_SMOKE_MIN_OUTPUT_HEIGHT = 16;
 const int RT_SMOKE_MAX_OUTPUT_WIDTH = 3840;
 const int RT_SMOKE_MAX_OUTPUT_HEIGHT = 2160;
 
+nvrhi::ObjectType GetPathTraceCommandObjectType()
+{
+    if (deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        return nvrhi::ObjectTypes::VK_CommandBuffer;
+    }
+    return nvrhi::ObjectTypes::D3D12_GraphicsCommandList;
+}
+
 }
 
 PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
@@ -65,10 +74,25 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
 
 PathTracePrimaryPass::~PathTracePrimaryPass()
 {
+    ResetRayTracingSmokeSceneResources();
+    m_smokeOutputTexture = nullptr;
+    m_smokeAccumulationTexture = nullptr;
+    m_smokeReadbackTexture = nullptr;
+    m_smokeConstantsBuffer = nullptr;
+    m_smokeTlas = nullptr;
+    m_smokeShaderTable = nullptr;
+    m_smokePipeline = nullptr;
+    m_smokeTextureDescriptorTable = nullptr;
+    m_smokeBindingLayout = nullptr;
+    m_smokeTextureBindlessLayout = nullptr;
+    m_smokeShaderLibrary = nullptr;
+    m_smokeTestInitialized = false;
 }
 
 void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
 {
+    OPTICK_EVENT("PT Execute");
+
     const int mode = r_pathTracing.GetInteger();
 
     if (!m_reportedMode)
@@ -104,6 +128,8 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
 
 void PathTracePrimaryPass::PresentDebugOutput()
 {
+    OPTICK_EVENT("PT Present Debug Output");
+
     if (!deviceManager)
     {
         return;
@@ -120,6 +146,8 @@ void PathTracePrimaryPass::PresentDebugOutput()
 
 void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport)
 {
+    OPTICK_EVENT("PT Blit Debug Output");
+
     if (!m_smokeTestDispatched || !m_smokeOutputTexture || !m_backend || !targetFramebuffer)
     {
         return;
@@ -130,14 +158,21 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
     {
         return;
     }
+    OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
 
-    commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
-    commandList->commitBarriers();
+    {
+        OPTICK_GPU_EVENT("PT GPU Blit Output Barriers");
+        commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+    }
 
     BlitParameters blitParms;
     blitParms.sourceTexture = m_smokeOutputTexture;
     blitParms.targetFramebuffer = targetFramebuffer;
     blitParms.targetViewport = targetViewport;
     blitParms.sampler = BlitSampler::Point;
-    m_backend->GetCommonPasses().BlitTexture(commandList, blitParms, nullptr);
+    {
+        OPTICK_GPU_EVENT("PT GPU Blit Debug Output");
+        m_backend->GetCommonPasses().BlitTexture(commandList, blitParms, nullptr);
+    }
 }

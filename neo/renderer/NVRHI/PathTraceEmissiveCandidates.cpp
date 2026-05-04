@@ -7,6 +7,28 @@
 
 #include <algorithm>
 
+namespace {
+
+uint64 HashSmokeEmissiveIdentityValue(uint64 hash, uint64 value)
+{
+    hash ^= value;
+    hash *= 1099511628211ull;
+    return hash;
+}
+
+uint64 BuildSmokeEmissiveTriangleIdentity(uint32_t materialId, uint32_t instanceId, uint32_t primitiveIndex, uint32_t materialIndex, uint32_t triangleClassAndFlags)
+{
+    uint64 hash = 1469598103934665603ull;
+    hash = HashSmokeEmissiveIdentityValue(hash, materialId);
+    hash = HashSmokeEmissiveIdentityValue(hash, instanceId);
+    hash = HashSmokeEmissiveIdentityValue(hash, primitiveIndex);
+    hash = HashSmokeEmissiveIdentityValue(hash, materialIndex);
+    hash = HashSmokeEmissiveIdentityValue(hash, triangleClassAndFlags);
+    return hash;
+}
+
+}
+
 float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material)
 {
     const float r = Max(0.0f, material.emissiveColor[0]);
@@ -16,6 +38,7 @@ float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material)
 }
 
 void AppendSmokeEmissiveInventoryForGeometry(
+    const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,
     const std::vector<PathTraceSmokeVertex>& vertices,
     const std::vector<uint32_t>& indexes,
@@ -29,16 +52,19 @@ void AppendSmokeEmissiveInventoryForGeometry(
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats)
 {
+    OPTICK_EVENT("PT Emissive Append Geometry");
+
     const int triangleCount = Min(static_cast<int>(triangleMaterialIndexes.size()), static_cast<int>(indexes.size() / 3));
     for (int primitiveIndex = 0; primitiveIndex < triangleCount; ++primitiveIndex)
     {
         const uint32_t materialIndex = triangleMaterialIndexes[primitiveIndex];
-        if (materialIndex >= materials.size())
+        if (materialIndex >= materials.size() || materialIndex >= materialIds.size())
         {
             ++stats.skippedInvalidMaterialTriangles;
             continue;
         }
 
+        const uint32_t materialId = materialIds[materialIndex];
         const PathTraceSmokeMaterial& material = materials[materialIndex];
         if ((material.flags & emissiveMaterialFlag) == 0)
         {
@@ -99,8 +125,9 @@ void AppendSmokeEmissiveInventoryForGeometry(
             Max(0.0f, material.emissiveColor[0]),
             Max(0.0f, material.emissiveColor[1]),
             Max(0.0f, material.emissiveColor[2]));
+        const float sampleWeight = area * luminance;
         stats.totalArea += area;
-        stats.totalWeightedLuminance += area * luminance;
+        stats.totalWeightedLuminance += sampleWeight;
 
         if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
         {
@@ -124,12 +151,16 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.uvBounds[3] = Max(uv0.y, Max(uv1.y, uv2.y));
         record.centroidUvAndWeight[0] = (uv0.x + uv1.x + uv2.x) * (1.0f / 3.0f);
         record.centroidUvAndWeight[1] = (uv0.y + uv1.y + uv2.y) * (1.0f / 3.0f);
-        record.centroidUvAndWeight[2] = area * luminance;
+        record.centroidUvAndWeight[2] = sampleWeight;
         record.centroidUvAndWeight[3] = 0.0f;
         record.estimatedRadianceAndLuminance[0] = estimatedRadiance.x;
         record.estimatedRadianceAndLuminance[1] = estimatedRadiance.y;
         record.estimatedRadianceAndLuminance[2] = estimatedRadiance.z;
         record.estimatedRadianceAndLuminance[3] = luminance;
+        record.sampleWeightAndPdf[0] = sampleWeight;
+        record.sampleWeightAndPdf[1] = 0.0f;
+        record.sampleWeightAndPdf[2] = area;
+        record.sampleWeightAndPdf[3] = 0.0f;
         record.materialIndex = materialIndex;
         record.instanceId = instanceId;
         record.primitiveIndex = static_cast<uint32_t>(primitiveIndex);
@@ -137,6 +168,12 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.emissiveTextureIndex = material.emissiveTextureIndex;
         record.emissiveTextureWidth = material.emissiveTextureWidth;
         record.emissiveTextureHeight = material.emissiveTextureHeight;
+        record.materialId = materialId;
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
+        record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(materialId, info).universeIndex;
+        const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, instanceId, static_cast<uint32_t>(primitiveIndex), materialIndex, triangleClassAndFlags);
+        record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
+        record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
         emissiveTriangles.push_back(record);
     }
 
@@ -144,8 +181,24 @@ void AppendSmokeEmissiveInventoryForGeometry(
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
 }
 
+void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles, const RtSmokeEmissiveInventoryStats& stats)
+{
+    OPTICK_EVENT("PT Emissive Sampling Fields");
+
+    const float inverseTotalWeightedLuminance = stats.totalWeightedLuminance > 1.0e-8f ? 1.0f / stats.totalWeightedLuminance : 0.0f;
+    const float inverseTotalArea = stats.totalArea > 1.0e-8f ? 1.0f / stats.totalArea : 0.0f;
+    for (PathTraceSmokeEmissiveTriangle& record : emissiveTriangles)
+    {
+        record.sampleWeightAndPdf[1] = record.sampleWeightAndPdf[0] * inverseTotalWeightedLuminance;
+        record.sampleWeightAndPdf[3] = record.centerAndArea[3] * inverseTotalArea;
+        record.centroidUvAndWeight[3] = record.sampleWeightAndPdf[1];
+    }
+}
+
 std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::vector<uint32_t>& materialIds, const std::vector<PathTraceSmokeMaterial>& frameMaterials, uint32_t emissiveMaterialFlag)
 {
+    OPTICK_EVENT("PT Emissive Material Views");
+
     std::vector<PathTraceSmokeMaterial> materialViews = frameMaterials;
     const int materialCount = Min(static_cast<int>(materialIds.size()), static_cast<int>(frameMaterials.size()));
     for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
@@ -192,6 +245,8 @@ void BuildSmokeEmissiveLightCandidateSummaries(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     RtSmokeEmissiveInventoryStats& stats)
 {
+    OPTICK_EVENT("PT Emissive Candidate Summaries");
+
     stats.lightCandidates.clear();
     stats.lightCandidates.reserve(stats.uniqueMaterials);
     stats.candidateMaterials = 0;
@@ -278,6 +333,8 @@ void BuildSmokeEmissiveLightCandidateSummaries(
 
 std::vector<PathTraceSmokeLightCandidate> BuildSmokeLightCandidateBufferRecords(const RtSmokeEmissiveInventoryStats& stats)
 {
+    OPTICK_EVENT("PT Emissive Candidate Buffer Records");
+
     std::vector<PathTraceSmokeLightCandidate> candidates;
     candidates.reserve(Max(1, stats.candidateMaterials));
     for (const RtSmokeEmissiveLightCandidateSummary& summary : stats.lightCandidates)
@@ -343,15 +400,18 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     int maxRecords,
     RtSmokeEmissiveInventoryStats& stats)
 {
+    OPTICK_EVENT("PT Emissive Triangle Inventory Detail");
+
     stats = RtSmokeEmissiveInventoryStats();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     maxRecords = Max(1, maxRecords);
     emissiveTriangles.reserve(Min(maxRecords, 1024));
     const std::vector<PathTraceSmokeMaterial> materialViews = BuildSmokeEmissiveMaterialViews(materialIds, materials, emissiveMaterialFlag);
-    AppendSmokeEmissiveInventoryForGeometry(materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
-    AppendSmokeEmissiveInventoryForGeometry(materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
+    FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, stats);
     BuildSmokeEmissiveLightCandidateSummaries(materialIds, emissiveTriangles, stats);
     if (emissiveTriangles.empty())
     {
@@ -481,15 +541,20 @@ void LogSmokeEmissiveInventoryDump(
         const int materialIndex = static_cast<int>(record.materialIndex);
         const uint32_t materialId = materialIndex >= 0 && materialIndex < static_cast<int>(materialIds.size()) ? materialIds[materialIndex] : 0u;
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
-        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u area=%.2f lum=%.3f weight=%.3f center=(%.2f %.2f %.2f) centroidUV=(%.3f %.3f) uvBounds=(%.3f %.3f %.3f %.3f) estRadiance=(%.3f %.3f %.3f) emissiveSlot=%d emissiveSize=%ux%u material='%s' emissive='%s'\n",
+        common->Printf("  emissive[%d]: instance=%u primitive=%u materialIndex=%u materialId=%u universeIndex=%u identity=%08x%08x area=%.2f lum=%.3f weight=%.3f pdf=%.6f areaPdf=%.6f center=(%.2f %.2f %.2f) centroidUV=(%.3f %.3f) uvBounds=(%.3f %.3f %.3f %.3f) estRadiance=(%.3f %.3f %.3f) emissiveSlot=%d emissiveSize=%ux%u material='%s' emissive='%s'\n",
             sampleIndex,
             record.instanceId,
             record.primitiveIndex,
             record.materialIndex,
             materialId,
+            record.universeMaterialIndex,
+            record.identityHashHi,
+            record.identityHashLo,
             record.centerAndArea[3],
             record.normalAndLuminance[3],
             record.centroidUvAndWeight[2],
+            record.sampleWeightAndPdf[1],
+            record.sampleWeightAndPdf[3],
             record.centerAndArea[0],
             record.centerAndArea[1],
             record.centerAndArea[2],

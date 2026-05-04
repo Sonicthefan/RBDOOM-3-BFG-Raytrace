@@ -32,74 +32,11 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
-#include "Model_local.h"
 #include "imgui.h"
 
 const float idGuiModel::STEREO_DEPTH_NEAR = 0.0f;
 const float idGuiModel::STEREO_DEPTH_MID  = 0.5f;
 const float idGuiModel::STEREO_DEPTH_FAR  = 1.0f;
-
-idCVar r_pathTracingGuiLayerOffset(
-	"r_pathTracingGuiLayerOffset",
-	"0.003",
-	CVAR_RENDERER,
-	"RT smoke only: tiny local-Z offset applied to generated in-world GUI vertices so ray tracing sees painter order" );
-
-/*
-================
-R_BuildGuiFrontEndGeo
-
-In-world GUIs are generated directly into the frame vertex cache, so their
-drawSurfs normally have no frontEndGeo. Keep a small frame-local CPU copy so
-experimental scene-capture paths can see the same triangles as the raster path.
-================
-*/
-static srfTriangles_t* R_BuildGuiFrontEndGeo( const idDrawVert* vertexPointer, const triIndex_t* indexPointer, const guiModelSurface_t& guiSurf, int surfaceOrder )
-{
-	if( vertexPointer == NULL || indexPointer == NULL || guiSurf.numIndexes < 3 )
-	{
-		return NULL;
-	}
-
-	int minVertex = INT_MAX;
-	int maxVertex = -1;
-	for( int i = 0; i < guiSurf.numIndexes; i++ )
-	{
-		const int sourceIndex = indexPointer[guiSurf.firstIndex + i];
-		minVertex = Min( minVertex, sourceIndex );
-		maxVertex = Max( maxVertex, sourceIndex );
-	}
-
-	if( minVertex < 0 || maxVertex < minVertex )
-	{
-		return NULL;
-	}
-
-	const int vertexCount = maxVertex - minVertex + 1;
-	srfTriangles_t* tri = ( srfTriangles_t* )R_ClearedFrameAlloc( sizeof( *tri ), FRAME_ALLOC_SURFACE_TRIANGLES );
-	tri->numVerts = vertexCount;
-	tri->numIndexes = guiSurf.numIndexes;
-	tri->verts = ( idDrawVert* )R_FrameAlloc( vertexCount * sizeof( tri->verts[0] ), FRAME_ALLOC_SURFACE_TRIANGLES );
-	tri->indexes = ( triIndex_t* )R_FrameAlloc( guiSurf.numIndexes * sizeof( tri->indexes[0] ), FRAME_ALLOC_SURFACE_TRIANGLES );
-	tri->bounds.Clear();
-
-	const float layerOffset = r_pathTracingGuiLayerOffset.GetFloat();
-	const float surfaceLayerOffset = surfaceOrder * layerOffset;
-	for( int i = 0; i < vertexCount; i++ )
-	{
-		tri->verts[i] = vertexPointer[minVertex + i];
-		tri->verts[i].xyz.z += surfaceLayerOffset;
-		tri->bounds.AddPoint( tri->verts[i].xyz );
-	}
-
-	for( int i = 0; i < guiSurf.numIndexes; i++ )
-	{
-		const int sourceIndex = indexPointer[guiSurf.firstIndex + i];
-		tri->indexes[i] = sourceIndex - minVertex;
-	}
-
-	return tri;
-}
 
 /*
 ================
@@ -205,7 +142,7 @@ void idGuiModel::EmitSurfaces( float modelMatrix[16], float modelViewMatrix[16],
 		// build a vertCacheHandle_t that points inside the allocated block
 		drawSurf->indexCache = indexBlock + ( ( int64 )( guiSurf.firstIndex * sizeof( triIndex_t ) ) << VERTCACHE_OFFSET_SHIFT );
 		drawSurf->jointCache = 0;
-		drawSurf->frontEndGeo = R_BuildGuiFrontEndGeo( vertexPointer, indexPointer, guiSurf, i );
+		drawSurf->frontEndGeo = NULL;
 		drawSurf->space = guiSpace;
 		drawSurf->material = shader;
 		drawSurf->extraGLState = guiSurf.glState;

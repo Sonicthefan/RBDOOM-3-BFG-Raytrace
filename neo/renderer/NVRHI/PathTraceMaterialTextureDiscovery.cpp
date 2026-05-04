@@ -686,6 +686,8 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
 
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 {
+    OPTICK_EVENT("PT Material Metadata Discover One");
+
     ++g_smokeMaterialMetadataFrameStats.registrations;
 
     const char* materialName = material ? material->GetName() : "<none>";
@@ -849,12 +851,15 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled)
 {
+    OPTICK_EVENT("PT Material Metadata Frame");
+
     RtSmokeMaterialMetadataRegistrationTiming timing;
     g_smokeMaterialMetadataFrameStats = RtSmokeMaterialMetadataFrameStats();
 
     const int metadataStartMs = Sys_Milliseconds();
     if (enabled && viewDef)
     {
+        OPTICK_EVENT("PT Material Metadata Surface Loop");
         std::vector<uint32_t> registeredMaterialIds;
         registeredMaterialIds.reserve(viewDef->numDrawSurfs);
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)

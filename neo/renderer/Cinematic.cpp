@@ -1419,82 +1419,89 @@ cinData_t idCinematicLocal::ImageForTimeFFMPEG( int thisTime, nvrhi::ICommandLis
 	}
 
 	AVPacket packet;
-	while( framePos < desiredFrame )
 	{
-		int frameFinished = -1;
-		int res = 0;
-
-		// Do a single frame by getting packets until we have a full frame
-		while( frameFinished != 0 )
+		OPTICK_EVENT( "Cinematic FFMPEG Decode Catch-Up" );
+		OPTICK_TAG( "framesToDecode", static_cast<int>( desiredFrame - framePos ) );
+		while( framePos < desiredFrame )
 		{
-			// if we got to the end or failed
-			if( av_read_frame( fmt_ctx, &packet ) < 0 )
+			int frameFinished = -1;
+			int res = 0;
+
+			// Do a single frame by getting packets until we have a full frame
+			while( frameFinished != 0 )
 			{
-				// can't read any more, set to EOF
-				status = FMV_EOF;
-				if( looping )
+				// if we got to the end or failed
+				if( av_read_frame( fmt_ctx, &packet ) < 0 )
 				{
-					desiredFrame = 0;
-					FFMPEGReset();
-					hasFrame = false;
-					startTime = thisTime;
-					if( av_read_frame( fmt_ctx, &packet ) < 0 )
+					// can't read any more, set to EOF
+					status = FMV_EOF;
+					if( looping )
 					{
+						desiredFrame = 0;
+						FFMPEGReset();
+						hasFrame = false;
+						startTime = thisTime;
+						if( av_read_frame( fmt_ctx, &packet ) < 0 )
+						{
+							status = FMV_IDLE;
+							return cinData;
+						}
+						status = FMV_PLAY;
+					}
+					else
+					{
+						hasFrame = false;
 						status = FMV_IDLE;
 						return cinData;
 					}
-					status = FMV_PLAY;
 				}
-				else
+				// Is this a packet from the video stream?
+				if( packet.stream_index == video_stream_index )
 				{
-					hasFrame = false;
-					status = FMV_IDLE;
-					return cinData;
-				}
-			}
-			// Is this a packet from the video stream?
-			if( packet.stream_index == video_stream_index )
-			{
-				// Decode video frame
-				if( ( res = avcodec_send_packet( dec_ctx, &packet ) ) != 0 )
-				{
-					av_strerror( res, error, sizeof( error ) );
-					common->Warning( "idCinematic: Failed to send video packet for decoding with error: %s\n", error );
-				}
-				else
-				{
-					frameFinished = avcodec_receive_frame( dec_ctx, frame );
-					if( frameFinished != 0 && frameFinished != AVERROR( EAGAIN ) )
+					// Decode video frame
 					{
-						av_strerror( frameFinished, error, sizeof( error ) );
-						common->Warning( "idCinematic: Failed to receive video frame from decoding with error: %s\n", error );
-					}
-				}
-			}
-			//GK:Begin
-			else if( cinematicAudio && packet.stream_index == audio_stream_index ) //Check if it found any audio data
-			{
-				res = avcodec_send_packet( dec_ctx2, &packet );
-				if( res != 0 && res != AVERROR( EAGAIN ) )
-				{
-					av_strerror( res, error, sizeof( error ) );
-					common->Warning( "idCinematic: Failed to send audio packet for decoding with error: %s\n", error );
-				}
-				//SRS - Separate frame finisher for audio since there can be multiple audio frames per video frame (e.g. at bik startup)
-				int frameFinished1 = 0;
-				while( frameFinished1 == 0 )
-				{
-					if( ( frameFinished1 = avcodec_receive_frame( dec_ctx2, frame3 ) ) != 0 )
-					{
-						if( frameFinished1 != AVERROR( EAGAIN ) )
+						OPTICK_EVENT( "Cinematic FFMPEG Decode Video Packet" );
+						if( ( res = avcodec_send_packet( dec_ctx, &packet ) ) != 0 )
 						{
-							av_strerror( frameFinished1, error, sizeof( error ) );
-							common->Warning( "idCinematic: Failed to receive audio frame from decoding with error: %s\n", error );
+							av_strerror( res, error, sizeof( error ) );
+							common->Warning( "idCinematic: Failed to send video packet for decoding with error: %s\n", error );
+						}
+						else
+						{
+							frameFinished = avcodec_receive_frame( dec_ctx, frame );
+							if( frameFinished != 0 && frameFinished != AVERROR( EAGAIN ) )
+							{
+								av_strerror( frameFinished, error, sizeof( error ) );
+								common->Warning( "idCinematic: Failed to receive video frame from decoding with error: %s\n", error );
+							}
 						}
 					}
-					// SRS - Allocate audio buffer, convert to packed format, save in queue, and play synced audio for desired frame
-					else
+				}
+				//GK:Begin
+				else if( cinematicAudio && packet.stream_index == audio_stream_index ) //Check if it found any audio data
+				{
+					OPTICK_EVENT( "Cinematic FFMPEG Decode Audio Packet" );
+					res = avcodec_send_packet( dec_ctx2, &packet );
+					if( res != 0 && res != AVERROR( EAGAIN ) )
 					{
+						av_strerror( res, error, sizeof( error ) );
+						common->Warning( "idCinematic: Failed to send audio packet for decoding with error: %s\n", error );
+					}
+					//SRS - Separate frame finisher for audio since there can be multiple audio frames per video frame (e.g. at bik startup)
+					int frameFinished1 = 0;
+					while( frameFinished1 == 0 )
+					{
+						if( ( frameFinished1 = avcodec_receive_frame( dec_ctx2, frame3 ) ) != 0 )
+						{
+							if( frameFinished1 != AVERROR( EAGAIN ) )
+							{
+								av_strerror( frameFinished1, error, sizeof( error ) );
+								common->Warning( "idCinematic: Failed to receive audio frame from decoding with error: %s\n", error );
+							}
+						}
+						// SRS - Allocate audio buffer, convert to packed format, save in queue, and play synced audio for desired frame
+						else
+						{
 						// SRS - Since destination sample format is packed (non-planar), returned bufflinesize equals num_bytes
 #if	LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(59,37,100)
 						res = av_samples_alloc( &audioBuffer, &num_bytes, frame3->ch_layout.nb_channels, frame3->nb_samples, dst_smp, 0 );
@@ -1573,24 +1580,31 @@ cinData_t idCinematicLocal::ImageForTimeFFMPEG( int thisTime, nvrhi::ICommandLis
 							}
 						}
 						//common->Printf( "idCinematic: video pts = %7.3f, audio pts = %7.3f, samples = %4d, num_bytes = %5d\n", static_cast<double>( frame->pts ) * av_q2d( dec_ctx->pkt_timebase ), static_cast<double>( frame3->pts ) * av_q2d( dec_ctx2->pkt_timebase ), frame3->nb_samples, num_bytes );
+						}
 					}
 				}
+				//GK:End
+				// Free the packet that was allocated by av_read_frame
+				av_packet_unref( &packet );
 			}
-			//GK:End
-			// Free the packet that was allocated by av_read_frame
-			av_packet_unref( &packet );
-		}
 
-		framePos++;
+			framePos++;
+		}
 	}
 
 	// We have reached the desired frame
 	// Convert the image from its native format to RGB
-	sws_scale( img_convert_ctx, frame->data, frame->linesize, 0, dec_ctx->height, frame2->data, frame2->linesize );
+	{
+		OPTICK_EVENT( "Cinematic FFMPEG Color Convert" );
+		sws_scale( img_convert_ctx, frame->data, frame->linesize, 0, dec_ctx->height, frame2->data, frame2->linesize );
+	}
 	cinData.imageWidth = CIN_WIDTH;
 	cinData.imageHeight = CIN_HEIGHT;
 	cinData.status = status;
-	img->UploadScratch( image, CIN_WIDTH, CIN_HEIGHT, commandList );
+	{
+		OPTICK_EVENT( "Cinematic FFMPEG Upload Scratch" );
+		img->UploadScratch( image, CIN_WIDTH, CIN_HEIGHT, commandList );
+	}
 	hasFrame = true;
 	cinData.image = img;
 
@@ -1677,9 +1691,14 @@ cinData_t idCinematicLocal::ImageForTimeBinkDec( int thisTime, nvrhi::ICommandLi
 	// Bink_GotoFrame(binkHandle, desiredFrame);
 	// apparently Bink_GotoFrame() doesn't work super well, so skip frames
 	// (if necessary) by calling Bink_GetNextFrame()
-	while( framePos < desiredFrame )
 	{
-		framePos = Bink_GetNextFrame( binkHandle, yuvBuffer );
+		OPTICK_EVENT( "Cinematic Bink Decode Catch-Up" );
+		OPTICK_TAG( "framesToDecode", desiredFrame - framePos );
+		while( framePos < desiredFrame )
+		{
+			OPTICK_EVENT( "Cinematic Bink Get Next Frame" );
+			framePos = Bink_GetNextFrame( binkHandle, yuvBuffer );
+		}
 	}
 
 	cinData.imageWidth = CIN_WIDTH;
@@ -1717,7 +1736,13 @@ cinData_t idCinematicLocal::ImageForTimeBinkDec( int thisTime, nvrhi::ICommandLi
 		}
 
 #if defined( USE_NVRHI )
-		img->UploadScratch( yuvBuffer[i].data, w, h, commandList );
+		{
+			OPTICK_EVENT( "Cinematic Bink Upload Plane" );
+			OPTICK_TAG( "plane", i );
+			OPTICK_TAG( "width", w );
+			OPTICK_TAG( "height", h );
+			img->UploadScratch( yuvBuffer[i].data, w, h, commandList );
+		}
 #else
 		if( img->GetUploadWidth() != w || img->GetUploadHeight() != h )
 		{
@@ -1737,8 +1762,11 @@ cinData_t idCinematicLocal::ImageForTimeBinkDec( int thisTime, nvrhi::ICommandLi
 
 	if( cinematicAudio )
 	{
-		audioBuffer = ( int16_t* )Mem_Alloc( binkInfo.idealBufferSize, TAG_AUDIO );
-		num_bytes = Bink_GetAudioData( binkHandle, trackIndex, audioBuffer );
+		{
+			OPTICK_EVENT( "Cinematic Bink Audio Data" );
+			audioBuffer = ( int16_t* )Mem_Alloc( binkInfo.idealBufferSize, TAG_AUDIO );
+			num_bytes = Bink_GetAudioData( binkHandle, trackIndex, audioBuffer );
+		}
 
 		// SRS - If we have cinematic audio data, start playing it now
 		if( num_bytes > 0 && !s_noSound.GetBool() )

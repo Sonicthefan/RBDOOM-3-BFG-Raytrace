@@ -266,7 +266,7 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d validate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d sig=%d frame=%d/%d/%d/%d validate=%d/%d frameValidate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -338,8 +338,15 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.materialUniverseStats.hits,
         desc.materialUniverseStats.misses,
         desc.materialUniverseStats.rebuilds,
+        desc.materialUniverseStats.signatureChecks,
+        desc.materialUniverseStats.frameHits,
+        desc.materialUniverseStats.frameMisses,
+        desc.materialUniverseStats.frameRebuilds,
+        desc.materialUniverseStats.frameSignatureChecks,
         desc.materialUniverseStats.validationChecks,
         desc.materialUniverseStats.validationMismatches,
+        desc.materialUniverseStats.frameValidationChecks,
+        desc.materialUniverseStats.frameValidationMismatches,
         desc.materialUniverseTableCompareStats.checks,
         desc.materialUniverseTableCompareStats.mismatches,
         desc.materialUniverseTableCompareStats.materialCountMismatches,
@@ -419,14 +426,21 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialTableBuildStats.tableMaterials,
         desc.materialTableBuildStats.safeMaterials,
         desc.materialTableBuildStats.descriptorTextures);
-    common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d universeMaterials=%d hits=%d misses=%d rebuilds=%d validation=%d/%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke material universe records=%d universeMaterials=%d hits=%d misses=%d rebuilds=%d sig=%d frame=%d/%d/%d/%d validation=%d/%d frameValidation=%d/%d\n",
         desc.materialUniverseStats.records,
         desc.materialUniverseStats.universeMaterials,
         desc.materialUniverseStats.hits,
         desc.materialUniverseStats.misses,
         desc.materialUniverseStats.rebuilds,
+        desc.materialUniverseStats.signatureChecks,
+        desc.materialUniverseStats.frameHits,
+        desc.materialUniverseStats.frameMisses,
+        desc.materialUniverseStats.frameRebuilds,
+        desc.materialUniverseStats.frameSignatureChecks,
         desc.materialUniverseStats.validationChecks,
-        desc.materialUniverseStats.validationMismatches);
+        desc.materialUniverseStats.validationMismatches,
+        desc.materialUniverseStats.frameValidationChecks,
+        desc.materialUniverseStats.frameValidationMismatches);
     common->Printf("PathTracePrimaryPass: RT smoke material universe table compare checks=%d mismatches=%d material=%d/%d/%d indexes=%d/%d textures=%d/%d\n",
         desc.materialUniverseTableCompareStats.checks,
         desc.materialUniverseTableCompareStats.mismatches,
