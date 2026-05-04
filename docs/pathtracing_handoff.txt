@@ -71,7 +71,6 @@ Read these first in a new session:
     docs/pathtrace_geometry_universe.md
     docs/pathtrace_material_universe.md
     docs/pathtrace_interactive_surfaces.md
-    docs/pathtrace_raster_interaction_leak_plan.md
 
 Use them this way:
 
@@ -89,9 +88,6 @@ Use them this way:
 - pathtrace_interactive_surfaces.md: Doom material/register/runtime-state guide
   for switchable fluorescent lights, colored panels, texture transforms, and
   Q2RTX off-camera emissive design implications.
-- pathtrace_raster_interaction_leak_plan.md: resolved build-mode investigation
-  for the location-specific raster/PT slowdown, plus retained notes on frontend
-  interaction/shadow work if similar symptoms return.
 
 Current feature state to preserve
 ---------------------------------

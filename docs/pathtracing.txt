@@ -28,12 +28,6 @@ For persistent material guardrails, see:
 
     docs/pathtrace_material_universe.md
 
-For the current raster interaction/shadow slowdown investigation and PT leak
-plan, see:
-
-    docs/pathtrace_raster_interaction_leak_plan.md
-
-
 Current State
 -------------
 
