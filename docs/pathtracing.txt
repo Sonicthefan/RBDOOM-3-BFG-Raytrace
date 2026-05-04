@@ -337,6 +337,22 @@ Implemented debug CVars:
   current-frame only. The result can still have screen-space-like gaps until an
   area has been seen and promoted.
 
+  Known stability risk: mode 20 can still stress the device in a similar
+  failure class to the earlier 32 selected lights at 120 FPS mode 18 issue.
+  That older failure was caused by brute-forcing every selected point light for
+  primary and one-bounce direct lighting: `r_pathTracingLightCount 32` could
+  reach up to 64 shadow rays per pixel, plus primary/bounce rays, with any-hit
+  alpha/material work on those shadow rays. At roughly 120 FPS while moving the
+  camera, queued GPU work could saturate, producing transient surface
+  corruption and then driver/device removal; a 60 FPS cap avoided it by reducing
+  submission pressure. Mode 20 symptoms are similar: surface/scene buffers begin
+  to fail visually, followed by a hang and device removal that may not be
+  screenshot-capturable. Treat this as a GPU resource/work submission hazard
+  until proven otherwise. For now, test mode 20 at conservative frame caps and
+  candidate counts, keep temporal/spatial reuse off, and prefer diagnostics that
+  narrow buffer/resource lifetime, UAV writes, barrier state, and per-pixel
+  shadow-ray load before increasing workload.
+
   Useful first test:
 
       r_pathTracingTextureTableLimit 2048
@@ -369,6 +385,9 @@ Runtime emissive state:
 - This is an important ReSTIR/PT contract: Material universe owns stable
   capabilities/facts, while the per-frame capture path owns runtime facts such
   as active emissive, dimming, and on/off state.
+- See docs/pathtrace_interactive_surfaces.md for the deeper material-stage,
+  shader parm, and evaluated register model behind switchable lights and
+  red/green door panels.
 
 - r_pathTracingSmokeParticleDither
   Enables a cheap smoke-card visibility hack for RT smoke particle materials.
@@ -1391,6 +1410,15 @@ Near term:
      by default because matching dynamic occluder geometry is not persistent
      yet. Mode 20 samples that merged list, but spatial and temporal reuse are
      still intentionally off.
+   - Q2RTX's Ray Reconstruction reference fork gives the right direction for
+     off-camera emissives: static emissive BSP surfaces become light polygon
+     records, are assigned to BSP clusters, and are sampled through per-cluster
+     light lists instead of through the current screen-visible emissive set.
+     Dynamic/model lights are injected into those cluster lists each frame, and
+     temporal ReSTIR history uses previous-to-current light identity remapping
+     so missing dynamic lights invalidate history. For Doom 3 BFG, this argues
+     for future area/portal/cluster-style light membership and identity
+     remapping, not blindly retaining stale dynamic emissive candidates.
 
 4. Start a deliberate Doom material to RT/PBR conversion.
    - Base color from albedo.
@@ -1484,6 +1512,14 @@ contracts. The relevant design lesson for this branch is that the geometry
 universe should preserve previous-frame geometry state so RT shaders can compute
 motion from current vs previous hit positions. Do not rely on camera-only motion
 or a frame-local geometry rebuild if Ray Reconstruction is a goal.
+
+For emissive light sampling, the relevant design lesson is that Q2RTX does not
+depend on emissive surfaces being on screen. Static emissive BSP surfaces are
+promoted into light polygon records and assigned to cluster/PVS light lists.
+ReSTIR samples the list for the shaded point's cluster. Dynamic/model emissive
+lights are transformed and injected into those same lists per frame, with
+previous-to-current light id remapping for temporal reuse and invalidation when
+a dynamic light disappears.
 
 Keep reference checkouts outside the RBDoom3 BFG repo. Use them as reference
 material for reservoir/light-sampling architecture, motion-vector architecture,

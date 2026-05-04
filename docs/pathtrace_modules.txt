@@ -14,6 +14,9 @@ For persistent material guardrails around stable facts, descriptor ownership,
 reset boundaries, lookup identity, validation cost, thread ownership, allocation,
 and churn stats, see docs/pathtrace_material_universe.md.
 
+For game-driven material/register behavior such as switchable fluorescent lights
+and red/green door panels, see docs/pathtrace_interactive_surfaces.md.
+
 Current scope
 -------------
 
@@ -653,12 +656,32 @@ r_pathTracingReservoirDump 1 to inspect the current signature/reset state. Mode
 20 writes current reservoirs for one-frame direct emissive lighting; previous
 and spatial scratch reservoirs are not consumed yet.
 
+Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
+When it fails, the scene/surface buffers can visibly degrade before the driver
+removes the device. This resembles the older mode 18 `r_pathTracingLightCount
+32` at 120 FPS failure, where brute-force primary plus one-bounce selected-light
+shadowing could produce up to 64 shadow rays per pixel, saturate queued GPU
+work while the camera was moving, and trigger transient surface corruption
+followed by device removal. Keep reservoir experiments conservative until
+buffer lifetime, barriers, UAV writes, and per-pixel ray workload have dedicated
+validation.
+
 Mode 20 now samples a merged light list: persistent static emissives plus
 current-frame dynamic emissives. Semi-static promoted dynamic records are
 tracked for identity/history diagnostics, but missing dynamic records are not
 injected by default because only retaining the light without the dynamic
 occluder geometry produces ghost lighting. Use r_pathTracingLightUniverseDump 1
 to inspect persistent/merged counts.
+
+Q2RTX's Ray Reconstruction reference fork handles off-camera emissives by
+promoting static emissive BSP surfaces into light polygon records, assigning
+them to BSP clusters, and sampling per-cluster light lists rather than the
+current screen-visible emissive set. Dynamic/model emissive lights are injected
+into those cluster lists each frame and temporal ReSTIR history uses explicit
+previous-to-current light identity remapping. If a previous dynamic light cannot
+be matched in the current frame, the history is invalidated. For this branch,
+that points toward a future light-universe/area-membership contract for static
+and stable entity emissives, not stale dynamic candidate retention.
 
 Modes 18, 19, and 20 all honor per-surface evaluated emissive state.
 Switchable or dimming lights can have a material that is capable of emissive
