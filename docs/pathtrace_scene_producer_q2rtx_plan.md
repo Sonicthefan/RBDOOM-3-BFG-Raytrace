@@ -15,6 +15,12 @@ Tech renderer does not treat the raster draw list as the path-traced scene. It
 builds persistent world/model/light records, assigns spatial membership, and
 uses that membership during light sampling and temporal reconstruction.
 
+Implementation note: this file is background research and long-range context.
+Use `pathtrace_scene_producer_replacement_guide.md` as the implementation-facing
+next-task guide. The replacement guide intentionally narrows the next work to a
+static-world preload plus drawSurf mesh/instance mirror before any rigid
+promotion, persistent light records, area/portal light lists, or temporal reuse.
+
 Relevant Q2RTX Patterns
 -----------------------
 
