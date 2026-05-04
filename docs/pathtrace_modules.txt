@@ -629,8 +629,8 @@ Riskier places to touch:
 - PathTraceSmokeEmissiveTriangle layout. It is GPU-facing.
 - Dispatch constants layout. It must match shader expectations.
 - Accumulation signature inputs in PathTraceSmokeDispatch.cpp.
-- Blending future RTXPT/ReSTIR ownership into smoke helper modules without a
-  clear boundary.
+- Blending future ReSTIR/PT ownership into smoke helper modules without a clear
+  boundary.
 
 Suggested future boundary:
 
@@ -741,5 +741,5 @@ What to avoid:
 
 - Moving files into folders before deciding how CMake/project layout should be
   updated.
-- Mixing NVIDIA RTXPT/ReSTIR ownership into the smoke scene builder.
+- Mixing future ReSTIR/PT ownership into the smoke scene builder.
 - Reorganizing base RBDoom3 renderer systems as part of RT/PT cleanup.

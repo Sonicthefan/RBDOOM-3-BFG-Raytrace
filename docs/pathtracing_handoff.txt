@@ -34,14 +34,11 @@ External references:
 
 Important worktree rules:
 
-- neo/CMakeLists.txt now contains intentional PT build-mode changes:
-  PATH_TRACING_DEV / ID_PATH_TRACING_DEV and local RTXPT include wiring.
-  Do not treat every CMakeLists.txt diff as an old leftover without inspection.
-- The submodule/RTXPT tree may still contain local experimental state. Inspect
-  before staging:
-
-      m neo/extern/RTXPT
-      ?? neo/renderer/NVRHI/RTXPT/
+- NVIDIA RTXDI, RTXPT, Donut, and Q2RTX should be treated as external
+  references only unless there is a deliberate clean integration plan.
+- The old failed in-tree RTXPT/Donut attempt was removed. Do not re-add
+  neo/extern/RTXPT, neo/renderer/NVRHI/RTXPT, or local RTXPT include wiring as
+  drive-by ReSTIR/PT prep.
 
 - Do not stage or commit this handoff file unless the user explicitly asks.
 
@@ -58,23 +55,9 @@ Current git state at handoff update time:
         7004b522 Add stable material universe indexes
 
     Run `git status -sb` before staging anything. At the time this handoff was
-    updated, the intended dirty files included this handoff file, PT build-mode
-    CMake/preset/batch additions, known RTXPT tree state, and pre-existing PT
-    edits:
-
-        M docs/pathtracing_handoff.txt
-        M docs/pathtracing.txt
-        M docs/pathtrace_raster_interaction_leak_plan.md
-        M neo/CMakeLists.txt
-        ?? neo/CMakePresets.json
-        ?? neo/cmake-vs2022-win64-pt-*.bat
-        ?? neo/cmake-build-vs2022-win64-pt-*.bat
-        m neo/extern/RTXPT
-        ?? neo/renderer/NVRHI/RTXPT/
-
-    Do not stage docs/pathtracing_handoff.txt unless the user explicitly asks.
-    Inspect RTXPT tree and other pre-existing PT edits before deciding whether
-    they are relevant.
+    updated, the old in-tree RTXPT/Donut attempt had been removed from
+    neo/extern/RTXPT, neo/renderer/NVRHI/RTXPT, .gitmodules, and
+    neo/CMakeLists.txt.
 
 Documentation map
 -----------------
@@ -671,7 +654,8 @@ specific.
 
 3. ReSTIR/PT bare-minimum vertical slice
 
-   Do not start by trying to integrate all of NVIDIA RTXPT. A good first slice:
+   Do not start by trying to integrate all of NVIDIA RTXPT or by reviving the
+   removed Donut/RTXPT checkout. A good first slice:
 
    - Promote mode 19 emissive inventory into a real GPU light candidate buffer
      contract.
@@ -778,8 +762,8 @@ Design traps to avoid
   Improve diagnostics and narrow bridges first.
 - Do not let generated GUI draw commands become persistent TLAS geometry. They
   are UI painter-order layers, not physical panels.
-- Do not revive old in-tree RTXPT/Donut/CMake leftovers unless doing a deliberate
-  clean integration.
+- Do not revive the removed in-tree RTXPT/Donut/CMake leftovers unless doing a
+  deliberate clean integration.
 
 End-of-phase recommendation
 ---------------------------

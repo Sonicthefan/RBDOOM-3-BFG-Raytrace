@@ -4,6 +4,3 @@
 [submodule "neo/extern/ShaderMake"]
 	path = neo/extern/ShaderMake
 	url = https://github.com/RobertBeckebans/ShaderMake.git
-[submodule "neo/extern/RTXPT"]
-	path = neo/extern/RTXPT
-	url = https://github.com/NVIDIA-RTX/RTXPT.git

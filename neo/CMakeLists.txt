@@ -441,20 +441,6 @@ add_definitions(-DUSE_NVRHI)
 set(SHADERMAKE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extern/ShaderMake)
 add_subdirectory(${SHADERMAKE_DIR})
 
-# === RTX PATH TRACING - SURGICAL CORE ONLY (local copy, no Donut hell) ===
-set(RTXPT_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/renderer/NVRHI/RTXPT)
-
-include_directories(
-    ${RTXPT_CORE_DIR}
-    ${RTXPT_CORE_DIR}/NRD
-    ${RTXPT_CORE_DIR}/RTXDI
-    ${RTXPT_CORE_DIR}/Shaders
-    ${RTXPT_CORE_DIR}/ProcessingPasses
-    ${RTXPT_CORE_DIR}/SampleCommon
-)
-
-
-
 if(USE_DX12)
 	# SRS - ShaderMake now finds dxc for DXIL when required
 	set(USE_DXIL_ON_DX12 TRUE CACHE BOOL "Use DXC to compile DXIL shaders on DX12 - otherwise FXC and DXBC")

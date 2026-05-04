@@ -1364,10 +1364,11 @@ Longer term:
 3. Investigate denoising and reconstruction technologies after a visually
    meaningful brute-force baseline exists.
 
-4. Study Quake II RTX and NVIDIA Donut/RTXPT for architecture ideas, especially
-   material handling, bindless texture tables, light sampling, accumulation,
-   and denoiser integration. The Doom 3 renderer differs enough that code should
-   be adapted carefully rather than copied wholesale.
+4. Study Quake II RTX and NVIDIA RTXDI/RTXPT/Donut as external references for
+   architecture ideas, especially material handling, bindless texture tables,
+   light sampling, accumulation, and denoiser integration. The Doom 3 renderer
+   differs enough that code should be adapted carefully rather than copied
+   wholesale.
 
 
 Local References
@@ -1389,9 +1390,9 @@ universe should preserve previous-frame geometry state so RT shaders can compute
 motion from current vs previous hit positions. Do not rely on camera-only motion
 or a frame-local geometry rebuild if Ray Reconstruction is a goal.
 
-Keep this checkout outside the RBDoom3 BFG repo. Use it as reference material
-for reservoir/light-sampling architecture, motion-vector architecture, and
-manuals; do not mix it with the old in-tree RTXPT/Donut leftovers unless doing
+Keep reference checkouts outside the RBDoom3 BFG repo. Use them as reference
+material for reservoir/light-sampling architecture, motion-vector architecture,
+and manuals; do not revive the removed in-tree RTXPT/Donut attempt unless doing
 a deliberate clean integration.
 
 
