@@ -80,7 +80,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         return;
     }
-    OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
+    const bool optickGpuMarkers = r_pathTracingOptickGpuMarkers.GetInteger() != 0;
+    if (optickGpuMarkers)
+    {
+        OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
+    }
 
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
@@ -236,10 +240,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingLightDump.SetInteger(0);
     }
 
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Write Dispatch Constants");
         commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
     }
+    else
+    {
+        commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+    }
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Dispatch Resource Barriers");
         commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -265,6 +275,32 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
     }
+    else
+    {
+        commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
+        {
+            if (texture)
+            {
+                commandList->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            }
+        }
+        commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+    }
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Clear Dispatch Targets");
         commandList->clearTextureFloat(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
@@ -273,8 +309,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->clearTextureFloat(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         }
     }
+    else
+    {
+        commandList->clearTextureFloat(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
+        if (accumulationFrameCount == 0)
+        {
+            commandList->clearTextureFloat(m_smokeAccumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+        }
+    }
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Set Ray Tracing State");
+        commandList->setRayTracingState(state);
+    }
+    else
+    {
         commandList->setRayTracingState(state);
     }
 
@@ -282,8 +331,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.width = m_smokeOutputWidth;
     args.height = m_smokeOutputHeight;
     args.depth = 1;
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
+        commandList->dispatchRays(args);
+    }
+    else
+    {
         commandList->dispatchRays(args);
     }
     if (debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0)
@@ -307,8 +361,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
     if (r_pathTracingReadbackEnable.GetInteger() != 0 && !m_smokeReadbackQueued && m_smokeReadbackCooldownFrames <= 0)
     {
+        if (optickGpuMarkers)
         {
             OPTICK_GPU_EVENT("PT GPU Readback Copy");
+            commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+            commandList->commitBarriers();
+            commandList->copyTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), m_smokeOutputTexture, nvrhi::TextureSlice());
+        }
+        else
+        {
             commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
             commandList->commitBarriers();
             commandList->copyTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), m_smokeOutputTexture, nvrhi::TextureSlice());

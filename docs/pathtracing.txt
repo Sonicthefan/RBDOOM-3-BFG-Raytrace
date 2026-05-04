@@ -430,6 +430,14 @@ term when r_pathTracingUseEmissiveMaps is 1.
   Minimum milliseconds between repeated RT smoke timing log lines. Defaults to
   1000. Set to 0 to print every threshold hit while doing detailed profiling.
 
+- r_pathTracingOptickGpuMarkers
+  Enables experimental Optick GPU markers inside the RT smoke/path tracing
+  scene-build and dispatch passes. Defaults to 0. Leaving these PT-specific
+  native command-object marker calls enabled caused a repeatable crash to
+  desktop on level entry in the Release PT build, while the same build was
+  stable when the marker calls were gated off. Keep this off unless actively
+  capturing a targeted Optick GPU profile.
+
 - r_pathTracingSkipRaster3D
   Skips the normal 3D raster view after the RT smoke/path tracing pass has
   produced the 3D scene output. Defaults to 1. GUI/HUD/menu views still rasterize
@@ -1006,7 +1014,10 @@ Build/config notes from the GUI/video and raster-stall investigations:
   relying on Debug builds for performance testing.
 - OPTICK=ON is available through win64-pt-dev-optick for profiling. Keep Optick
   off for final performance sanity checks unless the profile capture itself is
-  the point of the test.
+  the point of the test. The PT build/dispatch code keeps optional GPU marker
+  scopes for diagnosis, but `r_pathTracingOptickGpuMarkers` defaults to 0
+  because enabling those PT-specific native command-object marker calls caused
+  level-entry crashes during the diagnostics cleanup pass.
 - Visual Studio Debug executables are about 30 MB here, while Release
   executables are about 14-15 MB. That difference is expected from /Od, /Zi,
   /RTC1, debug CRT, and incremental debug linking; it is not a source-code size

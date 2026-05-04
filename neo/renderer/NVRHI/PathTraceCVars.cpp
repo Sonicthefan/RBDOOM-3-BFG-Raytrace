@@ -351,6 +351,12 @@ idCVar r_pathTracingTimingLogInterval(
     CVAR_RENDERER | CVAR_INTEGER,
     "Minimum milliseconds between repeated RT smoke timing log lines; 0 logs every threshold hit" );
 
+idCVar r_pathTracingOptickGpuMarkers(
+    "r_pathTracingOptickGpuMarkers",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable experimental Optick GPU markers inside the RT smoke/path tracing build and dispatch passes" );
+
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",
     "1",

@@ -65,6 +65,7 @@ extern idCVar r_pathTracingSmokeLog;
 extern idCVar r_pathTracingTimingLog;
 extern idCVar r_pathTracingTimingThreshold;
 extern idCVar r_pathTracingTimingLogInterval;
+extern idCVar r_pathTracingOptickGpuMarkers;
 extern idCVar r_pathTracingSkipRaster3D;
 extern idCVar r_pathTracingReadbackEnable;
 extern idCVar r_pathTracingMaterialCache;

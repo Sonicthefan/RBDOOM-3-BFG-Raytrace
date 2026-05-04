@@ -76,7 +76,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         return;
     }
-    OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
+    const bool optickGpuMarkers = r_pathTracingOptickGpuMarkers.GetInteger() != 0;
+    if (optickGpuMarkers)
+    {
+        OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
+    }
 
     std::vector<PathTraceSmokeVertex> dynamicVertexData;
     std::vector<uint32_t> dynamicIndexData;
@@ -454,8 +458,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     uploadBatchDesc.items = uploadItems;
     uploadBatchDesc.itemCount = static_cast<int>(sizeof(uploadItems) / sizeof(uploadItems[0]));
     int bufferUploadMs = 0;
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Upload Scene Buffers");
+        bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+    }
+    else
+    {
         bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
     }
 
@@ -471,8 +480,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelSubmitDesc.staticBlasCacheHit = staticBlasCacheHit;
     RtSmokeAccelSubmitTiming accelSubmitTiming;
     bool accelSubmitSucceeded = false;
+    if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Submit Acceleration Builds");
+        accelSubmitSucceeded = SubmitSmokeAccelerationBuilds(accelSubmitDesc, accelSubmitTiming);
+    }
+    else
+    {
         accelSubmitSucceeded = SubmitSmokeAccelerationBuilds(accelSubmitDesc, accelSubmitTiming);
     }
     if (!accelSubmitSucceeded)
