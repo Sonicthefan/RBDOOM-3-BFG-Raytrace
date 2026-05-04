@@ -262,6 +262,14 @@ Implemented debug CVars:
   contribution. Current useful defaults are 0.3 for lights and 4.0 for
   emissives.
 
+- r_pathTracingToyLightTraceCap
+  Caps the number of selected point lights that mode 18 traces for each direct
+  lighting evaluation. Defaults to 8, max 32. This protects the toy PT path
+  from brute-forcing too many shadow rays per pixel while ReSTIR PT work is
+  still being staged. The cap is applied on the CPU by reducing the mode 18
+  light-selection request count; the shader-facing LightInfo layout is
+  unchanged.
+
 - r_pathTracingToyAccumulation / r_pathTracingToyAccumMaxFrames
   Enables mode 18 temporal accumulation across stable camera frames and caps
   the accumulated frame count. Accumulation resets on camera/FOV/output-size
@@ -935,6 +943,17 @@ Open issues:
   simple and does not include MIS, denoising, ReSTIR, or emissive area-light
   sampling yet. Mode 14 remains the selected point-light direct-shadow
   diagnostic path.
+- Mode 18 previously brute-forced every selected point light for both the
+  primary direct-light pass and the one-bounce direct-light pass. At
+  r_pathTracingLightCount 32 this can mean up to 64 shadow rays per pixel,
+  plus primary/bounce rays, and those shadow rays still execute any-hit
+  alpha/material code. With the Release build reaching roughly 120 FPS, this
+  could saturate queued GPU work when the camera was moving, leading to
+  transient surface corruption followed by driver/device removal. Keeping the
+  frame cap at 60 avoided the failure by reducing submission pressure, which
+  points to brute-force ray workload saturation rather than a static geometry
+  cache bug. r_pathTracingToyLightTraceCap now defaults to 8 and clamps the
+  mode 18 selected-light request before constants/shader dispatch.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
 - Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
   acceptable for now but not final.

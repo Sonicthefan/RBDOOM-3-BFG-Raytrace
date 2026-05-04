@@ -231,6 +231,12 @@ idCVar r_pathTracingToyEmissiveScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Scale emissive material contribution in mode 18 toy path tracing" );
 
+idCVar r_pathTracingToyLightTraceCap(
+    "r_pathTracingToyLightTraceCap",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum selected point lights traced per mode 18 direct-light evaluation; clamps expensive shadow rays after light selection, max 32" );
+
 idCVar r_pathTracingToyAccumulation(
     "r_pathTracingToyAccumulation",
     "1",

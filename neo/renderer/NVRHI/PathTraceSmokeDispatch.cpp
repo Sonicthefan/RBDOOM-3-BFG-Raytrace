@@ -86,6 +86,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     cameraUp.Normalize();
 
     const int requestedLightCount = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingLightCount.GetInteger());
+    const int toyLightTraceCap = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingToyLightTraceCap.GetInteger());
+    const int selectedLightRequestCount = debugMode == 18 ? Min(requestedLightCount, toyLightTraceCap) : requestedLightCount;
     const int lightSelectionMode = idMath::ClampInt(0, 1, r_pathTracingLightSelection.GetInteger());
 
     uint64 accumulationSignature = 1469598103934665603ull;
@@ -111,6 +113,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyEmissiveScale.GetFloat(), 1000.0f);
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyMaxRayDistance.GetFloat(), 10.0f);
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(requestedLightCount));
+    accumulationSignature = HashSmokeDispatchValue(
+        accumulationSignature,
+        static_cast<uint64>(idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingToyLightTraceCap.GetInteger())));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(lightSelectionMode));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(r_pathTracingToyAccumulation.GetInteger() != 0 ? 1 : 0));
     if (debugMode != 18 || r_pathTracingToyAccumulation.GetInteger() == 0 || accumulationSignature != m_smokeAccumulationSignature)
@@ -156,7 +161,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18)
-        ? CollectSelectedSmokePointLights(viewDef, cameraOrigin, selectedLights, requestedLightCount, lightSelectionMode)
+        ? CollectSelectedSmokePointLights(viewDef, cameraOrigin, selectedLights, selectedLightRequestCount, lightSelectionMode)
         : 0;
     constants.lightInfo[0] = static_cast<float>(selectedLightCount);
     constants.lightInfo[1] = static_cast<float>(lightSelectionMode);
