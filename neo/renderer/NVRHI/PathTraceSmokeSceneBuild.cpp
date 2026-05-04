@@ -18,6 +18,7 @@
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSceneCapture.h"
+#include "PathTraceSceneUniverse.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderBackend.h"
@@ -40,6 +41,12 @@ int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
 
+struct RtSmokeStaticDrawSurfCounts
+{
+    int surfaces = 0;
+    int triangles = 0;
+};
+
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {
     if (deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
@@ -47,6 +54,32 @@ nvrhi::ObjectType GetPathTraceCommandObjectType()
         return nvrhi::ObjectTypes::VK_CommandBuffer;
     }
     return nvrhi::ObjectTypes::D3D12_GraphicsCommandList;
+}
+
+RtSmokeStaticDrawSurfCounts CountCurrentStaticDrawSurfs(const viewDef_t* viewDef)
+{
+    RtSmokeStaticDrawSurfCounts counts;
+    if (!viewDef || !viewDef->drawSurfs)
+    {
+        return counts;
+    }
+
+    for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+        const srfTriangles_t* tri = nullptr;
+        if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr))
+        {
+            continue;
+        }
+        if (ClassifySmokeSurface(viewDef, drawSurf, tri) != RtSmokeSurfaceClass::StaticWorld)
+        {
+            continue;
+        }
+        ++counts.surfaces;
+        counts.triangles += tri->numIndexes / 3;
+    }
+    return counts;
 }
 
 }
@@ -111,13 +144,117 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t>& staticTriangleMaterialCache = m_smokeGeometryUniverse.StaticTriangleMaterials();
     const int captureStartMs = Sys_Milliseconds();
     bool usingDoomSurfaces = false;
+    const int sceneSource = idMath::ClampInt(0, 2, r_pathTracingSceneSource.GetInteger());
+    const bool useSceneUniverseStaticGeometry = sceneSource == 2;
+    const int source2RigidEntities = idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger());
+    const bool dumpSceneUniverse = r_pathTracingSceneUniverseDump.GetInteger() != 0;
+    const RtSmokeStaticDrawSurfCounts currentStaticDrawSurfs = useSceneUniverseStaticGeometry ? CountCurrentStaticDrawSurfs(viewDef) : RtSmokeStaticDrawSurfCounts();
+    if (sceneSource != m_smokeSceneSourceLast || (useSceneUniverseStaticGeometry && source2RigidEntities != m_smokeSceneSource2RigidEntitiesLast))
+    {
+        common->Printf("PathTracePrimaryPass: PT scene source changed %d/%d -> %d/%d; clearing static geometry cache\n",
+            m_smokeSceneSourceLast,
+            m_smokeSceneSource2RigidEntitiesLast,
+            sceneSource,
+            source2RigidEntities);
+        m_smokeGeometryUniverse.Clear();
+        m_smokeStaticBlasCacheValid = false;
+        m_smokeStaticBlasSignature = 0;
+        m_smokeSceneUniverseStaticBuildGeneration = 0;
+        m_smokeSceneRebuildLogged = false;
+        m_smokeSceneSourceLast = sceneSource;
+        m_smokeSceneSource2RigidEntitiesLast = source2RigidEntities;
+    }
+    uint64 sceneUniverseGeneration = 0;
+    if (useSceneUniverseStaticGeometry && m_sceneUniverse.EnsureBuilt(viewDef))
+    {
+        sceneUniverseGeneration = m_sceneUniverse.GetStats().generation;
+        if (m_smokeSceneUniverseStaticBuildGeneration != 0 && m_smokeSceneUniverseStaticBuildGeneration != sceneUniverseGeneration)
+        {
+            common->Printf("PathTracePrimaryPass: PT scene universe generation changed %llu -> %llu; clearing source-2 static geometry cache\n",
+                static_cast<unsigned long long>(m_smokeSceneUniverseStaticBuildGeneration),
+                static_cast<unsigned long long>(sceneUniverseGeneration));
+            m_smokeGeometryUniverse.Clear();
+            m_smokeStaticBlasCacheValid = false;
+            m_smokeStaticBlasSignature = 0;
+            m_smokeSceneUniverseStaticBuildGeneration = 0;
+            m_smokeSceneRebuildLogged = false;
+        }
+    }
+    if (useSceneUniverseStaticGeometry && source2RigidEntities != 0)
+    {
+        m_smokeGeometryUniverse.Clear();
+        m_smokeStaticBlasCacheValid = false;
+        m_smokeStaticBlasSignature = 0;
+        m_smokeSceneUniverseStaticBuildGeneration = 0;
+    }
+    RtPathTraceSceneUniverseBuildStats sceneUniverseStaticBuildStats;
     {
         OPTICK_EVENT("PT Capture Doom Surfaces");
         m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex);
-        usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr);
+        if (useSceneUniverseStaticGeometry)
+        {
+            OPTICK_EVENT("PT Build Scene Universe Static Geometry");
+            RtSmokeSurfaceClassStats sceneUniverseClassStats;
+            RtSmokeSurfaceSkipStats sceneUniverseSkipStats;
+            RtSmokeAttributeStats sceneUniverseAttributeStats;
+            RtSmokeMaterialStats sceneUniverseMaterialStats;
+            RtSmokeBucketRanges sceneUniverseBucketRanges;
+            sceneUniverseStaticBuildStats = m_sceneUniverse.BuildFullStaticGeometry(viewDef, m_smokeGeometryUniverse, sceneUniverseClassStats, sceneUniverseSkipStats, sceneUniverseAttributeStats, sceneUniverseMaterialStats, sceneUniverseBucketRanges);
+            skipStats.invalidIndexCount += sceneUniverseSkipStats.invalidIndexCount;
+            skipStats.limitExceeded += sceneUniverseSkipStats.limitExceeded;
+            skipStats.zeroAreaOnly += sceneUniverseSkipStats.zeroAreaOnly;
+        }
+        usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+        if (useSceneUniverseStaticGeometry)
+        {
+            if (sceneUniverseStaticBuildStats.built)
+            {
+                staticCacheChanged = staticCacheChanged || !sceneUniverseStaticBuildStats.cacheHit;
+                sourceSurfaces += sceneUniverseStaticBuildStats.surfaces;
+                sourceVerts += sceneUniverseStaticBuildStats.vertices;
+                sourceIndexes += sceneUniverseStaticBuildStats.indexes;
+                const int staticSceneUniverseSurfaces = Max(0, sceneUniverseStaticBuildStats.surfaces - sceneUniverseStaticBuildStats.rigidEntitySurfaces);
+                const int staticSceneUniverseTriangles = Max(0, sceneUniverseStaticBuildStats.triangles - sceneUniverseStaticBuildStats.rigidEntityTriangles);
+                classStats.staticWorldSurfaces += staticSceneUniverseSurfaces;
+                classStats.staticWorldIndexes += staticSceneUniverseTriangles * 3;
+                classStats.staticWorldTriangles += staticSceneUniverseTriangles;
+                classStats.rigidEntitySurfaces += sceneUniverseStaticBuildStats.rigidEntitySurfaces;
+                classStats.rigidEntityIndexes += sceneUniverseStaticBuildStats.rigidEntityTriangles * 3;
+                classStats.rigidEntityTriangles += sceneUniverseStaticBuildStats.rigidEntityTriangles;
+                bucketRanges.buckets[0].surfaceCount += sceneUniverseStaticBuildStats.surfaces;
+                usingDoomSurfaces = true;
+                sceneUniverseGeneration = m_sceneUniverse.GetStats().generation;
+                m_smokeSceneUniverseStaticBuildGeneration = sceneUniverseGeneration;
+            }
+        }
         m_smokeGeometryUniverse.EndFrame();
     }
     const int captureMs = Sys_Milliseconds() - captureStartMs;
+    if (sceneSource > 0 || dumpSceneUniverse)
+    {
+        const int drawSurfStaticSurfaces = useSceneUniverseStaticGeometry ? currentStaticDrawSurfs.surfaces : classStats.staticWorldSurfaces;
+        const int drawSurfStaticTriangles = useSceneUniverseStaticGeometry ? currentStaticDrawSurfs.triangles : classStats.staticWorldTriangles;
+        m_sceneUniverse.RunDiagnostics(viewDef, &m_smokeGeometryUniverse, sceneSource, dumpSceneUniverse, drawSurfStaticSurfaces, drawSurfStaticTriangles);
+        if (dumpSceneUniverse && useSceneUniverseStaticGeometry)
+        {
+            common->Printf("PathTracePrimaryPass: PT scene source2 staticBuild built=%d cacheHit=%d surfaces=%d triangles=%d verts=%d indexes=%d emissiveSurfaces=%d rigidEntities=%d/%d skipped invalid/limits/zero=%d/%d/%d sourceTotals=%d/%d/%d\n",
+                sceneUniverseStaticBuildStats.built ? 1 : 0,
+                sceneUniverseStaticBuildStats.cacheHit ? 1 : 0,
+                sceneUniverseStaticBuildStats.surfaces,
+                sceneUniverseStaticBuildStats.triangles,
+                sceneUniverseStaticBuildStats.vertices,
+                sceneUniverseStaticBuildStats.indexes,
+                sceneUniverseStaticBuildStats.emissiveCapableSurfaces,
+                sceneUniverseStaticBuildStats.rigidEntitySurfaces,
+                sceneUniverseStaticBuildStats.rigidEntityTriangles,
+                sceneUniverseStaticBuildStats.skippedInvalid,
+                sceneUniverseStaticBuildStats.skippedLimits,
+                sceneUniverseStaticBuildStats.skippedZeroArea,
+                sourceSurfaces,
+                sourceVerts,
+                sourceIndexes);
+        }
+    }
     if (!usingDoomSurfaces)
     {
         if (!m_smokeWaitingForDoomSurfaceLogged)
@@ -132,7 +269,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Register Material Metadata");
         metadataTiming = RegisterSmokeMaterialTextureInfoForFrame(viewDef, enableTextureProbe);
-        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
+        if (r_pathTracingWorldStaticEmissives.GetInteger() != 0 || useSceneUniverseStaticGeometry)
         {
             const RtSmokeMaterialMetadataRegistrationTiming worldStaticMetadataTiming = RegisterSmokeWorldStaticMaterialTextureInfo(viewDef, enableTextureProbe);
             metadataTiming.metadataMs += worldStaticMetadataTiming.metadataMs;

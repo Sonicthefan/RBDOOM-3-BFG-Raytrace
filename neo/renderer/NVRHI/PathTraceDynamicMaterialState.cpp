@@ -77,6 +77,7 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureForceFallback.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingAdditiveDecalKey.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingAllowGuiTextures.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingEmissiveFallbackWithoutTexture.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeIndex.GetInteger() + 0x80000000u));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureProbeReset.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, latchedTextureProbeMaterialId);
@@ -219,6 +220,18 @@ std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuil
 
             const RtSmokeMaterialTextureInfo& leftInfo = materialInfos[lhs];
             const RtSmokeMaterialTextureInfo& rightInfo = materialInfos[rhs];
+            const RtSmokeMaterialUniverseFacts& leftFacts = table.materialFacts[lhs];
+            const RtSmokeMaterialUniverseFacts& rightFacts = table.materialFacts[rhs];
+            const bool leftEmissiveTexture = leftFacts.emissive && leftInfo.emissiveImage && leftFacts.hasSafeEmissiveTexture;
+            const bool rightEmissiveTexture = rightFacts.emissive && rightInfo.emissiveImage && rightFacts.hasSafeEmissiveTexture;
+            if (leftEmissiveTexture != rightEmissiveTexture)
+            {
+                return leftEmissiveTexture;
+            }
+            if (leftEmissiveTexture && rightEmissiveTexture && leftFacts.emissiveLuminance != rightFacts.emissiveLuminance)
+            {
+                return leftFacts.emissiveLuminance > rightFacts.emissiveLuminance;
+            }
 
             const idStr& leftName = SmokeBestSafeTextureName(leftInfo);
             const idStr& rightName = SmokeBestSafeTextureName(rightInfo);
@@ -536,7 +549,9 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         }
 
         const RtSmokeMaterialUniverseFacts& facts = materialFacts[safeIndex];
-        if (facts.hasEmissiveImage && table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX)
+        if (facts.hasEmissiveImage &&
+            table.materials[safeIndex].emissiveTextureIndex == UINT32_MAX &&
+            r_pathTracingEmissiveFallbackWithoutTexture.GetInteger() == 0)
         {
             table.materials[safeIndex].flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
             table.materials[safeIndex].emissiveColor[0] = 0.0f;

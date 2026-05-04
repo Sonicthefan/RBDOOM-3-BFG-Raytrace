@@ -9,6 +9,7 @@
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceLightUniverse.h"
 #include "PathTraceReservoirs.h"
+#include "PathTraceSceneUniverse.h"
 
 #include <nvrhi/nvrhi.h>
 #include <vector>
@@ -56,7 +57,11 @@ private:
     int m_smokeStaticBlasCacheHitCount;
     int m_smokeStaticBlasCacheMissCount;
     uint64 m_smokeGeometryFrameIndex;
+    int m_smokeSceneSourceLast;
+    int m_smokeSceneSource2RigidEntitiesLast;
+    uint64 m_smokeSceneUniverseStaticBuildGeneration;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
+    RtPathTraceSceneUniverse m_sceneUniverse;
     RtSmokeLightUniverse m_smokeLightUniverse;
     const void* m_smokeLightUniverseRenderWorld = nullptr;
     uint32_t m_smokeTextureProbeMaterialId;

@@ -93,6 +93,36 @@ idCVar r_pathTracingEmissiveInventoryMaxTriangles(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum emissive triangles captured into the RT smoke inventory buffer" );
 
+idCVar r_pathTracingSceneSource(
+    "r_pathTracingSceneSource",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "PT scene producer source: 0 = existing drawSurf producer only, 1 = scene-universe diagnostics only, 2 = full static scene-universe geometry plus dynamic drawSurf fallback" );
+
+idCVar r_pathTracingSceneSource2RigidEntities(
+    "r_pathTracingSceneSource2RigidEntities",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental source 2 rigid entity promotion: 0 = off, 1 = whole eligible rigid entities that contain emissive-capable surfaces, 2 = all eligible non-skinned non-callback static entity model surfaces" );
+
+idCVar r_pathTracingSceneUniverseDump(
+    "r_pathTracingSceneUniverseDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump diagnostics-only PT static world scene-universe inventory once" );
+
+idCVar r_pathTracingScenePortalSteps(
+    "r_pathTracingScenePortalSteps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Portal traversal depth for diagnostics-only PT scene-universe selected-area counts" );
+
+idCVar r_pathTracingSceneUniverseVerbose(
+    "r_pathTracingSceneUniverseVerbose",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Print verbose PT scene-universe area and surface samples in the one-shot dump" );
+
 idCVar r_pathTracingWorldStaticEmissives(
     "r_pathTracingWorldStaticEmissives",
     "0",
@@ -266,6 +296,12 @@ idCVar r_pathTracingUseEmissiveMaps(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Use sampled emissive/glow material stages for RT smoke debug mode 14 direct lighting" );
+
+idCVar r_pathTracingEmissiveFallbackWithoutTexture(
+    "r_pathTracingEmissiveFallbackWithoutTexture",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Keep material-universe emissive color active when an emissive texture cannot be assigned a bindless descriptor slot" );
 
 idCVar r_pathTracingToyMaxRayDistance(
     "r_pathTracingToyMaxRayDistance",

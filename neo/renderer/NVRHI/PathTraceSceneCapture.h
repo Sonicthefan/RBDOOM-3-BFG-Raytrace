@@ -274,4 +274,6 @@ bool CaptureDoomSurfacesForSmokeTest(
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
-    RtSmokeSurfaceClassReasonSamples* reasonSamples);
+    RtSmokeSurfaceClassReasonSamples* reasonSamples,
+    bool skipStaticWorldCapture = false,
+    bool skipPromotedStaticSurfaceCapture = false);

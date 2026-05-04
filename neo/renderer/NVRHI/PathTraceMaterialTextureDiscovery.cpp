@@ -910,7 +910,22 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextur
     {
         const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
         const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
-        if (!model || !model->IsStaticWorldModel())
+        const bool isStaticWorldModel = model && model->IsStaticWorldModel();
+        const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+        const bool isRigidEntityModel =
+            !isStaticWorldModel &&
+            r_pathTracingSceneSource2RigidEntities.GetInteger() != 0 &&
+            entity &&
+            renderEntity &&
+            model &&
+            model->IsDynamicModel() == DM_STATIC &&
+            renderEntity->joints == nullptr &&
+            renderEntity->numJoints <= 0 &&
+            renderEntity->callback == nullptr &&
+            renderEntity->forceUpdate == 0 &&
+            !renderEntity->weaponDepthHack &&
+            renderEntity->modelDepthHack == 0.0f;
+        if (!model || (!isStaticWorldModel && !isRigidEntityModel))
         {
             continue;
         }
@@ -918,7 +933,16 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextur
         for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
         {
             const modelSurface_t* surface = model->Surface(surfaceIndex);
-            const idMaterial* material = surface ? surface->shader : nullptr;
+            const idMaterial* baseMaterial = surface ? surface->shader : nullptr;
+            const idMaterial* material = baseMaterial;
+            if (entity && baseMaterial && entity->parms.customShader != nullptr)
+            {
+                material = baseMaterial->Deform() ? nullptr : entity->parms.customShader;
+            }
+            else if (entity && baseMaterial && entity->parms.customSkin)
+            {
+                material = entity->parms.customSkin->RemapShaderBySkin(baseMaterial);
+            }
             if (!material)
             {
                 continue;

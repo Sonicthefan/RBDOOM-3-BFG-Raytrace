@@ -88,6 +88,109 @@ The previous plan was correct in direction but incomplete in a few places:
 - Dynamic/model emissives should stay current-frame unless identity, transform,
   runtime material state, and occluder geometry are trustworthy.
 
+Findings From The Source-2 Experiments
+--------------------------------------
+
+The first implementation slice added `PathTraceSceneUniverse` and
+`r_pathTracingSceneSource 2`, where static Doom world surfaces can be inventoried
+from `renderWorld->entityDefs` and fed into the existing static buffers.
+
+Useful results:
+
+- Static world/BSP inventory works as a preload/diagnostic path.
+- Doom area/portal membership can be inventoried outside `viewDef->drawSurfs`.
+- Whole static map geometry is small enough on tested maps to be useful as a
+  correctness baseline.
+- The old drawSurf-seeded static cache was missing off-camera static surfaces;
+  source 2 removed selected static misses in the tested area.
+- Raising the static-only cap exposed that static and dynamic buffers must be
+  budgeted separately.
+
+Failures and lessons:
+
+- `PathTraceSceneUniverse` must not become the universal scene producer.
+- Baking rigid entities into world-space static geometry is the wrong model.
+  Doors, props, skinned things, movers, and mixed material objects break when
+  entity transform/lifetime is collapsed into a static vertex cache.
+- Surface-level rigid promotion is also wrong. Promoting only emissive surfaces
+  leaves "floating emissive panels" while the rest of the prop remains
+  raster/PVS-dependent.
+- Whole-entity rigid promotion helps some off-camera props, but it is still a
+  diagnostic hammer. It is too broad without per-instance identity, motion
+  state, and update rules.
+- Rigid promotion cannot safely reuse a static BLAS cache unless transform and
+  material state are part of the instance update path.
+- Characters and skinned/deformed surfaces must remain current-frame drawSurf
+  fallback until a separate deforming-mesh path exists.
+- Doom portal areas did not appear to be the direct cause of the observed
+  glitches: rays traced across portals in modes 18 and 20. The failures matched
+  identity/transform/category mistakes instead.
+
+Revised Scene Ownership Model
+-----------------------------
+
+Use the modules with these responsibilities:
+
+    PathTraceSceneUniverse
+        Optional static map scanner, diagnostics, and static-world preload.
+
+    PathTraceDrawSurfCapture
+        Primary live scene source. Mirrors final raster draw surfaces for
+        current geometry, transforms, material overrides, skins, dynamic model
+        state, particles, GUI, and skinned/deformed objects.
+
+    PathTraceGeometryUniverse
+        Mesh and BLAS cache. Owns reusable geometry records independent of
+        object-to-world transform.
+
+    PathTraceInstanceUniverse
+        Per-frame TLAS instance list. Owns instance transform, entity identity,
+        material/skin override, previous transform, and current-frame
+        visibility.
+
+    PathTraceMaterialUniverse
+        Material and texture registry.
+
+The crucial representation shift is:
+
+    current experimental source-2 shape:
+        surface = geometry + material + transform + area + baked world vertices
+
+    target shape:
+        mesh = geometry + material/source format
+        instance = mesh + transform + entity/material override + frame state
+
+Mesh identity should contain:
+
+- geometry pointer or GPU-buffer identity,
+- vertex/index counts,
+- vertex format,
+- stable source `srfTriangles_t*` when available,
+- material pointer/name as metadata.
+
+Mesh identity must not contain:
+
+- model matrix,
+- current transform,
+- current entity area,
+- per-frame visibility.
+
+Instance identity should contain:
+
+- mesh key,
+- current object-to-world transform,
+- previous object-to-world transform when available,
+- entity pointer/index/handle when available,
+- material/skin/custom-shader override when available,
+- current visibility/source flags.
+
+Once this split exists, classification becomes observable rather than guessed:
+
+- same mesh and same transform for many frames -> static-ish rigid,
+- same mesh and changing transform -> rigid dynamic,
+- changing vertex data -> deforming/skinned dynamic,
+- appears once or is tiny/effect-like -> transient.
+
 Replacement Boundary
 --------------------
 
@@ -106,22 +209,35 @@ Replace only the producer:
         -> CaptureDoomSurfacesForSmokeTest
         -> static/dynamic buffers
 
-    staged target:
-        PT scene inventory + PT scene selection
-        -> same static/dynamic buffers
+    revised staged target:
+        static scene universe preload for BSP/map surfaces
+        + drawSurf mesh/instance mirror for live objects
+        -> same static/dynamic buffers at first
+        -> later multi-mesh BLAS + per-instance TLAS
 
 New Module Shape
 ----------------
 
-Add a parallel scene producer module rather than expanding
-`PathTraceSceneCapture.cpp`:
+Add parallel scene producer modules rather than expanding
+`PathTraceSceneCapture.cpp` into a monolith:
 
     PathTraceSceneUniverse.*
-        Persistent records and map/entity/light inventory.
+        Static world records, area/portal diagnostics, optional static preload.
+
+    PathTraceDrawSurfCapture.*
+        Live drawSurf mirror. Creates mesh records and instance records from
+        final raster draw-surface submission without treating raster visibility
+        as the whole PT world.
+
+    PathTraceGeometryUniverse.*
+        Mesh records, reusable geometry ranges, BLAS cache state.
+
+    PathTraceInstanceUniverse.*
+        Per-frame instance records and future TLAS instance assembly.
 
     PathTraceSceneSelection.*
-        Per-frame selection of static areas, rigid entities, and fallback
-        transient drawSurfs.
+        Per-frame selection that merges static preload records with live
+        drawSurf instances.
 
     PathTraceSceneDiagnostics.*
         Dumps for area/portal membership, selected records, omitted records,
@@ -130,7 +246,8 @@ Add a parallel scene producer module rather than expanding
 Names can change, but keep the boundaries:
 
 - universe owns persistent identity,
-- selection owns current-frame inclusion,
+- drawSurf capture owns live current-frame instance truth,
+- instance universe owns current-frame inclusion,
 - diagnostics owns logging,
 - acceleration still owns NVRHI BLAS/TLAS creation.
 
@@ -152,9 +269,11 @@ Suggested values:
 
 - 0: current drawSurf producer only.
 - 1: new scene universe diagnostics only.
-- 2: static scene universe feeds diagnostics/mode 19 only.
-- 3: static scene universe feeds static buffers; dynamic drawSurf fallback.
-- 4: static + rigid scene universe feeds buffers; transient drawSurf fallback.
+- 2: static scene universe feeds static world buffers as a correctness/preload
+  experiment; dynamic drawSurf fallback remains live.
+
+Do not add a "static + rigid scene universe" value as the main path. Rigid
+entities need mesh/instance identity, not baked world-space static geometry.
 
 Stage 1: Static World Inventory, Diagnostics Only
 -------------------------------------------------
@@ -261,12 +380,53 @@ Diagnostics must compare:
 - static BLAS cache hit/miss,
 - missing current-view surfaces.
 
-Stage 5: Rigid Entity Inventory
--------------------------------
+This stage is a static-world preload/checkpoint only. It should not be extended
+to bake arbitrary rigid entities into the static cache.
 
-Add rigid entity records separately from drawSurfs.
+Stage 5: DrawSurf Mesh/Instance Mirror
+--------------------------------------
 
-Record:
+Add a drawSurf mirror that records final raster submission as mesh and instance
+data.
+
+For each visible drawSurf this frame:
+
+- create or reuse a `MeshRecord`,
+- append one `InstanceRecord`,
+- record the current object-to-world transform,
+- record entity pointer/index when available,
+- record material/skin/custom-shader override when available,
+- record whether the source is static world, rigid, skinned/deformed,
+  particle/translucent, GUI, callback, or unknown.
+
+`MeshRecord`:
+
+- geometry pointer or GPU-buffer identity,
+- vertex/index counts,
+- vertex format/source kind,
+- source `srfTriangles_t*` when stable,
+- material pointer/name/id as metadata,
+- no model matrix.
+
+`InstanceRecord`:
+
+- mesh key,
+- object-to-world transform,
+- previous transform if known,
+- entity id/pointer if available,
+- material/skin override,
+- current-frame visibility/source flags.
+
+Initially this mirror can be diagnostics-only. Do not feed the instance records
+into a new TLAS until the record identity and counts are stable.
+
+Stage 6: Rigid Entity Classification
+------------------------------------
+
+Classify rigid entities from observed mesh/instance history rather than from
+one-shot renderWorld scanning.
+
+Record and diagnose:
 
 - entity index/handle,
 - model pointer/name/hash,
@@ -280,8 +440,8 @@ Record:
 - previous-to-current remap id,
 - runtime material state signature.
 
-Convert model surface vertices directly into the dynamic buffer using PT-owned
-code. Do not call frontend drawSurf allocation or pretend to be a viewEntity.
+Rigid objects must not be baked into world-space static geometry. Build or reuse
+their mesh BLAS in local/object space and update the TLAS transform.
 
 Initial exclusions:
 
@@ -292,10 +452,10 @@ Initial exclusions:
 - overlays/decals,
 - continuously generated dynamic models.
 
-Those remain current-frame drawSurf fallback until separate identity/motion
-handling exists.
+Those remain current-frame drawSurf fallback until separate identity/motion or
+deforming-mesh handling exists.
 
-Stage 6: Rigid Emissive Injection
+Stage 7: Rigid Emissive Injection
 ---------------------------------
 
 For rigid records with trustworthy identity and transform:
@@ -309,7 +469,7 @@ For rigid records with trustworthy identity and transform:
 If identity, transform, runtime state, or matching occluder geometry is not
 trustworthy, keep the emissive current-frame only.
 
-Stage 7: Transient Fallback
+Stage 8: Transient Fallback
 ---------------------------
 
 The current drawSurf capture path remains valuable for:
@@ -327,7 +487,7 @@ Treat these as transient:
 - do not persist lights,
 - do not temporal-reuse until identity/remap/motion data exists.
 
-Stage 8: Temporal/ReSTIR Preconditions
+Stage 9: Temporal/ReSTIR Preconditions
 --------------------------------------
 
 Do not enable temporal reservoir reuse until these exist:
@@ -380,17 +540,25 @@ Oversights Avoided By The Q2RTX Check
 Near-Term Implementation Slice
 ------------------------------
 
-The next code slice should be diagnostics-only:
+The completed first code slice adds static scene-universe diagnostics and an
+opt-in static-world preload source. Keep that code as a static-map checkpoint,
+not the final producer architecture.
 
-1. Add `r_pathTracingSceneSource` and keep default `0`.
-2. Add a `PathTraceSceneUniverse` skeleton that can walk static world records
-   once and count surfaces/materials/emissive-capable records.
-3. Add area/portal membership diagnostics for those static records.
-4. Add a one-shot dump:
+The next code slice should be diagnostics-only and drawSurf-mirror oriented:
+
+1. Add `PathTraceInstanceUniverse` and a minimal `PathTraceDrawSurfCapture`
+   mirror path.
+2. Record `MeshRecord` and `InstanceRecord` for each final raster drawSurf.
+3. Dump mesh reuse, instance counts, transforms, entity ids, material override
+   status, and source class counts.
+4. Compare drawSurf mirror records against current static scene-universe records.
+5. Do not feed the new instance records into BLAS/TLAS yet.
+
+Useful dumps:
 
        r_pathTracingSceneUniverseDump 1
+       r_pathTracingInstanceUniverseDump 1
 
-5. Do not feed the new records into BLAS or mode 20 yet.
-
-Only after that dump looks sane should the static scene universe feed mode 19
-diagnostics, then the static BLAS input, then mode 20 light selection.
+Only after mesh/instance identity looks sane should the drawSurf mirror start
+feeding a new BLAS/TLAS layout. The current two-instance static/dynamic shader
+contract can remain as the fallback while this is developed.

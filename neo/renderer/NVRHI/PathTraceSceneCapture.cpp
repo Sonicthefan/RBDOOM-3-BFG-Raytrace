@@ -844,7 +844,7 @@ const idMaterial* SmokeResolveEntitySurfaceMaterial(const idRenderEntityLocal* e
 
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -924,7 +924,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
     {
         OPTICK_EVENT("PT Capture Static Pass");
-        for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
+        for (int surfaceIndex = 0; !skipStaticWorldCapture && surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
             const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
             const srfTriangles_t* tri = nullptr;
@@ -1046,11 +1046,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             {
                 continue;
             }
+            if (skipPromotedStaticSurfaceCapture && geometryUniverse.HasStaticSurface(BuildSmokeStaticSurfaceKey(drawSurf, tri)))
+            {
+                continue;
+            }
 
-            const int cachedVerts = static_cast<int>(staticVertexCache.size());
-            const int cachedIndexes = static_cast<int>(staticIndexCache.size());
-            if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+            if (dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+                dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
             {
                 ++skipStats.limitExceeded;
                 continue;
@@ -1207,10 +1209,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
                     const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
 
-                    const int cachedVerts = static_cast<int>(staticVertexCache.size());
-                    const int cachedIndexes = static_cast<int>(staticIndexCache.size());
-                    if (cachedVerts + dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
-                        cachedIndexes + dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+                    if (dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+                        dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
                     {
                         ++skipStats.limitExceeded;
                         break;
