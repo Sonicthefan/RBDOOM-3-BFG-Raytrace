@@ -221,6 +221,17 @@ Implemented debug CVars:
   24 = fallback-vs-rigid-route overlap validation
   25 = routed rigid lighting validation
 
+- r_pathTracingMode20TestPreset
+  One-shot console helper that applies the common mode 20 source3 routed-rigid
+  test stack, then resets itself to 0:
+
+      1 = mode 20 + source3 + rigid route + dynamic rigid removal
+      2 = preset 1 plus light-area diagnostics
+      3 = preset 2 plus render-affecting light-area filter apply
+
+  Preset 3 uses `r_pathTracingLightAreaOverflowMax 512`. This helper is only a
+  CVar setup shortcut; it does not change defaults.
+
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
 

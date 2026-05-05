@@ -1288,24 +1288,24 @@ Behavior:
 
 Recommended next diagnostic command:
 
-       r_pathTracingDebugMode 20
-       r_pathTracingSceneSource 3
-       r_pathTracingRigidBlasGpuScaffold 1
-       r_pathTracingRigidBlasGpuBuild 1
-       r_pathTracingRigidTlasRoute 1
-       r_pathTracingRigidRouteMode20 1
-       r_pathTracingRigidRouteRemoveDynamic 1
-       r_pathTracingLightAreaPortalSteps 1
-       r_pathTracingLightAreaFilter 1
-       r_pathTracingLightAreaOverflowMax 512
+       r_pathTracingMode20TestPreset 2
        r_pathTracingLightUniverseDump 1
        condump light_area_filter_diag
 
 Render-affecting test command, only after diagnostic counts look safe:
 
-       r_pathTracingLightAreaFilterApply 1
+       r_pathTracingMode20TestPreset 3
        r_pathTracingLightUniverseDump 1
        condump light_area_filter_apply
+
+Preset details:
+
+- `r_pathTracingMode20TestPreset 1`: mode 20 + source3 + rigid route + dynamic
+  rigid removal.
+- `r_pathTracingMode20TestPreset 2`: preset 1 plus light-area diagnostics.
+- `r_pathTracingMode20TestPreset 3`: preset 2 plus render-affecting light-area
+  filter apply.
+- The preset CVar resets itself to 0 after applying.
 
 Expected:
 
@@ -1325,3 +1325,135 @@ Validation limit:
   missing enough game-logic behavior for deeper campaign validation.
 - Do not hard-code a final portal-depth rule from this area. Keep portal steps
   configurable and keep apply default-off until broader map coverage is viable.
+
+Preset/apply validation:
+
+- `r_pathTracingMode20TestPreset 3` was tested successfully.
+- Console confirmed:
+
+       applied mode20 test preset 3 source3=1 rigidRoute=1 lightAreaDiag=1 lightAreaApply=1 overflowMax=512
+
+- Resulting dump:
+
+       merged=332
+       area current/total=16/56
+       selected steps/areas/edges/blocked=1/3/2/0
+       staticKnown/unknown=52/0
+       dynamicKnown/unknown=166/0
+       mergedKnown/unknown=332/0
+       mergedCurrent/selected/connected/disconnected=0/270/56/6
+       connectedUnselected=56
+       portalSweep merged=0/270/270/270/326
+       portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=0/270/0/0/56/0/6/0
+       areaFilter enabled/applied=1/1
+       overflowMax=512
+       selected=270
+       connectedOverflow=56
+       disconnected=6
+       unknown=0
+       wouldUpload=326
+       wouldDrop=6
+       runtimeActive=326
+
+- Interpretation:
+
+       The greedy default kept all selected candidates and all connected
+       overflow candidates. Only disconnected candidates were dropped. Upload
+       count matched the filter result.
+
+
+Autocompact Guard: Current Critical State 4
+===========================================
+
+Read this block first after compaction.
+
+Branch/state:
+
+- Branch: `codex/refactor-pathtrace-smoke-modules`.
+- Latest committed base before this pending commit:
+
+       02e4a524 pt: route rigid BLAS instances into smoke modes
+       120d70c9 pt: add emissive light area selector diagnostics
+
+- Current pending commit should include only:
+
+       r_pathTracingMode20TestPreset helper
+       r_pathTracingLightAreaOverflowMax default 512
+       docs/build-log updates for preset and greedy overflow policy
+
+- Build from `E:\prog\rbdoom-3-bfg-rt\neo`:
+
+       cmake --build --preset win64-pt-dev-release
+
+- Copy exe to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current validated mode 20 route stack:
+
+- `r_pathTracingMode20TestPreset 1`
+
+       mode 20
+       source3
+       rigid BLAS GPU scaffold/build
+       rigid TLAS route
+       mode20 route gate
+       routed-ready dynamic rigid removal
+       light-area overflow default 512
+
+- `r_pathTracingMode20TestPreset 2`
+
+       preset 1 plus light-area diagnostics
+
+- `r_pathTracingMode20TestPreset 3`
+
+       preset 2 plus render-affecting light-area filter apply
+
+Light-area selector policy:
+
+- Default apply gate remains off:
+
+       r_pathTracingLightAreaFilterApply 0
+
+- Diagnostic gate:
+
+       r_pathTracingLightAreaFilter 1
+
+- Apply gate:
+
+       r_pathTracingLightAreaFilterApply 1
+
+- Portal depth default:
+
+       r_pathTracingLightAreaPortalSteps 1
+
+- Overflow cap default:
+
+       r_pathTracingLightAreaOverflowMax 512
+
+- Intended first behavior is greedy:
+
+       keep selected portal-area candidates
+       keep connected overflow candidates up to high cap
+       drop disconnected/unknown-area candidates
+
+Reasoning:
+
+- Opening-section tests show Doom portal areas give useful free culling, but
+  connected overflow should not be aggressively reduced yet.
+- ReSTIR/PT is expected to tolerate many lights, so the cap is a safety limit
+  rather than a normal quality knob.
+- Broader campaign validation is currently blocked by missing PT branch
+  game-logic behavior. Do not hard-code a final portal-depth heuristic yet.
+
+Quick test command after build/copy:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingLightUniverseDump 1
+       condump light_area_filter_apply
+
+Expected:
+
+       areaFilter enabled/applied=1/1
+       runtimeActive == wouldUpload
+       only disconnected/unknown or overflow beyond cap should be dropped

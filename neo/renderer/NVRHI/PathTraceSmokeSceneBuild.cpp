@@ -301,6 +301,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     OPTICK_EVENT("PT Build Scene");
 
     const int sceneStartMs = Sys_Milliseconds();
+    const int mode20Preset = r_pathTracingMode20TestPreset.GetInteger();
+    if (mode20Preset != 0)
+    {
+        const int preset = idMath::ClampInt(0, 3, mode20Preset);
+        r_pathTracingDebugMode.SetInteger(20);
+        r_pathTracingSceneSource.SetInteger(3);
+        r_pathTracingRigidBlasGpuScaffold.SetInteger(1);
+        r_pathTracingRigidBlasGpuBuild.SetInteger(1);
+        r_pathTracingRigidTlasRoute.SetInteger(1);
+        r_pathTracingRigidRouteMode20.SetInteger(1);
+        r_pathTracingRigidRouteRemoveDynamic.SetInteger(1);
+        r_pathTracingLightAreaPortalSteps.SetInteger(1);
+        r_pathTracingLightAreaFilter.SetInteger(preset >= 2 ? 1 : 0);
+        r_pathTracingLightAreaFilterApply.SetInteger(preset >= 3 ? 1 : 0);
+        r_pathTracingLightAreaOverflowMax.SetInteger(512);
+        common->Printf("PathTracePrimaryPass: applied mode20 test preset %d source3=1 rigidRoute=1 lightAreaDiag=%d lightAreaApply=%d overflowMax=512\n",
+            preset,
+            preset >= 2 ? 1 : 0,
+            preset >= 3 ? 1 : 0);
+        r_pathTracingMode20TestPreset.SetInteger(0);
+    }
     m_smokeSceneBuilt = false;
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;

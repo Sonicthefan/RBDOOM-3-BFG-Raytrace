@@ -8,6 +8,7 @@
 class idCVar;
 
 extern idCVar r_pathTracingDebugMode;
+extern idCVar r_pathTracingMode20TestPreset;
 extern idCVar r_pathTracingClassDump;
 extern idCVar r_pathTracingClassSummary;
 extern idCVar r_pathTracingDebugWidth;
