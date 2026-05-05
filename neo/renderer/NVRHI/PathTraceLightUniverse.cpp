@@ -4,6 +4,7 @@
 #include "PathTraceLightUniverse.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
+#include "../RenderCommon.h"
 
 namespace {
 
@@ -33,6 +34,431 @@ uint32 QuantizeLightUniverseFloat(float value, float scale)
 {
     const int quantized = idMath::Ftoi(value * scale);
     return static_cast<uint32>(quantized);
+}
+
+int ResolveCurrentLightUniverseArea(const viewDef_t* viewDef)
+{
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        return -1;
+    }
+
+    int area = viewDef->areaNum;
+    if (area < 0)
+    {
+        area = renderWorld->PointInArea(viewDef->initialViewAreaOrigin);
+    }
+    if (area < 0)
+    {
+        area = renderWorld->PointInArea(viewDef->renderView.vieworg);
+    }
+    return area;
+}
+
+int ResolveLightUniverseTriangleArea(const viewDef_t* viewDef, const PathTraceSmokeEmissiveTriangle& triangle)
+{
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        return -1;
+    }
+
+    const idVec3 center(triangle.centerAndArea[0], triangle.centerAndArea[1], triangle.centerAndArea[2]);
+    int area = renderWorld->PointInArea(center);
+    if (area >= 0)
+    {
+        return area;
+    }
+
+    const idVec3 normal(triangle.normalAndLuminance[0], triangle.normalAndLuminance[1], triangle.normalAndLuminance[2]);
+    if (normal.LengthSqr() > 1.0e-8f)
+    {
+        idVec3 offsetNormal = normal;
+        offsetNormal.Normalize();
+        area = renderWorld->PointInArea(center + offsetNormal * 2.0f);
+        if (area >= 0)
+        {
+            return area;
+        }
+        area = renderWorld->PointInArea(center - offsetNormal * 2.0f);
+    }
+    return area;
+}
+
+void AccumulateLightUniverseAreaStats(
+    const viewDef_t* viewDef,
+    int areaNum,
+    bool staticCandidate,
+    bool mergedCandidate,
+    const std::vector<bool>* selectedAreas,
+    RtSmokeLightUniverseStats& stats)
+{
+    if (!mergedCandidate)
+    {
+        if (areaNum >= 0)
+        {
+            if (staticCandidate)
+            {
+                ++stats.staticAreaKnownTriangles;
+            }
+            else
+            {
+                ++stats.dynamicAreaKnownTriangles;
+            }
+        }
+        else
+        {
+            if (staticCandidate)
+            {
+                ++stats.staticAreaUnknownTriangles;
+            }
+            else
+            {
+                ++stats.dynamicAreaUnknownTriangles;
+            }
+        }
+    }
+
+    if (!mergedCandidate)
+    {
+        return;
+    }
+
+    if (areaNum < 0)
+    {
+        ++stats.mergedAreaUnknownTriangles;
+        return;
+    }
+
+    ++stats.mergedAreaKnownTriangles;
+    if (areaNum == stats.currentArea)
+    {
+        ++stats.mergedCurrentAreaTriangles;
+    }
+    if (selectedAreas && areaNum < static_cast<int>(selectedAreas->size()) && (*selectedAreas)[areaNum])
+    {
+        ++stats.mergedSelectedAreaTriangles;
+    }
+    else if (viewDef && viewDef->connectedAreas && areaNum < stats.totalAreas && viewDef->connectedAreas[areaNum])
+    {
+        ++stats.mergedConnectedAreaTriangles;
+        ++stats.mergedConnectedUnselectedAreaTriangles;
+    }
+    else
+    {
+        ++stats.mergedDisconnectedAreaTriangles;
+    }
+}
+
+std::vector<bool> BuildLightUniverseSelectedAreas(const viewDef_t* viewDef, int portalSteps, int* portalEdges, int* blockedPortalEdges)
+{
+    std::vector<bool> selectedAreas;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    const int currentArea = ResolveCurrentLightUniverseArea(viewDef);
+    if (!renderWorld || currentArea < 0)
+    {
+        return selectedAreas;
+    }
+
+    const int areaCount = renderWorld->NumAreas();
+    if (currentArea >= areaCount)
+    {
+        return selectedAreas;
+    }
+
+    portalSteps = idMath::ClampInt(0, 8, portalSteps);
+    selectedAreas.assign(areaCount, false);
+    std::vector<int> selectedDepth(areaCount, -1);
+    std::vector<int> queue;
+    queue.reserve(areaCount);
+
+    selectedAreas[currentArea] = true;
+    selectedDepth[currentArea] = 0;
+    queue.push_back(currentArea);
+
+    for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
+    {
+        const int area = queue[queueIndex];
+        const int depth = selectedDepth[area];
+        if (depth >= portalSteps)
+        {
+            continue;
+        }
+
+        const int portalCount = renderWorld->NumPortalsInArea(area);
+        for (int portalIndex = 0; portalIndex < portalCount; ++portalIndex)
+        {
+            const exitPortal_t portal = renderWorld->GetPortal(area, portalIndex);
+            if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
+            {
+                if (blockedPortalEdges)
+                {
+                    ++(*blockedPortalEdges);
+                }
+                continue;
+            }
+
+            int nextArea = -1;
+            if (portal.areas[0] == area)
+            {
+                nextArea = portal.areas[1];
+            }
+            else if (portal.areas[1] == area)
+            {
+                nextArea = portal.areas[0];
+            }
+            if (nextArea < 0 || nextArea >= areaCount)
+            {
+                continue;
+            }
+
+            if (portalEdges)
+            {
+                ++(*portalEdges);
+            }
+            if (!selectedAreas[nextArea])
+            {
+                selectedAreas[nextArea] = true;
+                selectedDepth[nextArea] = depth + 1;
+                queue.push_back(nextArea);
+            }
+        }
+    }
+
+    return selectedAreas;
+}
+
+int CountLightUniverseSelectedAreas(const std::vector<bool>& selectedAreas)
+{
+    int count = 0;
+    for (bool selected : selectedAreas)
+    {
+        if (selected)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+int CountLightUniverseMergedSelectedTriangles(const std::vector<int>& mergedAreas, const std::vector<bool>& selectedAreas)
+{
+    int count = 0;
+    for (int areaNum : mergedAreas)
+    {
+        if (areaNum >= 0 && areaNum < static_cast<int>(selectedAreas.size()) && selectedAreas[areaNum])
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void BuildLightUniversePortalDepthBins(const viewDef_t* viewDef, const std::vector<int>& mergedAreas, RtSmokeLightUniverseStats& stats)
+{
+    std::vector<bool> sweepAreas[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS];
+    for (int step = 0; step < RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS; ++step)
+    {
+        sweepAreas[step] = BuildLightUniverseSelectedAreas(viewDef, step, nullptr, nullptr);
+    }
+
+    for (int areaNum : mergedAreas)
+    {
+        if (areaNum < 0)
+        {
+            ++stats.mergedPortalDepthBins[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS + 2];
+            continue;
+        }
+
+        bool assigned = false;
+        for (int step = 0; step < RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS; ++step)
+        {
+            if (areaNum < static_cast<int>(sweepAreas[step].size()) && sweepAreas[step][areaNum])
+            {
+                ++stats.mergedPortalDepthBins[step];
+                assigned = true;
+                break;
+            }
+        }
+        if (assigned)
+        {
+            continue;
+        }
+
+        if (viewDef && viewDef->connectedAreas && areaNum < stats.totalAreas && viewDef->connectedAreas[areaNum])
+        {
+            ++stats.mergedPortalDepthBins[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS];
+        }
+        else
+        {
+            ++stats.mergedPortalDepthBins[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS + 1];
+        }
+    }
+}
+
+float LightUniverseCandidateDistance(const viewDef_t* viewDef, const PathTraceSmokeEmissiveTriangle& triangle)
+{
+    if (!viewDef)
+    {
+        return 0.0f;
+    }
+    const idVec3 center(triangle.centerAndArea[0], triangle.centerAndArea[1], triangle.centerAndArea[2]);
+    return (center - viewDef->renderView.vieworg).Length();
+}
+
+void AddLightUniverseOverflowSample(
+    const viewDef_t* viewDef,
+    const PathTraceSmokeEmissiveTriangle& triangle,
+    int areaNum,
+    RtSmokeLightUniverseStats& stats)
+{
+    RtSmokeLightUniverseOverflowSample sample;
+    sample.valid = true;
+    sample.areaNum = areaNum;
+    sample.materialId = triangle.materialId;
+    sample.materialIndex = triangle.materialIndex;
+    sample.weight = triangle.sampleWeightAndPdf[0];
+    sample.distance = LightUniverseCandidateDistance(viewDef, triangle);
+
+    int insertIndex = -1;
+    for (int sampleIndex = 0; sampleIndex < RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES; ++sampleIndex)
+    {
+        if (!stats.overflowSamples[sampleIndex].valid ||
+            sample.weight > stats.overflowSamples[sampleIndex].weight)
+        {
+            insertIndex = sampleIndex;
+            break;
+        }
+    }
+    if (insertIndex < 0)
+    {
+        return;
+    }
+
+    for (int sampleIndex = RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES - 1; sampleIndex > insertIndex; --sampleIndex)
+    {
+        stats.overflowSamples[sampleIndex] = stats.overflowSamples[sampleIndex - 1];
+    }
+    stats.overflowSamples[insertIndex] = sample;
+    stats.overflowSampleCount = Min(RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES, stats.overflowSampleCount + 1);
+}
+
+void BuildLightUniverseAreaFilterDiagnostics(
+    const viewDef_t* viewDef,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& merged,
+    const std::vector<int>& mergedAreas,
+    const std::vector<bool>& selectedAreas,
+    bool areaFilterEnabled,
+    int overflowMax,
+    RtSmokeLightUniverseStats& stats)
+{
+    stats.areaFilterEnabled = areaFilterEnabled ? 1 : 0;
+    stats.areaFilterPortalSteps = stats.selectedPortalSteps;
+    stats.areaFilterOverflowMax = Max(0, overflowMax);
+
+    const int candidateCount = Min(static_cast<int>(merged.size()), static_cast<int>(mergedAreas.size()));
+    for (int candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        const int areaNum = mergedAreas[candidateIndex];
+        if (areaNum < 0)
+        {
+            ++stats.areaFilterUnknownCandidates;
+            continue;
+        }
+
+        if (areaNum < static_cast<int>(selectedAreas.size()) && selectedAreas[areaNum])
+        {
+            ++stats.areaFilterSelectedCandidates;
+            continue;
+        }
+
+        if (viewDef && viewDef->connectedAreas && areaNum < stats.totalAreas && viewDef->connectedAreas[areaNum])
+        {
+            ++stats.areaFilterConnectedOverflowCandidates;
+            AddLightUniverseOverflowSample(viewDef, merged[candidateIndex], areaNum, stats);
+        }
+        else
+        {
+            ++stats.areaFilterDisconnectedCandidates;
+        }
+    }
+
+    const int cappedOverflow = Min(stats.areaFilterConnectedOverflowCandidates, stats.areaFilterOverflowMax);
+    stats.areaFilterWouldUploadCandidates = stats.areaFilterSelectedCandidates + cappedOverflow;
+    stats.areaFilterWouldDropCandidates = Max(0, candidateCount - stats.areaFilterWouldUploadCandidates);
+}
+
+std::vector<PathTraceSmokeEmissiveTriangle> ApplyLightUniverseAreaFilter(
+    const viewDef_t* viewDef,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& merged,
+    const std::vector<int>& mergedAreas,
+    const std::vector<bool>& selectedAreas,
+    int overflowMax)
+{
+    struct OverflowCandidate
+    {
+        int index = -1;
+        float weight = 0.0f;
+        float distance = 0.0f;
+    };
+
+    std::vector<PathTraceSmokeEmissiveTriangle> filtered;
+    std::vector<OverflowCandidate> overflowCandidates;
+    const int candidateCount = Min(static_cast<int>(merged.size()), static_cast<int>(mergedAreas.size()));
+    filtered.reserve(candidateCount);
+    overflowCandidates.reserve(candidateCount);
+    overflowMax = Max(0, overflowMax);
+
+    for (int candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        const int areaNum = mergedAreas[candidateIndex];
+        if (areaNum < 0)
+        {
+            continue;
+        }
+
+        if (areaNum < static_cast<int>(selectedAreas.size()) && selectedAreas[areaNum])
+        {
+            filtered.push_back(merged[candidateIndex]);
+            continue;
+        }
+
+        if (viewDef && viewDef->connectedAreas && areaNum < static_cast<int>(selectedAreas.size()) && viewDef->connectedAreas[areaNum])
+        {
+            OverflowCandidate candidate;
+            candidate.index = candidateIndex;
+            candidate.weight = merged[candidateIndex].sampleWeightAndPdf[0];
+            candidate.distance = LightUniverseCandidateDistance(viewDef, merged[candidateIndex]);
+            overflowCandidates.push_back(candidate);
+        }
+    }
+
+    std::sort(overflowCandidates.begin(), overflowCandidates.end(),
+        [](const OverflowCandidate& lhs, const OverflowCandidate& rhs)
+        {
+            if (lhs.weight != rhs.weight)
+            {
+                return lhs.weight > rhs.weight;
+            }
+            return lhs.distance < rhs.distance;
+        });
+
+    const int overflowCount = Min(overflowMax, static_cast<int>(overflowCandidates.size()));
+    for (int overflowIndex = 0; overflowIndex < overflowCount; ++overflowIndex)
+    {
+        const int candidateIndex = overflowCandidates[overflowIndex].index;
+        if (candidateIndex >= 0 && candidateIndex < static_cast<int>(merged.size()))
+        {
+            filtered.push_back(merged[candidateIndex]);
+        }
+    }
+
+    if (filtered.empty())
+    {
+        filtered.resize(1);
+    }
+    return filtered;
 }
 
 }
@@ -96,8 +522,13 @@ bool RtSmokeLightUniverse::IsPersistableDynamicCandidate(const PathTraceSmokeEmi
 }
 
 std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCandidates(
+    const viewDef_t* viewDef,
     const std::vector<PathTraceSmokeEmissiveTriangle>& frameCandidates,
     int maxRecords,
+    int selectedPortalSteps,
+    bool areaFilterEnabled,
+    bool areaFilterApply,
+    int areaFilterOverflowMax,
     bool persistDynamic,
     bool injectMissingDynamic,
     int dynamicMinSeenFrames,
@@ -111,6 +542,12 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
     dynamicMaxMissingFrames = Max(1, dynamicMaxMissingFrames);
     m_stats = RtSmokeLightUniverseStats();
     m_stats.generation = m_generation;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    m_stats.currentArea = ResolveCurrentLightUniverseArea(viewDef);
+    m_stats.totalAreas = renderWorld ? renderWorld->NumAreas() : 0;
+    m_stats.selectedPortalSteps = idMath::ClampInt(0, 8, selectedPortalSteps);
+    const std::vector<bool> selectedAreas = BuildLightUniverseSelectedAreas(viewDef, m_stats.selectedPortalSteps, &m_stats.selectedPortalEdges, &m_stats.selectedBlockedPortalEdges);
+    m_stats.selectedAreaCount = CountLightUniverseSelectedAreas(selectedAreas);
 
     for (PersistentEmissiveRecord& record : m_staticRecords)
     {
@@ -133,6 +570,8 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
 
         if (!IsStaticEmissiveCandidate(triangle))
         {
+            const int areaNum = ResolveLightUniverseTriangleArea(viewDef, triangle);
+            AccumulateLightUniverseAreaStats(viewDef, areaNum, false, false, &selectedAreas, m_stats);
             if (!persistDynamic || !IsPersistableDynamicCandidate(triangle))
             {
                 ++m_stats.dynamicFrameOnlyTriangles;
@@ -156,6 +595,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
                 record.triangle = triangle;
                 record.key = key;
                 record.lastSeenGeneration = m_generation;
+                record.areaNum = areaNum;
                 record.seenThisFrame = true;
                 record.seenFrames = 1;
                 record.promoted = dynamicMinSeenFrames <= 1;
@@ -177,6 +617,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
             PersistentEmissiveRecord& record = m_dynamicRecords[found->second];
             record.triangle = triangle;
             record.lastSeenGeneration = m_generation;
+            record.areaNum = areaNum;
             record.seenThisFrame = true;
             ++record.seenFrames;
             if (!record.promoted && record.seenFrames >= dynamicMinSeenFrames)
@@ -205,6 +646,8 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         {
             continue;
         }
+        const int areaNum = ResolveLightUniverseTriangleArea(viewDef, triangle);
+        AccumulateLightUniverseAreaStats(viewDef, areaNum, true, false, &selectedAreas, m_stats);
 
         const auto found = m_staticLookup.find(key);
         if (found == m_staticLookup.end())
@@ -217,6 +660,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
             record.triangle = triangle;
             record.key = key;
             record.lastSeenGeneration = m_generation;
+            record.areaNum = areaNum;
             record.seenThisFrame = true;
             record.seenFrames = 1;
             record.promoted = true;
@@ -229,6 +673,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
             PersistentEmissiveRecord& record = m_staticRecords[found->second];
             record.triangle = triangle;
             record.lastSeenGeneration = m_generation;
+            record.areaNum = areaNum;
             record.seenThisFrame = true;
             ++record.seenFrames;
             ++m_stats.staticUpdatedThisFrame;
@@ -255,7 +700,9 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
     }
 
     std::vector<PathTraceSmokeEmissiveTriangle> merged;
+    std::vector<int> mergedAreas;
     merged.reserve(Max(1, Min(maxRecords, static_cast<int>(m_staticRecords.size() + m_dynamicRecords.size() + dynamicFrameCandidates.size()))));
+    mergedAreas.reserve(Max(1, Min(maxRecords, static_cast<int>(m_staticRecords.size() + m_dynamicRecords.size() + dynamicFrameCandidates.size()))));
     float totalArea = 0.0f;
     float totalWeightedLuminance = 0.0f;
 
@@ -265,7 +712,10 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         {
             break;
         }
+        const int areaNum = ResolveLightUniverseTriangleArea(viewDef, triangle);
         merged.push_back(triangle);
+        mergedAreas.push_back(areaNum);
+        AccumulateLightUniverseAreaStats(viewDef, areaNum, !IsStaticEmissiveCandidate(triangle) ? false : true, true, &selectedAreas, m_stats);
         totalArea += triangle.centerAndArea[3];
         totalWeightedLuminance += triangle.sampleWeightAndPdf[0];
     }
@@ -285,6 +735,8 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
             continue;
         }
         merged.push_back(record.triangle);
+        mergedAreas.push_back(record.areaNum);
+        AccumulateLightUniverseAreaStats(viewDef, record.areaNum, true, true, &selectedAreas, m_stats);
         totalArea += record.triangle.centerAndArea[3];
         totalWeightedLuminance += record.triangle.sampleWeightAndPdf[0];
         if (record.seenThisFrame)
@@ -322,6 +774,8 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
         PathTraceSmokeEmissiveTriangle historyTriangle = record.triangle;
         historyTriangle.padding0 |= RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC;
         merged.push_back(historyTriangle);
+        mergedAreas.push_back(record.areaNum);
+        AccumulateLightUniverseAreaStats(viewDef, record.areaNum, false, true, &selectedAreas, m_stats);
         totalArea += historyTriangle.centerAndArea[3];
         totalWeightedLuminance += historyTriangle.sampleWeightAndPdf[0];
         ++m_stats.dynamicMissingThisFrame;
@@ -352,6 +806,34 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
     }
     m_stats.dynamicFrameTriangles = static_cast<int>(dynamicFrameCandidates.size());
     m_stats.mergedTriangles = static_cast<int>(merged.size());
+    for (int step = 0; step < RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS; ++step)
+    {
+        std::vector<bool> sweepAreas = BuildLightUniverseSelectedAreas(viewDef, step, nullptr, nullptr);
+        m_stats.portalStepSelectedAreas[step] = CountLightUniverseSelectedAreas(sweepAreas);
+        m_stats.portalStepMergedSelectedTriangles[step] = CountLightUniverseMergedSelectedTriangles(mergedAreas, sweepAreas);
+    }
+    BuildLightUniversePortalDepthBins(viewDef, mergedAreas, m_stats);
+    BuildLightUniverseAreaFilterDiagnostics(viewDef, merged, mergedAreas, selectedAreas, areaFilterEnabled, areaFilterOverflowMax, m_stats);
+    if (areaFilterApply)
+    {
+        merged = ApplyLightUniverseAreaFilter(viewDef, merged, mergedAreas, selectedAreas, areaFilterOverflowMax);
+        m_stats.areaFilterApplied = 1;
+        float filteredArea = 0.0f;
+        float filteredWeightedLuminance = 0.0f;
+        for (const PathTraceSmokeEmissiveTriangle& triangle : merged)
+        {
+            filteredArea += triangle.centerAndArea[3];
+            filteredWeightedLuminance += triangle.sampleWeightAndPdf[0];
+        }
+        const float inverseFilteredWeightedLuminance = filteredWeightedLuminance > 1.0e-8f ? 1.0f / filteredWeightedLuminance : 0.0f;
+        const float inverseFilteredArea = filteredArea > 1.0e-8f ? 1.0f / filteredArea : 0.0f;
+        for (PathTraceSmokeEmissiveTriangle& triangle : merged)
+        {
+            triangle.sampleWeightAndPdf[1] = triangle.sampleWeightAndPdf[0] * inverseFilteredWeightedLuminance;
+            triangle.sampleWeightAndPdf[3] = triangle.centerAndArea[3] * inverseFilteredArea;
+            triangle.centroidUvAndWeight[3] = triangle.sampleWeightAndPdf[1];
+        }
+    }
     return merged;
 }
 

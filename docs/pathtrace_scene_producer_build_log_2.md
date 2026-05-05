@@ -1182,3 +1182,146 @@ Final tester interpretation:
   geometry failure.
 - Next logical production direction after this commit is Stage F/G style work:
   stable emissive light records plus area/portal-selected light candidate lists.
+
+
+Post-commit Stage F/G Start: Light Area Diagnostics
+==================================================
+
+Objective:
+
+- Start the persistent/off-screen emissive work without changing mode 20
+  sampling or candidate filtering.
+- Add diagnostics that prove emissive candidates can be assigned Doom
+  area/portal membership before using that membership to select light lists.
+
+Implemented first diagnostic slice:
+
+- `RtSmokeLightUniverse::MergeFrameCandidates` now receives `viewDef`.
+- Each persistent static/dynamic light-universe record stores `areaNum`.
+- Area assignment uses `renderWorld->PointInArea(candidateCenter)` with a small
+  normal-offset fallback if the exact center lands outside an area.
+- `r_pathTracingLightUniverseDump 1` now prints:
+
+       area current/total=A/B
+       selected steps/areas/edges/blocked=A/B/C/D
+       staticKnown/unknown=A/B
+       dynamicKnown/unknown=A/B
+       mergedKnown/unknown=A/B
+       mergedCurrent/selected/connected/disconnected=A/B/C/D
+       connectedUnselected=A
+       portalSweep areas=A/B/C/D/E
+       portalSweep merged=A/B/C/D/E
+       portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=A/B/C/D/E/F/G/H
+
+Important boundary:
+
+- This does not filter mode 20 candidates.
+- This does not add area/portal-selected light lists yet.
+- It is strictly a diagnostic proof that emissive records have usable area
+  membership or logged unknown-area counts.
+- The selected-area set uses the existing `r_pathTracingScenePortalSteps`
+  CVar. It does not affect light selection yet.
+- A portal-depth sweep now reports selected area count and selected merged
+  candidate count for depths 0, 1, 2, 3, and 4 in one dump.
+- A direct portal-depth histogram now reports the minimum depth needed for each
+  merged candidate, avoiding manual subtraction of cumulative sweep fields.
+
+Suggested test command:
+
+       r_pathTracingDebugMode 20
+       r_pathTracingSceneSource 3
+       r_pathTracingRigidBlasGpuScaffold 1
+       r_pathTracingRigidBlasGpuBuild 1
+       r_pathTracingRigidTlasRoute 1
+       r_pathTracingRigidRouteMode20 1
+       r_pathTracingRigidRouteRemoveDynamic 1
+       r_pathTracingScenePortalSteps 1
+       r_pathTracingLightUniverseDump 1
+       condump light_area_diag
+
+Expected first-pass result:
+
+- No visual behavior change from the previous validated mode 20 route build.
+- Dump should show a valid `area current/total`.
+- `staticKnown + dynamicKnown` should be much larger than unknown counts in
+  ordinary indoor areas. Unknown counts are useful diagnostics for candidates
+  that need fallback handling before area/portal filtering.
+- Compare `mergedSelected` and `connectedUnselected`: if many connected
+  candidates are outside the selected portal depth, that confirms why selection
+  must stay diagnostic until we tune area/portal steps and fallbacks.
+- Use `portalSweep merged` to identify the first portal depth that captures most
+  currently connected candidates without requiring repeated game runs.
+- Use `portalDepthBins` to spot candidates that require depth 4+, are
+  disconnected from the current view, or have unknown area membership.
+
+Added diagnostic light-area selector CVars:
+
+       r_pathTracingLightAreaPortalSteps 1
+       r_pathTracingLightAreaFilter 0
+       r_pathTracingLightAreaFilterApply 0
+       r_pathTracingLightAreaOverflowMax 512
+
+Behavior:
+
+- `r_pathTracingLightAreaPortalSteps` is now the light-universe selected-area
+  depth. It is intentionally separate from `r_pathTracingScenePortalSteps`.
+- `r_pathTracingLightAreaFilter 1` enables diagnostic selector reporting only.
+  It does not change uploaded mode 20 emissive buffers yet.
+- `r_pathTracingLightAreaFilterApply 1` is the separate experimental
+  render-affecting gate. It uploads selected-area candidates plus the
+  highest-weight connected overflow candidates up to
+  `r_pathTracingLightAreaOverflowMax`, and drops disconnected/unknown-area
+  candidates.
+- `r_pathTracingLightAreaOverflowMax` now defaults to 512. Current evidence
+  supports a greedy connected-candidate policy: Doom's authored portal layout is
+  already valuable culling, and ReSTIR/PT is expected to tolerate many lights.
+  The cap is a safety limit, not an aggressive default quality knob.
+- The diagnostic selector reports:
+
+       areaFilter enabled/applied=A/B steps=C overflowMax=D
+       selected=A connectedOverflow=B disconnected=C unknown=D
+       wouldUpload=A wouldDrop=B
+
+- It also prints up to four top connected-overflow samples by candidate weight:
+
+       RT smoke light area overflow sample N area=A material=M materialIndex=I weight=W distance=D
+
+Recommended next diagnostic command:
+
+       r_pathTracingDebugMode 20
+       r_pathTracingSceneSource 3
+       r_pathTracingRigidBlasGpuScaffold 1
+       r_pathTracingRigidBlasGpuBuild 1
+       r_pathTracingRigidTlasRoute 1
+       r_pathTracingRigidRouteMode20 1
+       r_pathTracingRigidRouteRemoveDynamic 1
+       r_pathTracingLightAreaPortalSteps 1
+       r_pathTracingLightAreaFilter 1
+       r_pathTracingLightAreaOverflowMax 512
+       r_pathTracingLightUniverseDump 1
+       condump light_area_filter_diag
+
+Render-affecting test command, only after diagnostic counts look safe:
+
+       r_pathTracingLightAreaFilterApply 1
+       r_pathTracingLightUniverseDump 1
+       condump light_area_filter_apply
+
+Expected:
+
+- Visual output should remain unchanged.
+- `wouldUpload` should be selected candidates plus up to 64 connected overflow
+  candidates if a smaller test cap is set, or most/all connected overflow
+  candidates with the default 512 cap.
+- `wouldDrop` should account for connected overflow beyond the budget,
+  disconnected candidates, and unknown-area candidates.
+- With apply enabled, visual/performance changes should be limited to the
+  candidates dropped by `wouldDrop`. If a visible emissive disappears, disable
+  apply and inspect disconnected/unknown-area counts.
+
+Validation limit:
+
+- Testing so far is confined to the opening section because the PT branch is
+  missing enough game-logic behavior for deeper campaign validation.
+- Do not hard-code a final portal-depth rule from this area. Keep portal steps
+  configurable and keep apply default-off until broader map coverage is viable.

@@ -291,6 +291,30 @@ idCVar r_pathTracingLightUniverseDynamicMaxMissingFrames(
     CVAR_RENDERER | CVAR_INTEGER,
     "Frames a promoted semi-static dynamic emissive may be missing before it is aged out of the light universe" );
 
+idCVar r_pathTracingLightAreaPortalSteps(
+    "r_pathTracingLightAreaPortalSteps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Portal traversal depth for RT smoke emissive light-area selection diagnostics; default is current area plus directly connected portals" );
+
+idCVar r_pathTracingLightAreaFilter(
+    "r_pathTracingLightAreaFilter",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic-only RT smoke emissive light-area selector gate; 0 leaves mode 20 uploads unchanged" );
+
+idCVar r_pathTracingLightAreaFilterApply(
+    "r_pathTracingLightAreaFilterApply",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental render-affecting RT smoke emissive light-area selector gate; requires diagnostics to validate per-area behavior first" );
+
+idCVar r_pathTracingLightAreaOverflowMax(
+    "r_pathTracingLightAreaOverflowMax",
+    "512",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Connected-area overflow budget for RT smoke emissive light-area selection; high default keeps connected candidates greedy and mainly drops disconnected/unknown candidates" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",

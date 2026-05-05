@@ -11,6 +11,22 @@
 #include <unordered_map>
 #include <vector>
 
+struct viewDef_t;
+
+const int RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS = 5;
+const int RT_SMOKE_LIGHT_UNIVERSE_PORTAL_DEPTH_BINS = RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS + 3;
+const int RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES = 4;
+
+struct RtSmokeLightUniverseOverflowSample
+{
+    bool valid = false;
+    int areaNum = -1;
+    uint32_t materialId = 0;
+    uint32_t materialIndex = 0;
+    float weight = 0.0f;
+    float distance = 0.0f;
+};
+
 struct RtSmokeLightUniverseStats
 {
     int persistentStaticTriangles = 0;
@@ -33,6 +49,38 @@ struct RtSmokeLightUniverseStats
     int staticMergedMissingTriangles = 0;
     int injectedMissingDynamicTriangles = 0;
     int mergedTriangles = 0;
+    int currentArea = -1;
+    int totalAreas = 0;
+    int staticAreaKnownTriangles = 0;
+    int staticAreaUnknownTriangles = 0;
+    int dynamicAreaKnownTriangles = 0;
+    int dynamicAreaUnknownTriangles = 0;
+    int mergedAreaKnownTriangles = 0;
+    int mergedAreaUnknownTriangles = 0;
+    int mergedCurrentAreaTriangles = 0;
+    int mergedSelectedAreaTriangles = 0;
+    int mergedConnectedAreaTriangles = 0;
+    int mergedConnectedUnselectedAreaTriangles = 0;
+    int mergedDisconnectedAreaTriangles = 0;
+    int selectedPortalSteps = 0;
+    int selectedAreaCount = 0;
+    int selectedPortalEdges = 0;
+    int selectedBlockedPortalEdges = 0;
+    int portalStepSelectedAreas[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS] = {};
+    int portalStepMergedSelectedTriangles[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS] = {};
+    int mergedPortalDepthBins[RT_SMOKE_LIGHT_UNIVERSE_PORTAL_DEPTH_BINS] = {};
+    int areaFilterEnabled = 0;
+    int areaFilterApplied = 0;
+    int areaFilterPortalSteps = 1;
+    int areaFilterOverflowMax = 64;
+    int areaFilterSelectedCandidates = 0;
+    int areaFilterConnectedOverflowCandidates = 0;
+    int areaFilterDisconnectedCandidates = 0;
+    int areaFilterUnknownCandidates = 0;
+    int areaFilterWouldUploadCandidates = 0;
+    int areaFilterWouldDropCandidates = 0;
+    RtSmokeLightUniverseOverflowSample overflowSamples[RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES];
+    int overflowSampleCount = 0;
     uint64 generation = 1;
 };
 
@@ -41,8 +89,13 @@ class RtSmokeLightUniverse
 public:
     void Clear();
     std::vector<PathTraceSmokeEmissiveTriangle> MergeFrameCandidates(
+        const viewDef_t* viewDef,
         const std::vector<PathTraceSmokeEmissiveTriangle>& frameCandidates,
         int maxRecords,
+        int selectedPortalSteps,
+        bool areaFilterEnabled,
+        bool areaFilterApply,
+        int areaFilterOverflowMax,
         bool persistDynamic,
         bool injectMissingDynamic,
         int dynamicMinSeenFrames,
@@ -55,6 +108,7 @@ private:
         PathTraceSmokeEmissiveTriangle triangle = {};
         uint64 key = 0;
         uint64 lastSeenGeneration = 0;
+        int areaNum = -1;
         bool seenThisFrame = false;
         int seenFrames = 0;
         bool promoted = false;

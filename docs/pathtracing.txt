@@ -328,8 +328,14 @@ Implemented debug CVars:
   One-shot dump of persistent emissive light-universe stats: persistent static
   triangle count, static seen/new/updated/missing this frame, semi-static
   dynamic count, dynamic seen/promoted/updated/missing/aged this frame, current
-  frame-local dynamic triangle count, merged upload count, and generation.
-  Static emissives are retained by stable-ish identity across frames.
+  frame-local dynamic triangle count, merged upload count, area-membership
+  diagnostics, and generation. Static emissives are retained by stable-ish
+  identity across frames. The area diagnostics report current area, total areas,
+  known/unknown static and dynamic candidate area membership, and how many
+  merged candidates are in the current, selected, connected, disconnected, or
+  unknown area sets. Selected areas are the current camera area plus open
+  portals up to `r_pathTracingScenePortalSteps`. This is diagnostic only; it
+  does not filter mode 20 candidates yet.
 
 - r_pathTracingLightUniversePersistDynamic
   Defaults to 1. Allows stable rigid-entity emissives to be promoted into
@@ -350,6 +356,31 @@ Implemented debug CVars:
 - r_pathTracingLightUniverseDynamicMaxMissingFrames
   Defaults to 90. Number of frames a promoted semi-static dynamic emissive may
   be missing from the current capture before it ages out.
+
+- r_pathTracingLightAreaPortalSteps
+  Defaults to 1. Portal traversal depth for RT smoke emissive light-area
+  selection diagnostics. This is separate from the scene-universe diagnostic
+  portal depth so mode 20 light selection can be tuned independently.
+
+- r_pathTracingLightAreaFilter
+  Defaults to 0. Diagnostic-only light-area selector gate. When enabled, the
+  dump reports what would be selected by area plus overflow rules, but uploaded
+  mode 20 candidate buffers remain unchanged.
+
+- r_pathTracingLightAreaFilterApply
+  Defaults to 0. Experimental render-affecting gate for the light-area selector.
+  When enabled, mode 20 uploads selected-area emissive candidates plus the
+  highest-weight connected overflow candidates up to
+  `r_pathTracingLightAreaOverflowMax`. Disconnected and unknown-area candidates
+  are dropped. Keep this off unless testing area-filter impact.
+
+- r_pathTracingLightAreaOverflowMax
+  Defaults to 512. Connected-area overflow budget for light-area selection. The
+  high default is intentionally greedy for Doom 3 content: keep all selected
+  portal-area candidates plus most or all connected overflow candidates, and
+  mainly drop disconnected/unknown-area candidates. When
+  `r_pathTracingLightAreaFilterApply 1` is enabled, this budget is applied to
+  the uploaded mode 20 candidate list.
 
 - r_pathTracingReservoirDump
   One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized
@@ -1568,6 +1599,31 @@ edge-of-screen flicker can still occur when an emissive candidate source depends
 on current visible drawSurfs. Persistent/off-screen emissive light records and
 area/portal light lists are later light-universe work, not part of this rigid
 TLAS route step.
+
+The first Stage F/G scaffold records area membership diagnostics for emissive
+light-universe candidates. `r_pathTracingLightUniverseDump 1` reports area
+membership for frame candidates and merged/persistent candidates using
+`PointInArea` at the candidate center with a small normal-offset fallback. This
+validates whether emissive records can be assigned areas before any area/portal
+candidate filtering is enabled. It also reports the selected-area portal walk
+using `r_pathTracingScenePortalSteps`, including selected area count, walked
+portal edges, blocked portal edges, merged selected candidates, and connected
+but unselected candidates. The dump also includes `portalSweep areas` and
+`portalSweep merged` for portal depths 0, 1, 2, 3, and 4 so a single run shows
+how aggressively portal depth would affect the light list. The
+`portalDepthBins` histogram reports the minimum portal depth that reaches each
+merged candidate, plus `>4`, disconnected, and unknown-area buckets.
+When `r_pathTracingLightAreaFilter 1` is set, the dump also reports
+diagnostic-only `areaFilter` counts: selected candidates, connected overflow,
+disconnected, unknown, would-upload, would-drop, and top connected-overflow
+samples by candidate weight. This still does not affect rendering.
+`r_pathTracingLightAreaFilterApply 1` is a separate render-affecting gate that
+applies the reported selection to the uploaded mode 20 emissive candidate list.
+Current validation is limited to the opening section because this PT branch is
+still missing enough game-logic parity to make broader campaign testing useful.
+Do not infer a final portal-depth heuristic from this section alone; current
+evidence only supports greedy connected-candidate retention as the safest first
+apply behavior.
 
 Routed rigid closest-hit notes:
 
