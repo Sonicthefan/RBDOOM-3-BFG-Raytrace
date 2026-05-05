@@ -123,7 +123,7 @@ bool SceneUniverseMaterialCanEmit(const idMaterial* material)
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const bool nameLooksEmissive = classifier.nameLooksGlow || classifier.nameLooksSignage;
+    const bool nameLooksEmissive = !classifier.hasAddDefault0200Texture && (classifier.nameLooksGlow || classifier.nameLooksSignage);
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
@@ -879,6 +879,206 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     return buildStats;
 }
 
+RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStaticGeometry(
+    const viewDef_t* viewDef,
+    RtSmokeGeometryUniverse& geometryUniverse,
+    RtSmokeSurfaceClassStats& classStats,
+    RtSmokeSurfaceSkipStats& skipStats,
+    RtSmokeAttributeStats& attributeStats,
+    RtSmokeMaterialStats& materialStats,
+    RtSmokeBucketRanges& bucketRanges,
+    int portalSteps,
+    bool dumpRequested)
+{
+    RtPathTraceSceneUniverseBuildStats buildStats;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld || !EnsureBuilt(viewDef))
+    {
+        return buildStats;
+    }
+
+    const RtPathTraceSceneUniverseSelectionStats selection = BuildSelectionStats(viewDef, &geometryUniverse, idMath::ClampInt(0, 8, portalSteps));
+    if (!selection.valid)
+    {
+        return buildStats;
+    }
+
+    std::vector<bool> selectedAreas;
+    selectedAreas.assign(renderWorld->NumAreas(), false);
+    for (int areaListIndex = 0; areaListIndex < selection.selectedAreaListCount; ++areaListIndex)
+    {
+        const int area = selection.selectedAreaList[areaListIndex];
+        if (area >= 0 && area < static_cast<int>(selectedAreas.size()))
+        {
+            selectedAreas[area] = true;
+        }
+    }
+
+    std::vector<PathTraceSmokeVertex>& staticVertices = geometryUniverse.StaticVertices();
+    std::vector<uint32_t>& staticIndexes = geometryUniverse.StaticIndexes();
+    std::vector<uint32_t>& staticTriangleClasses = geometryUniverse.StaticTriangleClasses();
+    std::vector<uint32_t>& staticTriangleMaterials = geometryUniverse.StaticTriangleMaterials();
+
+    buildStats.built = true;
+    geometryUniverse.ReserveStaticSurfaceRecords(geometryUniverse.StaticSurfaceRecords().size() + static_cast<size_t>(selection.selectedSurfaces));
+
+    for (const RtPathTraceSceneUniverseSurface& surface : m_surfaces)
+    {
+        if (!SceneUniverseSurfaceTouchesSelectedArea(surface, selectedAreas))
+        {
+            continue;
+        }
+        if (surface.entityIndex < 0 || surface.entityIndex >= renderWorld->entityDefs.Num())
+        {
+            ++buildStats.skippedInvalid;
+            continue;
+        }
+
+        const idRenderEntityLocal* entity = renderWorld->entityDefs[surface.entityIndex];
+        const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+        if (!model || !model->IsStaticWorldModel() || surface.surfaceIndex < 0 || surface.surfaceIndex >= model->NumSurfaces())
+        {
+            ++buildStats.skippedInvalid;
+            continue;
+        }
+
+        const modelSurface_t* modelSurface = model->Surface(surface.surfaceIndex);
+        const idMaterial* material = SceneUniverseResolveEntitySurfaceMaterial(entity, modelSurface);
+        const srfTriangles_t* tri = modelSurface ? modelSurface->geometry : nullptr;
+        if (!material || !tri || !tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3 || !material->IsDrawn())
+        {
+            ++buildStats.skippedInvalid;
+            continue;
+        }
+        if ((tri->numIndexes % 3) != 0)
+        {
+            ++skipStats.invalidIndexCount;
+            ++buildStats.skippedInvalid;
+            continue;
+        }
+
+        const uint64 key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
+        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass::StaticWorld, RtSmokeTranslucentSubtype::Unknown);
+        const uint32_t materialId = SmokeMaterialId(material);
+        const bool emissiveCapable = SceneUniverseMaterialCanEmit(material);
+        if (emissiveCapable)
+        {
+            ++buildStats.emissiveCapableSurfaces;
+        }
+
+        const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(key);
+        const bool alreadyCountedThisFrame = existingRecord && existingRecord->seenThisFrame;
+        RtSmokePersistentStaticSurfaceRecord* record = geometryUniverse.TouchStaticSurface(key);
+        if (record)
+        {
+            if (alreadyCountedThisFrame)
+            {
+                continue;
+            }
+            ++bucketRanges.buckets[0].surfaceCount;
+            ++buildStats.surfaces;
+            buildStats.vertices += record->currentRange.vertices.count;
+            buildStats.indexes += record->currentRange.indexes.count;
+            buildStats.triangles += record->currentRange.triangles.count;
+            ++classStats.staticWorldSurfaces;
+            classStats.staticWorldVerts += record->currentRange.vertices.count;
+            classStats.staticWorldIndexes += record->currentRange.indexes.count;
+            classStats.staticWorldTriangles += record->currentRange.triangles.count;
+            SceneUniverseAddSmokeMaterialStats(materialStats, material, record->currentRange.indexes.count);
+            continue;
+        }
+
+        if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, PT_SCENE_UNIVERSE_STATIC_MAX_VERTS, PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES))
+        {
+            ++skipStats.limitExceeded;
+            ++buildStats.skippedLimits;
+            continue;
+        }
+
+        const RtSmokeStaticSurfaceAppend append = geometryUniverse.BeginStaticSurfaceAppend(key, surfaceClassId, materialId, tri->numVerts, tri->numIndexes);
+        const int emittedIndexes = AppendSceneUniverseStaticSurfaceGeometry(
+            entity,
+            material,
+            tri,
+            surfaceClassId,
+            materialId,
+            emissiveCapable,
+            staticVertices,
+            staticIndexes,
+            staticTriangleClasses,
+            staticTriangleMaterials,
+            skipStats,
+            attributeStats);
+        if (emittedIndexes <= 0)
+        {
+            ++buildStats.skippedZeroArea;
+            continue;
+        }
+
+        geometryUniverse.CompleteStaticSurfaceAppend(append, emittedIndexes);
+        ++bucketRanges.buckets[0].surfaceCount;
+        ++buildStats.surfaces;
+        buildStats.vertices += tri->numVerts;
+        buildStats.indexes += emittedIndexes;
+        buildStats.triangles += emittedIndexes / 3;
+        ++classStats.staticWorldSurfaces;
+        classStats.staticWorldVerts += tri->numVerts;
+        classStats.staticWorldIndexes += emittedIndexes;
+        classStats.staticWorldTriangles += emittedIndexes / 3;
+        SceneUniverseAddSmokeMaterialStats(materialStats, material, emittedIndexes);
+    }
+
+    RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];
+    staticRange.vertexOffset = 0;
+    staticRange.indexOffset = 0;
+    staticRange.triangleOffset = 0;
+    staticRange.vertexCount = static_cast<int>(staticVertices.size());
+    staticRange.indexCount = static_cast<int>(staticIndexes.size());
+    staticRange.triangleCount = static_cast<int>(staticTriangleClasses.size());
+
+    if (dumpRequested)
+    {
+        common->Printf("PathTracePrimaryPass: PT static area preload currentArea=%d portalSteps=%d selectedAreas=%d selectedSurfaces=%d/%d built surfaces=%d triangles=%d verts=%d indexes=%d skipped invalid/limits/zero=%d/%d/%d emissive=%d staticCache records=%d verts=%d indexes=%d\n",
+            selection.currentArea,
+            selection.portalSteps,
+            selection.selectedAreas,
+            selection.selectedSurfaces,
+            m_stats.staticSurfaces,
+            buildStats.surfaces,
+            buildStats.triangles,
+            buildStats.vertices,
+            buildStats.indexes,
+            buildStats.skippedInvalid,
+            buildStats.skippedLimits,
+            buildStats.skippedZeroArea,
+            buildStats.emissiveCapableSurfaces,
+            static_cast<int>(geometryUniverse.StaticSurfaceRecords().size()),
+            static_cast<int>(staticVertices.size()),
+            static_cast<int>(staticIndexes.size()));
+        for (size_t areaIndex = 0; areaIndex < selection.selectedAreaStats.size() && areaIndex < 16; ++areaIndex)
+        {
+            const RtPathTraceSceneUniverseSelectedAreaStats& area = selection.selectedAreaStats[areaIndex];
+            common->Printf("PathTracePrimaryPass: PT static area preload area[%d] area=%d depth=%d portalEdges=%d blockedEdges=%d surfaces=%d triangles=%d emissiveSurfaces=%d bounds=(%.1f %.1f %.1f)-(%.1f %.1f %.1f)\n",
+                static_cast<int>(areaIndex),
+                area.area,
+                area.depth,
+                area.portalEdges,
+                area.blockedPortalEdges,
+                area.surfaces,
+                area.triangles,
+                area.emissiveCapableSurfaces,
+                area.bounds[0].x,
+                area.bounds[0].y,
+                area.bounds[0].z,
+                area.bounds[1].x,
+                area.bounds[1].y,
+                area.bounds[1].z);
+        }
+    }
+
+    return buildStats;
+}
+
 void RtPathTraceSceneUniverse::RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, bool dumpRequested, int drawSurfStaticSurfaces, int drawSurfStaticTriangles)
 {
     if (sceneSource <= 0 && !dumpRequested)
@@ -946,6 +1146,8 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     selection.valid = true;
     std::vector<bool> selectedAreas(areaCount, false);
     std::vector<int> selectedDepth(areaCount, -1);
+    std::vector<int> selectedPortalEdges(areaCount, 0);
+    std::vector<int> selectedBlockedPortalEdges(areaCount, 0);
     std::vector<int> queue;
     queue.reserve(areaCount);
     selectedAreas[selection.currentArea] = true;
@@ -968,7 +1170,7 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
             if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
             {
                 ++selection.blockedPortalEdges;
-                continue;
+                ++selectedBlockedPortalEdges[area];
             }
 
             int nextArea = -1;
@@ -986,6 +1188,7 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
             }
 
             ++selection.portalEdgesWalked;
+            ++selectedPortalEdges[area];
             if (!selectedAreas[nextArea])
             {
                 selectedAreas[nextArea] = true;
@@ -996,8 +1199,16 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     }
 
     selection.selectedAreas = static_cast<int>(queue.size());
+    selection.selectedAreaStats.reserve(queue.size());
     for (int area : queue)
     {
+        RtPathTraceSceneUniverseSelectedAreaStats areaStats;
+        areaStats.area = area;
+        areaStats.depth = selectedDepth[area];
+        areaStats.portalEdges = selectedPortalEdges[area];
+        areaStats.blockedPortalEdges = selectedBlockedPortalEdges[area];
+        areaStats.bounds.Clear();
+        selection.selectedAreaStats.push_back(areaStats);
         if (selection.selectedAreaListCount < PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS)
         {
             selection.selectedAreaList[selection.selectedAreaListCount++] = area;
@@ -1039,6 +1250,33 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
             selection.selectedEmissiveCapableTriangles += surface.triangles;
             selectedEmissiveMaterials.emplace(surface.materialId, true);
             SceneUniverseAddMaterialStats(selection.selectedEmissiveMaterials, surface);
+        }
+
+        for (RtPathTraceSceneUniverseSelectedAreaStats& areaStats : selection.selectedAreaStats)
+        {
+            bool touchesArea = false;
+            for (int areaIndex = 0; areaIndex < surface.areaCount; ++areaIndex)
+            {
+                if (surface.areas[areaIndex] == areaStats.area)
+                {
+                    touchesArea = true;
+                    break;
+                }
+            }
+            if (!touchesArea)
+            {
+                continue;
+            }
+            ++areaStats.surfaces;
+            areaStats.triangles += surface.triangles;
+            if (surface.emissiveCapable)
+            {
+                ++areaStats.emissiveCapableSurfaces;
+            }
+            if (!surface.bounds.IsCleared())
+            {
+                areaStats.bounds.AddBounds(surface.bounds);
+            }
         }
     }
     selection.selectedMaterials = static_cast<int>(selectedMaterials.size());

@@ -73,12 +73,13 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         material->GetNumStages(),
         IsSmokeGuiDrawSurface(drawSurf) ? 1 : 0);
 
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addDefault0200=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
         classifier.sortIsGuiOrSubview ? 1 : 0,
         classifier.sortIsDecal ? 1 : 0,
         classifier.sortIsPostProcess ? 1 : 0,
         classifier.polygonOffsetDecal ? 1 : 0,
         classifier.hasScreenTexgen ? 1 : 0,
+        classifier.hasAddDefault0200Texture ? 1 : 0,
         classifier.hasAdditiveBlend ? 1 : 0,
         classifier.hasAmbientStage ? 1 : 0,
         classifier.hasAmbientBlendStage ? 1 : 0,

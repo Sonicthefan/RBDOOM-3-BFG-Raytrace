@@ -38,6 +38,7 @@ namespace {
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const int RT_SMOKE_GEOMETRY_VALIDATION_DUMP_RECORDS = 16;
+const int RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES = 64;
 
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
@@ -48,6 +49,55 @@ struct RtSmokeStaticDrawSurfCounts
     int surfaces = 0;
     int triangles = 0;
 };
+
+void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char* label)
+{
+    const int preset = idMath::ClampInt(0, 4, requestedPreset);
+    const bool mode18 = debugMode == 18;
+    const bool mode20 = debugMode == 20;
+    if (!mode18 && !mode20)
+    {
+        return;
+    }
+
+    r_pathTracingDebugMode.SetInteger(debugMode);
+    r_pathTracingSceneSource.SetInteger(3);
+    r_pathTracingRigidBlasGpuScaffold.SetInteger(1);
+    r_pathTracingRigidBlasGpuBuild.SetInteger(1);
+    r_pathTracingRigidTlasRoute.SetInteger(1);
+    r_pathTracingRigidRouteMode18.SetInteger(mode18 ? 1 : r_pathTracingRigidRouteMode18.GetInteger());
+    r_pathTracingRigidRouteMode20.SetInteger(mode20 ? 1 : r_pathTracingRigidRouteMode20.GetInteger());
+    r_pathTracingRigidRouteRemoveDynamic.SetInteger(1);
+    r_pathTracingRigidRouteEmissiveCards.SetInteger(1);
+    r_pathTracingRigidResidency.SetInteger(1);
+    r_pathTracingStaticAreaPreload.SetInteger(1);
+
+    const int portalSteps = preset == 4 ? 4 : 1;
+    r_pathTracingRigidResidencyPortalSteps.SetInteger(portalSteps);
+    r_pathTracingStaticAreaPreloadPortalSteps.SetInteger(portalSteps);
+    r_pathTracingLightAreaPortalSteps.SetInteger(portalSteps);
+
+    r_pathTracingLightAreaFilter.SetInteger(mode20 && preset >= 2 ? 1 : 0);
+    r_pathTracingLightAreaFilterApply.SetInteger(mode20 && preset == 3 ? 1 : 0);
+    r_pathTracingLightAreaOverflowMax.SetInteger(512);
+    r_pathTracingLightUniverseChurn.SetInteger(mode20 && preset >= 2 ? 1 : 0);
+
+    const int presetRigidRouteMaxInstances = preset == 4 ? 256 : 64;
+    if (r_pathTracingRigidRouteMaxInstances.GetInteger() < presetRigidRouteMaxInstances)
+    {
+        r_pathTracingRigidRouteMaxInstances.SetInteger(presetRigidRouteMaxInstances);
+    }
+
+    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d lightAreaDiag=%d lightAreaApply=%d bvhValidation=%d churn=%d overflowMax=512 rigidRouteMax=%d\n",
+        label ? label : "mode test",
+        preset,
+        portalSteps,
+        mode20 && preset >= 2 ? 1 : 0,
+        mode20 && preset == 3 ? 1 : 0,
+        preset == 4 ? 1 : 0,
+        mode20 && preset >= 2 ? 1 : 0,
+        r_pathTracingRigidRouteMaxInstances.GetInteger());
+}
 
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {
@@ -82,6 +132,31 @@ RtSmokeStaticDrawSurfCounts CountCurrentStaticDrawSurfs(const viewDef_t* viewDef
         counts.triangles += tri->numIndexes / 3;
     }
     return counts;
+}
+
+void AppendRigidResidencyBoundsOverlayLines(
+    const std::vector<RtPathTraceRigidResidencyBoundsBox>& boxes,
+    std::vector<RtPathTraceBoundsOverlayLine>& lines)
+{
+    static const int edgeStarts[12] = { 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3 };
+    static const int edgeEnds[12] = { 1, 2, 3, 0, 5, 6, 7, 4, 4, 5, 6, 7 };
+
+    for (const RtPathTraceRigidResidencyBoundsBox& box : boxes)
+    {
+        if (!box.valid || lines.size() + 12 > RT_PT_BOUNDS_OVERLAY_MAX_LINES)
+        {
+            continue;
+        }
+
+        for (int edgeIndex = 0; edgeIndex < 12; ++edgeIndex)
+        {
+            RtPathTraceBoundsOverlayLine line;
+            line.startAndPad = idVec4(box.corners[edgeStarts[edgeIndex]].x, box.corners[edgeStarts[edgeIndex]].y, box.corners[edgeStarts[edgeIndex]].z, 0.0f);
+            line.endAndPad = idVec4(box.corners[edgeEnds[edgeIndex]].x, box.corners[edgeEnds[edgeIndex]].y, box.corners[edgeEnds[edgeIndex]].z, 0.0f);
+            line.color = box.color;
+            lines.push_back(line);
+        }
+    }
 }
 
 int CountSmokeDynamicSurfaces(const RtSmokeSurfaceClassStats& stats)
@@ -301,25 +376,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     OPTICK_EVENT("PT Build Scene");
 
     const int sceneStartMs = Sys_Milliseconds();
+    const int mode18Preset = r_pathTracingMode18TestPreset.GetInteger();
+    if (mode18Preset != 0)
+    {
+        ApplySmokeRoutedScenePreset(18, mode18Preset, "mode18 test");
+        r_pathTracingMode18TestPreset.SetInteger(0);
+    }
     const int mode20Preset = r_pathTracingMode20TestPreset.GetInteger();
     if (mode20Preset != 0)
     {
-        const int preset = idMath::ClampInt(0, 3, mode20Preset);
-        r_pathTracingDebugMode.SetInteger(20);
-        r_pathTracingSceneSource.SetInteger(3);
-        r_pathTracingRigidBlasGpuScaffold.SetInteger(1);
-        r_pathTracingRigidBlasGpuBuild.SetInteger(1);
-        r_pathTracingRigidTlasRoute.SetInteger(1);
-        r_pathTracingRigidRouteMode20.SetInteger(1);
-        r_pathTracingRigidRouteRemoveDynamic.SetInteger(1);
-        r_pathTracingLightAreaPortalSteps.SetInteger(1);
-        r_pathTracingLightAreaFilter.SetInteger(preset >= 2 ? 1 : 0);
-        r_pathTracingLightAreaFilterApply.SetInteger(preset >= 3 ? 1 : 0);
-        r_pathTracingLightAreaOverflowMax.SetInteger(512);
-        common->Printf("PathTracePrimaryPass: applied mode20 test preset %d source3=1 rigidRoute=1 lightAreaDiag=%d lightAreaApply=%d overflowMax=512\n",
-            preset,
-            preset >= 2 ? 1 : 0,
-            preset >= 3 ? 1 : 0);
+        ApplySmokeRoutedScenePreset(20, mode20Preset, "mode20 test");
         r_pathTracingMode20TestPreset.SetInteger(0);
     }
     m_smokeSceneBuilt = false;
@@ -473,6 +539,37 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         if (useDrawSurfMirrorDynamicFrame)
         {
             usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, false, false, true);
+            if (r_pathTracingStaticAreaPreload.GetInteger() != 0)
+            {
+                const int staticRecordsBefore = static_cast<int>(m_smokeGeometryUniverse.StaticSurfaceRecords().size());
+                const int staticVertsBefore = static_cast<int>(m_smokeGeometryUniverse.StaticVertices().size());
+                const RtPathTraceSceneUniverseBuildStats staticAreaPreloadStats = m_sceneUniverse.BuildSelectedStaticGeometry(
+                    viewDef,
+                    m_smokeGeometryUniverse,
+                    classStats,
+                    skipStats,
+                    attributeStats,
+                    materialStats,
+                    bucketRanges,
+                    idMath::ClampInt(0, 8, r_pathTracingStaticAreaPreloadPortalSteps.GetInteger()),
+                    r_pathTracingStaticAreaPreloadDump.GetInteger() != 0);
+                if (staticAreaPreloadStats.built)
+                {
+                    usingDoomSurfaces = true;
+                    sourceSurfaces += staticAreaPreloadStats.surfaces;
+                    sourceVerts += staticAreaPreloadStats.vertices;
+                    sourceIndexes += staticAreaPreloadStats.indexes;
+                    if (static_cast<int>(m_smokeGeometryUniverse.StaticSurfaceRecords().size()) != staticRecordsBefore ||
+                        static_cast<int>(m_smokeGeometryUniverse.StaticVertices().size()) != staticVertsBefore)
+                    {
+                        staticCacheChanged = true;
+                    }
+                }
+                if (r_pathTracingStaticAreaPreloadDump.GetInteger() != 0)
+                {
+                    r_pathTracingStaticAreaPreloadDump.SetInteger(0);
+                }
+            }
             const RtSmokeSurfaceClassStats staticClassStats = classStats;
             const RtSmokeBucketRange staticBucketRange = bucketRanges.buckets[0];
             const int staticSourceSurfaces = classStats.staticWorldSurfaces;
@@ -627,6 +724,53 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
         }
     }
+    if (useDrawSurfMirrorDynamicFrame)
+    {
+        const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
+        const bool rigidResidencyEnabled =
+            r_pathTracingRigidResidency.GetInteger() != 0 &&
+            (enableRigidRouteForMode || rigidResidencyBoundsDebug);
+        const RtPathTraceRigidResidencyStats rigidResidencyStats = m_smokeGeometryUniverse.UpdateRigidResidency(
+            viewDef,
+            m_instanceUniverse,
+            rigidResidencyEnabled,
+            idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()));
+        const int boundsOverlayMode = r_pathTracingSceneBoundsOverlay.GetInteger();
+        const bool appendRigidResidencyBounds =
+            rigidResidencyEnabled &&
+            (boundsOverlayMode == 3 || boundsOverlayMode == 5 || (rigidResidencyBoundsDebug && boundsOverlayMode < 3));
+        const bool appendStaticCacheBounds =
+            boundsOverlayMode == 4 || boundsOverlayMode == 5 || boundsOverlayMode == 6;
+        if ((appendRigidResidencyBounds || appendStaticCacheBounds) &&
+            (rigidResidencyBoundsDebug || r_pathTracingSceneBoundsOverlay.GetInteger() != 0) &&
+            static_cast<int>(m_smokeBoundsOverlayLines.size()) < RT_PT_BOUNDS_OVERLAY_MAX_LINES)
+        {
+            const int remainingLines = RT_PT_BOUNDS_OVERLAY_MAX_LINES - static_cast<int>(m_smokeBoundsOverlayLines.size());
+            const int requestedResidentBoxes = Max(0, r_pathTracingSceneBoundsOverlayMax.GetInteger());
+            int remainingBoxes = Min(Min(requestedResidentBoxes, RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES), remainingLines / 12);
+            if (appendStaticCacheBounds && remainingBoxes > 0)
+            {
+                std::vector<RtPathTraceRigidResidencyBoundsBox> staticBoundsBoxes;
+                staticBoundsBoxes.reserve(remainingBoxes);
+                m_smokeGeometryUniverse.CollectStaticSurfaceBoundsBoxes(staticBoundsBoxes, remainingBoxes, boundsOverlayMode == 6);
+                AppendRigidResidencyBoundsOverlayLines(staticBoundsBoxes, m_smokeBoundsOverlayLines);
+                remainingBoxes -= static_cast<int>(staticBoundsBoxes.size());
+            }
+            if (appendRigidResidencyBounds && remainingBoxes > 0)
+            {
+                std::vector<RtPathTraceRigidResidencyBoundsBox> residentBoundsBoxes;
+                residentBoundsBoxes.reserve(remainingBoxes);
+                m_smokeGeometryUniverse.CollectRigidResidencyBoundsBoxes(residentBoundsBoxes, remainingBoxes);
+                AppendRigidResidencyBoundsOverlayLines(residentBoundsBoxes, m_smokeBoundsOverlayLines);
+            }
+            m_smokeBoundsOverlayLineCount = static_cast<int>(m_smokeBoundsOverlayLines.size());
+        }
+        if (r_pathTracingRigidResidencyDump.GetInteger() != 0)
+        {
+            m_smokeGeometryUniverse.DumpRigidResidencyStats(rigidResidencyStats, sceneSource);
+            r_pathTracingRigidResidencyDump.SetInteger(0);
+        }
+    }
     if (useDrawSurfMirrorDynamicFrame && r_pathTracingRigidTlasPlanDump.GetInteger() != 0)
     {
         const RtPathTraceRigidTlasPlanStats rigidTlasPlanStats = m_smokeGeometryUniverse.BuildRigidTlasPlanStats(m_instanceUniverse, &classStats);
@@ -700,6 +844,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
+    const int rigidRouteMaxInstances = idMath::ClampInt(1, 512, r_pathTracingRigidRouteMaxInstances.GetInteger());
     std::vector<uint32_t> fullLevelStaticEmissiveMaterialIds;
     if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
     {
@@ -709,7 +854,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     materialTableStaticIds.insert(materialTableStaticIds.end(), fullLevelStaticEmissiveMaterialIds.begin(), fullLevelStaticEmissiveMaterialIds.end());
     if (enableRigidRouteForMode)
     {
-        const std::vector<uint32_t> rigidRouteMaterialIds = m_smokeGeometryUniverse.CollectRigidRouteMaterialIds(m_instanceUniverse, 64);
+        const std::vector<uint32_t> rigidRouteMaterialIds = m_smokeGeometryUniverse.CollectRigidRouteMaterialIds(m_instanceUniverse, rigidRouteMaxInstances);
         materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
     }
     uint64 materialTableSignature = 0;
@@ -794,11 +939,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtPathTraceRigidRouteBuild rigidRouteBuild;
     if (buildRigidRouteBuffers)
     {
-        rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(m_instanceUniverse, materialTable.materialIds, 64);
+        rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(m_instanceUniverse, materialTable.materialIds, rigidRouteMaxInstances);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
-            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d verts/indexes/tris=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d max=%d seen/cache=%d/%d verts/indexes/tris=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
                 rigidRouteBuild.stats.emittedInstances,
+                rigidRouteMaxInstances,
+                rigidRouteBuild.stats.emittedSeenThisFrame,
+                rigidRouteBuild.stats.emittedFromCache,
                 rigidRouteBuild.stats.vertices,
                 rigidRouteBuild.stats.indexes,
                 rigidRouteBuild.stats.triangles,
@@ -859,11 +1007,35 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         const int fullLevelStaticEmissiveTriangles = emissiveInventoryStats.fullLevelStaticTriangles;
         const int routedRigidEmissiveTriangles = emissiveInventoryStats.routedRigidTriangles;
+        const int routedRigidInstances = emissiveInventoryStats.routedRigidInstances;
+        const int routedRigidSeenInstances = emissiveInventoryStats.routedRigidSeenInstances;
+        const int routedRigidCacheInstances = emissiveInventoryStats.routedRigidCacheInstances;
+        const int routedRigidEmissiveInstances = emissiveInventoryStats.routedRigidEmissiveInstances;
+        const int routedRigidEmissiveSeenInstances = emissiveInventoryStats.routedRigidEmissiveSeenInstances;
+        const int routedRigidEmissiveCacheInstances = emissiveInventoryStats.routedRigidEmissiveCacheInstances;
+        const int routedRigidCapturedTriangles = emissiveInventoryStats.routedRigidCapturedTriangles;
+        const int routedRigidCappedTriangles = emissiveInventoryStats.routedRigidCappedTriangles;
+        const int routedRigidInvalidTriangles = emissiveInventoryStats.routedRigidInvalidTriangles;
+        const int routedRigidNonEmissiveTriangles = emissiveInventoryStats.routedRigidNonEmissiveTriangles;
+        const float routedRigidArea = emissiveInventoryStats.routedRigidArea;
+        const float routedRigidWeightedLuminance = emissiveInventoryStats.routedRigidWeightedLuminance;
         const int runtimeInactiveEmissiveTrianglesBeforeStatsRebuild = emissiveInventoryStats.skippedRuntimeInactiveTriangles;
         FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, emissiveInventoryStats);
         emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
         emissiveInventoryStats.fullLevelStaticTriangles = fullLevelStaticEmissiveTriangles;
         emissiveInventoryStats.routedRigidTriangles = routedRigidEmissiveTriangles;
+        emissiveInventoryStats.routedRigidInstances = routedRigidInstances;
+        emissiveInventoryStats.routedRigidSeenInstances = routedRigidSeenInstances;
+        emissiveInventoryStats.routedRigidCacheInstances = routedRigidCacheInstances;
+        emissiveInventoryStats.routedRigidEmissiveInstances = routedRigidEmissiveInstances;
+        emissiveInventoryStats.routedRigidEmissiveSeenInstances = routedRigidEmissiveSeenInstances;
+        emissiveInventoryStats.routedRigidEmissiveCacheInstances = routedRigidEmissiveCacheInstances;
+        emissiveInventoryStats.routedRigidCapturedTriangles = routedRigidCapturedTriangles;
+        emissiveInventoryStats.routedRigidCappedTriangles = routedRigidCappedTriangles;
+        emissiveInventoryStats.routedRigidInvalidTriangles = routedRigidInvalidTriangles;
+        emissiveInventoryStats.routedRigidNonEmissiveTriangles = routedRigidNonEmissiveTriangles;
+        emissiveInventoryStats.routedRigidArea = routedRigidArea;
+        emissiveInventoryStats.routedRigidWeightedLuminance = routedRigidWeightedLuminance;
         emissiveInventoryStats.skippedRuntimeInactiveTriangles = runtimeInactiveEmissiveTrianglesBeforeStatsRebuild;
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
@@ -884,6 +1056,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingLightAreaFilter.GetInteger() != 0,
             r_pathTracingLightAreaFilterApply.GetInteger() != 0,
             idMath::ClampInt(0, maxEmissiveRecords, r_pathTracingLightAreaOverflowMax.GetInteger()),
+            r_pathTracingLightUniverseChurn.GetInteger() != 0,
             r_pathTracingLightUniversePersistDynamic.GetInteger() != 0,
             r_pathTracingLightUniverseInjectMissingDynamic.GetInteger() != 0,
             idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
@@ -1017,6 +1190,56 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             lightUniverseStats.injectedMissingDynamicTriangles,
             emissiveInventoryStats.capturedTriangles,
             runtimeInactiveEmissiveTriangles);
+        common->Printf("PathTracePrimaryPass: RT smoke light churn enabled=%d previous/current/stayed/entered/left=%d/%d/%d/%d/%d weight previous/current/stayed/entered/left=%.3f/%.3f/%.3f/%.3f/%.3f\n",
+            lightUniverseStats.activeChurnEnabled,
+            lightUniverseStats.activeChurnPrevious,
+            lightUniverseStats.activeChurnCurrent,
+            lightUniverseStats.activeChurnStayed,
+            lightUniverseStats.activeChurnEntered,
+            lightUniverseStats.activeChurnLeft,
+            lightUniverseStats.activeChurnPreviousWeight,
+            lightUniverseStats.activeChurnCurrentWeight,
+            lightUniverseStats.activeChurnStayedWeight,
+            lightUniverseStats.activeChurnEnteredWeight,
+            lightUniverseStats.activeChurnLeftWeight);
+        if (lightUniverseStats.enteredSampleCount > 0)
+        {
+            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.enteredSampleCount; ++sampleIndex)
+            {
+                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.enteredSamples[sampleIndex];
+                if (!sample.valid)
+                {
+                    continue;
+                }
+                common->Printf("PathTracePrimaryPass: RT smoke light churn entered sample %d area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
+                    sampleIndex,
+                    sample.areaNum,
+                    sample.materialId,
+                    sample.materialIndex,
+                    sample.area,
+                    sample.weight,
+                    sample.distance);
+            }
+        }
+        if (lightUniverseStats.leftSampleCount > 0)
+        {
+            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.leftSampleCount; ++sampleIndex)
+            {
+                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.leftSamples[sampleIndex];
+                if (!sample.valid)
+                {
+                    continue;
+                }
+                common->Printf("PathTracePrimaryPass: RT smoke light churn left sample %d area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
+                    sampleIndex,
+                    sample.areaNum,
+                    sample.materialId,
+                    sample.materialIndex,
+                    sample.area,
+                    sample.weight,
+                    sample.distance);
+            }
+        }
         r_pathTracingLightUniverseDump.SetInteger(0);
     }
 
@@ -1280,7 +1503,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidTlasRouteInstances,
             2,
             0x02,
-            64);
+            rigidRouteMaxInstances);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
             common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",

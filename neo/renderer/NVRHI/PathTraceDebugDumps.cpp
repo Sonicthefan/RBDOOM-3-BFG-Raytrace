@@ -767,7 +767,7 @@ void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats)
         }
 
         const RtSmokeTranslucentClassifierInfo& info = sample.info;
-        common->Printf("PathTracePrimaryPass: RT smoke translucent sample surf=%d subtype=%s material='%s' coverage=%s sort=%.2f deform=%s verts=%d indexes=%d flags guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
+        common->Printf("PathTracePrimaryPass: RT smoke translucent sample surf=%d subtype=%s material='%s' coverage=%s sort=%.2f deform=%s verts=%d indexes=%d flags guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addDefault0200=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
             sample.surfaceIndex,
             SmokeTranslucentSubtypeName(sample.subtype),
             sample.materialName.c_str(),
@@ -781,6 +781,7 @@ void LogSmokeTranslucentSubtypeDump(const RtSmokeMaterialStats& stats)
             info.sortIsPostProcess ? 1 : 0,
             info.polygonOffsetDecal ? 1 : 0,
             info.hasScreenTexgen ? 1 : 0,
+            info.hasAddDefault0200Texture ? 1 : 0,
             info.hasAdditiveBlend ? 1 : 0,
             info.hasAmbientStage ? 1 : 0,
             info.hasAmbientBlendStage ? 1 : 0,
@@ -1447,10 +1448,12 @@ void RunSmokeEmissiveInventoryDiagnosticTriggers(const RtSmokeEmissiveInventoryD
         return;
     }
 
-    if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0)
+    if (r_pathTracingEmissiveInventoryDump.GetInteger() != 0 ||
+        r_pathTracingRigidRouteEmissiveDump.GetInteger() != 0)
     {
         LogSmokeEmissiveInventoryDump(desc.materialTable->materialIds, *desc.emissiveTriangles, *desc.emissiveInventoryStats);
         r_pathTracingEmissiveInventoryDump.SetInteger(0);
+        r_pathTracingRigidRouteEmissiveDump.SetInteger(0);
     }
 }
 

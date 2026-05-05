@@ -77,10 +77,13 @@ static map/world surfaces from `renderWorld`, but it must not try to own:
 
 Those stay in the live drawSurf/dynamic path until explicitly promoted.
 
-DrawSurf capture is the live truth. For anything that is not proven static-world
-geometry, the first reliable source is the final visible raster drawSurf stream.
-This does not make the drawSurf list the final perfect path-tracing scene; it
-means it is the safest live input while the real scene producer is being built.
+DrawSurf capture is the live freshness path, not the final residency rule. For
+anything that is not proven static-world geometry, the first reliable source of
+fresh transforms/materials is the final visible raster drawSurf stream. For
+path tracing residency, rigid/static geometry must eventually be kept by Doom
+area/portal membership: at minimum the current player cell plus selected
+adjacent cells. A raster-visible-only BVH repeats the old failed behavior where
+occluded emissives and their shadow-casting geometry disappear together.
 
 Do not implement ReSTIR, temporal reuse, or light-list features before geometry
 works. Persistent emissive lights, area lists, and temporal remapping are later

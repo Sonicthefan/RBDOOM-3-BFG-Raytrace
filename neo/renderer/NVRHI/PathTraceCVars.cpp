@@ -13,7 +13,13 @@ idCVar r_pathTracingMode20TestPreset(
     "r_pathTracingMode20TestPreset",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "One-shot mode 20 PT test preset: 1 = source3 routed rigid mode20, 2 = plus light-area diagnostics, 3 = plus light-area apply" );
+    "One-shot mode 20 PT test preset: 1 = source3 routed rigid mode20, 2 = plus light-area diagnostics, 3 = plus light-area apply, 4 = BVH validation stack with no light-area apply" );
+
+idCVar r_pathTracingMode18TestPreset(
+    "r_pathTracingMode18TestPreset",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot mode 18 toy PT test preset: 1 = source3 routed rigid mode18, 4 = depth-4 static/rigid residency validation stack" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -92,6 +98,12 @@ idCVar r_pathTracingEmissiveInventoryDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump current RT smoke emissive triangle inventory once" );
+
+idCVar r_pathTracingRigidRouteEmissiveDump(
+    "r_pathTracingRigidRouteEmissiveDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current routed-rigid emissive append diagnostics once" );
 
 idCVar r_pathTracingEmissiveInventoryMaxTriangles(
     "r_pathTracingEmissiveInventoryMaxTriangles",
@@ -201,11 +213,59 @@ idCVar r_pathTracingRigidRouteRemoveDynamic(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental mode 24/25 validation gate: remove routed-ready rigid candidates from the dynamic fallback after BLAS route overlap validates" );
 
+idCVar r_pathTracingRigidRouteEmissiveCards(
+    "r_pathTracingRigidRouteEmissiveCards",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental source3 rigid route gate: promote safe entity-attached translucent signage/glow cards into rigid residency so off-camera emissive panels remain routable" );
+
+idCVar r_pathTracingRigidRouteMaxInstances(
+    "r_pathTracingRigidRouteMaxInstances",
+    "64",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors for experimental rigid route integration" );
+
+idCVar r_pathTracingRigidResidency(
+    "r_pathTracingRigidResidency",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Keep cached source3 rigid instances resident for the current Doom area plus portal-adjacent areas instead of only raster-visible drawSurfs" );
+
+idCVar r_pathTracingRigidResidencyPortalSteps(
+    "r_pathTracingRigidResidencyPortalSteps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Portal traversal depth for source3 rigid geometry residency; default keeps current area plus directly connected portal areas" );
+
+idCVar r_pathTracingRigidResidencyDump(
+    "r_pathTracingRigidResidencyDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump source3 rigid geometry portal residency stats once" );
+
+idCVar r_pathTracingStaticAreaPreload(
+    "r_pathTracingStaticAreaPreload",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Preload source3 static-world geometry for the current Doom area plus portal-adjacent areas instead of waiting for raster drawSurfs" );
+
+idCVar r_pathTracingStaticAreaPreloadPortalSteps(
+    "r_pathTracingStaticAreaPreloadPortalSteps",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Portal traversal depth for source3 static-world area preload; default keeps current area plus directly connected portal areas" );
+
+idCVar r_pathTracingStaticAreaPreloadDump(
+    "r_pathTracingStaticAreaPreloadDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump source3 static-world area preload stats once" );
+
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "PT drawSurf mirror bounds overlay: 0 = off, 1 = eligible rigid candidates only, 2 = all mirrored categories" );
+    "PT bounds overlay: 0 = off, 1 = eligible rigid drawSurf candidates plus resident rigid, 2 = all mirrored categories plus resident rigid, 3 = resident rigid only, 4 = current static cache first, 5 = static cache plus resident rigid, 6 = cache-only static first" );
 
 idCVar r_pathTracingSceneBoundsOverlayMax(
     "r_pathTracingSceneBoundsOverlayMax",
@@ -296,6 +356,12 @@ idCVar r_pathTracingLightUniverseDynamicMaxMissingFrames(
     "90",
     CVAR_RENDERER | CVAR_INTEGER,
     "Frames a promoted semi-static dynamic emissive may be missing before it is aged out of the light universe" );
+
+idCVar r_pathTracingLightUniverseChurn(
+    "r_pathTracingLightUniverseChurn",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Track frame-to-frame changes in the uploaded RT smoke emissive light set for portal-edge stability diagnostics" );
 
 idCVar r_pathTracingLightAreaPortalSteps(
     "r_pathTracingLightAreaPortalSteps",
@@ -488,6 +554,12 @@ idCVar r_pathTracingReservoirTwoSidedEmissives(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Treat mode 20 reservoir emissive triangle samples as two-sided for diagnostics" );
+
+idCVar r_pathTracingReservoirCandidateTrials(
+    "r_pathTracingReservoirCandidateTrials",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 20 emissive reservoir candidate trials per pixel; higher values improve off-screen light selection at extra shader cost" );
 
 idCVar r_pathTracingSmokeParticleDither(
     "r_pathTracingSmokeParticleDither",

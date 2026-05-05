@@ -21,9 +21,11 @@ const int RT_PT_RIGID_BLAS_PLAN_SAMPLES = 8;
 const int RT_PT_RIGID_BLAS_INPUT_SAMPLES = 8;
 const int RT_PT_RIGID_BLAS_GPU_SAMPLES = 8;
 const int RT_PT_RIGID_TLAS_PLAN_SAMPLES = 8;
+const int RT_PT_RIGID_RESIDENCY_SAMPLES = 8;
 
 struct RtSmokeSurfaceClassStats;
 struct srfTriangles_t;
+struct viewDef_t;
 class RtPathTraceInstanceUniverse;
 
 struct RtSmokeGeometryUniverseStats
@@ -363,6 +365,8 @@ struct RtPathTraceRigidRouteBuildStats
     int indexes = 0;
     int triangles = 0;
     int missingMaterialTableIndex = 0;
+    int emittedSeenThisFrame = 0;
+    int emittedFromCache = 0;
 };
 
 struct RtPathTraceRigidRouteBuild
@@ -373,7 +377,78 @@ struct RtPathTraceRigidRouteBuild
     std::vector<uint32_t> triangleMaterialIndexes;
     std::vector<PathTraceRigidRouteInstance> instances;
     std::vector<std::array<float, 16>> instanceObjectToWorld;
+    std::vector<uint32_t> instanceSeenThisFrame;
     RtPathTraceRigidRouteBuildStats stats;
+};
+
+struct RtPathTraceRigidResidencySample
+{
+    bool valid = false;
+    uint64 meshHash = 0;
+    uint64 instanceId = 0;
+    int area = -1;
+    int drawSurfIndex = -1;
+    int entityIndex = -1;
+    int renderEntityNum = -1;
+    int lastSeenFrame = 0;
+    bool seenThisFrame = false;
+    bool selectedArea = false;
+    bool routeReady = false;
+    idVec3 origin = vec3_origin;
+    idStr materialName;
+    idStr modelName;
+};
+
+struct RtPathTraceRigidResidencyBoundsBox
+{
+    bool valid = false;
+    bool seenThisFrame = false;
+    bool routeReady = false;
+    bool missingBlas = false;
+    int area = -1;
+    idVec3 corners[8];
+    idVec4 color = idVec4(0.0f, 1.0f, 1.0f, 1.0f);
+};
+
+struct RtPathTraceRigidResidencyStats
+{
+    int enabled = 0;
+    int currentArea = -1;
+    int totalAreas = 0;
+    int portalSteps = 1;
+    int selectedAreas = 0;
+    int portalEdges = 0;
+    int blockedPortalEdges = 0;
+    int visibleRigidInstances = 0;
+    int cachedRigidInstances = 0;
+    int residentInstances = 0;
+    int residentSeenThisFrame = 0;
+    int residentFromCache = 0;
+    int residentRouteReady = 0;
+    int residentMissingMesh = 0;
+    int residentMissingBlas = 0;
+    int skippedOutsideArea = 0;
+    int skippedUnknownArea = 0;
+    uint64 frameIndex = 0;
+    uint64 generation = 1;
+    RtPathTraceRigidResidencySample samples[RT_PT_RIGID_RESIDENCY_SAMPLES];
+    int sampleCount = 0;
+};
+
+struct RtPathTraceRigidRouteInstanceObservation
+{
+    uint64 instanceId = 0;
+    uint64 meshHash = 0;
+    int entityIndex = -1;
+    int renderEntityNum = -1;
+    int drawSurfIndex = -1;
+    int currentArea = -1;
+    uint32_t materialOverrideId = 0;
+    uint32_t sourceFlags = 0;
+    bool seenThisFrame = true;
+    float objectToWorld[16] = {};
+    idStr materialName;
+    idStr modelName;
 };
 
 enum class RtSmokeGeometryBufferFormat : uint32_t
@@ -475,6 +550,15 @@ public:
     RtPathTraceRigidBlasGpuStats UpdateRigidBlasGpuScaffold(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, bool submitBuilds);
     void ReleaseRigidBlasGpuScaffold();
     void DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const;
+    RtPathTraceRigidResidencyStats UpdateRigidResidency(
+        const viewDef_t* viewDef,
+        const RtPathTraceInstanceUniverse& instanceUniverse,
+        bool enabled,
+        int portalSteps);
+    const RtPathTraceRigidResidencyStats& GetRigidResidencyStats() const;
+    void DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const;
+    void CollectRigidResidencyBoundsBoxes(std::vector<RtPathTraceRigidResidencyBoundsBox>& boxes, int maxBoxes) const;
+    void CollectStaticSurfaceBoundsBoxes(std::vector<RtPathTraceRigidResidencyBoundsBox>& boxes, int maxBoxes, bool cacheOnlyFirst) const;
     RtPathTraceRigidTlasPlanStats BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats = nullptr) const;
     void DumpRigidTlasPlanStats(const RtPathTraceRigidTlasPlanStats& stats, int sceneSource) const;
     bool IsRigidRouteReady(uint64 meshHash) const;
@@ -520,10 +604,19 @@ public:
     };
 
 private:
+    struct RigidResidentInstanceRecord
+    {
+        RtPathTraceRigidRouteInstanceObservation observation;
+        uint64 lastSeenFrame = 0;
+        bool seenThisFrame = false;
+    };
+
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
     RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
     void ResetRigidMeshCandidateFrameStats();
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
+    void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
+    void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
 
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;
@@ -538,5 +631,10 @@ private:
     std::vector<RigidMeshCandidateRecord> m_rigidMeshCandidateRecords;
     std::unordered_map<uint64, size_t> m_rigidMeshCandidateLookup;
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;
+    std::vector<RigidResidentInstanceRecord> m_rigidResidentRecords;
+    std::unordered_map<uint64, size_t> m_rigidResidentLookup;
+    std::vector<RtPathTraceRigidRouteInstanceObservation> m_rigidResidentFrameInstances;
     RtPathTraceRigidMeshCandidateStats m_rigidMeshCandidateFrameStats;
+    RtPathTraceRigidResidencyStats m_rigidResidencyStats;
+    bool m_rigidResidencyEnabled = false;
 };

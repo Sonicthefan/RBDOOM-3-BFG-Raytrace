@@ -4,6 +4,7 @@
 #include "PathTraceAcceleration.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDrawSurfCapture.h"
+#include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
@@ -117,6 +118,76 @@ uint32_t PtSourceFlagsForDrawSurf(const viewDef_t* viewDef, const drawSurf_t* dr
         flags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
     }
     return flags;
+}
+
+bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
+{
+    if (r_pathTracingRigidRouteEmissiveCards.GetInteger() == 0 ||
+        surfaceClass != RtSmokeSurfaceClass::ParticleAlpha ||
+        !drawSurf ||
+        !tri ||
+        !drawSurf->space ||
+        !drawSurf->material)
+    {
+        return false;
+    }
+
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entity = space->entityDef;
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+    const idMaterial* material = drawSurf->material;
+    const char* materialName = material->GetName();
+
+    if (!entity ||
+        IsSmokeGuiDrawSurface(drawSurf) ||
+        drawSurf->jointCache != 0 ||
+        tri->staticModelWithJoints != nullptr ||
+        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0) ||
+        (model && model->IsDynamicModel() != DM_STATIC) ||
+        (renderEntity && (renderEntity->callback != nullptr || renderEntity->forceUpdate != 0)) ||
+        (entity->dynamicModel != nullptr || entity->cachedDynamicModel != nullptr) ||
+        material->Deform() != DFRM_NONE ||
+        space->modelDepthHack != 0.0f)
+    {
+        return false;
+    }
+
+    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    if (classifier.hasScreenTexgen ||
+        classifier.hasAddDefault0200Texture ||
+        classifier.nameLooksGui ||
+        classifier.nameLooksParticle ||
+        classifier.nameLooksGlass ||
+        classifier.sortIsPostProcess ||
+        classifier.sortIsGuiOrSubview)
+    {
+        return false;
+    }
+
+    const bool looksLikeRigidEmissiveCard =
+        classifier.nameLooksSignage ||
+        classifier.nameLooksGlow;
+    const bool hasEmissiveCardStage =
+        classifier.hasAdditiveBlend ||
+        classifier.hasAmbientBlendStage ||
+        (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
+
+    return looksLikeRigidEmissiveCard &&
+        hasEmissiveCardStage &&
+        (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+}
+
+RtSmokeSurfaceClass PtMirrorEffectiveSurfaceClass(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)
+{
+    return PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, surfaceClass)
+        ? RtSmokeSurfaceClass::RigidEntity
+        : surfaceClass;
 }
 
 void BuildSceneUniverseLegacyKeySet(const RtPathTraceSceneUniverse* sceneUniverse, std::unordered_set<uint64>& keys)
@@ -351,6 +422,19 @@ void PtMirrorBoundsPointToWorld(const drawSurf_t* drawSurf, const idVec3& localP
     worldPoint = localPoint;
 }
 
+int PtMirrorResolveDrawSurfArea(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri)
+{
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld || !drawSurf || !tri)
+    {
+        return -1;
+    }
+
+    idVec3 worldCenter;
+    PtMirrorBoundsPointToWorld(drawSurf, tri->bounds.GetCenter(), worldCenter);
+    return renderWorld->PointInArea(worldCenter);
+}
+
 void PtMirrorAppendBoundsOverlayLines(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -423,7 +507,8 @@ void CapturePathTraceDrawSurfMirror(
             continue;
         }
 
-        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
         const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
         const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
@@ -454,6 +539,7 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.entityIndex = entity ? entity->index : -1;
         instanceObservation.renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
         instanceObservation.drawSurfIndex = surfaceIndex;
+        instanceObservation.currentArea = PtMirrorResolveDrawSurfArea(viewDef, drawSurf, tri);
         instanceObservation.materialOverrideId = materialId;
         instanceObservation.sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
         if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
@@ -470,7 +556,7 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.modelName = meshObservation.modelName;
 
         instanceUniverse.RecordObservation(meshObservation, instanceObservation, surfaceClass, tri->numVerts, tri->numIndexes);
-        if (boundsOverlayMode > 0 && boundsOverlayDrawn < boundsOverlayMax)
+        if ((boundsOverlayMode == 1 || boundsOverlayMode == 2) && boundsOverlayDrawn < boundsOverlayMax)
         {
             const bool eligibleRigid = PtMirrorIsEligibleRigidCandidate(meshObservation, instanceObservation);
             if (boundsOverlayLines && (boundsOverlayMode >= 2 || eligibleRigid))
@@ -600,7 +686,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
 
         const int classifyStartMs = Sys_Milliseconds();
-        const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+        const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
         captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
         if (surfaceClass == RtSmokeSurfaceClass::StaticWorld)
         {

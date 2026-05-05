@@ -291,7 +291,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     m_smokeTlas = device->createAccelStruct(nvrhi::rt::AccelStructDesc()
-        .setTopLevelMaxInstances(128)
+        .setTopLevelMaxInstances(512)
         .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
         .setDebugName("PathTraceSmokeTLAS"));
 

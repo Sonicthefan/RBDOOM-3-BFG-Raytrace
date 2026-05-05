@@ -4,7 +4,8 @@ RBDoom3 BFG RT/PT module map
 This document maps the experimental Vulkan/NVRHI RT smoke/path tracing files and
 the main feature flows that pass through them. It is meant as a navigation guide
 for humans working on the branch, not as a replacement for the implementation or
-the broader path tracing handoff notes.
+the broader path tracing handoff notes. The `pathtrace_scene_producer_*` files
+are historical intervention/build logs; this document is the durable module map.
 
 For persistent geometry guardrails around lookup cost, validation cost,
 lifecycle, thread ownership, material links, allocation, and transient geometry
@@ -61,6 +62,13 @@ The current RT/PT path is still an experimental "smoke" path:
   routed-rigid/static-preload/rigid-residency stack. Preset 4 is the current BVH
   validation shortcut with portal depth 4 and no render-affecting light-area
   filter apply.
+- Source3 RT residency uses Doom renderer area/portal selection rather than
+  current raster visibility alone. The final drawSurf stream is the freshness
+  source for transforms/material overrides/runtime registers; portal-selected
+  static preload and rigid residency are the persistence/residency layer for
+  occluded or off-camera RT geometry. Depth 4 is the current Mars City
+  validation baseline because visually continuous rooms can span several Doom
+  portal areas.
 - Routed rigid closest-hit shading now transforms local-space geometric and
   interpolated normals into world space through the TLAS instance transform and
   constructs a world-space tangent basis for later lighting validation.
@@ -160,6 +168,24 @@ PathTraceSceneCapture.cpp
     shader registers; stable material metadata only describes emissive
     capability, not whether a surface is currently emitting.
 
+PathTraceSceneUniverse.h
+    Diagnostics/static-preload scene-universe declarations. Defines direct
+    renderer-world static surface records, area/material stats, selected-area
+    portal-walk stats, and static geometry build stats. This module is useful
+    for map inventory, area membership, and source3 static preload support; it
+    is not the primary live scene representation.
+
+PathTraceSceneUniverse.cpp
+    Direct render-world scanner for static map/world data. It walks renderer
+    entities and model surfaces without depending on the final raster drawSurf
+    list, computes static surface keys, emissive-capable material summaries,
+    bounds/area membership, selected-area portal diagnostics, and optional
+    selected/full static geometry appends. It should remain diagnostics/preload
+    infrastructure: do not feed its records as the universal RT scene source or
+    synthesize live rigid/skinned/dynamic drawSurfs from it. Its portal-area
+    selected static append path is used to seed static-world cache records that
+    Doom raster visibility has not submitted this frame.
+
 PathTraceDrawSurfCapture.h
     DrawSurf mirror declarations for the source3 scene producer scaffold.
     Exposes mesh observations, instance observations, bounds-overlay records,
@@ -231,9 +257,12 @@ PathTraceGeometryUniverse.cpp
     builds. With the explicit rigid route gates, it can feed routed rigid TLAS
     instances into modes 18/20/23/24/25 and can keep cached rigid instances
     resident by Doom area/portal selection rather than current raster
-    submission alone. Future work should expand persistent records, dirty
-    ranges, current/previous transform history, and per-frame material-state
-    handling needed for moving/game-driven surfaces and temporal reconstruction.
+    submission alone. The residency path uses last-known transform/material
+    metadata for cached rigid instances, so moving off-screen objects still need
+    a later per-frame freshness/update design. Future work should expand
+    persistent records, dirty ranges, current/previous transform history, and
+    per-frame material-state handling needed for moving/game-driven surfaces and
+    temporal reconstruction.
 
 PathTraceSkinning.h
     Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
@@ -350,8 +379,9 @@ PathTraceLightUniverse.cpp
     their matching occluder geometry is not persistent yet. The merged list is
     still capped by r_pathTracingEmissiveInventoryMaxTriangles. The area filter
     path can report selected, connected-overflow, disconnected, and unknown
-    light candidates; apply mode is separate and remains an explicit
-    render-affecting experiment.
+    light candidates using the same broad portal traversal policy as geometry
+    residency. Apply mode is separate and remains an explicit render-affecting
+    experiment.
 
 PathTraceReservoirs.h
     ReSTIR/PT reservoir record layout and screen-sized buffer ownership
@@ -466,6 +496,7 @@ Primary files involved:
 - PathTraceSmokeResources.*
 - PathTraceGeometry.*
 - PathTraceGeometryUniverse.*
+- PathTraceSceneUniverse.*
 - PathTraceSceneCapture.*
 - PathTraceSmokeDispatch.cpp
 
@@ -475,29 +506,38 @@ Typical flow:
    PathTraceGeometryUniverse.
 2. PathTraceSceneCapture currently produces static/dynamic triangle buckets and
    asks the universe to look up or complete static surface appends.
-3. For source3, PathTraceDrawSurfCapture mirrors the final visible drawSurf
+3. PathTraceSceneUniverse can provide static map diagnostics and, when source3
+   static area preload is enabled, selected-area static-world preload records.
+   It does not own the live dynamic/rigid/skinned scene. Its selected-area walk
+   uses Doom renderer portal areas, and currently counts but does not block on
+   `PS_BLOCK_VIEW`.
+4. For source3, PathTraceDrawSurfCapture mirrors the final visible drawSurf
    stream after old capture has done the stable static-cache work. It records
    mesh identity without transform and per-frame instance identity with
-   transform/material/entity metadata.
-4. PathTraceInstanceUniverse tracks those observations for diagnostics and
+   transform/material/entity metadata. Treat this as freshness input, not the
+   complete RT residency rule.
+5. PathTraceInstanceUniverse tracks those observations for diagnostics and
    moved-rigid history. The geometry universe consumes the current/cached rigid
    observations when rigid route/residency gates are enabled.
-5. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates,
+6. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates,
    CPU rigid BLAS plans/input descriptors, default-off GPU scaffold records for
    local-space rigid mesh buffers/standalone BLAS builds, rigid residency
    records, and rigid TLAS instance plans. In gated validation/integration
    modes, routed-ready rigid triangles can be removed from the dynamic fallback
-   and traced through the reusable rigid route.
-6. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
+   and traced through the reusable rigid route. Rigid residency selects
+   last-known cached instances by Doom renderer area/portal membership so
+   occluded rigid props are not dropped purely because raster stopped submitting
+   them.
+7. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
-7. PathTraceSmokeResources creates geometry/material/emissive buffers.
-8. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
+8. PathTraceSmokeResources creates geometry/material/emissive buffers.
+9. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
    submits BLAS/TLAS builds. Its TLAS submit helper appends routed rigid
    instances when the explicit rigid route gates and compatible debug or
    integration mode are enabled.
-9. PathTraceSmokeResources commits the successful handles to pass state.
-10. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
-11. RenderBackend.cpp blits the RT output as the 3D scene. With
+10. PathTraceSmokeResources commits the successful handles to pass state.
+11. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
+12. RenderBackend.cpp blits the RT output as the 3D scene. With
    r_pathTracingSkipRaster3D enabled, the backend skips the remaining normal 3D
    raster passes for that view; subsequent GUI/HUD/menu views still rasterize.
 
@@ -518,6 +558,15 @@ Riskier places to touch:
 - Static BLAS cache eligibility in PathTraceSmokeSceneBuild.cpp.
 - Static surface identity or append semantics in PathTraceSceneCapture.cpp or
   PathTraceGeometryUniverse.cpp.
+- Treating PathTraceSceneUniverse as the live universal scene source. It lacks
+  the final raster-submitted dynamic, skinned, material-override, and
+  game-logic state needed for the primary scene producer.
+- Treating current raster visibility as the complete BVH residency rule. That
+  repeats the earlier failure mode where occluded/off-camera emissives and
+  shadow-casting rigid geometry disappear together.
+- Treating current+1 portal depth as a proven global rule. It was too shallow
+  in Mars City; use preset 4/depth 4 for the current validation path and keep
+  normal defaults conservative until broader maps are tested.
 - Mesh key semantics in PathTraceDrawSurfCapture.cpp. Mesh identity must not
   include model matrices or current transforms.
 - Upload skip flags in the RtSmokeBufferUploadItem array.

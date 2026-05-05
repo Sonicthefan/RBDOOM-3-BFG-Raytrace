@@ -453,6 +453,10 @@ bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtS
     {
         return false;
     }
+    if (classifier.hasAddDefault0200Texture)
+    {
+        return false;
+    }
 
     return classifier.sortIsDecal ||
         classifier.polygonOffsetDecal ||
@@ -533,6 +537,7 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     if (classifier.hasScreenTexgen ||
+        classifier.hasAddDefault0200Texture ||
         classifier.sortIsGuiOrSubview ||
         classifier.sortIsPostProcess ||
         classifier.nameLooksGui ||
@@ -543,7 +548,7 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
         return nullptr;
     }
 
-    const bool nameLooksEmissive = classifier.nameLooksGlow || classifier.nameLooksSignage;
+    const bool nameLooksEmissive = !classifier.hasAddDefault0200Texture && (classifier.nameLooksGlow || classifier.nameLooksSignage);
     const float* constantRegisters = material->ConstantRegisters();
     const int registerCount = material->GetNumRegisters();
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -622,6 +627,7 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
     const bool allowTranslucentCutout =
         material->Coverage() == MC_TRANSLUCENT &&
         !classifier.hasScreenTexgen &&
+        !classifier.hasAddDefault0200Texture &&
         !classifier.nameLooksGui &&
         !classifier.nameLooksParticle &&
         (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);

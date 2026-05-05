@@ -188,6 +188,11 @@ RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* draw
         return RtSmokeTranslucentSubtype::ObjectGlass;
     }
 
+    if (info.hasAddDefault0200Texture)
+    {
+        return RtSmokeTranslucentSubtype::Unknown;
+    }
+
     if (info.hasAdditiveBlend ||
         (info.hasAmbientStage && !info.hasDiffuseStage && info.nameLooksGlow) ||
         (info.hasAmbientBlendStage && info.nameLooksGlow) ||

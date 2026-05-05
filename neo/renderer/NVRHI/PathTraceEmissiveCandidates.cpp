@@ -256,12 +256,26 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
         const PathTraceRigidRouteInstance& routeInstance = rigidRouteBuild.instances[instanceIndex];
         const float* objectToWorld = rigidRouteBuild.instanceObjectToWorld[instanceIndex].data();
         const uint32_t routeTlasInstanceId = static_cast<uint32_t>(2 + instanceIndex);
+        const bool seenThisFrame =
+            instanceIndex >= static_cast<int>(rigidRouteBuild.instanceSeenThisFrame.size()) ||
+            rigidRouteBuild.instanceSeenThisFrame[instanceIndex] != 0u;
+        bool countedEmissiveInstance = false;
+        ++stats.routedRigidInstances;
+        if (seenThisFrame)
+        {
+            ++stats.routedRigidSeenInstances;
+        }
+        else
+        {
+            ++stats.routedRigidCacheInstances;
+        }
         for (uint32_t localTriangleIndex = 0; localTriangleIndex < routeInstance.triangleCount; ++localTriangleIndex)
         {
             const uint32_t globalTriangleIndex = routeInstance.triangleOffset + localTriangleIndex;
             if (globalTriangleIndex >= rigidRouteBuild.triangleMaterialIndexes.size())
             {
                 ++stats.skippedInvalidMaterialTriangles;
+                ++stats.routedRigidInvalidTriangles;
                 continue;
             }
 
@@ -269,19 +283,35 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             if (materialIndex >= materialViews.size() || materialIndex >= materialIds.size())
             {
                 ++stats.skippedInvalidMaterialTriangles;
+                ++stats.routedRigidInvalidTriangles;
                 continue;
             }
 
             const PathTraceSmokeMaterial& material = materialViews[materialIndex];
             if ((material.flags & emissiveMaterialFlag) == 0)
             {
+                ++stats.routedRigidNonEmissiveTriangles;
                 continue;
+            }
+            if (!countedEmissiveInstance)
+            {
+                countedEmissiveInstance = true;
+                ++stats.routedRigidEmissiveInstances;
+                if (seenThisFrame)
+                {
+                    ++stats.routedRigidEmissiveSeenInstances;
+                }
+                else
+                {
+                    ++stats.routedRigidEmissiveCacheInstances;
+                }
             }
 
             const uint32_t indexOffset = routeInstance.indexOffset + localTriangleIndex * 3u;
             if (indexOffset + 2u >= rigidRouteBuild.indexes.size())
             {
                 ++stats.skippedInvalidMaterialTriangles;
+                ++stats.routedRigidInvalidTriangles;
                 continue;
             }
 
@@ -291,6 +321,7 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             if (i0 >= rigidRouteBuild.vertices.size() || i1 >= rigidRouteBuild.vertices.size() || i2 >= rigidRouteBuild.vertices.size())
             {
                 ++stats.skippedInvalidMaterialTriangles;
+                ++stats.routedRigidInvalidTriangles;
                 continue;
             }
 
@@ -327,10 +358,13 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             const float sampleWeight = area * luminance;
             stats.totalArea += area;
             stats.totalWeightedLuminance += sampleWeight;
+            stats.routedRigidArea += area;
+            stats.routedRigidWeightedLuminance += sampleWeight;
 
             if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
             {
                 ++stats.cappedTriangles;
+                ++stats.routedRigidCappedTriangles;
                 continue;
             }
 
@@ -375,6 +409,7 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
             record.padding0 = rigidClassAndFlags;
             emissiveTriangles.push_back(record);
+            ++stats.routedRigidCapturedTriangles;
         }
     }
 
@@ -800,6 +835,7 @@ RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
         if (record.instanceId >= 2u && surfaceClass == SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity))
         {
             ++stats.routedRigidTriangles;
+            ++stats.routedRigidCapturedTriangles;
         }
         stats.totalArea += record.centerAndArea[3];
         stats.totalWeightedLuminance += record.sampleWeightAndPdf[0];
@@ -872,6 +908,20 @@ void LogSmokeEmissiveInventoryDump(
         stats.skippedInvalidMaterialTriangles,
         stats.totalArea,
         stats.totalWeightedLuminance);
+    common->Printf("PathTracePrimaryPass: RT smoke routed rigid emissives routeInstances=%d seen/cache=%d/%d emissiveInstances=%d seen/cache=%d/%d triangles considered/captured/capped=%d/%d/%d nonEmissive=%d invalid=%d area=%.2f weight=%.3f\n",
+        stats.routedRigidInstances,
+        stats.routedRigidSeenInstances,
+        stats.routedRigidCacheInstances,
+        stats.routedRigidEmissiveInstances,
+        stats.routedRigidEmissiveSeenInstances,
+        stats.routedRigidEmissiveCacheInstances,
+        stats.routedRigidTriangles,
+        stats.routedRigidCapturedTriangles,
+        stats.routedRigidCappedTriangles,
+        stats.routedRigidNonEmissiveTriangles,
+        stats.routedRigidInvalidTriangles,
+        stats.routedRigidArea,
+        stats.routedRigidWeightedLuminance);
 
     common->Printf("PathTracePrimaryPass: RT smoke emissive candidates materials=%d textured=%d untextured=%d triangles=%d area=%.2f areaWeightedLum=%.3f\n",
         stats.candidateMaterials,

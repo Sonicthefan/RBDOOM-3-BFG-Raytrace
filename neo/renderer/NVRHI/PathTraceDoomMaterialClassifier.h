@@ -19,6 +19,7 @@ struct RtSmokeTranslucentClassifierInfo
     bool hasAmbientStage = false;
     bool hasAmbientBlendStage = false;
     bool hasDiffuseStage = false;
+    bool hasAddDefault0200Texture = false;
     bool nameLooksGui = false;
     bool nameLooksParticle = false;
     bool nameLooksDecal = false;

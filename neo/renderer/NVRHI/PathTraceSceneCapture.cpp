@@ -315,7 +315,7 @@ static bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const bool nameLooksEmissive = classifier.nameLooksGlow || classifier.nameLooksSignage;
+    const bool nameLooksEmissive = !classifier.hasAddDefault0200Texture && (classifier.nameLooksGlow || classifier.nameLooksSignage);
     const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
     const int registerCount = material->GetNumRegisters();
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)

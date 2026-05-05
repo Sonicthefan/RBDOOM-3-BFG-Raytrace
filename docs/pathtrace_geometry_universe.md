@@ -35,11 +35,41 @@ Geometry scope:
 
 - The persistent record model is for static and later semi-static geometry with
   stable identity.
+- Static-world cache population and routed rigid residency must not depend only
+  on the current raster-visible drawSurf list. Raster visibility is a freshness
+  source, not a complete RT residency rule.
 - Do not route muzzle flashes, particles, sparks, temporary overlays, decals
   that exist for only one frame, or other one-frame transient effects into
   persistent records.
 - Transient/dynamic data should stay in the per-frame dynamic capture path until
   it has a deliberate identity/history design.
+
+Area/portal residency:
+
+- Source3 static preload and rigid residency use Doom renderer area/portal
+  membership to keep RT geometry available when raster culling stops submitting
+  it. The current area source is the renderer area API:
+  `PointInArea`, `NumPortalsInArea`, and `GetPortal`.
+- Do not use raw BSP leaf/internal cells as the RT residency unit. The useful
+  unit in the current implementation is Doom renderer portal areas.
+- `PathTraceSceneUniverse` may scan static map/world surfaces and provide
+  selected-area static preload records, but it must remain static
+  diagnostics/preload. It is not allowed to synthesize dynamic, skinned,
+  material-override, callback, or game-logic-driven scene records.
+- Rigid residency keeps cached route-ready rigid instances whose last known
+  area is in the selected area set. It uses last observed transform/material
+  metadata for cache-only instances; this is acceptable for static-ish rigid
+  props, but moving off-screen objects need later per-frame update/freshness
+  work.
+- Current+1 portal selection was disproven as a general validation rule in Mars
+  City. Many visually continuous rooms are several renderer portal areas deep.
+  Depth 4 is the current validation baseline used by the mode 18/20 preset 4
+  stack for static preload, rigid residency, and light-area diagnostics.
+- `PS_BLOCK_VIEW` portal edges are counted and reported, but currently do not
+  stop source3 static preload, rigid residency, or light-area traversal. This is
+  deliberate while validating RT residency because hard-blocking on Doom raster
+  visibility state reproduced missing-BVH behavior. Revisit this only with a
+  stronger portal taxonomy and targeted tests.
 
 Lifecycle:
 

@@ -141,6 +141,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyLightScale.GetFloat(), 1000.0f);
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyEmissiveScale.GetFloat(), 1000.0f);
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, toyMaxRayDistance, 10.0f);
+    accumulationSignature = HashSmokeDispatchValue(
+        accumulationSignature,
+        static_cast<uint64>(idMath::ClampInt(1, 16, r_pathTracingReservoirCandidateTrials.GetInteger())));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(requestedLightCount));
     accumulationSignature = HashSmokeDispatchValue(
         accumulationSignature,
@@ -259,7 +262,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.toyPathInfo[3] = static_cast<float>(accumulationFrameCount);
     constants.emissiveInfo[0] = static_cast<float>(m_smokeEmissiveTriangleCount);
     constants.emissiveInfo[1] = static_cast<float>(m_smokeEmissiveStaticTriangleCount);
-    constants.emissiveInfo[2] = static_cast<float>(m_smokeEmissiveDynamicTriangleCount);
+    constants.emissiveInfo[2] = static_cast<float>(idMath::ClampInt(1, 16, r_pathTracingReservoirCandidateTrials.GetInteger()));
     constants.emissiveInfo[3] = static_cast<float>(m_smokeLightCandidateCount);
     const bool enableGpuBoundsOverlay = r_pathTracingSceneBoundsOverlayGpu.GetInteger() != 0;
     const bool enableBoundsBoxDebugMode = debugMode == 21 || debugMode == 22;

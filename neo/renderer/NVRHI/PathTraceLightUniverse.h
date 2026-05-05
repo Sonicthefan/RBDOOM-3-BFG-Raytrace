@@ -17,6 +17,7 @@ const int RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS = 5;
 const int RT_SMOKE_LIGHT_UNIVERSE_PORTAL_DEPTH_BINS = RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS + 3;
 const int RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES = 4;
 const int RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES = 4;
+const int RT_SMOKE_LIGHT_UNIVERSE_CHURN_SAMPLES = 4;
 
 struct RtSmokeLightUniverseCandidateSample
 {
@@ -93,8 +94,23 @@ struct RtSmokeLightUniverseStats
     float areaFilterDroppedUnknownWeight = 0.0f;
     RtSmokeLightUniverseCandidateSample overflowSamples[RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES];
     RtSmokeLightUniverseCandidateSample droppedSamples[RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES];
+    RtSmokeLightUniverseCandidateSample enteredSamples[RT_SMOKE_LIGHT_UNIVERSE_CHURN_SAMPLES];
+    RtSmokeLightUniverseCandidateSample leftSamples[RT_SMOKE_LIGHT_UNIVERSE_CHURN_SAMPLES];
     int overflowSampleCount = 0;
     int droppedSampleCount = 0;
+    int enteredSampleCount = 0;
+    int leftSampleCount = 0;
+    int activeChurnEnabled = 0;
+    int activeChurnPrevious = 0;
+    int activeChurnCurrent = 0;
+    int activeChurnStayed = 0;
+    int activeChurnEntered = 0;
+    int activeChurnLeft = 0;
+    float activeChurnPreviousWeight = 0.0f;
+    float activeChurnCurrentWeight = 0.0f;
+    float activeChurnStayedWeight = 0.0f;
+    float activeChurnEnteredWeight = 0.0f;
+    float activeChurnLeftWeight = 0.0f;
     uint64 generation = 1;
 };
 
@@ -110,6 +126,7 @@ public:
         bool areaFilterEnabled,
         bool areaFilterApply,
         int areaFilterOverflowMax,
+        bool activeChurnEnabled,
         bool persistDynamic,
         bool injectMissingDynamic,
         int dynamicMinSeenFrames,
@@ -128,14 +145,25 @@ private:
         bool promoted = false;
     };
 
+    struct ActiveEmissiveRecord
+    {
+        RtSmokeLightUniverseCandidateSample sample = {};
+    };
+
     static uint64 CandidateKey(const PathTraceSmokeEmissiveTriangle& triangle);
     static uint64 DynamicCandidateKey(const PathTraceSmokeEmissiveTriangle& triangle);
+    static uint64 ActiveCandidateKey(const PathTraceSmokeEmissiveTriangle& triangle);
     static bool IsPersistableDynamicCandidate(const PathTraceSmokeEmissiveTriangle& triangle);
+    void UpdateActiveChurn(
+        const viewDef_t* viewDef,
+        const std::vector<PathTraceSmokeEmissiveTriangle>& activeCandidates,
+        bool activeChurnEnabled);
 
     uint64 m_generation = 1;
     std::vector<PersistentEmissiveRecord> m_staticRecords;
     std::vector<PersistentEmissiveRecord> m_dynamicRecords;
     std::unordered_map<uint64, size_t> m_staticLookup;
     std::unordered_map<uint64, size_t> m_dynamicLookup;
+    std::unordered_map<uint64, ActiveEmissiveRecord> m_activeLookup;
     RtSmokeLightUniverseStats m_stats;
 };

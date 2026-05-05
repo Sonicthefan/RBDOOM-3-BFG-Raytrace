@@ -119,6 +119,18 @@ struct RtSmokeEmissiveInventoryStats
     int skippedRuntimeInactiveTriangles = 0;
     int cappedTriangles = 0;
     int uniqueMaterials = 0;
+    int routedRigidInstances = 0;
+    int routedRigidSeenInstances = 0;
+    int routedRigidCacheInstances = 0;
+    int routedRigidEmissiveInstances = 0;
+    int routedRigidEmissiveSeenInstances = 0;
+    int routedRigidEmissiveCacheInstances = 0;
+    int routedRigidCapturedTriangles = 0;
+    int routedRigidCappedTriangles = 0;
+    int routedRigidInvalidTriangles = 0;
+    int routedRigidNonEmissiveTriangles = 0;
+    float routedRigidArea = 0.0f;
+    float routedRigidWeightedLuminance = 0.0f;
     float totalArea = 0.0f;
     float totalWeightedLuminance = 0.0f;
     std::vector<uint32_t> materialIndexes;

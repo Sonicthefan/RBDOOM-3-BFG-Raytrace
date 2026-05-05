@@ -43,6 +43,49 @@ bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage)
     return (srcBlend == GLS_SRCBLEND_ONE || srcBlend == GLS_SRCBLEND_SRC_ALPHA) && dstBlend == GLS_DSTBLEND_ONE;
 }
 
+bool SmokeNameHasDefault0200Code(const idStr& name)
+{
+    const int length = name.Length();
+    for (int start = Max(0, length - 16); start <= length - 4; ++start)
+    {
+        if (idStr::Cmpn(name.c_str() + start, "0200", 4) != 0)
+        {
+            continue;
+        }
+
+        const bool boundedBefore =
+            start == 0 ||
+            name[start - 1] == '_' ||
+            name[start - 1] == '-' ||
+            name[start - 1] == '/' ||
+            name[start - 1] == '.' ||
+            name[start - 1] == '#';
+        const bool boundedAfter =
+            start + 4 >= length ||
+            name[start + 4] == '_' ||
+            name[start + 4] == '-' ||
+            name[start + 4] == '.' ||
+            name[start + 4] == '/';
+        if (boundedBefore && boundedAfter)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SmokeNameLooksAddDefault0200Texture(const char* imageName)
+{
+    if (!imageName || !imageName[0])
+    {
+        return false;
+    }
+
+    idStr name = imageName;
+    name.BackSlashesToSlashes();
+    return name.Find("_add", false) >= 0 && SmokeNameHasDefault0200Code(name);
+}
+
 bool SmokeStageIsFilterBlend(const shaderStage_t* stage, bool& blackKey)
 {
     blackKey = false;
@@ -155,6 +198,10 @@ RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMat
         {
             info.hasScreenTexgen = true;
         }
+        if (stage->texture.image && SmokeNameLooksAddDefault0200Texture(stage->texture.image->GetName()))
+        {
+            info.hasAddDefault0200Texture = true;
+        }
         if (stage->lighting == SL_AMBIENT)
         {
             info.hasAmbientStage = true;
@@ -192,6 +239,7 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTes
     const bool allowTranslucentCutout =
         material->Coverage() == MC_TRANSLUCENT &&
         !classifier.hasScreenTexgen &&
+        !classifier.hasAddDefault0200Texture &&
         !classifier.nameLooksGui &&
         !classifier.nameLooksParticle &&
         (classifier.nameLooksGlass || classifier.nameLooksSignage || classifier.nameLooksGlow);
@@ -239,7 +287,7 @@ bool IsSmokeAdditiveDecalMaterial(const idMaterial* material)
         return false;
     }
 
-    if (info.hasScreenTexgen || info.nameLooksGui || info.nameLooksParticle || info.nameLooksGlass)
+    if (info.hasScreenTexgen || info.hasAddDefault0200Texture || info.nameLooksGui || info.nameLooksParticle || info.nameLooksGlass)
     {
         return false;
     }
@@ -259,7 +307,7 @@ bool IsSmokeAdditiveWhiteKeyMaterial(const idMaterial* material, const RtSmokeTr
     {
         return false;
     }
-    if (classifier.hasScreenTexgen || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
+    if (classifier.hasScreenTexgen || classifier.hasAddDefault0200Texture || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
     {
         return false;
     }
@@ -288,7 +336,7 @@ bool IsSmokeRgbKeyedBlendDecalMaterial(const idMaterial* material, const RtSmoke
     {
         return false;
     }
-    if (classifier.hasScreenTexgen || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
+    if (classifier.hasScreenTexgen || classifier.hasAddDefault0200Texture || classifier.nameLooksGui || classifier.nameLooksParticle || classifier.nameLooksGlass)
     {
         return false;
     }

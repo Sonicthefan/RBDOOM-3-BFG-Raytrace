@@ -196,7 +196,6 @@ std::vector<bool> BuildLightUniverseSelectedAreas(const viewDef_t* viewDef, int 
                 {
                     ++(*blockedPortalEdges);
                 }
-                continue;
             }
 
             int nextArea = -1;
@@ -307,51 +306,11 @@ float LightUniverseCandidateDistance(const viewDef_t* viewDef, const PathTraceSm
     return (center - viewDef->renderView.vieworg).Length();
 }
 
-void AddLightUniverseOverflowSample(
+RtSmokeLightUniverseCandidateSample MakeLightUniverseCandidateSample(
     const viewDef_t* viewDef,
     const PathTraceSmokeEmissiveTriangle& triangle,
     int areaNum,
-    RtSmokeLightUniverseStats& stats)
-{
-    RtSmokeLightUniverseCandidateSample sample;
-    sample.valid = true;
-    sample.areaNum = areaNum;
-    sample.materialId = triangle.materialId;
-    sample.materialIndex = triangle.materialIndex;
-    sample.weight = triangle.sampleWeightAndPdf[0];
-    sample.area = triangle.centerAndArea[3];
-    sample.distance = LightUniverseCandidateDistance(viewDef, triangle);
-    sample.reason = "connectedOverflow";
-
-    int insertIndex = -1;
-    for (int sampleIndex = 0; sampleIndex < RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES; ++sampleIndex)
-    {
-        if (!stats.overflowSamples[sampleIndex].valid ||
-            sample.weight > stats.overflowSamples[sampleIndex].weight)
-        {
-            insertIndex = sampleIndex;
-            break;
-        }
-    }
-    if (insertIndex < 0)
-    {
-        return;
-    }
-
-    for (int sampleIndex = RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES - 1; sampleIndex > insertIndex; --sampleIndex)
-    {
-        stats.overflowSamples[sampleIndex] = stats.overflowSamples[sampleIndex - 1];
-    }
-    stats.overflowSamples[insertIndex] = sample;
-    stats.overflowSampleCount = Min(RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES, stats.overflowSampleCount + 1);
-}
-
-void AddLightUniverseDroppedSample(
-    const viewDef_t* viewDef,
-    const PathTraceSmokeEmissiveTriangle& triangle,
-    int areaNum,
-    const char* reason,
-    RtSmokeLightUniverseStats& stats)
+    const char* reason)
 {
     RtSmokeLightUniverseCandidateSample sample;
     sample.valid = true;
@@ -362,12 +321,19 @@ void AddLightUniverseDroppedSample(
     sample.area = triangle.centerAndArea[3];
     sample.distance = LightUniverseCandidateDistance(viewDef, triangle);
     sample.reason = reason;
+    return sample;
+}
 
+void AddLightUniverseRankedSample(
+    RtSmokeLightUniverseCandidateSample* samples,
+    int maxSamples,
+    int& sampleCount,
+    const RtSmokeLightUniverseCandidateSample& sample)
+{
     int insertIndex = -1;
-    for (int sampleIndex = 0; sampleIndex < RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES; ++sampleIndex)
+    for (int sampleIndex = 0; sampleIndex < maxSamples; ++sampleIndex)
     {
-        if (!stats.droppedSamples[sampleIndex].valid ||
-            sample.weight > stats.droppedSamples[sampleIndex].weight)
+        if (!samples[sampleIndex].valid || sample.weight > samples[sampleIndex].weight)
         {
             insertIndex = sampleIndex;
             break;
@@ -378,12 +344,33 @@ void AddLightUniverseDroppedSample(
         return;
     }
 
-    for (int sampleIndex = RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES - 1; sampleIndex > insertIndex; --sampleIndex)
+    for (int sampleIndex = maxSamples - 1; sampleIndex > insertIndex; --sampleIndex)
     {
-        stats.droppedSamples[sampleIndex] = stats.droppedSamples[sampleIndex - 1];
+        samples[sampleIndex] = samples[sampleIndex - 1];
     }
-    stats.droppedSamples[insertIndex] = sample;
-    stats.droppedSampleCount = Min(RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES, stats.droppedSampleCount + 1);
+    samples[insertIndex] = sample;
+    sampleCount = Min(maxSamples, sampleCount + 1);
+}
+
+void AddLightUniverseOverflowSample(
+    const viewDef_t* viewDef,
+    const PathTraceSmokeEmissiveTriangle& triangle,
+    int areaNum,
+    RtSmokeLightUniverseStats& stats)
+{
+    const RtSmokeLightUniverseCandidateSample sample = MakeLightUniverseCandidateSample(viewDef, triangle, areaNum, "connectedOverflow");
+    AddLightUniverseRankedSample(stats.overflowSamples, RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES, stats.overflowSampleCount, sample);
+}
+
+void AddLightUniverseDroppedSample(
+    const viewDef_t* viewDef,
+    const PathTraceSmokeEmissiveTriangle& triangle,
+    int areaNum,
+    const char* reason,
+    RtSmokeLightUniverseStats& stats)
+{
+    const RtSmokeLightUniverseCandidateSample sample = MakeLightUniverseCandidateSample(viewDef, triangle, areaNum, reason);
+    AddLightUniverseRankedSample(stats.droppedSamples, RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES, stats.droppedSampleCount, sample);
 }
 
 void BuildLightUniverseAreaFilterDiagnostics(
@@ -569,6 +556,7 @@ void RtSmokeLightUniverse::Clear()
     m_dynamicRecords.clear();
     m_staticLookup.clear();
     m_dynamicLookup.clear();
+    m_activeLookup.clear();
     m_stats = RtSmokeLightUniverseStats();
 }
 
@@ -597,6 +585,16 @@ uint64 RtSmokeLightUniverse::DynamicCandidateKey(const PathTraceSmokeEmissiveTri
     return hash;
 }
 
+uint64 RtSmokeLightUniverse::ActiveCandidateKey(const PathTraceSmokeEmissiveTriangle& triangle)
+{
+    const uint64 stableKey = CandidateKey(triangle);
+    if (stableKey != 0)
+    {
+        return stableKey;
+    }
+    return DynamicCandidateKey(triangle);
+}
+
 bool RtSmokeLightUniverse::IsPersistableDynamicCandidate(const PathTraceSmokeEmissiveTriangle& triangle)
 {
     if (IsStaticEmissiveCandidate(triangle))
@@ -620,6 +618,80 @@ bool RtSmokeLightUniverse::IsPersistableDynamicCandidate(const PathTraceSmokeEmi
         subtype == SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype::GuiScreen);
 }
 
+void RtSmokeLightUniverse::UpdateActiveChurn(
+    const viewDef_t* viewDef,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& activeCandidates,
+    bool activeChurnEnabled)
+{
+    m_stats.activeChurnEnabled = activeChurnEnabled ? 1 : 0;
+    if (!activeChurnEnabled)
+    {
+        m_activeLookup.clear();
+        return;
+    }
+
+    std::unordered_map<uint64, ActiveEmissiveRecord> currentLookup;
+    currentLookup.reserve(activeCandidates.size());
+
+    for (const PathTraceSmokeEmissiveTriangle& triangle : activeCandidates)
+    {
+        if (triangle.sampleWeightAndPdf[0] <= 0.0f && triangle.centerAndArea[3] <= 0.0f)
+        {
+            continue;
+        }
+        const uint64 key = ActiveCandidateKey(triangle);
+        if (key == 0)
+        {
+            continue;
+        }
+
+        ActiveEmissiveRecord record;
+        const int areaNum = ResolveLightUniverseTriangleArea(viewDef, triangle);
+        record.sample = MakeLightUniverseCandidateSample(viewDef, triangle, areaNum, nullptr);
+        currentLookup[key] = record;
+    }
+
+    m_stats.activeChurnPrevious = static_cast<int>(m_activeLookup.size());
+    m_stats.activeChurnCurrent = static_cast<int>(currentLookup.size());
+
+    for (const auto& currentPair : currentLookup)
+    {
+        const RtSmokeLightUniverseCandidateSample& sample = currentPair.second.sample;
+        m_stats.activeChurnCurrentWeight += sample.weight;
+        const auto previousFound = m_activeLookup.find(currentPair.first);
+        if (previousFound != m_activeLookup.end())
+        {
+            ++m_stats.activeChurnStayed;
+            m_stats.activeChurnStayedWeight += sample.weight;
+        }
+        else
+        {
+            ++m_stats.activeChurnEntered;
+            m_stats.activeChurnEnteredWeight += sample.weight;
+            RtSmokeLightUniverseCandidateSample enteredSample = sample;
+            enteredSample.reason = "entered";
+            AddLightUniverseRankedSample(m_stats.enteredSamples, RT_SMOKE_LIGHT_UNIVERSE_CHURN_SAMPLES, m_stats.enteredSampleCount, enteredSample);
+        }
+    }
+
+    for (const auto& previousPair : m_activeLookup)
+    {
+        const RtSmokeLightUniverseCandidateSample& sample = previousPair.second.sample;
+        m_stats.activeChurnPreviousWeight += sample.weight;
+        if (currentLookup.find(previousPair.first) != currentLookup.end())
+        {
+            continue;
+        }
+        ++m_stats.activeChurnLeft;
+        m_stats.activeChurnLeftWeight += sample.weight;
+        RtSmokeLightUniverseCandidateSample leftSample = sample;
+        leftSample.reason = "left";
+        AddLightUniverseRankedSample(m_stats.leftSamples, RT_SMOKE_LIGHT_UNIVERSE_CHURN_SAMPLES, m_stats.leftSampleCount, leftSample);
+    }
+
+    m_activeLookup.swap(currentLookup);
+}
+
 std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCandidates(
     const viewDef_t* viewDef,
     const std::vector<PathTraceSmokeEmissiveTriangle>& frameCandidates,
@@ -628,6 +700,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
     bool areaFilterEnabled,
     bool areaFilterApply,
     int areaFilterOverflowMax,
+    bool activeChurnEnabled,
     bool persistDynamic,
     bool injectMissingDynamic,
     int dynamicMinSeenFrames,
@@ -933,6 +1006,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> RtSmokeLightUniverse::MergeFrameCand
             triangle.centroidUvAndWeight[3] = triangle.sampleWeightAndPdf[1];
         }
     }
+    UpdateActiveChurn(viewDef, merged, activeChurnEnabled);
     return merged;
 }
 

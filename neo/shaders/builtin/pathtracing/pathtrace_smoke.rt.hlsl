@@ -178,6 +178,7 @@ static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
 static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
@@ -906,12 +907,45 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
     const uint materialCount = (uint)TextureInfo.z;
-    const uint materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[primitiveIndex] : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
+    uint materialIndex = 0xffffffffu;
+    if (instanceId == 0u)
+    {
+        materialIndex = SmokeStaticTriangleMaterialIndexes[primitiveIndex];
+    }
+    else if (instanceId >= 2u)
+    {
+        const uint routeInstanceIndex = instanceId - 2u;
+        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+        materialIndex = SmokeRigidRouteTriangleMaterialIndexes[routeInstance.triangleOffset + primitiveIndex];
+    }
+    else
+    {
+        materialIndex = SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
+    }
     return materialIndex < materialCount ? materialIndex : 0xffffffffu;
+}
+
+uint LoadSmokeTriangleMaterialId(uint instanceId, uint primitiveIndex)
+{
+    if (instanceId == 0u)
+    {
+        return SmokeStaticTriangleMaterials[primitiveIndex];
+    }
+    if (instanceId >= 2u)
+    {
+        const uint routeInstanceIndex = instanceId - 2u;
+        const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+        return SmokeRigidRouteTriangleMaterials[routeInstance.triangleOffset + primitiveIndex];
+    }
+    return SmokeDynamicTriangleMaterials[primitiveIndex];
 }
 
 uint LoadSmokeTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
 {
+    if (instanceId >= 2u)
+    {
+        return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
+    }
     return instanceId == 0 ? SmokeStaticTriangleClasses[primitiveIndex] : SmokeDynamicTriangleClasses[primitiveIndex];
 }
 
@@ -1274,6 +1308,24 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
     return fallbackIndex;
 }
 
+float EvaluateSmokeReservoirCandidatePotential(PathTraceSmokeEmissiveTriangle emissiveTriangle, float3 hitPosition, float3 normal, float randomFallbackPdf, out float3 lightDir, out float distance, out float area, out float candidatePdf, out float lightFacing)
+{
+    const float3 lightCenter = emissiveTriangle.centerAndArea.xyz;
+    area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
+    const float3 lightNormal = SafeNormalize(emissiveTriangle.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
+    const float3 toLight = lightCenter - hitPosition;
+    const float distanceSquared = max(dot(toLight, toLight), 1.0);
+    distance = sqrt(distanceSquared);
+    lightDir = toLight / distance;
+    const float ndotl = saturate(dot(normal, lightDir));
+    const bool historicalDynamicEmissive = (emissiveTriangle.padding0 & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+    const bool twoSidedEmissive = !historicalDynamicEmissive && ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES) != 0u);
+    const float lightFacingRaw = dot(lightNormal, -lightDir);
+    lightFacing = twoSidedEmissive ? abs(lightFacingRaw) : saturate(lightFacingRaw);
+    candidatePdf = max(emissiveTriangle.sampleWeightAndPdf.y, randomFallbackPdf);
+    return area * ndotl * lightFacing / distanceSquared / max(candidatePdf, 1.0e-6);
+}
+
 float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
 {
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -1310,25 +1362,41 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
         payload.materialId * 26699u ^
         ((uint)payload.hitT) * 7919u ^
         payload.materialIndex * 104729u;
-    const float sampleXi = SmokeHashToUnitFloat(seed);
-    const uint emissiveTriangleIndex = SelectSmokeWeightedEmissiveTriangle(emissiveTriangleCount, sampleXi);
+    const uint reservoirCandidateTrials = clamp((uint)max(EmissiveInfo.z, 1.0), 1u, 16u);
+    uint emissiveTriangleIndex = 0u;
+    float bestPotential = -1.0;
+    [loop]
+    for (uint trialIndex = 0u; trialIndex < reservoirCandidateTrials; ++trialIndex)
+    {
+        const float sampleXi = SmokeHashToUnitFloat(seed ^ (trialIndex + 1u) * 747796405u);
+        const uint trialTriangleIndex = SelectSmokeWeightedEmissiveTriangle(emissiveTriangleCount, sampleXi);
+        const PathTraceSmokeEmissiveTriangle trialTriangle = SmokeEmissiveTriangles[trialTriangleIndex];
+        float3 trialLightDir;
+        float trialDistance;
+        float trialArea;
+        float trialPdf;
+        float trialFacing;
+        const float trialPotential = EvaluateSmokeReservoirCandidatePotential(trialTriangle, hitPosition, normal, 1.0 / max((float)emissiveTriangleCount, 1.0), trialLightDir, trialDistance, trialArea, trialPdf, trialFacing);
+        if (trialPotential > bestPotential)
+        {
+            bestPotential = trialPotential;
+            emissiveTriangleIndex = trialTriangleIndex;
+        }
+    }
     const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[emissiveTriangleIndex];
-    const float3 lightCenter = emissiveTriangle.centerAndArea.xyz;
-    const float area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
-    const float3 lightNormal = SafeNormalize(emissiveTriangle.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
-    const float3 toLight = lightCenter - hitPosition;
-    const float distanceSquared = max(dot(toLight, toLight), 1.0);
-    const float distance = sqrt(distanceSquared);
-    const float3 lightDir = toLight / distance;
+    float3 lightDir;
+    float distance;
+    float area;
+    float candidatePdf;
+    float lightFacing;
+    const float selectedPotential = EvaluateSmokeReservoirCandidatePotential(emissiveTriangle, hitPosition, normal, 1.0 / max((float)emissiveTriangleCount, 1.0), lightDir, distance, area, candidatePdf, lightFacing);
+    const float distanceSquared = max(distance * distance, 1.0);
     const float ndotl = saturate(dot(normal, lightDir));
     const bool historicalDynamicEmissive = (emissiveTriangle.padding0 & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
-    const bool twoSidedEmissive = !historicalDynamicEmissive && ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES) != 0u);
-    const float lightFacingRaw = dot(lightNormal, -lightDir);
-    const float lightFacing = twoSidedEmissive ? abs(lightFacingRaw) : saturate(lightFacingRaw);
     float3 direct = float3(0.0, 0.0, 0.0);
     float visibility = 0.0;
 
-    if (ndotl > 0.0 && lightFacing > 0.0)
+    if (selectedPotential > 0.0 && ndotl > 0.0 && lightFacing > 0.0)
     {
         const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
         const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
@@ -1337,7 +1405,6 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
         const uint ignorePrimitiveIndex = historicalDynamicEmissive ? 0xffffffffu : emissiveTriangle.primitiveIndex;
         visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, ignoreInstanceId, ignorePrimitiveIndex, emissiveTriangle.materialId);
         const float3 radiance = max(emissiveTriangle.estimatedRadianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
-        const float candidatePdf = max(emissiveTriangle.sampleWeightAndPdf.y, 1.0 / max((float)emissiveTriangleCount, 1.0));
         const float sampleWeight = area * ndotl * lightFacing * visibility / distanceSquared / max(candidatePdf, 1.0e-6);
         direct = albedo * radiance * sampleWeight;
 
@@ -1878,21 +1945,22 @@ void Miss(inout PathTraceSmokePayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    if (InstanceID() >= 2u)
-    {
-        return;
-    }
+    const uint instanceId = InstanceID();
     if (payload.value == 2u &&
-        InstanceID() == payload.shadowIgnoreInstanceId)
+        instanceId == payload.shadowIgnoreInstanceId)
     {
-        const uint materialId = InstanceID() == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
+        const uint materialId = LoadSmokeTriangleMaterialId(instanceId, PrimitiveIndex());
         if (PrimitiveIndex() == payload.shadowIgnorePrimitiveIndex || materialId == payload.shadowIgnoreMaterialId)
         {
             IgnoreHit();
             return;
         }
     }
-    if (SmokeAlphaRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, payload.value))
+    if (instanceId >= 2u)
+    {
+        return;
+    }
+    if (SmokeAlphaRejectsHit(instanceId, PrimitiveIndex(), attributes.barycentrics, payload.value))
     {
         IgnoreHit();
     }
@@ -2027,6 +2095,6 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.surfaceClass = triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
     payload.translucentSubtype = (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
     payload.triangleClassAndFlags = triangleClassAndFlags;
-    payload.materialId = instanceId == 0 ? SmokeStaticTriangleMaterials[PrimitiveIndex()] : SmokeDynamicTriangleMaterials[PrimitiveIndex()];
+    payload.materialId = LoadSmokeTriangleMaterialId(instanceId, PrimitiveIndex());
     payload.materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[PrimitiveIndex()] : SmokeDynamicTriangleMaterialIndexes[PrimitiveIndex()];
 }

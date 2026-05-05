@@ -79,6 +79,18 @@ struct RtPathTraceSceneUniverseMaterialStats
     idStr materialName;
 };
 
+struct RtPathTraceSceneUniverseSelectedAreaStats
+{
+    int area = -1;
+    int depth = -1;
+    int portalEdges = 0;
+    int blockedPortalEdges = 0;
+    int surfaces = 0;
+    int triangles = 0;
+    int emissiveCapableSurfaces = 0;
+    idBounds bounds;
+};
+
 struct RtPathTraceSceneUniverseSelectionStats
 {
     bool valid = false;
@@ -100,6 +112,7 @@ struct RtPathTraceSceneUniverseSelectionStats
     int portalEdgesWalked = 0;
     int blockedPortalEdges = 0;
     int overflowAreas = 0;
+    std::vector<RtPathTraceSceneUniverseSelectedAreaStats> selectedAreaStats;
     std::vector<RtPathTraceSceneUniverseMaterialStats> selectedEmissiveMaterials;
 };
 
@@ -126,6 +139,7 @@ public:
     bool EnsureBuilt(const viewDef_t* viewDef);
     void RunDiagnostics(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int sceneSource, bool dumpRequested, int drawSurfStaticSurfaces, int drawSurfStaticTriangles);
     RtPathTraceSceneUniverseBuildStats BuildFullStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges);
+    RtPathTraceSceneUniverseBuildStats BuildSelectedStaticGeometry(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, int portalSteps, bool dumpRequested);
 
     const RtPathTraceSceneUniverseStats& GetStats() const;
     const std::vector<RtPathTraceSceneUniverseSurface>& Surfaces() const;

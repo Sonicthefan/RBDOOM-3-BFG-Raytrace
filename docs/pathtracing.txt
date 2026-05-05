@@ -15,6 +15,9 @@ replacing the main renderer.
 
 This file is the broad chronology/status document: what the branch is trying to
 do, what has been tried, what works, what remains risky, and how it is tested.
+The `pathtrace_scene_producer_*` documents are retained as detailed intervention
+logs and historical build records; durable architecture, CVar, and testing
+guidance should be kept here and in the module/feature notes below.
 For a file-by-file map of the extracted PathTrace* modules and feature-specific
 "where to touch" guidance, see:
 
@@ -114,6 +117,40 @@ Current validated feature set:
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
+RT scene residency and Doom portal areas:
+
+- The current source3 BVH strategy deliberately separates freshness from
+  residency. The final raster drawSurf stream is still the best source of
+  fresh transforms, material overrides, evaluated shader registers, and
+  skinned/deforming geometry. It is not a sufficient residency rule for path
+  tracing, because Doom's raster frontend can stop submitting fully occluded or
+  off-camera surfaces even though those surfaces must still cast shadows or emit
+  light for RT.
+- Static world geometry is therefore allowed to preload from Doom renderer
+  area/portal membership instead of waiting for `viewDef->drawSurfs` to seed the
+  static cache. Rigid routed geometry can similarly stay resident from cached
+  mesh/instance records when its last known area remains in the selected area
+  set.
+- The selected area set is based on renderer portal areas from
+  `PointInArea`, `NumPortalsInArea`, and `GetPortal`, not raw BSP leaf/internal
+  cells and not the temporary `PathTraceSceneUniverse` inventory as a live scene
+  source. `PathTraceSceneUniverse` is used only for static-map diagnostics and
+  area-selected static-world preload.
+- Early current-area-plus-one-step testing was too shallow. Mars City-style
+  spaces can look like a single room to the player while spanning several Doom
+  renderer portal areas; visible adjacent geometry or emissives may require
+  multiple portal hops. Depth 4 is the current validation baseline for the
+  opening Mars City tests and is what mode 18/20 preset 4 applies.
+- `PS_BLOCK_VIEW` portal edges are reported in diagnostics but currently do not
+  stop source3 static preload, rigid residency, or light-area traversal. This is
+  intentional while validating RT residency: Doom's raster visibility/blocking
+  state is useful diagnostic input, but using it as hard authority reproduced
+  raster-like BVH gaps. This policy may need refinement later once the portal
+  taxonomy is better understood.
+- Normal defaults remain conservative. The depth-4 behavior is activated by the
+  explicit validation presets/CVars so correctness and performance can be
+  measured separately from the baseline path.
+
 Current module/refactor state:
 
 - PathTracePrimaryPass is intentionally small and still owns most persistent
@@ -190,9 +227,15 @@ Refactor chronology:
     overlay attempts proved too fragile for useful spatial inspection.
 12. PathTraceGeometryUniverse gained a default-off rigid BLAS GPU scaffold for
     eligible source3 rigid mesh candidates. The scaffold builds local-space
-    mesh input buffers, can optionally submit standalone BLAS builds, and keeps
-    renderPath=dynamicFallback / tlasRoute=oldStaticPlusDynamic until later
-    TLAS routing is explicitly implemented.
+    mesh input buffers, can optionally submit standalone BLAS builds, and was
+    then extended into explicitly gated routed rigid TLAS integration for modes
+    18/20/23/24/25.
+13. Source3 static preload and rigid residency moved the BVH away from pure
+    raster-visible drawSurf residency. Static-world cache population and cached
+    routed rigid instances now use Doom renderer area/portal selection when the
+    relevant gates are enabled. The key validation lesson is that current+1
+    portal depth is too shallow for Mars City-style areas; preset 4 uses depth 4
+    for static preload, rigid residency, and light-area diagnostics.
 
 Implemented debug CVars:
 
