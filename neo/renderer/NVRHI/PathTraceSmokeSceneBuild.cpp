@@ -72,7 +72,7 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingRigidResidency.SetInteger(1);
     r_pathTracingStaticAreaPreload.SetInteger(1);
 
-    const int portalSteps = preset == 4 ? 4 : 1;
+    const int portalSteps = 4;
     r_pathTracingRigidResidencyPortalSteps.SetInteger(portalSteps);
     r_pathTracingStaticAreaPreloadPortalSteps.SetInteger(portalSteps);
     r_pathTracingLightAreaPortalSteps.SetInteger(portalSteps);
@@ -82,7 +82,7 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingLightAreaOverflowMax.SetInteger(512);
     r_pathTracingLightUniverseChurn.SetInteger(mode20 && preset >= 2 ? 1 : 0);
 
-    const int presetRigidRouteMaxInstances = preset == 4 ? 256 : 64;
+    const int presetRigidRouteMaxInstances = 256;
     if (r_pathTracingRigidRouteMaxInstances.GetInteger() < presetRigidRouteMaxInstances)
     {
         r_pathTracingRigidRouteMaxInstances.SetInteger(presetRigidRouteMaxInstances);

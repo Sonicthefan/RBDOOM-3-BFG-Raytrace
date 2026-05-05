@@ -105,11 +105,12 @@ Current validated feature set:
   areas, and routed rigid instances can stay resident from cached mesh/instance
   records instead of disappearing whenever raster visibility stops submitting
   them.
-- Experimental routed rigid BLAS/TLAS path for source3 local-space rigid mesh
-  candidates. It can upload per-mesh vertex/index buffers, build per-mesh BLAS,
-  route instances through TLAS in gated validation/integration modes, and
-  optionally remove routed-ready rigid triangles from the dynamic fallback.
-  This is enabled only by explicit CVars or the mode 18/20 test presets.
+- Default source3 routed rigid BLAS/TLAS path for local-space rigid mesh
+  candidates. It uploads per-mesh vertex/index buffers, builds per-mesh BLAS,
+  routes instances through TLAS in modes 18/20/23/24/25, and removes
+  routed-ready rigid triangles from the dynamic fallback. The old drawSurf-only
+  BVH path remains available with `r_pathTracingSceneSource 0` for emergency
+  comparison/testing, but it is no longer the normal PT scene stack.
 - Rigid emissive-card promotion for stable object-attached signage/glow cards,
   used mainly to keep rigid prop emissives resident with their parent object.
   The gate is conservative and currently excludes `_add + 0200` default-RGBA
@@ -139,17 +140,17 @@ RT scene residency and Doom portal areas:
 - Early current-area-plus-one-step testing was too shallow. Mars City-style
   spaces can look like a single room to the player while spanning several Doom
   renderer portal areas; visible adjacent geometry or emissives may require
-  multiple portal hops. Depth 4 is the current validation baseline for the
-  opening Mars City tests and is what mode 18/20 preset 4 applies.
+  multiple portal hops. Depth 4 is now the default source3 portal traversal
+  depth.
 - `PS_BLOCK_VIEW` portal edges are reported in diagnostics but currently do not
   stop source3 static preload, rigid residency, or light-area traversal. This is
   intentional while validating RT residency: Doom's raster visibility/blocking
   state is useful diagnostic input, but using it as hard authority reproduced
   raster-like BVH gaps. This policy may need refinement later once the portal
   taxonomy is better understood.
-- Normal defaults remain conservative. The depth-4 behavior is activated by the
-  explicit validation presets/CVars so correctness and performance can be
-  measured separately from the baseline path.
+- Source3 with depth-4 portal traversal is now the normal PT default. If a later
+  map proves severely game-breaking, the old behavior can be forced from a
+  launch file by setting source3/residency/route CVars back to 0.
 
 Current module/refactor state:
 
@@ -225,7 +226,7 @@ Refactor chronology:
     not the primary scene representation. Modes 21 and 22 were added as PT-native
     solid/wireframe bounds-box diagnostics after raster/debug-line and post-blit
     overlay attempts proved too fragile for useful spatial inspection.
-12. PathTraceGeometryUniverse gained a default-off rigid BLAS GPU scaffold for
+12. PathTraceGeometryUniverse gained a rigid BLAS GPU scaffold for
     eligible source3 rigid mesh candidates. The scaffold builds local-space
     mesh input buffers, can optionally submit standalone BLAS builds, and was
     then extended into explicitly gated routed rigid TLAS integration for modes
@@ -234,8 +235,14 @@ Refactor chronology:
     raster-visible drawSurf residency. Static-world cache population and cached
     routed rigid instances now use Doom renderer area/portal selection when the
     relevant gates are enabled. The key validation lesson is that current+1
-    portal depth is too shallow for Mars City-style areas; preset 4 uses depth 4
-    for static preload, rigid residency, and light-area diagnostics.
+    portal depth is too shallow for Mars City-style areas; source3 now uses
+    depth 4 by default for static preload, rigid residency, and light-area
+    diagnostics.
+14. Source3, depth-4 static preload, rigid residency, rigid BLAS builds, rigid
+    TLAS routing, dynamic rigid removal, and safe rigid emissive-card promotion
+    became the default PT scene stack. The original drawSurf-only BVH is kept as
+    `r_pathTracingSceneSource 0` for emergency comparison rather than as the
+    default path.
 
 Implemented debug CVars:
 
@@ -284,15 +291,13 @@ Implemented debug CVars:
       4 = preset 2 for BVH validation with light-area diagnostics but no
           render-affecting light-area filter apply
 
-  All presets enable source3, rigid route, dynamic rigid fallback removal,
-  `r_pathTracingRigidResidency 1`, `r_pathTracingStaticAreaPreload 1`,
-  `r_pathTracingRigidRouteEmissiveCards 1`, and a greedy
-  `r_pathTracingLightAreaOverflowMax 512`. Presets 1, 2, and 3 use portal depth
-  1. Preset 4 uses portal depth 4 plus `r_pathTracingRigidRouteMaxInstances`
-  at least 256, and is the preferred current Mars City BVH validation shortcut
-  because visually single rooms can span multiple Doom portal areas. Presets 2,
-  3, and 4 also enable `r_pathTracingLightUniverseChurn 1`. This helper is
-  only a CVar setup shortcut; it does not change defaults.
+  The source3 routed stack is now already default-on. This helper remains a
+  convenience/debug shortcut for switching to mode 20 and enabling extra
+  diagnostics. All presets use portal depth 4, keep source3/routed rigid/static
+  preload/rigid residency enabled, and ensure
+  `r_pathTracingRigidRouteMaxInstances >= 256`. Presets 2, 3, and 4 also enable
+  `r_pathTracingLightUniverseChurn 1`; preset 3 enables render-affecting
+  light-area filter apply.
 
 - r_pathTracingMode18TestPreset
   One-shot console helper that applies the same source3 routed-rigid/static
@@ -302,11 +307,9 @@ Implemented debug CVars:
       4 = preset 1 plus portal depth 4 and rigid route max 256 for current
           BVH validation
 
-  This enables `r_pathTracingRigidRouteMode18 1`,
-  `r_pathTracingRigidResidency 1`, `r_pathTracingStaticAreaPreload 1`, and
-  `r_pathTracingRigidRouteEmissiveCards 1`. Preset 4 is the preferred visual
-  check for the current "new stack" because Mars City rooms can span multiple
-  renderer portal areas.
+  The source3 routed stack is now already default-on. This helper remains a
+  convenience/debug shortcut for switching to mode 18 and ensuring depth-4
+  source3/routed rigid/static preload/rigid residency state.
   Routed rigid hits still use the compact rigid route payload. Interactive
   condition-register emissive cards that need exact game-logic toggling should
   stay out of rigid emissive-card promotion until the route has a safe
@@ -463,7 +466,7 @@ Implemented debug CVars:
   be missing from the current capture before it ages out.
 
 - r_pathTracingLightAreaPortalSteps
-  Defaults to 1. Portal traversal depth for RT smoke emissive light-area
+  Defaults to 4. Portal traversal depth for RT smoke emissive light-area
   selection diagnostics. This is separate from the scene-universe diagnostic
   portal depth so mode 20 light selection can be tuned independently.
   `PS_BLOCK_VIEW` edges are counted for diagnostics but do not block traversal,
@@ -551,15 +554,15 @@ Implemented debug CVars:
 
 - r_pathTracingSceneSource
   Selects the current PT scene producer source:
-  0 = existing stable drawSurf producer only,
+  0 = legacy drawSurf-only producer for emergency comparison,
   1 = PathTraceSceneUniverse diagnostics only,
   2 = full static scene-universe geometry plus existing dynamic drawSurf
   fallback,
-  3 = existing drawSurf-seeded static cache plus mirrored dynamic-frame
-  drawSurfs. Source3 is the current production scaffold for the replacement
-  scene producer. It does not use PathTraceSceneUniverse records as the main
-  render source. With the explicit rigid route/residency gates, source3 can now
-  route eligible rigid meshes through reusable local-space BLAS/TLAS records.
+  3 = source3 portal-resident scene producer. Source3 is the default production
+  scaffold for the replacement scene producer. It does not use
+  PathTraceSceneUniverse records as the main render source. It routes eligible
+  rigid meshes through reusable local-space BLAS/TLAS records when the route
+  gates are enabled, which is the default.
 
 - r_pathTracingSceneSourceCompare
   One-shot CPU diagnostic comparing source0 and source3 payloads on a source3
@@ -599,16 +602,15 @@ Implemented debug CVars:
   invalid reason counters. It creates no GPU resources.
 
 - r_pathTracingRigidBlasGpuScaffold
-  Default-off guard for the next rigid BLAS GPU scaffold. When 0, no rigid BLAS
-  GPU resources should be created. Current rendering uses the old
-  static/dynamic fallback path unless later rigid route gates are also enabled.
+  Defaults to 1. Source3 rigid BLAS GPU scaffold gate. Set to 0 to create no
+  reusable rigid BLAS GPU resources and fall back toward the legacy dynamic
+  path.
 
 - r_pathTracingRigidBlasGpuBuild
-  Default-off build-submit gate for the rigid BLAS GPU scaffold. Requires
-  r_pathTracingRigidBlasGpuScaffold 1. When enabled, it submits standalone
-  per-mesh BLAS builds. The BLAS records are inserted into TLAS only when
+  Defaults to 1. Rigid BLAS build-submit gate for the source3 rigid BLAS
+  scaffold. The BLAS records are inserted into TLAS when
   `r_pathTracingRigidTlasRoute 1` and a compatible debug/integration mode gate
-  are also enabled.
+  are enabled.
 
 - r_pathTracingRigidBlasGpuDump
   One-shot dump for the rigid BLAS GPU scaffold. It reports mesh/input counts,
@@ -624,22 +626,21 @@ Implemented debug CVars:
   enabled.
 
 - r_pathTracingRigidTlasRoute
-  Default-off experimental route gate for rigid BLAS instances. It is active
-  in debug modes 23, 24, and 25, and optionally in mode 18 when
-  `r_pathTracingRigidRouteMode18 1` is set, or mode 20 when
-  `r_pathTracingRigidRouteMode20 1` is set. Mode 23 traces routed rigid
-  instances only. Mode 24 traces fallback-only and routed-rigid-only rays
+  Defaults to 1. Source3 route gate for rigid BLAS instances. It is active in
+  debug modes 23, 24, and 25, mode 18 when `r_pathTracingRigidRouteMode18 1`
+  is set, and mode 20 when `r_pathTracingRigidRouteMode20 1` is set. Mode 23
+  traces routed rigid instances only. Mode 24 traces fallback-only and
+  routed-rigid-only rays
   separately and color-codes their hit-distance agreement.
 
 - r_pathTracingRigidRouteMode18
-  Default-off mode 18 integration gate. Requires source3 plus the rigid route
-  scaffold/build/route gates. This is the first real toy path tracing
-  integration test for routed rigid TLAS instances.
+  Defaults to 1. Mode 18 integration gate for routed rigid TLAS instances. Set
+  to 0 for legacy dynamic-fallback comparison.
 
 - r_pathTracingRigidRouteMode20
-  Default-off mode 20 integration gate. Requires source3 plus the rigid route
-  scaffold/build/route gates. This only routes eligible rigid geometry through
-  the rigid TLAS path; it does not change mode 20 reservoir/emissive sampling.
+  Defaults to 1. Mode 20 integration gate for routed rigid TLAS instances. This
+  routes eligible rigid geometry through the rigid TLAS path; it does not change
+  mode 20 reservoir/emissive sampling.
 
 - r_pathTracingRigidRouteOverlapDump
   One-shot mode 24 readback dump. It queues a diagnostic output readback and
@@ -647,12 +648,12 @@ Implemented debug CVars:
   fallback-in-front, fallback-only, neither, and unknown color buckets.
 
 - r_pathTracingRigidRouteRemoveDynamic
-  Default-off mode 24/25 validation gate, also used by opted-in mode 18/20
-  route tests. When enabled with the rigid route gates, source3 skips
-  routed-ready rigid mesh candidates from the dynamic fallback.
+  Defaults to 1. When enabled with the rigid route gates, source3 skips
+  routed-ready rigid mesh candidates from the dynamic fallback. Set to 0 for
+  overlap/emergency comparison with the old dynamic fallback still present.
 
 - r_pathTracingRigidRouteEmissiveCards
-  Defaults to 0. When enabled, source3 may promote safe entity-attached
+  Defaults to 1. When enabled, source3 may promote safe entity-attached
   translucent signage/glow drawSurfs into the rigid route instead of treating
   them as particle/transient alpha. The gate is intentionally conservative:
   GUI, particle-looking, glass, post-process, skinned/deforming, callback,
@@ -665,14 +666,14 @@ Implemented debug CVars:
   remains on the dynamic drawSurf path where its on/off state is observed.
 
 - r_pathTracingRigidRouteMaxInstances
-  Defaults to 64. Caps how many source3 rigid instances are routed into the
+  Defaults to 256. Caps how many source3 rigid instances are routed into the
   experimental material-ID collection, rigid route buffers, and extra TLAS
-  descriptors. Mode 20 preset 4 raises this to at least 256 for depth-4 BVH
-  validation because the opening Mars City tests can produce more than 150
-  resident route-ready rigid instances.
+  descriptors. The default was raised for depth-4 BVH validation because the
+  opening Mars City tests can produce more than 150 resident route-ready rigid
+  instances.
 
 - r_pathTracingRigidResidency
-  Defaults to 0. When enabled with the source3 rigid route, cached rigid
+  Defaults to 1. When enabled with the source3 rigid route, cached rigid
   instances are kept resident when their last known Doom area is in the current
   player area plus selected portal-adjacent areas. This changes rigid routing
   from raster-visible-only to portal/cell resident geometry. It uses the last
@@ -680,10 +681,9 @@ Implemented debug CVars:
   still need later per-frame freshness work when they are not raster-submitted.
 
 - r_pathTracingRigidResidencyPortalSteps
-  Defaults to 1. Portal traversal depth for source3 rigid geometry residency.
-  The intended Doom 3 baseline is current cell plus one directly connected
-  portal step, but the current Mars City validation preset uses depth 4 because
-  many visually continuous spaces are split into several renderer portal areas.
+  Defaults to 4. Portal traversal depth for source3 rigid geometry residency.
+  Depth 4 is the current standard because many visually continuous spaces are
+  split into several renderer portal areas.
   `PS_BLOCK_VIEW` edges are counted for diagnostics but do not block this
   source3 RT residency traversal.
 
@@ -703,7 +703,7 @@ Implemented debug CVars:
   invalid line workloads can trigger GPU timeout/device removal.
 
 - r_pathTracingStaticAreaPreload
-  Defaults to 0. When enabled with source3, preloads static-world surfaces from
+  Defaults to 1. When enabled with source3, preloads static-world surfaces from
   the current Doom area plus selected portal-adjacent areas into the existing
   static geometry cache. This avoids waiting for raster drawSurfs to seed the
   static BLAS when Doom's area/portal frontend hides a neighboring cell. It is
@@ -712,11 +712,10 @@ Implemented debug CVars:
   dynamic work.
 
 - r_pathTracingStaticAreaPreloadPortalSteps
-  Defaults to 1. Portal traversal depth for source3 static-world preloading.
-  The intended baseline is current cell plus one directly connected portal
-  step, while current validation preset 4 uses depth 4 for the Mars City
-  opening-section cell layout. `PS_BLOCK_VIEW` edges are counted for
-  diagnostics but do not block this source3 RT preload traversal.
+  Defaults to 4. Portal traversal depth for source3 static-world preloading.
+  Depth 4 is the current standard for the Mars City opening-section cell layout.
+  `PS_BLOCK_VIEW` edges are counted for diagnostics but do not block this
+  source3 RT preload traversal.
 
 - r_pathTracingStaticAreaPreloadDump
   One-shot dump of source3 static-world area preload stats: current area,
@@ -1682,21 +1681,20 @@ For rigid mesh candidate/local-source diagnostics:
     r_pathTracingRigidBlasPlanDump 1
     r_pathTracingRigidBlasInputDump 1
 
-For default-off rigid BLAS GPU scaffold diagnostics:
+For rigid BLAS GPU scaffold diagnostics:
 
     r_pathTracingSceneSource 3
     r_pathTracingRigidBlasGpuScaffold 1
     r_pathTracingRigidBlasGpuBuild 0
     r_pathTracingRigidBlasGpuDump 1
 
-For standalone rigid BLAS build submission testing, after the buffer-only path
-is stable:
+For standalone rigid BLAS build submission diagnostics:
 
     r_pathTracingRigidBlasGpuBuild 1
     r_pathTracingRigidBlasGpuDump 1
 
-This still keeps renderPath=dynamicFallback unless the rigid TLAS route gate is
-also enabled.
+This keeps renderPath=dynamicFallback only if the rigid TLAS route gate is
+disabled.
 
 For rigid TLAS instance planning without changing the render path:
 
@@ -1705,11 +1703,11 @@ For rigid TLAS instance planning without changing the render path:
     r_pathTracingRigidBlasGpuBuild 1
     r_pathTracingRigidTlasPlanDump 1
 
-This reports what visible rigid instances could become TLAS instances, while the
-active render path remains the old static/dynamic fallback until
-`r_pathTracingRigidTlasRoute 1` and a compatible mode gate are enabled.
+This reports what visible/resident rigid instances feed TLAS. Disable
+`r_pathTracingRigidTlasRoute` or the per-mode route gate first if the goal is a
+plan dump without routing.
 
-For experimental rigid TLAS route transform validation:
+For routed rigid TLAS transform validation:
 
     r_pathTracingDebugMode 23
     r_pathTracingSceneSource 3
@@ -1722,7 +1720,7 @@ Mode 23 traces only routed rigid TLAS instances using a dedicated ray mask and
 the packed rigid route metadata buffers. It is meant to validate
 transforms/instance presence before dynamic-fallback removal.
 
-For experimental routed-rigid overlap validation:
+For routed-rigid overlap validation:
 
     r_pathTracingDebugMode 24
     r_pathTracingSceneSource 3
@@ -1732,13 +1730,12 @@ For experimental routed-rigid overlap validation:
     r_pathTracingRigidTlasPlanDump 1
     r_pathTracingRigidRouteOverlapDump 1
 
-For the first dynamic-fallback removal validation pass, add:
+To keep the dynamic fallback copy for overlap/emergency comparison, set:
 
-    r_pathTracingRigidRouteRemoveDynamic 1
+    r_pathTracingRigidRouteRemoveDynamic 0
 
-Mode 24 keeps rigid triangles in the dynamic fallback, traces fallback-only
-mask `0x01` and routed-rigid-only mask `0x02` separately, and visualizes the
-comparison:
+Mode 24 can trace fallback-only mask `0x01` and routed-rigid-only mask `0x02`
+separately and visualize the comparison:
 
     green = routed rigid hit matches fallback hit distance
     cyan = routed rigid hit, no fallback hit
@@ -1750,10 +1747,11 @@ comparison:
 This mode is diagnostic. It should not be used as the normal mode 18/20 render
 path.
 
-With `r_pathTracingRigidRouteRemoveDynamic 1`, successfully removed routed
-rigid surfaces should change from green to cyan because the fallback copy is no
-longer present. Orange should remain possible where remaining fallback geometry
-occludes the routed rigid path.
+With default `r_pathTracingRigidRouteRemoveDynamic 1`, successfully removed
+routed rigid surfaces should appear cyan in mode 24 because the fallback copy is
+no longer present. Orange should remain possible where remaining fallback
+geometry occludes the routed rigid path. Set the removal gate to 0 to restore
+the old green overlap comparison.
 
 For routed-rigid lighting validation:
 
@@ -1772,32 +1770,20 @@ hits receive a slight cyan tint so they can be distinguished from fallback
 geometry. This is still diagnostic and should not be treated as mode 18/20
 integration.
 
-For mode 18 routed-rigid integration testing:
+For mode 18 routed-rigid integration:
 
     r_pathTracingDebugMode 18
-    r_pathTracingSceneSource 3
-    r_pathTracingRigidBlasGpuScaffold 1
-    r_pathTracingRigidBlasGpuBuild 1
-    r_pathTracingRigidTlasRoute 1
-    r_pathTracingRigidRouteMode18 1
-    r_pathTracingRigidRouteRemoveDynamic 1
     r_pathTracingRigidTlasPlanDump 1
 
 This keeps the mode 18 toy path tracing shader path, appends routed rigid TLAS
 instances, and removes routed-ready rigid surfaces from the dynamic fallback.
 It also adds routed rigid material IDs to the frame material table before route
 buffer construction so removed dynamic surfaces do not drop their materials.
-Mode 20 remains unchanged unless its separate route gate is enabled.
+This stack is default-on; the command above only requests a plan dump.
 
-For mode 20 routed-rigid integration testing:
+For mode 20 routed-rigid integration:
 
     r_pathTracingDebugMode 20
-    r_pathTracingSceneSource 3
-    r_pathTracingRigidBlasGpuScaffold 1
-    r_pathTracingRigidBlasGpuBuild 1
-    r_pathTracingRigidTlasRoute 1
-    r_pathTracingRigidRouteMode20 1
-    r_pathTracingRigidRouteRemoveDynamic 1
     r_pathTracingRigidTlasPlanDump 1
 
 This keeps mode 20's single-frame reservoir direct-lighting path, appends
@@ -1806,7 +1792,8 @@ dynamic fallback, and adds routed rigid material IDs to the frame material
 table. It also appends CPU emissive triangle candidates for routed rigid
 instances from their local mesh data transformed by the current object-to-world
 matrix, so removed dynamic fallback copies do not disappear from mode 20's
-light candidate list. The reservoir algorithm remains unchanged.
+light candidate list. The reservoir algorithm remains unchanged. This stack is
+default-on; the command above only requests a plan dump.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom

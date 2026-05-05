@@ -63,8 +63,8 @@ Area/portal residency:
   work.
 - Current+1 portal selection was disproven as a general validation rule in Mars
   City. Many visually continuous rooms are several renderer portal areas deep.
-  Depth 4 is the current validation baseline used by the mode 18/20 preset 4
-  stack for static preload, rigid residency, and light-area diagnostics.
+  Depth 4 is now the default source3 standard for static preload, rigid
+  residency, and light-area diagnostics.
 - `PS_BLOCK_VIEW` portal edges are counted and reported, but currently do not
   stop source3 static preload, rigid residency, or light-area traversal. This is
   deliberate while validating RT residency because hard-blocking on Doom raster

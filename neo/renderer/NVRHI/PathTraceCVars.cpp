@@ -113,9 +113,9 @@ idCVar r_pathTracingEmissiveInventoryMaxTriangles(
 
 idCVar r_pathTracingSceneSource(
     "r_pathTracingSceneSource",
-    "0",
+    "3",
     CVAR_RENDERER | CVAR_INTEGER,
-    "PT scene producer source: 0 = existing drawSurf producer only, 1 = scene-universe diagnostics only, 2 = full static scene-universe geometry plus dynamic drawSurf fallback, 3 = existing static cache plus mirrored dynamic-frame drawSurfs" );
+    "PT scene producer source: 0 = legacy drawSurf producer only, 1 = scene-universe diagnostics only, 2 = full static scene-universe geometry plus dynamic drawSurf fallback, 3 = source3 portal-resident scene producer" );
 
 idCVar r_pathTracingSceneSourceCompare(
     "r_pathTracingSceneSourceCompare",
@@ -161,15 +161,15 @@ idCVar r_pathTracingRigidBlasInputDump(
 
 idCVar r_pathTracingRigidBlasGpuScaffold(
     "r_pathTracingRigidBlasGpuScaffold",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental disabled-by-default rigid BLAS GPU scaffold gate; 0 creates no rigid BLAS GPU resources" );
+    "Source3 rigid BLAS GPU scaffold gate; set 0 to disable reusable rigid BLAS GPU resources" );
 
 idCVar r_pathTracingRigidBlasGpuBuild(
     "r_pathTracingRigidBlasGpuBuild",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental rigid BLAS scaffold build-submit gate; requires r_pathTracingRigidBlasGpuScaffold 1 and does not route BLAS into TLAS" );
+    "Source3 rigid BLAS build-submit gate; requires r_pathTracingRigidBlasGpuScaffold 1" );
 
 idCVar r_pathTracingRigidBlasGpuDump(
     "r_pathTracingRigidBlasGpuDump",
@@ -185,21 +185,21 @@ idCVar r_pathTracingRigidTlasPlanDump(
 
 idCVar r_pathTracingRigidTlasRoute(
     "r_pathTracingRigidTlasRoute",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental source3 rigid TLAS route gate; active in debug modes 23/24/25 and optionally mode 18/20 with their per-mode gates" );
+    "Source3 rigid TLAS route gate; active in debug modes 23/24/25 and modes 18/20 unless per-mode gates are disabled" );
 
 idCVar r_pathTracingRigidRouteMode18(
     "r_pathTracingRigidRouteMode18",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental mode 18 routed rigid integration gate; requires source3 rigid route gates and remains off by default" );
+    "Mode 18 routed rigid integration gate; set 0 to force legacy dynamic fallback behavior" );
 
 idCVar r_pathTracingRigidRouteMode20(
     "r_pathTracingRigidRouteMode20",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental mode 20 routed rigid integration gate; requires source3 rigid route gates and remains off by default" );
+    "Mode 20 routed rigid integration gate; set 0 to force legacy dynamic fallback behavior" );
 
 idCVar r_pathTracingRigidRouteOverlapDump(
     "r_pathTracingRigidRouteOverlapDump",
@@ -209,33 +209,33 @@ idCVar r_pathTracingRigidRouteOverlapDump(
 
 idCVar r_pathTracingRigidRouteRemoveDynamic(
     "r_pathTracingRigidRouteRemoveDynamic",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental mode 24/25 validation gate: remove routed-ready rigid candidates from the dynamic fallback after BLAS route overlap validates" );
+    "Remove routed-ready rigid candidates from the source3 dynamic fallback; set 0 for legacy overlap/emergency testing" );
 
 idCVar r_pathTracingRigidRouteEmissiveCards(
     "r_pathTracingRigidRouteEmissiveCards",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental source3 rigid route gate: promote safe entity-attached translucent signage/glow cards into rigid residency so off-camera emissive panels remain routable" );
+    "Promote safe entity-attached translucent signage/glow cards into source3 rigid residency so off-camera emissive panels remain routable" );
 
 idCVar r_pathTracingRigidRouteMaxInstances(
     "r_pathTracingRigidRouteMaxInstances",
-    "64",
+    "256",
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors for experimental rigid route integration" );
 
 idCVar r_pathTracingRigidResidency(
     "r_pathTracingRigidResidency",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Keep cached source3 rigid instances resident for the current Doom area plus portal-adjacent areas instead of only raster-visible drawSurfs" );
 
 idCVar r_pathTracingRigidResidencyPortalSteps(
     "r_pathTracingRigidResidencyPortalSteps",
-    "1",
+    "4",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Portal traversal depth for source3 rigid geometry residency; default keeps current area plus directly connected portal areas" );
+    "Portal traversal depth for source3 rigid geometry residency; default depth 4 is the current source3 standard" );
 
 idCVar r_pathTracingRigidResidencyDump(
     "r_pathTracingRigidResidencyDump",
@@ -245,15 +245,15 @@ idCVar r_pathTracingRigidResidencyDump(
 
 idCVar r_pathTracingStaticAreaPreload(
     "r_pathTracingStaticAreaPreload",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Preload source3 static-world geometry for the current Doom area plus portal-adjacent areas instead of waiting for raster drawSurfs" );
 
 idCVar r_pathTracingStaticAreaPreloadPortalSteps(
     "r_pathTracingStaticAreaPreloadPortalSteps",
-    "1",
+    "4",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Portal traversal depth for source3 static-world area preload; default keeps current area plus directly connected portal areas" );
+    "Portal traversal depth for source3 static-world area preload; default depth 4 is the current source3 standard" );
 
 idCVar r_pathTracingStaticAreaPreloadDump(
     "r_pathTracingStaticAreaPreloadDump",
@@ -365,9 +365,9 @@ idCVar r_pathTracingLightUniverseChurn(
 
 idCVar r_pathTracingLightAreaPortalSteps(
     "r_pathTracingLightAreaPortalSteps",
-    "1",
+    "4",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Portal traversal depth for RT smoke emissive light-area selection diagnostics; default is current area plus directly connected portals" );
+    "Portal traversal depth for RT smoke emissive light-area selection diagnostics; default depth 4 matches current source3 residency baseline" );
 
 idCVar r_pathTracingLightAreaFilter(
     "r_pathTracingLightAreaFilter",

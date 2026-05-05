@@ -47,35 +47,35 @@ The current RT/PT path is still an experimental "smoke" path:
 - r_pathTracing mode 25: routed rigid lighting validation. It traces the
   combined fallback plus routed rigid TLAS scene with simple material/normal
   lighting, after optional routed-rigid removal from the dynamic fallback.
-- r_pathTracingRigidRouteMode18: default-off mode 18 integration gate for
+- r_pathTracingRigidRouteMode18: default-on mode 18 integration gate for
   routed rigid TLAS instances. It preserves mode 18's toy PT shader path while
   routing eligible rigid meshes through reusable local-space BLAS/TLAS records.
 - r_pathTracingMode18TestPreset: one-shot helper for applying the current
-  source3 routed-rigid/static-preload/rigid-residency mode 18 stack. Preset 4
-  is the current preferred visual validation shortcut because it uses portal
-  depth 4 and a larger rigid route instance cap.
-- r_pathTracingRigidRouteRemoveDynamic: default-off subtraction gate used by
-  routed-rigid validation/integration modes, including opted-in mode 18 and
-  mode 20 tests. It skips routed-ready rigid candidates from the source3 dynamic
-  fallback after the reusable rigid route is enabled.
+  source3 routed-rigid/static-preload/rigid-residency mode 18 stack. The stack
+  is already default-on; the preset remains a convenience/debug shortcut.
+- r_pathTracingRigidRouteRemoveDynamic: default-on subtraction gate used by
+  routed-rigid validation/integration modes, including mode 18 and mode 20. It
+  skips routed-ready rigid candidates from the source3 dynamic fallback after
+  the reusable rigid route is enabled.
 - r_pathTracingMode20TestPreset: one-shot helper for the current mode 20 source3
-  routed-rigid/static-preload/rigid-residency stack. Preset 4 is the current BVH
-  validation shortcut with portal depth 4 and no render-affecting light-area
-  filter apply.
+  routed-rigid/static-preload/rigid-residency stack. The stack is already
+  default-on; the preset remains a convenience/debug shortcut for mode 20 and
+  optional light-area diagnostics.
 - Source3 RT residency uses Doom renderer area/portal selection rather than
   current raster visibility alone. The final drawSurf stream is the freshness
   source for transforms/material overrides/runtime registers; portal-selected
   static preload and rigid residency are the persistence/residency layer for
-  occluded or off-camera RT geometry. Depth 4 is the current Mars City
-  validation baseline because visually continuous rooms can span several Doom
-  portal areas.
+  occluded or off-camera RT geometry. Depth 4 is the current source3 default
+  because visually continuous rooms can span several Doom portal areas.
 - Routed rigid closest-hit shading now transforms local-space geometric and
   interpolated normals into world space through the TLAS instance transform and
   constructs a world-space tangent basis for later lighting validation.
-- r_pathTracingSceneSource 3: current scene producer replacement scaffold. It
+- r_pathTracingSceneSource 3: default scene producer replacement scaffold. It
   keeps the existing drawSurf-seeded static cache and mirrors dynamic-frame
   drawSurfs as mesh identities plus per-frame instances while preserving the
-  old shader-compatible static/dynamic render buffers.
+  old shader-compatible static/dynamic render buffers. The original
+  drawSurf-only source0 path remains available for emergency comparison, but is
+  deprecated as the normal BVH source.
 - In mode 18, r_pathTracingSkipRaster3D defaults to 1 so the RT output owns the
   3D scene layer and the normal Doom 3D raster view is skipped. GUI/HUD/menu
   draw commands still rasterize afterward. Leaving full 3D raster enabled below
@@ -233,7 +233,7 @@ PathTraceGeometryUniverse.h
     classes, triangle material IDs, static surface records, per-frame lifecycle
     fields, previous range fields, and stats used by scene build. It also owns
     rigid mesh candidate/local-source records, validation stats, CPU rigid BLAS
-    plan/input descriptor dumps, and default-off rigid BLAS GPU scaffold records
+    plan/input descriptor dumps, and default-on rigid BLAS GPU scaffold records
     for per-mesh local-space vertex/index buffers plus optional standalone BLAS
     handles. It also owns source3 rigid residency records and bounds samples,
     and builds rigid TLAS instance plans by matching current/cached
@@ -252,7 +252,7 @@ PathTraceGeometryUniverse.cpp
     through the universe. It also records eligible rigid local-space mesh
     sources, validates them against the baked dynamic rigid fallback payload,
     builds CPU-only reusable rigid BLAS/TLAS plans and NVRHI-shaped input
-    descriptor dumps, and now owns a default-off GPU scaffold that can
+    descriptor dumps, and now owns a default-on GPU scaffold that can
     create/upload local-space rigid mesh input buffers and submit per-mesh BLAS
     builds. With the explicit rigid route gates, it can feed routed rigid TLAS
     instances into modes 18/20/23/24/25 and can keep cached rigid instances
@@ -520,7 +520,7 @@ Typical flow:
    moved-rigid history. The geometry universe consumes the current/cached rigid
    observations when rigid route/residency gates are enabled.
 6. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates,
-   CPU rigid BLAS plans/input descriptors, default-off GPU scaffold records for
+   CPU rigid BLAS plans/input descriptors, default-on GPU scaffold records for
    local-space rigid mesh buffers/standalone BLAS builds, rigid residency
    records, and rigid TLAS instance plans. In gated validation/integration
    modes, routed-ready rigid triangles can be removed from the dynamic fallback
@@ -565,8 +565,7 @@ Riskier places to touch:
   repeats the earlier failure mode where occluded/off-camera emissives and
   shadow-casting rigid geometry disappear together.
 - Treating current+1 portal depth as a proven global rule. It was too shallow
-  in Mars City; use preset 4/depth 4 for the current validation path and keep
-  normal defaults conservative until broader maps are tested.
+  in Mars City; depth 4 is now the default source3 residency/preload standard.
 - Mesh key semantics in PathTraceDrawSurfCapture.cpp. Mesh identity must not
   include model matrices or current transforms.
 - Upload skip flags in the RtSmokeBufferUploadItem array.
