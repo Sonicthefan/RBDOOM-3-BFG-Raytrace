@@ -266,7 +266,7 @@ bool SmokeRayIntersectAabb(float3 rayOrigin, float3 rayDirection, float3 boundsM
     const float3 tMax = max(t0, t1);
     const float tEnter = max(max(tMin.x, tMin.y), max(tMin.z, 0.0));
     const float tExit = min(tMax.x, min(tMax.y, tMax.z));
-    hitT = tEnter;
+    hitT = tEnter > 0.001 ? tEnter : tExit;
     return tExit >= tEnter && tExit > 0.0;
 }
 
