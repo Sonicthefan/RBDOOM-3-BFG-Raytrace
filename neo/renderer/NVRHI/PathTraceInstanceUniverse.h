@@ -174,6 +174,7 @@ public:
         int numVerts,
         int numIndexes);
     const RtPathTraceInstanceUniverseStats& GetFrameStats() const;
+    const std::vector<RtPathTraceInstanceObservation>& FrameInstances() const;
     void RunDiagnostics(const RtPathTraceInstanceUniverseDiagnosticDesc& desc);
 
 private:
@@ -225,5 +226,6 @@ private:
     std::unordered_set<uint64> m_frameMeshHashes;
     std::vector<InstanceHistory> m_instanceHistories;
     std::unordered_map<uint64, size_t> m_instanceHistoryLookup;
+    std::vector<RtPathTraceInstanceObservation> m_frameInstances;
     RtPathTraceInstanceUniverseStats m_frameStats;
 };

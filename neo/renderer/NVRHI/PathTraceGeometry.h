@@ -15,6 +15,18 @@ struct PathTraceSmokeVertex
     float color2[4];
 };
 
+struct PathTraceRigidRouteInstance
+{
+    uint32_t vertexOffset = 0;
+    uint32_t indexOffset = 0;
+    uint32_t triangleOffset = 0;
+    uint32_t materialId = 0;
+    uint32_t materialIndex = 0;
+    uint32_t vertexCount = 0;
+    uint32_t indexCount = 0;
+    uint32_t triangleCount = 0;
+};
+
 bool SmokeFloatIsFinite(float value);
 bool SmokeVec2IsFinite(const idVec2& value);
 bool SmokeVec3IsFinite(const idVec3& value);

@@ -11,6 +11,7 @@
 #include <vector>
 
 struct viewDef_t;
+struct RtPathTraceRigidRouteBuild;
 
 struct PathTraceSmokeMaterial
 {
@@ -110,6 +111,7 @@ struct RtSmokeEmissiveInventoryStats
     int totalTriangles = 0;
     int staticTriangles = 0;
     int dynamicTriangles = 0;
+    int routedRigidTriangles = 0;
     int fullLevelStaticTriangles = 0;
     int capturedTriangles = 0;
     int skippedSkinnedTriangles = 0;
@@ -148,6 +150,14 @@ RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
 void FinalizeSmokeEmissiveTriangleSamplingFields(
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const RtSmokeEmissiveInventoryStats& stats);
+void AppendSmokeRigidRouteEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const RtPathTraceRigidRouteBuild& rigidRouteBuild,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats);
 std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

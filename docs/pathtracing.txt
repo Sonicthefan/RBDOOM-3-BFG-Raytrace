@@ -84,10 +84,23 @@ Current validated feature set:
 - Mode 21 solid drawSurf mirror bounds boxes and mode 22 wireframe drawSurf
   mirror bounds boxes. These are replacement diagnostic views for inspecting
   captured bounds/BVH/source issues, not overlays on mode 18/20.
+- Mode 23 traces only the experimental rigid TLAS route instances. It is a
+  validation view for local-space rigid BLAS plus TLAS transforms, not the
+  normal path-traced render path.
+- Mode 24 traces the old fallback scene and routed rigid instances separately,
+  then color-codes their hit-distance overlap. It is the validation step before
+  removing rigid triangles from the dynamic fallback.
+- Mode 25 traces the normal fallback scene plus routed rigid TLAS instances
+  with a simple material/normal lighting view. It is the first routed-rigid
+  lighting validation path and does not change mode 18/20.
 - Source 3 scene producer scaffold: existing drawSurf-seeded static cache plus
   mirrored dynamic-frame drawSurfs. It preserves the old shader-compatible
   static/dynamic buffer contract while exposing mesh identity and per-frame
   instance identity for diagnostics.
+- Default-off rigid BLAS GPU scaffold for source3 local-space rigid mesh
+  candidates. It can create/upload per-mesh vertex/index buffers and, behind a
+  second gate, submit standalone BLAS builds, but it does not route those BLAS
+  records into TLAS or remove rigid triangles from the dynamic fallback.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -165,6 +178,11 @@ Refactor chronology:
     not the primary scene representation. Modes 21 and 22 were added as PT-native
     solid/wireframe bounds-box diagnostics after raster/debug-line and post-blit
     overlay attempts proved too fragile for useful spatial inspection.
+12. PathTraceGeometryUniverse gained a default-off rigid BLAS GPU scaffold for
+    eligible source3 rigid mesh candidates. The scaffold builds local-space
+    mesh input buffers, can optionally submit standalone BLAS builds, and keeps
+    renderPath=dynamicFallback / tlasRoute=oldStaticPlusDynamic until later
+    TLAS routing is explicitly implemented.
 
 Implemented debug CVars:
 
@@ -199,6 +217,9 @@ Implemented debug CVars:
   20 = single-frame reservoir direct lighting
   21 = solid drawSurf mirror bounds boxes
   22 = wireframe drawSurf mirror bounds boxes
+  23 = experimental routed rigid TLAS instances
+  24 = fallback-vs-rigid-route overlap validation
+  25 = routed rigid lighting validation
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -291,10 +312,10 @@ Implemented debug CVars:
 
 - r_pathTracingEmissiveInventoryDump
   One-shot dump of the current emissive triangle inventory: total/captured
-  static/dynamic candidate counts, unique material count, area, approximate
-  luminance, candidate weight, estimated radiance, per-material summary rows,
-  emissive texture slot/dimensions, and a short triangle sample list with UV
-  bounds.
+  static/dynamic/routed-rigid candidate counts, unique material count, area,
+  approximate luminance, candidate weight, estimated radiance, per-material
+  summary rows, emissive texture slot/dimensions, and a short triangle sample
+  list with UV bounds.
 
 - r_pathTracingEmissiveInventoryMaxTriangles
   Caps the CPU/GPU emissive triangle records captured for future light-sampling
@@ -436,6 +457,51 @@ Implemented debug CVars:
   Default-off guard for the next rigid BLAS GPU scaffold. When 0, no rigid BLAS
   GPU resources should be created. Current rendering still uses the old
   static/dynamic fallback path.
+
+- r_pathTracingRigidBlasGpuBuild
+  Default-off build-submit gate for the rigid BLAS GPU scaffold. Requires
+  r_pathTracingRigidBlasGpuScaffold 1. When enabled, it submits standalone
+  per-mesh BLAS builds only; those BLAS records are not inserted into TLAS.
+
+- r_pathTracingRigidBlasGpuDump
+  One-shot dump for the rigid BLAS GPU scaffold. It reports mesh/input counts,
+  buffer creation/reuse, upload bytes, BLAS handle/build counts, skips, and the
+  explicit renderPath=dynamicFallback / tlasRoute=oldStaticPlusDynamic status.
+
+- r_pathTracingRigidTlasPlanDump
+  One-shot diagnostics-only rigid TLAS instance plan. It matches current-frame
+  source3 visible rigid instances to local-source rigid mesh records and reports
+  instance counts, GPU buffer/BLAS readiness, missing records, transform origins,
+  material/entity metadata, and the rigid triangle count that would become TLAS
+  instances later. It does not route reusable rigid BLAS records into TLAS.
+
+- r_pathTracingRigidTlasRoute
+  Default-off experimental route gate for rigid BLAS instances. It is active
+  in debug modes 23, 24, and 25, and optionally in mode 18 when
+  `r_pathTracingRigidRouteMode18 1` is set, or mode 20 when
+  `r_pathTracingRigidRouteMode20 1` is set. Mode 23 traces routed rigid
+  instances only. Mode 24 traces fallback-only and routed-rigid-only rays
+  separately and color-codes their hit-distance agreement.
+
+- r_pathTracingRigidRouteMode18
+  Default-off mode 18 integration gate. Requires source3 plus the rigid route
+  scaffold/build/route gates. This is the first real toy path tracing
+  integration test for routed rigid TLAS instances.
+
+- r_pathTracingRigidRouteMode20
+  Default-off mode 20 integration gate. Requires source3 plus the rigid route
+  scaffold/build/route gates. This only routes eligible rigid geometry through
+  the rigid TLAS path; it does not change mode 20 reservoir/emissive sampling.
+
+- r_pathTracingRigidRouteOverlapDump
+  One-shot mode 24 readback dump. It queues a diagnostic output readback and
+  prints pixel proportions for match, rigid-only, rigid-in-front,
+  fallback-in-front, fallback-only, neither, and unknown color buckets.
+
+- r_pathTracingRigidRouteRemoveDynamic
+  Default-off mode 24/25 validation gate, also used by opted-in mode 18/20
+  route tests. When enabled with the rigid route gates, source3 skips
+  routed-ready rigid mesh candidates from the dynamic fallback.
 
 - r_pathTracingSceneBoundsOverlay
   Bounds diagnostic category selector for the drawSurf mirror:
@@ -1367,6 +1433,151 @@ For rigid mesh candidate/local-source diagnostics:
     r_pathTracingRigidMeshValidate 1
     r_pathTracingRigidBlasPlanDump 1
     r_pathTracingRigidBlasInputDump 1
+
+For default-off rigid BLAS GPU scaffold diagnostics:
+
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 0
+    r_pathTracingRigidBlasGpuDump 1
+
+For standalone rigid BLAS build submission testing, after the buffer-only path
+is stable:
+
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidBlasGpuDump 1
+
+This still keeps renderPath=dynamicFallback and does not route reusable rigid
+BLAS records into TLAS.
+
+For diagnostics-only rigid TLAS instance planning:
+
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasPlanDump 1
+
+This reports what visible rigid instances could become TLAS instances, while the
+active render path remains the old static/dynamic fallback.
+
+For experimental rigid TLAS route transform validation:
+
+    r_pathTracingDebugMode 23
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasRoute 1
+    r_pathTracingRigidTlasPlanDump 1
+
+Mode 23 traces only routed rigid TLAS instances using a dedicated ray mask and
+the packed rigid route metadata buffers. It is meant to validate
+transforms/instance presence before dynamic-fallback removal.
+
+For experimental routed-rigid overlap validation:
+
+    r_pathTracingDebugMode 24
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasRoute 1
+    r_pathTracingRigidTlasPlanDump 1
+    r_pathTracingRigidRouteOverlapDump 1
+
+For the first dynamic-fallback removal validation pass, add:
+
+    r_pathTracingRigidRouteRemoveDynamic 1
+
+Mode 24 keeps rigid triangles in the dynamic fallback, traces fallback-only
+mask `0x01` and routed-rigid-only mask `0x02` separately, and visualizes the
+comparison:
+
+    green = routed rigid hit matches fallback hit distance
+    cyan = routed rigid hit, no fallback hit
+    blue = routed rigid hit in front of fallback hit
+    orange = fallback hit in front of routed rigid hit
+    dim gray = fallback hit only
+    black = neither path hit
+
+This mode is diagnostic. It should not be used as the normal mode 18/20 render
+path.
+
+With `r_pathTracingRigidRouteRemoveDynamic 1`, successfully removed routed
+rigid surfaces should change from green to cyan because the fallback copy is no
+longer present. Orange should remain possible where remaining fallback geometry
+occludes the routed rigid path.
+
+For routed-rigid lighting validation:
+
+    r_pathTracingDebugMode 25
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasRoute 1
+    r_pathTracingRigidRouteRemoveDynamic 1
+    r_pathTracingRigidTlasPlanDump 1
+
+Mode 25 traces the combined scene with mask `0xff`, removes routed-ready rigid
+surfaces from the dynamic fallback when the removal gate is enabled, and shades
+with simple material debug albedo plus world-space normal lighting. Routed rigid
+hits receive a slight cyan tint so they can be distinguished from fallback
+geometry. This is still diagnostic and should not be treated as mode 18/20
+integration.
+
+For mode 18 routed-rigid integration testing:
+
+    r_pathTracingDebugMode 18
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasRoute 1
+    r_pathTracingRigidRouteMode18 1
+    r_pathTracingRigidRouteRemoveDynamic 1
+    r_pathTracingRigidTlasPlanDump 1
+
+This keeps the mode 18 toy path tracing shader path, appends routed rigid TLAS
+instances, and removes routed-ready rigid surfaces from the dynamic fallback.
+It also adds routed rigid material IDs to the frame material table before route
+buffer construction so removed dynamic surfaces do not drop their materials.
+Mode 20 remains unchanged unless its separate route gate is enabled.
+
+For mode 20 routed-rigid integration testing:
+
+    r_pathTracingDebugMode 20
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasRoute 1
+    r_pathTracingRigidRouteMode20 1
+    r_pathTracingRigidRouteRemoveDynamic 1
+    r_pathTracingRigidTlasPlanDump 1
+
+This keeps mode 20's single-frame reservoir direct-lighting path, appends
+routed rigid TLAS instances, removes routed-ready rigid surfaces from the
+dynamic fallback, and adds routed rigid material IDs to the frame material
+table. It also appends CPU emissive triangle candidates for routed rigid
+instances from their local mesh data transformed by the current object-to-world
+matrix, so removed dynamic fallback copies do not disappear from mode 20's
+light candidate list. The reservoir algorithm remains unchanged.
+
+Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
+20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom
+scene lights selected for mode 18 do not contribute to the reservoir yet.
+Therefore some light seen in mode 18 can be absent in mode 20. Routed rigid
+emissive candidates move with their routed object transform, but remaining
+edge-of-screen flicker can still occur when an emissive candidate source depends
+on current visible drawSurfs. Persistent/off-screen emissive light records and
+area/portal light lists are later light-universe work, not part of this rigid
+TLAS route step.
+
+Routed rigid closest-hit notes:
+
+- Routed rigid BLAS records store vertices/normals in local object space.
+- The closest-hit path for `InstanceID >= 2` transforms geometric and
+  interpolated normals through the TLAS instance object-to-world transform
+  before writing the payload.
+- It also builds a world-space tangent/bitangent basis from local UV gradients.
+  This is required before testing routed rigid records in lighting modes that
+  expect world-space payload normals.
 
 For PT-native bounds/BVH inspection:
 

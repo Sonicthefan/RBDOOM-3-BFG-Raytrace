@@ -34,6 +34,28 @@ The current RT/PT path is still an experimental "smoke" path:
 - r_pathTracing mode 22: PT-native wireframe drawSurf mirror bounds boxes. This
   is the preferred human spatial inspection mode because all-category solid
   boxes can occlude too much.
+- r_pathTracing mode 23: experimental routed rigid TLAS instance view. It traces
+  only routed rigid BLAS instances with a rigid-only ray mask and reads the
+  packed rigid route vertex/index/material buffers, so it can validate
+  local-space BLAS/TLAS transforms without changing mode 18/20 shading.
+- r_pathTracing mode 24: routed rigid overlap validation. It keeps the old
+  fallback scene intact, traces fallback-only and routed-rigid-only masks
+  separately, color-codes hit-distance agreement, and can dump per-color pixel
+  proportions with `r_pathTracingRigidRouteOverlapDump 1` before any dynamic
+  fallback rigid removal is attempted.
+- r_pathTracing mode 25: routed rigid lighting validation. It traces the
+  combined fallback plus routed rigid TLAS scene with simple material/normal
+  lighting, after optional routed-rigid removal from the dynamic fallback.
+- r_pathTracingRigidRouteMode18: default-off mode 18 integration gate for
+  routed rigid TLAS instances. It preserves mode 18's toy PT shader path while
+  routing eligible rigid meshes through reusable local-space BLAS/TLAS records.
+- r_pathTracingRigidRouteRemoveDynamic: default-off mode 18/24/25 subtraction gate.
+  It skips routed-ready rigid candidates from the source3 dynamic fallback so
+  the removal, lighting-validation, and explicit mode 18 integration passes can
+  run without affecting mode 20.
+- Routed rigid closest-hit shading now transforms local-space geometric and
+  interpolated normals into world space through the TLAS instance transform and
+  constructs a world-space tangent basis for later lighting validation.
 - r_pathTracingSceneSource 3: current scene producer replacement scaffold. It
   keeps the existing drawSurf-seeded static cache and mirrors dynamic-frame
   drawSurfs as mesh identities plus per-frame instances while preserving the
@@ -173,11 +195,14 @@ PathTraceGeometryUniverse.h
     currently exposes the static surface keys, vertices, indexes, triangle
     classes, triangle material IDs, static surface records, per-frame lifecycle
     fields, previous range fields, and stats used by scene build. It also owns
-    diagnostics-only rigid mesh candidate/local-source records, validation
-    stats, CPU rigid BLAS plan/input descriptor dumps, and the default-off
-    rigid BLAS GPU scaffold gate. The universe must evolve with previous-frame
-    geometry history in mind so future motion vector output can be generated
-    from geometry, not guessed later.
+    rigid mesh candidate/local-source records, validation stats, CPU rigid BLAS
+    plan/input descriptor dumps, and default-off rigid BLAS GPU scaffold records
+    for per-mesh local-space vertex/index buffers plus optional standalone BLAS
+    handles. It also builds diagnostics-only rigid TLAS instance plans by
+    matching current-frame instance-universe observations to rigid mesh records.
+    The universe must evolve with previous-frame geometry history in mind so
+    future motion vector output can be generated from geometry, not guessed
+    later.
 
 PathTraceGeometryUniverse.cpp
     Static geometry universe and rigid-diagnostic implementation. At this stage
@@ -188,11 +213,15 @@ PathTraceGeometryUniverse.cpp
     through the universe. It also records eligible rigid local-space mesh
     sources, validates them against the baked dynamic rigid fallback payload,
     builds CPU-only reusable rigid BLAS/TLAS plans and NVRHI-shaped input
-    descriptor dumps, and deliberately keeps renderPath=dynamicFallback until
-    reusable rigid BLAS/TLAS routing is implemented. Future work should expand
-    persistent records, dirty ranges, and GPU buffer ownership here, plus
-    current/previous geometry or transform history needed for temporal
-    reconstruction.
+    descriptor dumps, and now owns a disabled-by-default GPU scaffold that can
+    create/upload local-space rigid mesh input buffers and optionally submit
+    standalone per-mesh BLAS builds. It can also dump a rigid TLAS instance plan
+    from current-frame visible rigid instances without changing routing. It
+    deliberately keeps renderPath=dynamicFallback and
+    tlasRoute=oldStaticPlusDynamic until reusable rigid BLAS/TLAS routing is
+    implemented. Future work should expand persistent records, dirty ranges, and
+    GPU buffer ownership here, plus current/previous geometry or transform
+    history needed for temporal reconstruction.
 
 PathTraceSkinning.h
     Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
@@ -436,14 +465,17 @@ Typical flow:
    transform/material/entity metadata.
 4. PathTraceInstanceUniverse tracks those observations for diagnostics and
    moved-rigid history. It does not feed TLAS yet.
-5. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates
-   and CPU-only rigid BLAS plans/input descriptors, while rendering still goes
-   through the old dynamic fallback.
+5. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates,
+   CPU rigid BLAS plans/input descriptors, default-off GPU scaffold records for
+   local-space rigid mesh buffers/standalone BLAS builds, and diagnostics-only
+   rigid TLAS instance plans, while rendering still goes through the old dynamic
+   fallback.
 6. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
 7. PathTraceSmokeResources creates geometry/material/emissive buffers.
 8. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
-   submits BLAS/TLAS builds.
+   submits BLAS/TLAS builds. Its TLAS submit helper can append extra
+   diagnostics-only rigid route instances when mode 23/24 is explicitly enabled.
 9. PathTraceSmokeResources commits the successful handles to pass state.
 10. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
 11. RenderBackend.cpp blits the RT output as the 3D scene. With

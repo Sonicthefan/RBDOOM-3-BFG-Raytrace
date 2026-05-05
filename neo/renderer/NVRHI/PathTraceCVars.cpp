@@ -7,7 +7,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -146,6 +146,54 @@ idCVar r_pathTracingRigidBlasGpuScaffold(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental disabled-by-default rigid BLAS GPU scaffold gate; 0 creates no rigid BLAS GPU resources" );
+
+idCVar r_pathTracingRigidBlasGpuBuild(
+    "r_pathTracingRigidBlasGpuBuild",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental rigid BLAS scaffold build-submit gate; requires r_pathTracingRigidBlasGpuScaffold 1 and does not route BLAS into TLAS" );
+
+idCVar r_pathTracingRigidBlasGpuDump(
+    "r_pathTracingRigidBlasGpuDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump one-shot rigid BLAS GPU scaffold buffer/build stats" );
+
+idCVar r_pathTracingRigidTlasPlanDump(
+    "r_pathTracingRigidTlasPlanDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump a diagnostics-only rigid TLAS instance plan from source3 visible rigid instances" );
+
+idCVar r_pathTracingRigidTlasRoute(
+    "r_pathTracingRigidTlasRoute",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental source3 rigid TLAS route gate; active in debug modes 23/24/25 and optionally mode 18/20 with their per-mode gates" );
+
+idCVar r_pathTracingRigidRouteMode18(
+    "r_pathTracingRigidRouteMode18",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental mode 18 routed rigid integration gate; requires source3 rigid route gates and remains off by default" );
+
+idCVar r_pathTracingRigidRouteMode20(
+    "r_pathTracingRigidRouteMode20",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental mode 20 routed rigid integration gate; requires source3 rigid route gates and remains off by default" );
+
+idCVar r_pathTracingRigidRouteOverlapDump(
+    "r_pathTracingRigidRouteOverlapDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 in debug mode 24 to read back the overlap validation image and dump per-color pixel proportions once" );
+
+idCVar r_pathTracingRigidRouteRemoveDynamic(
+    "r_pathTracingRigidRouteRemoveDynamic",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental mode 24/25 validation gate: remove routed-ready rigid candidates from the dynamic fallback after BLAS route overlap validates" );
 
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",

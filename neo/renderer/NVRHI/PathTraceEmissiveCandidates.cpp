@@ -3,8 +3,10 @@
 
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceGeometryUniverse.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceSceneCapture.h"
+#include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
 
@@ -42,7 +44,20 @@ uint32_t FindSmokeMaterialTableIndexForId(const std::vector<uint32_t>& materialI
     return UINT32_MAX;
 }
 
+idVec3 TransformSmokeRoutePoint(const float objectToWorld[16], const idVec3& point)
+{
+    return idVec3(
+        objectToWorld[0] * point.x + objectToWorld[4] * point.y + objectToWorld[8] * point.z + objectToWorld[12],
+        objectToWorld[1] * point.x + objectToWorld[5] * point.y + objectToWorld[9] * point.z + objectToWorld[13],
+        objectToWorld[2] * point.x + objectToWorld[6] * point.y + objectToWorld[10] * point.z + objectToWorld[14]);
 }
+
+}
+
+std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& frameMaterials,
+    uint32_t emissiveMaterialFlag);
 
 float SmokeMaterialEmissiveLuminance(const PathTraceSmokeMaterial& material)
 {
@@ -214,6 +229,157 @@ void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmiss
         record.sampleWeightAndPdf[3] = record.centerAndArea[3] * inverseTotalArea;
         record.centroidUvAndWeight[3] = record.sampleWeightAndPdf[1];
     }
+}
+
+void AppendSmokeRigidRouteEmissiveTriangleInventory(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<PathTraceSmokeMaterial>& materials,
+    const RtPathTraceRigidRouteBuild& rigidRouteBuild,
+    uint32_t emissiveMaterialFlag,
+    int maxRecords,
+    std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+    RtSmokeEmissiveInventoryStats& stats)
+{
+    OPTICK_EVENT("PT Emissive Append Rigid Route");
+
+    if (rigidRouteBuild.instances.empty() || rigidRouteBuild.instanceObjectToWorld.empty())
+    {
+        return;
+    }
+
+    maxRecords = Max(1, maxRecords);
+    const std::vector<PathTraceSmokeMaterial> materialViews = BuildSmokeEmissiveMaterialViews(materialIds, materials, emissiveMaterialFlag);
+    const uint32_t rigidClassAndFlags = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+    const int instanceCount = Min(static_cast<int>(rigidRouteBuild.instances.size()), static_cast<int>(rigidRouteBuild.instanceObjectToWorld.size()));
+    for (int instanceIndex = 0; instanceIndex < instanceCount; ++instanceIndex)
+    {
+        const PathTraceRigidRouteInstance& routeInstance = rigidRouteBuild.instances[instanceIndex];
+        const float* objectToWorld = rigidRouteBuild.instanceObjectToWorld[instanceIndex].data();
+        const uint32_t routeTlasInstanceId = static_cast<uint32_t>(2 + instanceIndex);
+        for (uint32_t localTriangleIndex = 0; localTriangleIndex < routeInstance.triangleCount; ++localTriangleIndex)
+        {
+            const uint32_t globalTriangleIndex = routeInstance.triangleOffset + localTriangleIndex;
+            if (globalTriangleIndex >= rigidRouteBuild.triangleMaterialIndexes.size())
+            {
+                ++stats.skippedInvalidMaterialTriangles;
+                continue;
+            }
+
+            const uint32_t materialIndex = rigidRouteBuild.triangleMaterialIndexes[globalTriangleIndex];
+            if (materialIndex >= materialViews.size() || materialIndex >= materialIds.size())
+            {
+                ++stats.skippedInvalidMaterialTriangles;
+                continue;
+            }
+
+            const PathTraceSmokeMaterial& material = materialViews[materialIndex];
+            if ((material.flags & emissiveMaterialFlag) == 0)
+            {
+                continue;
+            }
+
+            const uint32_t indexOffset = routeInstance.indexOffset + localTriangleIndex * 3u;
+            if (indexOffset + 2u >= rigidRouteBuild.indexes.size())
+            {
+                ++stats.skippedInvalidMaterialTriangles;
+                continue;
+            }
+
+            const uint32_t i0 = routeInstance.vertexOffset + rigidRouteBuild.indexes[indexOffset + 0u];
+            const uint32_t i1 = routeInstance.vertexOffset + rigidRouteBuild.indexes[indexOffset + 1u];
+            const uint32_t i2 = routeInstance.vertexOffset + rigidRouteBuild.indexes[indexOffset + 2u];
+            if (i0 >= rigidRouteBuild.vertices.size() || i1 >= rigidRouteBuild.vertices.size() || i2 >= rigidRouteBuild.vertices.size())
+            {
+                ++stats.skippedInvalidMaterialTriangles;
+                continue;
+            }
+
+            const idVec3 p0 = TransformSmokeRoutePoint(objectToWorld, SmokeVertexPosition(rigidRouteBuild.vertices[i0]));
+            const idVec3 p1 = TransformSmokeRoutePoint(objectToWorld, SmokeVertexPosition(rigidRouteBuild.vertices[i1]));
+            const idVec3 p2 = TransformSmokeRoutePoint(objectToWorld, SmokeVertexPosition(rigidRouteBuild.vertices[i2]));
+            const idVec2 uv0 = SmokeVertexTexCoord(rigidRouteBuild.vertices[i0]);
+            const idVec2 uv1 = SmokeVertexTexCoord(rigidRouteBuild.vertices[i1]);
+            const idVec2 uv2 = SmokeVertexTexCoord(rigidRouteBuild.vertices[i2]);
+            const idVec3 edge01 = p1 - p0;
+            const idVec3 edge02 = p2 - p0;
+            idVec3 areaNormal = edge01.Cross(edge02);
+            const float doubleArea = areaNormal.Length();
+            if (doubleArea <= 1.0e-6f)
+            {
+                continue;
+            }
+
+            ++stats.totalTriangles;
+            ++stats.dynamicTriangles;
+            ++stats.routedRigidTriangles;
+            if (std::find(stats.materialIndexes.begin(), stats.materialIndexes.end(), materialIndex) == stats.materialIndexes.end())
+            {
+                stats.materialIndexes.push_back(materialIndex);
+            }
+
+            const float area = doubleArea * 0.5f;
+            areaNormal *= 1.0f / doubleArea;
+            const float luminance = SmokeMaterialEmissiveLuminance(material);
+            const idVec3 estimatedRadiance(
+                Max(0.0f, material.emissiveColor[0]),
+                Max(0.0f, material.emissiveColor[1]),
+                Max(0.0f, material.emissiveColor[2]));
+            const float sampleWeight = area * luminance;
+            stats.totalArea += area;
+            stats.totalWeightedLuminance += sampleWeight;
+
+            if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
+            {
+                ++stats.cappedTriangles;
+                continue;
+            }
+
+            PathTraceSmokeEmissiveTriangle record = {};
+            const idVec3 center = (p0 + p1 + p2) * (1.0f / 3.0f);
+            record.centerAndArea[0] = center.x;
+            record.centerAndArea[1] = center.y;
+            record.centerAndArea[2] = center.z;
+            record.centerAndArea[3] = area;
+            record.normalAndLuminance[0] = areaNormal.x;
+            record.normalAndLuminance[1] = areaNormal.y;
+            record.normalAndLuminance[2] = areaNormal.z;
+            record.normalAndLuminance[3] = luminance;
+            record.uvBounds[0] = Min(uv0.x, Min(uv1.x, uv2.x));
+            record.uvBounds[1] = Min(uv0.y, Min(uv1.y, uv2.y));
+            record.uvBounds[2] = Max(uv0.x, Max(uv1.x, uv2.x));
+            record.uvBounds[3] = Max(uv0.y, Max(uv1.y, uv2.y));
+            record.centroidUvAndWeight[0] = (uv0.x + uv1.x + uv2.x) * (1.0f / 3.0f);
+            record.centroidUvAndWeight[1] = (uv0.y + uv1.y + uv2.y) * (1.0f / 3.0f);
+            record.centroidUvAndWeight[2] = sampleWeight;
+            record.centroidUvAndWeight[3] = 0.0f;
+            record.estimatedRadianceAndLuminance[0] = estimatedRadiance.x;
+            record.estimatedRadianceAndLuminance[1] = estimatedRadiance.y;
+            record.estimatedRadianceAndLuminance[2] = estimatedRadiance.z;
+            record.estimatedRadianceAndLuminance[3] = luminance;
+            record.sampleWeightAndPdf[0] = sampleWeight;
+            record.sampleWeightAndPdf[1] = 0.0f;
+            record.sampleWeightAndPdf[2] = area;
+            record.sampleWeightAndPdf[3] = 0.0f;
+            record.materialIndex = materialIndex;
+            record.instanceId = routeTlasInstanceId;
+            record.primitiveIndex = localTriangleIndex;
+            record.flags = material.flags;
+            record.emissiveTextureIndex = material.emissiveTextureIndex;
+            record.emissiveTextureWidth = material.emissiveTextureWidth;
+            record.emissiveTextureHeight = material.emissiveTextureHeight;
+            record.materialId = materialIds[materialIndex];
+            const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(record.materialId, materialIndex);
+            record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(record.materialId, info).universeIndex;
+            const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(record.materialId, routeTlasInstanceId, localTriangleIndex, materialIndex, rigidClassAndFlags);
+            record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
+            record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
+            record.padding0 = rigidClassAndFlags;
+            emissiveTriangles.push_back(record);
+        }
+    }
+
+    stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
 }
 
 std::vector<uint32_t> BuildSmokeWorldStaticEmissiveMaterialIds(const viewDef_t* viewDef)
@@ -630,6 +796,11 @@ RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
         {
             ++stats.dynamicTriangles;
         }
+        const uint32_t surfaceClass = record.padding0 & RT_SMOKE_TRIANGLE_CLASS_MASK;
+        if (record.instanceId >= 2u && surfaceClass == SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity))
+        {
+            ++stats.routedRigidTriangles;
+        }
         stats.totalArea += record.centerAndArea[3];
         stats.totalWeightedLuminance += record.sampleWeightAndPdf[0];
 
@@ -687,12 +858,13 @@ void LogSmokeEmissiveInventoryDump(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const RtSmokeEmissiveInventoryStats& stats)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d fullLevelStatic=%d dynamic=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedRuntimeInactive=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
+    common->Printf("PathTracePrimaryPass: RT smoke emissive inventory triangles=%d captured=%d static=%d fullLevelStatic=%d dynamic=%d routedRigid=%d uniqueMaterials=%d capped=%d skippedSkinned=%d skippedRuntimeInactive=%d skippedInvalid=%d totalArea=%.2f areaWeightedLum=%.3f\n",
         stats.totalTriangles,
         stats.capturedTriangles,
         stats.staticTriangles,
         stats.fullLevelStaticTriangles,
         stats.dynamicTriangles,
+        stats.routedRigidTriangles,
         stats.uniqueMaterials,
         stats.cappedTriangles,
         stats.skippedSkinnedTriangles,

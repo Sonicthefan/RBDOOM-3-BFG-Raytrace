@@ -22,7 +22,9 @@ int g_smokeLastReadbackTimingLogMs = -1000000;
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
-    if (r_pathTracingReadbackEnable.GetInteger() == 0)
+    const int debugMode = idMath::ClampInt(0, 25, r_pathTracingDebugMode.GetInteger());
+    const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
+    if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested)
     {
         m_smokeReadbackQueued = false;
         m_smokeReadbackDelayFrames = 0;
@@ -72,6 +74,13 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     int greenHits = 0;
     int redMisses = 0;
+    int overlapMatch = 0;
+    int overlapRigidOnly = 0;
+    int overlapRigidInFront = 0;
+    int overlapFallbackInFront = 0;
+    int overlapFallbackOnly = 0;
+    int overlapNeither = 0;
+    int overlapUnknown = 0;
     for (int y = 0; y < m_smokeOutputHeight; ++y)
     {
         const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
@@ -86,6 +95,47 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             {
                 ++redMisses;
             }
+
+            if (debugMode == 24)
+            {
+                const bool rHigh = rgba[0] > 0.75f;
+                const bool gHigh = rgba[1] > 0.75f;
+                const bool bHigh = rgba[2] > 0.75f;
+                const bool rMid = rgba[0] > 0.35f;
+                const bool gMid = rgba[1] > 0.30f;
+                const bool bMid = rgba[2] > 0.35f;
+                const bool dimGray = rgba[0] > 0.08f && rgba[0] < 0.32f && rgba[1] > 0.08f && rgba[1] < 0.32f && rgba[2] > 0.08f && rgba[2] < 0.32f;
+                const bool black = rgba[0] < 0.04f && rgba[1] < 0.04f && rgba[2] < 0.04f;
+
+                if (!rHigh && gHigh && !bHigh)
+                {
+                    ++overlapMatch;
+                }
+                else if (!rHigh && gHigh && bHigh)
+                {
+                    ++overlapRigidOnly;
+                }
+                else if (!rHigh && !gHigh && bHigh)
+                {
+                    ++overlapRigidInFront;
+                }
+                else if (rHigh && gMid && !bMid)
+                {
+                    ++overlapFallbackInFront;
+                }
+                else if (dimGray)
+                {
+                    ++overlapFallbackOnly;
+                }
+                else if (black)
+                {
+                    ++overlapNeither;
+                }
+                else
+                {
+                    ++overlapUnknown;
+                }
+            }
         }
     }
 
@@ -97,6 +147,20 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
             greenHits, redMisses, static_cast<unsigned int>(rowPitch),
             readbackMs, waitForIdleMs);
+    }
+    if (debugMode == 24 && (overlapDumpRequested || r_pathTracingSmokeLog.GetInteger() != 0))
+    {
+        const int totalPixels = Max(1, m_smokeOutputWidth * m_smokeOutputHeight);
+        common->Printf("PathTracePrimaryPass: PT rigid route overlap pixels total=%d match=%d(%.2f%%) rigidOnly=%d(%.2f%%) rigidInFront=%d(%.2f%%) fallbackInFront=%d(%.2f%%) fallbackOnly=%d(%.2f%%) neither=%d(%.2f%%) unknown=%d(%.2f%%) colorCode green/cyan/blue/orange/gray/black tolerance=1.5pxRayT\n",
+            totalPixels,
+            overlapMatch, 100.0f * static_cast<float>(overlapMatch) / static_cast<float>(totalPixels),
+            overlapRigidOnly, 100.0f * static_cast<float>(overlapRigidOnly) / static_cast<float>(totalPixels),
+            overlapRigidInFront, 100.0f * static_cast<float>(overlapRigidInFront) / static_cast<float>(totalPixels),
+            overlapFallbackInFront, 100.0f * static_cast<float>(overlapFallbackInFront) / static_cast<float>(totalPixels),
+            overlapFallbackOnly, 100.0f * static_cast<float>(overlapFallbackOnly) / static_cast<float>(totalPixels),
+            overlapNeither, 100.0f * static_cast<float>(overlapNeither) / static_cast<float>(totalPixels),
+            overlapUnknown, 100.0f * static_cast<float>(overlapUnknown) / static_cast<float>(totalPixels));
+        r_pathTracingRigidRouteOverlapDump.SetInteger(0);
     }
 
     device->unmapStagingTexture(m_smokeReadbackTexture);

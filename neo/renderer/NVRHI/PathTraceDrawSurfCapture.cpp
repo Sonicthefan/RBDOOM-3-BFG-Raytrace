@@ -575,6 +575,17 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     int dynamicVerts = 0;
     int dynamicIndexes = 0;
     int dynamicSurfaces = 0;
+    int skippedRoutedRigidDynamicSurfaces = 0;
+    int skippedRoutedRigidDynamicIndexes = 0;
+    const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
+    const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
+    const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
+    const bool removeRoutedRigidDynamic =
+        (requestedDebugMode == 24 || requestedDebugMode == 25 || routeMode18 || routeMode20) &&
+        r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
+        r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
+        r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
+        r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
 
     for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
     {
@@ -600,6 +611,24 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         if (DrawSurfMirrorIsStaticMatch(geometryUniverse, sceneUniverseLegacyKeys, legacyStaticKey))
         {
             continue;
+        }
+        if (removeRoutedRigidDynamic && surfaceClass == RtSmokeSurfaceClass::RigidEntity && geometryUniverse)
+        {
+            RtPathTraceMeshKey meshKey;
+            meshKey.tri = tri;
+            meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
+            meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
+            meshKey.numVerts = tri ? tri->numVerts : 0;
+            meshKey.numIndexes = tri ? tri->numIndexes : 0;
+            meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
+            meshKey.materialId = SmokeMaterialId(drawSurf->material);
+            meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
+            if (geometryUniverse->IsRigidRouteReady(PtMeshKeyHash(meshKey)))
+            {
+                ++skippedRoutedRigidDynamicSurfaces;
+                skippedRoutedRigidDynamicIndexes += tri->numIndexes;
+                continue;
+            }
         }
 
         if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES ||
@@ -693,6 +722,13 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     if (triangleClassData.empty() || triangleMaterialData.empty())
     {
         ++skipStats.emptyClassBuffer;
+    }
+    if (skippedRoutedRigidDynamicSurfaces > 0 && (r_pathTracingSmokeLog.GetInteger() != 0 || r_pathTracingRigidRouteOverlapDump.GetInteger() != 0))
+    {
+        common->Printf("PathTracePrimaryPass: PT rigid route dynamic removal mode=%d removedSurfaces=%d removedIndexes=%d renderPath=routedRigidPlusDynamicFallback\n",
+            requestedDebugMode,
+            skippedRoutedRigidDynamicSurfaces,
+            skippedRoutedRigidDynamicIndexes);
     }
 
     const bool hasDynamicGeometry = !vertexData.empty() && !indexData.empty() && !triangleClassData.empty() && !triangleMaterialData.empty();

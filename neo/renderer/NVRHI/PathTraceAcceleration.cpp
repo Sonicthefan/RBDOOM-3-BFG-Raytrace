@@ -120,37 +120,49 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     }
     timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
 
-    nvrhi::rt::InstanceDesc instanceDescs[2];
-    int instanceCount = 0;
+    std::vector<nvrhi::rt::InstanceDesc> instanceDescs;
+    instanceDescs.reserve(2 + (desc.extraTlasInstances ? desc.extraTlasInstances->size() : 0));
     if (desc.hasStaticBlas)
     {
-        instanceDescs[instanceCount]
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc
             .setInstanceID(0)
-            .setInstanceMask(0xff)
+            .setInstanceMask(0x01)
             .setInstanceContributionToHitGroupIndex(0)
             .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
             .setBLAS(desc.staticBlas);
-        ++instanceCount;
+        instanceDescs.push_back(instanceDesc);
     }
     if (desc.hasDynamicBlas)
     {
-        instanceDescs[instanceCount]
+        nvrhi::rt::InstanceDesc instanceDesc;
+        instanceDesc
             .setInstanceID(1)
-            .setInstanceMask(0xff)
+            .setInstanceMask(0x01)
             .setInstanceContributionToHitGroupIndex(0)
             .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
             .setBLAS(desc.dynamicBlas);
-        ++instanceCount;
+        instanceDescs.push_back(instanceDesc);
+    }
+    if (desc.extraTlasInstances)
+    {
+        for (const nvrhi::rt::InstanceDesc& instanceDesc : *desc.extraTlasInstances)
+        {
+            if (instanceDesc.bottomLevelAS)
+            {
+                instanceDescs.push_back(instanceDesc);
+            }
+        }
     }
 
     const int tlasSubmitStartMs = Sys_Milliseconds();
     {
         OPTICK_GPU_EVENT("PT GPU Build TLAS");
-        desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs, instanceCount, nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+        desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs.data(), instanceDescs.size(), nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
     }
     timing.tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
     timing.accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
-    timing.instanceCount = instanceCount;
+    timing.instanceCount = static_cast<int>(instanceDescs.size());
     return true;
 }
 

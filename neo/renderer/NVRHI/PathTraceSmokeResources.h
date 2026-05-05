@@ -28,6 +28,11 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle materialTableBuffer;
     nvrhi::BufferHandle emissiveTriangleBuffer;
     nvrhi::BufferHandle lightCandidateBuffer;
+    nvrhi::BufferHandle rigidRouteVertexBuffer;
+    nvrhi::BufferHandle rigidRouteIndexBuffer;
+    nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
+    nvrhi::BufferHandle rigidRouteTriangleMaterialIndexBuffer;
+    nvrhi::BufferHandle rigidRouteInstanceBuffer;
 
     bool IsValid() const;
 };
@@ -49,6 +54,11 @@ struct RtSmokeSceneBufferCreateDesc
     size_t materialTableBytes = 0;
     size_t emissiveTriangleBytes = 0;
     size_t lightCandidateBytes = 0;
+    size_t rigidRouteVertexBytes = 0;
+    size_t rigidRouteIndexBytes = 0;
+    size_t rigidRouteTriangleMaterialBytes = 0;
+    size_t rigidRouteTriangleMaterialIndexBytes = 0;
+    size_t rigidRouteInstanceBytes = 0;
 };
 
 struct RtSmokeSceneBufferCreateResult

@@ -71,7 +71,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int executeStartMs = Sys_Milliseconds();
     if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
-        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokeLightCandidateBuffer)
+        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokeLightCandidateBuffer ||
+        !m_smokeRigidRouteVertexBuffer || !m_smokeRigidRouteIndexBuffer || !m_smokeRigidRouteTriangleMaterialBuffer || !m_smokeRigidRouteTriangleMaterialIndexBuffer || !m_smokeRigidRouteInstanceBuffer)
     {
         return;
     }
@@ -94,7 +95,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 22, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 25, r_pathTracingDebugMode.GetInteger());
     if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
@@ -337,6 +338,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
@@ -367,6 +373,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
@@ -453,7 +464,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             requestedLightCount);
     }
 
-    if (r_pathTracingReadbackEnable.GetInteger() != 0 && !m_smokeReadbackQueued && m_smokeReadbackCooldownFrames <= 0)
+    const bool forceOverlapReadback = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
+    if ((r_pathTracingReadbackEnable.GetInteger() != 0 || forceOverlapReadback) && !m_smokeReadbackQueued && (m_smokeReadbackCooldownFrames <= 0 || forceOverlapReadback))
     {
         if (optickGpuMarkers)
         {

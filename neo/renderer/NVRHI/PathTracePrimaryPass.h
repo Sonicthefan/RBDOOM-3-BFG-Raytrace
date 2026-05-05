@@ -84,6 +84,11 @@ private:
     nvrhi::BufferHandle m_smokeMaterialTableBuffer;
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
     nvrhi::BufferHandle m_smokeLightCandidateBuffer;
+    nvrhi::BufferHandle m_smokeRigidRouteVertexBuffer;
+    nvrhi::BufferHandle m_smokeRigidRouteIndexBuffer;
+    nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
+    nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialIndexBuffer;
+    nvrhi::BufferHandle m_smokeRigidRouteInstanceBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
     std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;

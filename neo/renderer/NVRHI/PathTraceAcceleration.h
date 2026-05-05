@@ -57,6 +57,7 @@ struct RtSmokeAccelSubmitDesc
     nvrhi::rt::AccelStructHandle dynamicBlas;
     nvrhi::rt::AccelStructDesc staticBlasDesc;
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;
+    const std::vector<nvrhi::rt::InstanceDesc>* extraTlasInstances = nullptr;
     bool hasStaticBlas = false;
     bool hasDynamicBlas = false;
     bool staticBlasCacheHit = false;

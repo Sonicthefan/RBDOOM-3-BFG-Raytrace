@@ -72,6 +72,7 @@ void RtPathTraceInstanceUniverse::Clear()
     m_frameMeshHashes.clear();
     m_instanceHistories.clear();
     m_instanceHistoryLookup.clear();
+    m_frameInstances.clear();
     ResetFrameStats();
     ++m_generation;
 }
@@ -91,6 +92,7 @@ void RtPathTraceInstanceUniverse::BeginFrame(uint64 frameIndex, const viewDef_t*
     m_frameStats.frameIndex = frameIndex;
     m_frameStats.generation = m_generation;
     m_frameMeshHashes.clear();
+    m_frameInstances.clear();
 }
 
 void RtPathTraceInstanceUniverse::EndFrame()
@@ -147,6 +149,7 @@ void RtPathTraceInstanceUniverse::RecordObservation(
         ++meshRecord->seenCount;
     }
     m_frameMeshHashes.insert(meshObservation.stableHash);
+    m_frameInstances.push_back(instanceObservation);
 
     ++m_frameStats.usableDrawSurfs;
     switch (surfaceClass)
@@ -254,6 +257,11 @@ void RtPathTraceInstanceUniverse::RecordObservation(
 const RtPathTraceInstanceUniverseStats& RtPathTraceInstanceUniverse::GetFrameStats() const
 {
     return m_frameStats;
+}
+
+const std::vector<RtPathTraceInstanceObservation>& RtPathTraceInstanceUniverse::FrameInstances() const
+{
+    return m_frameInstances;
 }
 
 void RtPathTraceInstanceUniverse::RunDiagnostics(const RtPathTraceInstanceUniverseDiagnosticDesc& desc)

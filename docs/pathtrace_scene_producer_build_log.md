@@ -5,6 +5,21 @@ Date: 2026-05-05
 
 Branch: `codex/refactor-pathtrace-smoke-modules`
 
+Continuation
+------------
+
+This log records the first scene producer replacement slice through commit:
+
+    43bae064 pt: fix bounds wireframe from inside boxes
+
+Continue subsequent work in:
+
+    docs/pathtrace_scene_producer_build_log_2.md
+
+Reason: this file is now large enough to be costly during context compaction.
+Keep it as the detailed record for the drawSurf mirror/source3/rigid-diagnostic
+and bounds-visualization slice. Use build log 2 for the next production slices.
+
 Purpose
 -------
 

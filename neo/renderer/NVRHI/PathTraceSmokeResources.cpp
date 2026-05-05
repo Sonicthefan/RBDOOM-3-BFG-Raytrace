@@ -21,7 +21,8 @@ bool RtSmokeSceneBufferHandles::IsValid() const
 {
     return staticVertexBuffer && staticIndexBuffer && staticTriangleClassBuffer && staticTriangleMaterialBuffer && staticTriangleMaterialIndexBuffer &&
         dynamicVertexBuffer && dynamicIndexBuffer && dynamicTriangleClassBuffer && dynamicTriangleMaterialBuffer && dynamicTriangleMaterialIndexBuffer &&
-        materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer;
+        materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer &&
+        rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer;
 }
 
 static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
@@ -79,6 +80,11 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.materialTableBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialTableBuffer, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false);
     result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
     result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false);
+    result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
+    result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
 
     if (!result.buffers.IsValid())
     {
@@ -185,6 +191,11 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(19, desc.reservoirBuffers.previous));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(20, desc.reservoirBuffers.spatialScratch));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(21, desc.boundsOverlayLineBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, desc.buffers.rigidRouteVertexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, desc.buffers.rigidRouteIndexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, desc.buffers.rigidRouteTriangleMaterialBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, desc.buffers.rigidRouteTriangleMaterialIndexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, desc.buffers.rigidRouteInstanceBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, desc.sampler));
     }
 
@@ -280,7 +291,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     m_smokeTlas = device->createAccelStruct(nvrhi::rt::AccelStructDesc()
-        .setTopLevelMaxInstances(2)
+        .setTopLevelMaxInstances(128)
         .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
         .setDebugName("PathTraceSmokeTLAS"));
 
@@ -346,6 +357,11 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(19));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(20));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(21));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
@@ -527,6 +543,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeMaterialTableBuffer = nullptr;
     m_smokeEmissiveTriangleBuffer = nullptr;
     m_smokeLightCandidateBuffer = nullptr;
+    m_smokeRigidRouteVertexBuffer = nullptr;
+    m_smokeRigidRouteIndexBuffer = nullptr;
+    m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
+    m_smokeRigidRouteTriangleMaterialIndexBuffer = nullptr;
+    m_smokeRigidRouteInstanceBuffer = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;
@@ -558,6 +579,11 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeMaterialTableBuffer = desc.buffers.materialTableBuffer;
     m_smokeEmissiveTriangleBuffer = desc.buffers.emissiveTriangleBuffer;
     m_smokeLightCandidateBuffer = desc.buffers.lightCandidateBuffer;
+    m_smokeRigidRouteVertexBuffer = desc.buffers.rigidRouteVertexBuffer;
+    m_smokeRigidRouteIndexBuffer = desc.buffers.rigidRouteIndexBuffer;
+    m_smokeRigidRouteTriangleMaterialBuffer = desc.buffers.rigidRouteTriangleMaterialBuffer;
+    m_smokeRigidRouteTriangleMaterialIndexBuffer = desc.buffers.rigidRouteTriangleMaterialIndexBuffer;
+    m_smokeRigidRouteInstanceBuffer = desc.buffers.rigidRouteInstanceBuffer;
     m_smokeStaticBlasDesc = desc.staticBlasDesc;
     m_smokeDynamicBlasDesc = desc.dynamicBlasDesc;
     m_smokeStaticBlas = desc.staticBlas;

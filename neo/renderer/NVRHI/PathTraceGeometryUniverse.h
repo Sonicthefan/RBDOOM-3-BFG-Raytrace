@@ -9,6 +9,9 @@
 
 #include "PathTraceGeometry.h"
 
+#include <nvrhi/nvrhi.h>
+
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -16,9 +19,12 @@
 const int RT_PT_RIGID_MESH_CANDIDATE_SAMPLES = 8;
 const int RT_PT_RIGID_BLAS_PLAN_SAMPLES = 8;
 const int RT_PT_RIGID_BLAS_INPUT_SAMPLES = 8;
+const int RT_PT_RIGID_BLAS_GPU_SAMPLES = 8;
+const int RT_PT_RIGID_TLAS_PLAN_SAMPLES = 8;
 
 struct RtSmokeSurfaceClassStats;
 struct srfTriangles_t;
+class RtPathTraceInstanceUniverse;
 
 struct RtSmokeGeometryUniverseStats
 {
@@ -244,6 +250,132 @@ struct RtPathTraceRigidBlasInputStats
     int sampleCount = 0;
 };
 
+struct RtPathTraceRigidBlasGpuSample
+{
+    bool valid = false;
+    uint64 meshHash = 0;
+    uintptr_t triIdentity = 0;
+    uintptr_t vertexBufferIdentity = 0;
+    uintptr_t indexBufferIdentity = 0;
+    uint32_t materialId = 0;
+    uint32_t invalidFlags = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    int vertexBytes = 0;
+    int indexBytes = 0;
+    int instanceCount = 0;
+    bool vertexBufferValid = false;
+    bool indexBufferValid = false;
+    bool blasValid = false;
+    bool uploadedThisFrame = false;
+    bool builtThisFrame = false;
+    idStr materialName;
+    idStr modelName;
+};
+
+struct RtPathTraceRigidBlasGpuStats
+{
+    int meshRecords = 0;
+    int validInputs = 0;
+    int invalidInputs = 0;
+    int instances = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    int vertexBytes = 0;
+    int indexBytes = 0;
+    int vertexBuffersCreated = 0;
+    int indexBuffersCreated = 0;
+    int vertexBuffersReused = 0;
+    int indexBuffersReused = 0;
+    int vertexUploads = 0;
+    int indexUploads = 0;
+    int uploadBytes = 0;
+    int blasHandlesCreated = 0;
+    int blasHandlesReused = 0;
+    int blasBuildsSubmitted = 0;
+    int blasBuildsSkipped = 0;
+    int skippedNoDevice = 0;
+    int skippedNoCommandList = 0;
+    int skippedInvalid = 0;
+    int buildGateOff = 0;
+    uint64 frameIndex = 0;
+    uint64 generation = 1;
+    RtPathTraceRigidBlasGpuSample samples[RT_PT_RIGID_BLAS_GPU_SAMPLES];
+    int sampleCount = 0;
+};
+
+struct RtPathTraceRigidTlasPlanSample
+{
+    bool valid = false;
+    uint64 meshHash = 0;
+    uint64 instanceId = 0;
+    uintptr_t triIdentity = 0;
+    uint32_t materialId = 0;
+    uint32_t sourceFlags = 0;
+    int drawSurfIndex = -1;
+    int entityIndex = -1;
+    int renderEntityNum = -1;
+    int triangles = 0;
+    int instanceCountForMesh = 0;
+    bool hasMeshRecord = false;
+    bool meshSeenThisFrame = false;
+    bool hasGpuBuffers = false;
+    bool hasBlas = false;
+    idVec3 origin = vec3_origin;
+    idStr materialName;
+    idStr modelName;
+};
+
+struct RtPathTraceRigidTlasPlanStats
+{
+    int visibleInstances = 0;
+    int rigidInstances = 0;
+    int plannedInstances = 0;
+    int uniqueMeshes = 0;
+    int instancesWithGpuBuffers = 0;
+    int instancesWithBlas = 0;
+    int missingMeshRecord = 0;
+    int staleMeshRecord = 0;
+    int missingGpuBuffers = 0;
+    int missingBlas = 0;
+    int materialOverrideInstances = 0;
+    int plannedRigidTriangles = 0;
+    int bakedRigidSurfaces = 0;
+    int bakedRigidTriangles = 0;
+    int estimatedRemainingRigidTriangles = 0;
+    int triangleDelta = 0;
+    uint64 frameIndex = 0;
+    uint64 generation = 1;
+    RtPathTraceRigidTlasPlanSample samples[RT_PT_RIGID_TLAS_PLAN_SAMPLES];
+    int sampleCount = 0;
+};
+
+struct RtPathTraceRigidRouteBuildStats
+{
+    int visibleInstances = 0;
+    int emittedInstances = 0;
+    int skippedNonRigid = 0;
+    int skippedMissingMesh = 0;
+    int skippedMissingBlas = 0;
+    int vertices = 0;
+    int indexes = 0;
+    int triangles = 0;
+    int missingMaterialTableIndex = 0;
+};
+
+struct RtPathTraceRigidRouteBuild
+{
+    std::vector<PathTraceSmokeVertex> vertices;
+    std::vector<uint32_t> indexes;
+    std::vector<uint32_t> triangleMaterials;
+    std::vector<uint32_t> triangleMaterialIndexes;
+    std::vector<PathTraceRigidRouteInstance> instances;
+    std::vector<std::array<float, 16>> instanceObjectToWorld;
+    RtPathTraceRigidRouteBuildStats stats;
+};
+
 enum class RtSmokeGeometryBufferFormat : uint32_t
 {
     LegacySmokeVertex = 0
@@ -340,8 +472,25 @@ public:
     void DumpRigidBlasPlanStats(const RtPathTraceRigidBlasPlanStats& stats, int sceneSource) const;
     RtPathTraceRigidBlasInputStats BuildRigidBlasInputStats() const;
     void DumpRigidBlasInputStats(const RtPathTraceRigidBlasInputStats& stats, int sceneSource) const;
+    RtPathTraceRigidBlasGpuStats UpdateRigidBlasGpuScaffold(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, bool submitBuilds);
+    void ReleaseRigidBlasGpuScaffold();
+    void DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const;
+    RtPathTraceRigidTlasPlanStats BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats = nullptr) const;
+    void DumpRigidTlasPlanStats(const RtPathTraceRigidTlasPlanStats& stats, int sceneSource) const;
+    bool IsRigidRouteReady(uint64 meshHash) const;
+    std::vector<uint32_t> CollectRigidRouteMaterialIds(const RtPathTraceInstanceUniverse& instanceUniverse, int maxInstances) const;
+    int BuildRigidTlasInstanceDescs(
+        const RtPathTraceInstanceUniverse& instanceUniverse,
+        std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
+        uint32_t firstInstanceId,
+        uint32_t instanceMask,
+        int maxInstances) const;
+    RtPathTraceRigidRouteBuild BuildRigidRouteBuffers(
+        const RtPathTraceInstanceUniverse& instanceUniverse,
+        const std::vector<uint32_t>& materialTableIds,
+        int maxInstances) const;
 
-private:
+public:
     struct RigidMeshCandidateRecord
     {
         bool valid = false;
@@ -359,10 +508,18 @@ private:
         int instanceCountThisFrame = 0;
         bool seenThisFrame = false;
         bool newlyCreatedThisFrame = false;
+        nvrhi::BufferHandle rigidVertexBuffer;
+        nvrhi::BufferHandle rigidIndexBuffer;
+        nvrhi::rt::AccelStructDesc rigidBlasDesc;
+        nvrhi::rt::AccelStructHandle rigidBlas;
+        uint64 gpuUploadSignature = 0;
+        bool gpuBuffersUploaded = false;
+        bool gpuBlasCreated = false;
         idStr materialName;
         idStr modelName;
     };
 
+private:
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
     RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
     void ResetRigidMeshCandidateFrameStats();
