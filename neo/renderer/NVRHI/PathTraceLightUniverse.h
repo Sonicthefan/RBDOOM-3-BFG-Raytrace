@@ -16,15 +16,18 @@ struct viewDef_t;
 const int RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS = 5;
 const int RT_SMOKE_LIGHT_UNIVERSE_PORTAL_DEPTH_BINS = RT_SMOKE_LIGHT_UNIVERSE_PORTAL_SWEEP_STEPS + 3;
 const int RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES = 4;
+const int RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES = 4;
 
-struct RtSmokeLightUniverseOverflowSample
+struct RtSmokeLightUniverseCandidateSample
 {
     bool valid = false;
     int areaNum = -1;
     uint32_t materialId = 0;
     uint32_t materialIndex = 0;
     float weight = 0.0f;
+    float area = 0.0f;
     float distance = 0.0f;
+    const char* reason = nullptr;
 };
 
 struct RtSmokeLightUniverseStats
@@ -79,8 +82,19 @@ struct RtSmokeLightUniverseStats
     int areaFilterUnknownCandidates = 0;
     int areaFilterWouldUploadCandidates = 0;
     int areaFilterWouldDropCandidates = 0;
-    RtSmokeLightUniverseOverflowSample overflowSamples[RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES];
+    float areaFilterPreArea = 0.0f;
+    float areaFilterPreWeight = 0.0f;
+    float areaFilterPostArea = 0.0f;
+    float areaFilterPostWeight = 0.0f;
+    float areaFilterDroppedArea = 0.0f;
+    float areaFilterDroppedWeight = 0.0f;
+    float areaFilterDroppedOverflowWeight = 0.0f;
+    float areaFilterDroppedDisconnectedWeight = 0.0f;
+    float areaFilterDroppedUnknownWeight = 0.0f;
+    RtSmokeLightUniverseCandidateSample overflowSamples[RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES];
+    RtSmokeLightUniverseCandidateSample droppedSamples[RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES];
     int overflowSampleCount = 0;
+    int droppedSampleCount = 0;
     uint64 generation = 1;
 };
 

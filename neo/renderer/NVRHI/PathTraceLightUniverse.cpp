@@ -313,13 +313,15 @@ void AddLightUniverseOverflowSample(
     int areaNum,
     RtSmokeLightUniverseStats& stats)
 {
-    RtSmokeLightUniverseOverflowSample sample;
+    RtSmokeLightUniverseCandidateSample sample;
     sample.valid = true;
     sample.areaNum = areaNum;
     sample.materialId = triangle.materialId;
     sample.materialIndex = triangle.materialIndex;
     sample.weight = triangle.sampleWeightAndPdf[0];
+    sample.area = triangle.centerAndArea[3];
     sample.distance = LightUniverseCandidateDistance(viewDef, triangle);
+    sample.reason = "connectedOverflow";
 
     int insertIndex = -1;
     for (int sampleIndex = 0; sampleIndex < RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES; ++sampleIndex)
@@ -344,6 +346,46 @@ void AddLightUniverseOverflowSample(
     stats.overflowSampleCount = Min(RT_SMOKE_LIGHT_UNIVERSE_OVERFLOW_SAMPLES, stats.overflowSampleCount + 1);
 }
 
+void AddLightUniverseDroppedSample(
+    const viewDef_t* viewDef,
+    const PathTraceSmokeEmissiveTriangle& triangle,
+    int areaNum,
+    const char* reason,
+    RtSmokeLightUniverseStats& stats)
+{
+    RtSmokeLightUniverseCandidateSample sample;
+    sample.valid = true;
+    sample.areaNum = areaNum;
+    sample.materialId = triangle.materialId;
+    sample.materialIndex = triangle.materialIndex;
+    sample.weight = triangle.sampleWeightAndPdf[0];
+    sample.area = triangle.centerAndArea[3];
+    sample.distance = LightUniverseCandidateDistance(viewDef, triangle);
+    sample.reason = reason;
+
+    int insertIndex = -1;
+    for (int sampleIndex = 0; sampleIndex < RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES; ++sampleIndex)
+    {
+        if (!stats.droppedSamples[sampleIndex].valid ||
+            sample.weight > stats.droppedSamples[sampleIndex].weight)
+        {
+            insertIndex = sampleIndex;
+            break;
+        }
+    }
+    if (insertIndex < 0)
+    {
+        return;
+    }
+
+    for (int sampleIndex = RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES - 1; sampleIndex > insertIndex; --sampleIndex)
+    {
+        stats.droppedSamples[sampleIndex] = stats.droppedSamples[sampleIndex - 1];
+    }
+    stats.droppedSamples[insertIndex] = sample;
+    stats.droppedSampleCount = Min(RT_SMOKE_LIGHT_UNIVERSE_DROPPED_SAMPLES, stats.droppedSampleCount + 1);
+}
+
 void BuildLightUniverseAreaFilterDiagnostics(
     const viewDef_t* viewDef,
     const std::vector<PathTraceSmokeEmissiveTriangle>& merged,
@@ -358,8 +400,18 @@ void BuildLightUniverseAreaFilterDiagnostics(
     stats.areaFilterOverflowMax = Max(0, overflowMax);
 
     const int candidateCount = Min(static_cast<int>(merged.size()), static_cast<int>(mergedAreas.size()));
+    struct OverflowCandidate
+    {
+        int index = -1;
+        float weight = 0.0f;
+        float distance = 0.0f;
+    };
+    std::vector<OverflowCandidate> overflowCandidates;
+    overflowCandidates.reserve(candidateCount);
     for (int candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
     {
+        stats.areaFilterPreArea += merged[candidateIndex].centerAndArea[3];
+        stats.areaFilterPreWeight += merged[candidateIndex].sampleWeightAndPdf[0];
         const int areaNum = mergedAreas[candidateIndex];
         if (areaNum < 0)
         {
@@ -370,6 +422,8 @@ void BuildLightUniverseAreaFilterDiagnostics(
         if (areaNum < static_cast<int>(selectedAreas.size()) && selectedAreas[areaNum])
         {
             ++stats.areaFilterSelectedCandidates;
+            stats.areaFilterPostArea += merged[candidateIndex].centerAndArea[3];
+            stats.areaFilterPostWeight += merged[candidateIndex].sampleWeightAndPdf[0];
             continue;
         }
 
@@ -377,14 +431,59 @@ void BuildLightUniverseAreaFilterDiagnostics(
         {
             ++stats.areaFilterConnectedOverflowCandidates;
             AddLightUniverseOverflowSample(viewDef, merged[candidateIndex], areaNum, stats);
+            OverflowCandidate candidate;
+            candidate.index = candidateIndex;
+            candidate.weight = merged[candidateIndex].sampleWeightAndPdf[0];
+            candidate.distance = LightUniverseCandidateDistance(viewDef, merged[candidateIndex]);
+            overflowCandidates.push_back(candidate);
         }
         else
         {
             ++stats.areaFilterDisconnectedCandidates;
+            stats.areaFilterDroppedDisconnectedWeight += merged[candidateIndex].sampleWeightAndPdf[0];
+            AddLightUniverseDroppedSample(viewDef, merged[candidateIndex], areaNum, "disconnected", stats);
         }
     }
 
+    std::sort(overflowCandidates.begin(), overflowCandidates.end(),
+        [](const OverflowCandidate& lhs, const OverflowCandidate& rhs)
+        {
+            if (lhs.weight != rhs.weight)
+            {
+                return lhs.weight > rhs.weight;
+            }
+            return lhs.distance < rhs.distance;
+        });
+
     const int cappedOverflow = Min(stats.areaFilterConnectedOverflowCandidates, stats.areaFilterOverflowMax);
+    for (int overflowIndex = 0; overflowIndex < static_cast<int>(overflowCandidates.size()); ++overflowIndex)
+    {
+        const int candidateIndex = overflowCandidates[overflowIndex].index;
+        if (candidateIndex < 0 || candidateIndex >= candidateCount)
+        {
+            continue;
+        }
+        if (overflowIndex < cappedOverflow)
+        {
+            stats.areaFilterPostArea += merged[candidateIndex].centerAndArea[3];
+            stats.areaFilterPostWeight += merged[candidateIndex].sampleWeightAndPdf[0];
+        }
+        else
+        {
+            stats.areaFilterDroppedOverflowWeight += merged[candidateIndex].sampleWeightAndPdf[0];
+            AddLightUniverseDroppedSample(viewDef, merged[candidateIndex], mergedAreas[candidateIndex], "overflow", stats);
+        }
+    }
+    for (int candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        if (mergedAreas[candidateIndex] < 0)
+        {
+            stats.areaFilterDroppedUnknownWeight += merged[candidateIndex].sampleWeightAndPdf[0];
+            AddLightUniverseDroppedSample(viewDef, merged[candidateIndex], mergedAreas[candidateIndex], "unknown", stats);
+        }
+    }
+    stats.areaFilterDroppedArea = Max(0.0f, stats.areaFilterPreArea - stats.areaFilterPostArea);
+    stats.areaFilterDroppedWeight = Max(0.0f, stats.areaFilterPreWeight - stats.areaFilterPostWeight);
     stats.areaFilterWouldUploadCandidates = stats.areaFilterSelectedCandidates + cappedOverflow;
     stats.areaFilterWouldDropCandidates = Max(0, candidateCount - stats.areaFilterWouldUploadCandidates);
 }

@@ -894,7 +894,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const RtSmokeLightUniverseStats lightUniverseStats = m_smokeLightUniverse.GetStats();
     if (r_pathTracingLightUniverseDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke light universe static=%d seen=%d new=%d updated=%d missing=%d semiStatic=%d dynSeen=%d dynPromoted=%d dynUpdated=%d dynMissing=%d dynAged=%d dynamicFrame=%d merged=%d area current/total=%d/%d selected steps/areas/edges/blocked=%d/%d/%d/%d staticKnown/unknown=%d/%d dynamicKnown/unknown=%d/%d mergedKnown/unknown=%d/%d mergedCurrent/selected/connected/disconnected=%d/%d/%d/%d connectedUnselected=%d portalSweep areas=%d/%d/%d/%d/%d merged=%d/%d/%d/%d/%d portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=%d/%d/%d/%d/%d/%d/%d/%d areaFilter enabled/applied=%d/%d steps=%d overflowMax=%d selected=%d connectedOverflow=%d disconnected=%d unknown=%d wouldUpload=%d wouldDrop=%d persistDynamic=%d injectMissingDynamic=%d minSeen=%d maxMissing=%d generation=%llu\n",
+        common->Printf("PathTracePrimaryPass: RT smoke light universe static=%d seen=%d new=%d updated=%d missing=%d semiStatic=%d dynSeen=%d dynPromoted=%d dynUpdated=%d dynMissing=%d dynAged=%d dynamicFrame=%d merged=%d area current/total=%d/%d selected steps/areas/edges/blocked=%d/%d/%d/%d staticKnown/unknown=%d/%d dynamicKnown/unknown=%d/%d mergedKnown/unknown=%d/%d mergedCurrent/selected/connected/disconnected=%d/%d/%d/%d connectedUnselected=%d portalSweep areas=%d/%d/%d/%d/%d merged=%d/%d/%d/%d/%d portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=%d/%d/%d/%d/%d/%d/%d/%d areaFilter enabled/applied=%d/%d steps=%d overflowMax=%d selected=%d connectedOverflow=%d disconnected=%d unknown=%d wouldUpload=%d wouldDrop=%d area %.2f/%.2f drop=%.2f weight %.3f/%.3f drop=%.3f dropWeight overflow/disconnected/unknown=%.3f/%.3f/%.3f persistDynamic=%d injectMissingDynamic=%d minSeen=%d maxMissing=%d generation=%llu\n",
             lightUniverseStats.persistentStaticTriangles,
             lightUniverseStats.staticSeenThisFrame,
             lightUniverseStats.staticNewThisFrame,
@@ -953,6 +953,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             lightUniverseStats.areaFilterUnknownCandidates,
             lightUniverseStats.areaFilterWouldUploadCandidates,
             lightUniverseStats.areaFilterWouldDropCandidates,
+            lightUniverseStats.areaFilterPreArea,
+            lightUniverseStats.areaFilterPostArea,
+            lightUniverseStats.areaFilterDroppedArea,
+            lightUniverseStats.areaFilterPreWeight,
+            lightUniverseStats.areaFilterPostWeight,
+            lightUniverseStats.areaFilterDroppedWeight,
+            lightUniverseStats.areaFilterDroppedOverflowWeight,
+            lightUniverseStats.areaFilterDroppedDisconnectedWeight,
+            lightUniverseStats.areaFilterDroppedUnknownWeight,
             r_pathTracingLightUniversePersistDynamic.GetInteger() != 0 ? 1 : 0,
             r_pathTracingLightUniverseInjectMissingDynamic.GetInteger() != 0 ? 1 : 0,
             idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
@@ -962,16 +971,37 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             for (int sampleIndex = 0; sampleIndex < lightUniverseStats.overflowSampleCount; ++sampleIndex)
             {
-                const RtSmokeLightUniverseOverflowSample& sample = lightUniverseStats.overflowSamples[sampleIndex];
+                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.overflowSamples[sampleIndex];
                 if (!sample.valid)
                 {
                     continue;
                 }
-                common->Printf("PathTracePrimaryPass: RT smoke light area overflow sample %d area=%d material=%u materialIndex=%u weight=%.3f distance=%.2f\n",
+                common->Printf("PathTracePrimaryPass: RT smoke light area overflow sample %d area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
                     sampleIndex,
                     sample.areaNum,
                     sample.materialId,
                     sample.materialIndex,
+                    sample.area,
+                    sample.weight,
+                    sample.distance);
+            }
+        }
+        if (lightUniverseStats.droppedSampleCount > 0)
+        {
+            for (int sampleIndex = 0; sampleIndex < lightUniverseStats.droppedSampleCount; ++sampleIndex)
+            {
+                const RtSmokeLightUniverseCandidateSample& sample = lightUniverseStats.droppedSamples[sampleIndex];
+                if (!sample.valid)
+                {
+                    continue;
+                }
+                common->Printf("PathTracePrimaryPass: RT smoke light area dropped sample %d reason=%s area=%d material=%u materialIndex=%u triArea=%.2f weight=%.3f distance=%.2f\n",
+                    sampleIndex,
+                    sample.reason ? sample.reason : "<unknown>",
+                    sample.areaNum,
+                    sample.materialId,
+                    sample.materialIndex,
+                    sample.area,
                     sample.weight,
                     sample.distance);
             }

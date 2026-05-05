@@ -1281,10 +1281,17 @@ Behavior:
        areaFilter enabled/applied=A/B steps=C overflowMax=D
        selected=A connectedOverflow=B disconnected=C unknown=D
        wouldUpload=A wouldDrop=B
+       area pre/post drop=A/B/C
+       weight pre/post drop=A/B/C
+       dropWeight overflow/disconnected/unknown=A/B/C
 
 - It also prints up to four top connected-overflow samples by candidate weight:
 
-       RT smoke light area overflow sample N area=A material=M materialIndex=I weight=W distance=D
+       RT smoke light area overflow sample N area=A material=M materialIndex=I triArea=A weight=W distance=D
+
+- It also prints up to four top dropped samples by candidate weight:
+
+       RT smoke light area dropped sample N reason=R area=A material=M materialIndex=I triArea=A weight=W distance=D
 
 Recommended next diagnostic command:
 
@@ -1315,6 +1322,9 @@ Expected:
   candidates with the default 512 cap.
 - `wouldDrop` should account for connected overflow beyond the budget,
   disconnected candidates, and unknown-area candidates.
+- Dropped `weight` should be small or explainable by disconnected/unknown
+  candidates. High dropped weight means the area filter is too aggressive for
+  that location.
 - With apply enabled, visual/performance changes should be limited to the
   candidates dropped by `wouldDrop`. If a visible emissive disappears, disable
   apply and inspect disconnected/unknown-area counts.
@@ -1361,6 +1371,46 @@ Preset/apply validation:
        overflow candidates. Only disconnected candidates were dropped. Upload
        count matched the filter result.
 
+Current filter-impact validation after diagnostic patch:
+
+- Tester ran:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingLightUniverseDump 1
+       condump light_area_filter_impact
+
+- Relevant dump:
+
+       static=170 seen=52 missing=118 semiStatic=174 dynSeen=174 merged=344
+       selected steps/areas/edges/blocked=1/3/2/0
+       staticKnown/unknown=52/0
+       dynamicKnown/unknown=172/2
+       mergedKnown/unknown=342/2
+       mergedCurrent/selected/connected/disconnected=0/274/60/8
+       connectedUnselected=60
+       portalSweep merged=0/274/274/274/334
+       portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=0/274/0/0/60/0/8/2
+       areaFilter enabled/applied=1/1
+       overflowMax=512
+       selected=274
+       connectedOverflow=60
+       disconnected=8
+       unknown=2
+       wouldUpload=334
+       wouldDrop=10
+       area 27368.00/27007.39 drop=360.62
+       weight 27368.004/27007.387 drop=360.617
+       dropWeight overflow/disconnected/unknown=0.000/301.837/58.784
+       runtimeActive=334
+
+- Interpretation:
+
+       This is a healthy first result. The render-affecting filter removed
+       10/344 merged candidates, about 1.3 percent of the measured area/weight.
+       No connected overflow was dropped. Dropped weight came only from
+       disconnected and unknown-area candidates, and runtimeActive matched the
+       filtered upload count.
+
 
 Autocompact Guard: Current Critical State 4
 ===========================================
@@ -1370,16 +1420,28 @@ Read this block first after compaction.
 Branch/state:
 
 - Branch: `codex/refactor-pathtrace-smoke-modules`.
-- Latest committed base before this pending commit:
+- Latest committed base:
 
        02e4a524 pt: route rigid BLAS instances into smoke modes
        120d70c9 pt: add emissive light area selector diagnostics
+       7c34b687 pt: add mode 20 test preset
 
-- Current pending commit should include only:
+- Current uncommitted work is the filter-impact diagnostic patch only. It was
+  built and copied before this guard update. Expected touched files:
 
-       r_pathTracingMode20TestPreset helper
-       r_pathTracingLightAreaOverflowMax default 512
-       docs/build-log updates for preset and greedy overflow policy
+       docs/pathtrace_scene_producer_build_log_2.md
+       docs/pathtracing.txt
+       neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+       neo/renderer/NVRHI/PathTraceLightUniverse.h
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+- The filter-impact patch adds dump-only accounting for light-area filtering:
+
+       area pre/post/drop
+       weight pre/post/drop
+       dropWeight overflow/disconnected/unknown
+       top dropped candidate samples with reason, material, materialIndex,
+       triArea, weight, and distance
 
 - Build from `E:\prog\rbdoom-3-bfg-rt\neo`:
 
@@ -1450,10 +1512,34 @@ Quick test command after build/copy:
 
        r_pathTracingMode20TestPreset 3
        r_pathTracingLightUniverseDump 1
-       condump light_area_filter_apply
+       condump light_area_filter_impact
 
 Expected:
 
        areaFilter enabled/applied=1/1
        runtimeActive == wouldUpload
-       only disconnected/unknown or overflow beyond cap should be dropped
+       area pre/post drop=...
+       weight pre/post drop=...
+       dropWeight overflow/disconnected/unknown=...
+       RT smoke light area dropped sample ...
+
+Current tester result:
+
+       wouldUpload=334
+       wouldDrop=10
+       runtimeActive=334
+       area 27368.00/27007.39 drop=360.62
+       weight 27368.004/27007.387 drop=360.617
+       dropWeight overflow/disconnected/unknown=0.000/301.837/58.784
+
+Interpretation:
+
+- Healthy initial result. Dropped weight is low and explained entirely by
+  disconnected/unknown-area candidates. Connected overflow was not dropped.
+
+Next decision:
+
+- If the user reports no visible regression from this run, commit the
+  filter-impact patch.
+- If the user reports visible light loss, keep apply off by default and tune
+  the selector before committing behavior changes.

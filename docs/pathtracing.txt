@@ -1627,7 +1627,10 @@ merged candidate, plus `>4`, disconnected, and unknown-area buckets.
 When `r_pathTracingLightAreaFilter 1` is set, the dump also reports
 diagnostic-only `areaFilter` counts: selected candidates, connected overflow,
 disconnected, unknown, would-upload, would-drop, and top connected-overflow
-samples by candidate weight. This still does not affect rendering.
+samples by candidate weight. It also reports pre/post filter candidate area and
+weight, dropped area/weight, dropped weight split by overflow/disconnected/
+unknown, and top dropped samples by weight with their drop reason. This still
+does not affect rendering.
 `r_pathTracingLightAreaFilterApply 1` is a separate render-affecting gate that
 applies the reported selection to the uploaded mode 20 emissive candidate list.
 Current validation is limited to the opening section because this PT branch is
