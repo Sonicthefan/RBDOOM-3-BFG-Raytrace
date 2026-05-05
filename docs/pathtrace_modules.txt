@@ -29,6 +29,15 @@ The current RT/PT path is still an experimental "smoke" path:
 - r_pathTracing mode 20: first single-frame reservoir direct-lighting debug view
   from emissive candidates. It writes current reservoirs only; spatial and
   temporal reuse are still off.
+- r_pathTracing mode 21: PT-native solid drawSurf mirror bounds boxes for
+  spatial/BVH/source diagnostics.
+- r_pathTracing mode 22: PT-native wireframe drawSurf mirror bounds boxes. This
+  is the preferred human spatial inspection mode because all-category solid
+  boxes can occlude too much.
+- r_pathTracingSceneSource 3: current scene producer replacement scaffold. It
+  keeps the existing drawSurf-seeded static cache and mirrors dynamic-frame
+  drawSurfs as mesh identities plus per-frame instances while preserving the
+  old shader-compatible static/dynamic render buffers.
 - In mode 18, r_pathTracingSkipRaster3D defaults to 1 so the RT output owns the
   3D scene layer and the normal Doom 3D raster view is skipped. GUI/HUD/menu
   draw commands still rasterize afterward. Leaving full 3D raster enabled below
@@ -121,6 +130,33 @@ PathTraceSceneCapture.cpp
     shader registers; stable material metadata only describes emissive
     capability, not whether a surface is currently emitting.
 
+PathTraceDrawSurfCapture.h
+    DrawSurf mirror declarations for the source3 scene producer scaffold.
+    Exposes mesh observations, instance observations, bounds-overlay records,
+    and the capture entry point that mirrors the final visible raster drawSurf
+    stream without synthesizing fake drawSurfs or fake viewEntities.
+
+PathTraceDrawSurfCapture.cpp
+    Live drawSurf mirror implementation. For each usable visible drawSurf it
+    builds a mesh key that excludes transform, records per-frame instance
+    transform/material/entity metadata, compares static-world matches against
+    PathTraceSceneUniverse diagnostics when requested, feeds geometry-universe
+    rigid candidate diagnostics, and optionally emits bounds records consumed by
+    debug modes 21/22.
+
+PathTraceInstanceUniverse.h
+    Per-frame and lifetime instance-universe diagnostic declarations. This is
+    the current home for observed mesh records, instance records, transform
+    history, moved-rigid counters, and compact dump stats. It is not a TLAS
+    source yet.
+
+PathTraceInstanceUniverse.cpp
+    Instance-universe implementation. Tracks mesh/instance observations across
+    frames, separates same-transform and changed-transform history, records max
+    observed matrix/origin deltas for rigid movers, reports missing
+    material/skin override data, and prints one-shot dumps for
+    r_pathTracingInstanceUniverseDump.
+
 PathTraceGeometry.h
     Shared GPU-facing vertex layout and common geometry helper declarations.
     PathTraceSmokeVertex is consumed by NVRHI buffers and shader code, so layout
@@ -132,21 +168,29 @@ PathTraceGeometry.cpp
     candidate code.
 
 PathTraceGeometryUniverse.h
-    Persistent static-geometry universe declarations. This is the first
-    ownership boundary for static-world geometry cache data and currently
-    exposes the static surface keys, vertices, indexes, triangle classes,
-    triangle material IDs, static surface records, per-frame lifecycle fields,
-    previous range fields, and stats used by scene build. The universe must
-    evolve with previous-frame geometry history in mind so future motion vector
-    output can be generated from geometry, not guessed later.
+    Persistent static-geometry and rigid-diagnostic universe declarations. This
+    is the first ownership boundary for static-world geometry cache data and
+    currently exposes the static surface keys, vertices, indexes, triangle
+    classes, triangle material IDs, static surface records, per-frame lifecycle
+    fields, previous range fields, and stats used by scene build. It also owns
+    diagnostics-only rigid mesh candidate/local-source records, validation
+    stats, CPU rigid BLAS plan/input descriptor dumps, and the default-off
+    rigid BLAS GPU scaffold gate. The universe must evolve with previous-frame
+    geometry history in mind so future motion vector output can be generated
+    from geometry, not guessed later.
 
 PathTraceGeometryUniverse.cpp
-    Static geometry universe implementation. At this stage it owns the former
-    PathTracePrimaryPass static-cache vectors and generation/stat tracking while
-    preserving the existing shader-facing buffer behavior. Static surface lookup,
-    per-frame BeginFrame/Touch/EndFrame lifecycle updates, append completion,
-    and static record validation now go through the universe. Future work should
-    expand persistent records, dirty ranges, and GPU buffer ownership here, plus
+    Static geometry universe and rigid-diagnostic implementation. At this stage
+    it owns the former PathTracePrimaryPass static-cache vectors and
+    generation/stat tracking while preserving the existing shader-facing buffer
+    behavior. Static surface lookup, per-frame BeginFrame/Touch/EndFrame
+    lifecycle updates, append completion, and static record validation now go
+    through the universe. It also records eligible rigid local-space mesh
+    sources, validates them against the baked dynamic rigid fallback payload,
+    builds CPU-only reusable rigid BLAS/TLAS plans and NVRHI-shaped input
+    descriptor dumps, and deliberately keeps renderPath=dynamicFallback until
+    reusable rigid BLAS/TLAS routing is implemented. Future work should expand
+    persistent records, dirty ranges, and GPU buffer ownership here, plus
     current/previous geometry or transform history needed for temporal
     reconstruction.
 
@@ -371,6 +415,8 @@ BVH / BLAS / TLAS
 Primary files involved:
 
 - PathTraceSmokeSceneBuild.cpp
+- PathTraceDrawSurfCapture.*
+- PathTraceInstanceUniverse.*
 - PathTraceAcceleration.*
 - PathTraceSmokeResources.*
 - PathTraceGeometry.*
@@ -384,14 +430,23 @@ Typical flow:
    PathTraceGeometryUniverse.
 2. PathTraceSceneCapture currently produces static/dynamic triangle buckets and
    asks the universe to look up or complete static surface appends.
-3. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
+3. For source3, PathTraceDrawSurfCapture mirrors the final visible drawSurf
+   stream after old capture has done the stable static-cache work. It records
+   mesh identity without transform and per-frame instance identity with
+   transform/material/entity metadata.
+4. PathTraceInstanceUniverse tracks those observations for diagnostics and
+   moved-rigid history. It does not feed TLAS yet.
+5. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates
+   and CPU-only rigid BLAS plans/input descriptors, while rendering still goes
+   through the old dynamic fallback.
+6. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
-4. PathTraceSmokeResources creates geometry/material/emissive buffers.
-5. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
+7. PathTraceSmokeResources creates geometry/material/emissive buffers.
+8. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
    submits BLAS/TLAS builds.
-6. PathTraceSmokeResources commits the successful handles to pass state.
-7. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
-8. RenderBackend.cpp blits the RT output as the 3D scene. With
+9. PathTraceSmokeResources commits the successful handles to pass state.
+10. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
+11. RenderBackend.cpp blits the RT output as the 3D scene. With
    r_pathTracingSkipRaster3D enabled, the backend skips the remaining normal 3D
    raster passes for that view; subsequent GUI/HUD/menu views still rasterize.
 
@@ -403,12 +458,18 @@ Safer places to touch:
 - Change helper packaging structs when the same fields are passed through.
 - Move static-cache bookkeeping into PathTraceGeometryUniverse when the capture
   behavior remains equivalent and can be tested in isolation.
+- Add drawSurf mirror diagnostics, candidate counts, and validation dumps that
+  do not change BLAS/TLAS routing.
+- Add PT-native debug views that consume diagnostic buffers, such as modes 21
+  and 22, while keeping mode 18/20 resource contracts stable.
 
 Riskier places to touch:
 
 - Static BLAS cache eligibility in PathTraceSmokeSceneBuild.cpp.
 - Static surface identity or append semantics in PathTraceSceneCapture.cpp or
   PathTraceGeometryUniverse.cpp.
+- Mesh key semantics in PathTraceDrawSurfCapture.cpp. Mesh identity must not
+  include model matrices or current transforms.
 - Upload skip flags in the RtSmokeBufferUploadItem array.
 - Resource state transitions in PathTraceSmokeDispatch.cpp.
 - PathTraceSmokeVertex layout or index/vertex counts.
@@ -424,6 +485,18 @@ look like a rendering bug, stale geometry, or a performance regression. Prefer
 diagnostic additions before ownership changes. The geometry universe is now the
 intended home for persistent static-world records, but it is still a scaffold:
 move one responsibility at a time and keep mode 18 visual behavior stable.
+
+For source3, keep the representation split explicit:
+
+- mesh = geometry plus material metadata, no transform
+- instance = mesh plus current transform, entity/material override, and
+  visibility this frame
+- reusable rigid BLAS = future local-space mesh cache, not the current render
+  path
+
+Do not route rendering through reusable rigid records or remove rigid triangles
+from the dynamic fallback until the disabled GPU scaffold and TLAS routing are
+validated separately.
 
 For mode 18 performance validation, keep r_pathTracingSkipRaster3D at 1 unless
 the test explicitly compares against old raster-under-RT behavior. If something

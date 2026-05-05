@@ -79,6 +79,15 @@ Current validated feature set:
   broad material/triangle candidate list for future ReSTIR/PT work, while the
   debug view samples emissive texture luminance and skips skinned/deformed
   character dissolve overlays.
+- Mode 20 single-frame reservoir direct emissive lighting from the current
+  light-candidate contract. Spatial and temporal reuse are still off.
+- Mode 21 solid drawSurf mirror bounds boxes and mode 22 wireframe drawSurf
+  mirror bounds boxes. These are replacement diagnostic views for inspecting
+  captured bounds/BVH/source issues, not overlays on mode 18/20.
+- Source 3 scene producer scaffold: existing drawSurf-seeded static cache plus
+  mirrored dynamic-frame drawSurfs. It preserves the old shader-compatible
+  static/dynamic buffer contract while exposing mesh identity and per-frame
+  instance identity for diagnostics.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -94,9 +103,10 @@ Current module/refactor state:
   accumulation/readback queueing.
 - Scene capture, material classification, texture discovery, texture registry,
   persistent material universe records, active material table construction,
-  the static geometry universe scaffold, skinning, GUI surface admission,
-  emissive candidates, diagnostics, acceleration helpers, light selection, and
-  geometry helpers are extracted into dedicated PathTrace* modules.
+  the static geometry universe scaffold, drawSurf mirror capture, instance
+  universe diagnostics, skinning, GUI surface admission, emissive candidates,
+  diagnostics, acceleration helpers, light selection, and geometry helpers are
+  extracted into dedicated PathTrace* modules.
 - The current split is still conservative. A future PathTraceSmokeState or
   PathTraceSmokeScene object may be useful, but that should be a deliberate
   architecture change rather than another mechanical extraction.
@@ -148,6 +158,13 @@ Refactor chronology:
     overlapping debug costs: NVRHI validation for raster, and debug
     runtime/codegen overhead in the CPU-heavy PT scene-build path. It is not
     upstream renderer regression, PT GPU cost, codec choice, or ID_RETAIL.
+11. PathTraceDrawSurfCapture and PathTraceInstanceUniverse were added as the
+    live-scene mirror for source3. The important split is mesh identity without
+    transform versus instance identity with transform/material/entity metadata.
+    PathTraceSceneUniverse remains static-map diagnostics/preload only; it is
+    not the primary scene representation. Modes 21 and 22 were added as PT-native
+    solid/wireframe bounds-box diagnostics after raster/debug-line and post-blit
+    overlay attempts proved too fragile for useful spatial inspection.
 
 Implemented debug CVars:
 
@@ -180,6 +197,8 @@ Implemented debug CVars:
   18 = toy one-bounce path trace
   19 = emissive triangle inventory
   20 = single-frame reservoir direct lighting
+  21 = solid drawSurf mirror bounds boxes
+  22 = wireframe drawSurf mirror bounds boxes
 
 - r_pathTracingClassDump
   One-shot dump of sampled surface classification reasons.
@@ -364,6 +383,81 @@ Implemented debug CVars:
   reservoir direct-lighting diagnostic. This matches Doom content better for
   many emissive panels whose lighting intent is visible from both sides even
   when the triangle winding is not helpful for the debug sampler.
+
+- r_pathTracingSceneSource
+  Selects the current PT scene producer source:
+  0 = existing stable drawSurf producer only,
+  1 = PathTraceSceneUniverse diagnostics only,
+  2 = full static scene-universe geometry plus existing dynamic drawSurf
+  fallback,
+  3 = existing drawSurf-seeded static cache plus mirrored dynamic-frame
+  drawSurfs. Source3 is the current production scaffold for the replacement
+  scene producer. It does not use PathTraceSceneUniverse records as the main
+  render source and does not promote rigid meshes into reusable BLAS yet.
+
+- r_pathTracingSceneSourceCompare
+  One-shot CPU diagnostic comparing source0 and source3 payloads on a source3
+  frame. It reports surface, vertex/index, class, material, and skip-count
+  deltas without changing rendering.
+
+- r_pathTracingSceneSource2RigidEntities
+  Experimental source2-only rigid entity expansion. Defaults to 0. Keep this
+  out of source3; source3 should observe live drawSurfs and keep rigid objects
+  in the dynamic fallback until reusable local-space BLAS/TLAS routing is
+  deliberately implemented.
+
+- r_pathTracingInstanceUniverseDump
+  One-shot dump of drawSurf mirror mesh/instance observations. Use it to inspect
+  observed drawSurf count, unique mesh keys, instance records, static-world
+  matches, transform history, moved-rigid samples, and skip reasons.
+
+- r_pathTracingRigidMeshUniverseDump
+  One-shot dump of diagnostics-only rigid mesh reuse eligibility. It reports
+  eligible rigid candidates, rejection reasons, persistent local-source record
+  counts, and how much of the current baked dynamic rigid payload could
+  eventually be promoted.
+
+- r_pathTracingRigidMeshValidate
+  One-shot validation comparing eligible local-source rigid mesh records against
+  the currently baked dynamic rigid payload. This is still count/material
+  validation only and leaves renderPath=dynamicFallback.
+
+- r_pathTracingRigidBlasPlanDump
+  One-shot CPU-only reusable rigid BLAS/TLAS plan dump from local-source rigid
+  mesh records. It creates no GPU resources and does not route rendering through
+  the plan.
+
+- r_pathTracingRigidBlasInputDump
+  One-shot CPU-only NVRHI-shaped rigid BLAS input descriptor dump. It validates
+  planned vertex/index byte sizes, offsets, formats, source identities, and
+  invalid reason counters. It creates no GPU resources.
+
+- r_pathTracingRigidBlasGpuScaffold
+  Default-off guard for the next rigid BLAS GPU scaffold. When 0, no rigid BLAS
+  GPU resources should be created. Current rendering still uses the old
+  static/dynamic fallback path.
+
+- r_pathTracingSceneBoundsOverlay
+  Bounds diagnostic category selector for the drawSurf mirror:
+  0 = off for raster overlay, but modes 21/22 auto-enable eligible-rigid boxes,
+  1 = eligible rigid candidates only,
+  2 = all mirrored categories. Mode 21 renders solid captured boxes; mode 22
+  renders PT-native wireframe boxes and is the preferred spatial inspection
+  view.
+
+- r_pathTracingSceneBoundsOverlayMax
+  Caps how many drawSurf mirror bounds boxes are collected per frame. The PT
+  shader modes currently cap at 64 boxes internally.
+
+- r_pathTracingSceneBoundsDepthTest
+  Legacy no-op from the first raster/debug-line bounds attempt. It is retained
+  only so old test commands do not fail.
+
+- r_pathTracingSceneBoundsOverlayGpu
+  Default-off emergency gate for the old shader-composited per-pixel line
+  overlay. Keep 0. That path looked useful but caused device removal/TDR. Modes
+  21/22 upload the same bounds line buffer for box data without enabling the
+  risky line-overlay loop.
 
 Runtime emissive state:
 
@@ -1260,6 +1354,31 @@ For emissive candidate inspection:
     r_pathTracingDebugMode 19
     r_pathTracingEmissiveInventoryDump 1
 
+For source3 drawSurf mirror equivalence diagnostics:
+
+    r_pathTracingSceneSource 3
+    r_pathTracingSceneSourceCompare 1
+    r_pathTracingInstanceUniverseDump 1
+
+For rigid mesh candidate/local-source diagnostics:
+
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidMeshUniverseDump 1
+    r_pathTracingRigidMeshValidate 1
+    r_pathTracingRigidBlasPlanDump 1
+    r_pathTracingRigidBlasInputDump 1
+
+For PT-native bounds/BVH inspection:
+
+    r_pathTracingSceneSource 3
+    r_pathTracingDebugMode 22
+    r_pathTracingSceneBoundsOverlayGpu 0
+    r_pathTracingSceneBoundsOverlayMax 16
+
+For all mirrored bounds categories:
+
+    r_pathTracingSceneBoundsOverlay 2
+
 For quieter traversal testing:
 
     r_pathTracingSmokeLog 0
@@ -1294,6 +1413,7 @@ Useful Commits
 
 Recent milestone commits on this branch:
 
+- 3c583342 Add drawSurf mirror bounds diagnostics
 - e55ba1ab Add path trace geometry universe scaffold
 - 9a78a170 Cache universe material table work
 - 90719330 Default to material universe table
