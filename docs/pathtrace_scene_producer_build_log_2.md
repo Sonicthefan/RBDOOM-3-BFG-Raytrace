@@ -1543,3 +1543,1279 @@ Next decision:
   filter-impact patch.
 - If the user reports visible light loss, keep apply off by default and tune
   the selector before committing behavior changes.
+
+
+Mode 20 Active Light Churn Diagnostic
+=====================================
+
+Commit before this section:
+
+       87254b9d pt: add light area filter impact diagnostics
+
+Implemented the next diagnostic slice after the filter-impact patch:
+
+- Added `r_pathTracingLightUniverseChurn`.
+- Presets 2 and 3 now enable churn tracking automatically.
+- `RtSmokeLightUniverse` now tracks the previous frame's uploaded emissive
+  candidate set when churn is enabled.
+- `r_pathTracingLightUniverseDump 1` now prints:
+
+       RT smoke light churn enabled=E previous/current/stayed/entered/left=A/B/C/D/E
+       weight previous/current/stayed/entered/left=A/B/C/D/E
+       RT smoke light churn entered sample ...
+       RT smoke light churn left sample ...
+
+Intent:
+
+- This diagnoses mode 20 edge flicker by separating reservoir/shading noise
+  from actual uploaded light-set churn.
+- High entered/left counts or weight during tiny camera movement indicates the
+  active emissive list is changing materially.
+- Low churn with visible flicker points away from light-list membership and
+  toward reservoir sampling/noise, visibility, or shading.
+
+Build status:
+
+- Release/PT build passed after the churn patch.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Recommended churn test:
+
+       r_pathTracingMode20TestPreset 3
+
+Move/turn near the suspected portal or screen-edge flicker area for a few
+seconds so churn has previous-frame history, then run:
+
+       r_pathTracingLightUniverseDump 1
+       condump light_churn_edge
+
+Expected useful lines:
+
+       RT smoke light universe ...
+       RT smoke light origins ...
+       RT smoke light churn enabled=1 previous/current/stayed/entered/left=...
+       RT smoke light churn entered sample ...
+       RT smoke light churn left sample ...
+
+Interpretation:
+
+- `entered`/`left` near zero during tiny view changes is good.
+- Large entered/left `weight` identifies actual active-list instability.
+- Top entered/left samples give material, area, triArea, weight, and distance
+  so we can map churn back to portal classification or raster capture behavior.
+
+
+Autocompact Guard: Current Critical State 5
+===========================================
+
+Read this block first after compaction.
+
+Branch/state:
+
+- Branch: `codex/refactor-pathtrace-smoke-modules`.
+- Latest committed base:
+
+       87254b9d pt: add light area filter impact diagnostics
+
+- Current uncommitted work is the active-light churn diagnostic patch:
+
+       docs/pathtrace_scene_producer_build_log_2.md
+       docs/pathtracing.txt
+       neo/renderer/NVRHI/PathTraceCVars.cpp
+       neo/renderer/NVRHI/PathTraceCVars.h
+       neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+       neo/renderer/NVRHI/PathTraceLightUniverse.h
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+- Build/copy has already succeeded for this uncommitted patch.
+
+What changed:
+
+- New CVar:
+
+       r_pathTracingLightUniverseChurn 0
+
+- `r_pathTracingMode20TestPreset 2` and `3` enable churn automatically.
+- Dump now includes active light-list churn:
+
+       previous/current/stayed/entered/left
+       weight previous/current/stayed/entered/left
+       top entered/left samples
+
+Current test request:
+
+       r_pathTracingMode20TestPreset 3
+       move/turn near flicker area for a few seconds
+       r_pathTracingLightUniverseDump 1
+       condump light_churn_edge
+
+Next decision:
+
+- If churn is low while flicker remains, investigate reservoir/noise or
+  shading/visibility behavior.
+- If churn is high, inspect entered/left sample material/area data and tune
+  area filtering or capture persistence.
+
+
+Rigid Geometry Portal Residency Scaffold
+========================================
+
+Implemented the first production slice for the stronger RT residency rule:
+
+       current Doom area + selected adjacent portal areas
+       = resident rigid geometry for routed source3 BVH/TLAS
+
+New CVars:
+
+       r_pathTracingRigidResidency 0
+       r_pathTracingRigidResidencyPortalSteps 1
+       r_pathTracingRigidResidencyDump 0
+
+Behavior:
+
+- DrawSurf capture now assigns `RtPathTraceInstanceObservation::currentArea`
+  by transforming the local `srfTriangles_t::bounds` center to world space and
+  calling Doom `PointInArea`.
+- `RtSmokeGeometryUniverse` now keeps a persistent rigid instance cache keyed
+  by source3 instance identity.
+- When `r_pathTracingRigidResidency 1` is enabled, it selects current player
+  area plus `r_pathTracingRigidResidencyPortalSteps` open portal steps and
+  builds a resident rigid instance list from cached instances in those areas.
+- Rigid route material collection, rigid route buffers, and extra rigid TLAS
+  instance descriptors use the resident list instead of only the current
+  raster-visible instance list while residency is enabled.
+- Mode 20 test presets now enable rigid residency with portal depth 1.
+
+Important boundary:
+
+- This does not yet create new mesh records for never-seen areas. A fresh
+  adjacent cell becomes fully resident after its rigid drawSurfs have been
+  observed at least once and cached.
+- Cached invisible movers use their last observed transform. Later motion-vector
+  / per-frame update work should update moving resident objects in the selected
+  cell range even if raster culls them.
+- Dynamic/skinned/deforming objects remain raster-visible only.
+
+Build status:
+
+- Release/PT build passed after the residency scaffold.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Recommended residency test:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingLightUniverseDump 1
+       condump rigid_residency_mode20
+
+Expected useful lines:
+
+       PathTracePrimaryPass: PT rigid residency ...
+       routeSource=portalResident
+       visibleRigid=A cachedRigid=B resident=C seen/cache=D/E routeReady=F
+
+Interpretation:
+
+- `residentFromCache > 0` proves cached rigid geometry is being kept in the
+  route after it leaves the raster-visible drawSurf list.
+- `skippedUnknownArea` identifies rigid candidates whose bounds center could
+  not be mapped into Doom areas.
+- `residentMissingBlas` means residency selected the instance, but the mesh has
+  not yet produced a standalone rigid BLAS.
+
+Residency wireframe viewer update:
+
+- Mode 21/22 now appends resident rigid boxes from
+  `RtSmokeGeometryUniverse::CollectRigidResidencyBoundsBoxes()` after the
+  portal residency pass.
+- This uses the same PT bounds overlay line buffer as the drawSurf mirror, so
+  it appears in the existing mode 22 wireframe view.
+- Color meanings for resident boxes:
+
+       green   = visible this frame, resident, route-ready
+       cyan    = cache-only resident, route-ready
+       yellow  = resident but missing BLAS
+       magenta = resident problem/fallback
+
+- The critical visual proof is cyan boxes remaining when raster-visible boxes
+  disappear around portal/occlusion edges.
+
+Follow-up correction after first visual test:
+
+- The first mode 22 run still mostly showed the old drawSurf behavior because
+  `enableRigidRouteForMode` did not include modes 21/22. Switching from preset
+  mode 20 to debug mode 22 disabled the rigid residency update.
+- Fixed this by allowing modes 21/22 to enable rigid residency for visualization
+  when `r_pathTracingRigidResidency 1` is set. This does not make mode 22 a
+  shading route; it only populates the resident bounds overlay.
+- Added `r_pathTracingSceneBoundsOverlay 3` as resident-rigid-only mode so the
+  old raster-visible boxes can be removed from the view.
+
+Recommended visual test:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingDebugMode 22
+       r_pathTracingSceneBoundsOverlay 3
+       r_pathTracingSceneBoundsOverlayMax 8
+
+Move around a corner or portal edge where mode 22 previously showed boxes being
+culled. Cache-only resident rigid geometry should remain visible as cyan even
+when the old raster-visible drawSurf boxes would have disappeared.
+
+Safety correction:
+
+- Tests with `r_pathTracingSceneBoundsOverlayMax 256`, then 32, partially
+  worked but caused GPU device removal after a few seconds. Mode 22 evaluates
+  wireframe boxes in a full-screen PT shader loop.
+- Resident overlay bounds now use Doom's `R_LocalPointToGlobal()` transform
+  path and validate box coordinates/extents before upload. This was added after
+  a low box count still caused device removal, which pointed at malformed or
+  pathological resident boxes rather than only raw line count.
+- The resident/static overlay safety cap is now 64 boxes. Start tests lower
+  (`16`) and raise to `64` only after stability is confirmed.
+
+Follow-up after resident-rigid visual test:
+
+- Tester result: portals now visibly gate the resident selection, rigid objects
+  survive full occlusion and turn cyan, characters are absent from this view,
+  and level geometry is absent from this view.
+- Interpretation: this is expected for `r_pathTracingSceneBoundsOverlay 3`.
+  Mode 3 is resident-rigid-only. Cyan is the desired proof that cached rigid
+  objects are still resident after raster/occlusion culling removes their
+  drawSurfs. Skinned/deforming actors and static level surfaces are not part of
+  that overlay category.
+- Added static geometry cache visualization modes:
+
+       r_pathTracingSceneBoundsOverlay 3 = resident rigid only
+       r_pathTracingSceneBoundsOverlay 4 = static cache only
+       r_pathTracingSceneBoundsOverlay 5 = static cache + resident rigid
+
+- Static cache boxes are computed from the persistent static smoke vertex
+  ranges. Grey means the static surface was seen this frame; cyan means the
+  static surface is cache-only this frame. This viewer tests whether level
+  surfaces remain in the static cache/BLAS path when no longer raster-visible.
+
+Recommended follow-up visual tests:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingDebugMode 22
+       r_pathTracingSceneBoundsOverlay 3
+       r_pathTracingSceneBoundsOverlayMax 16
+
+Then test static level cache:
+
+       r_pathTracingSceneBoundsOverlay 4
+       r_pathTracingSceneBoundsOverlayMax 16
+
+If stable, raise `r_pathTracingSceneBoundsOverlayMax 64`.
+
+Follow-up correction:
+
+- Overlay mode 4 originally walked static cache records in insertion order. Old
+  cached records from the previous cell could consume the first 16/64 boxes and
+  hide newly selected/preloaded static records from the viewer.
+- Static cache bounds collection now emits `seenThisFrame` records first, then
+  cache-only records. This makes mode 4 answer "what did the current selected
+  static preload touch this frame?" before showing older retained cache entries.
+- Added `r_pathTracingSceneBoundsOverlay 6` to invert that ordering: cache-only
+  static records first, then current selected/preloaded records. Use this when
+  testing whether a previously preloaded cell is still retained after the
+  player moves into another cell.
+- The current+1 area walkers for rigid residency and static preload now count
+  `PS_BLOCK_VIEW` portal edges but do not stop traversal on them. This matches
+  the RT goal better: Doom's portal visibility/blocking state is diagnostic
+  input, not authority for whether adjacent-cell geometry may exist in the ray
+  scene. The dump still reports blocked edges so we can see when this happened.
+
+Retest:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingStaticAreaPreloadDump 1
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingDebugMode 22
+       r_pathTracingSceneBoundsOverlay 4
+       r_pathTracingSceneBoundsOverlayMax 64
+       condump static_area_preload_portals
+
+Cache-retention viewer:
+
+       r_pathTracingSceneBoundsOverlay 6
+       r_pathTracingSceneBoundsOverlayMax 64
+
+Expected change:
+
+- Adjacent-cell static boxes should now be visible in mode 4 if the scene
+  universe assigned area membership to those surfaces.
+- Previously preloaded static boxes should remain visible in mode 6 after
+  leaving their cell if they are still retained in the static cache.
+
+Mode 20 BVH/Emissive Validation Alignment
+=========================================
+
+Mode 20 is now the preferred quick correctness test for whether the latest RT
+scene inputs are actually feeding rays, not just the bounds viewer:
+
+- Static geometry rays use the static cache/BLAS. With
+  `r_pathTracingStaticAreaPreload 1`, that cache is seeded from current Doom
+  area plus portal-adjacent static scene-universe surfaces.
+- Rigid props use the routed rigid TLAS path when
+  `r_pathTracingRigidRouteMode20 1` and `r_pathTracingRigidTlasRoute 1` are
+  enabled.
+- Static emissive triangles are built from the same static cache.
+- Routed rigid emissive triangles are appended to the mode 20 emissive
+  inventory from rigid route buffers.
+- The light universe area selector now matches geometry traversal policy:
+  `PS_BLOCK_VIEW` portal edges are counted in diagnostics but do not stop
+  current+1 traversal.
+
+Validation command:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingLightUniverseDump 1
+       r_pathTracingStaticAreaPreloadDump 1
+       r_pathTracingRigidResidencyDump 1
+       condump mode20_bvh_validation
+
+Interpretation:
+
+- Preset 4 keeps the source3 static preload, resident rigid route, rigid
+  emissive append, and light-area diagnostics, but disables render-affecting
+  `r_pathTracingLightAreaFilterApply`. This avoids mistaking intentional
+  light-list culling for missing BVH geometry.
+- If mode 20 rays/lighting clearly hit the adjacent visible cell while overlay
+  mode 4/6 is confusing, the bounds viewer is the problem.
+- If mode 20 also behaves as if the adjacent cell is absent, the issue is in
+  static area preload / selected area membership / static BLAS rebuild, not only
+  the viewer.
+
+Follow-up dump result:
+
+- Tester ran preset 4 and reported:
+
+       static level emissives that previously failed when occluded now stay
+       occlusion/off-camera still breaks rigid-object emissives
+       sub-cell/portal issues remain disruptive
+       some distant doors disappear
+
+- Dump interpretation:
+
+       applied preset 4 correctly: lightAreaApply=0 bvhValidation=1
+       staticCache records=552 before/after, so static cache is retained
+       static area preload currentArea=30 selected area 30 + area 32
+       rigid residency resident=53 seen/cache=3/50 routeReady=53 missing=0/0
+       light universe dynSeen dropped 56 -> 32 while rigid residents remained
+
+- Conclusion:
+
+       static cache + static emissive inventory is now partly working
+       rigid geometry residency is selecting cache-only route-ready objects
+       rigid emissive contribution is still visibility-dependent somewhere after residency
+
+- The active fault line is now routed rigid emissive inventory/persistence, not
+  simply "rigid object absent from TLAS." We need a diagnostic that reports:
+
+       routed rigid instances considered
+       cache-only routed rigid instances
+       emissive triangles emitted per routed instance/material
+       skipped non-emissive / missing material table index / capped / invalid reasons
+
+- Specific sample of interest from the dump:
+
+       model='models/mapobjects/base/misc/emerlight.ase'
+       material='models/mapobjects/base/misc/emerlight_light'
+       selected=1 seen=0 routeReady=1 area=32
+
+  This object is resident and route-ready while off-camera, but its emissive
+  contribution still disappears. That is the best first target for routed rigid
+  emissive diagnostics.
+
+External idTech4 portal research note:
+
+- User supplied `C:/Users/lizard/Downloads/idtech4_bvh_findings_for_coding_agent.txt`.
+- Treat it as context only. It correctly warns not to use raw BSP leaf/internal
+  cells as the RT visibility unit. Use Doom renderer portal areas.
+- Our current source3 scaffolding already uses renderer area APIs:
+
+       renderWorld->PointInArea(...)
+       renderWorld->NumPortalsInArea(...)
+       renderWorld->GetPortal(...)
+
+- Therefore the external note does not supersede the current architecture. It
+  is useful support for staying on portal areas, but it does not explain the
+  latest rigid emissive failure by itself.
+
+- The note recommends respecting `PS_BLOCK_VIEW` after basic adjacency testing.
+  Current source3 diagnostics intentionally count but do not block on
+  `PS_BLOCK_VIEW` while we validate RT residency. This remains experimental and
+  may need refinement later, but it is not the current rigid emissive drop cause
+  because preset 4 had `lightAreaApply=0`.
+
+Critical Portal-Depth Correction
+================================
+
+Tester rechecked Doom 3 portal layout and found the previous assumption was too
+conservative:
+
+- Many visually single rooms are actually multiple renderer portal areas.
+- A visible neighboring "room" may be several portal-area hops away.
+- Current+1 is therefore not a reliable RT residency/preload scope.
+- At least 4 portal levels is probably a more realistic validation value for
+  Mars City style areas.
+
+This matches previous mode 20 dump data:
+
+       portalSweep areas=1/2/3/5/9
+       portalSweep merged=42/48/48/75/78
+       portalDepthBins depth0/1/2/3/4/>4 = 42/6/0/27/3/110
+
+Interpretation:
+
+- Depth 1 only added a small amount of candidate geometry/light data.
+- Depth 3 produced the first large jump in merged candidates.
+- Depth 4 is a better near-term validation baseline than depth 1.
+- This likely explains some apparent cell/portal failures and why visually
+  nearby geometry or emissives still disappeared even when current+1 was active.
+
+Recommended next validation command:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingStaticAreaPreloadDump 1
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_depth4_validation
+
+Decision point:
+
+- If depth 4 fixes missing cells/emissives without severe perf regression,
+  update preset 4 to use depth 4 by default for BVH validation.
+- Keep normal/default CVars conservative until performance and correctness are
+  better understood.
+- `blockedEdges` may be non-zero, but those edges should not prevent selected
+  adjacent areas from contributing static or rigid residency records.
+
+Selected-area diagnostic follow-up:
+
+- Tester suspects the one-step portal walker may be selecting a utility or
+  trigger-like volume instead of the visually expected neighboring room, or
+  that Doom's portal viewer is not showing the same graph used by
+  `NumPortalsInArea/GetPortal`.
+- Added per-selected-area static preload dump lines:
+
+       PT static area preload area[i] area=A depth=B portalEdges=C blockedEdges=D surfaces=E triangles=F emissiveSurfaces=G bounds=(...)-(...)
+
+- Use these lines to distinguish a real geometry cell from a tiny/empty
+  transition area:
+
+       surfaces/triangles high = likely real static geometry cell
+       surfaces/triangles zero or tiny = likely utility/transition/empty cell
+       bounds tiny or far from visible neighbor = likely not the expected room
+
+- If depth 1 selects a tiny intermediate area, depth 2 may be necessary in that
+  doorway type, or we need a geometry-weighted portal traversal that can skip
+  empty/utility areas while still stopping before excessive whole-map preload.
+
+
+Static Area Preload Correction
+==============================
+
+Tester result from overlay mode 4:
+
+- Static cache did not populate level geometry beyond the portal cell that Doom
+  raster submitted.
+- This confirmed that the source3 static cache was still seeded by
+  `viewDef->drawSurfs`, so Doom's own portal/area frontend could prevent
+  neighboring static cells from ever entering the RT static cache/BLAS.
+- Sliding-door portals can be visually see-through in gameplay, but Doom may
+  still omit the neighboring cell's drawSurfs/BVH inputs until its frontend
+  decides the cell is active.
+
+Implemented correction:
+
+- Added `r_pathTracingStaticAreaPreload`.
+- Added `r_pathTracingStaticAreaPreloadPortalSteps`.
+- Added `r_pathTracingStaticAreaPreloadDump`.
+- Mode 20 test preset now enables static area preload with portal depth 1.
+- Source3 now calls `RtPathTraceSceneUniverse::BuildSelectedStaticGeometry()`
+  after the visible static drawSurf capture. This uses the scene-universe static
+  map inventory only as an area-selected static-world preload, not as the
+  primary live scene producer.
+- The preload appends or touches static-world surfaces whose area membership
+  intersects current player area plus selected portal steps. Already counted
+  visible static surfaces are not double-counted for the frame.
+- Dynamic/rigid/skinned behavior is unchanged:
+
+       static world = selected-area preload + existing static cache/BLAS
+       rigid props  = drawSurf mesh cache + portal residency/TLAS route
+       skinned      = still raster-visible dynamic fallback for now
+
+Build status:
+
+- Release/PT build passed after static area preload.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Recommended static preload test:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingStaticAreaPreloadDump 1
+       r_pathTracingDebugMode 22
+       r_pathTracingSceneBoundsOverlay 4
+       r_pathTracingSceneBoundsOverlayMax 16
+       condump static_area_preload
+
+Interpretation:
+
+- The dump should include:
+
+       PT static area preload currentArea=... portalSteps=1 selectedAreas=...
+       selectedSurfaces=A/B built surfaces=C triangles=D ...
+
+- In overlay mode 4, static level boxes should now include current cell plus
+  one portal-adjacent cell even when Doom raster/occlusion hides those surfaces.
+- Grey means the static surface was also raster-seen this frame; cyan means the
+  static surface is cached/preloaded but not raster-visible this frame.
+- If neighboring static geometry still does not appear, inspect
+  `selectedSurfaces`, `skipped invalid/limits/zero`, and whether the surface has
+  valid area membership in the scene-universe diagnostics.
+
+
+Autocompact Guard: Current Critical State 6
+===========================================
+
+Read this block first after compaction.
+
+Branch/state:
+
+- Branch: `codex/refactor-pathtrace-smoke-modules`.
+- Latest committed base:
+
+       87254b9d pt: add light area filter impact diagnostics
+
+- Current uncommitted work includes two stacked diagnostics/production slices:
+
+       active light churn diagnostic
+       rigid geometry portal residency scaffold
+       resident rigid mode 21/22 wireframe overlay
+       static area preload for source3 static cache
+       mode 20 BVH validation preset 4
+       selected-area diagnostics
+       cache-only static overlay mode 6
+
+- Expected touched files:
+
+       docs/pathtrace_scene_producer_build_log_2.md
+       docs/pathtracing.txt
+       neo/renderer/NVRHI/PathTraceCVars.cpp
+       neo/renderer/NVRHI/PathTraceCVars.h
+       neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+       neo/renderer/NVRHI/PathTraceGeometryUniverse.cpp
+       neo/renderer/NVRHI/PathTraceGeometryUniverse.h
+       neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+       neo/renderer/NVRHI/PathTraceLightUniverse.h
+       neo/renderer/NVRHI/PathTraceSceneUniverse.cpp
+       neo/renderer/NVRHI/PathTraceSceneUniverse.h
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+- Build/copy succeeded for the full uncommitted stack.
+
+Core architectural correction:
+
+- DrawSurf capture is freshness, not RT residency authority.
+- Source3 rigid route should keep all cached rigid geometry from current Doom
+  area plus selected portal steps resident in the BVH/TLAS. One step is too
+  shallow for many visually single Doom 3 rooms; depth 4 is the current
+  validation baseline.
+- Source3 static cache should be populated from current Doom area plus selected
+  portal steps, independent of raster drawSurf submission. Raster is no longer
+  sufficient as the static-world seed. One step is too shallow for many test
+  locations.
+- `PS_BLOCK_VIEW` portal edges are counted in dumps but no longer stop source3
+  current+1 static preload or rigid residency traversal. This is intentional
+  until a stronger Doom portal taxonomy is available.
+- Light area filtering now also counts but does not stop on `PS_BLOCK_VIEW`.
+  Preset 4 disables render-affecting light-area filter apply so mode 20 can
+  validate BVH/cache inputs without intentional light-list culling.
+- Current validated status:
+
+       static level emissives improved and persist under occlusion
+       rigid geometry can remain resident/cache-only
+       rigid emissives still disappear off-camera/occluded
+
+- Current active suspect:
+
+       depth-4 validation reported resident=156 routeReady=156, but the rigid
+       route path was still capped at 64 for material IDs, route buffers, and
+       TLAS descriptors. Mode 20 removes routed-ready rigid dynamic fallback,
+       so any resident rigid instance beyond that cap could disappear and its
+       emissive triangles would not enter the mode 20 rigid emissive append.
+
+Latest patch:
+
+- Added `r_pathTracingRigidRouteMaxInstances` default 64.
+- Mode 20 test preset 4 raises `r_pathTracingRigidRouteMaxInstances` to at
+  least 256.
+- Replaced the three hard-coded rigid route caps with the new cvar:
+
+       CollectRigidRouteMaterialIds
+       BuildRigidRouteBuffers
+       BuildRigidTlasInstanceDescs
+
+- Raised `PathTraceSmokeTLAS` creation capacity from 128 to 512 instances so
+  depth-4 resident rigid routing does not exceed TLAS creation limits.
+
+Build status:
+
+- Release/PT build passed after the rigid route cap patch.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current test request:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances 256
+       r_pathTracingStaticAreaPreloadDump 1
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_depth4_route256
+
+Visual residency test:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingDebugMode 22
+       r_pathTracingSceneBoundsOverlay 3
+       r_pathTracingSceneBoundsOverlayMax 16
+
+Static cache visual test:
+
+       r_pathTracingMode20TestPreset 3
+       r_pathTracingSceneBoundsOverlay 4
+       r_pathTracingSceneBoundsOverlayMax 64
+
+Cache-only static retention visual test:
+
+       r_pathTracingSceneBoundsOverlay 6
+       r_pathTracingSceneBoundsOverlayMax 64
+
+Color meanings:
+
+       resident rigid green = visible this frame + resident + route-ready
+       resident rigid cyan = cache-only resident + route-ready
+       resident rigid yellow = resident but missing BLAS
+       resident rigid magenta = resident problem/fallback
+       static grey = static cache surface seen this frame
+       static cyan = static cache surface not seen this frame
+
+Key fields:
+
+       PT rigid residency ... currentArea=A selectedAreas=B visibleRigid=C cachedRigid=D resident=E seen/cache=F/G routeReady=H skipped outside/unknown=I/J
+       RT smoke light universe ...
+       RT smoke light churn ...
+
+Next decision:
+
+- Do not start a broad portal/BVH rewrite from the external note.
+- Do not assume current+1 is enough. User corrected this after rechecking
+  portals: visually single rooms commonly span multiple portal areas. Depth 4
+  should be tested before chasing deeper architectural faults.
+- Next small check should verify whether `r_pathTracingRigidRouteMaxInstances
+  256` eliminates the distant rigid object disappearance and most/all rigid
+  emissive loss. If not, add routed rigid emissive append diagnostics showing
+  emitted/capped/skipped cache-only resident emissive instances.
+
+
+Rigid Route Emissive Shadow Fix
+===============================
+
+Input dump:
+
+       mode20_depth4_route256.txt
+
+Result:
+
+- Preset 4 applied correctly:
+
+       source3=1 rigidRoute=1 rigidResidency=1 staticPreload=1
+       lightAreaApply=0 bvhValidation=1 churn=1 rigidRouteMax=256
+
+- Light universe area filter was not the drop source in this dump:
+
+       selected=342 wouldUpload=342 wouldDrop=0
+       churn previous/current/stayed/entered/left=342/342/342/0/0
+
+- This location had only current-frame visible resident rigid objects:
+
+       resident=36 seen/cache=36/0 routeReady=36
+
+  So it did not directly prove cache-only rigid emissive persistence, but it
+  did confirm the route cap patch was active.
+
+Shader fault found:
+
+- `ClosestHit` already handled routed rigid instances with `InstanceID() >= 2`.
+- The shadow `AnyHit` path exited immediately for `InstanceID() >= 2`, before
+  applying the shadow ray's "ignore the sampled emissive primitive/material"
+  rule.
+- That meant routed rigid emissive samples could be shadowed by their own routed
+  rigid triangles or same-material light triangles, while static/dynamic
+  emissives had the intended ignore behavior.
+
+Patch:
+
+- Added routed-rigid-aware material lookup helpers in
+  `pathtrace_smoke.rt.hlsl`.
+- `AnyHit` now checks `shadowIgnoreInstanceId`, `shadowIgnorePrimitiveIndex`,
+  and `shadowIgnoreMaterialId` before accepting routed rigid hits as opaque
+  occluders.
+- Routed rigid hits still skip alpha/decal filtering in `AnyHit` for now; they
+  remain opaque occluders except for the sampled emissive/material ignore.
+
+Build status:
+
+- Release/PT build passed.
+- ShaderMake recompiled the path tracing smoke RT shader library for DXIL and
+  SPIR-V.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances 256
+       r_pathTracingStaticAreaPreloadDump 1
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_depth4_rigid_emissive_shadowfix
+
+Expected outcome:
+
+- Rigid emissive objects that are routed and resident should contribute more
+  like static/dynamic emissives when occluded/off-camera.
+- If rigid emissives still fail, next patch should add per-routed-rigid
+  emissive append diagnostics:
+
+       route instances considered
+       route emissive instances/materials found
+       triangles emitted
+       cache-only vs seen routed emissive counts
+       capped/skipped invalid/material-table reasons
+
+
+Routed Rigid Emissive Append Diagnostic
+=======================================
+
+Tester result after the shadow ignore patch:
+
+       still doing it sadly
+
+Interpretation:
+
+- The shader self-shadow/material-ignore fix was not sufficient.
+- The next fault line is whether the failing rigid emissive object actually
+  reaches the routed rigid emissive append when it is occluded/off-camera, and
+  whether it is present as a visible instance or cache-only resident instance.
+
+Patch:
+
+- Added `r_pathTracingRigidRouteEmissiveDump`.
+- The route build now records per-emitted-instance seen/cache state.
+- The emissive inventory dump now prints:
+
+       RT smoke routed rigid emissives routeInstances=A seen/cache=B/C
+       emissiveInstances=D seen/cache=E/F
+       triangles considered/captured/capped=G/H/I
+       nonEmissive=J invalid=K area=L weight=M
+
+- `r_pathTracingRigidRouteEmissiveDump 1` uses the same dump path as
+  `r_pathTracingEmissiveInventoryDump 1` but is named for this specific fault.
+
+Build status:
+
+- Release/PT build passed after the diagnostic patch.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances 256
+       r_pathTracingRigidRouteEmissiveDump 1
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_rigid_emissive_append_diag
+
+Decision after dump:
+
+- If `emissiveInstances seen/cache` drops to zero for cache-only residents, the
+  append/build path is still visibility-bound.
+- If cache-only routed emissive instances and triangles are present but the
+  object still does not illuminate, the issue is downstream in light universe
+  persistence, reservoir sampling, or visibility evaluation rather than append.
+
+
+Mode 20 Reservoir Candidate Trials
+==================================
+
+Input dump:
+
+       mode20_rigid_emissive_twosided_diag.txt
+
+Critical result:
+
+- Two-sided reservoir emissives did not fix the failing off-screen panels.
+- The routed rigid emissive append is working:
+
+       routeInstances=83 seen/cache=3/80
+       emissiveInstances=17 seen/cache=0/17
+       triangles considered/captured/capped=156/156/0
+       area=4383.13 weight=4383.127
+
+- The failing `emerlight.ase` panels are cache-only resident and route-ready in
+  both views.
+- Light universe churn is zero in both views.
+
+Interpretation:
+
+- The failure is not BVH residency, not route append, not material capture, and
+  not two-sided facing.
+- Mode 20 still uses a single global emissive triangle sample per pixel. In the
+  off-camera dump, all routed rigid emissives together are only about 4 percent
+  of total emissive sampling weight:
+
+       routed rigid weight 4383 / total weight 100935
+
+- Looking directly at a panel shows its surface emissive. Once it is just
+  off-screen, it depends on the one-candidate reservoir path selecting it or a
+  nearby related triangle. That can look like binary screen-space behavior even
+  when the light is present in the inventory.
+
+Patch:
+
+- Added `r_pathTracingReservoirCandidateTrials`, default 1, clamp 1..16.
+- Mode 20 now draws N weighted emissive candidates per pixel and keeps the one
+  with highest local unoccluded potential:
+
+       area * ndotl * lightFacing / distance^2 / pdf
+
+- It still traces one shadow ray for the selected candidate, so this is a
+  limited diagnostic/RIS-style improvement rather than full ReSTIR.
+
+Build status:
+
+- Release/PT build passed.
+- ShaderMake recompiled the path tracing smoke RT shader library for DXIL and
+  SPIR-V.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances 256
+       r_pathTracingReservoirTwoSidedEmissives 1
+       r_pathTracingReservoirCandidateTrials 8
+       r_pathTracingRigidRouteEmissiveDump 1
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_reservoir_trials8
+
+If 8 helps but is too expensive, test 4. If 8 does not materially change the
+off-screen panel contribution, test 16 once to separate candidate starvation
+from actual visibility/shadow failure.
+
+
+Rigid Emissive Card Promotion
+=============================
+
+Input result:
+
+- `r_pathTracingReservoirCandidateTrials` had no visible impact on the two
+  failing vending-machine panels.
+- Comparing the mode 20 dumps showed the routed-rigid emissive append stayed
+  stable:
+
+       routeInstances=83 seen/cache=4/79 or 3/80
+       emissiveInstances=17 seen/cache=0/17
+       triangles considered/captured/capped=156/156/0
+
+- The materials that disappeared between the direct view and the off-camera
+  view were visible dynamic emissives, not routed rigid emissives:
+
+       models/mapobjects/filler/snackmachine_snacks
+       models/mapobjects/filler/sodamachinesq_add2
+       models/mapobjects/filler/sodamachine_add2
+       models/mapobjects/filler/sodamachine_add
+
+Interpretation:
+
+- This is not reservoir candidate starvation for the routed rigid inventory.
+- These vending-machine panels are likely entity-attached translucent/additive
+  signage cards. `ClassifySmokeSurface` classifies translucent/sorted materials
+  as `ParticleAlpha` before the rigid-entity branch, so they never become rigid
+  mesh candidates and disappear from the light universe when raster stops
+  submitting them.
+
+Patch:
+
+- Added `r_pathTracingRigidRouteEmissiveCards`, default 0.
+- Source3 drawSurf mirror and dynamic-frame capture now apply a narrow
+  promotion gate:
+  - must already classify as `ParticleAlpha`
+  - must be attached to an entity
+  - must be non-skinned, non-deforming, non-callback, non-generated, static
+    model geometry
+  - must not be GUI, particle-looking, glass, post-process, screen-texgen, or
+    depth-hack material
+  - material classifier must look like signage/glow and have additive or
+    ambient emissive-card style stages
+- Promoted surfaces become `RigidEntity` for source3 mesh/instance observation,
+  rigid candidate recording, dynamic fallback removal, and routed rigid
+  emissive append.
+- Mode 20 test presets now enable `r_pathTracingRigidRouteEmissiveCards 1`.
+
+Build status:
+
+- Release/PT build passed.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Expected retest signal:
+
+- With the failing vending panels off-camera, `r_pathTracingRigidRouteEmissiveDump
+  1` should show routed rigid emissive triangle count above the previous 156 if
+  those panels match the conservative gate.
+- If the count does not rise, use `r_pathTracingCrosshairMaterialDump 1` while
+  aiming at the panel to inspect which classifier/reject condition is too
+  strict.
+
+Current retest request:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances 256
+       r_pathTracingRigidRouteEmissiveDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_rigid_emissive_cards
+
+
+Rigid Emissive Card Classifier Tightening
+=========================================
+
+User test result:
+
+- The rigid emissive-card promotion fixed the two failing vending-machine
+  panels.
+- It also broke other materials because `_add...0200` generated texture
+  variants are supposed to stay banned from the translucent/signage material
+  classifier path.
+
+Patch:
+
+- Added `RtSmokeTranslucentClassifierInfo::hasAddDefault0200Texture`.
+- `BuildSmokeTranslucentClassifierInfo` now scans material stage image names
+  for `_add` plus a bounded `0200` generated texture code, including
+  `#__0200` style names.
+- The flag is rejected by:
+  - translucent subtype signage/glow classification
+  - translucent cutout alpha allowance
+  - additive decal / white-key / RGB-keyed decal classifier helpers
+  - translucent overlay-card texture discovery
+  - emissive image discovery
+  - scene-capture and scene-universe emissive name heuristics
+  - source3 rigid emissive-card promotion
+- Crosshair and translucent diagnostic dumps now print `addDefault0200`.
+
+Build status:
+
+- Release/PT build passed.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances 256
+       r_pathTracingRigidRouteEmissiveDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_add0200_classifier_fix
+
+
+Mode 18 New-Stack Preset
+========================
+
+Goal:
+
+- Tester needs mode 18 visually connected to the current source3/static
+  preload/rigid residency/routed rigid stack without entering the full CVar
+  list manually.
+
+Patch:
+
+- Added `r_pathTracingMode18TestPreset`, default 0.
+- Added shared routed-scene preset helper used by both mode 18 and mode 20
+  presets.
+- `r_pathTracingMode18TestPreset 1` applies:
+
+       r_pathTracingDebugMode 18
+       r_pathTracingSceneSource 3
+       r_pathTracingRigidBlasGpuScaffold 1
+       r_pathTracingRigidBlasGpuBuild 1
+       r_pathTracingRigidTlasRoute 1
+       r_pathTracingRigidRouteMode18 1
+       r_pathTracingRigidRouteRemoveDynamic 1
+       r_pathTracingRigidRouteEmissiveCards 1
+       r_pathTracingRigidResidency 1
+       r_pathTracingStaticAreaPreload 1
+
+- `r_pathTracingMode18TestPreset 4` also sets:
+
+       r_pathTracingStaticAreaPreloadPortalSteps 4
+       r_pathTracingRigidResidencyPortalSteps 4
+       r_pathTracingLightAreaPortalSteps 4
+       r_pathTracingRigidRouteMaxInstances >= 256
+
+Notes:
+
+- Mode 18 already had low-level routed rigid integration through
+  `r_pathTracingRigidRouteMode18`; the new patch makes it easy to activate the
+  same current validation stack as mode 20.
+- Mode 18 does not use the mode 20 reservoir direct-light path. It is for
+  visual checking of routed geometry, static preload, rigid residency, point
+  light shadows, surface emissives, and one-bounce toy PT behavior.
+
+Build status:
+
+- Release/PT build passed.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode18TestPreset 4
+       r_pathTracingRigidResidencyDump 1
+       r_pathTracingStaticAreaPreloadDump 1
+       condump mode18_new_stack_visual
+
+
+Routed Rigid Emissive Stage State Fix
+=====================================
+
+Input dump:
+
+       mode18broken_light.txt
+
+Observed material:
+
+       models/mapobjects/swinglights/work/swinglighttex2
+       class=particle/alpha subtype=signage/glow
+       ambientBlend=1 nameGlow=1
+       stage[0] condition=1.000
+
+Problem:
+
+- The mode 18 new-stack preset routed this interactive, game-logic-driven
+  swing light through the rigid route.
+- The routed rigid closest-hit shader hardcoded:
+
+       triangleClassAndFlags = 1
+
+  for all routed rigid hits.
+- That discarded `RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF`, which is how the
+  normal drawSurf dynamic path carries material stage condition/off state into
+  shading and emissive inventory.
+- Result: condition-driven routed emissive cards could get stuck visually on.
+
+Patch:
+
+- `SmokeDrawSurfaceHasActiveEmissiveStage()` is now shared instead of local to
+  `PathTraceSceneCapture.cpp`.
+- Source3 rigid mesh candidate observations now record
+  `triangleClassAndFlags = rigidClass | emissiveStageOffFlag`.
+- Rigid mesh candidate records update this flag every time the drawSurf is
+  observed, so visible game-logic toggles can refresh the route state without
+  rebuilding BLAS.
+- `PathTraceRigidRouteInstance` now carries `triangleClassAndFlags`.
+- Rigid route closest-hit and `LoadSmokeTriangleClassAndFlags()` now read that
+  value instead of hardcoding active rigid class.
+- Routed rigid emissive inventory skips route instances whose
+  `triangleClassAndFlags` contains `RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF`.
+
+Build status:
+
+- Release/PT build passed.
+- ShaderMake rebuilt the path tracing smoke RT shader library for DXIL and
+  SPIR-V.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode18TestPreset 4
+       r_pathTracingCrosshairMaterialDump 1
+       condump mode18_swinglight_stage_state
+
+Retest the swing light turning on/off. If it still sticks on while the crosshair
+dump shows `condition=0.000`, then route state is still stale. If it sticks on
+only after the drawSurf disappears entirely, the remaining issue is resident
+cache invalidation for unobserved game-logic-controlled emissive cards.
+
+
+Routed Rigid Stage-State Revert
+===============================
+
+User test result:
+
+- Carrying `triangleClassAndFlags` through `PathTraceRigidRouteInstance` broke
+  almost every surface in the game.
+
+Immediate recovery:
+
+- Reverted the GPU-facing route instance layout change.
+- Reverted routed rigid closest-hit / class-flag reads back to the previous
+  compact behavior:
+
+       routed rigid hit => surfaceClass=RigidEntity, triangleClassAndFlags=1
+
+- Reverted CPU route records/build buffers back to not carrying
+  `triangleClassAndFlags`.
+- Kept the mode 18 test preset and the vending-machine rigid emissive-card
+  promotion.
+- Added a narrow promotion exclusion for material names containing
+  `swinglight`, keeping the known game-logic-driven swing light on the dynamic
+  drawSurf path where it previously toggled correctly.
+
+Build status:
+
+- Release/PT build passed.
+- ShaderMake rebuilt the path tracing smoke RT shader library for DXIL and
+  SPIR-V.
+- Built exe copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current retest request:
+
+       r_pathTracingMode18TestPreset 4
+       r_pathTracingCrosshairMaterialDump 1
+       condump mode18_swinglight_dynamic_recovery
+
+Expected:
+
+- General surfaces should recover from the route layout break.
+- The swing light should no longer be promoted into routed rigid; it should show
+  as `particle/alpha` / `signage/glow` on the dynamic path and keep its game
+  logic on/off behavior.
+
+
+Autocompact Guard: Current Critical State 6
+===========================================
+
+Read this block first after compaction.
+
+Current user-reported state:
+
+- `r_pathTracingMode18TestPreset 4` connected mode 18 to the current new stack.
+- The first attempt to fix the interactive `swinglighttex2` stuck-on issue by
+  adding `triangleClassAndFlags` to `PathTraceRigidRouteInstance` broke almost
+  every surface in the game.
+- That unsafe GPU route instance layout/shader change has been reverted.
+- A recovery Release/PT build was made and copied to:
+
+       E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Current intended behavior:
+
+- Keep:
+  - mode 18 test preset
+  - source3 static preload
+  - rigid residency
+  - rigid route
+  - vending-machine rigid emissive-card promotion
+  - `_add + 0200` classifier exclusion
+- Do not reintroduce the routed rigid `triangleClassAndFlags` GPU payload until
+  the route struct/binding/shader ABI is handled deliberately.
+- Current narrow recovery guard: material names containing `swinglight` are not
+  promoted as rigid emissive cards, so that known game-logic-driven light stays
+  on the dynamic drawSurf path where its on/off state was known to work.
+
+Important diagnosis:
+
+- `mode18broken_light.txt` showed:
+
+       material='models/mapobjects/swinglights/work/swinglighttex2'
+       class=particle/alpha subtype=signage/glow
+       coverage=translucent sort=4.00 deform=none
+       ambientBlend=1 nameGlow=1
+       stage[0] condition=1.000
+
+- The real issue is not the material name. It is that this is a material whose
+  relevant stage condition/color is driven through evaluated shader registers,
+  likely entity `shaderParms` / game logic.
+- Rigid residency can keep geometry around while raster stops submitting it, but
+  it does not yet have a safe per-frame material-register/state channel for
+  cached/off-screen instances.
+
+Recommended next implementation:
+
+- Replace the temporary `swinglight` material-name exclusion with a general
+  dynamic-register/material-parm detector.
+- Best target:
+
+       idMaterial helper:
+       stage/register depends on EXP_REG_PARM*, EXP_REG_GLOBAL*, EXP_REG_TIME,
+       EXP_REG_SOUND, or other non-constant expression input
+
+- Then `PtMirrorCanPromoteRigidEmissiveCard()` should reject emissive/signage
+  cards when the relevant ambient/additive stage condition or color registers
+  are dynamic.
+
+Expected policy after that:
+
+       stable rigid signage/glow card -> promote/resident
+       _add + 0200 -> reject by classifier
+       parm/time/sound/global-driven emissive card -> keep dynamic drawSurf path
+
+Testing commands after recovery/current build:
+
+       r_pathTracingMode18TestPreset 4
+       r_pathTracingCrosshairMaterialDump 1
+       condump mode18_swinglight_dynamic_recovery
+
+For vending regression check:
+
+       r_pathTracingMode20TestPreset 4
+       r_pathTracingRigidRouteEmissiveDump 1
+       r_pathTracingLightUniverseDump 1
+       condump mode20_vending_after_swinglight_exclusion

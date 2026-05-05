@@ -49,10 +49,18 @@ The current RT/PT path is still an experimental "smoke" path:
 - r_pathTracingRigidRouteMode18: default-off mode 18 integration gate for
   routed rigid TLAS instances. It preserves mode 18's toy PT shader path while
   routing eligible rigid meshes through reusable local-space BLAS/TLAS records.
-- r_pathTracingRigidRouteRemoveDynamic: default-off mode 18/24/25 subtraction gate.
-  It skips routed-ready rigid candidates from the source3 dynamic fallback so
-  the removal, lighting-validation, and explicit mode 18 integration passes can
-  run without affecting mode 20.
+- r_pathTracingMode18TestPreset: one-shot helper for applying the current
+  source3 routed-rigid/static-preload/rigid-residency mode 18 stack. Preset 4
+  is the current preferred visual validation shortcut because it uses portal
+  depth 4 and a larger rigid route instance cap.
+- r_pathTracingRigidRouteRemoveDynamic: default-off subtraction gate used by
+  routed-rigid validation/integration modes, including opted-in mode 18 and
+  mode 20 tests. It skips routed-ready rigid candidates from the source3 dynamic
+  fallback after the reusable rigid route is enabled.
+- r_pathTracingMode20TestPreset: one-shot helper for the current mode 20 source3
+  routed-rigid/static-preload/rigid-residency stack. Preset 4 is the current BVH
+  validation shortcut with portal depth 4 and no render-affecting light-area
+  filter apply.
 - Routed rigid closest-hit shading now transforms local-space geometric and
   interpolated normals into world space through the TLAS instance transform and
   constructs a world-space tangent basis for later lighting validation.
@@ -164,7 +172,10 @@ PathTraceDrawSurfCapture.cpp
     transform/material/entity metadata, compares static-world matches against
     PathTraceSceneUniverse diagnostics when requested, feeds geometry-universe
     rigid candidate diagnostics, and optionally emits bounds records consumed by
-    debug modes 21/22.
+    debug modes 21/22. It also contains the conservative source3 promotion gate
+    for stable entity-attached translucent signage/glow cards, so such cards can
+    travel with routed rigid residency instead of remaining raster-visible-only
+    particle/alpha drawSurfs.
 
 PathTraceInstanceUniverse.h
     Per-frame and lifetime instance-universe diagnostic declarations. This is
@@ -198,8 +209,10 @@ PathTraceGeometryUniverse.h
     rigid mesh candidate/local-source records, validation stats, CPU rigid BLAS
     plan/input descriptor dumps, and default-off rigid BLAS GPU scaffold records
     for per-mesh local-space vertex/index buffers plus optional standalone BLAS
-    handles. It also builds diagnostics-only rigid TLAS instance plans by
-    matching current-frame instance-universe observations to rigid mesh records.
+    handles. It also owns source3 rigid residency records and bounds samples,
+    and builds rigid TLAS instance plans by matching current/cached
+    instance-universe observations to rigid mesh records when the route gates
+    are enabled.
     The universe must evolve with previous-frame geometry history in mind so
     future motion vector output can be generated from geometry, not guessed
     later.
@@ -213,15 +226,14 @@ PathTraceGeometryUniverse.cpp
     through the universe. It also records eligible rigid local-space mesh
     sources, validates them against the baked dynamic rigid fallback payload,
     builds CPU-only reusable rigid BLAS/TLAS plans and NVRHI-shaped input
-    descriptor dumps, and now owns a disabled-by-default GPU scaffold that can
-    create/upload local-space rigid mesh input buffers and optionally submit
-    standalone per-mesh BLAS builds. It can also dump a rigid TLAS instance plan
-    from current-frame visible rigid instances without changing routing. It
-    deliberately keeps renderPath=dynamicFallback and
-    tlasRoute=oldStaticPlusDynamic until reusable rigid BLAS/TLAS routing is
-    implemented. Future work should expand persistent records, dirty ranges, and
-    GPU buffer ownership here, plus current/previous geometry or transform
-    history needed for temporal reconstruction.
+    descriptor dumps, and now owns a default-off GPU scaffold that can
+    create/upload local-space rigid mesh input buffers and submit per-mesh BLAS
+    builds. With the explicit rigid route gates, it can feed routed rigid TLAS
+    instances into modes 18/20/23/24/25 and can keep cached rigid instances
+    resident by Doom area/portal selection rather than current raster
+    submission alone. Future work should expand persistent records, dirty
+    ranges, current/previous transform history, and per-frame material-state
+    handling needed for moving/game-driven surfaces and temporal reconstruction.
 
 PathTraceSkinning.h
     Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
@@ -327,7 +339,8 @@ PathTraceLightUniverse.h
     Persistent emissive light universe declarations. Static emissive triangles
     are retained by stable-ish identity. Stable rigid-entity emissives can be
     promoted into semi-static persistence; other dynamic emissives remain
-    frame-local.
+    frame-local. Area-selection diagnostics and optional connected-overflow
+    filtering are declared here for mode 20 light-candidate validation.
 
 PathTraceLightUniverse.cpp
     Merges persistent static records with current-frame dynamic emissive
@@ -335,7 +348,10 @@ PathTraceLightUniverse.cpp
     identity diagnostics, renormalizes inventory PDFs, and reports compact
     universe stats. Missing dynamic records are not injected by default because
     their matching occluder geometry is not persistent yet. The merged list is
-    still capped by r_pathTracingEmissiveInventoryMaxTriangles.
+    still capped by r_pathTracingEmissiveInventoryMaxTriangles. The area filter
+    path can report selected, connected-overflow, disconnected, and unknown
+    light candidates; apply mode is separate and remains an explicit
+    render-affecting experiment.
 
 PathTraceReservoirs.h
     ReSTIR/PT reservoir record layout and screen-sized buffer ownership
@@ -464,18 +480,21 @@ Typical flow:
    mesh identity without transform and per-frame instance identity with
    transform/material/entity metadata.
 4. PathTraceInstanceUniverse tracks those observations for diagnostics and
-   moved-rigid history. It does not feed TLAS yet.
+   moved-rigid history. The geometry universe consumes the current/cached rigid
+   observations when rigid route/residency gates are enabled.
 5. PathTraceGeometryUniverse records eligible rigid local-source mesh candidates,
    CPU rigid BLAS plans/input descriptors, default-off GPU scaffold records for
-   local-space rigid mesh buffers/standalone BLAS builds, and diagnostics-only
-   rigid TLAS instance plans, while rendering still goes through the old dynamic
-   fallback.
+   local-space rigid mesh buffers/standalone BLAS builds, rigid residency
+   records, and rigid TLAS instance plans. In gated validation/integration
+   modes, routed-ready rigid triangles can be removed from the dynamic fallback
+   and traced through the reusable rigid route.
 6. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
 7. PathTraceSmokeResources creates geometry/material/emissive buffers.
 8. PathTraceAcceleration creates BLAS objects, uploads build-input buffers, and
-   submits BLAS/TLAS builds. Its TLAS submit helper can append extra
-   diagnostics-only rigid route instances when mode 23/24 is explicitly enabled.
+   submits BLAS/TLAS builds. Its TLAS submit helper appends routed rigid
+   instances when the explicit rigid route gates and compatible debug or
+   integration mode are enabled.
 9. PathTraceSmokeResources commits the successful handles to pass state.
 10. PathTraceSmokeDispatch transitions committed buffers and dispatches rays.
 11. RenderBackend.cpp blits the RT output as the 3D scene. With
@@ -490,8 +509,7 @@ Safer places to touch:
 - Change helper packaging structs when the same fields are passed through.
 - Move static-cache bookkeeping into PathTraceGeometryUniverse when the capture
   behavior remains equivalent and can be tested in isolation.
-- Add drawSurf mirror diagnostics, candidate counts, and validation dumps that
-  do not change BLAS/TLAS routing.
+- Add drawSurf mirror diagnostics, candidate counts, and validation dumps.
 - Add PT-native debug views that consume diagnostic buffers, such as modes 21
   and 22, while keeping mode 18/20 resource contracts stable.
 
@@ -526,9 +544,12 @@ For source3, keep the representation split explicit:
 - reusable rigid BLAS = future local-space mesh cache, not the current render
   path
 
-Do not route rendering through reusable rigid records or remove rigid triangles
-from the dynamic fallback until the disabled GPU scaffold and TLAS routing are
-validated separately.
+Only route rendering through reusable rigid records or remove rigid triangles
+from the dynamic fallback behind the existing explicit route gates or test
+presets. The current source3 validation path expects mesh identity to remain
+transform-free, instance identity to carry transform/material/entity metadata,
+and residency to be driven by Doom area/portal selection rather than pure
+raster visibility.
 
 For mode 18 performance validation, keep r_pathTracingSkipRaster3D at 1 unless
 the test explicitly compares against old raster-under-RT behavior. If something

@@ -22,6 +22,35 @@ For PT/ReSTIR this is an important contract:
 The switchable fluorescent lights and red/green door panels are examples of
 this split.
 
+Current source3/rigid-route implication
+---------------------------------------
+
+The current source3 routed-rigid work can keep stable object geometry and stable
+object-attached emissive cards resident when raster visibility stops submitting
+them. That solves the off-camera/occluded emissive-panel failure for simple
+rigid signage, but it does not by itself solve game-driven material state.
+
+`r_pathTracingRigidRouteEmissiveCards 1` may promote conservative
+entity-attached translucent signage/glow cards into the rigid route. This is
+intended for stable rigid prop emissives such as vending-machine panels. It is
+not safe for materials whose active stage or stage color is controlled by
+runtime shader registers unless the routed record also carries a reliable
+per-frame material-state update.
+
+The known `models/mapobjects/swinglights/work/swinglighttex2` case is currently
+kept out of rigid emissive-card promotion by a narrow temporary material-name
+guard. That guard is a recovery measure, not the final model. The correct
+replacement is a material/stage dependency detector that rejects rigid emissive
+promotion when the relevant stage condition or color depends on `parm*`,
+`global*`, time, sound, or another dynamic expression input.
+
+An attempted shortcut that added per-instance `triangleClassAndFlags` to the
+routed rigid GPU payload was reverted after it broke broad surface rendering.
+Treat routed rigid instance layout, binding layout, and shader payload changes
+as ABI work: update CPU structs, GPU buffers, bindings, and shader reads
+together, then validate in isolation before using them for interactive material
+state.
+
 The data flow
 -------------
 
@@ -152,6 +181,18 @@ For the current branch, the crosshair material dump is already a useful entry
 point because it prints material stages, condition values, color values, blend
 state, and the RT metadata chosen for the surface.
 
+For source3 rigid-emissive promotion, the useful policy is:
+
+- stable rigid signage/glow card: eligible for promotion and residency
+- `_add + 0200` default-RGBA variant: reject by material classifier
+- `parm*`/global/time/sound-driven emissive card: keep on the dynamic drawSurf
+  path until routed rigid has a safe per-frame material-state channel
+
+The `_add + 0200` exclusion is orthogonal to game-logic detection. It prevents
+generated/default-RGBA additive material variants from being classified as real
+translucent/emissive cards; it should not be used as a proxy for runtime
+shader-parm behavior.
+
 Future scoping plan
 -------------------
 
@@ -274,6 +315,9 @@ Known pitfalls
 - A material name alone cannot tell whether a surface is currently emitting.
 - A material's stable emissive color may be white even when the current surface
   should be red, green, blue, dimmed, or off.
+- Keeping a rigid emissive card resident can preserve an off-camera light source,
+  but can also preserve the wrong state if the material's active stage/color is
+  game-driven and no per-frame state update reaches the resident record.
 - Dynamic/rigid entities may be culled by Doom when off screen. Retaining only
   their light candidates without retaining matching occluder geometry creates
   ghost lighting.
