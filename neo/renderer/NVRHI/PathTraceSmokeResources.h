@@ -67,6 +67,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::TextureHandle accumulationTexture;
     nvrhi::TextureHandle fallbackTexture;
     nvrhi::BufferHandle constantsBuffer;
+    nvrhi::BufferHandle boundsOverlayLineBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
     nvrhi::DescriptorTableHandle existingTextureDescriptorTable;

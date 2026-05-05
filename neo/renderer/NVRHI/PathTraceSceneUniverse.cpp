@@ -722,7 +722,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
     std::vector<uint32_t>& staticIndexes = geometryUniverse.StaticIndexes();
     std::vector<uint32_t>& staticTriangleClasses = geometryUniverse.StaticTriangleClasses();
     std::vector<uint32_t>& staticTriangleMaterials = geometryUniverse.StaticTriangleMaterials();
-    const int rigidEntityMode = idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger());
+    const int rigidEntityMode = r_pathTracingSceneSource.GetInteger() == 2 ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger()) : 0;
     const bool includeRigidEntities = rigidEntityMode > 0;
     const bool canTouchCachedBuild =
         m_fullStaticGeometryGeneration == m_generation &&

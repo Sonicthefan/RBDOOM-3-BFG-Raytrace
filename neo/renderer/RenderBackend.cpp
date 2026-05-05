@@ -5514,6 +5514,9 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 			RB_GetPathTracePrimaryPass( this ).BlitDebugOutput(
 				RB_GetPathTraceLdrColorFramebuffer(),
 				nvrhi::Viewport( renderSystem->GetWidth(), renderSystem->GetHeight() ) );
+			RB_GetPathTracePrimaryPass( this ).DrawBoundsOverlayRaster(
+				RB_GetPathTraceLdrColorFramebuffer(),
+				nvrhi::Viewport( renderSystem->GetWidth(), renderSystem->GetHeight() ) );
 			renderLog.CloseBlock();
 			pathTraceDebugPresentPending = false;
 		}
@@ -6135,6 +6138,12 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 			blitParms.targetFramebuffer = deviceManager->GetCurrentFramebuffer();
 			blitParms.targetViewport = nvrhi::Viewport( renderSystem->GetNativeWidth(), renderSystem->GetNativeHeight() );
 			commonPasses.BlitTexture( commandList, blitParms, &bindingCache );
+			if( r_pathTracing.GetInteger() != 0 )
+			{
+				RB_GetPathTracePrimaryPass( this ).DrawBoundsOverlayRaster(
+					deviceManager->GetCurrentFramebuffer(),
+					nvrhi::Viewport( renderSystem->GetNativeWidth(), renderSystem->GetNativeHeight() ) );
+			}
 		}
 
 		renderLog.CloseBlock();

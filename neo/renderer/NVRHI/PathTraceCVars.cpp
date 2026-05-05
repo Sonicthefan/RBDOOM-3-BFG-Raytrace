@@ -7,7 +7,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes" );
 
 idCVar r_pathTracingClassDump(
     "r_pathTracingClassDump",
@@ -97,13 +97,79 @@ idCVar r_pathTracingSceneSource(
     "r_pathTracingSceneSource",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "PT scene producer source: 0 = existing drawSurf producer only, 1 = scene-universe diagnostics only, 2 = full static scene-universe geometry plus dynamic drawSurf fallback" );
+    "PT scene producer source: 0 = existing drawSurf producer only, 1 = scene-universe diagnostics only, 2 = full static scene-universe geometry plus dynamic drawSurf fallback, 3 = existing static cache plus mirrored dynamic-frame drawSurfs" );
+
+idCVar r_pathTracingSceneSourceCompare(
+    "r_pathTracingSceneSourceCompare",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump a one-shot source 0 vs source 3 capture comparison on the next source 3 frame" );
 
 idCVar r_pathTracingSceneSource2RigidEntities(
     "r_pathTracingSceneSource2RigidEntities",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental source 2 rigid entity promotion: 0 = off, 1 = whole eligible rigid entities that contain emissive-capable surfaces, 2 = all eligible non-skinned non-callback static entity model surfaces" );
+
+idCVar r_pathTracingInstanceUniverseDump(
+    "r_pathTracingInstanceUniverseDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump diagnostics-only PT drawSurf mesh/instance mirror observations once" );
+
+idCVar r_pathTracingRigidMeshUniverseDump(
+    "r_pathTracingRigidMeshUniverseDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump diagnostics-only PT rigid drawSurf mesh reuse eligibility once" );
+
+idCVar r_pathTracingRigidMeshValidate(
+    "r_pathTracingRigidMeshValidate",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump a one-shot validation comparing rigid local-source records against the baked dynamic rigid payload" );
+
+idCVar r_pathTracingRigidBlasPlanDump(
+    "r_pathTracingRigidBlasPlanDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump a diagnostics-only reusable rigid BLAS/TLAS plan from local-source mesh records" );
+
+idCVar r_pathTracingRigidBlasInputDump(
+    "r_pathTracingRigidBlasInputDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump diagnostics-only CPU rigid BLAS build-input descriptors and validation" );
+
+idCVar r_pathTracingRigidBlasGpuScaffold(
+    "r_pathTracingRigidBlasGpuScaffold",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental disabled-by-default rigid BLAS GPU scaffold gate; 0 creates no rigid BLAS GPU resources" );
+
+idCVar r_pathTracingSceneBoundsOverlay(
+    "r_pathTracingSceneBoundsOverlay",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "PT drawSurf mirror bounds overlay: 0 = off, 1 = eligible rigid candidates only, 2 = all mirrored categories" );
+
+idCVar r_pathTracingSceneBoundsOverlayMax(
+    "r_pathTracingSceneBoundsOverlayMax",
+    "128",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum PT drawSurf mirror bounds boxes drawn per frame" );
+
+idCVar r_pathTracingSceneBoundsDepthTest(
+    "r_pathTracingSceneBoundsDepthTest",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Legacy no-op for the PT drawSurf bounds overlay; overlay is now blended inside the PT output" );
+
+idCVar r_pathTracingSceneBoundsOverlayGpu(
+    "r_pathTracingSceneBoundsOverlayGpu",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental PT shader composited bounds overlay gate; default off after device-removal risk in per-pixel overlay loop" );
 
 idCVar r_pathTracingSceneUniverseDump(
     "r_pathTracingSceneUniverseDump",

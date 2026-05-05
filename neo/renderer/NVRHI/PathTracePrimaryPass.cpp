@@ -15,6 +15,8 @@
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
 
+#include <cmath>
+
 extern DeviceManager* deviceManager;
 
 namespace {
@@ -31,6 +33,76 @@ nvrhi::ObjectType GetPathTraceCommandObjectType()
         return nvrhi::ObjectTypes::VK_CommandBuffer;
     }
     return nvrhi::ObjectTypes::D3D12_GraphicsCommandList;
+}
+
+bool ProjectPathTraceOverlayPoint(
+    const idVec3& worldPosition,
+    const float modelViewMatrix[16],
+    const float projectionMatrix[16],
+    idVec2& outUv)
+{
+    idPlane view;
+    idPlane clip;
+    for (int i = 0; i < 4; ++i)
+    {
+        view[i] =
+            modelViewMatrix[i + 0 * 4] * worldPosition.x +
+            modelViewMatrix[i + 1 * 4] * worldPosition.y +
+            modelViewMatrix[i + 2 * 4] * worldPosition.z +
+            modelViewMatrix[i + 3 * 4];
+    }
+
+    for (int i = 0; i < 4; ++i)
+    {
+        clip[i] =
+            projectionMatrix[i + 0 * 4] * view[0] +
+            projectionMatrix[i + 1 * 4] * view[1] +
+            projectionMatrix[i + 2 * 4] * view[2] +
+            projectionMatrix[i + 3 * 4] * view[3];
+    }
+
+    if (idMath::Fabs(clip[3]) <= 1.0e-5f)
+    {
+        return false;
+    }
+
+    const float invW = 1.0f / clip[3];
+    const float ndcX = clip[0] * invW;
+    const float ndcY = clip[1] * invW;
+    const float ndcZ = clip[2] * invW;
+    if (!std::isfinite(ndcX) || !std::isfinite(ndcY) || !std::isfinite(ndcZ) ||
+        idMath::Fabs(ndcX) > 8.0f || idMath::Fabs(ndcY) > 8.0f)
+    {
+        return false;
+    }
+
+    outUv.x = ndcX * 0.5f + 0.5f;
+    outUv.y = 0.5f - ndcY * 0.5f;
+    return true;
+}
+
+void DrawPathTraceOverlayMarker(
+    CommonRenderPasses& commonPasses,
+    nvrhi::ICommandList* commandList,
+    nvrhi::IFramebuffer* targetFramebuffer,
+    const nvrhi::Viewport& targetViewport,
+    const idVec4& targetBox)
+{
+    nvrhi::BlendState::RenderTarget blendState;
+    blendState.blendEnable = true;
+    blendState.setSrcBlend(nvrhi::BlendFactor::One);
+    blendState.setDestBlend(nvrhi::BlendFactor::One);
+    blendState.setSrcBlendAlpha(nvrhi::BlendFactor::One);
+    blendState.setDestBlendAlpha(nvrhi::BlendFactor::One);
+
+    BlitParameters markerBlit;
+    markerBlit.targetFramebuffer = targetFramebuffer;
+    markerBlit.targetViewport = targetViewport;
+    markerBlit.sourceTexture = commonPasses.m_WhiteTexture;
+    markerBlit.sampler = BlitSampler::Point;
+    markerBlit.blendState = blendState;
+    markerBlit.targetBox = targetBox;
+    commonPasses.BlitTexture(commandList, markerBlit, nullptr);
 }
 
 }
@@ -88,6 +160,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeAccumulationTexture = nullptr;
     m_smokeReadbackTexture = nullptr;
     m_smokeConstantsBuffer = nullptr;
+    m_smokeBoundsOverlayLineBuffer = nullptr;
     m_smokeTlas = nullptr;
     m_smokeShaderTable = nullptr;
     m_smokePipeline = nullptr;
@@ -183,5 +256,108 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
     {
         OPTICK_GPU_EVENT("PT GPU Blit Debug Output");
         m_backend->GetCommonPasses().BlitTexture(commandList, blitParms, nullptr);
+    }
+}
+
+void PathTracePrimaryPass::DrawBoundsOverlayRaster(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport)
+{
+    if (r_pathTracingSceneBoundsOverlay.GetInteger() == 0 ||
+        r_pathTracingSceneBoundsOverlayGpu.GetInteger() != 0 ||
+        !m_backend ||
+        !targetFramebuffer)
+    {
+        return;
+    }
+
+    nvrhi::ICommandList* commandList = m_backend->GL_GetCommandList();
+    if (!commandList)
+    {
+        return;
+    }
+
+    CommonRenderPasses& commonPasses = m_backend->GetCommonPasses();
+    if (!commonPasses.m_WhiteTexture)
+    {
+        return;
+    }
+
+    const float viewportWidth = Max(targetViewport.width(), 1.0f);
+    const float viewportHeight = Max(targetViewport.height(), 1.0f);
+
+    DrawPathTraceOverlayMarker(
+        commonPasses,
+        commandList,
+        targetFramebuffer,
+        targetViewport,
+        idVec4(16.0f / viewportWidth, 16.0f / viewportHeight, 32.0f / viewportWidth, 32.0f / viewportHeight));
+
+    if (!m_smokeBoundsOverlayViewValid ||
+        m_smokeBoundsOverlayLineCount <= 0 ||
+        m_smokeBoundsOverlayLines.empty())
+    {
+        return;
+    }
+
+    const float markerPixels = 3.0f;
+    const float markerStepPixels = 7.0f;
+    const int maxMarkerBlits = 2048;
+    int markerBlits = 0;
+    int projectedLines = 0;
+    const int lineCount = idMath::ClampInt(0, Min(m_smokeBoundsOverlayLineCount, static_cast<int>(m_smokeBoundsOverlayLines.size())), RT_PT_BOUNDS_OVERLAY_MAX_LINES);
+    for (int lineIndex = 0; lineIndex < lineCount; ++lineIndex)
+    {
+        if (markerBlits >= maxMarkerBlits)
+        {
+            break;
+        }
+
+        const RtPathTraceBoundsOverlayLine& line = m_smokeBoundsOverlayLines[lineIndex];
+        idVec2 startUv;
+        idVec2 endUv;
+        if (!ProjectPathTraceOverlayPoint(line.startAndPad.ToVec3(), m_smokeBoundsOverlayModelViewMatrix, m_smokeBoundsOverlayProjectionMatrix, startUv) ||
+            !ProjectPathTraceOverlayPoint(line.endAndPad.ToVec3(), m_smokeBoundsOverlayModelViewMatrix, m_smokeBoundsOverlayProjectionMatrix, endUv))
+        {
+            continue;
+        }
+        ++projectedLines;
+
+        const idVec2 startPixel(startUv.x * viewportWidth, startUv.y * viewportHeight);
+        const idVec2 endPixel(endUv.x * viewportWidth, endUv.y * viewportHeight);
+        const idVec2 delta = endPixel - startPixel;
+        const float length = delta.LengthFast();
+        if (length <= 1.0f)
+        {
+            continue;
+        }
+
+        const int markerCount = idMath::ClampInt(2, 32, static_cast<int>(length / markerStepPixels) + 1);
+        for (int markerIndex = 0; markerIndex < markerCount && markerBlits < maxMarkerBlits; ++markerIndex)
+        {
+            const float t = markerCount > 1 ? static_cast<float>(markerIndex) / static_cast<float>(markerCount - 1) : 0.0f;
+            const idVec2 markerCenter = startPixel + delta * t;
+            const float minX = markerCenter.x - markerPixels * 0.5f;
+            const float minY = markerCenter.y - markerPixels * 0.5f;
+            if (minX > viewportWidth || minY > viewportHeight || minX + markerPixels < 0.0f || minY + markerPixels < 0.0f)
+            {
+                continue;
+            }
+
+            idVec4 markerBox;
+            markerBox.Set(
+                idMath::ClampFloat(0.0f, 1.0f, minX / viewportWidth),
+                idMath::ClampFloat(0.0f, 1.0f, minY / viewportHeight),
+                markerPixels / viewportWidth,
+                markerPixels / viewportHeight);
+            DrawPathTraceOverlayMarker(commonPasses, commandList, targetFramebuffer, targetViewport, markerBox);
+            ++markerBlits;
+        }
+    }
+
+    static int lastOverlayDiagnosticMs = 0;
+    const int nowMs = Sys_Milliseconds();
+    if (nowMs - lastOverlayDiagnosticMs > 1000)
+    {
+        lastOverlayDiagnosticMs = nowMs;
+        common->Printf("PathTracePrimaryPass: bounds overlay raster lines=%d projected=%d markers=%d\n", lineCount, projectedLines, markerBlits);
     }
 }

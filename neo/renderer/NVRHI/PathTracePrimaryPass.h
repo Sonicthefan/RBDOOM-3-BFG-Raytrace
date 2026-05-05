@@ -7,6 +7,8 @@
 // lifetime, dispatch, readback, and diagnostics live in PathTrace* modules.
 
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceDrawSurfCapture.h"
+#include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
 #include "PathTraceReservoirs.h"
 #include "PathTraceSceneUniverse.h"
@@ -27,6 +29,7 @@ public:
     void Execute(const viewDef_t* viewDef);
     void PresentDebugOutput();
     void BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
+    void DrawBoundsOverlayRaster(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
 
 private:
     void InitRayTracingSmokeTest();
@@ -62,6 +65,7 @@ private:
     uint64 m_smokeSceneUniverseStaticBuildGeneration;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     RtPathTraceSceneUniverse m_sceneUniverse;
+    RtPathTraceInstanceUniverse m_instanceUniverse;
     RtSmokeLightUniverse m_smokeLightUniverse;
     const void* m_smokeLightUniverseRenderWorld = nullptr;
     uint32_t m_smokeTextureProbeMaterialId;
@@ -81,6 +85,18 @@ private:
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
     nvrhi::BufferHandle m_smokeLightCandidateBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
+    nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
+    std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;
+    int m_smokeBoundsOverlayLineCount = 0;
+    bool m_smokeBoundsOverlayViewValid = false;
+    idVec3 m_smokeBoundsOverlayCameraOrigin = vec3_origin;
+    idVec3 m_smokeBoundsOverlayCameraForward = idVec3(1.0f, 0.0f, 0.0f);
+    idVec3 m_smokeBoundsOverlayCameraLeft = idVec3(0.0f, 1.0f, 0.0f);
+    idVec3 m_smokeBoundsOverlayCameraUp = idVec3(0.0f, 0.0f, 1.0f);
+    float m_smokeBoundsOverlayTanX = 1.0f;
+    float m_smokeBoundsOverlayTanY = 1.0f;
+    float m_smokeBoundsOverlayModelViewMatrix[16] = {};
+    float m_smokeBoundsOverlayProjectionMatrix[16] = {};
     nvrhi::TextureHandle m_smokeOutputTexture;
     nvrhi::TextureHandle m_smokeAccumulationTexture;
     nvrhi::StagingTextureHandle m_smokeReadbackTexture;

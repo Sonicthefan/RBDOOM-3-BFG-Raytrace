@@ -106,6 +106,13 @@ struct PathTraceSmokeReservoir
     uint padding0;
 };
 
+struct PathTraceBoundsOverlayLine
+{
+    float4 startAndPad;
+    float4 endAndPad;
+    float4 color;
+};
+
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
@@ -126,6 +133,7 @@ StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirPrevious : register(u19);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirSpatialScratch : register(u20);
+StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(t21);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -143,6 +151,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 LightSpriteInfo;
     float4 ToyPathInfo;
     float4 EmissiveInfo;
+    float4 BoundsOverlayInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -174,6 +183,220 @@ static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
+
+bool ProjectSmokeOverlayPoint(float3 worldPosition, uint2 dimensions, out float2 projectedPixel)
+{
+    const float3 delta = worldPosition - CameraOriginAndTMax.xyz;
+    const float forwardDistance = dot(delta, CameraForwardAndTanX.xyz);
+    if (forwardDistance <= 0.05)
+    {
+        projectedPixel = float2(0.0, 0.0);
+        return false;
+    }
+
+    const float ndcX = -dot(delta, CameraLeftAndTanY.xyz) / max(forwardDistance * CameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, CameraUpAndDebugMode.xyz) / max(forwardDistance * CameraLeftAndTanY.w, 1.0e-5);
+    projectedPixel = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    return all(abs(float2(ndcX, ndcY)) <= 1.35);
+}
+
+float DistanceToSmokeOverlaySegment(float2 samplePixel, float2 startPoint, float2 endPoint)
+{
+    const float2 segment = endPoint - startPoint;
+    const float segmentLengthSquared = dot(segment, segment);
+    if (segmentLengthSquared <= 1.0e-5)
+    {
+        return length(samplePixel - startPoint);
+    }
+    const float segmentT = saturate(dot(samplePixel - startPoint, segment) / segmentLengthSquared);
+    return length(samplePixel - (startPoint + segment * segmentT));
+}
+
+float4 ApplySmokeBoundsOverlay(float4 baseColor, uint2 pixel, uint2 dimensions)
+{
+    const uint lineCount = min((uint)max(BoundsOverlayInfo.x, 0.0), 4096u);
+    if (lineCount == 0u || BoundsOverlayInfo.z <= 0.0)
+    {
+        return baseColor;
+    }
+
+    const float2 pixelCenter = float2(pixel) + 0.5;
+    const float thickness = max(BoundsOverlayInfo.y, 0.5);
+    float3 overlayColor = float3(0.0, 0.0, 0.0);
+    float overlayCoverage = 0.0;
+
+    [loop]
+    for (uint lineIndex = 0u; lineIndex < lineCount; ++lineIndex)
+    {
+        const PathTraceBoundsOverlayLine overlayLine = SmokeBoundsOverlayLines[lineIndex];
+        float2 startPixel;
+        float2 endPixel;
+        if (!ProjectSmokeOverlayPoint(overlayLine.startAndPad.xyz, dimensions, startPixel) ||
+            !ProjectSmokeOverlayPoint(overlayLine.endAndPad.xyz, dimensions, endPixel))
+        {
+            continue;
+        }
+
+        const float distanceToLine = DistanceToSmokeOverlaySegment(pixelCenter, startPixel, endPixel);
+        const float coverage = saturate((thickness + 0.75 - distanceToLine) / 0.75) * saturate(overlayLine.color.a);
+        if (coverage > overlayCoverage)
+        {
+            overlayCoverage = coverage;
+            overlayColor = overlayLine.color.rgb;
+        }
+    }
+
+    if (overlayCoverage <= 0.0)
+    {
+        return baseColor;
+    }
+    return float4(lerp(baseColor.rgb, overlayColor, saturate(overlayCoverage * 0.85)), 1.0);
+}
+
+bool SmokeRayIntersectAabb(float3 rayOrigin, float3 rayDirection, float3 boundsMin, float3 boundsMax, out float hitT)
+{
+    const float3 safeDirection = float3(
+        abs(rayDirection.x) < 1.0e-6 ? (rayDirection.x < 0.0 ? -1.0e-6 : 1.0e-6) : rayDirection.x,
+        abs(rayDirection.y) < 1.0e-6 ? (rayDirection.y < 0.0 ? -1.0e-6 : 1.0e-6) : rayDirection.y,
+        abs(rayDirection.z) < 1.0e-6 ? (rayDirection.z < 0.0 ? -1.0e-6 : 1.0e-6) : rayDirection.z);
+    const float3 invDirection = 1.0 / safeDirection;
+    const float3 t0 = (boundsMin - rayOrigin) * invDirection;
+    const float3 t1 = (boundsMax - rayOrigin) * invDirection;
+    const float3 tMin = min(t0, t1);
+    const float3 tMax = max(t0, t1);
+    const float tEnter = max(max(tMin.x, tMin.y), max(tMin.z, 0.0));
+    const float tExit = min(tMax.x, min(tMax.y, tMax.z));
+    hitT = tEnter;
+    return tExit >= tEnter && tExit > 0.0;
+}
+
+float4 RenderSmokeBoundsBoxes(float3 rayOrigin, float3 rayDirection)
+{
+    const uint lineCount = min((uint)max(BoundsOverlayInfo.x, 0.0), 4096u);
+    const uint boxCount = min(lineCount / 12u, 64u);
+    float closestHitT = CameraOriginAndTMax.w;
+    float3 closestColor = float3(0.0, 0.0, 0.0);
+    bool hitAnyBox = false;
+
+    [loop]
+    for (uint boxIndex = 0u; boxIndex < boxCount; ++boxIndex)
+    {
+        const uint firstLine = boxIndex * 12u;
+        float3 boundsMin = float3(1.0e20, 1.0e20, 1.0e20);
+        float3 boundsMax = float3(-1.0e20, -1.0e20, -1.0e20);
+
+        [unroll]
+        for (uint edgeIndex = 0u; edgeIndex < 12u; ++edgeIndex)
+        {
+            const PathTraceBoundsOverlayLine boxLine = SmokeBoundsOverlayLines[firstLine + edgeIndex];
+            boundsMin = min(boundsMin, min(boxLine.startAndPad.xyz, boxLine.endAndPad.xyz));
+            boundsMax = max(boundsMax, max(boxLine.startAndPad.xyz, boxLine.endAndPad.xyz));
+        }
+
+        const float3 extent = boundsMax - boundsMin;
+        if (any(extent <= float3(0.001, 0.001, 0.001)))
+        {
+            continue;
+        }
+
+        float hitT;
+        if (SmokeRayIntersectAabb(rayOrigin, rayDirection, boundsMin, boundsMax, hitT) && hitT < closestHitT)
+        {
+            const PathTraceBoundsOverlayLine firstBoxLine = SmokeBoundsOverlayLines[firstLine];
+            closestHitT = hitT;
+            closestColor = saturate(firstBoxLine.color.rgb);
+            hitAnyBox = true;
+        }
+    }
+
+    if (!hitAnyBox)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const float depthFade = 0.35 + 0.65 * saturate(1.0 - closestHitT / max(CameraOriginAndTMax.w, 1.0));
+    return float4(saturate(closestColor * depthFade + closestColor * 0.25), 1.0);
+}
+
+float SmokeDistanceToSegment(float3 samplePosition, float3 startPoint, float3 endPoint)
+{
+    const float3 segment = endPoint - startPoint;
+    const float segmentLengthSquared = dot(segment, segment);
+    if (segmentLengthSquared <= 1.0e-6)
+    {
+        return length(samplePosition - startPoint);
+    }
+    const float segmentT = saturate(dot(samplePosition - startPoint, segment) / segmentLengthSquared);
+    return length(samplePosition - (startPoint + segment * segmentT));
+}
+
+float4 RenderSmokeBoundsWireframeBoxes(float3 rayOrigin, float3 rayDirection)
+{
+    const uint lineCount = min((uint)max(BoundsOverlayInfo.x, 0.0), 4096u);
+    const uint boxCount = min(lineCount / 12u, 64u);
+    float closestEdgeHitT = CameraOriginAndTMax.w;
+    float3 closestEdgeColor = float3(0.0, 0.0, 0.0);
+    bool hitAnyEdge = false;
+
+    [loop]
+    for (uint boxIndex = 0u; boxIndex < boxCount; ++boxIndex)
+    {
+        const uint firstLine = boxIndex * 12u;
+        float3 boundsMin = float3(1.0e20, 1.0e20, 1.0e20);
+        float3 boundsMax = float3(-1.0e20, -1.0e20, -1.0e20);
+
+        [unroll]
+        for (uint edgeIndex = 0u; edgeIndex < 12u; ++edgeIndex)
+        {
+            const PathTraceBoundsOverlayLine boxLine = SmokeBoundsOverlayLines[firstLine + edgeIndex];
+            boundsMin = min(boundsMin, min(boxLine.startAndPad.xyz, boxLine.endAndPad.xyz));
+            boundsMax = max(boundsMax, max(boxLine.startAndPad.xyz, boxLine.endAndPad.xyz));
+        }
+
+        const float3 extent = boundsMax - boundsMin;
+        if (any(extent <= float3(0.001, 0.001, 0.001)))
+        {
+            continue;
+        }
+
+        float hitT;
+        if (!SmokeRayIntersectAabb(rayOrigin, rayDirection, boundsMin, boundsMax, hitT))
+        {
+            continue;
+        }
+
+        const float3 hitPoint = rayOrigin + rayDirection * hitT;
+        float minEdgeDistance = 1.0e20;
+        float3 edgeColor = float3(1.0, 1.0, 1.0);
+
+        [unroll]
+        for (uint edgeIndex = 0u; edgeIndex < 12u; ++edgeIndex)
+        {
+            const PathTraceBoundsOverlayLine edgeLine = SmokeBoundsOverlayLines[firstLine + edgeIndex];
+            const float edgeDistance = SmokeDistanceToSegment(hitPoint, edgeLine.startAndPad.xyz, edgeLine.endAndPad.xyz);
+            if (edgeDistance < minEdgeDistance)
+            {
+                minEdgeDistance = edgeDistance;
+                edgeColor = saturate(edgeLine.color.rgb);
+            }
+        }
+
+        const float edgeThickness = clamp(min(min(extent.x, extent.y), extent.z) * 0.045, 1.5, 8.0);
+        if (minEdgeDistance <= edgeThickness && hitT < closestEdgeHitT)
+        {
+            closestEdgeHitT = hitT;
+            closestEdgeColor = edgeColor;
+            hitAnyEdge = true;
+        }
+    }
+
+    if (!hitAnyEdge)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    return float4(saturate(closestEdgeColor * 1.35 + 0.10), 1.0);
+}
 
 float3 SafeNormalize(float3 value, float3 fallback)
 {
@@ -1216,9 +1439,20 @@ void RayGen()
     ray.TMin = 0.1;
     ray.TMax = CameraOriginAndTMax.w;
 
+    const uint debugMode = (uint)CameraUpAndDebugMode.w;
+    if (debugMode == 21u)
+    {
+        SmokeOutput[pixel] = RenderSmokeBoundsBoxes(ray.Origin, ray.Direction);
+        return;
+    }
+    if (debugMode == 22u)
+    {
+        SmokeOutput[pixel] = RenderSmokeBoundsWireframeBoxes(ray.Origin, ray.Direction);
+        return;
+    }
+
     TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
 
-    const uint debugMode = (uint)CameraUpAndDebugMode.w;
     if (payload.value == 0)
     {
         if (debugMode == 14)
@@ -1533,6 +1767,8 @@ void RayGen()
     {
         SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
     }
+
+    SmokeOutput[pixel] = ApplySmokeBoundsOverlay(SmokeOutput[pixel], pixel, dimensions);
 }
 
 [shader("miss")]

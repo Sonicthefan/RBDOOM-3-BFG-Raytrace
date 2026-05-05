@@ -49,6 +49,7 @@ struct PathTraceSmokeConstants
     float lightSpriteInfo[4];
     float toyPathInfo[4];
     float emissiveInfo[4];
+    float boundsOverlayInfo[4];
 };
 
 uint64 HashSmokeDispatchValue(uint64 hash, uint64 value)
@@ -68,7 +69,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     OPTICK_EVENT("PT Dispatch");
 
     const int executeStartMs = Sys_Milliseconds();
-    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer ||
+    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
         !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokeLightCandidateBuffer)
     {
@@ -93,7 +94,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 20, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 22, r_pathTracingDebugMode.GetInteger());
     if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
@@ -259,6 +260,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.emissiveInfo[1] = static_cast<float>(m_smokeEmissiveStaticTriangleCount);
     constants.emissiveInfo[2] = static_cast<float>(m_smokeEmissiveDynamicTriangleCount);
     constants.emissiveInfo[3] = static_cast<float>(m_smokeLightCandidateCount);
+    const bool enableGpuBoundsOverlay = r_pathTracingSceneBoundsOverlayGpu.GetInteger() != 0;
+    const bool enableBoundsBoxDebugMode = debugMode == 21 || debugMode == 22;
+    const int gpuBoundsOverlayLineCount = (enableGpuBoundsOverlay || enableBoundsBoxDebugMode) ? idMath::ClampInt(0, RT_PT_BOUNDS_OVERLAY_MAX_LINES, m_smokeBoundsOverlayLineCount) : 0;
+    constants.boundsOverlayInfo[0] = static_cast<float>(gpuBoundsOverlayLineCount);
+    constants.boundsOverlayInfo[1] = 1.35f;
+    constants.boundsOverlayInfo[2] = enableGpuBoundsOverlay ? 1.0f : 0.0f;
+    constants.boundsOverlayInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -300,10 +308,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         OPTICK_GPU_EVENT("PT GPU Write Dispatch Constants");
         commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+        if (gpuBoundsOverlayLineCount > 0 && !m_smokeBoundsOverlayLines.empty())
+        {
+            commandList->writeBuffer(m_smokeBoundsOverlayLineBuffer, m_smokeBoundsOverlayLines.data(), sizeof(RtPathTraceBoundsOverlayLine) * gpuBoundsOverlayLineCount);
+        }
     }
     else
     {
         commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+        if (gpuBoundsOverlayLineCount > 0 && !m_smokeBoundsOverlayLines.empty())
+        {
+            commandList->writeBuffer(m_smokeBoundsOverlayLineBuffer, m_smokeBoundsOverlayLines.data(), sizeof(RtPathTraceBoundsOverlayLine) * gpuBoundsOverlayLineCount);
+        }
     }
     if (optickGpuMarkers)
     {
@@ -321,6 +337,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
@@ -350,6 +367,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
