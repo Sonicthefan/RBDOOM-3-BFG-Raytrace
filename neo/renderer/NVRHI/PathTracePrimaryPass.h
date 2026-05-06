@@ -63,6 +63,9 @@ private:
     int m_smokeSceneSourceLast;
     int m_smokeSceneSource2RigidEntitiesLast;
     uint64 m_smokeSceneUniverseStaticBuildGeneration;
+    const void* m_smokeSceneRenderWorld = nullptr;
+    idStr m_smokeSceneMapName;
+    ID_TIME_T m_smokeSceneMapTimeStamp = 0;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     RtPathTraceSceneUniverse m_sceneUniverse;
     RtPathTraceInstanceUniverse m_instanceUniverse;

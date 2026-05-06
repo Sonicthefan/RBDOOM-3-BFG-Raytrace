@@ -437,9 +437,9 @@ idCVar r_pathTracingAnalyticLightMaxGpu(
 
 idCVar r_pathTracingAnalyticLightIntensityScale(
     "r_pathTracingAnalyticLightIntensityScale",
-    "0.35",
+    "4.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Diagnostic intensity scale for Doom analytic sphere lights in PT lighting" );
+    "Radiance calibration scale for Doom analytic sphere lights in PT lighting" );
 
 idCVar r_pathTracingAnalyticLightReplaceSelected(
     "r_pathTracingAnalyticLightReplaceSelected",
@@ -449,21 +449,21 @@ idCVar r_pathTracingAnalyticLightReplaceSelected(
 
 idCVar r_pathTracingAnalyticSphereLightRadiusScale(
     "r_pathTracingAnalyticSphereLightRadiusScale",
-    "0.02",
+    "0.08",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Diagnostic analytic sphere-light radius as a fraction of Doom point-light radius" );
+    "Analytic sphere-light radius as a fraction of Doom point-light radius" );
 
 idCVar r_pathTracingAnalyticSphereLightRadiusMin(
     "r_pathTracingAnalyticSphereLightRadiusMin",
-    "2.0",
+    "4.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Minimum diagnostic analytic sphere-light radius" );
+    "Minimum analytic sphere-light radius" );
 
 idCVar r_pathTracingAnalyticSphereLightRadiusMax(
     "r_pathTracingAnalyticSphereLightRadiusMax",
-    "32.0",
+    "64.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Maximum diagnostic analytic sphere-light radius" );
+    "Maximum analytic sphere-light radius" );
 
 idCVar r_pathTracingLightCount(
     "r_pathTracingLightCount",

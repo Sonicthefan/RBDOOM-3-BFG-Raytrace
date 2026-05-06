@@ -962,8 +962,10 @@ term when r_pathTracingUseEmissiveMaps is 1.
   per-hit loop, not ReSTIR.
 
 - r_pathTracingAnalyticLightIntensityScale
-  Diagnostic intensity multiplier for analytic Doom sphere lights. Defaults to
-  0.35. Use 0/0.25/1/4 while visually isolating the contribution.
+  Radiance calibration multiplier for analytic Doom sphere lights. Defaults to
+  4.0 after initial visual testing showed that roughly 4-5 matched Doom's
+  authored illumination better than the first low diagnostic value. Use
+  0/0.25/1/4 while visually isolating the contribution.
 
 - r_pathTracingAnalyticLightReplaceSelected
   When analytic Doom lights are enabled, suppresses the legacy selected
@@ -971,10 +973,10 @@ term when r_pathTracingUseEmissiveMaps is 1.
   alone. This does not disable emissive surfaces or reservoir candidates.
 
 - r_pathTracingAnalyticSphereLightRadiusScale
-  Diagnostic analytic sphere radius as a fraction of the Doom point-light
-  radius. This is only the first scaffold; Doom light materials such as
-  `biground*`, `squarelight*`, and `triangle*` are not physically classified
-  yet.
+  Analytic sphere radius as a fraction of the Doom point-light radius. Defaults
+  to 0.08, clamped by the min/max radius CVars. This is only the first
+  scaffold; Doom light materials such as `biground*`, `squarelight*`, and
+  `triangle*` are not physically classified yet.
 
 - r_pathTracingAnalyticSphereLightRadiusMin / r_pathTracingAnalyticSphereLightRadiusMax
   Clamp the diagnostic sphere emitter radius.

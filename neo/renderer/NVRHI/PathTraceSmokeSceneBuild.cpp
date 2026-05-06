@@ -400,6 +400,77 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         return;
     }
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (renderWorld)
+    {
+        const bool renderWorldChanged = m_smokeSceneRenderWorld != renderWorld;
+        const bool mapChanged = m_smokeSceneMapName.Icmp(renderWorld->mapName) != 0 || m_smokeSceneMapTimeStamp != renderWorld->mapTimeStamp;
+        if (renderWorldChanged || mapChanged)
+        {
+            if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
+            {
+                common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s'; clearing scene caches\n",
+                    m_smokeSceneMapName.c_str(),
+                    renderWorld->mapName.c_str());
+            }
+            m_smokeAccumulationSignature = 0;
+            m_smokeAccumulationFrameCount = 0;
+            m_smokeBindingSet = nullptr;
+            m_smokeSceneBuilt = false;
+            m_smokeTestDispatched = false;
+            m_smokeReadbackQueued = false;
+            m_smokeReadbackDelayFrames = 0;
+            m_smokeReadbackCooldownFrames = 0;
+            m_smokeStaticBlasCacheValid = false;
+            m_smokeStaticBlasSignature = 0;
+            m_smokeSceneUniverseStaticBuildGeneration = 0;
+            m_smokeSceneRebuildLogged = false;
+            m_smokeGeometryUniverse.Clear();
+            m_sceneUniverse.Clear();
+            m_instanceUniverse.Clear();
+            m_smokeLightUniverse.Clear();
+            m_smokeLightUniverseRenderWorld = nullptr;
+            m_smokeStaticBlas = nullptr;
+            m_smokeDynamicBlas = nullptr;
+            m_smokeStaticVertexBuffer = nullptr;
+            m_smokeStaticIndexBuffer = nullptr;
+            m_smokeStaticTriangleClassBuffer = nullptr;
+            m_smokeStaticTriangleMaterialBuffer = nullptr;
+            m_smokeStaticTriangleMaterialIndexBuffer = nullptr;
+            m_smokeDynamicVertexBuffer = nullptr;
+            m_smokeDynamicIndexBuffer = nullptr;
+            m_smokeDynamicTriangleClassBuffer = nullptr;
+            m_smokeDynamicTriangleMaterialBuffer = nullptr;
+            m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
+            m_smokeMaterialTableBuffer = nullptr;
+            m_smokeEmissiveTriangleBuffer = nullptr;
+            m_smokeLightCandidateBuffer = nullptr;
+            m_smokeDoomAnalyticLightBuffer = nullptr;
+            m_smokeRigidRouteVertexBuffer = nullptr;
+            m_smokeRigidRouteIndexBuffer = nullptr;
+            m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
+            m_smokeRigidRouteTriangleMaterialIndexBuffer = nullptr;
+            m_smokeRigidRouteInstanceBuffer = nullptr;
+            m_smokeActiveTextureTable.clear();
+            m_smokeMaterialTableEntryCount = 0;
+            m_smokeEmissiveTriangleCount = 0;
+            m_smokeEmissiveStaticTriangleCount = 0;
+            m_smokeEmissiveDynamicTriangleCount = 0;
+            m_smokeLightCandidateCount = 0;
+            m_smokeTexturedLightCandidateCount = 0;
+            m_smokeLightCandidateBytes = 0;
+            m_smokeDoomAnalyticLightCount = 0;
+            m_smokeDoomAnalyticLightBytes = 0;
+            m_smokeReservoirSceneSignature = 0;
+            m_smokeReservoirDispatchSignature = 0;
+            m_smokeReservoirNeedsClear = true;
+            m_smokeReservoirResetCount = 0;
+            m_smokeReservoirClearCount = 0;
+            m_smokeSceneRenderWorld = renderWorld;
+            m_smokeSceneMapName = renderWorld->mapName;
+            m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
+        }
+    }
     if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
     {
         m_smokeLightUniverse.Clear();

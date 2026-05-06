@@ -104,9 +104,19 @@ struct DoomLightGameMetadata
     idVec3 currentColor = vec3_zero;
 };
 
+bool IsDoomLightGameStateActive()
+{
+    return gameLocal.GameState() == GAMESTATE_ACTIVE;
+}
+
 std::unordered_map<int, DoomLightGameMetadata> BuildDoomLightGameMetadataByHandle()
 {
     std::unordered_map<int, DoomLightGameMetadata> metadataByHandle;
+    if (!IsDoomLightGameStateActive())
+    {
+        return metadataByHandle;
+    }
+
     metadataByHandle.reserve(128);
     for (int entityIndex = 0; entityIndex < gameLocal.num_entities; ++entityIndex)
     {
@@ -779,7 +789,7 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef)
 {
     std::vector<PathTraceDoomAnalyticLightCandidate> gpuCandidates;
-    if (!viewDef || !viewDef->renderWorld || r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
+    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
     {
         return gpuCandidates;
     }
@@ -831,7 +841,7 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
 
 void RunPathTraceDoomLightDiagnostics(const viewDef_t* viewDef)
 {
-    if (!viewDef || !viewDef->renderWorld)
+    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive())
     {
         return;
     }
