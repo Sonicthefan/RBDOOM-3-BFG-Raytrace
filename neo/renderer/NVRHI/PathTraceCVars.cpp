@@ -609,6 +609,12 @@ idCVar r_pathTracingToyLightTraceCap(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum selected point lights traced per mode 18 direct-light evaluation; clamps expensive shadow rays after light selection, max 32" );
 
+idCVar r_pathTracingToyFakePBRSpecular(
+    "r_pathTracingToyFakePBRSpecular",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use rbdoom3 legacy specmap-to-PBR roughness/F0 shading for mode 18 toy path tracing" );
+
 idCVar r_pathTracingToyAccumulation(
     "r_pathTracingToyAccumulation",
     "1",

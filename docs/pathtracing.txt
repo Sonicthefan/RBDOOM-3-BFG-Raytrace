@@ -385,8 +385,10 @@ Implemented debug CVars:
 
 - r_pathTracingUseSpecularMaps
   Enables sampled specular maps in debug mode 14 selected point-light direct
-  lighting. Defaults to 1. This is a simple Blinn-style diagnostic highlight
-  using Doom's specular color map, not the final PBR material model.
+  lighting and in mode 18 when `r_pathTracingToyFakePBRSpecular 1` is active.
+  Defaults to 1. Mode 14 still uses a simple Blinn-style diagnostic highlight
+  using Doom's specular color map. Mode 18 can opt into the rbdoom3 legacy
+  specmap-to-PBR approximation described below.
 
 - r_pathTracingUseEmissiveMaps
   Enables debug-only emissive/glow material contribution in mode 14. Defaults
@@ -414,6 +416,17 @@ Implemented debug CVars:
   still being staged. The cap is applied on the CPU by reducing the mode 18
   light-selection request count; the shader-facing LightInfo layout is
   unchanged.
+
+- r_pathTracingToyFakePBRSpecular
+  Opt-in mode 18 shader experiment. Defaults to 0. When enabled, mode 18 also
+  enables specular-map sampling and interprets Doom legacy specular maps using
+  the same rbdoom3/Kennedith98-style fake-PBR idea as the raster interaction
+  shaders: derive approximate F0 and roughness from the gamma-space specular
+  texture, then shade selected/analytic direct lights with the GGX-like direct
+  specular term. This is useful for a quick visual check of less-flat PT
+  diffuse/specular response, but it is not a full Doom material conversion.
+  It does not detect packed `_rmao` maps, does not add glossy bounce sampling,
+  and does not solve alpha/blend/decal/special-stage classification.
 
 - r_pathTracingToyAccumulation / r_pathTracingToyAccumMaxFrames
   Enables mode 18 temporal accumulation across stable camera frames and caps
@@ -1509,9 +1522,13 @@ Open issues:
 - Doom materials can have generated images, videos, blend stages, alpha tests,
   deform stages, lights, and special render behavior.
 - Normal/specular texture discovery exists and is folded into mode 14 direct
-  lighting, but it is still diagnostic. The final renderer still needs a
-  deliberate Doom-material-to-PBR conversion, including roughness. A roughness
-  buffer will likely matter for NVIDIA ray reconstruction/denoising work later.
+  lighting, and mode 18 has an opt-in `r_pathTracingToyFakePBRSpecular` path
+  that reuses rbdoom3's legacy specmap-to-PBR roughness/F0 approximation for a
+  basic visual test. These paths are still diagnostic. The final renderer still
+  needs a deliberate Doom material facts layer and PT/PBR interpretation,
+  including packed RMAO detection, blend/decal/alpha semantics, roughness/F0
+  storage, and denoiser-facing material data. A roughness buffer will likely
+  matter for NVIDIA ray reconstruction/denoising work later.
 - Alpha any-hit exists for simple cutout/perforated materials, but blended
   translucent surfaces are not handled physically yet.
 - Smoke particle dithering is a visibility hack, not correct translucency.
@@ -1522,8 +1539,10 @@ Open issues:
 - Mode 18 has a crude one-bounce toy path tracer with accumulation, selected
   point lights, texture sampling, and emissive visibility. It is deliberately
   simple and does not include MIS, denoising, ReSTIR, or emissive area-light
-  sampling yet. Mode 14 remains the selected point-light direct-shadow
-  diagnostic path.
+  sampling yet. `r_pathTracingToyFakePBRSpecular 1` can enable a basic
+  specmap-derived F0/roughness direct-specular test in this mode, but the bounce
+  path remains diffuse-only. Mode 14 remains the selected point-light
+  direct-shadow diagnostic path.
 - Mode 18 previously brute-forced every selected point light for both the
   primary direct-light pass and the one-bounce direct-light pass. At
   r_pathTracingLightCount 32 this can mean up to 64 shadow rays per pixel,
@@ -1745,8 +1764,15 @@ For the current toy path tracing baseline:
     r_pathTracingLightCount 4
     r_pathTracingToyLightScale 0.3
     r_pathTracingToyEmissiveScale 4.0
+    r_pathTracingToyFakePBRSpecular 0
     r_pathTracingToyAccumulation 1
     r_pathTracingToyAccumMaxFrames 64
+
+For the optional mode 18 fake-PBR specular visual test:
+
+    r_pathTracingDebugMode 18
+    r_pathTracingUseSpecularMaps 1
+    r_pathTracingToyFakePBRSpecular 1
 
 For emissive candidate inspection:
 

@@ -214,6 +214,7 @@ static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
+static const uint RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR = 0x00000080u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 static const uint RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS = 0x00000001u;
 
@@ -225,6 +226,11 @@ bool DoomAnalyticLightsEnabled()
 bool DoomAnalyticLightsReplaceSelected()
 {
     return DoomAnalyticLightInfo.w >= 1.5;
+}
+
+bool SmokeToyFakePBRSpecularEnabled()
+{
+    return ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR) != 0u);
 }
 
 bool ProjectSmokeOverlayPoint(float3 worldPosition, uint2 dimensions, out float2 projectedPixel)
@@ -445,6 +451,43 @@ float3 SafeNormalize(float3 value, float3 fallback)
 {
     const float lengthSquared = dot(value, value);
     return lengthSquared > 1.0e-8 ? value * rsqrt(lengthSquared) : fallback;
+}
+
+float SmokeLinear1(float c)
+{
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+
+float3 SmokeLinear3(float3 c)
+{
+    return float3(SmokeLinear1(c.r), SmokeLinear1(c.g), SmokeLinear1(c.b));
+}
+
+void SmokePBRFromSpecmap(float3 specMap, out float3 F0, out float roughness)
+{
+    const float specLum = dot(float3(0.2125, 0.7154, 0.0721), specMap);
+
+    F0 = float3(0.04, 0.04, 0.04);
+
+    const float contrastMid = 0.214;
+    const float contrastAmount = 2.0;
+    float contrast = saturate((specLum - contrastMid) / (1.0 - contrastMid));
+    contrast += saturate(specLum / contrastMid) - 1.0;
+    contrast = exp2(contrastAmount * contrast);
+    F0 *= contrast;
+
+    const float linearBrightness = SmokeLinear1(2.0 * specLum);
+    const float specPow = max(0.0, ((8.0 * linearBrightness) / max(F0.y, 1.0e-4)) - 2.0);
+    F0 *= min(1.0, linearBrightness / max(F0.y * 0.25, 1.0e-4));
+
+    roughness = sqrt(2.0 / (specPow + 2.0));
+
+    const float glossiness = saturate(1.0 - roughness);
+    const float metallic = step(0.7, glossiness);
+    const float3 glossColor = SmokeLinear3(specMap.rgb);
+    F0 = lerp(F0, glossColor, metallic);
+
+    roughness = sqrt(roughness);
 }
 
 float3 BuildPerpendicular(float3 normal)
@@ -752,6 +795,23 @@ float3 EvaluateSmokeSpecular(float3 specularColor, float3 normal, float3 lightDi
     }
 
     const float3 halfVector = SafeNormalize(lightDir + viewDir, normal);
+    if (SmokeToyFakePBRSpecularEnabled())
+    {
+        float3 F0;
+        float roughness;
+        SmokePBRFromSpecmap(saturate(specularColor), F0, roughness);
+
+        const float ndotl = saturate(dot(normal, lightDir));
+        const float hdotN = saturate(dot(normal, halfVector));
+        const float ldotH = saturate(dot(lightDir, halfVector));
+        const float rr = roughness * roughness;
+        const float rrrr = max(rr * rr, 1.0e-4);
+        const float D = max((hdotN * hdotN) * (rrrr - 1.0) + 1.0, 1.0e-4);
+        const float VFapprox = max((ldotH * ldotH) * (roughness + 0.5), 1.0e-4);
+        const float specularTerm = (rrrr / (4.0 * D * D * VFapprox)) * ndotl * directScale * visibility;
+        return F0 * lightColor * specularTerm;
+    }
+
     const float specularNdotH = saturate(dot(normal, halfVector));
     const float specularTerm = pow(specularNdotH, 32.0) * directScale * visibility;
     return specularColor * lightColor * specularTerm;
@@ -1564,7 +1624,8 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         primaryPayload.materialId * 26699u ^
         ((uint)primaryPayload.hitT) * 7919u ^
         ((uint)max(ToyPathInfo.w, 0.0)) * 104729u;
-    float3 radiance = EvaluateSmokeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, false, true, bounceSeed);
+    const bool useFakePBRSpecular = SmokeToyFakePBRSpecularEnabled();
+    float3 radiance = EvaluateSmokeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, useFakePBRSpecular, true, bounceSeed);
 
     const float3 bounceDir = SmokeCosineHemisphereDirection(primaryNormal, bounceSeed);
     PathTraceSmokePayload bouncePayload = InitSmokePayload();
@@ -1579,7 +1640,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
     {
         const PathTraceSmokeMaterial bounceMaterial = LoadSmokeMaterial(bouncePayload.materialIndex);
         const float3 bounceAlbedo = SampleSmokeSurfaceAlbedo(bounceMaterial, bouncePayload.texCoord, bouncePayload.surfaceClass, bouncePayload.translucentSubtype, bouncePayload.vertexColor, bouncePayload.vertexColorAdd).rgb;
-        const float3 bounceDirect = EvaluateSmokeDirectLighting(bouncePayload, bounceRay.Origin, bounceRay.Direction, true, false, true, bounceSeed ^ 0x9e3779b9u);
+        const float3 bounceDirect = EvaluateSmokeDirectLighting(bouncePayload, bounceRay.Origin, bounceRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x9e3779b9u);
         radiance += primaryAlbedo * bounceDirect * (0.28 + 0.22 * max(max(bounceAlbedo.r, bounceAlbedo.g), bounceAlbedo.b));
     }
 

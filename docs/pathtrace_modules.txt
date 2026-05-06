@@ -25,6 +25,9 @@ The current RT/PT path is still an experimental "smoke" path:
 
 - r_pathTracing mode 18: toy path tracer / textured smoke path with selected
   lights, emissives, accumulation, ambient/lighting CVars, and debug modes.
+  `r_pathTracingToyFakePBRSpecular` can opt this mode into a shader-local
+  rbdoom3 legacy specmap-to-PBR F0/roughness approximation for direct specular
+  testing.
 - r_pathTracing mode 19: emissive inventory/debug pass for future ReSTIR/PT
   preparation.
 - r_pathTracing mode 20: first single-frame reservoir direct-lighting debug view
@@ -440,7 +443,8 @@ PathTraceCVars.h
     extracted modules.
 
 PathTraceCVars.cpp
-    CVar definitions for the smoke/path tracing prototype.
+    CVar definitions for the smoke/path tracing prototype, including the mode
+    18 toy PT controls such as `r_pathTracingToyFakePBRSpecular`.
 
 Feature-flow guide
 ------------------
@@ -473,6 +477,21 @@ Typical flow:
 7. PathTraceDynamicMaterialState builds the compact GPU-facing active material
    table and triangle material indexes from the universe records.
 8. PathTraceDebugDumps and PathTraceSurfaceDebugDumps report what happened.
+
+Mode 18 fake-PBR specular test:
+
+1. PathTraceCVars defines `r_pathTracingToyFakePBRSpecular`, default 0.
+2. PathTraceSmokeDispatch folds the CVar into the accumulation reset signature,
+   enables specular-map sampling for mode 18 when the toggle is active, and
+   passes a texture flag bit to the raygen constants.
+3. pathtrace_smoke.rt.hlsl tests that flag in mode 18, samples the existing
+   `specularTextureIndex`, derives approximate F0/roughness from the Doom
+   legacy spec map, and uses that for selected/analytic direct specular.
+
+This is deliberately a visual smoke test. It does not add CPU material fields,
+does not detect packed `_rmao`/`rmaomap` usage, and does not replace the material
+classification/facts work needed for alpha, blend, decal, GUI, portal, glass,
+or special-stage behavior.
 
 Safer places to touch:
 
