@@ -84,6 +84,7 @@ private:
     nvrhi::BufferHandle m_smokeMaterialTableBuffer;
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
     nvrhi::BufferHandle m_smokeLightCandidateBuffer;
+    nvrhi::BufferHandle m_smokeDoomAnalyticLightBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteVertexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
@@ -122,6 +123,8 @@ private:
     int m_smokeLightCandidateCount = 0;
     int m_smokeTexturedLightCandidateCount = 0;
     int m_smokeLightCandidateBytes = 0;
+    int m_smokeDoomAnalyticLightCount = 0;
+    int m_smokeDoomAnalyticLightBytes = 0;
     RtSmokeReservoirBufferHandles m_smokeReservoirBuffers;
     uint64 m_smokeReservoirSceneSignature = 0;
     uint64 m_smokeReservoirDispatchSignature = 0;

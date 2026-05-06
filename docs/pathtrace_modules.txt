@@ -61,6 +61,11 @@ The current RT/PT path is still an experimental "smoke" path:
   routed-rigid/static-preload/rigid-residency stack. The stack is already
   default-on; the preset remains a convenience/debug shortcut for mode 20 and
   optional light-area diagnostics.
+- r_pathTracingAnalyticLightCandidates: opt-in bridge from authored Doom
+  renderer/game lights into a separate analytic sphere-light buffer. The first
+  shader path keeps old selected point lights available for comparison, while
+  r_pathTracingAnalyticLightReplaceSelected can suppress that legacy constant
+  array so the analytic lights can be inspected visually on their own.
 - Source3 RT residency uses Doom renderer area/portal selection rather than
   current raster visibility alone. The final drawSurf stream is the freshness
   source for transforms/material overrides/runtime registers; portal-selected
@@ -117,13 +122,17 @@ PathTraceSmokeSceneBuild.cpp
     Per-frame scene build orchestration. It calls scene capture, material table
     construction, emissive inventory generation, buffer creation/upload,
     BLAS/TLAS submission, binding creation, resource commit, and scene build
-    diagnostics. This is the right place to adjust high-level build order, but
-    it should delegate specialized work to narrower modules.
+    diagnostics. It also asks PathTraceDoomLights for analytic Doom light
+    candidates before scene buffer creation when that CVar path is enabled. This
+    is the right place to adjust high-level build order, but it should delegate
+    specialized work to narrower modules.
 
 PathTraceSmokeResources.h
     Resource-facing structs for smoke geometry buffers, binding build inputs,
     binding build results, scene resource commit descriptors, and resource
-    commit packaging.
+    commit packaging. The Doom analytic light buffer is part of this resource
+    package, separate from emissive triangle and emissive light-candidate
+    buffers.
 
 PathTraceSmokeResources.cpp
     Persistent NVRHI resource lifetime. Creates pipeline/output/readback
@@ -138,7 +147,9 @@ PathTraceSmokeDispatch.h
 PathTraceSmokeDispatch.cpp
     Ray tracing dispatch path. Builds raygen constants, selects debug lights,
     sets resource states, manages accumulation, dispatches the NVRHI RT pipeline,
-    and queues optional readback.
+    and queues optional readback. It uploads Doom analytic light counts/scales
+    through dispatch constants and can suppress the legacy selected point-light
+    constant array when r_pathTracingAnalyticLightReplaceSelected is enabled.
 
 PathTraceSmokeReadback.cpp
     Optional diagnostic readback of the smoke output texture. Handles delayed
@@ -356,6 +367,20 @@ PathTraceEmissiveCandidates.cpp
     as a boundary for future path tracing light sampling. It normalizes
     per-triangle inventory PDFs from area-weighted luminance and total emissive
     area, but deliberately does not build a full sampler yet.
+
+PathTraceDoomLights.h
+    Doom renderer/game light diagnostic and analytic candidate declarations.
+    Defines the GPU-facing PathTraceDoomAnalyticLightCandidate record used by
+    the separate analytic light buffer.
+
+PathTraceDoomLights.cpp
+    Doom authored-light bridge. Scans renderer lightDefs, links renderer light
+    indexes back to game idLight entities through GetLightDefHandle, evaluates
+    current light color/state, computes current-area plus portal-depth
+    selection, prints identity/probe/candidate dumps, and builds active
+    point-light analytic sphere candidates. It does not add light geometry to
+    the BVH and does not classify Doom light textures into physical light types
+    yet.
 
 PathTraceLightSelection.h
     Debug light selection structs and constants used by smoke dispatch.
@@ -797,6 +822,7 @@ Higher-level path tracing / emissives
 Primary files involved:
 
 - PathTraceEmissiveCandidates.*
+- PathTraceDoomLights.*
 - PathTraceMaterialUniverse.*
 - PathTraceDynamicMaterialState.*
 - PathTraceSmokeDispatch.cpp
@@ -810,6 +836,17 @@ Current state:
 Mode 18 uses a toy path tracing/debug lighting path. Mode 19 builds and dumps an
 emissive inventory that can become a future sampling input. This is not yet the
 NVIDIA RTXPT/ReSTIR implementation.
+
+Doom renderer lights now have a separate authored-light path. PathTraceDoomLights
+builds stable identity/probe diagnostics and an opt-in analytic sphere-light
+candidate buffer from active Doom point lights in the selected current-area plus
+portal-neighbor set. The shader samples that separate buffer for visual
+inspection when r_pathTracingAnalyticLightCandidates is enabled. The bridge is
+verified at a basic level: lights appear, preserve RGB color, and follow game
+animation/on-off state. The current light model is intentionally crude and
+treats every eligible point light as a sphere emitter; future work should
+classify light materials such as square, round, triangle, projected, and helper
+textures into better physical light types before feeding ReSTIR.
 
 Emissive summaries and uploaded light-candidate records now carry stable
 material universe indexes in addition to active material-table indexes. This is
@@ -867,6 +904,7 @@ capture/emissive-candidate records.
 Safer places to touch:
 
 - Add emissive inventory stats or dumps.
+- Add Doom light identity/candidate stats or dumps in PathTraceDoomLights.
 - Improve candidate weighting diagnostics.
 - Add dispatch constants for debug-only experiments if shader layout is updated
   carefully.
@@ -878,6 +916,7 @@ Safer places to touch:
 Riskier places to touch:
 
 - PathTraceSmokeEmissiveTriangle layout. It is GPU-facing.
+- PathTraceDoomAnalyticLightCandidate layout. It is GPU-facing.
 - Dispatch constants layout. It must match shader expectations.
 - Accumulation signature inputs in PathTraceSmokeDispatch.cpp.
 - Blending future ReSTIR/PT ownership into smoke helper modules without a clear
@@ -885,9 +924,10 @@ Riskier places to touch:
 
 Suggested future boundary:
 
-Keep emissive inventory generation as a smoke-path input producer. A future PT
-or ReSTIR module should consume a clear candidate buffer/metadata contract rather
-than reaching back into scene capture or material discovery directly.
+Keep emissive inventory generation and Doom analytic light generation as
+smoke-path input producers. A future PT or ReSTIR module should consume clear
+candidate buffer/metadata contracts rather than reaching back into scene
+capture, material discovery, or game entities directly.
 
 Texture binding and fallback behavior
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

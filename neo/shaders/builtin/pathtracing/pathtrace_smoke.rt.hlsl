@@ -109,6 +109,17 @@ struct PathTraceSmokeLightCandidate
     uint padding2;
 };
 
+struct PathTraceDoomAnalyticLightCandidate
+{
+    float4 originAndRadius;
+    float4 colorAndIntensity;
+    float4 doomRadiusAndArea;
+    uint flags;
+    uint renderLightIndex;
+    uint entityNumber;
+    uint padding0;
+};
+
 struct PathTraceSmokeReservoir
 {
     float4 radianceAndTargetPdf;
@@ -145,6 +156,7 @@ StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterials : register(t24);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
@@ -170,6 +182,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 ToyPathInfo;
     float4 EmissiveInfo;
     float4 BoundsOverlayInfo;
+    float4 DoomAnalyticLightInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -202,6 +215,17 @@ static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
+static const uint RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS = 0x00000001u;
+
+bool DoomAnalyticLightsEnabled()
+{
+    return DoomAnalyticLightInfo.w >= 0.5;
+}
+
+bool DoomAnalyticLightsReplaceSelected()
+{
+    return DoomAnalyticLightInfo.w >= 1.5;
+}
 
 bool ProjectSmokeOverlayPoint(float3 worldPosition, uint2 dimensions, out float2 projectedPixel)
 {
@@ -1205,6 +1229,62 @@ float3 SmokeCosineHemisphereDirection(float3 normal, uint seed)
     return SafeNormalize(tangent * x + bitangent * y + normal * z, normal);
 }
 
+float3 EvaluateDoomAnalyticSphereLights(float3 albedo, float3 specularColor, float3 normal, float3 viewDir, float3 hitPosition)
+{
+    if (!DoomAnalyticLightsEnabled())
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+    const uint lightCount = min(uploadedCount, traceCap);
+    const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
+    if (lightCount == 0u || intensityScale <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 direct = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < lightCount; ++lightIndex)
+    {
+        const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[lightIndex];
+        const float3 toLight = light.originAndRadius.xyz - hitPosition;
+        const float distanceSquared = max(dot(toLight, toLight), 1.0);
+        const float lightDistance = sqrt(distanceSquared);
+        const float3 lightDir = toLight / lightDistance;
+        const float ndotl = saturate(dot(normal, lightDir));
+        if (ndotl <= 0.0)
+        {
+            continue;
+        }
+
+        const float doomRadius = max(light.doomRadiusAndArea.x, 1.0);
+        if (lightDistance > doomRadius)
+        {
+            continue;
+        }
+
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = max(lightDistance - max(light.originAndRadius.w, 0.5), 0.01);
+        const float visibility = (light.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) != 0u
+            ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu)
+            : 1.0;
+
+        const float doomAttenuation = saturate(1.0 - lightDistance / doomRadius);
+        const float sphereRadius = max(light.originAndRadius.w, 0.01);
+        const float sphereTerm = saturate((sphereRadius * sphereRadius) / distanceSquared * 32.0);
+        const float directScale = (0.06 + doomAttenuation * doomAttenuation * 0.72) * max(sphereTerm, 0.08) * intensityScale;
+        const float3 lightColor = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
+        direct += albedo * lightColor * (ndotl * directScale * visibility);
+        direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale, visibility);
+    }
+
+    return direct;
+}
+
 float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap, bool useSpecular, bool includeEmissive)
 {
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
@@ -1225,7 +1305,7 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
     const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
     if (lightCount == 0u)
     {
-        return direct;
+        return direct + EvaluateDoomAnalyticSphereLights(albedo, specularColor, normal, viewDir, hitPosition);
     }
 
     [loop]
@@ -1260,6 +1340,8 @@ float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrig
         direct += albedo * lightColor * (ndotl * directScale * visibility * lightScale);
         direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale * lightScale, visibility);
     }
+
+    direct += EvaluateDoomAnalyticSphereLights(albedo, specularColor, normal, viewDir, hitPosition);
 
     return direct;
 }
@@ -1353,7 +1435,10 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
     if (emissiveTriangleCount == 0u)
     {
         SmokeReservoirCurrent[reservoirIndex] = reservoir;
-        return float4(saturate(albedo * ambientScale), 1.0);
+        const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
+        const float3 analyticDirect = EvaluateDoomAnalyticSphereLights(albedo, float3(0.0, 0.0, 0.0), normal, viewDir, hitPosition);
+        const float3 debugAnalyticDirect = analyticDirect / (1.0 + analyticDirect);
+        return float4(saturate(albedo * ambientScale + debugAnalyticDirect), 1.0);
     }
 
     const uint seed =
@@ -1416,6 +1501,8 @@ float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirectio
     }
 
     SmokeReservoirCurrent[reservoirIndex] = reservoir;
+    const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
+    direct += EvaluateDoomAnalyticSphereLights(albedo, float3(0.0, 0.0, 0.0), normal, viewDir, hitPosition);
     const float3 debugDirect = direct / (1.0 + direct);
     return float4(saturate(albedo * (ambientScale * 0.04) + debugDirect), 1.0);
 }
@@ -1819,15 +1906,18 @@ void RayGen()
             const uint lightCount = min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
             if (lightCount == 0u)
             {
-                const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
-                const float ndotl = saturate(dot(normal, lightDir));
-                const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
-                const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
-                const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w, 0xffffffffu, 0xffffffffu, 0xffffffffu) : 0.0;
-                direct = albedo * (ndotl * 1.15 * visibility);
-                direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, float3(0.85, 0.85, 1.0), 1.15, visibility);
-                dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
-                dominantLightWeight = ndotl * visibility;
+                if (!DoomAnalyticLightsReplaceSelected())
+                {
+                    const float3 lightDir = normalize(float3(0.35, 0.45, 0.82));
+                    const float ndotl = saturate(dot(normal, lightDir));
+                    const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+                    const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+                    const float visibility = ndotl > 0.0 ? TraceSmokeShadowVisibility(shadowOrigin, lightDir, CameraOriginAndTMax.w, 0xffffffffu, 0xffffffffu, 0xffffffffu) : 0.0;
+                    direct = albedo * (ndotl * 1.15 * visibility);
+                    direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, float3(0.85, 0.85, 1.0), 1.15, visibility);
+                    dominantLightDebug = float3(0.85, 0.85, 1.0) * (0.15 + ndotl * visibility);
+                    dominantLightWeight = ndotl * visibility;
+                }
             }
             else
             {
@@ -1866,6 +1956,7 @@ void RayGen()
                     }
                 }
             }
+            direct += EvaluateDoomAnalyticSphereLights(albedo, specularColor, normal, viewDir, hitPosition);
             if (debugMode == 15)
             {
                 const float3 base = albedo * 0.08;

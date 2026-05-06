@@ -393,6 +393,78 @@ idCVar r_pathTracingLightDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the current RT smoke selected debug light once" );
 
+idCVar r_pathTracingDoomLightDump(
+    "r_pathTracingDoomLightDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot Doom renderer light identity dump: 1 = area-aware summary and samples, 2 = verbose samples up to r_pathTracingDoomLightDumpMax" );
+
+idCVar r_pathTracingDoomLightProbeDump(
+    "r_pathTracingDoomLightProbeDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot nearest/player/crosshair Doom renderer light dump for identifying duplicate helper lights near emissives" );
+
+idCVar r_pathTracingDoomLightDumpMax(
+    "r_pathTracingDoomLightDumpMax",
+    "64",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum Doom renderer light identity records printed by r_pathTracingDoomLightDump" );
+
+idCVar r_pathTracingDoomLightProbeMax(
+    "r_pathTracingDoomLightProbeMax",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum nearest and crosshair Doom renderer light probe records printed by r_pathTracingDoomLightProbeDump" );
+
+idCVar r_pathTracingAnalyticLightCandidates(
+    "r_pathTracingAnalyticLightCandidates",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Build, upload, and shade analytic sphere-light candidates from active Doom lights" );
+
+idCVar r_pathTracingAnalyticLightCandidateDump(
+    "r_pathTracingAnalyticLightCandidateDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot dump of gated CPU-only analytic sphere-light candidate records" );
+
+idCVar r_pathTracingAnalyticLightMaxGpu(
+    "r_pathTracingAnalyticLightMaxGpu",
+    "96",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum Doom analytic sphere-light candidates uploaded and sampled by the PT shader" );
+
+idCVar r_pathTracingAnalyticLightIntensityScale(
+    "r_pathTracingAnalyticLightIntensityScale",
+    "0.35",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Diagnostic intensity scale for Doom analytic sphere lights in PT lighting" );
+
+idCVar r_pathTracingAnalyticLightReplaceSelected(
+    "r_pathTracingAnalyticLightReplaceSelected",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "When analytic Doom lights are enabled, suppress the legacy selected point-light array so analytic contribution can be inspected alone" );
+
+idCVar r_pathTracingAnalyticSphereLightRadiusScale(
+    "r_pathTracingAnalyticSphereLightRadiusScale",
+    "0.02",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Diagnostic analytic sphere-light radius as a fraction of Doom point-light radius" );
+
+idCVar r_pathTracingAnalyticSphereLightRadiusMin(
+    "r_pathTracingAnalyticSphereLightRadiusMin",
+    "2.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Minimum diagnostic analytic sphere-light radius" );
+
+idCVar r_pathTracingAnalyticSphereLightRadiusMax(
+    "r_pathTracingAnalyticSphereLightRadiusMax",
+    "32.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Maximum diagnostic analytic sphere-light radius" );
+
 idCVar r_pathTracingLightCount(
     "r_pathTracingLightCount",
     "4",

@@ -28,6 +28,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle materialTableBuffer;
     nvrhi::BufferHandle emissiveTriangleBuffer;
     nvrhi::BufferHandle lightCandidateBuffer;
+    nvrhi::BufferHandle doomAnalyticLightBuffer;
     nvrhi::BufferHandle rigidRouteVertexBuffer;
     nvrhi::BufferHandle rigidRouteIndexBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
@@ -54,6 +55,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t materialTableBytes = 0;
     size_t emissiveTriangleBytes = 0;
     size_t lightCandidateBytes = 0;
+    size_t doomAnalyticLightBytes = 0;
     size_t rigidRouteVertexBytes = 0;
     size_t rigidRouteIndexBytes = 0;
     size_t rigidRouteTriangleMaterialBytes = 0;
@@ -119,6 +121,8 @@ struct RtSmokeSceneResourceCommitDesc
     int lightCandidateCount = 0;
     int texturedLightCandidateCount = 0;
     int lightCandidateBytes = 0;
+    int doomAnalyticLightCount = 0;
+    int doomAnalyticLightBytes = 0;
     uint64 reservoirSceneSignature = 0;
 };
 
@@ -141,6 +145,8 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int lightCandidateCount = 0;
     int texturedLightCandidateCount = 0;
     int lightCandidateBytes = 0;
+    int doomAnalyticLightCount = 0;
+    int doomAnalyticLightBytes = 0;
     uint64 reservoirSceneSignature = 0;
 };
 

@@ -115,6 +115,14 @@ Current validated feature set:
   used mainly to keep rigid prop emissives resident with their parent object.
   The gate is conservative and currently excludes `_add + 0200` default-RGBA
   variants plus the known game-logic-driven `swinglight` family.
+- Doom renderer light diagnostics and a first analytic sphere-light bridge.
+  Authored `idLight` entities are linked back to renderer `lightDef` handles,
+  dumped with stable identity/game-state fields, filtered by the same
+  current-area plus portal-neighbor selection used for PT light residency, and
+  uploaded through a separate analytic light buffer when enabled. The first
+  shader path treats every eligible point light as a diagnostic sphere emitter;
+  it preserves evaluated RGB and game animation/on-off state, but does not yet
+  classify Doom light textures into rectangle/disk/projected/area light types.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -243,6 +251,14 @@ Refactor chronology:
     became the default PT scene stack. The original drawSurf-only BVH is kept as
     `r_pathTracingSceneSource 0` for emergency comparison rather than as the
     default path.
+15. Doom renderer lights gained a diagnostics-first identity bridge and then a
+    first render-affecting analytic sphere-light path. `PathTraceDoomLights`
+    maps renderer light indexes back to `idLight` game entities through
+    `GetLightDefHandle`, records entity/material/color/state/area/portal-depth
+    fields, and builds a separate GPU analytic-light buffer. The shader samples
+    those candidates in mode 14/18/20-style lighting without adding sphere
+    meshes to the BVH. Initial in-game validation confirmed the candidates
+    appear, obey RGB color, and follow light animations/on-off game logic.
 
 Implemented debug CVars:
 
@@ -911,6 +927,58 @@ term when r_pathTracingUseEmissiveMaps is 1.
 - r_pathTracingLightSpriteIntensity
   Intensity multiplier for selected-light sprite proxies. Defaults to 2.5.
 
+- r_pathTracingDoomLightDump
+  One-shot Doom renderer light identity dump. It reports map name, renderer
+  light index, linked game entity name/class, material/shader, origin, radius
+  and bounds, evaluated renderer color, raw/current game color, active/hidden
+  and level state, selected area, portal depth from the player area, and
+  crosshair/nearest metrics. Mode 1 prints summary plus capped samples; mode 2
+  prints verbose samples up to r_pathTracingDoomLightDumpMax.
+
+- r_pathTracingDoomLightProbeDump
+  One-shot nearest/player/crosshair light dump for finding doubled or helper
+  lights near emissive surfaces. The crosshair list is only an inspection view;
+  PT analytic candidate selection is area/active based and still includes
+  lights behind the camera.
+
+- r_pathTracingDoomLightDumpMax / r_pathTracingDoomLightProbeMax
+  Record caps for Doom light identity and probe dumps.
+
+- r_pathTracingAnalyticLightCandidates
+  Builds, uploads, and shades analytic sphere-light candidates from active Doom
+  point lights. Candidate selection uses active/on state, point-light type, and
+  the current-area plus r_pathTracingLightAreaPortalSteps portal selection. It
+  does not require the light to be visible or in front of the camera, and it
+  does not add any sphere mesh to the BVH.
+
+- r_pathTracingAnalyticLightCandidateDump
+  One-shot dump of the analytic Doom light candidates that would be uploaded.
+  The summary includes linked count, behind-camera count, portal steps,
+  intensity scale, GPU cap, and radius scale/min/max.
+
+- r_pathTracingAnalyticLightMaxGpu
+  Maximum analytic Doom sphere-light candidates uploaded and sampled by the PT
+  shader. Defaults to 96. Raise this carefully; it is currently a direct
+  per-hit loop, not ReSTIR.
+
+- r_pathTracingAnalyticLightIntensityScale
+  Diagnostic intensity multiplier for analytic Doom sphere lights. Defaults to
+  0.35. Use 0/0.25/1/4 while visually isolating the contribution.
+
+- r_pathTracingAnalyticLightReplaceSelected
+  When analytic Doom lights are enabled, suppresses the legacy selected
+  point-light constant array so the analytic contribution can be inspected
+  alone. This does not disable emissive surfaces or reservoir candidates.
+
+- r_pathTracingAnalyticSphereLightRadiusScale
+  Diagnostic analytic sphere radius as a fraction of the Doom point-light
+  radius. This is only the first scaffold; Doom light materials such as
+  `biground*`, `squarelight*`, and `triangle*` are not physically classified
+  yet.
+
+- r_pathTracingAnalyticSphereLightRadiusMin / r_pathTracingAnalyticSphereLightRadiusMax
+  Clamp the diagnostic sphere emitter radius.
+
 - r_pathTracingSmokeLog
   Enables or disables periodic RT smoke logging.
 
@@ -1557,9 +1625,12 @@ Current Release testing should copy from the relevant preset folder, for example
 
 into a prepared Doom 3 BFG game folder. When shaders change, also copy:
 
+    base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
 
-to the matching path in the prepared game folder.
+to the matching paths in the prepared game folder. The RT shader library is
+loaded from `base/renderprogs2` at runtime; copying only the exe can leave a
+new binary running an old raygen shader.
 
 Typical runtime commands:
 
@@ -1567,6 +1638,19 @@ Typical runtime commands:
     r_pathTracingDebugWidth 1280
     r_pathTracingDebugHeight 720
     r_pathTracingDebugMode 3
+
+For visual testing of Doom analytic lights:
+
+    r_pathTracingDebugMode 18
+    r_pathTracingAnalyticLightCandidates 1
+    r_pathTracingAnalyticLightReplaceSelected 1
+    r_pathTracingAnalyticLightIntensityScale 1
+
+Then sweep r_pathTracingAnalyticLightIntensityScale through 0, 0.25, 1, and 4.
+With r_pathTracingAnalyticLightReplaceSelected enabled, the old selected
+point-light array is suppressed so visible changes come from the analytic Doom
+light buffer. Turn the replace CVar back to 0 to compare against the legacy
+selected point-light path.
 
 For texture probe testing:
 

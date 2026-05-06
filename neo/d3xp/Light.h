@@ -107,6 +107,14 @@ public:
 	{
 		return baseColor;
 	}
+	int				GetLightLevels() const
+	{
+		return levels;
+	}
+	int				GetCurrentLightLevel() const
+	{
+		return currentLevel;
+	}
 	virtual idVec3	GetEditOrigin() const;
 	void			SetShader( const char* shadername );
 	void			SetLightParm( int parmnum, float value );

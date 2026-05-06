@@ -9,6 +9,7 @@
 // directly.
 
 #include "PathTracePrimaryPass.h"
+#include "PathTraceDoomLights.h"
 #include "PathTraceReservoirs.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
@@ -21,7 +22,7 @@ bool RtSmokeSceneBufferHandles::IsValid() const
 {
     return staticVertexBuffer && staticIndexBuffer && staticTriangleClassBuffer && staticTriangleMaterialBuffer && staticTriangleMaterialIndexBuffer &&
         dynamicVertexBuffer && dynamicIndexBuffer && dynamicTriangleClassBuffer && dynamicTriangleMaterialBuffer && dynamicTriangleMaterialIndexBuffer &&
-        materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer &&
+        materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer && doomAnalyticLightBuffer &&
         rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer;
 }
 
@@ -80,6 +81,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.materialTableBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialTableBuffer, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false);
     result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
     result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false);
+    result.buffers.doomAnalyticLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticLightBuffer, "PathTraceDoomAnalyticLights", desc.doomAnalyticLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false);
     result.buffers.rigidRouteVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteVertexBuffer, "PathTraceRigidRouteVertices", desc.rigidRouteVertexBytes, sizeof(PathTraceSmokeVertex), false, false, false);
     result.buffers.rigidRouteIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteIndexBuffer, "PathTraceRigidRouteIndices", desc.rigidRouteIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
@@ -196,6 +198,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, desc.buffers.rigidRouteTriangleMaterialBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, desc.buffers.rigidRouteTriangleMaterialIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, desc.buffers.rigidRouteInstanceBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, desc.buffers.doomAnalyticLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, desc.sampler));
     }
 
@@ -234,6 +237,8 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.lightCandidateCount = desc.lightCandidateCount;
     commitDesc.texturedLightCandidateCount = desc.texturedLightCandidateCount;
     commitDesc.lightCandidateBytes = desc.lightCandidateBytes;
+    commitDesc.doomAnalyticLightCount = desc.doomAnalyticLightCount;
+    commitDesc.doomAnalyticLightBytes = desc.doomAnalyticLightBytes;
     commitDesc.reservoirSceneSignature = desc.reservoirSceneSignature;
     return commitDesc;
 }
@@ -362,6 +367,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
@@ -543,6 +549,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeMaterialTableBuffer = nullptr;
     m_smokeEmissiveTriangleBuffer = nullptr;
     m_smokeLightCandidateBuffer = nullptr;
+    m_smokeDoomAnalyticLightBuffer = nullptr;
     m_smokeRigidRouteVertexBuffer = nullptr;
     m_smokeRigidRouteIndexBuffer = nullptr;
     m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
@@ -556,6 +563,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeLightCandidateCount = 0;
     m_smokeTexturedLightCandidateCount = 0;
     m_smokeLightCandidateBytes = 0;
+    m_smokeDoomAnalyticLightCount = 0;
+    m_smokeDoomAnalyticLightBytes = 0;
     m_smokeReservoirBuffers.Reset();
     m_smokeReservoirSceneSignature = 0;
     m_smokeReservoirDispatchSignature = 0;
@@ -579,6 +588,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeMaterialTableBuffer = desc.buffers.materialTableBuffer;
     m_smokeEmissiveTriangleBuffer = desc.buffers.emissiveTriangleBuffer;
     m_smokeLightCandidateBuffer = desc.buffers.lightCandidateBuffer;
+    m_smokeDoomAnalyticLightBuffer = desc.buffers.doomAnalyticLightBuffer;
     m_smokeRigidRouteVertexBuffer = desc.buffers.rigidRouteVertexBuffer;
     m_smokeRigidRouteIndexBuffer = desc.buffers.rigidRouteIndexBuffer;
     m_smokeRigidRouteTriangleMaterialBuffer = desc.buffers.rigidRouteTriangleMaterialBuffer;
@@ -603,6 +613,8 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeLightCandidateCount = desc.lightCandidateCount;
     m_smokeTexturedLightCandidateCount = desc.texturedLightCandidateCount;
     m_smokeLightCandidateBytes = desc.lightCandidateBytes;
+    m_smokeDoomAnalyticLightCount = desc.doomAnalyticLightCount;
+    m_smokeDoomAnalyticLightBytes = desc.doomAnalyticLightBytes;
     if (m_smokeReservoirSceneSignature != desc.reservoirSceneSignature)
     {
         m_smokeReservoirSceneSignature = desc.reservoirSceneSignature;
