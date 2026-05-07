@@ -19,6 +19,8 @@ const uint32_t RT_DOOM_ANALYTIC_LIGHT_BEHIND_CAMERA = 0x00000004u;
 
 namespace {
 
+const int RT_PT_DOOM_LIGHT_MAX_AREA_REFS = 32;
+
 struct DoomLightPortalSelection
 {
     int currentArea = -1;
@@ -34,7 +36,11 @@ struct DoomLightRecord
     int index = -1;
     int area = -1;
     int originArea = -1;
+    int selectionArea = -1;
     int portalDepth = -1;
+    int boundsAreaCount = 0;
+    int selectedBoundsAreaCount = 0;
+    int connectedBoundsAreaCount = 0;
     bool selectedArea = false;
     bool connectedArea = false;
     bool active = false;
@@ -180,28 +186,64 @@ int ResolveCurrentDoomLightArea(const viewDef_t* viewDef)
     return area;
 }
 
+std::vector<int> ResolveDoomLightSeedAreas(const viewDef_t* viewDef)
+{
+    std::vector<int> seedAreas;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        return seedAreas;
+    }
+
+    const int areaCount = renderWorld->NumAreas();
+    auto addSeedArea = [&](const int area) {
+        if (area < 0 || area >= areaCount)
+        {
+            return;
+        }
+        if (std::find(seedAreas.begin(), seedAreas.end(), area) == seedAreas.end())
+        {
+            seedAreas.push_back(area);
+        }
+    };
+
+    addSeedArea(viewDef->areaNum);
+    addSeedArea(renderWorld->PointInArea(viewDef->initialViewAreaOrigin));
+    addSeedArea(renderWorld->PointInArea(viewDef->renderView.vieworg));
+
+    const idVec3& viewOrigin = viewDef->renderView.vieworg;
+    const float probeDistance = 8.0f;
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[0] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[0] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[1] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[1] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[2] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[2] * probeDistance));
+    return seedAreas;
+}
+
 DoomLightPortalSelection BuildDoomLightPortalSelection(const viewDef_t* viewDef, int portalSteps)
 {
     DoomLightPortalSelection selection;
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    selection.currentArea = ResolveCurrentDoomLightArea(viewDef);
+    const std::vector<int> seedAreas = ResolveDoomLightSeedAreas(viewDef);
+    selection.currentArea = !seedAreas.empty() ? seedAreas[0] : ResolveCurrentDoomLightArea(viewDef);
     selection.portalSteps = idMath::ClampInt(0, 8, portalSteps);
-    if (!renderWorld || selection.currentArea < 0)
+    if (!renderWorld || seedAreas.empty())
     {
         return selection;
     }
 
     const int areaCount = renderWorld->NumAreas();
-    if (selection.currentArea >= areaCount)
-    {
-        return selection;
-    }
 
     selection.depthByArea.assign(areaCount, -1);
     std::vector<int> queue;
     queue.reserve(areaCount);
-    selection.depthByArea[selection.currentArea] = 0;
-    queue.push_back(selection.currentArea);
+    for (int seedArea : seedAreas)
+    {
+        selection.depthByArea[seedArea] = 0;
+        queue.push_back(seedArea);
+    }
 
     for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
     {
@@ -363,12 +405,66 @@ DoomLightRecord BuildDoomLightRecord(
     {
         record.area = record.originArea;
     }
-    if (record.area >= 0 && record.area < static_cast<int>(selection.depthByArea.size()))
+
+    int uniqueAreas[RT_PT_DOOM_LIGHT_MAX_AREA_REFS + 2];
+    int uniqueAreaCount = 0;
+    auto addUniqueArea = [&](const int area) {
+        if (area < 0)
+        {
+            return;
+        }
+        for (int i = 0; i < uniqueAreaCount; ++i)
+        {
+            if (uniqueAreas[i] == area)
+            {
+                return;
+            }
+        }
+        if (uniqueAreaCount < static_cast<int>(sizeof(uniqueAreas) / sizeof(uniqueAreas[0])))
+        {
+            uniqueAreas[uniqueAreaCount++] = area;
+        }
+    };
+
+    addUniqueArea(record.area);
+    addUniqueArea(record.originArea);
+
+    int boundsAreas[RT_PT_DOOM_LIGHT_MAX_AREA_REFS];
+    const int boundsAreaCount = renderWorld ? renderWorld->BoundsInAreas(record.bounds, boundsAreas, RT_PT_DOOM_LIGHT_MAX_AREA_REFS) : 0;
+    record.boundsAreaCount = boundsAreaCount;
+    for (int i = 0; i < boundsAreaCount; ++i)
     {
-        record.portalDepth = selection.depthByArea[record.area];
-        record.selectedArea = record.portalDepth >= 0;
+        const int boundsArea = boundsAreas[i];
+        addUniqueArea(boundsArea);
+        if (boundsArea >= 0 && boundsArea < static_cast<int>(selection.depthByArea.size()) && selection.depthByArea[boundsArea] >= 0)
+        {
+            ++record.selectedBoundsAreaCount;
+        }
+        if (viewDef->connectedAreas && renderWorld && boundsArea >= 0 && boundsArea < renderWorld->NumAreas() && viewDef->connectedAreas[boundsArea])
+        {
+            ++record.connectedBoundsAreaCount;
+        }
     }
-    record.connectedArea = viewDef->connectedAreas && record.area >= 0 && renderWorld && record.area < renderWorld->NumAreas() && viewDef->connectedAreas[record.area];
+
+    for (int i = 0; i < uniqueAreaCount; ++i)
+    {
+        const int area = uniqueAreas[i];
+        if (area >= 0 && area < static_cast<int>(selection.depthByArea.size()))
+        {
+            const int depth = selection.depthByArea[area];
+            if (depth >= 0 && (!record.selectedArea || depth < record.portalDepth))
+            {
+                record.portalDepth = depth;
+                record.selectionArea = area;
+                record.selectedArea = true;
+            }
+        }
+        if (viewDef->connectedAreas && renderWorld && area >= 0 && area < renderWorld->NumAreas() && viewDef->connectedAreas[area])
+        {
+            record.connectedArea = true;
+        }
+    }
+
     record.suppressed = IsDoomLightSuppressedForView(viewDef, light);
     record.color = EvaluateDoomLightColor(viewDef, light, record.active);
     record.active = record.active && !record.suppressed;
@@ -435,7 +531,7 @@ std::vector<DoomLightRecord> CollectDoomLightRecords(
 
 void PrintDoomLightRecord(const char* prefix, int sampleIndex, const DoomLightRecord& light, const char* mapName)
 {
-    common->Printf("%s[%d]: map='%s' renderLight=%d linked=%d entity='%s' entNum=%d classname='%s' entityDef='%s' spawnTexture='%s' shader='%s' type=%s origin=(%.2f %.2f %.2f) radius=(%.2f %.2f %.2f) radiusMax=%.2f bounds=(%.2f %.2f %.2f)-(%.2f %.2f %.2f) color=(%.3f %.3f %.3f) intensity=%.3f gameColor=(%.3f %.3f %.3f) baseColor=(%.3f %.3f %.3f) level=%d/%d hidden=%d startOff=%d break=%d count=%d health=%d model='%s' bind='%s' target='%s' broken='%s' area=%d originArea=%d portalDepth=%d selected=%d connected=%d active=%d suppressed=%d shadows=%d visible=%d distance=%.2f crosshairBehind=%d crosshairT=%.2f crosshairDist=%.2f\n",
+    common->Printf("%s[%d]: map='%s' renderLight=%d linked=%d entity='%s' entNum=%d classname='%s' entityDef='%s' spawnTexture='%s' shader='%s' type=%s origin=(%.2f %.2f %.2f) radius=(%.2f %.2f %.2f) radiusMax=%.2f bounds=(%.2f %.2f %.2f)-(%.2f %.2f %.2f) color=(%.3f %.3f %.3f) intensity=%.3f gameColor=(%.3f %.3f %.3f) baseColor=(%.3f %.3f %.3f) level=%d/%d hidden=%d startOff=%d break=%d count=%d health=%d model='%s' bind='%s' target='%s' broken='%s' area=%d originArea=%d selectionArea=%d portalDepth=%d boundsAreas=%d selectedBounds=%d connectedBounds=%d selected=%d connected=%d active=%d suppressed=%d shadows=%d visible=%d distance=%.2f crosshairBehind=%d crosshairT=%.2f crosshairDist=%.2f\n",
         prefix,
         sampleIndex,
         mapName ? mapName : "<unknown>",
@@ -484,7 +580,11 @@ void PrintDoomLightRecord(const char* prefix, int sampleIndex, const DoomLightRe
         light.spawnBroken,
         light.area,
         light.originArea,
+        light.selectionArea,
         light.portalDepth,
+        light.boundsAreaCount,
+        light.selectedBoundsAreaCount,
+        light.connectedBoundsAreaCount,
         light.selectedArea ? 1 : 0,
         light.connectedArea ? 1 : 0,
         light.active ? 1 : 0,
@@ -518,6 +618,9 @@ void RunDoomLightIdentityDump(const viewDef_t* viewDef, const DoomLightPortalSel
     int gameHidden = 0;
     int gameLevelOff = 0;
     int connectedUnselected = 0;
+    int selectedViaBounds = 0;
+    int boundsAreaRefs = 0;
+    int selectedBoundsAreaRefs = 0;
     int depthBins[6] = {};
 
     for (const DoomLightRecord& record : records)
@@ -533,6 +636,9 @@ void RunDoomLightIdentityDump(const viewDef_t* viewDef, const DoomLightPortalSel
         gameHidden += record.gameHidden ? 1 : 0;
         gameLevelOff += record.gameLinked && record.currentLevel <= 0 ? 1 : 0;
         connectedUnselected += (record.connectedArea && !record.selectedArea) ? 1 : 0;
+        selectedViaBounds += (record.selectedArea && record.selectionArea >= 0 && record.selectionArea != record.area) ? 1 : 0;
+        boundsAreaRefs += record.boundsAreaCount;
+        selectedBoundsAreaRefs += record.selectedBoundsAreaCount;
         if (record.portalDepth >= 0 && record.portalDepth < 5)
         {
             ++depthBins[record.portalDepth];
@@ -543,7 +649,7 @@ void RunDoomLightIdentityDump(const viewDef_t* viewDef, const DoomLightPortalSel
         }
     }
 
-    common->Printf("PathTracePrimaryPass: Doom light dump map='%s' lights=%d active=%d visibleView=%d point/projected/parallel=%d/%d/%d gameLinked=%d hidden=%d levelOff=%d currentArea=%d portalSteps=%d selectedAreas=%d portalEdges/blocked=%d/%d selectedLights=%d connectedUnselected=%d unknownArea=%d depthBins 0/1/2/3/4/other=%d/%d/%d/%d/%d/%d entityNameStatus=linked-by-idLight-lightDefHandle\n",
+    common->Printf("PathTracePrimaryPass: Doom light dump map='%s' lights=%d active=%d visibleView=%d point/projected/parallel=%d/%d/%d gameLinked=%d hidden=%d levelOff=%d currentArea=%d portalSteps=%d selectedAreas=%d portalEdges/blocked=%d/%d selectedLights=%d selectedViaBounds=%d boundsAreaRefs=%d selectedBoundsAreaRefs=%d connectedUnselected=%d unknownArea=%d depthBins 0/1/2/3/4/other=%d/%d/%d/%d/%d/%d entityNameStatus=linked-by-idLight-lightDefHandle\n",
         mapName,
         static_cast<int>(records.size()),
         active,
@@ -560,6 +666,9 @@ void RunDoomLightIdentityDump(const viewDef_t* viewDef, const DoomLightPortalSel
         selection.portalEdges,
         selection.blockedPortalEdges,
         selected,
+        selectedViaBounds,
+        boundsAreaRefs,
+        selectedBoundsAreaRefs,
         connectedUnselected,
         unknownArea,
         depthBins[0],
@@ -732,14 +841,20 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
         behindCandidates += candidate.crosshairBehind ? 1 : 0;
     }
 
-    common->Printf("PathTracePrimaryPass: Doom analytic sphere-light candidates count=%d linked=%d behindCamera=%d sourceLights=%d currentArea=%d portalSteps=%d gpuMax=%d intensityScale=%.3f radius scale/min/max=%.4f/%.2f/%.2f selection=area-active-point-not-view-facing outputChange=1 gpuBuffer=separate\n",
+    const int gpuMax = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
+    const int uploadedCandidates = Min(gpuMax, static_cast<int>(candidates.size()));
+    const int droppedCandidates = static_cast<int>(candidates.size()) - uploadedCandidates;
+
+    common->Printf("PathTracePrimaryPass: Doom analytic sphere-light candidates count=%d uploaded=%d droppedByGpuCap=%d linked=%d behindCamera=%d sourceLights=%d currentArea=%d portalSteps=%d gpuMax=%d intensityScale=%.3f radius scale/min/max=%.4f/%.2f/%.2f selection=multi-area-bounds-active-point-not-view-facing outputChange=1 gpuBuffer=separate\n",
         static_cast<int>(candidates.size()),
+        uploadedCandidates,
+        droppedCandidates,
         linkedCandidates,
         behindCandidates,
         static_cast<int>(records.size()),
         selection.currentArea,
         selection.portalSteps,
-        idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger()),
+        gpuMax,
         idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat()),
         radiusScale,
         radiusMin,
@@ -749,7 +864,7 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
     for (int i = 0; i < Min(maxSamples, static_cast<int>(candidates.size())); ++i)
     {
         const DoomLightRecord& light = candidates[i];
-        common->Printf("PathTracePrimaryPass: Doom analytic sphere candidate[%d] renderLight=%d linked=%d entity='%s' entNum=%d classname='%s' spawnTexture='%s' shader='%s' level=%d/%d hidden=%d behindCamera=%d gameColor=(%.3f %.3f %.3f) baseColor=(%.3f %.3f %.3f) area=%d portalDepth=%d origin=(%.2f %.2f %.2f) doomRadius=%.2f sphereRadius=%.2f color=(%.3f %.3f %.3f) intensity=%.3f\n",
+        common->Printf("PathTracePrimaryPass: Doom analytic sphere candidate[%d] renderLight=%d linked=%d entity='%s' entNum=%d classname='%s' spawnTexture='%s' shader='%s' level=%d/%d hidden=%d behindCamera=%d gameColor=(%.3f %.3f %.3f) baseColor=(%.3f %.3f %.3f) area=%d selectionArea=%d portalDepth=%d boundsAreas=%d selectedBounds=%d origin=(%.2f %.2f %.2f) doomRadius=%.2f sphereRadius=%.2f color=(%.3f %.3f %.3f) intensity=%.3f\n",
             i,
             light.index,
             light.gameLinked ? 1 : 0,
@@ -769,7 +884,10 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
             light.baseColor.y,
             light.baseColor.z,
             light.area,
+            light.selectionArea,
             light.portalDepth,
+            light.boundsAreaCount,
+            light.selectedBoundsAreaCount,
             light.origin.x,
             light.origin.y,
             light.origin.z,
@@ -818,7 +936,7 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
         gpuLight.doomRadiusAndArea[0] = Max(light.radiusMax, 1.0f);
         gpuLight.doomRadiusAndArea[1] = 12.56637061f * gpuLight.originAndRadius[3] * gpuLight.originAndRadius[3];
         gpuLight.doomRadiusAndArea[2] = static_cast<float>(light.portalDepth);
-        gpuLight.doomRadiusAndArea[3] = static_cast<float>(light.area);
+        gpuLight.doomRadiusAndArea[3] = static_cast<float>(light.selectionArea >= 0 ? light.selectionArea : light.area);
         if (light.castsShadows)
         {
             gpuLight.flags |= RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS;

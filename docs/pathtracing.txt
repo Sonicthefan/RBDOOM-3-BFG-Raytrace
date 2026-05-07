@@ -145,6 +145,20 @@ RT scene residency and Doom portal areas:
   cells and not the temporary `PathTraceSceneUniverse` inventory as a live scene
   source. `PathTraceSceneUniverse` is used only for static-map diagnostics and
   area-selected static-world preload.
+- Portal walks seed from all valid camera-area probes instead of trusting only
+  `viewDef->areaNum`: the renderer area, initial view-area origin, exact view
+  origin, and short +/- view-axis offsets are inserted at depth 0 when valid.
+  This keeps source3 static preload, rigid residency, Doom analytic lights, and
+  light-universe area filtering stable when the camera is on a portal border or
+  tiny portal-adjacent area. The failure this fixes was not a missing portal
+  edge or ignored depth CVar: `viewDef->areaNum` could be valid but point at a
+  sliver/connector area on a portal boundary, causing the PT walk to spend
+  several hops reaching the room the player visually occupied. At one Mars
+  City border this made rigid residents and Doom analytic lights in the next
+  visible portal behave as if four walks had been consumed before selection
+  reached them. Multi-seeding gives all plausible camera areas depth 0, so
+  authored portal topology still matters but border classification no longer
+  burns the traversal budget by itself.
 - Early current-area-plus-one-step testing was too shallow. Mars City-style
   spaces can look like a single room to the player while spanning several Doom
   renderer portal areas; visible adjacent geometry or emissives may require
@@ -949,9 +963,12 @@ term when r_pathTracingUseEmissiveMaps is 1.
   One-shot Doom renderer light identity dump. It reports map name, renderer
   light index, linked game entity name/class, material/shader, origin, radius
   and bounds, evaluated renderer color, raw/current game color, active/hidden
-  and level state, selected area, portal depth from the player area, and
-  crosshair/nearest metrics. Mode 1 prints summary plus capped samples; mode 2
-  prints verbose samples up to r_pathTracingDoomLightDumpMax.
+  and level state, selected area, portal depth from the player area, bounds
+  area counts, and crosshair/nearest metrics. The selected area is the nearest
+  portal-selected area touched by the light's renderer bounds, not only the
+  light origin/primary area, so portal-border lights do not disappear when the
+  player moves between adjacent cells. Mode 1 prints summary plus capped
+  samples; mode 2 prints verbose samples up to r_pathTracingDoomLightDumpMax.
 
 - r_pathTracingDoomLightProbeDump
   One-shot nearest/player/crosshair light dump for finding doubled or helper
@@ -965,19 +982,24 @@ term when r_pathTracingUseEmissiveMaps is 1.
 - r_pathTracingAnalyticLightCandidates
   Builds, uploads, and shades analytic sphere-light candidates from active Doom
   point lights. Candidate selection uses active/on state, point-light type, and
-  the current-area plus r_pathTracingLightAreaPortalSteps portal selection. It
-  does not require the light to be visible or in front of the camera, and it
-  does not add any sphere mesh to the BVH.
+  the current-area plus r_pathTracingLightAreaPortalSteps portal selection
+  resolved over each light's renderer bounds/area membership. It does not
+  require the light to be visible or in front of the camera, and it does not
+  add any sphere mesh to the BVH.
 
 - r_pathTracingAnalyticLightCandidateDump
   One-shot dump of the analytic Doom light candidates that would be uploaded.
   The summary includes linked count, behind-camera count, portal steps,
-  intensity scale, GPU cap, and radius scale/min/max.
+  intensity scale, GPU cap, uploaded count, dropped-by-cap count, and radius
+  scale/min/max.
 
 - r_pathTracingAnalyticLightMaxGpu
   Maximum analytic Doom sphere-light candidates uploaded and sampled by the PT
-  shader. Defaults to 96. Raise this carefully; it is currently a direct
-  per-hit loop, not ReSTIR.
+  shader. Defaults to 256 so the current Mars City diagnostic cases can upload
+  the full selected Doom-light set instead of letting portal-border area flips
+  reorder relevant lights past the previous 96-light cap. Lower this carefully
+  if direct per-hit lighting becomes too expensive; it is currently a direct
+  loop, not ReSTIR.
 
 - r_pathTracingAnalyticLightIntensityScale
   Radiance calibration multiplier for analytic Doom sphere lights. Defaults to

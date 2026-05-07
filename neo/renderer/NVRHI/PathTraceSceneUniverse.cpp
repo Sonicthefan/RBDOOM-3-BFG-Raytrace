@@ -1123,25 +1123,37 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
         return selection;
     }
 
-    selection.currentArea = viewDef->areaNum;
-    if (selection.currentArea < 0)
-    {
-        selection.currentArea = renderWorld->PointInArea(viewDef->initialViewAreaOrigin);
-    }
-    if (selection.currentArea < 0)
-    {
-        selection.currentArea = renderWorld->PointInArea(viewDef->renderView.vieworg);
-    }
-    if (selection.currentArea < 0)
-    {
-        return selection;
-    }
-
     const int areaCount = renderWorld->NumAreas();
-    if (selection.currentArea >= areaCount)
+    std::vector<int> seedAreas;
+    auto addSeedArea = [&](const int area) {
+        if (area < 0 || area >= areaCount)
+        {
+            return;
+        }
+        if (std::find(seedAreas.begin(), seedAreas.end(), area) == seedAreas.end())
+        {
+            seedAreas.push_back(area);
+        }
+    };
+
+    addSeedArea(viewDef->areaNum);
+    addSeedArea(renderWorld->PointInArea(viewDef->initialViewAreaOrigin));
+    addSeedArea(renderWorld->PointInArea(viewDef->renderView.vieworg));
+
+    const idVec3& viewOrigin = viewDef->renderView.vieworg;
+    const float probeDistance = 8.0f;
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[0] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[0] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[1] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[1] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[2] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[2] * probeDistance));
+
+    if (seedAreas.empty())
     {
         return selection;
     }
+    selection.currentArea = seedAreas[0];
 
     selection.valid = true;
     std::vector<bool> selectedAreas(areaCount, false);
@@ -1150,9 +1162,12 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     std::vector<int> selectedBlockedPortalEdges(areaCount, 0);
     std::vector<int> queue;
     queue.reserve(areaCount);
-    selectedAreas[selection.currentArea] = true;
-    selectedDepth[selection.currentArea] = 0;
-    queue.push_back(selection.currentArea);
+    for (int seedArea : seedAreas)
+    {
+        selectedAreas[seedArea] = true;
+        selectedDepth[seedArea] = 0;
+        queue.push_back(seedArea);
+    }
 
     for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
     {

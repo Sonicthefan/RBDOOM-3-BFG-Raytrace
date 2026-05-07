@@ -56,34 +56,70 @@ int ResolveRigidResidencyCurrentArea(const viewDef_t* viewDef)
     return area;
 }
 
+std::vector<int> ResolveRigidResidencySeedAreas(const viewDef_t* viewDef)
+{
+    std::vector<int> seedAreas;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        return seedAreas;
+    }
+
+    const int areaCount = renderWorld->NumAreas();
+    auto addSeedArea = [&](const int area) {
+        if (area < 0 || area >= areaCount)
+        {
+            return;
+        }
+        if (std::find(seedAreas.begin(), seedAreas.end(), area) == seedAreas.end())
+        {
+            seedAreas.push_back(area);
+        }
+    };
+
+    addSeedArea(viewDef->areaNum);
+    addSeedArea(renderWorld->PointInArea(viewDef->initialViewAreaOrigin));
+    addSeedArea(renderWorld->PointInArea(viewDef->renderView.vieworg));
+
+    const idVec3& viewOrigin = viewDef->renderView.vieworg;
+    const float probeDistance = 8.0f;
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[0] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[0] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[1] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[1] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[2] * probeDistance));
+    addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[2] * probeDistance));
+    return seedAreas;
+}
+
 std::vector<bool> BuildRigidResidencySelectedAreas(const viewDef_t* viewDef, int portalSteps, int* portalEdges, int* blockedPortalEdges, int* currentAreaOut)
 {
     std::vector<bool> selectedAreas;
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    const int currentArea = ResolveRigidResidencyCurrentArea(viewDef);
+    const std::vector<int> seedAreas = ResolveRigidResidencySeedAreas(viewDef);
+    const int currentArea = !seedAreas.empty() ? seedAreas[0] : ResolveRigidResidencyCurrentArea(viewDef);
     if (currentAreaOut)
     {
         *currentAreaOut = currentArea;
     }
-    if (!renderWorld || currentArea < 0)
+    if (!renderWorld || seedAreas.empty())
     {
         return selectedAreas;
     }
 
     const int areaCount = renderWorld->NumAreas();
-    if (currentArea >= areaCount)
-    {
-        return selectedAreas;
-    }
 
     portalSteps = idMath::ClampInt(0, 8, portalSteps);
     selectedAreas.assign(areaCount, false);
     std::vector<int> selectedDepth(areaCount, -1);
     std::vector<int> queue;
     queue.reserve(areaCount);
-    selectedAreas[currentArea] = true;
-    selectedDepth[currentArea] = 0;
-    queue.push_back(currentArea);
+    for (int seedArea : seedAreas)
+    {
+        selectedAreas[seedArea] = true;
+        selectedDepth[seedArea] = 0;
+        queue.push_back(seedArea);
+    }
 
     for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
     {

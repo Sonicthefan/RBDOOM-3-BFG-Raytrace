@@ -431,7 +431,7 @@ idCVar r_pathTracingAnalyticLightCandidateDump(
 
 idCVar r_pathTracingAnalyticLightMaxGpu(
     "r_pathTracingAnalyticLightMaxGpu",
-    "96",
+    "256",
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum Doom analytic sphere-light candidates uploaded and sampled by the PT shader" );
 

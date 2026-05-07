@@ -84,6 +84,17 @@ The current RT/PT path is still an experimental "smoke" path:
   static preload and rigid residency are the persistence/residency layer for
   occluded or off-camera RT geometry. Depth 4 is the current source3 default
   because visually continuous rooms can span several Doom portal areas.
+- Source3/static/rigid/light portal walks seed from all valid camera-area
+  probes at depth 0: `viewDef->areaNum`, initial view-area origin, exact view
+  origin, and short +/- view-axis offsets. This avoids one-cell portal-border
+  flips adding artificial hops to every resident object and light. The concrete
+  regression was a valid-but-bad camera area on a Mars City portal border: PT
+  residency started in a tiny connector/sliver cell, consumed several walks
+  before reaching the visually occupied room, and then culled rigid residents
+  plus Doom analytic lights that appeared to be in the next visible portal.
+  Multi-seeding does not flatten real portal topology; it only prevents the
+  current-area probe from being the sole traversal root when the camera is on a
+  border.
 - Routed rigid closest-hit shading now transforms local-space geometric and
   interpolated normals into world space through the TLAS instance transform and
   constructs a world-space tangent basis for later lighting validation.
@@ -207,7 +218,10 @@ PathTraceSceneUniverse.cpp
     infrastructure: do not feed its records as the universal RT scene source or
     synthesize live rigid/skinned/dynamic drawSurfs from it. Its portal-area
     selected static append path is used to seed static-world cache records that
-    Doom raster visibility has not submitted this frame.
+    Doom raster visibility has not submitted this frame. The selected-area walk
+    now uses the shared multi-seed camera-area policy so static preload does
+    not disappear when `viewDef->areaNum` lands in a portal-border connector
+    while the view is effectively in an adjacent room.
 
 PathTraceDrawSurfCapture.h
     DrawSurf mirror declarations for the source3 scene producer scaffold.
@@ -280,7 +294,12 @@ PathTraceGeometryUniverse.cpp
     builds. With the explicit rigid route gates, it can feed routed rigid TLAS
     instances into modes 18/20/23/24/25 and can keep cached rigid instances
     resident by Doom area/portal selection rather than current raster
-    submission alone. The residency path uses last-known transform/material
+    submission alone. Rigid residency was one visible symptom of the portal
+    seed bug: a valid-but-bad current area could make cached rigid objects in
+    the next visually adjacent portal fall outside the selected set despite
+    sufficient nominal portal depth. The residency walk now multi-seeds from
+    the plausible camera areas at depth 0 before applying the configured portal
+    depth. The residency path uses last-known transform/material
     metadata for cached rigid instances, so moving off-screen objects still need
     a later per-frame freshness/update design. Future work should expand
     persistent records, dirty ranges, current/previous transform history, and
@@ -389,10 +408,17 @@ PathTraceDoomLights.cpp
     Doom authored-light bridge. Scans renderer lightDefs, links renderer light
     indexes back to game idLight entities through GetLightDefHandle, evaluates
     current light color/state, computes current-area plus portal-depth
-    selection, prints identity/probe/candidate dumps, and builds active
-    point-light analytic sphere candidates. It does not add light geometry to
-    the BVH, skips game-entity scans while gameLocal is not GAMESTATE_ACTIVE,
-    and does not classify Doom light textures into physical light types yet.
+    selection over the light's renderer bounds/area membership, prints
+    identity/probe/candidate dumps, and builds active point-light analytic
+    sphere candidates. It does not add light geometry to the BVH, skips
+    game-entity scans while gameLocal is not GAMESTATE_ACTIVE, and does not
+    classify Doom light textures into physical light types yet. The diagnostic
+    GPU cap defaults high enough to upload the current Mars City selected
+    Doom-light set; the candidate dump reports any cap drops explicitly. Doom
+    analytic light selection uses the same multi-seed portal policy as rigid
+    residency, then resolves each light through bounds/area membership. This
+    specifically avoids losing authored lights near a visible portal when the
+    camera area's single seed falls into a tiny connector area.
 
 PathTraceLightSelection.h
     Debug light selection structs and constants used by smoke dispatch.
@@ -417,7 +443,9 @@ PathTraceLightUniverse.cpp
     still capped by r_pathTracingEmissiveInventoryMaxTriangles. The area filter
     path can report selected, connected-overflow, disconnected, and unknown
     light candidates using the same broad portal traversal policy as geometry
-    residency. Apply mode is separate and remains an explicit render-affecting
+    residency. It also uses the multi-seed camera-area walk so future
+    ReSTIR/emissive filtering does not inherit the portal-border current-area
+    bug. Apply mode is separate and remains an explicit render-affecting
     experiment.
 
 PathTraceReservoirs.h
