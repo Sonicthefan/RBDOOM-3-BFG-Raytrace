@@ -52,6 +52,7 @@ struct PathTraceSmokeConstants
     float emissiveInfo[4];
     float boundsOverlayInfo[4];
     float doomAnalyticLightInfo[4];
+    float restirPTInfo[4];
 };
 
 uint64 HashSmokeDispatchValue(uint64 hash, uint64 value)
@@ -71,7 +72,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     OPTICK_EVENT("PT Dispatch");
 
     const int executeStartMs = Sys_Milliseconds();
-    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
+    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeReadbackTexture || !m_smokeConstantsBuffer || !m_restirPTConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
         !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokeLightCandidateBuffer || !m_smokeDoomAnalyticLightBuffer ||
         !m_smokeRigidRouteVertexBuffer || !m_smokeRigidRouteIndexBuffer || !m_smokeRigidRouteTriangleMaterialBuffer || !m_smokeRigidRouteTriangleMaterialIndexBuffer || !m_smokeRigidRouteInstanceBuffer)
@@ -79,6 +80,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         return;
     }
     if (!m_smokeReservoirBuffers.IsValidFor(m_smokeOutputWidth, m_smokeOutputHeight))
+    {
+        return;
+    }
+    if (!m_restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_smokeOutputWidth), static_cast<uint32_t>(m_smokeOutputHeight), rtxdi::CheckerboardMode::Off))
     {
         return;
     }
@@ -97,8 +102,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 25, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 27, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -217,6 +222,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingReservoirDump.SetInteger(0);
     }
 
+    RtRestirPTContextUpdateDesc restirPTContextDesc;
+    restirPTContextDesc.width = static_cast<uint32_t>(m_smokeOutputWidth);
+    restirPTContextDesc.height = static_cast<uint32_t>(m_smokeOutputHeight);
+    const uint32_t restirPTFrameIndex = m_restirPTFrameIndex++;
+    restirPTContextDesc.frameIndex = restirPTFrameIndex;
+    restirPTContextDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
+    restirPTContextDesc.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    if (!UpdateRestirPTContextState(m_restirPTContextState, restirPTContextDesc))
+    {
+        return;
+    }
+
     PathTraceSmokeConstants constants = {};
     constants.cameraOriginAndTMax[0] = cameraOrigin.x;
     constants.cameraOriginAndTMax[1] = cameraOrigin.y;
@@ -244,10 +261,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20) ? 8u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || debugMode == 26 || debugMode == 27) ? 8u : 0u) |
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (debugMode == 18 && r_pathTracingToyFakePBRSpecular.GetInteger() != 0)) ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && debugMode == 20 ? 64u : 0u) |
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || debugMode == 26 || debugMode == 27) ? 64u : 0u) |
         (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && debugMode == 18 ? 128u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
@@ -290,6 +307,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.doomAnalyticLightInfo[3] =
         (r_pathTracingAnalyticLightCandidates.GetInteger() != 0 ? 1.0f : 0.0f) +
         (replaceSelectedLightsWithAnalytic ? 2.0f : 0.0f);
+    constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
+    constants.restirPTInfo[1] = 0.0f;
+    constants.restirPTInfo[2] = 0.0f;
+    constants.restirPTInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)
     {
         constants.lightOriginAndRadius[i][0] = selectedLights[i].origin.x;
@@ -332,6 +353,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         OPTICK_GPU_EVENT("PT GPU Write Dispatch Constants");
         commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+        commandList->writeBuffer(m_restirPTConstantsBuffer, &m_restirPTContextState.parameters, sizeof(m_restirPTContextState.parameters));
         if (gpuBoundsOverlayLineCount > 0 && !m_smokeBoundsOverlayLines.empty())
         {
             commandList->writeBuffer(m_smokeBoundsOverlayLineBuffer, m_smokeBoundsOverlayLines.data(), sizeof(RtPathTraceBoundsOverlayLine) * gpuBoundsOverlayLineCount);
@@ -340,6 +362,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else
     {
         commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+        commandList->writeBuffer(m_restirPTConstantsBuffer, &m_restirPTContextState.parameters, sizeof(m_restirPTContextState.parameters));
         if (gpuBoundsOverlayLineCount > 0 && !m_smokeBoundsOverlayLines.empty())
         {
             commandList->writeBuffer(m_smokeBoundsOverlayLineBuffer, m_smokeBoundsOverlayLines.data(), sizeof(RtPathTraceBoundsOverlayLine) * gpuBoundsOverlayLineCount);
@@ -371,6 +394,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)
@@ -407,6 +431,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)

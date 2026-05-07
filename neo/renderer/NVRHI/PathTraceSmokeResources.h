@@ -8,6 +8,7 @@
 
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceReservoirs.h"
+#include "PathTraceRestirPTReservoirs.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -79,6 +80,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::TextureHandle accumulationTexture;
     nvrhi::TextureHandle fallbackTexture;
     nvrhi::BufferHandle constantsBuffer;
+    nvrhi::BufferHandle restirPTConstantsBuffer;
     nvrhi::BufferHandle boundsOverlayLineBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
@@ -86,6 +88,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
     RtSmokeReservoirBufferHandles reservoirBuffers;
+    RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;
     int maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;

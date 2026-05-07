@@ -84,6 +84,40 @@ Current validated feature set:
   character dissolve overlays.
 - Mode 20 single-frame reservoir direct emissive lighting from the current
   light-candidate contract. Spatial and temporal reuse are still off.
+- Host-side RTXDI ReSTIR PT scaffolding. A separate packed PT reservoir buffer
+  and RTXDI_PTParameters constant buffer are allocated/updated from
+  rtxdi::ReSTIRPTContext. The smoke ray tracing shader now has the Step 3
+  RTXDI reservoir ABI binding (`RTXDI_PTParameters` at b28,
+  `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29, and
+  `RTXDI_PT_RESERVOIR_BUFFER` before including `Rtxdi/PT/Reservoir.hlsli`),
+  and local Step 4 RAB type declarations under
+  `neo/shaders/builtin/pathtracing/RtxdiBridge`. The Step 5 shader bridge can
+  now build `RAB_Surface` and `RAB_Material` records from an actual
+  `PathTraceSmokePayload` hit, using the same smoke material, albedo, normal,
+  opacity, emissive, and specular helpers as the existing modes. The
+  `RAB_GetGBufferSurface` and `RAB_GetGBufferMaterial` callbacks still return
+  invalid data for both current and previous frame requests because no real
+  current/previous primary-surface buffers or motion vectors are exposed to this
+  smoke shader yet. The Step 6 RNG bridge is also present and wraps RTXDI's
+  own random sampler initialization and `RTXDI_GetNextRandom` behind local
+  `RAB_RandomSamplerState` callbacks so future path replay can preserve seed
+  plus consumed random index. Step 7 adds conservative opaque-diffuse BRDF
+  callbacks over `RAB_Surface`: cosine-hemisphere sampling, matching solid-angle
+  PDF, Lambert BRDF evaluation, and BRDF*cos/PDF throughput. Unsupported
+  translucent/special surfaces currently fail closed instead of pretending to
+  have a complete BSDF. Step 8 adds first light bridge callbacks over the
+  existing smoke light data: current-frame emissive triangle loading/sampling,
+  current-frame Doom analytic sphere loading/sampling, light target weighting,
+  light direction/distance helpers, conservative visibility that only verifies
+  valid surface/sample data, and neutral MIS callback placeholders. There is
+  still no traced RAB visibility, no environment light bridge, and no
+  previous-frame light buffer. Step 9 adds a compile-validated `RAB_PathTrace`
+  skeleton around the smoke TLAS path: it samples the current opaque-diffuse RAB
+  BRDF, sets RTXDI continuation-ray state, traces the engine `SmokeScene`,
+  converts hits back through `RAB_BuildSurfaceFromSmokePayload`, records hit
+  surfaces, and records emissive hits when present. It is deliberately capped to
+  a tiny bridge bounce depth and does not run NEE, environment hits, temporal
+  replay, spatial reuse, or a dispatched RTXDI shader pass yet.
 - Mode 21 solid drawSurf mirror bounds boxes and mode 22 wireframe drawSurf
   mirror bounds boxes. These are replacement diagnostic views for inspecting
   captured bounds/BVH/source issues, not overlays on mode 18/20.
@@ -285,7 +319,17 @@ Implemented debug CVars:
   Enables the experimental RT path.
 
 - r_pathTracingDebugWidth / r_pathTracingDebugHeight
-  Set the RT debug output resolution. Tested at 320x180 and 1280x720.
+  Set the RT debug output resolution. Tested at 320x180 and 1280x720. This is
+  the PT internal render size; it is intentionally independent from the
+  application/window back-buffer size. Changing one dimension first can produce
+  a temporary odd aspect ratio, but aspect ratio itself is not expected to cause
+  device removal. The dangerous transition is replacing the PT output,
+  accumulation, readback, smoke reservoir, or ReSTIR PT reservoir resources
+  while the previous frame's RT dispatch/blit/copy can still be in flight.
+  `ResizeRayTracingSmokeOutput` now waits for the GPU to idle and runs NVRHI
+  garbage collection before replacing existing output-sized PT resources. Keep
+  that fence at the resource owner; do not move it to the app/window resize
+  path, because app resolution changes do not drive PT output size.
 
 - r_pathTracingDebugMode
   Selects the debug visualization:
@@ -1069,6 +1113,30 @@ Level-load safety:
   full scene-resource reset at this point caused a black screen with "failed to
   create RT smoke binding set" because the reservoir buffers had just been
   cleared after output resize.
+
+PT output resize stability:
+
+- A repeatable hard crash/device-removal during `r_pathTracingDebugWidth` /
+  `r_pathTracingDebugHeight` changes was traced to PT internal output-size
+  resource lifetime, not to application-window resizing and not to the transient
+  aspect ratio created when width and height are changed one CVar at a time.
+  The crash happened after the console printed the new PT output resolution,
+  then the driver/device was removed.
+- Earlier attempts to fix app back-buffer resize were misleading because the PT
+  output is not tied to the native back buffer. Gating the debug blit, skipping
+  PT/raster 3D for native resize frames, and invalidating the cached LDR
+  framebuffer were still reasonable presentation safeguards, but they did not
+  address the failing path.
+- The actual fix is in `PathTraceSmokeResources::ResizeRayTracingSmokeOutput`:
+  before replacing any existing PT output, accumulation, readback, smoke
+  reservoir, or ReSTIR PT reservoir handle, the code calls `waitForIdle()` and
+  `runGarbageCollection()`. This prevents old output-sized resources from being
+  released while the previous frame's ray dispatch, output blit, readback copy,
+  or descriptor use is still pending on the GPU.
+- Future PT output-resolution work should continue to treat width/height as an
+  internal render-scale pair. It is acceptable for users to enter width and
+  height separately; the intermediate frame may look stretched, but it must not
+  replace GPU resources without an idle/deferred-destruction boundary.
 
 - r_pathTracingSkipRaster3D
   Skips the normal 3D raster view after the RT smoke/path tracing pass has
@@ -1959,6 +2027,74 @@ instances from their local mesh data transformed by the current object-to-world
 matrix, so removed dynamic fallback copies do not disappear from mode 20's
 light candidate list. The reservoir algorithm remains unchanged. This stack is
 default-on; the command above only requests a plan dump.
+
+For ReSTIR PT initial-sampling reservoir validation:
+
+    r_pathTracingDebugMode 26
+    r_pathTracingDebugMode 27
+
+Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
+normal primary ray, converts supported current hits into RAB surfaces, calls
+RTXDI `GenerateInitialSamples`, and stores the returned `RTXDI_PTReservoir` into
+the initial path-tracer output slice from `RTXDI_PTParameters`. The local
+`RAB_PathTrace` bridge now records one conservative NEE sample from the current
+RAB light list per visited path vertex before continuing the BRDF path, because
+the original BRDF-only probe was too sparse to show visible reservoirs in
+normal Doom scenes. The NEE picker uses the existing weighted emissive-triangle
+distribution and keeps the best local target from a small trial set; a single
+uniform pick from the full light list was also too weak. This is not a
+roughness/PBR problem: mode 26 is currently diffuse-only with roughness 1.0,
+which is valid enough for this reservoir visibility check. Misses, unsupported
+translucent/special surfaces, and invalid hits store empty reservoirs. The
+visible output is a sparse heat/debug view for selected useful reservoirs; it
+is not final ReSTIR PT shading.
+Temporal reuse, spatial reuse, previous-frame surface history, environment
+sampling, and traced RAB visibility are still off. Modes 18 and 20 remain the
+stable toy PT and single-frame direct reservoir paths.
+
+Mode 26 must use the same source3 scene membership baseline as the playable PT
+diagnostic modes. It now participates in rigid TLAS routing, rigid residency,
+and routed rigid emissive-card inventory; otherwise its ReSTIR PT validation can
+silently test against a culled/fallback scene that differs from modes 18/20.
+
+Temporary mode 26 diagnostic fallback colors:
+
+- Orange: local RAB light target exists, but RTXDI initial sampling did not
+  produce a useful reservoir.
+- Blue: valid RAB light samples exist, but their target contribution for the
+  current surface is zero.
+- Red: sampled light records were invalid.
+- Purple: no light candidates reached the shader.
+
+If mode 26 is mostly blue, inspect the RAB surface hemisphere contract before
+chasing light upload again. A blue-only test showed valid light samples were
+visible to the shader but the per-surface target was zero. The current RAB
+surface builder orients its geometry and shading normals toward the current
+ray hit before BRDF evaluation so Doom/idTech winding or normal-map orientation
+does not incorrectly fail the camera/view hemisphere test.
+
+Post-fix validation from user testing: mode 26 changed from mostly blue to
+mostly green with noisy white signal on emissive panels and only some remaining
+blue in areas likely affected by strong normal maps. In the current temporary
+debug view, that means RTXDI initial sampling is producing useful reservoirs
+across normal surfaces, high target/radiance appears near emissives, and the
+remaining blue is localized zero-target evaluation rather than missing scene or
+light records.
+
+Mode 27 keeps the same initial-sampling reservoir write path as mode 26 but
+removes the diagnostic color key and previews initial reservoir shading using
+`max(TargetFunction, 0) * max(WeightSum, 0)`, tonemapped into the smoke output.
+Invalid pixels fall back to dim albedo or black misses. This is an
+initial-only reservoir shading preview, not temporal/spatial ReSTIR PT. It was
+added before temporal resampling because the real Step 11 prerequisites,
+especially previous primary-surface data and motion vectors, are not exposed to
+the smoke shader yet.
+
+User validation: mode 27 works fairly well and runs well performance-wise, with
+no serious stability or gameplay issues reported. The remaining visible issues
+are rough normal handling and a few fully black objects. Treat those as localized
+RAB material/normal/unsupported-surface cases, not as evidence that initial
+reservoir generation or the source3 scene/light membership is failing.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom

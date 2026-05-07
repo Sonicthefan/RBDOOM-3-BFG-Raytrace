@@ -102,7 +102,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     RtSmokeBindingBuildResult result;
     result.textureDescriptorTable = desc.existingTextureDescriptorTable;
 
-    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height))
+    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, rtxdi::CheckerboardMode::Off))
     {
         result.errorMessage = "failed to create RT smoke binding set";
         return result;
@@ -199,6 +199,8 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, desc.buffers.rigidRouteTriangleMaterialIndexBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, desc.buffers.rigidRouteInstanceBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, desc.buffers.doomAnalyticLightBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(28, desc.restirPTConstantsBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(29, desc.restirPTReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, desc.sampler));
     }
 
@@ -320,6 +322,20 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BufferDesc restirPTConstantsDesc;
+    restirPTConstantsDesc.byteSize = GetRestirPTParametersSize();
+    restirPTConstantsDesc.debugName = "PathTraceRestirPTParameters";
+    restirPTConstantsDesc.isConstantBuffer = true;
+    restirPTConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    restirPTConstantsDesc.keepInitialState = true;
+    m_restirPTConstantsBuffer = device->createBuffer(restirPTConstantsDesc);
+
+    if (!m_restirPTConstantsBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create RT ReSTIR PT parameters buffer\n");
+        return;
+    }
+
     nvrhi::BufferDesc boundsOverlayDesc;
     boundsOverlayDesc.byteSize = sizeof(RtPathTraceBoundsOverlayLine) * RT_PT_BOUNDS_OVERLAY_MAX_LINES;
     boundsOverlayDesc.debugName = "PathTraceSmokeBoundsOverlayLines";
@@ -368,6 +384,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(28));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(29));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
@@ -445,7 +463,10 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
         return false;
     }
 
-    if (m_smokeOutputTexture && m_smokeAccumulationTexture && m_smokeReadbackTexture && m_smokeReservoirBuffers.IsValidFor(width, height) && width == m_smokeOutputWidth && height == m_smokeOutputHeight)
+    if (m_smokeOutputTexture && m_smokeAccumulationTexture && m_smokeReadbackTexture &&
+        m_smokeReservoirBuffers.IsValidFor(width, height) &&
+        m_restirPTReservoirBuffers.IsValidFor(width, height, rtxdi::CheckerboardMode::Off) &&
+        width == m_smokeOutputWidth && height == m_smokeOutputHeight)
     {
         return true;
     }
@@ -454,6 +475,18 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     if (!device)
     {
         return false;
+    }
+
+    const bool replacingExistingOutput =
+        m_smokeOutputTexture || m_smokeAccumulationTexture || m_smokeReadbackTexture ||
+        m_smokeReservoirBuffers.current || m_smokeReservoirBuffers.previous || m_smokeReservoirBuffers.spatialScratch ||
+        m_restirPTReservoirBuffers.reservoirs;
+    if (replacingExistingOutput)
+    {
+        common->Printf("PathTracePrimaryPass: resizing PT output old=%dx%d new=%dx%d; waiting for GPU idle\n",
+            m_smokeOutputWidth, m_smokeOutputHeight, width, height);
+        device->waitForIdle();
+        device->runGarbageCollection();
     }
 
     nvrhi::TextureDesc outputDesc;
@@ -517,8 +550,54 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     }
     m_smokeReservoirBuffers = reservoirResult.buffers;
 
+    RtRestirPTReservoirBufferCreateDesc restirPTReservoirDesc;
+    restirPTReservoirDesc.device = device;
+    restirPTReservoirDesc.existingBuffers = m_restirPTReservoirBuffers;
+    restirPTReservoirDesc.width = static_cast<uint32_t>(width);
+    restirPTReservoirDesc.height = static_cast<uint32_t>(height);
+    restirPTReservoirDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
+    const RtRestirPTReservoirBufferCreateResult restirPTReservoirResult = CreateRestirPTReservoirBuffers(restirPTReservoirDesc);
+    if (!restirPTReservoirResult.Succeeded())
+    {
+        common->Printf("PathTracePrimaryPass: %s (%dx%d)\n", restirPTReservoirResult.errorMessage ? restirPTReservoirResult.errorMessage : "failed to create RT ReSTIR PT packed reservoir buffer", width, height);
+        return false;
+    }
+    m_restirPTReservoirBuffers = restirPTReservoirResult.buffers;
+
+    RtRestirPTContextUpdateDesc restirPTContextDesc;
+    restirPTContextDesc.width = static_cast<uint32_t>(width);
+    restirPTContextDesc.height = static_cast<uint32_t>(height);
+    restirPTContextDesc.frameIndex = m_restirPTFrameIndex;
+    restirPTContextDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
+    restirPTContextDesc.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    if (!UpdateRestirPTContextState(m_restirPTContextState, restirPTContextDesc))
+    {
+        common->Printf("PathTracePrimaryPass: failed to initialize RT ReSTIR PT context (%dx%d)\n", width, height);
+        return false;
+    }
+
+    common->Printf("PathTracePrimaryPass: RT ReSTIR PT packed reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u\n",
+        width,
+        height,
+        m_restirPTReservoirBuffers.reservoirElementCount,
+        static_cast<unsigned long long>(m_restirPTReservoirBuffers.reservoirBytes),
+        m_restirPTReservoirBuffers.reservoirParams.reservoirArrayPitch,
+        m_restirPTReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
+        rtxdi::c_NumReSTIRPTReservoirBuffers,
+        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+
     common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
     return true;
+}
+
+void PathTracePrimaryPass::InvalidateForBackBufferResize()
+{
+    ResetRayTracingSmokeSceneResources();
+    m_smokeOutputTexture = nullptr;
+    m_smokeAccumulationTexture = nullptr;
+    m_smokeReadbackTexture = nullptr;
+    m_smokeOutputWidth = 0;
+    m_smokeOutputHeight = 0;
 }
 
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
@@ -572,6 +651,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeDoomAnalyticLightCount = 0;
     m_smokeDoomAnalyticLightBytes = 0;
     m_smokeReservoirBuffers.Reset();
+    m_restirPTReservoirBuffers.Reset();
+    m_restirPTContextState.Reset();
     m_smokeReservoirSceneSignature = 0;
     m_smokeReservoirDispatchSignature = 0;
     m_smokeReservoirNeedsClear = false;

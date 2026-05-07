@@ -162,6 +162,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeAccumulationTexture = nullptr;
     m_smokeReadbackTexture = nullptr;
     m_smokeConstantsBuffer = nullptr;
+    m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
     m_smokeTlas = nullptr;
     m_smokeShaderTable = nullptr;

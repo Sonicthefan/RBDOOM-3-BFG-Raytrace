@@ -1,0 +1,653 @@
+CODING_AGENT_REFERENCE: DOOM3_LIGHTS_TO_PHYSICAL_PATH_TRACER
+FORMAT_VERSION: 1
+TARGET_AGENT: GPT/Codex-style coding agent
+PRIMARY_TASK: Interpret Doom 3/idTech4 raster light entities into time-varying physical/path-traced light representations.
+HUMAN_READABILITY: not optimized; prefer implementation facts, keys, algorithms, traps, source anchors.
+DATE_CAPTURED: 2026-05-06
+
+===============================================================================
+0. SOURCE PRIORITY / TRUST MODEL
+===============================================================================
+P0_AUTHORITATIVE_ENGINE_SOURCE:
+  repo: https://github.com/id-Software/DOOM-3
+  repo_caveat: GPL source release does NOT include game data. Actual maps/defs/scripts/materials are in installed game PK4s / mod data.
+  canonical_light_parser:
+    file: neo/game/Light.cpp
+    func: idGameEdit::ParseSpawnArgsToRenderLight(const idDict *args, renderLight_t *renderLight)
+    anchor: Light.cpp around lines 2326-2467
+    comment_in_source: "canonical renderLight parm parsing, which should be used by dmap and the editor"
+  runtime_light_class:
+    file: neo/game/Light.cpp
+    class: idLight
+    anchors:
+      events: lines ~2273-2320
+      Spawn: lines ~2702-2868
+      SetLightLevel/SetColor/SetShader/SetLightParm(s)/SetRadius: lines ~2875-3100
+      On/Off/Fade/FadeIn/FadeOut/BecomeBroken/Present/Event_ToggleOnOff: lines ~3106-3823
+  generic_entity_runtime:
+    file: neo/game/Entity.cpp
+    class: idEntity
+    anchors:
+      generic script events name/activate/bind/movement/hide/show/keys: lines ~2284-2330 and surrounding event defs
+      Spawn: lines ~2960-3117
+      name/target/bind/hide handling: lines ~3033-3107
+
+P1_REQUIRED_GAME_DATA:
+  parse from installed Doom 3 / RoE / mod pk4 archives:
+    *.map      map entity spawnargs
+    *.def      entityDef defaults/inheritance/spawnclass/scriptobject/model/sound/etc
+    *.mtr      material/light shader declarations, lightFalloffImage, map stages, expressions/tables
+    *.script   map/global scripts controlling On/Off/fades/color/movement/bind/targets
+    sound decls if evaluating sound-synced shader behavior
+  WARNING: do not rely only on map entity blocks. Merge entityDef defaults before evaluating a light.
+
+P2_DOCS_FOR_CONCEPTS_NOT_BEHAVIORAL_AUTHORITY:
+  idDevNet/Doom3 SDK docs: useful for general defs/tools, but source is behavior authority.
+  The Dark Mod wiki: Doom 3/idTech4-derived docs useful for light volume/material concepts; mark TDM-only spawnargs as non-vanilla until verified in Doom 3 data/source.
+
+===============================================================================
+1. ENTITY IDENTIFICATION / DATA LOADING ORDER
+===============================================================================
+RECOMMENDED_LOADER_PIPELINE:
+  1) Build virtual filesystem over PK4s + loose mod folders, respecting mod/base precedence.
+  2) Parse declarations before maps:
+       entityDef decls -> default spawnargs/inheritance
+       material decls  -> light materials referenced by "texture" spawnarg
+       sound decls     -> optional; needed for sound-synced shader/time behavior
+       scripts         -> global + map-specific script code; build symbol/call index
+  3) Parse map entity blocks.
+  4) For each entity: resolve classname -> entityDef defaults -> overlay map spawnargs.
+  5) Build name table and target graph for all entities, not just lights.
+  6) For each light entity/spawnclass idLight: run canonical light parse + runtime Spawn semantics.
+  7) Apply target/script/movement/bind simulation or event extraction to get time-varying light state.
+
+ENTITY_NAME_RULE:
+  source: idEntity::Spawn
+  if spawnArg "name" exists: SetName(name)
+  else: engine generates unique fallback va("%s_%s_%d", GetClassname(), classname, entityNumber)
+  converter: use explicit name as stable ID. Generate fallback only if simulating nameless entities; script/target references usually require explicit names.
+  light-specific side effect: idLight::Spawn checks prelight model named "_prelight_<name>". Not useful for path tracer except to know name mattered to renderer.
+
+TARGET_GRAPH_RULE:
+  source: idEntity::Spawn
+  match prefixes, not exact keys:
+    keys with prefix "target"
+    keys with prefix "guiTarget"
+  examples to support: target, target0, target1, target2, guiTarget, guiTarget0...
+  after all entities spawn, engine resolves target values to named entities.
+  converter: build directed graph entity -> target entities. When activator entity fires targets, call target entity activation semantics. For idLight, EV_Activate maps to idLight::Event_ToggleOnOff, NOT plain boolean toggle.
+
+BIND_RULE:
+  source: idEntity::Spawn + generic events
+  spawnArg "bind" posts EV_SpawnBind.
+  script events include bind(entity), bindPosition(entity), bindToJoint(entity, string joint, float orientated), unbind(), removeBinds().
+  converter: maintain transform hierarchy. Light transform is generic entity transform + local light offset/axis; no light-specific movement system.
+
+HIDE_RULE:
+  source: idEntity::Spawn + idLight events
+  spawnArg "hide" sets fl.hidden and posts EV_Hide.
+  for idLight:
+    Event_Hide(): Hide(); PresentModelDefChange(); Off();
+    Event_Show(): Show(); PresentModelDefChange(); On();
+  converter: hide/show is equivalent to off/on for light emission, plus model visibility.
+
+===============================================================================
+2. CANONICAL STATIC LIGHT SPAWNARG PARSER
+===============================================================================
+MUST_IMPLEMENT_EQUIVALENT_OF: idGameEdit::ParseSpawnArgsToRenderLight
+
+PSEUDOCODE_STATIC_PARSE:
+
+  function parseRenderLight(args, game_time_ms):
+    rl = zeroed renderLight
+
+    # origin
+    if args.hasVector("light_origin"):
+      rl.origin = vec3(args["light_origin"])
+    else:
+      rl.origin = vec3(args.get("origin", default=""))   # default effectively 0 if missing/empty in implementation
+
+    # projected vectors
+    gotTarget = args.hasVector("light_target") -> rl.target
+    gotUp     = args.hasVector("light_up")     -> rl.up
+    gotRight  = args.hasVector("light_right")  -> rl.right
+    rl.start  = vec3(args.get("light_start", "0 0 0"))
+    if args.hasVector("light_end"):
+      rl.end = vec3(args["light_end"])
+    else:
+      rl.end = rl.target
+
+    # projected vector validity
+    if (gotTarget or gotUp or gotRight) != (gotTarget and gotUp and gotRight):
+      warn("bad target info")
+      return invalid_or_zeroed_light  # engine prints and returns early
+
+    # point light path
+    if !gotTarget:
+      rl.pointLight = true
+      rl.lightCenter = vec3(args.get("light_center", "0 0 0"))
+      if args.hasVector("light_radius"):
+        rl.lightRadius = vec3(args["light_radius"])
+      else:
+        radius = float(args.get("light", "300"))
+        rl.lightRadius = vec3(radius, radius, radius)
+    else:
+      rl.pointLight = false  # projected
+      # rl.target/up/right/start/end were parsed above
+
+    # axis precedence
+    if args.hasMatrix("light_rotation"):
+      rl.axis = mat3(args["light_rotation"])
+    else if args.hasMatrix("rotation"):
+      rl.axis = mat3(args["rotation"])
+    else:
+      yaw = normalize360(float(args.get("angle", "0")))
+      rl.axis = yaw_to_mat3(yaw)
+    fix_degenerate_normals(rl.axis.rows)
+
+    # color + shader parms
+    color = vec3(args.get("_color", "1 1 1"))
+    rl.shaderParms[SHADERPARM_RED   or 0] = color.x
+    rl.shaderParms[SHADERPARM_GREEN or 1] = color.y
+    rl.shaderParms[SHADERPARM_BLUE  or 2] = color.z
+    rl.shaderParms[SHADERPARM_TIMESCALE or 3] = float(args.get("shaderParm3", "1"))
+    if args.hasFloat("shaderParm4"):
+      rl.shaderParms[SHADERPARM_TIMEOFFSET or 4] = float(args["shaderParm4"])
+    else:
+      rl.shaderParms[SHADERPARM_TIMEOFFSET or 4] = -MS2SEC(game_time_ms)
+    rl.shaderParms[5] = float(args.get("shaderParm5", "0"))
+    rl.shaderParms[6] = float(args.get("shaderParm6", "0"))
+    rl.shaderParms[SHADERPARM_MODE or 7] = float(args.get("shaderParm7", "0"))
+
+    # flags/material
+    rl.noShadows  = bool(args.get("noshadows", "0"))
+    rl.noSpecular = bool(args.get("nospecular", "0"))
+    rl.parallel   = bool(args.get("parallel", "0"))
+    materialName  = string(args.get("texture", "lights/squarelight1"))
+    rl.shader     = FindMaterial(materialName, allow_null=false)  # engine comment says allow NULL
+    return rl
+
+STATIC_SPAWN_KEYS_TABLE:
+  classname:
+    use to resolve entityDef/spawnclass; idLight behavior only when spawnclass/class is idLight-compatible.
+  name:
+    unique script/target identifier; fallback generated if absent.
+  origin:
+    entity physics origin; fallback for light origin when light_origin absent.
+  light_origin:
+    local/world renderLight origin at spawn parse; overrides origin.
+  light_target/light_up/light_right:
+    projected-light vectors; all three required together. Any partial set -> bad target info; engine returns early from parser.
+  light_start:
+    projected start plane/vector; default 0 0 0.
+  light_end:
+    projected end; default light_target.
+  light_center:
+    point-light relative center / shadow offset; default 0 0 0. Used with parallel docs as direction reference.
+  light_radius:
+    point-light XYZ radius/box extent; default fallback path uses scalar "light".
+  light:
+    IMPORTANT: scalar radius fallback, default 300. NOT intensity/brightness.
+  light_rotation:
+    highest-priority light axis matrix.
+  rotation:
+    second-priority axis matrix.
+  angle:
+    fallback single yaw angle when no matrix supplied.
+  _color:
+    initial RGB shader parms and idLight baseColor; default 1 1 1. NOT physically calibrated lumens/candela.
+  shaderParm3:
+    timescale; default 1.
+  shaderParm4:
+    timeoffset; default -game_time_seconds if absent.
+  shaderParm5:
+    raw shader parm slot 5; default 0.
+  shaderParm6:
+    raw shader parm slot 6; default 0.
+  shaderParm7:
+    mode/state parm; default 0. BecomeBroken sets mode=1.
+  noshadows:
+    renderer noShadows flag.
+  nospecular:
+    renderer noSpecular flag.
+  parallel:
+    renderer parallel-light flag.
+  texture:
+    light material/shader name; default lights/squarelight1. Despite editor wording "texture/shader", engine spawn key is "texture" for lights.
+
+STATIC_TRAPS:
+  - Do not interpret spawn key "light" as brightness. It is point-light scalar radius fallback.
+  - Do not require projected keys for point lights. Point is default when no light_target/up/right.
+  - Do not accept partial projected triplets silently; source warns and returns early.
+  - Do not drop shaderParm3-7; light materials/tables/flicker/broken state may depend on them.
+  - Do not ignore material. Doom 3 light appearance is material + _color + shader parms + falloff/projection images.
+
+===============================================================================
+3. idLight RUNTIME STATE MODEL
+===============================================================================
+ID_LIGHT_FIELDS_TO_MIRROR:
+  renderLight: parsed static light + mutable shader/material/radius/transform state
+  localLightOrigin: (renderLight.origin - physics.origin) * transpose(physics.axis) at spawn
+  localLightAxis: renderLight.axis * transpose(physics.axis) at spawn
+  baseColor: vec3(renderLight.shaderParms[0..2]) at spawn or setColor later
+  levels: int spawnArg "levels" default 1; must be >0
+  currentLevel: int; initialized to levels; start_off/off sets 0
+  breakOnTrigger: bool spawnArg "break" default 0
+  count: int spawnArg "count" default 1; number of activations required before action
+  triggercount: int; initialized 0
+  brokenModel: string spawnArg "broken" default ""
+  lightParent: idLight* used for shared referenceSound among targeted lights
+  fadeFrom/fadeTo/fadeStart/fadeEnd: fade runtime
+  soundWasPlaying: bool used by Off/On sound restore
+
+SPAWN_RUNTIME_PSEUDOCODE:
+  parseRenderLight(spawnArgs, &renderLight)
+  localLightOrigin = (renderLight.origin - physics.origin) * transpose(physics.axis)
+  localLightAxis   = renderLight.axis * transpose(physics.axis)
+  baseColor = vec3(renderLight.shaderParms[0], [1], [2])
+  levels = int(spawnArgs.get("levels", "1")); error if <=0
+  currentLevel = levels
+  renderEntity.referenceShader = renderLight.shader  # model flares can read current intensity
+  prelightModel = CheckModel("_prelight_" + name) if name exists
+  if bool(spawnArgs.get("start_off", "0")): Off()
+  health = int(spawnArgs.get("health", "0"))
+  brokenModel = string(spawnArgs.get("broken", ""))
+  breakOnTrigger = bool(spawnArgs.get("break", "0"))
+  count = int(spawnArgs.get("count", "1"))
+  triggercount = 0
+  if health != 0: takedamage=true; setup broken model/clipmodel; require model spawnarg
+  PostEventMS(EV_PostSpawn) -> Event_SetSoundHandles
+  UpdateVisuals()
+
+EFFECTIVE_COLOR_RULE:
+  SetLightLevel():
+    intensity = float(currentLevel) / float(levels)
+    color = baseColor * intensity
+    renderLight.shaderParms[RED/GREEN/BLUE] = color
+    renderEntity.shaderParms[RED/GREEN/BLUE] = color
+    PresentLightDefChange(); PresentModelDefChange()
+  converter effective_rgb_before_material = baseColor * currentLevel / levels.
+
+START_OFF_RULE:
+  spawnArg start_off=1 calls Off() during idLight::Spawn after levels/baseColor are initialized.
+  Off() sets currentLevel=0; RGB becomes 0 via SetLightLevel; stops current sound and remembers soundWasPlaying.
+
+LEVELS_RULE:
+  levels default 1.
+  currentLevel integer in [0, levels].
+  visible intensity multiplier = currentLevel / levels.
+  levels > 1 creates stepped dimming on activation: full -> (levels-1)/levels -> ... -> off -> full.
+
+ON_RULE:
+  On():
+    currentLevel = levels
+    renderLight.shaderParms[TIMEOFFSET] = -MS2SEC(gameLocal.time)  # reset material animation start
+    if (soundWasPlaying || refSound.waitfortrigger) && refSound.shader: StartSoundShader(...)
+    soundWasPlaying = false
+    SetLightLevel()
+    BecomeActive(TH_UPDATEVISUALS)
+
+OFF_RULE:
+  Off():
+    currentLevel = 0
+    if reference sound currently playing: StopSound(...); soundWasPlaying = true
+    SetLightLevel()
+    BecomeActive(TH_UPDATEVISUALS)
+
+ACTIVATE_RULE_FOR_LIGHTS:
+  EV_Activate maps to idLight::Event_ToggleOnOff, not generic hide/show.
+  Event_ToggleOnOff(activator):
+    triggercount += 1
+    if triggercount < count: return
+    triggercount = 0
+    if breakOnTrigger:
+      BecomeBroken(activator)
+      breakOnTrigger = false
+      return
+    if currentLevel == 0:
+      On()
+    else:
+      currentLevel -= 1
+      if currentLevel == 0: Off()
+      else: SetLightLevel()
+  converter: target activation must apply this exact state machine.
+
+COLOR_API_DIFFERENCES:
+  setColor / idLight::SetColor(red,green,blue):
+    baseColor = RGB
+    SetLightLevel()
+    later On/Off/activate preserves new baseColor.
+  setLightParm(parmnum,value):
+    renderLight.shaderParms[parmnum]=value
+    PresentLightDefChange()
+    does NOT update baseColor or renderEntity shader parms except direct renderLight.
+  setLightParms(r,g,b,a):
+    writes renderLight RGB/A + renderEntity RGB/A directly
+    does NOT update baseColor
+    later SetLightLevel/On/Off/activate can overwrite RGB from baseColor.
+  fadeInLight(time):
+    currentLevel = levels
+    reads spawnArgs "_color" default 1 1 1 into fade target, NOT current baseColor
+    Fade(targetSpawnColorAlpha1,time)
+  fadeOutLight(time):
+    Fade(colorBlack,time)
+
+FADE_RULE:
+  Fade(to, fadeTime):
+    fadeFrom = GetColor(current renderLight RGB/A)
+    fadeTo = to
+    fadeStart = gameLocal.time
+    fadeEnd = gameLocal.time + SEC2MS(fadeTime)
+    BecomeActive(TH_THINK)
+  Implementation detail not fully expanded here: during Think, interpolate shaderParms toward fadeTo until fadeEnd; verify in Light.cpp if exact interpolation is needed.
+
+RADIUS_API:
+  setRadiusXYZ(x,y,z): renderLight.lightRadius = (x,y,z); PresentLightDefChange()
+  setRadius(r): renderLight.lightRadius = (r,r,r); PresentLightDefChange()
+  Applies to point-light radii. For projected lights, verify how renderer uses lightRadius vs target/up/right before changing.
+
+SHADER_API:
+  setShader(shadername): renderLight.shader = FindMaterial(shadername,false); PresentLightDefChange()
+  spawn key is "texture"; script event is setShader().
+
+BREAKABLE_LIGHT_RULE:
+  Spawn args involved:
+    health, broken, break, count, hideModelOnBreak, def_damage, snd_broken, mtr_broken, nonsolid, model
+  Triggers:
+    if health > 0: Killed(...) -> BecomeBroken(attacker)
+    if break=1: first eligible activation after count threshold -> BecomeBroken(activator); breakOnTrigger then false
+  BecomeBroken effects:
+    fl.takedamage=false
+    if brokenModel exists: SetModel(brokenModel); update clip contents unless nonsolid
+    else if hideModelOnBreak: SetModel(""); physics contents=0
+    if server and def_damage: RadiusDamage(...)
+    ActivateTargets(activator)
+    renderEntity.shaderParms[TIMEOFFSET] = -game_time_seconds
+    renderLight.shaderParms[TIMEOFFSET]  = -game_time_seconds
+    renderEntity.shaderParms[MODE] = 1
+    renderLight.shaderParms[MODE]  = 1
+    sound: stop current; start alt or snd_broken if available
+    if mtr_broken exists: SetShader(mtr_broken)
+    UpdateVisuals()
+  converter: broken state may change material/mode/sound/model and trigger other entities; do not treat as only light-off.
+
+PRESENT_TRANSFORM_RULE:
+  source: idLight::Present
+  every visual update:
+    renderLight.axis   = localLightAxis * physics.axis
+    renderLight.origin = physics.origin + physics.axis * localLightOrigin
+    renderLight.referenceSound/renderEntity.referenceSound = lightParent sound if set else own sound
+    renderer Add/Update light def
+  converter: light movement comes from generic entity physics/binds/scripts/movers; sample/evaluate current entity transform, then apply localLightOrigin/localLightAxis.
+
+SOUND_HANDLE_SYNC_RULE:
+  source: Event_SetSoundHandles post-spawn
+  if a light has referenceSound, it iterates its targets; for each targeted idLight, assigns target.lightParent = this.
+  Purpose: targeted lights can share parent sound emitter for synchronized shader effects.
+  converter: if evaluating sound-driven material expressions, propagate parent referenceSound to targeted lights.
+
+===============================================================================
+4. SCRIPT / EVENT SURFACE TO SCAN
+===============================================================================
+SCAN_MAP_AND_GLOBAL_SCRIPT_FILES_FOR_ENTITY_CALLS:
+  entity references: $name syntax and variables holding entity refs
+  light-specific calls:
+    On()
+    Off()
+    fadeOutLight(float seconds)
+    fadeInLight(float seconds)
+    setShader(string materialName)
+    getLightParm(int parmIndex)
+    setLightParm(int parmIndex, float value)
+    setLightParms(float r, float g, float b, float a)
+    setRadiusXYZ(float x, float y, float z)
+    setRadius(float r)
+  inherited/generic entity calls that affect lights:
+    activate(entity activator)
+    activateTargets(entity activator)
+    hide()
+    show()
+    setColor(float r,float g,float b)       # generic EV_SetColor handled by idLight override? verify class dispatch; include in scan.
+    setShaderParm(int,float) / setShaderParms(float,float,float,float) # generic renderEntity; may affect flare/model, not necessarily renderLight.
+    setOrigin(vector)
+    setWorldOrigin(vector)
+    setAngles(vector)
+    setLinearVelocity(vector)
+    setAngularVelocity(vector)
+    bind(entity)
+    bindPosition(entity)
+    bindToJoint(entity,string,float)
+    unbind()
+    removeBinds()
+    setKey(string,string) / getKey / get*Key # can mutate spawnArgs; handle only if simulation requires.
+    startSound/stopSound/fadeSound if sound-synced light materials are evaluated
+
+SCRIPT_INTERPRETATION_LEVELS:
+  MINIMAL_STATIC:
+    parse spawnargs + initial start_off/hide + target graph metadata; ignore scripts.
+  EVENT_EXTRACTION:
+    parse scripts textually for direct calls on known light names; emit possible transitions, not timed simulation.
+  DETERMINISTIC_SIM:
+    run/interpret Doom script VM or instrument engine; needed for exact timing, conditionals, triggers, movers.
+  SOURCE_INSTRUMENTATION_RECOMMENDED_FOR_EXACTNESS:
+    hook/log idLight::SetLightLevel, SetColor, SetShader, SetLightParm, SetLightParms, SetRadiusXYZ, SetRadius, On, Off, Fade, BecomeBroken, Event_ToggleOnOff, Present.
+    log tuple per change: gameTimeMs, entityName, origin, axis, point/projected/parallel, radius/target/up/right/start/end, shader, shaderParms[0..MAX], baseColor, levels, currentLevel, hidden, broken/mode, activator/cause.
+
+===============================================================================
+5. MATERIAL / LIGHT TEXTURE INTERPRETATION
+===============================================================================
+LIGHT_MATERIAL_KEY:
+  spawnArg "texture" -> renderLight.shader material name.
+  default: lights/squarelight1.
+  script event setShader() changes material at runtime.
+
+MATERIAL_DATA_TO_PARSE_FROM .mtr:
+  material declaration named by texture/setShader.
+  lightFalloffImage keyword/stage if present.
+  map stages for projection/cookie texture.
+  colored keyword: allows _color/shader parms to tint stage.
+  zeroClamp/clamp behavior for projected/falloff sampling.
+  shader parameter references parm0..parm11 / global time / tables.
+  scroll/rotate/scale/turb/table expressions if implementing animated masks/flicker.
+  spectrum/sound/time expressions if present in mod/TDM data; verify vanilla support in material parser.
+
+PHYSICAL_APPROXIMATION_DEFAULT_IF_FULL_MATERIAL_EVAL_NOT_AVAILABLE:
+  effective_rgb = baseColor * currentLevel / levels
+  material_cookie = projection image from light material if parseable else white
+  falloff = lightFalloffImage if parseable else Doom default for light material; if absent and unknown use conservative default curve, not inverse-square unless intentionally remapping physically.
+  point light volume = box/ellipsoid defined by lightRadius and axis, NOT necessarily physical sphere.
+  projected light = frustum defined by light_target/up/right/start/end transformed by axis/origin.
+  parallel light = bounded directional/parallel light inside volume; direction approximated by Doom semantics. TDM docs describe shadow direction as line between origin and light_center; source renderer is final authority.
+
+BRIGHTNESS_CALIBRATION_WARNING:
+  Doom 3 has no physical unit spawn key for light power. Apparent brightness is authored via _color magnitude, material/falloff image, texture/cookie, shader parms/tables, noSpecular/noShadows, and renderer interaction model.
+  Any conversion to lumens/candela requires a chosen calibration curve. Keep this separate from Doom state parsing.
+
+===============================================================================
+6. CLASSIFICATION FOR OUTPUT PHYSICAL LIGHTS
+===============================================================================
+CLASSIFY_FROM_RENDERLIGHT:
+  if rl.parallel == true:
+    doom_type = PARALLEL
+  else if rl.pointLight == true:
+    doom_type = POINT
+  else:
+    doom_type = PROJECTED
+
+POINT_OUTPUT_FIELDS:
+  name
+  initial_transform: origin, axis
+  radius_xyz: lightRadius
+  center_offset: lightCenter
+  material: texture
+  color_state: baseColor,currentLevel,levels,effective_rgb
+  flags: noShadows,noSpecular
+  animation: shaderParms,timeoffset,timescale,material expressions
+  runtime_control: target activation/script calls/binds/movement
+
+PROJECTED_OUTPUT_FIELDS:
+  name
+  initial_transform: origin, axis
+  projected_basis: target, up, right, start, end
+  material cookie/falloff
+  color_state + shaderParms
+  flags/runtime_control
+
+PARALLEL_OUTPUT_FIELDS:
+  name
+  bounded_volume: point-light radius/center or projected params depending source parse
+  direction: derive from Doom renderLight behavior; fallback use normalize(origin - (origin + axis*lightCenter)) / TDM docs line origin-light_center only if renderer unavailable
+  material/falloff/color/runtime fields
+
+===============================================================================
+7. IMPLEMENTATION CHECKLIST / TEST CASES
+===============================================================================
+UNIT_TESTS_STATIC_PARSE:
+  test_point_defaults:
+    input: {classname:light, name:L0}
+    expect: pointLight=true; radius=(300,300,300); _color=(1,1,1); texture=lights/squarelight1; levels default later=1
+  test_light_scalar_radius:
+    input: {light:"64"}
+    expect: lightRadius=(64,64,64); DO NOT alter color/intensity
+  test_light_radius_vector_precedence:
+    input: {light:"64", light_radius:"1 2 3"}
+    expect: lightRadius=(1,2,3)
+  test_projected_requires_triplet:
+    input only light_target
+    expect: invalid/warn/early return equivalent
+  test_projected_end_default:
+    input target/up/right no light_end
+    expect: end=target
+  test_axis_precedence:
+    light_rotation overrides rotation overrides angle
+  test_texture_default:
+    absent texture -> lights/squarelight1
+  test_shaderparm_timeoffset_default:
+    absent shaderParm4 -> -game_time_seconds
+  test_shaderparm_timeoffset_explicit:
+    shaderParm4="2.5" -> 2.5, not -time
+
+UNIT_TESTS_RUNTIME:
+  test_start_off:
+    levels=1, _color=0.5 0.25 1, start_off=1 -> currentLevel=0, RGB=(0,0,0), baseColor=(0.5,0.25,1)
+  test_levels_activation:
+    levels=3 initial current=3 -> activate -> 2; activate ->1; activate ->0/off; activate ->3/on
+    effective_rgb multipliers: 1, 2/3, 1/3, 0, 1
+  test_count_activation:
+    count=2 levels=1 -> first activate no change; second activate toggles/dims
+  test_break_activation:
+    break=1 -> eligible activation calls BecomeBroken and does not normal-toggle; breakOnTrigger false after
+  test_setColor_vs_setLightParms:
+    baseColor starts (1,1,1). setLightParms(.1,.2,.3,1) changes RGB. Then activate/off/on -> RGB returns from baseColor unless setColor changed it.
+    setColor(.4,.5,.6) updates baseColor and SetLightLevel; on/off uses new baseColor.
+  test_fadeIn_uses_spawn_color:
+    spawn _color=(1,0,0); setColor(0,1,0); fadeInLight(t) target should be spawn red, not current baseColor green.
+  test_hide_show:
+    hide -> Off/currentLevel=0; show -> On/currentLevel=levels.
+  test_bind_movement:
+    after parent transform changes, Present recomputes renderLight origin/axis from physics transform and localLightOrigin/localLightAxis.
+
+REGRESSION_TRAPS_TO_ASSERT:
+  - target prefix handling includes target0/target1, not only "target".
+  - bind spawnarg is generic idEntity handling.
+  - scripts may call On/Off with capital O exactly per event names.
+  - texture spawnarg can be absent; still material default.
+  - material/setShader names are decl names, not necessarily image filenames.
+  - Doom repo alone cannot parse shipped data; require PK4 VFS input.
+
+===============================================================================
+8. SUGGESTED CODE STRUCTURE
+===============================================================================
+DATA_TYPES:
+  SpawnArgs = ordered/dict string->string with helpers getBool/getInt/getFloat/getVec3/getMat3/hasVec3/hasMat3/matchPrefix
+  EntityDef = resolved default spawnargs + spawnclass/scriptobject metadata
+  Entity = {name, classname, spawnArgsResolved, targets[], bindSpec, transformController, hidden, scriptObject?}
+  DoomLight extends Entity = {
+    renderLight,
+    localLightOrigin,
+    localLightAxis,
+    baseColor,
+    levels,
+    currentLevel,
+    breakOnTrigger,
+    count,
+    triggercount,
+    brokenState,
+    fadeState,
+    lightParentName,
+    eventLog
+  }
+  MaterialLightInfo = {declName, projectionStages, falloffImage, colored, expressions, animated, unsupportedFeatures[]}
+  PhysicalLightTrack = sampled or analytic time-varying representation for path tracer
+
+CORE_FUNCTIONS:
+  parse_decl_entitydefs(vfs) -> EntityDefRegistry
+  parse_materials(vfs) -> MaterialRegistry
+  parse_map_entities(mapText) -> raw entity blocks
+  resolve_spawnargs(classname,mapArgs,entityDefRegistry) -> SpawnArgs
+  parse_render_light(spawnArgs, gameTimeMs=0) -> RenderLight
+  spawn_idlight(entity, gameTimeMs=0) -> DoomLight runtime initial state
+  build_target_graph(entities) -> graph
+  apply_activate(entityName, activatorName, timeMs)
+  apply_light_event(light, eventName, args, timeMs)
+  update_present(light, physicsTransform, timeMs)
+  evaluate_material_light(material, shaderParms, timeMs, referenceSound?) -> cookie/falloff/intensity modifiers
+  convert_doom_light_to_physical_track(light, materialInfo, calibration) -> PhysicalLightTrack
+
+EVENT_DISPATCH_FOR_LIGHT:
+  "activate" -> Event_ToggleOnOff
+  "On" -> On
+  "Off" -> Off
+  "hide" -> Event_Hide -> Off
+  "show" -> Event_Show -> On
+  "fadeOutLight" -> FadeOut
+  "fadeInLight" -> FadeIn
+  "setShader" -> SetShader
+  "setLightParm" -> SetLightParm
+  "setLightParms" -> SetLightParms
+  "setRadiusXYZ" -> SetRadiusXYZ
+  "setRadius" -> SetRadius
+  "setColor" -> SetColor (ensure idLight dispatch if implemented)
+
+===============================================================================
+9. SOURCE ANCHORS FOR AGENT VERIFICATION
+===============================================================================
+Use these exact files before changing behavior:
+  https://github.com/id-Software/DOOM-3/blob/master/neo/game/Light.cpp
+    lines ~2273-2290: idLight script event defs: setShader/getLightParm/setLightParm/setLightParms/setRadiusXYZ/setRadius/On/Off/fadeOutLight/fadeInLight
+    lines ~2292-2320: event mapping including EV_Activate -> idLight::Event_ToggleOnOff, EV_Hide/EV_Show
+    lines ~2326-2467: ParseSpawnArgsToRenderLight canonical parser
+    lines ~2702-2868: idLight::Spawn, start_off, levels, break/count/health setup
+    lines ~2875-2906: SetLightLevel intensity=currentLevel/levels, baseColor multiplier
+    lines ~2952-2983: SetColor updates baseColor then SetLightLevel
+    lines ~2991-3061: SetShader/SetLightParm/SetLightParms behavior
+    lines ~3073-3100: SetRadiusXYZ/SetRadius
+    lines ~3112-3160: On/Off
+    lines ~3172-3224: Fade/FadeOut/FadeIn
+    lines ~3252-3330: BecomeBroken
+    lines ~3401-3430: Present recomputes origin/axis + referenceSound
+    lines ~3691-3717: hide/show -> Off/On
+    lines ~3762-3809: activation count/break/levels toggle state machine
+    lines ~3815-3837: targeted lights share sound handles
+  https://github.com/id-Software/DOOM-3/blob/master/neo/game/Entity.cpp
+    lines ~2284-2330: generic events activate/bind/movement/hide/show/key access
+    lines ~3033-3040: spawn hide posts EV_Hide
+    lines ~3066-3070: name fallback/SetName
+    lines ~3072-3087: MatchPrefix target/guiTarget and FindTargets
+    lines ~3105-3107: bind spawnarg posts EV_SpawnBind
+  https://github.com/id-Software/DOOM-3
+    README lines ~240-244: source release does not contain game data
+  docs/concepts:
+    https://iddevnet.dhewm3.org/doom3/index.html
+    https://wiki.thedarkmod.com/index.php?title=Light_Properties
+    https://wiki.thedarkmod.com/index.php?title=Light_Textures_and_Falloff_Images
+    https://wiki.thedarkmod.com/index.php?title=Material_Files
+
+===============================================================================
+10. FINAL PRIORITY ORDER FOR CONVERTER BEHAVIOR
+===============================================================================
+1) Reproduce source parser spawnarg semantics exactly.
+2) Preserve runtime event state: currentLevel/levels/baseColor/material/shaderParms/transform.
+3) Preserve target graph and script calls enough to know when state changes.
+4) Preserve material names and parse lightFalloff/projection/cookie; approximate only behind explicit unsupported-feature flags.
+5) Apply chosen physical calibration last; never bake calibration into Doom parsing.

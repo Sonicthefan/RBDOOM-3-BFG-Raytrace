@@ -129,9 +129,19 @@ PathTracePrimaryPass.h
 
 PathTracePrimaryPass.cpp
     Thin pass shell. Performs RT feature detection, per-frame entry flow, output
-    sizing, and debug-present blit. Avoid putting scene build, dispatch,
-    resource lifetime, or diagnostics back here unless the pass shell itself
-    truly owns the work.
+    sizing, and debug-present blit. The PT output size is controlled by
+    r_pathTracingDebugWidth/r_pathTracingDebugHeight, not the application window
+    size. Internal PT output-size changes wait for the GPU to idle before old
+    output, accumulation, readback, smoke reservoir, or ReSTIR PT reservoir
+    resources can be replaced. When PT is active, a known native-size resize
+    also waits for the GPU to idle before ResizeImages() so previous-frame RT/AS
+    work cannot overlap swapchain teardown, then invalidates PT output, scene,
+    BLAS, smoke reservoirs, ReSTIR PT reservoirs/context, and the cached LDR
+    blit framebuffer. The resize frame skips PT execution and debug
+    presentation; if r_pathTracingSkipRaster3D owns the 3D view, it skips raster
+    3D too instead of falling back into the normal 3D path. Avoid putting scene
+    build, dispatch, resource lifetime, or diagnostics back here unless the pass
+    shell itself truly owns the work.
 
 RenderBackend.cpp
     Calls PathTracePrimaryPass from DrawViewInternal for 3D views. When
@@ -161,7 +171,15 @@ PathTraceSmokeResources.cpp
     Persistent NVRHI resource lifetime. Creates pipeline/output/readback
     resources, creates scene geometry buffers and binding resources, packages
     committed scene resources, resets smoke state, and commits successful scene
-    builds back into PathTracePrimaryPass state.
+    builds back into PathTracePrimaryPass state. `ResizeRayTracingSmokeOutput`
+    is the owner for PT internal render-resolution changes from
+    r_pathTracingDebugWidth/r_pathTracingDebugHeight. When replacing existing
+    output-sized resources it must wait for GPU idle and run NVRHI garbage
+    collection before old output, accumulation, readback, smoke reservoir, or
+    ReSTIR PT reservoir handles are released. This fixed a hard device-removal
+    crash that initially looked like an app-resize or aspect-ratio issue but was
+    actually old PT resources being replaced while previous-frame GPU work could
+    still reference them.
 
 PathTraceSmokeDispatch.h
     Exposes the smoke constants buffer size without exposing the full constants
@@ -462,6 +480,100 @@ PathTraceReservoirs.cpp
     scene-side reservoir reset signature from material-table, static-BLAS,
     emissive-triangle, and light-candidate data. Dispatch adds output and
     camera/FOV to form the full reset signature.
+
+PathTraceRestirPT.h
+    Host-side RTXDI ReSTIR PT context scaffold. Owns the pass-local
+    rtxdi::ReSTIRPTContext state, cached RTXDI_PTParameters block, dimensions,
+    checkerboard mode, resampling mode, and frame index used for RTXDI temporal
+    random state. Initial mode is ReSTIRPT_ResamplingMode::None.
+
+PathTraceRestirPT.cpp
+    Creates/recreates the RTXDI PT context on output-size/checkerboard changes,
+    calls SetFrameIndex and SetResamplingMode each dispatch, and fills
+    RTXDI_PTParameters from the context's reservoir parameters, buffer indices,
+    initial sampling, reconnection, temporal, hybrid-shift, boiling-filter, and
+    spatial parameters. It does not dispatch shader passes.
+
+PathTraceRestirPTReservoirs.h
+    NVIDIA ReSTIR PT packed reservoir declarations. This is the new RTXDI ABI
+    bridge boundary for a single RWStructuredBuffer<RTXDI_PackedPTReservoir>
+    using RTXDI reservoir addressing and the stock two PT reservoir slices. It
+    is separate from the mode 20 smoke reservoirs.
+
+PathTraceRestirPTReservoirs.cpp
+    Creates/reuses and clears the packed ReSTIR PT reservoir buffer. Sizing uses
+    rtxdi::CalculateReservoirBufferParameters plus
+    rtxdi::c_NumReSTIRPTReservoirBuffers instead of width*height linear
+    addressing. The buffer is allocated with the RT smoke output size and bound
+    into the smoke ray tracing shader ABI at u29, but no ReSTIR pass writes or
+    reads it yet.
+
+pathtrace_smoke.rt.hlsl
+    Existing smoke ray tracing shader. It now includes the RTXDI ReSTIR PT
+    parameter and reservoir headers for ABI validation only. The ABI bridge binds
+    `ConstantBuffer<RTXDI_PTParameters>` at b28 and
+    `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29, defines
+    `RTXDI_PT_RESERVOIR_BUFFER`, and compiles NVIDIA's PT reservoir load/store
+    helpers. The shader does not call those helpers yet, and the existing mode
+    18/20 smoke behavior should remain unchanged.
+
+RtxdiBridge/*.hlsli
+    Local RBDoom3 shader bridge declarations for future RTXDI RAB callbacks.
+    These files live next to the path tracing shader instead of copying NVIDIA
+    sample bridge files into a distant third-party area. The current Step 4
+    content is type-only: RAB_Material, RAB_Surface, RAB_RayPayload,
+    RAB_LightInfo, RAB_LightSample, and RAB_RandomSamplerState plus small empty
+    constructors/accessors.
+
+    Step 5 surface callback scaffolding currently lives in pathtrace_smoke.rt.hlsl
+    because it depends on the smoke shader's local payload and material helpers.
+    `RAB_BuildSurfaceFromSmokePayload` and `RAB_BuildMaterialFromSmokePayload`
+    translate a traced smoke hit into bridge records without changing the
+    existing mode 18/20 lighting paths. `RAB_GetGBufferSurface` and
+    `RAB_GetGBufferMaterial` are present but intentionally return invalid data
+    for both current and previous frame requests until the engine exposes real
+    primary-surface history/motion data to the shader. They do not trace rays,
+    evaluate BRDFs, sample lights, or call RTXDI path tracing yet.
+
+    Step 6 RNG scaffolding lives in `RAB_RandomSamplerState.hlsli`. It keeps a
+    local `RAB_RandomSamplerState` wrapper but initializes and advances it
+    through RTXDI's own random sampler helpers. This preserves the seed/index
+    contract that ReSTIR PT reservoirs need for path replay, while keeping the
+    application bridge name local and upgradeable.
+
+    Step 7 BRDF scaffolding lives in `RAB_Surface.hlsli`. It implements the
+    first conservative opaque-diffuse callbacks:
+    `RAB_GetSurfaceBrdfSample`, `RAB_GetSurfaceBrdfPdf`,
+    `RAB_EvaluateSurfaceBrdf`, `RAB_EvaluateSurfaceBrdfOverPdf`, plus
+    `RAB_SurfaceImportanceSampleBrdf` and `RAB_SurfaceEvaluateBrdfPdf` aliases.
+    The current model is cosine-hemisphere Lambert sampling over the RAB shading
+    normal with geometry-normal hemisphere rejection. Unsupported translucent or
+    invalid surfaces return no sample/zero contribution so they can keep using
+    the regular path until real BSDF support exists.
+
+    Step 8 light scaffolding is split across `RAB_LightInfo.hlsli`,
+    `RAB_LightSampling.hlsli`, and `RAB_MISCallbacks.hlsli`. The current bridge
+    can load and sample current-frame smoke emissive triangles and Doom analytic
+    sphere lights from the existing shader buffers, compute a simple reflected
+    target weight for supported opaque-diffuse RAB surfaces, return direction
+    and distance, and provide a conservative visibility callback that only
+    rejects invalid surfaces/samples. Previous-frame light loading returns
+    empty data. Environment sampling is still zero/unsupported. MIS callbacks
+    are present but intentionally neutral until `RAB_PathTrace` and consistent
+    NEE/BRDF path accounting exist.
+
+    Step 9 path-trace scaffolding lives under `RtxdiBridge/PathTracer/`.
+    `RAB_PathTracerUserData.hlsli` provides the minimal user-data object and
+    path-type setter required by RTXDI PT entry points. `RAB_PathTracer.hlsli`
+    compiles RTXDI's initial-sampling path tracer context against the local RAB
+    callbacks and defines `RAB_PathTrace`. The skeleton samples the current
+    conservative RAB BRDF, fills `RTXDI_BrdfRaySample`, sets a continuation ray,
+    lets RTXDI analyze reconnectibility, traces `SmokeScene`, converts the smoke
+    hit payload back into `RAB_RayPayload`/`RAB_Surface`, records the
+    intersection, and records emissive surface hits. It is capped to a small
+    bridge bounce depth and does not yet implement NEE, environment radiance,
+    Russian roulette, PSR/denoiser state, traced RAB visibility, temporal replay,
+    or spatial reuse.
 
 PathTraceDebugDumps.h
     Shared diagnostic structs and dump/trigger APIs for scene build, material,
@@ -944,6 +1056,56 @@ light-candidate records, or static-BLAS signature change. Use
 r_pathTracingReservoirDump 1 to inspect the current signature/reset state. Mode
 20 writes current reservoirs for one-frame direct emissive lighting; previous
 and spatial scratch reservoirs are not consumed yet.
+
+RTXDI-compatible ReSTIR PT host plumbing now exists separately from the smoke
+reservoirs. PathTraceRestirPTReservoirs allocates a packed
+RTXDI_PackedPTReservoir buffer sized by RTXDI's tiled reservoir parameters and
+two PT reservoir slices. PathTraceRestirPT owns an RTXDI ReSTIRPTContext and
+uploads an RTXDI_PTParameters constant buffer each smoke dispatch, with
+resampling mode still forced to None. The smoke ray tracing binding set and
+shader now expose the Step 3 RTXDI PT reservoir ABI at b28/u29 and compile
+`Rtxdi/PT/Reservoir.hlsli` through `RTXDI_PT_RESERVOIR_BUFFER`, but no RTXDI
+shader pass, temporal reuse, or spatial reuse consumes it yet. Step 4 local RAB
+type declarations exist under `RtxdiBridge/`, Step 5 smoke-payload-to-RAB
+surface helpers plus intentionally invalid screen G-buffer callbacks are present
+in `pathtrace_smoke.rt.hlsl`, and Step 6 RAB RNG callbacks wrap RTXDI's own
+sampler helpers. Step 7 RAB BRDF callbacks provide only conservative
+opaque-diffuse sampling/evaluation; glossy, transmission, decal, GUI, particle,
+and volumetric BSDFs remain future work. Step 8 RAB light callbacks expose
+current smoke emissive triangles and Doom analytic sphere lights to the bridge,
+but do not add traced visibility, environment sampling, previous-frame light
+history, or active RTXDI passes. Step 9 compiles the RTXDI initial-sampling
+path-tracer context against a local `RAB_PathTrace` skeleton. Step 10 adds the
+first gated dispatch path in `r_pathTracingDebugMode 26`: raygen builds the
+current primary RAB surface, calls RTXDI `GenerateInitialSamples`, and stores
+the result through `RTXDI_StorePTReservoir` into
+`bufferIndices.initialPathTracerOutputBufferIndex`. Misses, GUI surfaces, and
+unsupported translucent/special surfaces store an empty reservoir. Mode 26 is a
+debug reservoir-writer/heat view only. The local path tracer now records one
+conservative NEE sample from the current RAB light list per visited path vertex
+before BRDF continuation so initial reservoirs are visible near valid light
+candidates; the first BRDF-only probe and the first single uniform light pick
+were too sparse to validate visually. The current NEE picker uses the existing
+weighted emissive-triangle distribution and keeps the best local target from a
+small trial set. This is still a debug visibility aid, not final light sampling.
+It does not shade from the reservoir, does not enable temporal/spatial reuse,
+does not use previous-frame G-buffer history, does not trace final RAB
+visibility, and does not change modes 18/20.
+
+Mode 26 uses the same source3 scene-membership baseline as the playable modes
+for validation: rigid TLAS routing, rigid residency, and routed rigid
+emissive-card inventory are enabled for it. Without this, mode 26 can test
+ReSTIR PT against a culled/fallback scene that does not match modes 18/20.
+
+Mode 27 is the paired initial-reservoir shading preview. It uses the same
+initial reservoir write path and source3 scene-membership baseline as mode 26,
+but visualizes `TargetFunction * WeightSum` instead of the temporary diagnostic
+fallback color key. It is intentionally initial-only because temporal
+resampling still needs previous primary-surface data and motion vectors.
+User validation reported that mode 27 works fairly well, runs well
+performance-wise, and has no serious stability or gameplay issues. Remaining
+black objects/rough normals should be handled as local RAB material and normal
+contract cleanup.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver

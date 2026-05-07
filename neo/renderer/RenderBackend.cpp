@@ -63,6 +63,10 @@ bool drawView3D;
 
 namespace {
 
+nvrhi::FramebufferHandle s_pathTraceLdrColorFramebuffer;
+nvrhi::ITexture* s_pathTraceLdrTexture = nullptr;
+bool s_pathTraceSkipThisBackendFrame = false;
+
 PathTracePrimaryPass& RB_GetPathTracePrimaryPass( idRenderBackend* backend )
 {
 	static PathTracePrimaryPass s_pathTracePass( backend );
@@ -71,9 +75,6 @@ PathTracePrimaryPass& RB_GetPathTracePrimaryPass( idRenderBackend* backend )
 
 nvrhi::IFramebuffer* RB_GetPathTraceLdrColorFramebuffer()
 {
-	static nvrhi::FramebufferHandle s_pathTraceLdrColorFramebuffer;
-	static nvrhi::ITexture* s_pathTraceLdrTexture = nullptr;
-
 	nvrhi::TextureHandle ldrTextureHandle = globalImages->ldrImage->GetTextureHandle();
 	nvrhi::ITexture* ldrTexture = ldrTextureHandle.Get();
 	if( s_pathTraceLdrColorFramebuffer == nullptr || s_pathTraceLdrTexture != ldrTexture )
@@ -84,6 +85,13 @@ nvrhi::IFramebuffer* RB_GetPathTraceLdrColorFramebuffer()
 	}
 
 	return s_pathTraceLdrColorFramebuffer;
+}
+
+void RB_InvalidatePathTraceBackBufferCaches( idRenderBackend* backend )
+{
+	s_pathTraceLdrColorFramebuffer = nullptr;
+	s_pathTraceLdrTexture = nullptr;
+	RB_GetPathTracePrimaryPass( backend ).InvalidateForBackBufferResize();
 }
 
 }
@@ -5482,7 +5490,39 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 
 	// make sure the swapchains and rendertargets have the size requested
 	// by the window system
+	s_pathTraceSkipThisBackendFrame = false;
+	const int oldBackBufferWidth = deviceManager ? static_cast<int>( deviceManager->GetDeviceParams().backBufferWidth ) : 0;
+	const int oldBackBufferHeight = deviceManager ? static_cast<int>( deviceManager->GetDeviceParams().backBufferHeight ) : 0;
+	const int requestedBackBufferWidth = glConfig.nativeScreenWidth;
+	const int requestedBackBufferHeight = glConfig.nativeScreenHeight;
+	const bool pathTraceBackBufferWillResize =
+		oldBackBufferWidth > 0 && oldBackBufferHeight > 0 &&
+		requestedBackBufferWidth > 0 && requestedBackBufferHeight > 0 &&
+		( oldBackBufferWidth != requestedBackBufferWidth || oldBackBufferHeight != requestedBackBufferHeight );
+	if( pathTraceBackBufferWillResize )
+	{
+		if( r_pathTracing.GetInteger() != 0 && deviceManager && deviceManager->GetDevice() )
+		{
+			deviceManager->GetDevice()->waitForIdle();
+			deviceManager->GetDevice()->runGarbageCollection();
+		}
+		RB_InvalidatePathTraceBackBufferCaches( this );
+		s_pathTraceSkipThisBackendFrame = true;
+	}
 	ResizeImages();
+	const int newBackBufferWidth = deviceManager ? static_cast<int>( deviceManager->GetDeviceParams().backBufferWidth ) : 0;
+	const int newBackBufferHeight = deviceManager ? static_cast<int>( deviceManager->GetDeviceParams().backBufferHeight ) : 0;
+	if( oldBackBufferWidth > 0 && oldBackBufferHeight > 0 &&
+		( oldBackBufferWidth != newBackBufferWidth || oldBackBufferHeight != newBackBufferHeight ) )
+	{
+		if( !pathTraceBackBufferWillResize )
+		{
+			RB_InvalidatePathTraceBackBufferCaches( this );
+			s_pathTraceSkipThisBackendFrame = true;
+		}
+		common->Printf( "PathTracePrimaryPass: skipped PT for resize frame old=%dx%d new=%dx%d\n",
+			oldBackBufferWidth, oldBackBufferHeight, newBackBufferWidth, newBackBufferHeight );
+	}
 
 	if( cmds->commandId == RC_NOP && !cmds->next )
 	{
@@ -5508,7 +5548,7 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 	bool pathTraceDebugPresentPending = false;
 	auto PresentPathTraceDebugIfPending = [&]()
 	{
-		if( pathTraceDebugPresentPending && r_pathTracing.GetInteger() != 0 )
+		if( pathTraceDebugPresentPending && r_pathTracing.GetInteger() != 0 && !s_pathTraceSkipThisBackendFrame )
 		{
 			renderLog.OpenBlock( "Blit_PathTraceSmokeDebugToLDR", colorYellow );
 			RB_GetPathTracePrimaryPass( this ).BlitDebugOutput(
@@ -5658,7 +5698,7 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 		}
 	}
 
-	const bool presentPathTraceDebugOutput = is3D && r_pathTracing.GetInteger() != 0;
+	const bool presentPathTraceDebugOutput = is3D && r_pathTracing.GetInteger() != 0 && !s_pathTraceSkipThisBackendFrame;
 	if( presentPathTraceDebugOutput )
 	{
 		RB_GetPathTracePrimaryPass( this ).Execute( _viewDef );
@@ -5667,6 +5707,11 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 			renderLog.CloseBlock();
 			return;
 		}
+	}
+	else if( is3D && r_pathTracing.GetInteger() != 0 && s_pathTraceSkipThisBackendFrame && r_pathTracingSkipRaster3D.GetInteger() != 0 )
+	{
+		renderLog.CloseBlock();
+		return;
 	}
 
 	//-------------------------------------------------
@@ -6138,7 +6183,7 @@ void idRenderBackend::DrawViewInternal( const viewDef_t* _viewDef, const int ste
 			blitParms.targetFramebuffer = deviceManager->GetCurrentFramebuffer();
 			blitParms.targetViewport = nvrhi::Viewport( renderSystem->GetNativeWidth(), renderSystem->GetNativeHeight() );
 			commonPasses.BlitTexture( commandList, blitParms, &bindingCache );
-			if( r_pathTracing.GetInteger() != 0 )
+			if( r_pathTracing.GetInteger() != 0 && !s_pathTraceSkipThisBackendFrame )
 			{
 				RB_GetPathTracePrimaryPass( this ).DrawBoundsOverlayRaster(
 					deviceManager->GetCurrentFramebuffer(),

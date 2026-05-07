@@ -5,7 +5,353 @@ This document is for a fresh Codex or human contributor picking up the
 experimental Vulkan/NVRHI RT smoke/path tracing branch without reading the full
 chat history.
 
-Current snapshot - 2026-05-04
+Current snapshot - 2026-05-06
+-----------------------------
+
+Repository:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/refactor-pathtrace-smoke-modules
+
+Prepared game folder used for testing:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+Current operational state:
+
+- The BVH/scene-source emergency is over. Do not start another broad BVH rewrite
+  or portal-system intervention unless a new, concrete regression proves the
+  current source3 stack is insufficient.
+- The source3 portal-resident BVH stack is now the default baseline for normal
+  PT smoke testing. Mode 18, mode 20, and the BVH diagnostic modes should work
+  without entering a long list of setup CVars after game launch.
+- The old drawSurf-visible-only BVH path is deprecated but intentionally kept as
+  an emergency comparison path.
+- Release/PT build passed after the source3-default change and the executable
+  was copied to the prepared game folder.
+
+Current default scene/BVH policy:
+
+- `r_pathTracingSceneSource` defaults to `3`.
+- Static world geometry uses source3 area-selected preload.
+- Rigid objects use local-space rigid BLAS plus TLAS transforms.
+- Rigid residency keeps route-ready rigid instances resident beyond raster
+  visibility when their renderer area remains in the selected portal set.
+- Static preload, rigid residency, and light-area selection all default to a
+  current-area plus four portal-step walk. Current+1 was tested and is too
+  conservative for Doom 3; many visually single rooms span several renderer
+  portal areas.
+- The implementation uses Doom renderer area/portal membership as the RT
+  residency unit. The relevant renderer APIs are `PointInArea`,
+  `NumPortalsInArea`, and `GetPortal`. Do not substitute raw BSP leaf/internal
+  nodes as the residency unit.
+- `PS_BLOCK_VIEW` portal edges are currently counted/reported but do not hard
+  stop source3 static preload, rigid residency, or light-area traversal. Hard
+  blocking reproduced missing-BVH behavior in user tests.
+
+Important defaults now expected at startup:
+
+    r_pathTracingSceneSource 3
+    r_pathTracingRigidBlasGpuScaffold 1
+    r_pathTracingRigidBlasGpuBuild 1
+    r_pathTracingRigidTlasRoute 1
+    r_pathTracingRigidRouteMode18 1
+    r_pathTracingRigidRouteMode20 1
+    r_pathTracingRigidRouteRemoveDynamic 1
+    r_pathTracingRigidRouteEmissiveCards 1
+    r_pathTracingRigidRouteMaxInstances 256
+    r_pathTracingRigidResidency 1
+    r_pathTracingRigidResidencyPortalSteps 4
+    r_pathTracingStaticAreaPreload 1
+    r_pathTracingStaticAreaPreloadPortalSteps 4
+    r_pathTracingLightAreaPortalSteps 4
+
+Emergency fallback if source3 needs comparison:
+
+    r_pathTracingSceneSource 0
+    r_pathTracingRigidTlasRoute 0
+    r_pathTracingRigidResidency 0
+    r_pathTracingStaticAreaPreload 0
+    r_pathTracingRigidRouteRemoveDynamic 0
+
+Testing baseline now:
+
+- Use Release/PT dev builds only for meaningful PT behavior/performance tests.
+- Normal runtime checks can start from just selecting the debug mode:
+
+      r_pathTracingDebugMode 18
+      r_pathTracingDebugMode 20
+      r_pathTracingDebugMode 21
+      r_pathTracingDebugMode 22
+
+- Mode 18 is the stable/playable toy one-bounce path trace path.
+- Mode 20 is still single-frame reservoir direct emissive lighting. Spatial and
+  temporal reuse are not implemented.
+- Modes 21/22 are solid/wireframe BVH bounds diagnostics tied to the current
+  source3 scene stack, useful for quickly spotting residency/culling mistakes.
+- `r_pathTracingWorldStaticEmissives` must remain default `0`.
+- `r_pathTracingDynamicOccluderRadius` must remain default `0`.
+- `r_pathTracingSkipRaster3D` defaults to `1` and should stay that way unless
+  deliberately testing raster interaction.
+
+Current known caveats:
+
+- Wider campaign testing is limited because unrelated game-logic parity work is
+  still incomplete outside the opening section.
+- Moving/off-screen resident rigid objects currently use last observed
+  transform/material metadata until they are seen again. This is acceptable as a
+  baseline but is not final motion-vector or animation handling.
+- Rigid emissive-card promotion is conservative. It rejects GUI/particle-like,
+  glass, post-process, skinned/deforming, callback/generated, depth-hack,
+  dynamic-model, and `_add + 0200` cases. A temporary `swinglight` exclusion
+  remains because that family is game-logic/register driven and must stay on the
+  dynamic drawSurf path until a general dynamic-register/material-parm detector
+  exists.
+- Light-area filtering diagnostics exist, but light-area filter application is
+  not the main default safety mechanism. The source3 portal-resident scene stack
+  is the important baseline.
+- Do not reintroduce the unsafe routed rigid `triangleClassAndFlags` GPU payload
+  attempt. It broke broad surface rendering and was reverted.
+
+Resolved PT output resize crash - 2026-05-08
+--------------------------------------------
+
+Changing `r_pathTracingDebugWidth` or `r_pathTracingDebugHeight` caused a hard
+GPU device-removal crash after the console printed the new PT output
+resolution. The application/window back-buffer resize path was a false lead:
+the PT render resolution is controlled by those debug CVars, not by the game
+window size. A transient aspect-ratio mismatch from changing width and height
+one at a time was also not the root cause.
+
+The actual issue was PT internal output-size resource lifetime. When the debug
+width/height changed, `ResizeRayTracingSmokeOutput` replaced output,
+accumulation, readback, smoke reservoir, and ReSTIR PT reservoir resources while
+the previous frame could still have RT dispatch, blit, readback copy, or
+descriptor use in flight. The fix is to call `waitForIdle()` and
+`runGarbageCollection()` in `PathTraceSmokeResources::ResizeRayTracingSmokeOutput`
+before replacing existing output-sized PT resources. Keep that fence at the PT
+resource owner. Future app/native back-buffer resize work should not be
+confused with PT debug output-size changes.
+
+Current ReSTIR PT bridge state - 2026-05-08
+-------------------------------------------
+
+ReSTIR PT integration has completed the first ten bridge steps:
+
+- Step 1: separate host-side packed ReSTIR PT reservoir allocation in
+  `PathTraceRestirPTReservoirs.*`. It uses `RTXDI_PackedPTReservoir`,
+  RTXDI reservoir addressing parameters, and the stock two PT reservoir slices.
+- Step 2: pass-owned `rtxdi::ReSTIRPTContext` and `RTXDI_PTParameters` upload
+  plumbing in `PathTraceRestirPT.*`, with resampling mode still forced to
+  `ReSTIRPT_ResamplingMode::None`.
+- Step 3: shader ABI binding only. The smoke ray tracing binding set now binds
+  `RTXDI_PTParameters` at b28 and
+  `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29. The shader defines
+  `RTXDI_PT_RESERVOIR_BUFFER` and compiles `Rtxdi/PT/Reservoir.hlsli`. No
+  RTXDI pass, RAB bridge, reservoir load/store call, temporal reuse, or spatial
+  reuse is enabled yet.
+- Step 4: local shader-side RAB type declarations in
+  `neo/shaders/builtin/pathtracing/RtxdiBridge`. These are RBDoom3-owned bridge
+  files placed next to the smoke path tracing shader, not copied NVIDIA sample
+  bridge files. They currently define only RAB_Material, RAB_Surface,
+  RAB_RayPayload, RAB_LightInfo, RAB_LightSample, and RAB_RandomSamplerState
+  plus small empty/accessor helpers.
+- Step 5: `pathtrace_smoke.rt.hlsl` now has current-hit bridge helpers:
+  `RAB_BuildMaterialFromSmokePayload` and `RAB_BuildSurfaceFromSmokePayload`.
+  They translate an actual smoke ray payload into RAB material/surface data
+  using the existing smoke material table, albedo sampling, normal-map decode,
+  alpha coverage, emissive sampling, and specular helpers. The screen callback
+  entry points `RAB_GetGBufferSurface` and `RAB_GetGBufferMaterial` exist, but
+  intentionally return invalid data for both current and previous frame requests
+  because the smoke shader still has no real current/previous primary-surface
+  buffers or motion vectors. This avoids the dangerous shortcut of treating the
+  current ray hit as previous-frame history. No visibility tests, BRDF
+  evaluation callbacks, light sampling callbacks, RTXDI shader pass,
+  temporal reuse, spatial reuse, or RAB_PathTrace implementation is enabled yet.
+- Step 6: `RAB_RandomSamplerState.hlsli` now exposes local
+  `RAB_RandomSamplerState`, `RAB_InitRandomSampler`, direct-seed construction,
+  and `RAB_GetNextRandom`. The implementation wraps RTXDI's own random sampler
+  helpers rather than introducing a separate weak generator. Future path replay
+  should store and restore the same seed/index pair consumed by these callbacks.
+- Step 7: `RAB_Surface.hlsli` now exposes conservative BRDF callbacks:
+  `RAB_GetSurfaceBrdfSample`, `RAB_GetSurfaceBrdfPdf`,
+  `RAB_EvaluateSurfaceBrdf`, `RAB_EvaluateSurfaceBrdfOverPdf`, and RTXDI-style
+  alias names for BRDF sampling/PDF. This first implementation is deliberately
+  opaque diffuse only: cosine-hemisphere sampling, matching solid-angle PDF,
+  Lambert BRDF evaluation, and BRDF*cos/PDF throughput. Invalid, translucent,
+  and special surfaces return no sample or zero contribution until real BSDF
+  support is added.
+- Step 8: light bridge callbacks now exist. `RAB_LightInfo.hlsli` loads
+  current-frame smoke emissive triangles and Doom analytic sphere lights from
+  the existing shader buffers. `RAB_LightSampling.hlsli` samples those two light
+  types, computes light direction/distance, computes an opaque-diffuse target
+  weight for a surface, and exposes a conservative visibility callback that
+  only rejects invalid surfaces/samples. `RAB_MISCallbacks.hlsli` provides the
+  expected MIS callback names, but the implementation is intentionally neutral
+  until `RAB_PathTrace` can keep NEE and BRDF sampling accounting consistent.
+  Previous-frame light loading returns empty data, and environment sampling is
+  still unsupported.
+- Step 9: a compile-validated `RAB_PathTrace` skeleton now exists under
+  `neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer`. It compiles RTXDI's
+  initial-sampling path tracer context against the local RAB bridge and wraps
+  the existing smoke TLAS path: sample the conservative opaque-diffuse RAB BRDF,
+  set `RTXDI_BrdfRaySample`, set a continuation ray, let RTXDI analyze
+  reconnectibility, trace `SmokeScene`, convert the `PathTraceSmokePayload` back
+  into RAB payload/surface data, record the intersection, and record emissive
+  surface hits. The skeleton is capped to a small bridge bounce depth and still
+  omits NEE, environment radiance, Russian roulette, PSR/denoiser state, traced
+  RAB visibility, temporal replay, and spatial reuse. No RTXDI shader pass
+  dispatches it yet.
+- Step 10: `r_pathTracingDebugMode 26` is now a gated RTXDI initial-sampling
+  reservoir writer/debug view. The smoke raygen traces the normal primary ray,
+  converts the hit to a current-frame RAB surface, initializes an RTXDI
+  path-tracer random context from the ReSTIR PT frame index, calls
+  `GenerateInitialSamples`, and stores the returned `RTXDI_PTReservoir` into
+  `RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex` with
+  `RTXDI_StorePTReservoir`. `RAB_PathTrace` records one conservative NEE sample
+  from the current RAB light list per visited path vertex before BRDF
+  continuation, because the first BRDF-only probe was visually unlit/sparse in
+  normal Doom scenes. The first single uniform light pick was still too weak, so
+  mode 26 now uses the existing weighted emissive-triangle distribution and
+  keeps the best local target from a small trial set. This was not caused by
+  roughness/PBR conversion: mode 26 remains diffuse-only with roughness 1.0,
+  which is acceptable for this reservoir visibility check. Misses store an empty
+  reservoir and render black; GUI surfaces store empty and use the existing GUI
+  composite; unsupported translucent/special surfaces store empty and render dim
+  albedo. The visible output is only a heat/debug view of selected useful
+  reservoirs. It does not consume reservoirs for final shading, does not enable
+  temporal or spatial reuse, does not use previous-frame G-buffer history, does
+  not trace final RAB visibility, and does not change modes 18/20. Mode 26 now
+  participates in rigid TLAS routing, rigid residency, and routed rigid
+  emissive-card inventory so it validates against the same source3
+  scene-membership baseline as modes 18/20 instead of a culled/fallback subset.
+  A temporary diagnostic fallback color key is active when RTXDI does not select
+  a useful reservoir: orange means the shader found a nonzero local RAB light
+  target, blue means valid light samples existed but contributed zero to the
+  current surface, red means sampled light records were invalid, and purple
+  means no light candidates reached the shader.
+- Mode 27 is paired with mode 26 as an initial-reservoir shading preview. It
+  runs the same initial sampling and source3 scene-membership path, writes the
+  initial reservoir slice, and displays `TargetFunction * WeightSum` with simple
+  tonemapping instead of mode 26's diagnostic color key. It is deliberately not
+  Step 11 temporal reuse; previous primary-surface history and motion vectors
+  are still missing from the smoke shader. User validation reported that mode 27
+  works fairly well, runs well performance-wise, and has no serious stability or
+  gameplay issues. Remaining rough normals and a few black objects are local RAB
+  material/normal/unsupported-surface cleanup, not a source3 scene/light
+  membership or initial-reservoir generation failure.
+
+Shader changes were made, so test builds must copy `base/renderprogs2` into the
+prepared game folder along with the executable.
+
+Likely next task: Doom lights as PT analytic candidates
+------------------------------------------------------
+
+The user is considering the next work chunk: a basic attempt to leverage Doom 3
+light entities as more physical PT light candidates. This is not a BVH emergency
+task. Treat it as a light-universe / sampling scaffold.
+
+Relevant reasoning:
+
+- Doom 3 maps contain many authored lights. Brute force direct lighting that
+  evaluates every relevant shadowed light per shaded hit scales poorly:
+
+      visible hits * lights evaluated * shadow rays
+
+- ReSTIR DI/PT is a good long-term fit for Doom 3 because many lights can become
+  candidates while the shader traces only a small number of final visibility
+  rays.
+- A finite analytic light is a better first physical approximation than the
+  current physically impossible point-light behavior. Start with analytic sphere
+  lights or simple analytic area records, not triangle spheres inserted into the
+  BVH.
+- Analytic Doom lights do not need to be BVH geometry for direct lighting. They
+  need stable IDs, area membership, sampling code, intensity/radius parameters,
+  and shadow rays through the existing source3 BVH.
+- Real emissive surfaces/signs/screens remain geometry/emissive candidates.
+  Doom helper lights that duplicate emissive surfaces may eventually need an
+  explicit map-scoped blacklist or PT overlay file.
+
+Recommended first production slice:
+
+1. Add diagnostics for Doom renderer lights before changing lighting output.
+   Useful fields: map name, render light index, entity name if accessible,
+   shader/material name, origin, radius/bounds, color, area number, active/on
+   state, and portal-depth classification from the current player area.
+2. Add a nearest/crosshair/player-proximity light dump so the tester can stand
+   near problematic doubled lights and capture stable blacklist candidates.
+3. Add an analytic light candidate record path behind a CVar. Prefer a separate
+   CPU/GPU buffer for analytic light candidates rather than BVH geometry.
+4. Start with sphere-light sampling in a diagnostic mode or mode-20-adjacent
+   path. Keep the existing point-light behavior available for comparison.
+5. Add intensity/radius CVars. Initial conversion can match the existing Doom
+   point-light brightness approximately at a calibration distance, not attempt
+   physical correctness from day one.
+6. Keep candidates area-aware using the existing renderer area/portal walk.
+   Default to the established four portal steps unless the task has a concrete
+   reason to differ.
+
+Do not do this first:
+
+- Do not add triangle sphere meshes to the TLAS as the first light conversion.
+- Do not disable or rewrite existing Doom lights globally.
+- Do not auto-blacklist duplicate-looking lights without diagnostics and user
+  confirmation.
+- Do not treat this as a reason to revisit the source3 BVH foundation.
+
+Potential follow-up systems:
+
+- Map-scoped PT overlay files for analytic lights and Doom-light overrides, e.g.
+  `base/pt_overlays/game/mars_city1.ptlights`.
+- Map-scoped light blacklist keyed by stable identity:
+  map + entity/renderLight index + shader + origin/radius.
+- ReSTIR DI candidate reservoir over emissive triangles, rigid emissive cards,
+  analytic Doom lights, and future overlay lights.
+- Later solid-angle sphere sampling; uniform sphere-surface sampling is simpler
+  for the first debug scaffold.
+
+Recommended next small chunks, not urgent BVH intervention:
+
+- Replace the temporary `swinglight` material-name exclusion with a real
+  material/register dependency detector for shaderParm/time/sound/global-driven
+  emissive stages.
+- Add freshness/motion handling for moving resident rigid instances and future
+  motion-vector requirements.
+- Continue improving material classification in small, testable passes.
+- Improve mode 20 light candidate quality/performance and eventually add
+  temporal/spatial reuse.
+- Continue unrelated game-logic parity work needed for broader campaign testing.
+
+Recent source3/BVH-related commits:
+
+    3af06460 pt: make source3 portal BVH default
+    bb0a1abf pt: add source3 portal residency stack
+    2c650586 docs: update path tracing routed rigid notes
+    87254b9d pt: add light area filter impact diagnostics
+    7c34b687 pt: add mode 20 test preset
+    02e4a524 pt: route rigid BLAS instances into smoke modes
+    3c583342 pt: add drawsurf mirror bounds diagnostics
+    0ea87716 docs: add scene producer replacement guide
+    296f3f5b pt: add static scene universe diagnostics
+
+Current documentation map:
+
+- `docs/pathtracing.txt` is the durable primary status/chronology document.
+- `docs/pathtrace_modules.txt` is the durable file-by-file module map.
+- `docs/pathtrace_geometry_universe.md` explains persistent geometry and
+  source3 area/portal residency details.
+- `docs/pathtrace_material_universe.md` explains persistent material facts and
+  stable material indexes.
+- `docs/pathtrace_interactive_surfaces.md` explains interactive/runtime material
+  state and rigid emissive-card caveats.
+- `docs/pathtrace_scene_producer_*` files are historical intervention/build-log
+  records. They are useful context, but they are not the active roadmap and
+  should not override the primary documents above.
+
+Historical snapshot - 2026-05-04
 -----------------------------
 
 Repository:

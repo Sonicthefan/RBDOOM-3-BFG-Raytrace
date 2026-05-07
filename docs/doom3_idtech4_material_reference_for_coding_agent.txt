@@ -1,0 +1,960 @@
+DOOM 3 / IDTECH4 MATERIAL MAP CLASSIFICATION REFERENCE
+For coding-agent use in a path-traced Doom 3 / idTech4 renderer
+Generated: 2026-05-06
+
+================================================================================
+0. EXECUTIVE SUMMARY
+================================================================================
+
+Do NOT classify Doom 3 texture maps primarily by filename suffixes such as _d,
+_s, _local, _h, etc. That is only a fallback heuristic.
+
+The reliable source of truth is the idTech4 material declaration system:
+
+    rendered surface material name
+        -> resolved .mtr material declaration
+        -> parsed material stages
+        -> stage lighting role: bump / diffuse / specular / ambient/effect
+        -> renderer interaction packet: bumpImage, diffuseImage, specularImage
+
+Core rule:
+
+    diffusemap  or  stage with "blend diffusemap"   => diffuse/base-color role
+    bumpmap     or  stage with "blend bumpmap"      => bump/normal role
+    specularmap or  stage with "blend specularmap"  => specular role
+
+Surface categories such as metal, stone, wood, flesh, glass, liquid, plastic,
+and similar are also declared in the material definition via material/surface
+parameters. Use those explicit tokens before using name-based guessing.
+
+================================================================================
+1. PRIMARY SOURCES TO CHECK IN CODE / DOCS
+================================================================================
+
+Public id Software Doom 3 GPL source:
+
+    https://github.com/id-Software/DOOM-3
+
+Most relevant files:
+
+    neo/renderer/Material.cpp
+    neo/renderer/Material.h
+    neo/renderer/tr_local.h
+
+Important source anchors:
+
+    Material.cpp
+        idMaterial::ParseBlend()
+            - Parses material stage blend keywords.
+            - Sets stage lighting class from blend keywords:
+                blend bumpmap     -> SL_BUMP
+                blend diffusemap  -> SL_DIFFUSE
+                blend specularmap -> SL_SPECULAR
+            - Other blend modes remain ambient/effect-style stages.
+
+        idMaterial::CheckSurfaceParm()
+            - Scans material tokens against the infoParms table.
+            - Sets material/content/surface flags such as metal, stone, glass,
+              flesh, wood, liquid, nonsolid, water, clip, etc.
+
+        infoParms table
+            - Authoritative list of recognized material/surface parameter names.
+            - Use this table rather than inventing a surface-type vocabulary.
+
+    Material.h
+        stageLighting_t
+            - Defines the stage-lighting classification enum.
+            - Relevant values:
+                SL_AMBIENT
+                SL_BUMP
+                SL_DIFFUSE
+                SL_SPECULAR
+
+        materialStage_t
+            - Stores per-stage state including lighting role, image expression,
+              color/condition expressions, texture coordinates, etc.
+
+    tr_local.h
+        drawInteraction_t or equivalent renderer interaction structure
+            - Contains the final images used by a light/material interaction:
+                bumpImage
+                diffuseImage
+                specularImage
+
+Useful documentation:
+
+    The Dark Mod material-file docs:
+        https://wiki.thedarkmod.com/index.php?title=Material_Files
+
+    Splash Damage idTech4 material docs:
+        https://wiki.splashdamage.com/index.php/Materials
+
+    Doom 3 modding notes with practical .mtr/model notes:
+        https://simonschreibt.de/gat/doom-3-modding-notes/
+
+================================================================================
+2. IMPORTANT CONCEPTS
+================================================================================
+
+2.1 Material name vs image filename
+-----------------------------------
+
+A surface usually references a MATERIAL NAME such as:
+
+    textures/base_wall/some_wall
+
+That material name is looked up in material declarations, typically from files in:
+
+    materials/*.mtr
+
+The material declaration, not the texture filename, determines which image is
+used as diffuse, bump/normal, specular, translucent overlay, additive glow,
+reflection, GUI, video, etc.
+
+2.2 PK4 game assets
+-------------------
+
+Doom 3 game data is packaged in .pk4 files. A .pk4 is a ZIP-style archive.
+Build a virtual filesystem over the active game/mod search path and parse all
+relevant materials from:
+
+    base/*.pk4
+    d3xp/*.pk4       if Resurrection of Evil content is needed
+    mod/*.pk4        if supporting mods
+    loose files      if supporting unpacked development folders
+
+The GPL source repository does NOT include the commercial game assets. The
+source code is useful for behavior; the installed game/mod data is needed for
+actual material declarations and texture paths.
+
+2.3 Shortcut stages
+-------------------
+
+idTech4 materials support shorthand declarations such as:
+
+    diffusemap  textures/foo/foo_d
+    bumpmap     textures/foo/foo_local
+    specularmap textures/foo/foo_s
+
+Treat these as equivalent to explicit interaction stages with the matching blend:
+
+    {
+        blend diffusemap
+        map textures/foo/foo_d
+    }
+
+    {
+        blend bumpmap
+        map textures/foo/foo_local
+    }
+
+    {
+        blend specularmap
+        map textures/foo/foo_s
+    }
+
+2.4 Explicit stages
+-------------------
+
+The same roles can appear in explicit stage blocks:
+
+    textures/foo/bar
+    {
+        {
+            blend bumpmap
+            map textures/foo/bar_local
+        }
+        {
+            blend diffusemap
+            map textures/foo/bar_d
+        }
+        {
+            blend specularmap
+            map textures/foo/bar_s
+        }
+    }
+
+The parser must classify stages by the blend keyword, not by filename.
+
+================================================================================
+3. AUTHORITATIVE STAGE CLASSIFICATION RULES
+================================================================================
+
+Use this classification table first:
+
+    Material syntax                               Agent role
+    --------------------------------------------------------------------------
+    diffusemap <imageExpr>                       DIFFUSE
+    bumpmap <imageExpr>                          BUMP_OR_NORMAL
+    specularmap <imageExpr>                      SPECULAR
+    stage block with blend diffusemap            DIFFUSE
+    stage block with blend bumpmap               BUMP_OR_NORMAL
+    stage block with blend specularmap           SPECULAR
+    stage block with blend add                   AMBIENT_OR_EMISSIVE_EFFECT
+    stage block with blend blend                 ALPHA_BLEND_OR_OVERLAY_EFFECT
+    stage block with generic map and no lighting  AMBIENT_OR_EFFECT
+    cubeMap / cameraCubeMap                      REFLECTION_OR_ENVIRONMENT
+    videoMap                                     VIDEO_OR_ANIMATED_SURFACE
+    remoteRenderMap / mirror / portal-ish logic  SPECIAL_CAMERA_SURFACE
+    gui                                          GUI_SURFACE
+    custom vertex/fragment program               CUSTOM_PROGRAM_EFFECT
+
+Terminology note:
+
+    Doom 3 calls the normal-map slot "bumpmap". In most path-tracing usage,
+    treat it as a tangent-space normal map or as an image-program expression
+    that produces a local normal map. Do not assume the keyword means a scalar
+    height map.
+
+================================================================================
+4. IMAGE EXPRESSIONS / IMAGE PROGRAMS
+================================================================================
+
+Do not assume the image argument is always a plain texture path.
+
+idTech4 materials may use image programs, for example:
+
+    heightmap(...)
+    addnormals(...)
+    smoothnormals(...)
+    add(...)
+    scale(...)
+    invertAlpha(...)
+    invertColor(...)
+    makeIntensity(...)
+    makeAlpha(...)
+
+Example:
+
+    bumpmap addnormals(
+        textures/foo/foo_local,
+        heightmap(textures/foo/foo_h, 4)
+    )
+
+For a path tracer, the complete expression is the source of the bump/normal
+input. Preserve the expression tree, or evaluate/bake it into an intermediate
+image. Do not reduce it to a guessed filename.
+
+Recommended representation:
+
+    ImageExpr
+        kind: FilePath | FunctionCall
+        originalText: exact source text
+        functionName: e.g. addnormals, heightmap, scale
+        args: list<ImageExpr or numeric/string args>
+
+Minimum viable implementation:
+
+    - Preserve original image-expression text.
+    - Extract the first concrete file path for dependency tracking.
+    - Mark unimplemented image programs for later baking.
+
+Better implementation:
+
+    - Parse image programs into an AST.
+    - Evaluate supported programs offline into generated texture assets.
+
+================================================================================
+5. SURFACE TYPE CLASSIFICATION
+================================================================================
+
+Do not infer physical surface type primarily from texture names.
+
+Use material/surface parms declared in the material block. The Doom 3 source has
+an infoParms table in Material.cpp and CheckSurfaceParm() applies it.
+
+Common surface/material tokens include examples such as:
+
+    metal
+    stone
+    flesh
+    wood
+    cardboard
+    liquid
+    glass
+    plastic
+    ricochet
+
+Also expect non-BSDF/gameplay/content flags such as:
+
+    solid
+    nonsolid
+    water
+    playerclip
+    monsterclip
+    clip
+    trigger
+    ladder
+    noimpact
+    nodamage
+    nonsolid
+    translucent
+    twosided
+    noshadows
+    noSelfShadow
+    noOverlays
+    noFragment
+
+Implementation instruction:
+
+    - Copy the recognized parameter vocabulary from the idTech4 infoParms table.
+    - Store all parsed flags, even if the path tracer only uses some of them.
+    - Convert selected flags into BSDF hints in a separate conversion step.
+
+Confidence order for surface type:
+
+    1. Explicit material/surface parm, e.g. metal, glass, liquid.
+    2. Explicit material flags, contents flags, and render flags.
+    3. Material declaration name/path heuristics.
+    4. Texture filename suffix/path heuristics.
+
+================================================================================
+6. MATERIAL PARSING PIPELINE
+================================================================================
+
+6.1 Build virtual filesystem
+----------------------------
+
+Input sources:
+
+    - Installed Doom 3 base PK4 archives.
+    - Expansion/mod PK4 archives if relevant.
+    - Loose files, if supporting development/mod folders.
+
+Suggested VFS behavior:
+
+    - Preserve search-path order.
+    - Normalize paths to lowercase if matching idTech4 behavior on relevant
+      platforms, but preserve original spelling for diagnostics.
+    - Later mod files may override base-game declarations.
+    - Build an index for materials/*.mtr, skins/*.skin, models, textures, maps.
+
+6.2 Parse all .mtr files into a material registry
+-------------------------------------------------
+
+Registry key:
+
+    material name, e.g. textures/base_wall/some_wall
+
+Value:
+
+    parsed DoomMaterial object with global parms, stages, flags, and source
+    location.
+
+6.3 Resolve rendered surface to material declaration
+----------------------------------------------------
+
+For each map/model surface:
+
+    surface.materialName -> materialRegistry[materialName]
+
+If the surface comes from a model and skin remapping is active:
+
+    original material name -> skin remap -> final material name -> .mtr lookup
+
+6.4 Classify stages
+-------------------
+
+Pseudo:
+
+    for each material declaration:
+        parse global tokens and stage blocks
+
+        if top-level token == "diffusemap":
+            addStage(role=DIFFUSE, image=parseImageExpr())
+
+        if top-level token == "bumpmap":
+            addStage(role=BUMP_OR_NORMAL, image=parseImageExpr())
+
+        if top-level token == "specularmap":
+            addStage(role=SPECULAR, image=parseImageExpr())
+
+        if top-level token == "{":
+            stage = parseStageBlock()
+            classifyStageFromBlend(stage)
+
+    function classifyStageFromBlend(stage):
+        switch stage.blendKeyword:
+            case "bumpmap":
+                stage.role = BUMP_OR_NORMAL
+            case "diffusemap":
+                stage.role = DIFFUSE
+            case "specularmap":
+                stage.role = SPECULAR
+            case "add":
+                stage.role = AMBIENT_OR_EMISSIVE_EFFECT
+            case "blend":
+                stage.role = ALPHA_BLEND_OR_OVERLAY_EFFECT
+            default:
+                stage.role = AMBIENT_OR_EFFECT
+
+================================================================================
+7. INTERACTION PACKETS
+================================================================================
+
+Doom 3 forward rendering groups interaction data around bump/diffuse/specular
+stages. For a path tracer, create one or more material interaction packets.
+
+Simple material:
+
+    textures/foo/bar
+    {
+        bumpmap     textures/foo/bar_local
+        diffusemap  textures/foo/bar_d
+        specularmap textures/foo/bar_s
+    }
+
+Path-tracer packet:
+
+    packet[0].normal   = textures/foo/bar_local
+    packet[0].diffuse  = textures/foo/bar_d
+    packet[0].specular = textures/foo/bar_s
+
+Missing maps:
+
+    no bump stage      -> flat normal
+    no specular stage  -> black specular / non-shiny legacy default
+    no diffuse stage   -> white/default/error texture depending on context
+
+Multi-stage materials:
+
+    Materials may contain multiple interaction groups, animated stages, blend
+    conditions, or overlays. Do not assume exactly one diffuse, one bump, and one
+    specular stage.
+
+Safe first implementation:
+
+    - Group all active BUMP/DIFFUSE/SPECULAR stages into one packet.
+    - If another bump stage appears after a complete packet, start a new packet.
+    - Preserve all extra ambient/effect stages separately.
+
+Better implementation:
+
+    - Mirror idTech4 interaction grouping more closely.
+    - Honor stage conditions, registers, vertex color, texture transforms, sort,
+      and draw-state flags.
+
+Pseudo grouping:
+
+    packets = []
+    current = empty InteractionPacket
+
+    for stage in material.stages in declaration order:
+        if stage.role == BUMP_OR_NORMAL and current has any interaction stage:
+            packets.append(current)
+            current = empty InteractionPacket
+
+        if stage.role == BUMP_OR_NORMAL:
+            current.bumpStages.append(stage)
+        elif stage.role == DIFFUSE:
+            current.diffuseStages.append(stage)
+        elif stage.role == SPECULAR:
+            current.specularStages.append(stage)
+        else:
+            material.effectStages.append(stage)
+
+    if current has any interaction stage:
+        packets.append(current)
+
+================================================================================
+8. PATH-TRACER MATERIAL CONVERSION
+================================================================================
+
+idTech4/Doom 3 materials are NOT PBR materials.
+
+Interpretation guidelines:
+
+    diffusemap
+        - Base color / legacy albedo candidate.
+        - May contain baked lighting, dirt, AO-like shading, or art direction.
+
+    bumpmap
+        - Usually a tangent-space local normal map or generated normal image.
+        - May be an image program such as addnormals(heightmap(...), ...).
+
+    specularmap
+        - Legacy specular intensity/color.
+        - NOT roughness.
+        - NOT metallic by itself.
+
+    surface parms
+        - Good source of high-level physical hints: metal, glass, liquid, flesh,
+          wood, stone, plastic, etc.
+        - Convert to PBR-ish defaults separately from parser logic.
+
+Suggested conversion layer:
+
+    if explicit surface parm == metal:
+        bsdf.metallic = heuristic value, often 1.0 for obviously metal materials
+        bsdf.roughness = derive from heuristic or constant
+        bsdf.specularColor = specularmap if present
+
+    elif explicit surface parm == glass:
+        bsdf.transmission = high or special-case glass shader
+        bsdf.ior = approx 1.45 to 1.52
+        bsdf.roughness = heuristic
+
+    elif explicit surface parm == liquid or water flag:
+        bsdf.transmission/reflection = water/liquid special case
+        bsdf.ior = approx 1.33 for water-like liquid unless material says otherwise
+
+    elif explicit surface parm == flesh:
+        bsdf.subsurfaceHint = true
+        bsdf.roughness = skin/flesh heuristic
+
+    else:
+        bsdf.metallic = 0.0
+        bsdf.roughness = default heuristic
+        bsdf.specularColor = specularmap or default nonmetal specular
+
+Keep the parser and the PBR conversion separate:
+
+    .mtr parser output: what idTech4 says.
+    path-tracer conversion: your rendering interpretation.
+
+================================================================================
+9. HANDLING EFFECT / NON-STANDARD MATERIALS
+================================================================================
+
+Many Doom 3 materials are not simple lit surfaces. Do not force all stages into
+albedo/normal/specular.
+
+Important cases:
+
+    blend add
+        - Additive stage. Often glow, light effect, decal, muzzle/effect sprite,
+          or non-physically-lit visual.
+        - For path tracing, often map to emission or additive overlay.
+
+    blend blend / alpha stages
+        - Alpha-blended overlay or translucent/decal-like material.
+        - Combine with alphaTest/translucent flags.
+
+    alphaTest
+        - Cutout opacity. Good for grates, decals, foliage-like shapes, etc.
+
+    translucent
+        - Mark material as alpha/transmission candidate.
+
+    twosided
+        - Disable backface culling or use two-sided BSDF.
+
+    noshadows
+        - Material should not cast shadows in original renderer.
+        - Path tracer may respect this for compatibility.
+
+    noSelfShadow
+        - Original self-shadow control. Optional path-tracer compatibility flag.
+
+    cubeMap / cameraCubeMap
+        - Reflection/environment effect. Do not treat as diffuse.
+
+    videoMap
+        - Animated/video texture. Requires time-dependent evaluation or fallback.
+
+    gui / remoteRenderMap
+        - Screen/display/special render target.
+
+    mirror / portal-like materials
+        - Special ray/camera behavior. Do not flatten into diffuse.
+
+    custom vertex/fragment programs
+        - Preserve as custom/effect stages unless explicitly supported.
+
+================================================================================
+10. RECOMMENDED DATA MODEL
+================================================================================
+
+Use a data model similar to this. Names are suggestions only.
+
+    enum class StageRole {
+        BumpOrNormal,
+        Diffuse,
+        Specular,
+        Ambient,
+        Emissive,
+        Translucent,
+        Reflection,
+        GUI,
+        Video,
+        CustomProgram,
+        Unknown
+    };
+
+    struct ImageExpr {
+        std::string originalText;
+        ImageExprKind kind;          // FilePath or FunctionCall
+        std::string filePath;        // valid if FilePath
+        std::string functionName;    // valid if FunctionCall
+        std::vector<ImageExprArg> args;
+    };
+
+    struct MaterialStage {
+        StageRole role;
+        std::string originalBlendKeyword;
+        ImageExpr image;
+        Expr condition;
+        ColorExpr color;
+        TextureMatrix texMatrix;
+        bool usesVertexColor;
+        bool alphaTested;
+        bool hasPrivatePolygonOffset;
+        std::string sourceFile;
+        int sourceLine;
+    };
+
+    struct DoomMaterial {
+        std::string name;
+        std::string sourceFile;
+        int sourceLine;
+
+        std::vector<MaterialStage> stages;
+        std::vector<MaterialStage> effectStages;
+
+        // High-level render flags
+        bool twoSided;
+        bool translucent;
+        bool noShadows;
+        bool noSelfShadow;
+        bool forceOpaque;
+        bool noOverlays;
+        bool noFragment;
+        bool polygonOffset;
+
+        // Surface/content flags copied from infoParms behavior
+        std::set<std::string> surfaceParms;
+        std::set<std::string> contentFlags;
+        std::set<std::string> surfaceFlags;
+
+        // Diagnostics
+        std::vector<std::string> warnings;
+    };
+
+    struct InteractionPacket {
+        std::vector<MaterialStage> bumpStages;
+        std::vector<MaterialStage> diffuseStages;
+        std::vector<MaterialStage> specularStages;
+    };
+
+================================================================================
+11. PARSER DETAILS / EDGE CASES
+================================================================================
+
+11.1 Comments and tokenization
+------------------------------
+
+idTech-style declarations may contain comments and flexible whitespace. Support:
+
+    // line comments
+    /* block comments */
+    quoted strings if present
+    braces { }
+    parentheses for image programs
+    commas in image program argument lists
+
+11.2 Case handling
+------------------
+
+Treat keywords case-insensitively if matching engine behavior, but preserve
+original text for diagnostics.
+
+11.3 Conditions and registers
+-----------------------------
+
+Stages may be conditional or parameterized. Preserve expressions even if the
+first implementation does not evaluate them fully.
+
+Examples of state to preserve:
+
+    if conditions
+    parm-based expressions
+    time-based expressions
+    color expressions
+    texture coordinate transforms such as scroll, scale, rotate, translate
+    vertex color modulation
+
+11.4 Material overrides
+-----------------------
+
+The same material name can be declared by base game and then overridden by a mod.
+Use VFS/search-path order to determine the active declaration.
+
+11.5 Missing .mtr declaration
+-----------------------------
+
+If a surface references a material name with no declaration:
+
+    1. Try to resolve an image at the same path as a diffuse fallback.
+    2. Try common suffixes only as heuristic:
+        diffuse:  _d, no suffix, _ed, _color
+        normal:   _local, _n, _normal, _h via heightmap if applicable
+        specular: _s, _spec
+    3. Mark material confidence as LOW.
+    4. Emit a diagnostic warning.
+
+Do not silently promote heuristic results to authoritative results.
+
+================================================================================
+12. IMPLEMENTATION CHECKLIST
+================================================================================
+
+Minimum reliable implementation:
+
+    [ ] Build VFS over PK4 archives and loose files.
+    [ ] Parse materials/*.mtr declarations.
+    [ ] Build material registry keyed by material name.
+    [ ] Parse top-level diffusemap, bumpmap, specularmap shortcuts.
+    [ ] Parse explicit stage blocks and classify by blend keyword.
+    [ ] Preserve image expressions as strings.
+    [ ] Parse/copy surface parms from known idTech4 infoParms names.
+    [ ] Resolve map/model surface material names to registry entries.
+    [ ] Apply skin remaps where relevant.
+    [ ] Convert parsed material roles into path-tracer material inputs.
+    [ ] Use filename heuristics only for missing declarations.
+    [ ] Emit confidence and diagnostics for every material.
+
+Better implementation:
+
+    [ ] Parse image programs into AST.
+    [ ] Bake/evaluate supported image programs.
+    [ ] Implement texture transforms and stage expressions.
+    [ ] Support multiple interaction packets.
+    [ ] Support animated/video/render-target materials.
+    [ ] Support alphaTest and translucent stages physically.
+    [ ] Support emissive/additive stages separately.
+    [ ] Implement mod override search-path behavior accurately.
+
+================================================================================
+13. TEST CASES FOR THE CODING AGENT
+================================================================================
+
+Test 1: shortcut syntax
+-----------------------
+
+Input:
+
+    textures/test/simple
+    {
+        diffusemap  textures/test/simple_d
+        bumpmap     textures/test/simple_local
+        specularmap textures/test/simple_s
+    }
+
+Expected:
+
+    material.name = textures/test/simple
+    stages:
+        role=DIFFUSE       image=textures/test/simple_d
+        role=BUMP_OR_NORMAL image=textures/test/simple_local
+        role=SPECULAR      image=textures/test/simple_s
+    confidence = HIGH
+
+Test 2: explicit blend syntax
+-----------------------------
+
+Input:
+
+    textures/test/explicit
+    {
+        {
+            blend bumpmap
+            map textures/test/explicit_local
+        }
+        {
+            blend diffusemap
+            map textures/test/explicit_d
+        }
+        {
+            blend specularmap
+            map textures/test/explicit_s
+        }
+    }
+
+Expected:
+
+    stage roles must be classified from blend keywords, not filenames.
+
+Test 3: misleading filename
+---------------------------
+
+Input:
+
+    textures/test/misleading
+    {
+        diffusemap textures/foo/looks_like_specular_s
+        specularmap textures/foo/looks_like_diffuse_d
+    }
+
+Expected:
+
+    textures/foo/looks_like_specular_s -> DIFFUSE
+    textures/foo/looks_like_diffuse_d  -> SPECULAR
+
+Reason:
+
+    Material syntax is authoritative over filename suffix.
+
+Test 4: image program normal map
+--------------------------------
+
+Input:
+
+    textures/test/program_normal
+    {
+        bumpmap addnormals(textures/test/base_local, heightmap(textures/test/detail_h, 4))
+        diffusemap textures/test/program_d
+    }
+
+Expected:
+
+    bump stage role = BUMP_OR_NORMAL
+    bump image expression original text preserved exactly or parsed into AST:
+        addnormals(... heightmap(..., 4))
+
+Test 5: explicit surface type
+-----------------------------
+
+Input:
+
+    textures/test/metal_panel
+    {
+        metal
+        diffusemap  textures/test/metal_panel_d
+        bumpmap     textures/test/metal_panel_local
+        specularmap textures/test/metal_panel_s
+    }
+
+Expected:
+
+    material.surfaceParms includes "metal"
+    path-tracer conversion may set metallic heuristic, but parser should only
+    report the explicit material parm.
+
+Test 6: missing declaration fallback
+------------------------------------
+
+Input:
+
+    surface material name = textures/test/no_mtr
+    no .mtr declaration exists
+    files exist:
+        textures/test/no_mtr_d.tga
+        textures/test/no_mtr_local.tga
+        textures/test/no_mtr_s.tga
+
+Expected:
+
+    Use suffix heuristic only as fallback.
+    Mark material confidence = LOW or HEURISTIC.
+    Emit warning: missing material declaration.
+
+================================================================================
+14. AGENT DO-NOT-DO LIST
+================================================================================
+
+Do NOT:
+
+    - Treat _d, _s, _local suffixes as authoritative.
+    - Treat every image in a material as a PBR texture.
+    - Treat specularmap as roughness.
+    - Treat bumpmap as scalar height by default.
+    - Ignore image programs such as addnormals() and heightmap().
+    - Ignore .skin material remaps for models.
+    - Flatten additive, alpha, GUI, mirror, video, cubemap, or custom stages into
+      diffuse/base color.
+    - Discard unknown material flags; preserve them and warn.
+    - Assume there is exactly one diffuse, one bump, and one specular map.
+    - Assume Doom 3 game assets are included in the GPL source repository.
+
+================================================================================
+15. AGENT PRIORITY ORDER
+================================================================================
+
+When implementing, follow this priority order:
+
+    1. Parse real .mtr material declarations.
+    2. Classify maps using idTech4 stage syntax:
+           diffusemap / bumpmap / specularmap
+           blend diffusemap / blend bumpmap / blend specularmap
+    3. Parse explicit surface/material parms from the source-compatible list.
+    4. Preserve image-program expressions.
+    5. Resolve skins and material overrides.
+    6. Convert to path-tracer BSDF inputs in a separate layer.
+    7. Use filename heuristics only for missing declarations or diagnostics.
+
+================================================================================
+16. COMPACT PSEUDOCODE
+================================================================================
+
+    registry = MaterialRegistry()
+    vfs = buildVirtualFilesystem(pk4Archives, looseDirs)
+
+    for file in vfs.glob("materials/*.mtr"):
+        decls = parseMaterialFile(file)
+        for mat in decls:
+            registry.addOrOverride(mat.name, mat, source=file)
+
+    for surface in scene.surfaces:
+        materialName = surface.materialName
+
+        if surface.model has active skin:
+            materialName = applySkinRemap(surface.model.skin, materialName)
+
+        mat = registry.lookup(materialName)
+
+        if mat exists:
+            parsed = classifyMaterial(mat)
+            packets = buildInteractionPackets(parsed)
+            ptMat = convertToPathTracerMaterial(parsed, packets)
+            surface.pathTracerMaterial = ptMat
+        else:
+            fallback = inferFromExistingFiles(materialName)
+            fallback.confidence = LOW_HEURISTIC
+            fallback.warning = "Missing .mtr declaration; filename heuristic used"
+            surface.pathTracerMaterial = fallback
+
+    function classifyMaterial(mat):
+        for token in mat.tokens:
+            if token == "diffusemap":
+                mat.stages.append(Stage(DIFFUSE, parseImageExpr()))
+            elif token == "bumpmap":
+                mat.stages.append(Stage(BUMP_OR_NORMAL, parseImageExpr()))
+            elif token == "specularmap":
+                mat.stages.append(Stage(SPECULAR, parseImageExpr()))
+            elif token starts stage block:
+                stage = parseStageBlock(token)
+                if stage.blend == "bumpmap":
+                    stage.role = BUMP_OR_NORMAL
+                elif stage.blend == "diffusemap":
+                    stage.role = DIFFUSE
+                elif stage.blend == "specularmap":
+                    stage.role = SPECULAR
+                elif stage.blend == "add":
+                    stage.role = EMISSIVE_OR_ADDITIVE_EFFECT
+                elif stage.blend == "blend":
+                    stage.role = TRANSLUCENT_OR_ALPHA_EFFECT
+                else:
+                    stage.role = AMBIENT_OR_EFFECT
+                mat.stages.append(stage)
+            elif token matches known surface/content parm:
+                mat.surfaceParms.add(token)
+            else:
+                preserveUnknownTokenForDiagnostics(token)
+
+        return mat
+
+================================================================================
+17. FINAL TAKEAWAY
+================================================================================
+
+The robust Doom 3/idTech4 path is declaration-driven, not name-driven:
+
+    Surface references material name.
+    .mtr declaration defines stages.
+    Stage syntax defines map role.
+    Material parms define surface category and flags.
+    Filename suffixes are only emergency fallback.
+
+For implementation accuracy, model the behavior around idMaterial::ParseBlend(),
+stageLighting_t, CheckSurfaceParm(), and the renderer interaction structure with
+bumpImage/diffuseImage/specularImage.

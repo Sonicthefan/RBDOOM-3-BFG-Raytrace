@@ -11,6 +11,8 @@
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
 #include "PathTraceReservoirs.h"
+#include "PathTraceRestirPT.h"
+#include "PathTraceRestirPTReservoirs.h"
 #include "PathTraceSceneUniverse.h"
 
 #include <nvrhi/nvrhi.h>
@@ -27,6 +29,7 @@ public:
 
     // Called every frame when r_pathTracing >= 1
     void Execute(const viewDef_t* viewDef);
+    void InvalidateForBackBufferResize();
     void PresentDebugOutput();
     void BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
     void DrawBoundsOverlayRaster(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
@@ -94,6 +97,7 @@ private:
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteInstanceBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
+    nvrhi::BufferHandle m_restirPTConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
     std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;
     int m_smokeBoundsOverlayLineCount = 0;
@@ -129,6 +133,9 @@ private:
     int m_smokeDoomAnalyticLightCount = 0;
     int m_smokeDoomAnalyticLightBytes = 0;
     RtSmokeReservoirBufferHandles m_smokeReservoirBuffers;
+    RtRestirPTReservoirBufferHandles m_restirPTReservoirBuffers;
+    RtRestirPTContextState m_restirPTContextState;
+    uint32_t m_restirPTFrameIndex = 0;
     uint64 m_smokeReservoirSceneSignature = 0;
     uint64 m_smokeReservoirDispatchSignature = 0;
     bool m_smokeReservoirNeedsClear = false;

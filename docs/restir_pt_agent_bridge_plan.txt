@@ -1,0 +1,1258 @@
+NVIDIA ReSTIR PT INTEGRATION BRIDGE PLAN FOR CODING AGENT
+Generated: 2026-05-06
+Project context: game engine path tracing / NVRHI / existing basic reservoir system
+Primary current source observed: PathTraceReservoirs.cpp
+
+============================================================
+0. PURPOSE OF THIS DOCUMENT
+============================================================
+
+This is a grounding document for a coding agent. Its job is to prevent drift while integrating NVIDIA RTXDI ReSTIR PT path tracing into an existing game engine that already has a very basic reservoir system.
+
+The correct strategy is NOT to mutate the existing smoke/light reservoir into NVIDIA ReSTIR PT. The correct strategy is to build a clean bridge:
+
+    Existing engine systems
+        - NVRHI resource allocation
+        - path tracer
+        - G-buffer/current+previous frame data
+        - materials/BSDFs
+        - lights/emissive/smoke candidates
+        - TLAS/ray tracing
+        - motion vectors
+        - scene invalidation
+
+    NVIDIA RTXDI/ReSTIR PT systems
+        - packed PT reservoir ABI
+        - reservoir addressing
+        - PT resampling parameters
+        - initial/temporal/spatial/final ReSTIR PT shader functions
+        - hybrid shift / path replay / reconnection logic
+
+    Bridge layer
+        - host-side PT reservoir buffer allocation
+        - RTXDI_PTParameters upload
+        - RAB_* shader callbacks into the engine
+        - RAB_PathTrace wrapper around the engine path tracer
+
+The user intends to walk the coding agent through this one step at a time. When given a step, implement ONLY that step and its immediate compile fixes. Do not jump ahead into future steps unless explicitly instructed.
+
+============================================================
+1. CURRENT ENGINE RESERVOIR SYSTEM: WHAT IT IS
+============================================================
+
+The uploaded PathTraceReservoirs.cpp currently provides an engine-side smoke reservoir allocator and reset utility. It does the following:
+
+    - Clamps width/height to at least 1 via SmokeReservoirDimension.
+    - Computes reservoir count as width * height.
+    - Computes byte size as count * sizeof(PathTraceSmokeReservoir).
+    - Creates NVRHI structured UAV buffers.
+    - Maintains three buffers:
+        current
+        previous
+        spatialScratch
+    - Reuses existing buffers when byte capacity is sufficient.
+    - Clears all three reservoir buffers to uint 0.
+    - Computes a smoke reservoir scene signature from:
+        materialTableSignature
+        staticBlasSignature
+        PathTraceSmokeEmissiveTriangle array
+        PathTraceSmokeLightCandidate array
+    - Invalidates/recreates when dimensions or buffer capacity are wrong.
+
+This is valuable because the engine already has:
+
+    - a pattern for NVRHI buffer allocation;
+    - a pattern for resource state transition to UnorderedAccess;
+    - a pattern for reservoir clearing;
+    - a pattern for scene signature based history invalidation;
+    - domain-specific light/emissive candidate data that may feed light sampling.
+
+This is NOT enough for NVIDIA ReSTIR PT because it does not use the NVIDIA packed PT reservoir ABI, reservoir addressing, path replay state, or RAB shader bridge.
+
+Important current-code caution:
+
+    RtSmokeReservoirBufferHandles::IsValidFor compares reservoirBytes against static_cast<int>(requiredBytes), and CreateSmokeReservoirBuffers stores reservoirBytes as int. For large buffers, prefer uint64_t in the new ReSTIR PT path. Do not change the smoke path unless explicitly asked.
+
+============================================================
+2. NVIDIA RESTIR PT FACTS TO KEEP GROUNDED
+============================================================
+
+Use the actual RTXDI version present in the repo. Do not invent an ABI.
+
+Known RTXDI ReSTIR PT facts from NVIDIA docs/source:
+
+    - ReSTIR PT starts by acquiring initial samples from a path tracer.
+    - The runtime requires an application-defined RAB_PathTrace function.
+    - The path tracer must call RTXDI_PathTracerContext functions at the right times.
+    - The context records bounce surfaces and how light was sampled:
+        emission from hit surface,
+        next event estimation (NEE),
+        environment map on miss.
+    - The context creates an RTXDI_PTReservoir containing data required to resample paths between pixels.
+    - The reservoir does not simply store accumulated radiance from all lights; it selects one path from potential candidates.
+    - Temporal resampling reprojects using motion vectors and attempts a similar shifted path in the current frame.
+    - Spatial resampling reuses nearby pixels in the same frame.
+    - Hybrid shift uses random replay and reconnection metadata.
+    - NVIDIA recommends using the same RAB callbacks inside the path tracer and hybrid shift path for consistency.
+    - The RTXDI integration model expects the application to own graphics API access, scene data, G-buffer access, material model, ray tracing, and bridge callbacks.
+
+Packed reservoir facts:
+
+    - Use RTXDI_PackedPTReservoir for GPU storage.
+    - Current RTXDI-Library main defines RTXDI_PackedPTReservoir as four uint4 values:
+        Data0
+        Data1
+        Data2
+        Data3
+      This is 16 uints = 64 bytes.
+    - The unpacked RTXDI_PTReservoir contains path data such as:
+        TranslatedWorldPosition
+        WeightSum
+        WorldNormal
+        M
+        Radiance
+        Age
+        ShouldBoostSpatialSamples
+        RcWiPdf
+        PartialJacobian
+        RcVertexLength
+        PathLength
+        RandomSeed
+        RandomIndex
+        TargetFunction
+    - Stock ReSTIR PT uses two reservoir buffer slices:
+        rtxdi::c_NumReSTIRPTReservoirBuffers = 2
+    - RTXDI uses reservoir array indexing and tiled reservoir addressing; do not use simple width * height linear addressing for the total allocation unless that exactly matches CalculateReservoirBufferParameters.
+    - Shader code expects:
+        #define RTXDI_PT_RESERVOIR_BUFFER <RWStructuredBuffer resource>
+      before including the PT reservoir shader header.
+
+============================================================
+3. CORE DECISION
+============================================================
+
+Do this:
+
+    Keep PathTraceSmokeReservoir and the existing smoke reservoir buffers as their own system.
+
+    Add a new ReSTIR PT-specific reservoir system with NVIDIA-compatible packed reservoir storage.
+
+Do NOT do this:
+
+    Do not typedef PathTraceSmokeReservoir to RTXDI_PTReservoir.
+    Do not pack NVIDIA PT fields into the existing smoke struct unless explicitly asked.
+    Do not patch NVIDIA load/store functions just to keep current/previous/spatialScratch as separate buffers.
+    Do not replace the engine's material/light/path tracing system with sample-app code.
+    Do not integrate ReSTIR PT Enhanced research changes until the baseline RTXDI ReSTIR PT path works.
+
+The ideal boundary is:
+
+    Engine owns resources and rendering data.
+    RTXDI owns ReSTIR PT math and packed reservoir ABI.
+    RAB_* bridge connects them.
+
+============================================================
+4. CURRENT SYSTEM VS RTXDI PT MAPPING
+============================================================
+
+Existing current/previous/spatialScratch smoke reservoir idea:
+
+    current
+        Conceptually similar to an active output reservoir buffer.
+        Not layout-compatible with NVIDIA PT.
+
+    previous
+        Conceptually similar to a temporal input/history buffer.
+        Not layout-compatible with NVIDIA PT.
+
+    spatialScratch
+        Conceptually similar to a spatial temporary output.
+        Stock RTXDI PT generally uses slice indices inside one packed reservoir buffer, not a separate scratch buffer.
+
+RTXDI PT stock layout:
+
+    One RWStructuredBuffer<RTXDI_PackedPTReservoir>
+        contains two screen-sized reservoir array slices.
+
+    For TemporalAndSpatial mode, default source layout is effectively:
+        initialPathTracerOutputBufferIndex = 0
+        temporalResamplingInputBufferIndex = 1
+        temporalResamplingOutputBufferIndex = 0
+        spatialResamplingInputBufferIndex = 0
+        spatialResamplingOutputBufferIndex = 1
+        finalShadingInputBufferIndex = 1
+
+    These are slice indices, not separate NVRHI buffers.
+
+============================================================
+5. PROPOSED FILES / MODULES
+============================================================
+
+Prefer adding new files instead of mutating the smoke reservoir system.
+
+Host-side files:
+
+    PathTraceRestirPTReservoirs.h
+    PathTraceRestirPTReservoirs.cpp
+        - NVRHI buffer handle for packed PT reservoirs
+        - RTXDI reservoir params
+        - dimensions
+        - uint64_t byte size
+        - create/reuse/reset/clear helpers
+
+    PathTraceRestirPT.h / .cpp or equivalent renderer integration file
+        - owns or references rtxdi::ReSTIRPTContext
+        - updates frame index and resampling mode
+        - builds RTXDI_PTParameters constant buffer
+        - dispatches initial/temporal/spatial/final passes
+
+Shader-side files:
+
+    Shaders/PathTrace/RtxdiBridge/PathTraceRtxdiBridge.hlsli
+        - includes bridge root and engine RAB implementation files
+
+    Shaders/PathTrace/RtxdiBridge/RAB_Surface.hlsli
+    Shaders/PathTrace/RtxdiBridge/RAB_Material.hlsli
+    Shaders/PathTrace/RtxdiBridge/RAB_RayPayload.hlsli
+    Shaders/PathTrace/RtxdiBridge/RAB_LightInfo.hlsli
+    Shaders/PathTrace/RtxdiBridge/RAB_LightSample.hlsli
+    Shaders/PathTrace/RtxdiBridge/RAB_LightSampling.hlsli
+    Shaders/PathTrace/RtxdiBridge/RAB_VisibilityTest.hlsli
+    Shaders/PathTrace/RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
+    Shaders/PathTrace/RtxdiBridge/PathTracer/RAB_MISCallbacks.hlsli
+    Shaders/PathTrace/RtxdiBridge/PathTracer/RAB_DenoiserCallbacks.hlsli
+    Shaders/PathTrace/RtxdiBridge/PathTracer/RAB_PathTracerUserData.hlsli
+
+ReSTIR PT pass files:
+
+    PathTraceRestirPTInitial.hlsl
+    PathTraceRestirPTTemporal.hlsl
+    PathTraceRestirPTSpatial.hlsl
+    PathTraceRestirPTFinal.hlsl
+
+Exact names may differ to match the engine style, but keep this separation of responsibilities.
+
+============================================================
+6. HARD CONSTRAINTS FOR THE CODING AGENT
+============================================================
+
+1. Preserve existing smoke reservoir behavior unless the user explicitly asks to change it.
+
+2. Add ReSTIR PT as a separate path. Do not make the smoke reservoir struct or smoke buffer layout pretend to be NVIDIA PT.
+
+3. GPU reservoir storage for ReSTIR PT must be:
+
+       RWStructuredBuffer<RTXDI_PackedPTReservoir>
+
+   and the host buffer stride must be sizeof(RTXDI_PackedPTReservoir).
+
+4. Use RTXDI reservoir buffer parameters:
+
+       rtxdi::CalculateReservoirBufferParameters(width, height, checkerboardMode)
+
+   Do not allocate using only width * height unless that is proven to match the RTXDI parameters for the selected mode.
+
+5. Allocate enough reservoir elements for all ReSTIR PT slices:
+
+       reservoirParams.reservoirArrayPitch * rtxdi::c_NumReSTIRPTReservoirBuffers
+
+6. Use uint64_t for byte sizes in the new PT path.
+
+7. Use RTXDI_PTBufferIndices from rtxdi::ReSTIRPTContext. Do not hard-code slice indices beyond initial scaffolding/debug code.
+
+8. The bridge is RAB_* callbacks. Implement the engine-to-RTXDI bridge; do not port the whole sample app blindly.
+
+9. RAB_PathTrace must use the engine's actual path tracer/ray tracing/material/light code, but wrapped so RTXDI_PathTracerContext is called at the required moments.
+
+10. The path tracing logic used during initial sampling and hybrid-shift replay must be consistent. Avoid duplicate BRDF/light logic that can diverge.
+
+11. Every step must compile or clearly report the exact compile blocker. Do not hide missing symbols by stubbing incorrect behavior.
+
+12. Do not enable temporal reuse until current and previous G-buffer/motion vector data are valid and accessible to RAB_GetGBufferSurface.
+
+13. Do not enable spatial reuse until surface/material similarity tests and conservative visibility are implemented well enough to avoid obvious bias/artifacts.
+
+14. Avoid new abstractions unless necessary. First target a minimal working bridge.
+
+15. When blocked by an unknown engine API, inspect the repo for nearby path tracing, material, light, G-buffer, and ray tracing code. Do not invent API names.
+
+============================================================
+7. STEP-BY-STEP IMPLEMENTATION PLAN
+============================================================
+
+The user will usually ask for one step at a time. Implement only the requested step.
+
+------------------------------------------------------------
+STEP 0: Repository discovery and RTXDI version confirmation
+------------------------------------------------------------
+
+Goal:
+    Establish exact local SDK layout and engine naming before editing.
+
+Actions:
+    - Find whether RTXDI / RTXDI-Library is already in the repo.
+    - Find ReSTIR PT headers:
+        Rtxdi/PT/ReSTIRPT.h
+        Rtxdi/PT/ReSTIRPTParameters.h
+        Rtxdi/PT/Reservoir.hlsli
+        Rtxdi/Utils/ReservoirAddressing.hlsli
+        Rtxdi/RtxdiUtils.h
+    - Find renderer path tracing files.
+    - Find current G-buffer structs/textures and previous-frame G-buffer access.
+    - Find motion vector/depth/normal/material ID buffers.
+    - Find light/emissive/smoke candidate buffers.
+    - Find existing shader include conventions and descriptor binding style.
+    - Find how constant buffers are created and uploaded.
+
+Output:
+    - Short report of exact files found.
+    - Whether RTXDI ReSTIR PT headers are present.
+    - Whether shader include path needs build-system changes.
+
+Do not:
+    - Do not write code yet unless the user explicitly combines Step 0 and Step 1.
+
+------------------------------------------------------------
+STEP 1: Add host-side ReSTIR PT reservoir buffer allocation
+------------------------------------------------------------
+
+Goal:
+    Add NVIDIA-compatible packed PT reservoir buffer allocation without touching the smoke reservoir path.
+
+New host type should resemble:
+
+    struct RtRestirPTReservoirBufferHandles
+    {
+        nvrhi::BufferHandle reservoirs;
+
+        RTXDI_ReservoirBufferParameters reservoirParams = {};
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t reservoirElementCount = 0;
+        uint64_t reservoirBytes = 0;
+
+        bool IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight,
+                        rtxdi::CheckerboardMode checkerboardMode) const;
+        void Reset();
+    };
+
+Create desc/result types matching the style of CreateSmokeReservoirBuffers.
+
+Core allocation logic:
+
+    static uint32_t RestirPTReservoirElementCount(
+        uint32_t width,
+        uint32_t height,
+        rtxdi::CheckerboardMode checkerboardMode)
+    {
+        RTXDI_ReservoirBufferParameters params =
+            rtxdi::CalculateReservoirBufferParameters(width, height, checkerboardMode);
+
+        return params.reservoirArrayPitch * rtxdi::c_NumReSTIRPTReservoirBuffers;
+    }
+
+    static uint64_t RestirPTReservoirByteSize(
+        uint32_t width,
+        uint32_t height,
+        rtxdi::CheckerboardMode checkerboardMode)
+    {
+        return uint64_t(RestirPTReservoirElementCount(width, height, checkerboardMode))
+             * sizeof(RTXDI_PackedPTReservoir);
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = "PathTraceRestirPTReservoirs";
+    desc.structStride = sizeof(RTXDI_PackedPTReservoir);
+    desc.byteSize = RestirPTReservoirByteSize(width, height, checkerboardMode);
+    desc.canHaveUAVs = true;
+    desc.canHaveTypedViews = false;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+
+Success criteria:
+    - New files compile.
+    - Existing smoke reservoir code unchanged.
+    - New PT buffer can be created, reused, reset, and cleared.
+    - IsValidFor checks width, height, reservoir params, element count, and byte capacity.
+
+Do not:
+    - Do not add shader passes yet.
+    - Do not bind this buffer to the pipeline yet unless the engine requires a placeholder for compile.
+
+------------------------------------------------------------
+STEP 2: Add ReSTIR PT runtime/context state
+------------------------------------------------------------
+
+Goal:
+    Store and update RTXDI ReSTIR PT parameters per frame.
+
+Actions:
+    - Add a renderer-owned or pass-owned rtxdi::ReSTIRPTContext.
+    - Construct with:
+        RenderWidth
+        RenderHeight
+        CheckerboardSamplingMode
+    - On resize, recreate/reinitialize context.
+    - Each frame:
+        SetFrameIndex(frameIndex)
+        SetResamplingMode(...)
+        query GetReservoirBufferParameters()
+        query GetBufferIndices()
+        query GetInitialSamplingParameters()
+        query GetTemporalResamplingParameters()
+        query GetHybridShiftParameters()
+        query GetReconnectionParameters()
+        query GetBoilingFilterParameters()
+        query GetSpatialResamplingParameters()
+    - Fill an RTXDI_PTParameters constant buffer.
+
+Suggested initial mode:
+    - Start with ReSTIRPT_ResamplingMode::None for initial reservoir creation.
+    - Then move to Temporal, Spatial, and TemporalAndSpatial only after prior steps validate.
+
+Success criteria:
+    - RTXDI_PTParameters buffer is created/updated.
+    - Frame index changes update temporal random/permutation state through context.
+    - Resize updates dimensions and reservoir allocation.
+
+Do not:
+    - Do not invent custom buffer index mappings unless the context is unavailable.
+
+------------------------------------------------------------
+STEP 3: Add shader ABI for packed PT reservoir storage
+------------------------------------------------------------
+
+Goal:
+    Create the shader binding that NVIDIA PT reservoir headers expect.
+
+Core shader pattern:
+
+    RWStructuredBuffer<RTXDI_PackedPTReservoir> g_RestirPTReservoirs : register(uX);
+
+    #define RTXDI_PT_RESERVOIR_BUFFER g_RestirPTReservoirs
+    #include "Rtxdi/PT/Reservoir.hlsli"
+
+Also bind:
+    - RTXDI_PTParameters constant buffer.
+    - engine frame constants.
+    - current/previous G-buffer textures/buffers.
+    - ray tracing acceleration structure.
+    - material/light buffers.
+
+Success criteria:
+    - Shaders compile with RTXDI PT includes.
+    - No duplicate macro definitions.
+    - Reservoir load/store helpers compile.
+
+Do not:
+    - Do not add complex RAB logic yet unless this step is combined with Step 4.
+
+------------------------------------------------------------
+STEP 4: Define minimal RAB bridge types
+------------------------------------------------------------
+
+Goal:
+    Add engine-specific RAB_* structs that RTXDI shaders can call.
+
+Minimum types:
+
+    struct RAB_Material
+    {
+        // material ID and enough BSDF fields to evaluate/sample BRDF
+    };
+
+    struct RAB_Surface
+    {
+        bool valid;
+        float3 worldPos;
+        float3 geometryNormal;
+        float3 shadingNormal;
+        float3 viewDir;
+        float linearDepth;
+        uint materialId;
+        RAB_Material material;
+    };
+
+    struct RAB_RandomSamplerState
+    {
+        uint seed;
+        uint index;
+    };
+
+    struct RAB_RayPayload
+    {
+        bool hit;
+        float hitT;
+        uint instanceId;
+        uint primitiveId;
+        float2 barycentrics;
+        // whatever the engine needs to reconstruct surface/material
+    };
+
+Success criteria:
+    - RAB types compile.
+    - They are thin wrappers over existing engine data, not a new renderer.
+
+Do not:
+    - Do not invent physically complete BSDF fields before inspecting engine material code.
+
+------------------------------------------------------------
+STEP 5: Implement G-buffer / surface callbacks
+------------------------------------------------------------
+
+Goal:
+    Make RTXDI able to query current and previous frame primary surfaces.
+
+Callbacks to implement or adapt according to RTXDI bridge reference:
+
+    RAB_Surface RAB_GetGBufferSurface(int2 pixelPosition, bool previousFrame);
+    RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame);
+    bool RAB_IsSurfaceValid(RAB_Surface surface);
+    float3 RAB_GetSurfaceWorldPos(RAB_Surface surface);
+    float3 RAB_GetSurfaceNormal(RAB_Surface surface);
+    float RAB_GetSurfaceLinearDepth(RAB_Surface surface);
+    bool RAB_AreMaterialsSimilar(RAB_Surface a, RAB_Surface b);
+
+Engine data required:
+    - current frame depth or world position
+    - previous frame depth or world position
+    - current/previous normals
+    - current/previous material identity/roughness flags
+    - motion vectors for temporal reprojection
+
+Initial similarity policy:
+    - Surface valid if depth > 0 and material ID valid.
+    - Normal similarity threshold should be aligned with RTXDI temporal/spatial params.
+    - Material similarity should be conservative at first:
+        same material ID OR same key BSDF class + close roughness/metalness.
+
+Success criteria:
+    - A debug shader can read current and previous surfaces.
+    - Temporal pass remains disabled until reprojection is verified.
+
+Do not:
+    - Do not fake previous frame data by reading current frame unless explicitly testing with temporal disabled.
+
+------------------------------------------------------------
+STEP 6: Implement RNG bridge
+------------------------------------------------------------
+
+Goal:
+    Provide deterministic random state for RTXDI path replay.
+
+Callbacks/patterns:
+
+    float RAB_GetNextRandom(inout RAB_RandomSamplerState rng);
+    RAB_RandomSamplerState RAB_InitRandomSampler(uint2 pixel, uint frameIndex, uint dimensionBase);
+
+Requirements:
+    - RandomSeed and RandomIndex stored in reservoirs must replay the same path choices.
+    - RAB_PathTrace must consume random numbers in a stable order.
+    - Avoid adding debug-only random calls inside the path tracer path when replay is active.
+
+Success criteria:
+    - Running initial pass twice with same seed/frame produces same reservoir data.
+    - Changing frame index changes seeds predictably.
+
+Do not:
+    - Do not use nondeterministic RNG or global mutable state that breaks replay.
+
+------------------------------------------------------------
+STEP 7: Implement material / BRDF callbacks
+------------------------------------------------------------
+
+Goal:
+    Let RTXDI and RAB_PathTrace sample/evaluate the same BSDF logic the engine uses.
+
+Callbacks/patterns:
+
+    bool RAB_GetSurfaceBrdfSample(
+        RAB_Surface surface,
+        inout RAB_RandomSamplerState rng,
+        out float3 dir);
+
+    float RAB_GetSurfaceBrdfPdf(RAB_Surface surface, float3 dir);
+
+    float3 RAB_EvaluateSurfaceBrdf(RAB_Surface surface, float3 wi, float3 wo);
+
+    float3 RAB_EvaluateSurfaceBrdfOverPdf(RAB_Surface surface, float3 wi, float3 wo);
+
+Requirements:
+    - Same normal convention as engine path tracer.
+    - Same roughness clamping as engine path tracer.
+    - Same delta/glossy/diffuse flags as engine path tracer.
+    - Correct PDFs for sampled directions.
+
+Start conservative:
+    - Support the dominant opaque material path first.
+    - Explicitly mark unsupported materials invalid or fallback to regular path tracing.
+    - Add transmission/volumetric/special materials later.
+
+Success criteria:
+    - One-bounce path tracer still matches baseline direction/PDF logic.
+    - No NaN PDFs.
+    - Zero/invalid PDFs terminate safely.
+
+Do not:
+    - Do not copy NVIDIA sample BRDF if it conflicts with engine material representation.
+
+------------------------------------------------------------
+STEP 8: Implement light/emissive callbacks
+------------------------------------------------------------
+
+Goal:
+    Map engine lights and smoke/emissive candidates into RAB light sampling.
+
+Existing engine inputs:
+    - PathTraceSmokeEmissiveTriangle
+    - PathTraceSmokeLightCandidate
+    - material table signature
+    - static BLAS signature
+
+Likely bridge direction:
+    - Treat existing smoke/emissive candidates as light sampling inputs.
+    - Do not treat them as PT reservoirs.
+
+Callbacks/patterns:
+
+    RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame);
+
+    RAB_LightSample RAB_SamplePolymorphicLight(
+        RAB_LightInfo lightInfo,
+        RAB_Surface surface,
+        float2 uv);
+
+    float RAB_GetLightSampleTargetPdfForSurface(
+        RAB_LightSample lightSample,
+        RAB_Surface surface);
+
+    bool RAB_GetConservativeVisibility(
+        RAB_Surface surface,
+        RAB_LightSample lightSample);
+
+Also implement MIS callbacks needed by ReSTIR PT hybrid shift:
+
+    RAB_GetMISWeightForNEE(...)
+    RAB_GetMISWeightForEmissiveSurface(...)
+    RAB_GetMISWeightForEnvironmentMap(...)
+
+Success criteria:
+    - Initial light sampling works for at least one supported light/emissive type.
+    - Conservative visibility matches initial sample visibility policy as closely as possible.
+
+Do not:
+    - Do not introduce inconsistent visibility logic between initial sampling and spatial reuse.
+
+------------------------------------------------------------
+STEP 9: Implement RAB_PathTrace skeleton around engine path tracer
+------------------------------------------------------------
+
+Goal:
+    Wrap the existing path tracer in RTXDI_PathTracerContext calls.
+
+Important:
+    This is the central integration step. ReSTIR PT correctness depends on this path tracer being deterministic, consistent, and context-aware.
+
+Expected path-trace loop shape, pseudocode only:
+
+    RAB_PathTrace(...)
+    {
+        RTXDI_PathTracerContext ctx = RTXDI_InitializePathTracerContext(...);
+
+        RAB_Surface surface = primarySurface;
+        float3 throughput = 1.0.xxx;
+
+        for (uint bounce = 0; bounce < maxBounceDepth; ++bounce)
+        {
+            // Sample/evaluate BRDF with engine logic through RAB callbacks.
+            BrdfSample brdfSample = SampleEngineBrdf(surface, rng);
+            if (!brdfSample.valid || brdfSample.pdf <= 0)
+                break;
+
+            // Tell RTXDI about the continuation ray/sample.
+            ctx.SetBrdfRaySample(...);
+            ctx.MultiplyPathThroughput(...);
+            ctx.SetContinuationRay(...);
+
+            // Allow RTXDI to analyze reconnectibility before trace.
+            if (!ctx.AnalyzePathReconnectibilityBeforeTrace())
+                break;
+
+            // Trace using engine TLAS/ray tracing.
+            RAB_RayPayload payload = TraceEngineRay(...);
+            ctx.SetTraceResult(payload);
+
+            if (!payload.hit)
+            {
+                // Record/signal environment contribution if supported.
+                break;
+            }
+
+            RAB_Surface nextSurface = BuildSurfaceFromPayload(payload);
+            ctx.RecordPathIntersection(nextSurface);
+
+            // Optional emissive hit.
+            if (ctx.ShouldSampleEmissiveSurfaces())
+            {
+                // evaluate hit emission and record with context
+            }
+
+            // Optional NEE.
+            if (ctx.ShouldSampleNEE())
+            {
+                // sample light and record with context
+            }
+
+            surface = nextSurface;
+            ctx.IncreaseBounceDepth();
+        }
+
+        return ctx.Finalize...; // exact call depends on local RTXDI version
+    }
+
+Success criteria:
+    - Initial pass can produce valid RTXDI_PTReservoir values for simple opaque scenes.
+    - Unsupported paths terminate safely instead of returning garbage.
+    - No NaNs in radiance/target/pdf/weight.
+
+Do not:
+    - Do not write a separate toy path tracer unless using it as a short-lived compile scaffold.
+    - Do not leave it permanently inconsistent with the real path tracer.
+
+------------------------------------------------------------
+STEP 10: Initial ReSTIR PT pass
+------------------------------------------------------------
+
+Current implementation note (2026-05-08):
+    This step is implemented as a raygen-gated debug path in
+    r_pathTracingDebugMode 26, not as a separate compute pass yet. The smoke
+    raygen writes RTXDI PT reservoirs directly through the existing b28/u29
+    bindings by calling GenerateInitialSamples and RTXDI_StorePTReservoir for
+    the initialPathTracerOutputBufferIndex slice. Misses and unsupported
+    surfaces store empty reservoirs. After visual testing showed the first
+    BRDF-only path was effectively unlit in normal scenes, the local
+    RAB_PathTrace bridge now records one conservative NEE sample from the
+    current RAB light list per visited vertex before continuing the BRDF path.
+    The first single uniform light pick was also too sparse, so the current
+    debug picker uses the existing weighted emissive-triangle distribution and
+    keeps the best local target from a small trial set. The debug output is a
+    sparse heat view of selected useful reservoirs, not final ReSTIR PT shading,
+    and temporal/spatial reuse remain off.
+    r_pathTracingDebugMode 27 is the paired initial-only reservoir shading
+    preview. It writes the same initial reservoir slice and displays
+    TargetFunction * WeightSum with simple tonemapping. It is a bridge
+    validation mode before Step 11, not temporal resampling.
+    User validation reported that mode 27 works fairly well, runs well
+    performance-wise, and has no serious stability/gameplay issues. Remaining
+    rough normals and black objects are local RAB material/normal cleanup.
+
+Goal:
+    Dispatch initial path tracing and write packed PT reservoirs.
+
+Actions:
+    - Bind PT reservoir buffer UAV.
+    - Bind RTXDI_PTParameters.
+    - Bind RAB resources.
+    - For each pixel/reservoir position:
+        get primary surface;
+        run RAB_PathTrace in initial mode;
+        store reservoir to bufferIndices.initialPathTracerOutputBufferIndex.
+
+Success criteria:
+    - Can debug valid/invalid reservoirs.
+    - Initial-only mode renders similarly to baseline one-sample indirect path tracing, within expected stochastic difference.
+    - Clearing reservoir buffer produces black/invalid output as expected.
+
+Do not:
+    - Do not enable temporal/spatial yet.
+
+------------------------------------------------------------
+STEP 11: Temporal resampling pass
+------------------------------------------------------------
+
+Goal:
+    Reuse previous-frame reservoirs through RTXDI temporal resampling.
+
+Prerequisites:
+    - valid previous G-buffer
+    - valid motion vectors
+    - correct frame index
+    - buffer indices from ReSTIRPTContext
+    - previous reservoir slice not cleared every frame
+    - scene signature/hard reset logic connected
+
+Actions:
+    - Dispatch RTXDI temporal PT resampling shader logic.
+    - Use temporal input/output indices from context.
+    - Invalidate on scene signature changes, resize, TLAS/material/light set changes.
+
+Success criteria:
+    - Static camera converges/stabilizes.
+    - Camera motion does not create catastrophic ghosting.
+    - Disoccluded pixels fallback/boost appropriately.
+
+Do not:
+    - Do not keep temporal history when scene signature changes.
+
+------------------------------------------------------------
+STEP 12: Spatial resampling pass
+------------------------------------------------------------
+
+Goal:
+    Reuse nearby current-frame reservoirs through RTXDI spatial resampling.
+
+Prerequisites:
+    - conservative surface/material similarity
+    - conservative visibility
+    - current-frame reservoir data valid
+    - temporal pass tested or intentionally disabled
+
+Actions:
+    - Dispatch spatial resampling.
+    - Use radius and sample counts from RTXDI_PTSpatialResamplingParameters.
+    - Start with low numSpatialSamples and default radius.
+
+Success criteria:
+    - Noise reduction improves without obvious light leaking.
+    - Normal/depth/material discontinuities are respected.
+
+Do not:
+    - Do not loosen similarity thresholds to hide missing data.
+
+------------------------------------------------------------
+STEP 13: Final shading pass
+------------------------------------------------------------
+
+Goal:
+    Convert selected PT reservoir into indirect lighting output.
+
+Important facts:
+    - The product of WeightSum and TargetFunction is the main final radiance value.
+    - If RcVertexLength > 2, the incoming light direction may need to be regenerated to match RAB_PathTrace.
+    - Diffuse/specular split is engine-specific and may require denoiser guide data.
+
+Actions:
+    - Load reservoir from bufferIndices.finalShadingInputBufferIndex.
+    - If invalid, output fallback/black/regular PT according to chosen policy.
+    - Compute indirect contribution.
+    - Write radiance and denoiser guide buffers.
+
+Success criteria:
+    - Initial-only final shading is sane.
+    - Temporal/spatial final shading does not use wrong slice.
+
+Do not:
+    - Do not assume all radiance should be dumped into diffuse only if the engine denoiser expects split diffuse/specular.
+
+------------------------------------------------------------
+STEP 14: Denoiser / PSR integration
+------------------------------------------------------------
+
+Goal:
+    Feed denoiser-compatible radiance and guide data.
+
+Actions:
+    - Identify existing denoiser path, if any.
+    - Match expected normal/roughness/viewZ/motion/radiance encoding.
+    - If using NRD, follow current NRD encoding expected by the engine.
+    - Use RAB_PathTracerUserData if needed to return PSR/path data from RTXDI runtime.
+
+Success criteria:
+    - Denoiser does not smear across invalid material/depth boundaries.
+    - Radiance history resets align with reservoir history resets.
+
+Do not:
+    - Do not block baseline ReSTIR PT on perfect denoiser integration. It can come after initial correctness.
+
+------------------------------------------------------------
+STEP 15: Tuning and robustness
+------------------------------------------------------------
+
+Goal:
+    Tune only after correctness and visual sanity are established.
+
+Start from RTXDI defaults where possible:
+
+    initialSampling.numInitialSamples = 1
+    initialSampling.maxBounceDepth = 3
+    initialSampling.maxRcVertexLength = 5
+    temporal.maxHistoryLength = 8
+    temporal.maxReservoirAge = 30
+    spatial.numSpatialSamples = 1
+    spatial.numDisocclusionBoostSamples = 8
+    spatial.samplingRadius = 32
+
+Tune later:
+    - normal/depth thresholds
+    - history length
+    - boiling filter strength
+    - spatial sample count/radius
+    - reconnection mode/thresholds
+    - checkerboard mode
+
+Do not:
+    - Do not tune around foundational bridge bugs.
+
+============================================================
+8. HOST-SIDE RESERVOIR ALLOCATION PSEUDOCODE
+============================================================
+
+Use this as a guide, not guaranteed drop-in code. Adapt names to the engine.
+
+    #include "precompiled.h"
+    #pragma hdrstop
+
+    #include "PathTraceRestirPTReservoirs.h"
+    #include <Rtxdi/PT/ReSTIRPT.h>
+    #include <Rtxdi/PT/ReSTIRPTParameters.h>
+
+    namespace
+    {
+        uint32_t RestirPTWidth(uint32_t value)
+        {
+            return Max(1u, value);
+        }
+
+        uint32_t RestirPTHeight(uint32_t value)
+        {
+            return Max(1u, value);
+        }
+
+        RTXDI_ReservoirBufferParameters RestirPTReservoirParams(
+            uint32_t width,
+            uint32_t height,
+            rtxdi::CheckerboardMode checkerboardMode)
+        {
+            return rtxdi::CalculateReservoirBufferParameters(
+                RestirPTWidth(width),
+                RestirPTHeight(height),
+                checkerboardMode);
+        }
+
+        uint32_t RestirPTReservoirElementCount(
+            uint32_t width,
+            uint32_t height,
+            rtxdi::CheckerboardMode checkerboardMode)
+        {
+            RTXDI_ReservoirBufferParameters params =
+                RestirPTReservoirParams(width, height, checkerboardMode);
+
+            return params.reservoirArrayPitch * rtxdi::c_NumReSTIRPTReservoirBuffers;
+        }
+
+        uint64_t RestirPTReservoirByteSize(
+            uint32_t width,
+            uint32_t height,
+            rtxdi::CheckerboardMode checkerboardMode)
+        {
+            return uint64_t(RestirPTReservoirElementCount(width, height, checkerboardMode))
+                 * sizeof(RTXDI_PackedPTReservoir);
+        }
+
+        bool RestirPTReservoirBufferHasCapacity(
+            nvrhi::BufferHandle buffer,
+            uint32_t width,
+            uint32_t height,
+            rtxdi::CheckerboardMode checkerboardMode)
+        {
+            return buffer &&
+                buffer->getDesc().structStride == sizeof(RTXDI_PackedPTReservoir) &&
+                buffer->getDesc().byteSize >= RestirPTReservoirByteSize(width, height, checkerboardMode);
+        }
+
+        nvrhi::BufferHandle CreateRestirPTReservoirBuffer(
+            nvrhi::IDevice* device,
+            const char* debugName,
+            uint32_t width,
+            uint32_t height,
+            rtxdi::CheckerboardMode checkerboardMode)
+        {
+            if (!device)
+                return nullptr;
+
+            nvrhi::BufferDesc desc;
+            desc.debugName = debugName;
+            desc.structStride = sizeof(RTXDI_PackedPTReservoir);
+            desc.byteSize = RestirPTReservoirByteSize(width, height, checkerboardMode);
+            desc.canHaveUAVs = true;
+            desc.canHaveTypedViews = false;
+            desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+            desc.keepInitialState = true;
+
+            return device->createBuffer(desc);
+        }
+    }
+
+Clear helper pattern:
+
+    bool ClearRestirPTReservoirBuffers(
+        nvrhi::ICommandList* commandList,
+        const RtRestirPTReservoirBufferHandles& buffers)
+    {
+        if (!commandList || !buffers.reservoirs)
+            return false;
+
+        commandList->setBufferState(buffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+        commandList->clearBufferUInt(buffers.reservoirs, 0);
+        return true;
+    }
+
+============================================================
+9. SHADER ABI PSEUDOCODE
+============================================================
+
+Use this pattern in ReSTIR PT shaders before including reservoir functions:
+
+    #include "Rtxdi/PT/ReSTIRPTParameters.h"
+
+    ConstantBuffer<RTXDI_PTParameters> g_RestirPTParams : register(bX);
+
+    RWStructuredBuffer<RTXDI_PackedPTReservoir> g_RestirPTReservoirs : register(uX);
+
+    #define RTXDI_PT_RESERVOIR_BUFFER g_RestirPTReservoirs
+    #include "Rtxdi/PT/Reservoir.hlsli"
+
+Load/store pattern:
+
+    RTXDI_PTReservoir r = RTXDI_LoadPTReservoir(
+        g_RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        g_RestirPTParams.bufferIndices.finalShadingInputBufferIndex);
+
+    RTXDI_StorePTReservoir(
+        r,
+        g_RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        g_RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+
+Important:
+    reservoirPosition is not necessarily raw pixel position if checkerboarding is active. Use RTXDI address conversion helpers consistently.
+
+============================================================
+10. FRAME SEQUENCE TARGET
+============================================================
+
+Baseline full frame sequence after all major steps:
+
+    1. Update scene, TLAS, material, light, emissive, smoke candidate buffers.
+    2. Compute scene signature.
+    3. If signature changed, resized, or mode changed incompatibly:
+        clear ReSTIR PT reservoir buffer;
+        reset temporal history state.
+    4. Update ReSTIRPTContext frame index and mode.
+    5. Upload RTXDI_PTParameters.
+    6. Dispatch initial path tracing pass.
+    7. Dispatch temporal resampling pass, if enabled.
+    8. Dispatch spatial resampling pass, if enabled.
+    9. Dispatch final shading pass.
+    10. Denoise/composite.
+
+Early bring-up sequence:
+
+    A. Allocate buffer only.
+    B. Compile shader ABI only.
+    C. Initial pass only, no temporal/spatial.
+    D. Final shading from initial reservoir.
+    E. Temporal only.
+    F. Spatial only.
+    G. Temporal + spatial.
+
+============================================================
+11. HISTORY INVALIDATION POLICY
+============================================================
+
+The existing smoke reservoir scene signature is useful. ReSTIR PT should have an equivalent signature or reuse a broader path tracing scene signature.
+
+Invalidate/clear ReSTIR PT reservoirs on:
+
+    - render width/height change
+    - checkerboard mode change
+    - material table signature change
+    - BLAS/TLAS/static geometry signature change
+    - light list/emissive candidate signature change
+    - major shader/material model change
+    - camera cut / invalid motion vectors
+    - toggling features that alter path sampling semantics
+
+Do not clear every frame once temporal reuse is enabled.
+
+============================================================
+12. DEBUG / VALIDATION CHECKLIST
+============================================================
+
+After each step, report:
+
+    - files changed
+    - compile status
+    - shader compile status, if shaders touched
+    - exact unresolved symbols or missing resources
+    - whether any existing smoke reservoir code changed
+    - next recommended step
+
+Reservoir allocation validation:
+
+    - structStride == sizeof(RTXDI_PackedPTReservoir)
+    - byteSize >= reservoirArrayPitch * c_NumReSTIRPTReservoirBuffers * stride
+    - resource state is UnorderedAccess before clear/write
+    - buffer is not recreated every frame unnecessarily
+
+Shader validation:
+
+    - RTXDI_PT_RESERVOIR_BUFFER is defined exactly once per shader before Reservoir.hlsli
+    - same RTXDI_PTParameters layout in C++ and HLSL
+    - no NaNs in reservoir WeightSum/TargetFunction/Radiance
+    - invalid reservoirs have M == 0 or RTXDI-recognized empty state
+
+Visual validation:
+
+    - initial-only output stable under fixed seed
+    - temporal reuse improves static camera stability
+    - camera motion does not leave long ghost trails
+    - spatial reuse does not leak across edges/material changes
+    - emissive/smoke candidates contribute only where visibility allows
+
+============================================================
+13. COMMON FAILURE MODES
+============================================================
+
+Failure: GPU crash or garbage reservoir reads.
+Likely causes:
+    - host stride not sizeof(RTXDI_PackedPTReservoir)
+    - byte size allocated as width * height instead of reservoirArrayPitch * slices
+    - shader buffer bound as wrong structured type
+    - wrong UAV slot/register
+    - wrong slice index
+
+Failure: temporal ghosting everywhere.
+Likely causes:
+    - previous G-buffer is actually current G-buffer
+    - bad motion vectors
+    - scene signature not clearing history
+    - material/surface similarity too permissive
+    - frame index not updated through ReSTIRPTContext
+
+Failure: spatial light leaking across walls/edges.
+Likely causes:
+    - conservative visibility missing or inconsistent
+    - normal/depth thresholds too permissive
+    - material similarity too permissive
+    - world positions/normals reconstructed incorrectly
+
+Failure: no noise improvement.
+Likely causes:
+    - reservoirs invalid or M remains 0
+    - target function/PDF wrong
+    - final shading reading wrong buffer index
+    - temporal/spatial passes disabled or overwritten
+
+Failure: fireflies/boiling.
+Likely causes:
+    - wrong PDFs
+    - missing MIS weights
+    - NaNs/infs not guarded
+    - overly long history before correctness
+    - reconnection metadata invalid
+
+Failure: shader compiles but output black.
+Likely causes:
+    - unsupported materials marked invalid
+    - missing light sampling path
+    - environment/emissive recording not implemented
+    - FinalShading reads invalid slice
+
+============================================================
+14. SOURCE REFERENCES FOR AGENT
+============================================================
+
+Always check the local repo first. These web references describe the upstream NVIDIA intent and current expected structure:
+
+    RTXDI repository and docs:
+    https://github.com/NVIDIA-RTX/RTXDI
+    https://github.com/NVIDIA-RTX/RTXDI/blob/main/Doc/Integration.md
+    https://github.com/NVIDIA-RTX/RTXDI/blob/main/Doc/RestirPT.md
+
+    RTXDI-Library ReSTIR PT headers/source:
+    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/PT/ReSTIRPT.h
+    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/PT/ReSTIRPTParameters.h
+    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/PT/Reservoir.hlsli
+    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/Utils/ReservoirAddressing.hlsli
+    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/RtxdiUtils.h
+    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Source/ReSTIRPT.cpp
+
+    RTXDI sample bridge files to study, not blindly copy:
+    https://github.com/NVIDIA-RTX/RTXDI/tree/main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge
+    https://github.com/NVIDIA-RTX/RTXDI/tree/main/Samples/FullSample/Shaders/LightingPasses/PT
+
+Do not chase unrelated NVIDIA RTX sample code unless the user asks. Keep this integration scoped to RTXDI ReSTIR PT.
+
+============================================================
+15. AGENT OPERATING PROTOCOL
+============================================================
+
+When the user says "Implement Step N":
+
+    1. Re-read this document.
+    2. Inspect local files relevant to Step N.
+    3. Summarize the exact planned edits in one short paragraph.
+    4. Edit only the files necessary for Step N.
+    5. Preserve existing behavior unless Step N explicitly changes it.
+    6. Compile or run the narrowest available validation.
+    7. Report:
+        - changed files
+        - what was added
+        - what remains TODO
+        - compile/test result
+        - exact blockers, if any
+
+If a required engine API is unknown:
+
+    - Search nearby code.
+    - Use existing engine naming/style.
+    - If still unknown, add a small explicit TODO or adapter function with a clear name.
+    - Do not invent a fake permanent implementation that silently produces wrong rendering.
+
+If tempted to redesign:
+
+    Stop. The target design is already chosen:
+        separate ReSTIR PT packed reservoirs + RAB bridge + engine-owned path tracer/resources.
+
+============================================================
+16. FIRST PRACTICAL TASK TO GIVE THE AGENT
+============================================================
+
+Recommended first user instruction:
+
+    "Implement Step 0 only. Inspect the repository and report where RTXDI, path tracing, G-buffer, material, light, and shader binding code live. Do not edit files."
+
+Recommended second instruction:
+
+    "Implement Step 1 only. Add host-side ReSTIR PT packed reservoir allocation as a separate module. Do not modify the existing smoke reservoir system except for includes/build references if absolutely required."
+
+Recommended third instruction:
+
+    "Implement Step 2 only. Add ReSTIRPTContext state and RTXDI_PTParameters upload plumbing, but do not dispatch shader passes yet."
+
+============================================================
+17. FINAL REMINDER
+============================================================
+
+The existing smoke reservoir allocator overlaps with ReSTIR PT only in resource-management ideas. It is not the ReSTIR PT reservoir ABI.
+
+The correct bridge is:
+
+    Host allocation:
+        NVRHI buffer with RTXDI_PackedPTReservoir stride
+        array pitch from RTXDI reservoir params
+        two ReSTIR PT slices
+
+    Shader storage:
+        RWStructuredBuffer<RTXDI_PackedPTReservoir>
+        RTXDI_PT_RESERVOIR_BUFFER macro
+        RTXDI load/store helpers
+
+    Renderer bridge:
+        RAB_* callbacks for surfaces, materials, lights, visibility, RNG, ray tracing
+        RAB_PathTrace calling RTXDI_PathTracerContext correctly
+
+Do not let the coding agent drift away from that plan.
