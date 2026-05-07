@@ -721,12 +721,19 @@ Implemented debug CVars:
   instances.
 
 - r_pathTracingRigidResidency
-  Defaults to 1. When enabled with the source3 rigid route, cached rigid
-  instances are kept resident when their last known Doom area is in the current
-  player area plus selected portal-adjacent areas. This changes rigid routing
-  from raster-visible-only to portal/cell resident geometry. It uses the last
-  observed transform/material metadata for cached instances; moving objects
-  still need later per-frame freshness work when they are not raster-submitted.
+  Defaults to 1. When enabled with the source3 rigid route, rigid residency is
+  now frame-revalidated rather than a blind "seen once, keep forever" cache.
+  The visible drawSurf mirror remains the authoritative freshness source for
+  normal rigid geometry. The selected-area portal walk supplements only
+  conservative emissive/signage/glow rigid surfaces, and only after the same
+  render entity has previously been validated by visible drawSurfs without a
+  later render-entity modification. Resident rigid records and rigid mesh
+  candidates that are not revalidated in the current frame are pruned before
+  route buffers/TLAS instances are built. This avoids keeping destroyed or
+  despawned gameplay objects such as barrels, scan beams, and one-shot animated
+  props alive in the PT TLAS while still preserving previously validated
+  off-camera emissive rigid contributors. The tradeoff is that a never-seen
+  occluded emissive rigid can still pop in the first time Doom submits it.
 
 - r_pathTracingRigidResidencyPortalSteps
   Defaults to 4. Portal traversal depth for source3 rigid geometry residency.
@@ -737,15 +744,19 @@ Implemented debug CVars:
 
 - r_pathTracingRigidResidencyDump
   One-shot dump of source3 rigid residency stats: current area, selected area
-  count, visible rigid instances, cached rigid instances, resident instances,
-  resident seen-this-frame versus cache-only counts, route-ready counts, and
-  skipped outside/unknown-area counts.
+  count, visible rigid instances, emissive-only area-walk rigid instances,
+  cached rigid instances, resident instances, resident seen-this-frame versus
+  cache-only counts, route-ready counts, and skipped outside/unknown-area
+  counts. Cache-only ordinary rigid geometry should not appear in normal mode
+  18/20 integration after the live revalidation/prune pass.
 
   Mode 21/22 bounds visualization also appends resident rigid boxes when
   residency is enabled. Visible resident route-ready boxes are green;
-  cache-only resident route-ready boxes are cyan; resident boxes missing a BLAS
-  are yellow; other resident problem boxes are magenta. This is intended to
-  visually confirm whether occluded rigid geometry remains in the routed BVH.
+  cache-only resident route-ready boxes are cyan when diagnostics expose them;
+  resident boxes missing a BLAS are yellow; other resident problem boxes are
+  magenta. This is intended to visually confirm whether selected-area emissive
+  rigid contributors remain in the routed BVH without resurrecting destroyed
+  ordinary rigid geometry.
   Resident/static overlay boxes are validated before upload and capped to 64
   boxes because mode 22 checks wireframe lines in the PT pass and very high or
   invalid line workloads can trigger GPU timeout/device removal.

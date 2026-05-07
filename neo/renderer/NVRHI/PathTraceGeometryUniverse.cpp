@@ -5,7 +5,11 @@
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceCVars.h"
 #include "PathTraceAcceleration.h"
+#include "PathTraceDoomMaterialClassifier.h"
+#include "PathTraceDynamicMaterialState.h"
+#include "PathTraceSurfaceClassification.h"
 #include "../RenderCommon.h"
+#include "../RenderWorld_local.h"
 
 #include <algorithm>
 #include <nvrhi/utils.h>
@@ -34,6 +38,46 @@ bool SmokeGeometryRangesMatchCounts(const RtSmokeGeometryRangeRecord& a, const R
         a.vertices.count == b.vertices.count &&
         a.indexes.count == b.indexes.count &&
         a.triangles.count == b.triangles.count;
+}
+
+uint64 RigidResidencyHashBytes(uint64 hash, const void* data, size_t size)
+{
+    return HashSmokeBytes(hash, data, size);
+}
+
+uint64 RigidResidencyMeshKeyHash(const RtPathTraceMeshKey& key)
+{
+    uint64 hash = 14695981039346656037ull;
+    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(key.tri);
+    hash = RigidResidencyHashBytes(hash, &triPtr, sizeof(triPtr));
+    hash = RigidResidencyHashBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
+    hash = RigidResidencyHashBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
+    hash = RigidResidencyHashBytes(hash, &key.numVerts, sizeof(key.numVerts));
+    hash = RigidResidencyHashBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
+    hash = RigidResidencyHashBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
+    hash = RigidResidencyHashBytes(hash, &key.materialId, sizeof(key.materialId));
+    hash = RigidResidencyHashBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
+    return hash;
+}
+
+uint64 RigidResidencyInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, uint32_t materialId, const srfTriangles_t* tri)
+{
+    uint64 hash = 14695981039346656037ull;
+    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
+    hash = RigidResidencyHashBytes(hash, &meshHash, sizeof(meshHash));
+    hash = RigidResidencyHashBytes(hash, &entityIndex, sizeof(entityIndex));
+    hash = RigidResidencyHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
+    hash = RigidResidencyHashBytes(hash, &materialId, sizeof(materialId));
+    hash = RigidResidencyHashBytes(hash, &triPtr, sizeof(triPtr));
+    return hash;
+}
+
+uint64 RigidResidencyEntityKey(int entityIndex, int renderEntityNum)
+{
+    uint64 hash = 14695981039346656037ull;
+    hash = RigidResidencyHashBytes(hash, &entityIndex, sizeof(entityIndex));
+    hash = RigidResidencyHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
+    return hash;
 }
 
 int ResolveRigidResidencyCurrentArea(const viewDef_t* viewDef)
@@ -169,6 +213,112 @@ std::vector<bool> BuildRigidResidencySelectedAreas(const viewDef_t* viewDef, int
         }
     }
     return selectedAreas;
+}
+
+bool RigidResidencyCanPromoteEmissiveCard(const idRenderEntityLocal* entity, const idMaterial* material)
+{
+    if (r_pathTracingRigidRouteEmissiveCards.GetInteger() == 0 || !entity || !material)
+    {
+        return false;
+    }
+
+    const char* materialName = material->GetName();
+    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    if (classifier.hasScreenTexgen ||
+        classifier.hasAddDefault0200Texture ||
+        classifier.nameLooksGui ||
+        classifier.nameLooksParticle ||
+        classifier.nameLooksGlass ||
+        classifier.sortIsPostProcess ||
+        classifier.sortIsGuiOrSubview)
+    {
+        return false;
+    }
+
+    const bool looksLikeRigidEmissiveCard =
+        classifier.nameLooksSignage ||
+        classifier.nameLooksGlow;
+    const bool hasEmissiveCardStage =
+        classifier.hasAdditiveBlend ||
+        classifier.hasAmbientBlendStage ||
+        (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
+
+    return looksLikeRigidEmissiveCard &&
+        hasEmissiveCardStage &&
+        (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+}
+
+bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntityLocal* entity)
+{
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+    if (!entity || !renderEntity || !model)
+    {
+        return false;
+    }
+    if (!r_skipSuppress.GetBool() && viewDef)
+    {
+        if (renderEntity->suppressSurfaceInViewID &&
+            renderEntity->suppressSurfaceInViewID == viewDef->renderView.viewID)
+        {
+            return false;
+        }
+        if (renderEntity->allowSurfaceInViewID &&
+            renderEntity->allowSurfaceInViewID != viewDef->renderView.viewID)
+        {
+            return false;
+        }
+    }
+    if (model->IsStaticWorldModel() ||
+        !model->ModelHasDrawingSurfaces() ||
+        model->IsDefaultModel() ||
+        model->IsDynamicModel() != DM_STATIC ||
+        entity->lastModifiedFrameNum == tr.frameCount ||
+        renderEntity->callback != nullptr ||
+        renderEntity->forceUpdate != 0 ||
+        renderEntity->joints != nullptr ||
+        renderEntity->numJoints > 0 ||
+        entity->dynamicModel != nullptr ||
+        entity->cachedDynamicModel != nullptr ||
+        renderEntity->modelDepthHack != 0.0f)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfTriangles_t* tri, const idMaterial* material)
+{
+    if (!entity || !tri || !tri->verts || !tri->indexes || tri->numVerts <= 0 || tri->numIndexes <= 0 || (tri->numIndexes % 3) != 0 || !material)
+    {
+        return false;
+    }
+    if (tri->staticModelWithJoints != nullptr)
+    {
+        return false;
+    }
+    const deform_t deform = material->Deform();
+    if (deform == DFRM_SPRITE ||
+        deform == DFRM_TUBE ||
+        deform == DFRM_FLARE ||
+        deform == DFRM_PARTICLE ||
+        deform == DFRM_PARTICLE2)
+    {
+        return false;
+    }
+    const uint32_t materialId = SmokeMaterialId(material);
+    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
+    const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
+    if (material->Coverage() == MC_TRANSLUCENT || material->GetSort() >= SS_MEDIUM)
+    {
+        return facts.emissive || RigidResidencyCanPromoteEmissiveCard(entity, material);
+    }
+    return deform == DFRM_NONE && facts.emissive;
 }
 
 int CountRigidResidencySelectedAreas(const std::vector<bool>& selectedAreas)
@@ -654,8 +804,10 @@ void RtSmokeGeometryUniverse::Clear()
     m_frameRigidMeshCandidateHashes.clear();
     m_rigidResidentRecords.clear();
     m_rigidResidentLookup.clear();
+    m_rigidVisibleEntityModifiedFrames.clear();
     m_rigidResidentFrameInstances.clear();
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
+    m_rigidResidencyAreaWalkInstancesThisFrame = 0;
     m_rigidResidencyEnabled = false;
     ResetRigidMeshCandidateFrameStats();
     ++m_generation;
@@ -701,6 +853,7 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex)
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyStats.frameIndex = frameIndex;
     m_rigidResidencyStats.generation = m_generation;
+    m_rigidResidencyAreaWalkInstancesThisFrame = 0;
 }
 
 void RtSmokeGeometryUniverse::EndFrame()
@@ -2041,6 +2194,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     m_rigidResidencyStats.frameIndex = m_currentFrameIndex;
     m_rigidResidencyStats.generation = m_generation;
     m_rigidResidencyStats.portalSteps = idMath::ClampInt(0, 8, portalSteps);
+    m_rigidResidencyStats.areaWalkRigidInstances = m_rigidResidencyAreaWalkInstancesThisFrame;
 
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
     m_rigidResidencyStats.totalAreas = renderWorld ? renderWorld->NumAreas() : 0;
@@ -2067,25 +2221,14 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
             continue;
         }
 
-        std::unordered_map<uint64, size_t>::iterator found = m_rigidResidentLookup.find(instance.instanceId);
-        if (found == m_rigidResidentLookup.end())
+        if (instance.entity)
         {
-            RigidResidentInstanceRecord record;
-            record.observation = MakeRigidRouteInstanceObservation(instance);
-            record.lastSeenFrame = m_currentFrameIndex;
-            record.seenThisFrame = true;
-            m_rigidResidentLookup[instance.instanceId] = m_rigidResidentRecords.size();
-            m_rigidResidentRecords.push_back(record);
+            m_rigidVisibleEntityModifiedFrames[RigidResidencyEntityKey(instance.entityIndex, instance.renderEntityNum)] = instance.entity->lastModifiedFrameNum;
         }
-        else if (found->second < m_rigidResidentRecords.size())
-        {
-            RigidResidentInstanceRecord& record = m_rigidResidentRecords[found->second];
-            record.observation = MakeRigidRouteInstanceObservation(instance);
-            record.lastSeenFrame = m_currentFrameIndex;
-            record.seenThisFrame = true;
-        }
+        RecordRigidResidentObservation(MakeRigidRouteInstanceObservation(instance));
     }
 
+    PruneRigidCachesToCurrentFrame();
     m_rigidResidencyStats.cachedRigidInstances = static_cast<int>(m_rigidResidentRecords.size());
     if (!enabled)
     {
@@ -2094,6 +2237,11 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
 
     for (const RigidResidentInstanceRecord& residentRecord : m_rigidResidentRecords)
     {
+        if (!residentRecord.seenThisFrame)
+        {
+            continue;
+        }
+
         const RtPathTraceRigidRouteInstanceObservation& instance = residentRecord.observation;
         if (instance.currentArea < 0)
         {
@@ -2119,14 +2267,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         const bool routeReady = hasMesh && meshRecord->rigidBlas;
 
         ++m_rigidResidencyStats.residentInstances;
-        if (residentRecord.seenThisFrame)
-        {
-            ++m_rigidResidencyStats.residentSeenThisFrame;
-        }
-        else
-        {
-            ++m_rigidResidencyStats.residentFromCache;
-        }
+        ++m_rigidResidencyStats.residentSeenThisFrame;
         if (!hasMesh)
         {
             ++m_rigidResidencyStats.residentMissingMesh;
@@ -2149,6 +2290,139 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     return m_rigidResidencyStats;
 }
 
+void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps)
+{
+    if (!m_frameActive || !viewDef || !viewDef->renderWorld)
+    {
+        return;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+    const std::vector<bool> selectedAreas = BuildRigidResidencySelectedAreas(viewDef, portalSteps, nullptr, nullptr, nullptr);
+    if (selectedAreas.empty())
+    {
+        return;
+    }
+
+    std::unordered_set<uint64> visibleRigidEntityKeys;
+    const std::vector<RtPathTraceInstanceObservation>& visibleInstances = instanceUniverse.FrameInstances();
+    for (const RtPathTraceInstanceObservation& instance : visibleInstances)
+    {
+        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        {
+            continue;
+        }
+        visibleRigidEntityKeys.insert(RigidResidencyEntityKey(instance.entityIndex, instance.renderEntityNum));
+    }
+
+    std::unordered_set<uint64> observedInstanceIds;
+    for (int areaIndex = 0; areaIndex < static_cast<int>(selectedAreas.size()); ++areaIndex)
+    {
+        if (!selectedAreas[areaIndex])
+        {
+            continue;
+        }
+        if (areaIndex < 0 || areaIndex >= renderWorld->numPortalAreas)
+        {
+            continue;
+        }
+
+        portalArea_t* area = &renderWorld->portalAreas[areaIndex];
+        for (areaReference_t* ref = area->entityRefs.areaNext; ref != &area->entityRefs; ref = ref->areaNext)
+        {
+            idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
+            if (!RigidResidencyCanTrackEntity(viewDef, entity))
+            {
+                continue;
+            }
+
+            const renderEntity_t& renderEntity = entity->parms;
+            const uint64 entityKey = RigidResidencyEntityKey(entity->index, renderEntity.entityNum);
+            if (visibleRigidEntityKeys.find(entityKey) != visibleRigidEntityKeys.end())
+            {
+                continue;
+            }
+            const std::unordered_map<uint64, int>::const_iterator visibleFrameIt = m_rigidVisibleEntityModifiedFrames.find(entityKey);
+            if (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
+                visibleFrameIt->second != entity->lastModifiedFrameNum)
+            {
+                continue;
+            }
+
+            const idRenderModel* model = renderEntity.hModel;
+            for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+            {
+                const modelSurface_t* surface = model->Surface(surfaceIndex);
+                const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+                const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
+                const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
+                if (!RigidResidencyCanTrackSurface(entity, tri, material))
+                {
+                    continue;
+                }
+
+                const uint32_t materialId = SmokeMaterialId(material);
+                RtPathTraceMeshKey meshKey;
+                meshKey.tri = tri;
+                meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
+                meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
+                meshKey.numVerts = tri ? tri->numVerts : 0;
+                meshKey.numIndexes = tri ? tri->numIndexes : 0;
+                meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
+                meshKey.materialId = materialId;
+                meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                const uint64 meshHash = RigidResidencyMeshKeyHash(meshKey);
+                const uint64 instanceId = RigidResidencyInstanceIdHash(meshHash, entity->index, renderEntity.entityNum, materialId, tri);
+                if (observedInstanceIds.find(instanceId) != observedInstanceIds.end())
+                {
+                    continue;
+                }
+                observedInstanceIds.insert(instanceId);
+
+                RtPathTraceRigidMeshCandidateObservation candidateObservation;
+                candidateObservation.tri = tri;
+                candidateObservation.meshHash = meshHash;
+                candidateObservation.instanceId = instanceId;
+                candidateObservation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
+                candidateObservation.indexBufferIdentity = meshKey.indexBufferIdentity;
+                candidateObservation.sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
+                if (renderEntity.customShader != nullptr || renderEntity.customSkin != nullptr)
+                {
+                    candidateObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
+                }
+                candidateObservation.materialId = materialId;
+                candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                candidateObservation.vertexFormat = meshKey.vertexFormat;
+                candidateObservation.drawSurfIndex = -1;
+                candidateObservation.entityIndex = entity->index;
+                candidateObservation.renderEntityNum = renderEntity.entityNum;
+                candidateObservation.numVerts = tri->numVerts;
+                candidateObservation.numIndexes = tri->numIndexes;
+                candidateObservation.localSpaceValid = true;
+                candidateObservation.materialName = material ? material->GetName() : "<none>";
+                candidateObservation.modelName = model ? model->Name() : "<none>";
+                RecordRigidMeshCandidate(candidateObservation);
+
+                RtPathTraceRigidRouteInstanceObservation residentInstance;
+                residentInstance.instanceId = instanceId;
+                residentInstance.meshHash = meshHash;
+                residentInstance.entityIndex = entity->index;
+                residentInstance.renderEntityNum = renderEntity.entityNum;
+                residentInstance.drawSurfIndex = -1;
+                residentInstance.currentArea = areaIndex;
+                residentInstance.materialOverrideId = materialId;
+                residentInstance.sourceFlags = candidateObservation.sourceFlags;
+                residentInstance.seenThisFrame = true;
+                memcpy(residentInstance.objectToWorld, entity->modelMatrix, sizeof(residentInstance.objectToWorld));
+                residentInstance.materialName = candidateObservation.materialName;
+                residentInstance.modelName = candidateObservation.modelName;
+                RecordRigidResidentObservation(residentInstance);
+                ++m_rigidResidencyAreaWalkInstancesThisFrame;
+            }
+        }
+    }
+}
+
 const RtPathTraceRigidResidencyStats& RtSmokeGeometryUniverse::GetRigidResidencyStats() const
 {
     return m_rigidResidencyStats;
@@ -2156,7 +2430,7 @@ const RtPathTraceRigidResidencyStats& RtSmokeGeometryUniverse::GetRigidResidency
 
 void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid=%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         static_cast<unsigned long long>(stats.frameIndex),
@@ -2168,6 +2442,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.portalEdges,
         stats.blockedPortalEdges,
         stats.visibleRigidInstances,
+        stats.areaWalkRigidInstances,
         stats.cachedRigidInstances,
         stats.residentInstances,
         stats.residentSeenThisFrame,
@@ -2408,6 +2683,90 @@ void RtSmokeGeometryUniverse::AddRigidResidencySample(const RigidResidentInstanc
     sample.origin.Set(instance.objectToWorld[12], instance.objectToWorld[13], instance.objectToWorld[14]);
     sample.materialName = instance.materialName;
     sample.modelName = instance.modelName;
+}
+
+void RtSmokeGeometryUniverse::RecordRigidResidentObservation(const RtPathTraceRigidRouteInstanceObservation& instance)
+{
+    if (instance.instanceId == 0)
+    {
+        return;
+    }
+
+    std::unordered_map<uint64, size_t>::iterator found = m_rigidResidentLookup.find(instance.instanceId);
+    if (found == m_rigidResidentLookup.end())
+    {
+        RigidResidentInstanceRecord record;
+        record.observation = instance;
+        record.lastSeenFrame = m_currentFrameIndex;
+        record.seenThisFrame = true;
+        m_rigidResidentLookup[instance.instanceId] = m_rigidResidentRecords.size();
+        m_rigidResidentRecords.push_back(record);
+        return;
+    }
+
+    if (found->second >= m_rigidResidentRecords.size())
+    {
+        return;
+    }
+
+    RigidResidentInstanceRecord& record = m_rigidResidentRecords[found->second];
+    record.observation = instance;
+    record.lastSeenFrame = m_currentFrameIndex;
+    record.seenThisFrame = true;
+}
+
+void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame()
+{
+    if (!m_frameActive)
+    {
+        return;
+    }
+
+    if (!m_rigidResidentRecords.empty())
+    {
+        std::vector<RigidResidentInstanceRecord> liveResidentRecords;
+        liveResidentRecords.reserve(m_rigidResidentRecords.size());
+        for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
+        {
+            if (record.seenThisFrame)
+            {
+                liveResidentRecords.push_back(record);
+            }
+        }
+        if (liveResidentRecords.size() != m_rigidResidentRecords.size())
+        {
+            m_rigidResidentRecords.swap(liveResidentRecords);
+            m_rigidResidentLookup.clear();
+            m_rigidResidentLookup.reserve(m_rigidResidentRecords.size());
+            for (size_t recordIndex = 0; recordIndex < m_rigidResidentRecords.size(); ++recordIndex)
+            {
+                m_rigidResidentLookup[m_rigidResidentRecords[recordIndex].observation.instanceId] = recordIndex;
+            }
+        }
+    }
+
+    if (!m_rigidMeshCandidateRecords.empty())
+    {
+        std::vector<RigidMeshCandidateRecord> liveMeshRecords;
+        liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
+        for (const RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
+        {
+            if (record.valid && record.seenThisFrame)
+            {
+                liveMeshRecords.push_back(record);
+            }
+        }
+        if (liveMeshRecords.size() != m_rigidMeshCandidateRecords.size())
+        {
+            m_rigidMeshCandidateRecords.swap(liveMeshRecords);
+            m_rigidMeshCandidateLookup.clear();
+            m_rigidMeshCandidateLookup.reserve(m_rigidMeshCandidateRecords.size());
+            for (size_t recordIndex = 0; recordIndex < m_rigidMeshCandidateRecords.size(); ++recordIndex)
+            {
+                m_rigidMeshCandidateLookup[m_rigidMeshCandidateRecords[recordIndex].meshHash] = recordIndex;
+            }
+        }
+    }
 }
 
 RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats) const

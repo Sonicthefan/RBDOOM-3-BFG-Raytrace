@@ -548,6 +548,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0) ||
             (requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0));
+    const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
+    const bool rigidResidencyEnabled =
+        r_pathTracingRigidResidency.GetInteger() != 0 &&
+        (enableRigidRouteForMode || rigidResidencyBoundsDebug);
     const int source2RigidEntities = sceneSource == 2 ? idMath::ClampInt(0, 2, r_pathTracingSceneSource2RigidEntities.GetInteger()) : 0;
     const bool dumpSceneUniverse = r_pathTracingSceneUniverseDump.GetInteger() != 0;
     const bool dumpInstanceUniverse = r_pathTracingInstanceUniverseDump.GetInteger() != 0;
@@ -707,6 +711,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             OPTICK_EVENT("PT DrawSurf Mirror");
             m_instanceUniverse.BeginFrame(m_smokeGeometryFrameIndex, viewDef);
             CapturePathTraceDrawSurfMirror(viewDef, useSceneUniverseStaticGeometry ? &m_sceneUniverse : nullptr, &m_smokeGeometryUniverse, m_instanceUniverse, &m_smokeBoundsOverlayLines);
+            if (rigidResidencyEnabled)
+            {
+                m_smokeGeometryUniverse.RefreshRigidResidencyAreaWalk(
+                    viewDef,
+                    m_instanceUniverse,
+                    idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()));
+            }
             m_smokeBoundsOverlayLineCount = static_cast<int>(m_smokeBoundsOverlayLines.size());
         }
         if (useSceneUniverseStaticGeometry)
@@ -798,10 +809,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     if (useDrawSurfMirrorDynamicFrame)
     {
-        const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
-        const bool rigidResidencyEnabled =
-            r_pathTracingRigidResidency.GetInteger() != 0 &&
-            (enableRigidRouteForMode || rigidResidencyBoundsDebug);
         const RtPathTraceRigidResidencyStats rigidResidencyStats = m_smokeGeometryUniverse.UpdateRigidResidency(
             viewDef,
             m_instanceUniverse,

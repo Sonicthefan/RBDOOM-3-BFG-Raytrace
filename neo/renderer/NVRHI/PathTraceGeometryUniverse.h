@@ -420,6 +420,7 @@ struct RtPathTraceRigidResidencyStats
     int portalEdges = 0;
     int blockedPortalEdges = 0;
     int visibleRigidInstances = 0;
+    int areaWalkRigidInstances = 0;
     int cachedRigidInstances = 0;
     int residentInstances = 0;
     int residentSeenThisFrame = 0;
@@ -555,6 +556,7 @@ public:
         const RtPathTraceInstanceUniverse& instanceUniverse,
         bool enabled,
         int portalSteps);
+    void RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps);
     const RtPathTraceRigidResidencyStats& GetRigidResidencyStats() const;
     void DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const;
     void CollectRigidResidencyBoundsBoxes(std::vector<RtPathTraceRigidResidencyBoundsBox>& boxes, int maxBoxes) const;
@@ -617,6 +619,8 @@ private:
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
+    void RecordRigidResidentObservation(const RtPathTraceRigidRouteInstanceObservation& instance);
+    void PruneRigidCachesToCurrentFrame();
 
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;
@@ -633,8 +637,10 @@ private:
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;
     std::vector<RigidResidentInstanceRecord> m_rigidResidentRecords;
     std::unordered_map<uint64, size_t> m_rigidResidentLookup;
+    std::unordered_map<uint64, int> m_rigidVisibleEntityModifiedFrames;
     std::vector<RtPathTraceRigidRouteInstanceObservation> m_rigidResidentFrameInstances;
     RtPathTraceRigidMeshCandidateStats m_rigidMeshCandidateFrameStats;
     RtPathTraceRigidResidencyStats m_rigidResidencyStats;
+    int m_rigidResidencyAreaWalkInstancesThisFrame = 0;
     bool m_rigidResidencyEnabled = false;
 };

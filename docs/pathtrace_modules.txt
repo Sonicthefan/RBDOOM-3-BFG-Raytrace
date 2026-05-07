@@ -272,10 +272,11 @@ PathTraceGeometryUniverse.h
     rigid mesh candidate/local-source records, validation stats, CPU rigid BLAS
     plan/input descriptor dumps, and default-on rigid BLAS GPU scaffold records
     for per-mesh local-space vertex/index buffers plus optional standalone BLAS
-    handles. It also owns source3 rigid residency records and bounds samples,
-    and builds rigid TLAS instance plans by matching current/cached
-    instance-universe observations to rigid mesh records when the route gates
-    are enabled.
+    handles. It also owns source3 rigid residency records, live revalidation
+    state, selected-area emissive rigid area-walk observations, and bounds
+    samples. It builds rigid TLAS instance plans by matching current-frame
+    revalidated instance observations to rigid mesh records when the route
+    gates are enabled.
     The universe must evolve with previous-frame geometry history in mind so
     future motion vector output can be generated from geometry, not guessed
     later.
@@ -292,19 +293,21 @@ PathTraceGeometryUniverse.cpp
     descriptor dumps, and now owns a default-on GPU scaffold that can
     create/upload local-space rigid mesh input buffers and submit per-mesh BLAS
     builds. With the explicit rigid route gates, it can feed routed rigid TLAS
-    instances into modes 18/20/23/24/25 and can keep cached rigid instances
-    resident by Doom area/portal selection rather than current raster
-    submission alone. Rigid residency was one visible symptom of the portal
-    seed bug: a valid-but-bad current area could make cached rigid objects in
-    the next visually adjacent portal fall outside the selected set despite
+    instances into modes 18/20/23/24/25. Rigid residency no longer emits a
+    blind cache of ordinary rigid objects: visible drawSurf observations are
+    the authoritative freshness source, records not revalidated in the current
+    frame are pruned, and the selected-area portal walk only supplements
+    conservative emissive/signage/glow rigid surfaces after the entity has been
+    previously validated by visible drawSurfs without a later render-entity
+    modification. Rigid residency was one visible symptom of the portal seed
+    bug: a valid-but-bad current area could make cached rigid objects in the
+    next visually adjacent portal fall outside the selected set despite
     sufficient nominal portal depth. The residency walk now multi-seeds from
     the plausible camera areas at depth 0 before applying the configured portal
-    depth. The residency path uses last-known transform/material
-    metadata for cached rigid instances, so moving off-screen objects still need
-    a later per-frame freshness/update design. Future work should expand
-    persistent records, dirty ranges, current/previous transform history, and
-    per-frame material-state handling needed for moving/game-driven surfaces and
-    temporal reconstruction.
+    depth. Future work should split emissive/light residency from geometry
+    residency more cleanly and expand persistent records, dirty ranges,
+    current/previous transform history, and per-frame material-state handling
+    needed for moving/game-driven surfaces and temporal reconstruction.
 
 PathTraceSkinning.h
     Narrow CPU skinning bridge declarations for captured skinned/deformed Doom
@@ -605,10 +608,12 @@ Typical flow:
    local-space rigid mesh buffers/standalone BLAS builds, rigid residency
    records, and rigid TLAS instance plans. In gated validation/integration
    modes, routed-ready rigid triangles can be removed from the dynamic fallback
-   and traced through the reusable rigid route. Rigid residency selects
-   last-known cached instances by Doom renderer area/portal membership so
-   occluded rigid props are not dropped purely because raster stopped submitting
-   them.
+   and traced through the reusable rigid route. Rigid residency now keeps only
+   current-frame revalidated resident instances. Its selected-area portal walk
+   supplements previously visible emissive/signage/glow rigids, but does not
+   discover or preserve arbitrary opaque rigid props from raw area refs because
+   destructible gameplay objects can remain render-side while no longer being
+   valid PT geometry.
 7. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
 8. PathTraceSmokeResources creates geometry/material/emissive buffers.
