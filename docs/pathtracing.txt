@@ -2183,6 +2183,23 @@ Near term:
 7. Start separating decal/blend/translucent behavior from opaque albedo. The
    current subtype classifier is useful for inspection but not a renderer.
 
+8. Keep a visible-portal-chain augmentation in reserve for rare portal layouts
+   that defeat a fixed off-camera depth. The current default should remain
+   multi-seed depth 4 for source3 static preload, rigid residency, Doom
+   analytic lights, and light-universe area filtering because off-camera
+   geometry/lights deeper than that are unlikely to matter often enough to
+   justify a global depth increase. If playtesting finds a visible doorway or
+   corridor built from a silly chain of 5-10 tiny overlapping portal cells, add
+   a separate CVar-gated exception instead of raising every residency walk:
+   recursively clip Doom portal windings from the multi-seed camera areas,
+   union the areas reached through genuinely screen-visible portal openings
+   with the depth-4 set, and cap that exception separately by visible depth and
+   max added areas. A first version can use frustum + recursive portal-winding
+   clipping only; a later version can add cheap CPU trace probes to the portal
+   center/corners to reject portal boundaries hidden behind solid map geometry.
+   This is an on-screen correction path, not a replacement for off-camera PT
+   residency.
+
 Medium term:
 
 1. Keep focused changes small and feature-specific now that the broad extraction
