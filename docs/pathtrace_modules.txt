@@ -69,6 +69,15 @@ The current RT/PT path is still an experimental "smoke" path:
   shader path keeps old selected point lights available for comparison, while
   r_pathTracingAnalyticLightReplaceSelected can suppress that legacy constant
   array so the analytic lights can be inspected visually on their own.
+- r_pathTracingAnalyticLightMaxGpu: cap for analytic Doom light candidates
+  uploaded/sampled by the smoke shader. This is still a direct per-hit loop,
+  so keep it conservative until ReSTIR candidate selection exists.
+- r_pathTracingAnalyticLightIntensityScale: radiance calibration multiplier for
+  analytic Doom sphere lights. The current default is 4.0 after visual testing
+  showed the early low diagnostic scale under-lit authored Doom helper lights.
+- r_pathTracingAnalyticSphereLightRadiusScale and min/max: convert Doom point
+  light radius into the first diagnostic sphere-emitter size. This is not final
+  physical classification of round/square/projected/area light materials.
 - Source3 RT residency uses Doom renderer area/portal selection rather than
   current raster visibility alone. The final drawSurf stream is the freshness
   source for transforms/material overrides/runtime registers; portal-selected
@@ -382,8 +391,8 @@ PathTraceDoomLights.cpp
     current light color/state, computes current-area plus portal-depth
     selection, prints identity/probe/candidate dumps, and builds active
     point-light analytic sphere candidates. It does not add light geometry to
-    the BVH and does not classify Doom light textures into physical light types
-    yet.
+    the BVH, skips game-entity scans while gameLocal is not GAMESTATE_ACTIVE,
+    and does not classify Doom light textures into physical light types yet.
 
 PathTraceLightSelection.h
     Debug light selection structs and constants used by smoke dispatch.
@@ -861,11 +870,28 @@ builds stable identity/probe diagnostics and an opt-in analytic sphere-light
 candidate buffer from active Doom point lights in the selected current-area plus
 portal-neighbor set. The shader samples that separate buffer for visual
 inspection when r_pathTracingAnalyticLightCandidates is enabled. The bridge is
-verified at a basic level: lights appear, preserve RGB color, and follow game
-animation/on-off state. The current light model is intentionally crude and
-treats every eligible point light as a sphere emitter; future work should
-classify light materials such as square, round, triangle, projected, and helper
-textures into better physical light types before feeding ReSTIR.
+verified at a basic level: lights appear, preserve RGB color, follow game
+animation/on-off state, and survive level-load transitions. The current light
+model is intentionally crude and treats every eligible point light as a sphere
+emitter, but it now samples the sphere's solid angle instead of tracing a hard
+center-point shadow ray. Future work should classify light materials such as
+square, round, triangle, projected, and helper textures into better physical
+light types before feeding ReSTIR.
+
+Projected Doom lights have enough authored geometry for a future analytic
+record: origin/axis plus local target/right/up/start/end define a rectangular
+projection footprint. At the target plane, width is approximately
+`2 * right.Length()`, height is `2 * up.Length()`, and projected area is
+`4 * cross(right, up).Length()`, scaling quadratically with distance along the
+target direction. Treat this as a projected/spotlight footprint first, not
+automatically as the physical emitter size.
+
+Potential helper-light cleanup should be an opt-in light-to-emissive
+association layer. A nearby emissive surface can inherit an authored light's
+evaluated RGB, on/off animation state, and calibrated intensity when area,
+distance, facing, and material checks produce a strong match. Keep unmatched
+helper/fill lights as analytic candidates and dump associations before
+suppressing linked helper lights.
 
 Emissive summaries and uploaded light-candidate records now carry stable
 material universe indexes in addition to active material-table indexes. This is

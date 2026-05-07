@@ -257,8 +257,13 @@ Refactor chronology:
     `GetLightDefHandle`, records entity/material/color/state/area/portal-depth
     fields, and builds a separate GPU analytic-light buffer. The shader samples
     those candidates in mode 14/18/20-style lighting without adding sphere
-    meshes to the BVH. Initial in-game validation confirmed the candidates
-    appear, obey RGB color, and follow light animations/on-off game logic.
+    meshes to the BVH. The first render path was then changed from a hard
+    center-point shadow ray to one-sample solid-angle sphere sampling, with
+    the default intensity scale raised to 4.0 and the default radius scale
+    raised to 0.08 after visual testing. Initial in-game validation confirmed
+    the candidates appear, obey RGB color, follow light animations/on-off game
+    logic, and survive a level-load transition after adding game-state and
+    render-world map-change guards.
 
 Implemented debug CVars:
 
@@ -1017,6 +1022,21 @@ term when r_pathTracingUseEmissiveMaps is 1.
   stable when the marker calls were gated off. Keep this off unless actively
   capturing a targeted Optick GPU profile.
 
+Level-load safety:
+
+- The Doom analytic light bridge only scans `gameLocal.entities` while
+  `gameLocal.GameState()` is `GAMESTATE_ACTIVE`. Map shutdown/startup frames
+  can otherwise expose stale entity pointers while the renderer is still
+  drawing loading or transition frames.
+- `PathTraceSmokeSceneBuild` treats render-world map name/timestamp changes as
+  a scene-cache reset boundary even when Doom reuses the same render-world
+  object. The reset clears PT scene buffers, BLAS handles, geometry/light
+  universes, accumulation, and binding state, but deliberately preserves
+  output-sized resources such as reservoir buffers and descriptor tables. A
+  full scene-resource reset at this point caused a black screen with "failed to
+  create RT smoke binding set" because the reservoir buffers had just been
+  cleared after output resize.
+
 - r_pathTracingSkipRaster3D
   Skips the normal 3D raster view after the RT smoke/path tracing pass has
   produced the 3D scene output. Defaults to 1. GUI/HUD/menu views still rasterize
@@ -1665,9 +1685,9 @@ For visual testing of Doom analytic lights:
     r_pathTracingDebugMode 18
     r_pathTracingAnalyticLightCandidates 1
     r_pathTracingAnalyticLightReplaceSelected 1
-    r_pathTracingAnalyticLightIntensityScale 1
+    r_pathTracingAnalyticLightIntensityScale 4
 
-Then sweep r_pathTracingAnalyticLightIntensityScale through 0, 0.25, 1, and 4.
+Then sweep r_pathTracingAnalyticLightIntensityScale through 0, 1, 4, and 5.
 With r_pathTracingAnalyticLightReplaceSelected enabled, the old selected
 point-light array is suppressed so visible changes come from the analytic Doom
 light buffer. Turn the replace CVar back to 0 to compare against the legacy
