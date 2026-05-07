@@ -567,6 +567,12 @@ idCVar r_pathTracingUseNormalMaps(
     CVAR_RENDERER | CVAR_INTEGER,
     "Use sampled normal maps for RT smoke debug mode 14 direct lighting" );
 
+idCVar r_pathTracingNormalMapFlipGreen(
+    "r_pathTracingNormalMapFlipGreen",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Flip sampled RT smoke normal-map green/Y before tangent-space reconstruction; diagnostic for Doom 3 legacy normal-map convention" );
+
 idCVar r_pathTracingUseSpecularMaps(
     "r_pathTracingUseSpecularMaps",
     "1",

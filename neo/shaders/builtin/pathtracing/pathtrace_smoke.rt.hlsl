@@ -767,7 +767,8 @@ float3 DecodeSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord
         return normal;
     }
 
-    float3 decoded = float3(bump.w, bump.y, 0.0);
+    const float normalY = RestirPTInfo.y > 0.5 ? -bump.y : bump.y;
+    float3 decoded = float3(bump.w, normalY, 0.0);
     const float xyLengthSquared = dot(decoded.xy, decoded.xy);
     if (xyLengthSquared >= 1.0)
     {
@@ -780,6 +781,30 @@ float3 DecodeSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord
     }
     const float3 worldNormal = tangent * decoded.x + bitangent * decoded.y + normal * decoded.z;
     return SafeNormalize(worldNormal, normal);
+}
+
+float3 ConstrainSmokeShadingNormal(float3 shadingNormal, float3 geometryNormal)
+{
+    const float minGeometryDot = 0.02;
+    geometryNormal = SafeNormalize(geometryNormal, float3(0.0, 0.0, 1.0));
+    shadingNormal = SafeNormalize(shadingNormal, geometryNormal);
+
+    const float geometryDot = dot(shadingNormal, geometryNormal);
+    if (geometryDot >= minGeometryDot)
+    {
+        return shadingNormal;
+    }
+
+    float3 tangentComponent = shadingNormal - geometryNormal * geometryDot;
+    const float tangentLengthSquared = dot(tangentComponent, tangentComponent);
+    if (tangentLengthSquared <= 1e-8)
+    {
+        return geometryNormal;
+    }
+
+    tangentComponent *= rsqrt(tangentLengthSquared);
+    const float tangentScale = sqrt(max(1.0 - minGeometryDot * minGeometryDot, 0.0));
+    return SafeNormalize(tangentComponent * tangentScale + geometryNormal * minGeometryDot, geometryNormal);
 }
 
 float4 SampleSmokeSpecularTexture(PathTraceSmokeMaterial material, float2 texCoord)
@@ -1062,6 +1087,7 @@ RAB_Surface RAB_BuildSurfaceFromSmokePayload(PathTraceSmokePayload payload, floa
     {
         shadingNormal = -shadingNormal;
     }
+    shadingNormal = ConstrainSmokeShadingNormal(shadingNormal, geometryNormal);
 
     surface.valid = 1u;
     surface.worldPos = hitPosition;

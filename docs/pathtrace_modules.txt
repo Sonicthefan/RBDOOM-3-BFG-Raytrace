@@ -1105,7 +1105,13 @@ resampling still needs previous primary-surface data and motion vectors.
 User validation reported that mode 27 works fairly well, runs well
 performance-wise, and has no serious stability or gameplay issues. Remaining
 black objects/rough normals should be handled as local RAB material and normal
-contract cleanup.
+contract cleanup. `r_pathTracingNormalMapFlipGreen` is available as a targeted
+diagnostic for Doom 3's legacy green/Y normal-map convention, but the larger
+normal fidelity fix is still to pass the original idTech4 vertex tangent/sign
+basis into the PT geometry path instead of reconstructing TBN per triangle in
+the hit shader. The RAB surface builder now constrains decoded shading normals
+to the oriented geometric-normal hemisphere before BRDF checks, which avoids
+fully black reservoir-lit surfaces when a normal map tilts past the valid side.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver

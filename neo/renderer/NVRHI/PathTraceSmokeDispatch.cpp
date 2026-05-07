@@ -308,7 +308,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingAnalyticLightCandidates.GetInteger() != 0 ? 1.0f : 0.0f) +
         (replaceSelectedLightsWithAnalytic ? 2.0f : 0.0f);
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
-    constants.restirPTInfo[1] = 0.0f;
+    constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[2] = 0.0f;
     constants.restirPTInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)

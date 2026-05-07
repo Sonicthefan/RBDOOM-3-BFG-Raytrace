@@ -101,6 +101,7 @@ extern idCVar r_pathTracingTextureFilter;
 extern idCVar r_pathTracingTextureDecode;
 extern idCVar r_pathTracingForceTextureCodeUse;
 extern idCVar r_pathTracingUseNormalMaps;
+extern idCVar r_pathTracingNormalMapFlipGreen;
 extern idCVar r_pathTracingUseSpecularMaps;
 extern idCVar r_pathTracingUseEmissiveMaps;
 extern idCVar r_pathTracingEmissiveFallbackWithoutTexture;

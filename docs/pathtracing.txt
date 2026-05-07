@@ -446,6 +446,15 @@ Implemented debug CVars:
   is an experimental bridge toward the later Doom material-to-PBR path;
   roughness/specular conversion is still separate future work.
 
+- r_pathTracingNormalMapFlipGreen
+  Diagnostic toggle for Doom 3 legacy normal-map convention checks. Defaults to
+  0. When enabled, the RT smoke shader flips sampled normal-map green/Y before
+  tangent-space reconstruction. Use this to A/B modes 26/27 after the ReSTIR PT
+  initial-reservoir path showed valid reservoirs but rough normal-map shading.
+  This is not a complete Doom normal fix: the current RT hit path still builds
+  TBN from triangle UV gradients instead of the original idTech4 vertex
+  tangent/sign basis used by legacy renderbump assets.
+
 - r_pathTracingUseSpecularMaps
   Enables sampled specular maps in debug mode 14 selected point-light direct
   lighting and in mode 18 when `r_pathTracingToyFakePBRSpecular 1` is active.
@@ -1529,11 +1538,14 @@ GUI/SWF panel placeholder findings:
 
 Known limitations:
 
-- Mirrored-UV normal maps can still look wrong on some props. The RT debug path
-  recomputes tangent space in shader and currently normalizes handedness, which
-  can erase the mirrored-side convention used by some Doom 3 assets. A proper
-  fix should preserve/import the engine tangent basis or add a narrowly scoped
-  handedness path, rather than flipping all normal maps globally.
+- Normal maps can still look wrong on some props. Doom 3 legacy normal maps use
+  a green/Y convention that can differ from modern defaults, now testable with
+  `r_pathTracingNormalMapFlipGreen`, and original assets were baked against
+  idTech4's pre-MikkTSpace tangent basis. The RT debug path still recomputes
+  tangent space in shader and normalizes handedness, which can erase the engine
+  vertex tangent/sign convention used by legacy renderbump assets. A proper fix
+  should preserve/import the engine tangent basis or add a narrowly scoped
+  legacy-vs-modern material path, rather than hard-flipping all normals globally.
 - Custom-shader deferred callback render entities are skipped by default in RT
   smoke capture. This avoids a confirmed pickup/delete crash on an item disk
   without hiding normal animated/skinned entities that use model callbacks.
@@ -2095,6 +2107,16 @@ no serious stability or gameplay issues reported. The remaining visible issues
 are rough normal handling and a few fully black objects. Treat those as localized
 RAB material/normal/unsupported-surface cases, not as evidence that initial
 reservoir generation or the source3 scene/light membership is failing.
+Follow-up normal investigation found two likely Doom-specific causes: the green
+normal-map channel convention may need inversion for legacy assets, and original
+Doom 3 content was baked against idTech4's custom tangent basis rather than
+MikkTSpace. `r_pathTracingNormalMapFlipGreen` was added as a diagnostic toggle
+for the first issue. The second issue needs a later geometry/material payload
+change so PT can use the engine's original tangent and bitangent sign instead
+of reconstructing TBN from triangle UV gradients in the hit shader. Mode 27 RAB
+surface setup also now constrains decoded shading normals to the oriented
+geometric-normal hemisphere before BRDF evaluation, so an over-tilted or
+wrong-convention normal map should not turn a reservoir-lit surface fully black.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom
