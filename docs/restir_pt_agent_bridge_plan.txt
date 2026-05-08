@@ -837,6 +837,15 @@ Current status before enabling:
       optional until a denoiser/upscaler path exists; tune initial sample count,
       bounce depth, and hybrid-shift/reconnection costs after correctness; and
       replace camera-only reprojection with real vertex/object motion vectors.
+    - A follow-up mode 33 temporal-resolve shortcut was attempted and removed
+      before commit. It reused SmokeAccumulation as previous resolved color,
+      sampled it at the reprojected previous pixel, wrote current output to
+      SmokeOutput, then copied SmokeOutput back to SmokeAccumulation after
+      dispatch. User validation reported mostly emissive contribution, little
+      regular lighting, orange outlines, and device removal after roughly 30
+      seconds. Do not rebuild the next denoiser attempt around that shortcut;
+      use explicit history ownership, separated passes, lower internal
+      resolution/checkerboard execution, and per-stage GPU timing.
     - Primary-surface history clearing is independent from the camera-sensitive
       smoke reservoir reset path. A test build tied it to
       m_smokeReservoirNeedsClear and turned moving-camera mode 29 into

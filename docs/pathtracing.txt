@@ -2265,6 +2265,17 @@ Clear optimization path for mode 32 / future final shading:
 - profile GPU pass timing before raising resolution, because driver device
   removal here is consistent with timeout pressure from long RT dispatches.
 
+Rejected temporal-resolve shortcut: a follow-up mode 33 prototype tried to
+reuse `SmokeAccumulation` as previous resolved color, read it at the reprojected
+previous pixel, write current output to `SmokeOutput`, and copy output back to
+accumulation after dispatch. User validation reported that it mostly picked up
+emissives with little regular lighting, showed orange outlines, and
+device-removed after roughly 30 seconds. That prototype was removed from the
+active mode list. Do not reintroduce this shortcut as the next denoiser step;
+the next temporal resolve should use an explicit history resource/pass design
+with clear ownership, lower internal resolution/checkerboard execution, and GPU
+timing around each stage.
+
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom
 scene lights selected for mode 18 do not contribute to the reservoir yet.

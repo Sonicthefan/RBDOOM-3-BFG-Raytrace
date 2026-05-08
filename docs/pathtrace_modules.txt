@@ -1203,6 +1203,14 @@ presentation; reduce initial sample and replay parameters after correctness is
 locked; and wire real motion vectors so temporal history rejection does not
 thrash around moving objects and disocclusions.
 
+Rejected temporal-resolve shortcut: an uncommitted mode 33 prototype reused
+`SmokeAccumulation` as previous resolved color and copied `SmokeOutput` back
+into it after dispatch. User validation reported little regular lighting,
+mostly emissive contribution, orange outlines, and device removal after roughly
+30 seconds. The active mode was removed. Future temporal resolve work should
+not reuse this shortcut; it needs explicit history ownership, separated passes,
+lower internal resolution/checkerboard execution, and per-stage GPU timing.
+
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver
 removes the device. This resembles the older mode 18 `r_pathTracingLightCount
