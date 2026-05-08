@@ -105,7 +105,11 @@ Current validated feature set:
   callbacks over `RAB_Surface`: cosine-hemisphere sampling, matching solid-angle
   PDF, Lambert BRDF evaluation, and BRDF*cos/PDF throughput. Unsupported
   translucent/special surfaces currently fail closed instead of pretending to
-  have a complete BSDF. Step 8 adds first light bridge callbacks over the
+  have a complete BSDF. This is a deliberate validation simplification only:
+  the RAB material/history records still preserve roughness, specular F0,
+  opacity, alpha cutoff, material flags, and glass/window fallback flags so
+  glossy reflection, mirror-like reflection, and glass/transmission behavior can
+  be added later without redefining the whole bridge contract. Step 8 adds first light bridge callbacks over the
   existing smoke light data: current-frame emissive triangle loading/sampling,
   current-frame Doom analytic sphere loading/sampling, light target weighting,
   light direction/distance helpers, conservative visibility that only verifies
@@ -490,15 +494,18 @@ Implemented debug CVars:
   unchanged.
 
 - r_pathTracingToyFakePBRSpecular
-  Opt-in mode 18 shader experiment. Defaults to 0. When enabled, mode 18 also
-  enables specular-map sampling and interprets Doom legacy specular maps using
-  the same rbdoom3/Kennedith98-style fake-PBR idea as the raster interaction
-  shaders: derive approximate F0 and roughness from the gamma-space specular
-  texture, then shade selected/analytic direct lights with the GGX-like direct
-  specular term. This is useful for a quick visual check of less-flat PT
-  diffuse/specular response, but it is not a full Doom material conversion.
-  It does not detect packed `_rmao` maps, does not add glossy bounce sampling,
-  and does not solve alpha/blend/decal/special-stage classification.
+  Opt-in shader experiment. Defaults to 0. When enabled, mode 18 and the
+  ReSTIR PT bridge modes 26/27/28/29 also enable specular-map sampling and
+  interpret Doom legacy specular maps using the same rbdoom3/Kennedith98-style
+  fake-PBR idea as the raster interaction shaders: derive approximate F0 and
+  roughness from the gamma-space specular texture. For ReSTIR PT this roughness
+  and F0 are stored in the RAB material and primary-surface history records so
+  temporal/spatial validation sees the converted Doom material state instead of
+  treating every legacy surface as roughness 1.0. This is useful for a quick
+  visual check of less-flat PT diffuse/specular response, but it is not a full
+  Doom material conversion. It does not detect packed `_rmao` maps, does not add
+  glossy bounce sampling, and does not solve alpha/blend/decal/special-stage
+  classification.
 
 - r_pathTracingToyAccumulation / r_pathTracingToyAccumMaxFrames
   Enables mode 18 temporal accumulation across stable camera frames and caps
@@ -2045,6 +2052,7 @@ For ReSTIR PT initial-sampling reservoir validation:
     r_pathTracingDebugMode 26
     r_pathTracingDebugMode 27
     r_pathTracingDebugMode 28
+    r_pathTracingDebugMode 29
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2134,6 +2142,32 @@ User validation: mode 28 showed no gameplay/stability issues. The visible
 shadows are expected to be 100% sharp in this mode because the preview uses one
 binary visibility ray to the selected reservoir sample; soft penumbrae require
 many light samples over time/spatial reuse and later final shading/denoising.
+
+Mode 29 is the primary-surface history validation view. The RT shader now writes
+an output-sized current primary-surface history record for each raygen pixel and
+the backend copies current to previous after dispatch so the next frame can read
+stable previous records. The record stores world position/depth, geometry and
+shading normals, view direction, material identity, surface flags, diffuse
+albedo, opacity, alpha cutoff, and the RAB material roughness/F0. When
+`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29 sample the
+Doom specular texture and store the converted fake-PBR roughness/F0 in that
+history record. Mode 29 colors the current-vs-previous same-pixel comparison:
+blue means current valid but no previous history yet, red means previous valid
+but current invalid, yellow means material mismatch, purple means normal
+mismatch, orange means roughness mismatch, and green means a conservative
+material/normal/roughness match. This is still same-pixel validation with no
+motion vectors or reprojection, so camera motion is expected to create
+mismatches. A previous test build produced a full-screen blue result during
+camera motion because the primary-surface history clear was tied to
+`m_smokeReservoirNeedsClear`, whose dispatch signature changes with camera
+origin/direction/FOV. That was a history-lifetime bug, not a real reprojection
+diagnostic: primary history now has its own clear flag and is only cleared on
+hard history resets such as output/history resource replacement.
+Post-fix user validation: stationary views return the expected green-tinted
+history match, and moving-camera views no longer collapse to full-screen blue.
+Remaining purple normal mismatches and orange roughness mismatches during
+motion are expected same-pixel history artifacts until motion vectors and
+reprojection are implemented.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom

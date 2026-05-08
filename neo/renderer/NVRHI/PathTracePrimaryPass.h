@@ -134,11 +134,13 @@ private:
     int m_smokeDoomAnalyticLightBytes = 0;
     RtSmokeReservoirBufferHandles m_smokeReservoirBuffers;
     RtRestirPTReservoirBufferHandles m_restirPTReservoirBuffers;
+    RtRestirPTPrimarySurfaceHistoryBufferHandles m_restirPTPrimarySurfaceHistoryBuffers;
     RtRestirPTContextState m_restirPTContextState;
     uint32_t m_restirPTFrameIndex = 0;
     uint64 m_smokeReservoirSceneSignature = 0;
     uint64 m_smokeReservoirDispatchSignature = 0;
     bool m_smokeReservoirNeedsClear = false;
+    bool m_restirPTPrimarySurfaceHistoryNeedsClear = true;
     int m_smokeReservoirResetCount = 0;
     int m_smokeReservoirClearCount = 0;
     uint64 m_smokeAccumulationSignature = 0;

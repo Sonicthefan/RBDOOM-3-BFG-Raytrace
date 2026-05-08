@@ -44,3 +44,37 @@ struct RtRestirPTReservoirBufferCreateResult
 
 RtRestirPTReservoirBufferCreateResult CreateRestirPTReservoirBuffers(const RtRestirPTReservoirBufferCreateDesc& desc);
 bool ClearRestirPTReservoirBuffers(nvrhi::ICommandList* commandList, const RtRestirPTReservoirBufferHandles& buffers);
+
+static constexpr uint32_t RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE = 128;
+
+struct RtRestirPTPrimarySurfaceHistoryBufferHandles
+{
+    nvrhi::BufferHandle current;
+    nvrhi::BufferHandle previous;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t surfaceCount = 0;
+    uint64_t surfaceBytes = 0;
+
+    bool IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight) const;
+    void Reset();
+};
+
+struct RtRestirPTPrimarySurfaceHistoryBufferCreateDesc
+{
+    nvrhi::IDevice* device = nullptr;
+    RtRestirPTPrimarySurfaceHistoryBufferHandles existingBuffers;
+    uint32_t width = 0;
+    uint32_t height = 0;
+};
+
+struct RtRestirPTPrimarySurfaceHistoryBufferCreateResult
+{
+    RtRestirPTPrimarySurfaceHistoryBufferHandles buffers;
+    const char* errorMessage = nullptr;
+
+    bool Succeeded() const { return errorMessage == nullptr && buffers.current != nullptr && buffers.previous != nullptr; }
+};
+
+RtRestirPTPrimarySurfaceHistoryBufferCreateResult CreateRestirPTPrimarySurfaceHistoryBuffers(const RtRestirPTPrimarySurfaceHistoryBufferCreateDesc& desc);
+bool ClearRestirPTPrimarySurfaceHistoryBuffers(nvrhi::ICommandList* commandList, const RtRestirPTPrimarySurfaceHistoryBufferHandles& buffers);

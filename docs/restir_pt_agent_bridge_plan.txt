@@ -791,6 +791,23 @@ Prerequisites:
     - previous reservoir slice not cleared every frame
     - scene signature/hard reset logic connected
 
+Current status before enabling:
+    - Primary-surface current/previous buffers now exist and are visible through
+      RAB_GetGBufferSurface / RAB_GetGBufferMaterial.
+    - Raygen writes current primary-surface records and the backend copies
+      current to previous after dispatch.
+    - The history record includes material identity, flags, normals, view
+      direction, diffuse albedo, opacity, and fake-PBR roughness/F0 derived from
+      Doom specular textures when r_pathTracingToyFakePBRSpecular is enabled.
+    - r_pathTracingDebugMode 29 validates same-pixel current/previous history.
+    - Primary-surface history clearing is independent from the camera-sensitive
+      smoke reservoir reset path. A test build tied it to
+      m_smokeReservoirNeedsClear and turned moving-camera mode 29 into
+      full-screen blue because every camera signature change erased the previous
+      history before the validation read.
+    - Motion vectors and reprojection are still missing, so temporal resampling
+      remains disabled.
+
 Actions:
     - Dispatch RTXDI temporal PT resampling shader logic.
     - Use temporal input/output indices from context.
@@ -853,6 +870,11 @@ Success criteria:
 
 Do not:
     - Do not assume all radiance should be dumped into diffuse only if the engine denoiser expects split diffuse/specular.
+    - Do not remove reflective/glass/translucent material data just because the
+      current validation BRDF is diffuse-only. Keep roughness, specular F0,
+      opacity, alpha cutoff, material flags, and glass/window classification
+      flowing through RAB/history so later glossy/reflection/transmission work is
+      localized to BSDF callbacks, material policy, and final shading.
 
 ------------------------------------------------------------
 STEP 14: Denoiser / PSR integration

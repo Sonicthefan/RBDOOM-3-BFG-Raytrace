@@ -65,6 +65,52 @@ nvrhi::BufferHandle ReuseOrCreateRestirPTReservoirBuffer(nvrhi::IDevice* device,
     return CreateRestirPTReservoirBuffer(device, width, height, checkerboardMode);
 }
 
+uint32_t RestirPTPrimarySurfaceHistoryCount(uint32_t width, uint32_t height)
+{
+    return RestirPTReservoirDimension(width) * RestirPTReservoirDimension(height);
+}
+
+uint64_t RestirPTPrimarySurfaceHistoryByteSize(uint32_t width, uint32_t height)
+{
+    return static_cast<uint64_t>(RestirPTPrimarySurfaceHistoryCount(width, height)) * static_cast<uint64_t>(RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE);
+}
+
+bool RestirPTPrimarySurfaceHistoryBufferHasCapacity(nvrhi::BufferHandle buffer, uint32_t width, uint32_t height)
+{
+    return
+        buffer &&
+        buffer->getDesc().structStride == RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE &&
+        buffer->getDesc().byteSize >= RestirPTPrimarySurfaceHistoryByteSize(width, height);
+}
+
+nvrhi::BufferHandle CreateRestirPTPrimarySurfaceHistoryBuffer(nvrhi::IDevice* device, const char* debugName, uint32_t width, uint32_t height)
+{
+    if (!device)
+    {
+        return nullptr;
+    }
+
+    nvrhi::BufferDesc desc;
+    desc.debugName = debugName;
+    desc.byteSize = RestirPTPrimarySurfaceHistoryByteSize(width, height);
+    desc.structStride = RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE;
+    desc.canHaveUAVs = true;
+    desc.canHaveTypedViews = false;
+    desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+    desc.keepInitialState = true;
+    return device->createBuffer(desc);
+}
+
+nvrhi::BufferHandle ReuseOrCreateRestirPTPrimarySurfaceHistoryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, uint32_t width, uint32_t height)
+{
+    if (RestirPTPrimarySurfaceHistoryBufferHasCapacity(existingBuffer, width, height))
+    {
+        return existingBuffer;
+    }
+
+    return CreateRestirPTPrimarySurfaceHistoryBuffer(device, debugName, width, height);
+}
+
 }
 
 bool RtRestirPTReservoirBufferHandles::IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, rtxdi::CheckerboardMode checkerboardMode) const
@@ -132,5 +178,66 @@ bool ClearRestirPTReservoirBuffers(nvrhi::ICommandList* commandList, const RtRes
     commandList->setBufferState(buffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
     commandList->commitBarriers();
     commandList->clearBufferUInt(buffers.reservoirs, 0);
+    return true;
+}
+
+bool RtRestirPTPrimarySurfaceHistoryBufferHandles::IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight) const
+{
+    const uint32_t requiredWidth = RestirPTReservoirDimension(requestedWidth);
+    const uint32_t requiredHeight = RestirPTReservoirDimension(requestedHeight);
+    const uint32_t requiredCount = RestirPTPrimarySurfaceHistoryCount(requestedWidth, requestedHeight);
+    const uint64_t requiredBytes = RestirPTPrimarySurfaceHistoryByteSize(requestedWidth, requestedHeight);
+    return
+        current &&
+        previous &&
+        width == requiredWidth &&
+        height == requiredHeight &&
+        surfaceCount >= requiredCount &&
+        surfaceBytes >= requiredBytes &&
+        current->getDesc().structStride == RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE &&
+        previous->getDesc().structStride == RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE &&
+        current->getDesc().byteSize >= requiredBytes &&
+        previous->getDesc().byteSize >= requiredBytes;
+}
+
+void RtRestirPTPrimarySurfaceHistoryBufferHandles::Reset()
+{
+    current = nullptr;
+    previous = nullptr;
+    width = 0;
+    height = 0;
+    surfaceCount = 0;
+    surfaceBytes = 0;
+}
+
+RtRestirPTPrimarySurfaceHistoryBufferCreateResult CreateRestirPTPrimarySurfaceHistoryBuffers(const RtRestirPTPrimarySurfaceHistoryBufferCreateDesc& desc)
+{
+    RtRestirPTPrimarySurfaceHistoryBufferCreateResult result;
+    result.buffers.width = RestirPTReservoirDimension(desc.width);
+    result.buffers.height = RestirPTReservoirDimension(desc.height);
+    result.buffers.surfaceCount = RestirPTPrimarySurfaceHistoryCount(desc.width, desc.height);
+    result.buffers.surfaceBytes = RestirPTPrimarySurfaceHistoryByteSize(desc.width, desc.height);
+    result.buffers.current = ReuseOrCreateRestirPTPrimarySurfaceHistoryBuffer(desc.device, desc.existingBuffers.current, "PathTraceRestirPTPrimarySurfaceCurrent", desc.width, desc.height);
+    result.buffers.previous = ReuseOrCreateRestirPTPrimarySurfaceHistoryBuffer(desc.device, desc.existingBuffers.previous, "PathTraceRestirPTPrimarySurfacePrevious", desc.width, desc.height);
+
+    if (!result.buffers.IsValidFor(desc.width, desc.height))
+    {
+        result.errorMessage = "failed to create RT ReSTIR PT primary-surface history buffers";
+    }
+    return result;
+}
+
+bool ClearRestirPTPrimarySurfaceHistoryBuffers(nvrhi::ICommandList* commandList, const RtRestirPTPrimarySurfaceHistoryBufferHandles& buffers)
+{
+    if (!commandList || !buffers.current || !buffers.previous)
+    {
+        return false;
+    }
+
+    commandList->setBufferState(buffers.current, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(buffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->commitBarriers();
+    commandList->clearBufferUInt(buffers.current, 0);
+    commandList->clearBufferUInt(buffers.previous, 0);
     return true;
 }

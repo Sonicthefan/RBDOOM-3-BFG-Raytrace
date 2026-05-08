@@ -530,10 +530,13 @@ RtxdiBridge/*.hlsli
     `RAB_BuildSurfaceFromSmokePayload` and `RAB_BuildMaterialFromSmokePayload`
     translate a traced smoke hit into bridge records without changing the
     existing mode 18/20 lighting paths. `RAB_GetGBufferSurface` and
-    `RAB_GetGBufferMaterial` are present but intentionally return invalid data
-    for both current and previous frame requests until the engine exposes real
-    primary-surface history/motion data to the shader. They do not trace rays,
-    evaluate BRDFs, sample lights, or call RTXDI path tracing yet.
+    `RAB_GetGBufferMaterial` now read output-sized current/previous
+    primary-surface history buffers. Raygen writes the current primary hit, and
+    the backend copies current to previous after dispatch for next-frame
+    validation. The history record includes material identity plus the RAB
+    material roughness/F0. When `r_pathTracingToyFakePBRSpecular 1` is enabled,
+    modes 26/27/28/29 sample Doom specular textures and store the same converted
+    fake-PBR roughness/F0 that mode 18 uses.
 
     Step 6 RNG scaffolding lives in `RAB_RandomSamplerState.hlsli`. It keeps a
     local `RAB_RandomSamplerState` wrapper but initializes and advances it
@@ -549,7 +552,12 @@ RtxdiBridge/*.hlsli
     The current model is cosine-hemisphere Lambert sampling over the RAB shading
     normal with geometry-normal hemisphere rejection. Unsupported translucent or
     invalid surfaces return no sample/zero contribution so they can keep using
-    the regular path until real BSDF support exists.
+    the regular path until real BSDF support exists. The diffuse-only callback
+    is intentionally quieter than the material contract: RAB material/history
+    records still carry roughness, specular F0, opacity, alpha cutoff, material
+    flags, and glass/window fallback flags. Do not delete or collapse those
+    fields just because the current validation path does not sample glossy,
+    mirror, refraction, or transmission lobes yet.
 
     Step 8 light scaffolding is split across `RAB_LightInfo.hlsli`,
     `RAB_LightSampling.hlsli`, and `RAB_MISCallbacks.hlsli`. The current bridge
@@ -1124,6 +1132,20 @@ User validation reported no issues. Hard-edged shadows are expected because the
 mode traces a single binary visibility ray to the selected reservoir sample;
 soft shadows require later multi-sample/temporal/spatial accumulation and final
 shading.
+
+Mode 29 validates the primary-surface history buffer contract needed before
+temporal/spatial ReSTIR PT. It compares current and previous same-pixel history
+records and highlights missing current/previous records, material mismatches,
+normal mismatches, and roughness mismatches. It intentionally does not reproject
+or use motion vectors yet. Primary-surface history clearing is deliberately
+separate from `m_smokeReservoirNeedsClear`: the reservoir reset signature is
+camera-sensitive, so using it to clear primary history made every moving-camera
+frame look like "current valid, no previous" full-screen blue even though the
+previous frame copy was otherwise valid.
+After splitting those lifetimes, user validation reports the moving-camera
+full-screen blue case is gone. Purple normal mismatches and orange roughness
+mismatches while moving are expected same-pixel-history artifacts until motion
+vectors and reprojection are wired.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver

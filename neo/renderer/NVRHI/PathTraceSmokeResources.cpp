@@ -102,7 +102,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     RtSmokeBindingBuildResult result;
     result.textureDescriptorTable = desc.existingTextureDescriptorTable;
 
-    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, rtxdi::CheckerboardMode::Off))
+    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, rtxdi::CheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
     {
         result.errorMessage = "failed to create RT smoke binding set";
         return result;
@@ -201,6 +201,8 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, desc.buffers.doomAnalyticLightBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(28, desc.restirPTConstantsBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(29, desc.restirPTReservoirBuffers.reservoirs));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, desc.primarySurfaceHistoryBuffers.current));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, desc.primarySurfaceHistoryBuffers.previous));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, desc.sampler));
     }
 
@@ -386,6 +388,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(28));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(29));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 
@@ -466,6 +470,7 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     if (m_smokeOutputTexture && m_smokeAccumulationTexture && m_smokeReadbackTexture &&
         m_smokeReservoirBuffers.IsValidFor(width, height) &&
         m_restirPTReservoirBuffers.IsValidFor(width, height, rtxdi::CheckerboardMode::Off) &&
+        m_restirPTPrimarySurfaceHistoryBuffers.IsValidFor(width, height) &&
         width == m_smokeOutputWidth && height == m_smokeOutputHeight)
     {
         return true;
@@ -480,7 +485,8 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     const bool replacingExistingOutput =
         m_smokeOutputTexture || m_smokeAccumulationTexture || m_smokeReadbackTexture ||
         m_smokeReservoirBuffers.current || m_smokeReservoirBuffers.previous || m_smokeReservoirBuffers.spatialScratch ||
-        m_restirPTReservoirBuffers.reservoirs;
+        m_restirPTReservoirBuffers.reservoirs ||
+        m_restirPTPrimarySurfaceHistoryBuffers.current || m_restirPTPrimarySurfaceHistoryBuffers.previous;
     if (replacingExistingOutput)
     {
         common->Printf("PathTracePrimaryPass: resizing PT output old=%dx%d new=%dx%d; waiting for GPU idle\n",
@@ -564,6 +570,20 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     }
     m_restirPTReservoirBuffers = restirPTReservoirResult.buffers;
 
+    RtRestirPTPrimarySurfaceHistoryBufferCreateDesc primaryHistoryDesc;
+    primaryHistoryDesc.device = device;
+    primaryHistoryDesc.existingBuffers = m_restirPTPrimarySurfaceHistoryBuffers;
+    primaryHistoryDesc.width = static_cast<uint32_t>(width);
+    primaryHistoryDesc.height = static_cast<uint32_t>(height);
+    const RtRestirPTPrimarySurfaceHistoryBufferCreateResult primaryHistoryResult = CreateRestirPTPrimarySurfaceHistoryBuffers(primaryHistoryDesc);
+    if (!primaryHistoryResult.Succeeded())
+    {
+        common->Printf("PathTracePrimaryPass: %s (%dx%d)\n", primaryHistoryResult.errorMessage ? primaryHistoryResult.errorMessage : "failed to create RT ReSTIR PT primary-surface history buffers", width, height);
+        return false;
+    }
+    m_restirPTPrimarySurfaceHistoryBuffers = primaryHistoryResult.buffers;
+    m_restirPTPrimarySurfaceHistoryNeedsClear = true;
+
     RtRestirPTContextUpdateDesc restirPTContextDesc;
     restirPTContextDesc.width = static_cast<uint32_t>(width);
     restirPTContextDesc.height = static_cast<uint32_t>(height);
@@ -585,6 +605,13 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
         m_restirPTReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
         rtxdi::c_NumReSTIRPTReservoirBuffers,
         static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+
+    common->Printf("PathTracePrimaryPass: RT ReSTIR PT primary-surface history output=%dx%d records=%u bytes=%llu stride=%u\n",
+        width,
+        height,
+        m_restirPTPrimarySurfaceHistoryBuffers.surfaceCount,
+        static_cast<unsigned long long>(m_restirPTPrimarySurfaceHistoryBuffers.surfaceBytes),
+        RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE);
 
     common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
     return true;
@@ -652,10 +679,12 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeDoomAnalyticLightBytes = 0;
     m_smokeReservoirBuffers.Reset();
     m_restirPTReservoirBuffers.Reset();
+    m_restirPTPrimarySurfaceHistoryBuffers.Reset();
     m_restirPTContextState.Reset();
     m_smokeReservoirSceneSignature = 0;
     m_smokeReservoirDispatchSignature = 0;
     m_smokeReservoirNeedsClear = false;
+    m_restirPTPrimarySurfaceHistoryNeedsClear = true;
     m_smokeReservoirResetCount = 0;
     m_smokeReservoirClearCount = 0;
 }

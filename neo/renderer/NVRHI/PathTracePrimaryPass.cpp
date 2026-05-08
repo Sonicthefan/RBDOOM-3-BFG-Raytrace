@@ -140,6 +140,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeReservoirSceneSignature(0)
     , m_smokeReservoirDispatchSignature(0)
     , m_smokeReservoirNeedsClear(false)
+    , m_restirPTPrimarySurfaceHistoryNeedsClear(true)
     , m_smokeReservoirResetCount(0)
     , m_smokeReservoirClearCount(0)
 {

@@ -137,6 +137,18 @@ struct PathTraceSmokeReservoir
     uint padding0;
 };
 
+struct PathTracePrimarySurfaceHistory
+{
+    float4 worldPosAndDepth;
+    float4 geometryNormalAndRoughness;
+    float4 shadingNormalAndOpacity;
+    float4 viewDirAndValid;
+    float4 diffuseAlbedoAndAlphaCutoff;
+    float4 specularF0AndPadding;
+    uint4 materialIdIndexFlagsClass;
+    uint4 instancePrimitiveEmissiveReserved;
+};
+
 struct PathTraceBoundsOverlayLine
 {
     float4 startAndPad;
@@ -173,6 +185,8 @@ RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirSpatialScratch : regis
 StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(t21);
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
+RWStructuredBuffer<PathTracePrimarySurfaceHistory> PrimarySurfaceHistoryCurrent : register(u30);
+RWStructuredBuffer<PathTracePrimarySurfaceHistory> PrimarySurfaceHistoryPrevious : register(u31);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -1105,11 +1119,86 @@ RAB_Surface RAB_BuildSurfaceFromSmokePayload(PathTraceSmokePayload payload, floa
     return surface;
 }
 
+PathTracePrimarySurfaceHistory RestirPTPackPrimarySurfaceHistory(RAB_Surface surface)
+{
+    PathTracePrimarySurfaceHistory record = (PathTracePrimarySurfaceHistory)0;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return record;
+    }
+
+    record.worldPosAndDepth = float4(surface.worldPos, surface.linearDepth);
+    record.geometryNormalAndRoughness = float4(surface.geometryNormal, surface.material.roughness);
+    record.shadingNormalAndOpacity = float4(surface.shadingNormal, surface.material.opacity);
+    record.viewDirAndValid = float4(surface.viewDir, 1.0);
+    record.diffuseAlbedoAndAlphaCutoff = float4(surface.material.diffuseAlbedo, surface.material.alphaCutoff);
+    record.specularF0AndPadding = float4(surface.material.specularF0, 0.0);
+    record.materialIdIndexFlagsClass = uint4(surface.materialId, surface.materialIndex, surface.flags, surface.surfaceClass);
+    record.instancePrimitiveEmissiveReserved = uint4(surface.instanceId, surface.primitiveIndex, surface.material.emissiveTextureIndex, 0u);
+    return record;
+}
+
+RAB_Surface RestirPTUnpackPrimarySurfaceHistory(PathTracePrimarySurfaceHistory record)
+{
+    RAB_Surface surface = RAB_EmptySurface();
+    if (record.viewDirAndValid.w <= 0.5)
+    {
+        return surface;
+    }
+
+    surface.valid = 1u;
+    surface.worldPos = record.worldPosAndDepth.xyz;
+    surface.linearDepth = record.worldPosAndDepth.w;
+    surface.geometryNormal = SafeNormalize(record.geometryNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0));
+    surface.shadingNormal = ConstrainSmokeShadingNormal(record.shadingNormalAndOpacity.xyz, surface.geometryNormal);
+    surface.viewDir = SafeNormalize(record.viewDirAndValid.xyz, -surface.shadingNormal);
+    surface.materialId = record.materialIdIndexFlagsClass.x;
+    surface.materialIndex = record.materialIdIndexFlagsClass.y;
+    surface.flags = record.materialIdIndexFlagsClass.z;
+    surface.surfaceClass = record.materialIdIndexFlagsClass.w;
+    surface.instanceId = record.instancePrimitiveEmissiveReserved.x;
+    surface.primitiveIndex = record.instancePrimitiveEmissiveReserved.y;
+
+    RAB_Material material = RAB_EmptyMaterial();
+    material.materialId = surface.materialId;
+    material.materialIndex = surface.materialIndex;
+    material.flags = surface.flags;
+    material.alphaCutoff = record.diffuseAlbedoAndAlphaCutoff.w;
+    material.diffuseAlbedo = record.diffuseAlbedoAndAlphaCutoff.xyz;
+    material.roughness = saturate(record.geometryNormalAndRoughness.w);
+    material.specularF0 = max(record.specularF0AndPadding.xyz, float3(0.0, 0.0, 0.0));
+    material.opacity = saturate(record.shadingNormalAndOpacity.w);
+    material.emissiveTextureIndex = record.instancePrimitiveEmissiveReserved.z;
+    surface.material = material;
+    return surface;
+}
+
+void StoreRestirPTPrimarySurfaceHistory(uint2 pixel, RAB_Surface surface)
+{
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    PrimarySurfaceHistoryCurrent[pixel.y * dimensions.x + pixel.x] = RestirPTPackPrimarySurfaceHistory(surface);
+}
+
 RAB_Surface RAB_GetGBufferSurface(int2 pixelPosition, bool previousFrame)
 {
-    // The smoke path does not expose current or previous primary-surface buffers yet.
-    // Return invalid surfaces instead of aliasing current-frame ray hits as history.
-    return RAB_EmptySurface();
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixelPosition.x < 0 || pixelPosition.y < 0 ||
+        (uint)pixelPosition.x >= dimensions.x || (uint)pixelPosition.y >= dimensions.y)
+    {
+        return RAB_EmptySurface();
+    }
+
+    const uint index = (uint)pixelPosition.y * dimensions.x + (uint)pixelPosition.x;
+    if (previousFrame)
+    {
+        return RestirPTUnpackPrimarySurfaceHistory(PrimarySurfaceHistoryPrevious[index]);
+    }
+    return RestirPTUnpackPrimarySurfaceHistory(PrimarySurfaceHistoryCurrent[index]);
 }
 
 RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame)
@@ -1127,6 +1216,49 @@ bool RAB_AreMaterialsSimilar(RAB_Surface a, RAB_Surface b)
     const float normalSimilarity = dot(RAB_GetSurfaceNormal(a), RAB_GetSurfaceNormal(b));
     const float roughnessDelta = abs(GetRoughness(a.material) - GetRoughness(b.material));
     return normalSimilarity >= 0.85 && roughnessDelta <= 0.20 && RAB_AreMaterialsSimilar(a.material, b.material);
+}
+
+float4 EvaluateRestirPTPrimarySurfaceHistoryDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    const RAB_Surface previousSurface = RAB_GetGBufferSurface(int2((int)pixel.x, (int)pixel.y), true);
+    const bool currentValid = RAB_IsSurfaceValid(currentSurface);
+    const bool previousValid = RAB_IsSurfaceValid(previousSurface);
+
+    if (!currentValid && !previousValid)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (currentValid && !previousValid)
+    {
+        return float4(0.05, 0.12, 0.55, 1.0);
+    }
+    if (!currentValid && previousValid)
+    {
+        return float4(0.55, 0.05, 0.04, 1.0);
+    }
+
+    const float normalSimilarity = dot(RAB_GetSurfaceNormal(currentSurface), RAB_GetSurfaceNormal(previousSurface));
+    const float roughnessDelta = abs(GetRoughness(currentSurface.material) - GetRoughness(previousSurface.material));
+    const bool materialMatch = currentSurface.materialId == previousSurface.materialId &&
+        currentSurface.materialIndex == previousSurface.materialIndex &&
+        currentSurface.surfaceClass == previousSurface.surfaceClass;
+
+    if (!materialMatch)
+    {
+        return float4(0.55, 0.42, 0.04, 1.0);
+    }
+    if (normalSimilarity < 0.85)
+    {
+        return float4(0.35, 0.06, 0.55, 1.0);
+    }
+    if (roughnessDelta > 0.20)
+    {
+        return float4(0.55, 0.22, 0.04, 1.0);
+    }
+
+    const float currentRoughness = saturate(GetRoughness(currentSurface.material));
+    const float3 albedo = saturate(currentSurface.material.diffuseAlbedo);
+    return float4(saturate(float3(0.02, 0.30, 0.08) + albedo * 0.25 + currentRoughness * float3(0.0, 0.18, 0.08)), 1.0);
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
@@ -2213,6 +2345,13 @@ void RayGen()
     const uint traceMask = debugMode == 23u ? 0x02u : 0xffu;
     TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, ray, payload);
 
+    RAB_Surface primaryHistorySurface = RAB_EmptySurface();
+    if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
+    {
+        primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
+    }
+    StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
+
     if (payload.value == 0)
     {
         if (debugMode == 14)
@@ -2234,6 +2373,10 @@ void RayGen()
         else if (debugMode == 28)
         {
             SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirShading(ray.Origin, ray.Direction, payload, pixel, true);
+        }
+        else if (debugMode == 29)
+        {
+            SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceHistoryDebug(primaryHistorySurface, pixel);
         }
         else
         {
@@ -2323,6 +2466,10 @@ void RayGen()
     else if (debugMode == 28)
     {
         SmokeOutput[pixel] = EvaluateRestirPTInitialReservoirShading(ray.Origin, ray.Direction, payload, pixel, true);
+    }
+    else if (debugMode == 29)
+    {
+        SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceHistoryDebug(primaryHistorySurface, pixel);
     }
     else if (debugMode == 8)
     {
