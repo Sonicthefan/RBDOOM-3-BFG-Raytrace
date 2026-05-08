@@ -506,7 +506,7 @@ Implemented debug CVars:
 
 - r_pathTracingToyFakePBRSpecular
   Opt-in shader experiment. Defaults to 0. When enabled, mode 18 and the
-  ReSTIR PT bridge modes 26/27/28/29/30/31 also enable specular-map sampling and
+  ReSTIR PT bridge modes 26/27/28/29/30/31/32 also enable specular-map sampling and
   interpret Doom legacy specular maps using the same rbdoom3/Kennedith98-style
   fake-PBR idea as the raster interaction shaders: derive approximate F0 and
   roughness from the gamma-space specular texture. For ReSTIR PT this roughness
@@ -2070,6 +2070,7 @@ For ReSTIR PT initial-sampling reservoir validation:
     r_pathTracingDebugMode 29
     r_pathTracingDebugMode 30
     r_pathTracingDebugMode 31
+    r_pathTracingDebugMode 32
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2166,7 +2167,7 @@ the backend copies current to previous after dispatch so the next frame can read
 stable previous records. The record stores world position/depth, geometry and
 shading normals, view direction, material identity, surface flags, diffuse
 albedo, opacity, alpha cutoff, and the RAB material roughness/F0. When
-`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31 sample the
+`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31/32 sample the
 Doom specular texture and store the converted fake-PBR roughness/F0 in that
 history record. Mode 29 colors the current-vs-previous same-pixel comparison:
 blue means current valid but no previous history yet, red means previous valid
@@ -2224,6 +2225,45 @@ Violent camera movement can produce blue sections around screen edges until
 history catches up. That is expected because those pixels reproject offscreen or
 into disoccluded areas and therefore have no usable previous primary surface or
 reservoir yet.
+
+Mode 32 is the temporal-reservoir shading preview. It uses the same temporal
+context and conservative previous-surface gates as mode 31, but instead of only
+visualizing validity it shades the temporal output reservoir using the same
+`TargetFunction * WeightSum` preview style as mode 27. The extra conservative
+visibility ray used by mode 28 is now behind
+`r_pathTracingRestirPTPreviewVisibility`; keep it at 0 for normal mode 32
+testing and enable it only for A/B visibility checks. The current initial
+reservoir is generated and stored before temporal resampling, then the temporal
+output reservoir is written to `temporalResamplingOutputBufferIndex` and
+previewed. This is still a debug view: it does not feed production final
+shading, does not enable spatial reuse, and inherits mode 30/31
+edge/disocclusion limits until real vertex/object motion vectors exist.
+
+Mode 32 is also currently very expensive. User validation reports it works at
+roughly 1280x720 but going much beyond that can device-remove the GPU. Treat
+this as a TDR/workload-pressure limit of the current debug implementation, not
+as evidence that the ReSTIR PT data path is unusable. The debug path runs a
+full-screen raygen that builds the current initial PT reservoir and then invokes
+RTXDI temporal resampling/replay work per pixel; full-resolution presentation is
+expected to rely on later denoising/upscaling rather than brute-force full-res
+mode 32. `r_pathTracingRestirPTPreviewMaxPixels` exists as an experimental
+safety cap, but the practical validated guidance is still to keep mode 32 at or
+below 720p for now.
+
+Clear optimization path for mode 32 / future final shading:
+- move ReSTIR PT stages out of the monolithic debug raygen into explicit
+  pass-sized dispatches so initial sampling, temporal resampling, visibility,
+  and final shading can be profiled and throttled independently;
+- keep the visibility/shadow ray optional until a final shading pass has a
+  denoiser/upscaler target;
+- add half-resolution, checkerboard, or fixed internal-resolution execution for
+  temporal PT, then upscale to the game output;
+- reduce per-pixel replay cost by tightening initial sample count, bounce depth,
+  and hybrid-shift/reconnection settings once correctness is established;
+- replace the temporary camera-only reprojection with vertex/object motion
+  vectors so fewer pixels churn through rejection/fallback paths;
+- profile GPU pass timing before raising resolution, because driver device
+  removal here is consistent with timeout pressure from long RT dispatches.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom

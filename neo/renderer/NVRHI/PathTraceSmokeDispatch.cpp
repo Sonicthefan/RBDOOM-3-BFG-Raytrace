@@ -110,8 +110,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 31, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 32, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31 || debugMode == 32) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -236,7 +236,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t restirPTFrameIndex = m_restirPTFrameIndex++;
     restirPTContextDesc.frameIndex = restirPTFrameIndex;
     restirPTContextDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
-    restirPTContextDesc.resamplingMode = debugMode == 31
+    restirPTContextDesc.resamplingMode = (debugMode == 31 || debugMode == 32)
         ? rtxdi::ReSTIRPT_ResamplingMode::Temporal
         : rtxdi::ReSTIRPT_ResamplingMode::None;
     if (!UpdateRestirPTContextState(m_restirPTContextState, restirPTContextDesc))
@@ -271,10 +271,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31) ? 8u : 0u) |
-        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31))) ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31) ? 64u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31 || debugMode == 32) ? 8u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31 || debugMode == 32))) ? 16u : 0u) |
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31 || debugMode == 32) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30 || debugMode == 31 || debugMode == 32) ? 64u : 0u) |
         (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && debugMode == 18 ? 128u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     const bool previousHistoryViewValid =
@@ -340,7 +340,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (replaceSelectedLightsWithAnalytic ? 2.0f : 0.0f);
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
-    constants.restirPTInfo[2] = 0.0f;
+    constants.restirPTInfo[2] = r_pathTracingRestirPTPreviewVisibility.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[3] = 0.0f;
     for (int i = 0; i < selectedLightCount; i++)
     {

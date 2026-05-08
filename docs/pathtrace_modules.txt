@@ -541,7 +541,7 @@ RtxdiBridge/*.hlsli
     the backend copies current to previous after dispatch for next-frame
     validation. The history record includes material identity plus the RAB
     material roughness/F0. When `r_pathTracingToyFakePBRSpecular 1` is enabled,
-    modes 26/27/28/29/30/31 sample Doom specular textures and store the same converted
+    modes 26/27/28/29/30/31/32 sample Doom specular textures and store the same converted
     fake-PBR roughness/F0 that mode 18 uses.
 
     Step 6 RNG scaffolding lives in `RAB_RandomSamplerState.hlsli`. It keeps a
@@ -1177,6 +1177,31 @@ User validation reports mode 31 is broadly similar to mode 30; violent camera
 motion can leave blue edge bands until history catches up. Treat those bands as
 offscreen/disocclusion misses from the temporary reprojection path rather than
 reservoir corruption.
+
+Mode 32 shades the temporal reservoir output from the same debug raygen path.
+It uses the mode 31 temporal context/indices and conservative previous-surface
+gates, stores the current initial reservoir before calling
+RTXDI_PTTemporalResampling, then previews `TargetFunction * WeightSum` from the
+temporal output reservoir. The mode 28-style conservative visibility ray is
+controlled by `r_pathTracingRestirPTPreviewVisibility` and defaults off because
+it adds another ray per pixel on top of temporal PT replay. It remains a debug
+preview; final shading and spatial reuse are still separate steps.
+
+Mode 32 has a validated high-resolution workload limit. It is stable enough for
+basic testing around 1280x720, but user validation reports that pushing much
+beyond 720p can device-remove the GPU. This is expected for the current
+prototype shape: the monolithic raygen performs full-screen current initial PT
+sampling, RTXDI temporal resampling / hybrid-shift work, and optional visibility
+inside one heavy RT dispatch. `r_pathTracingRestirPTPreviewMaxPixels` is an
+experimental safety cap, but the reliable testing rule is to keep mode 32 at or
+below 720p until the pass is restructured.
+
+Optimization path: split initial sampling, temporal resampling, visibility, and
+preview/final shading into separate profiled passes; keep the visibility ray
+off by default; add lower internal resolution / checkerboard execution before
+presentation; reduce initial sample and replay parameters after correctness is
+locked; and wire real motion vectors so temporal history rejection does not
+thrash around moving objects and disocclusions.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver

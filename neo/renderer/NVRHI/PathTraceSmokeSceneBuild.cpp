@@ -393,8 +393,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 31, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28 || requestedDebugMode == 29 || requestedDebugMode == 30 || requestedDebugMode == 31;
+    const int requestedDebugMode = idMath::ClampInt(0, 32, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28 || requestedDebugMode == 29 || requestedDebugMode == 30 || requestedDebugMode == 31 || requestedDebugMode == 32;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {

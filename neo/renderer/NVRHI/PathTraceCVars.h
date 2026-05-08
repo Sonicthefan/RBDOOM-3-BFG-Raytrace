@@ -114,6 +114,8 @@ extern idCVar r_pathTracingToyAccumulation;
 extern idCVar r_pathTracingToyAccumMaxFrames;
 extern idCVar r_pathTracingReservoirTwoSidedEmissives;
 extern idCVar r_pathTracingReservoirCandidateTrials;
+extern idCVar r_pathTracingRestirPTPreviewVisibility;
+extern idCVar r_pathTracingRestirPTPreviewMaxPixels;
 extern idCVar r_pathTracingSmokeParticleDither;
 extern idCVar r_pathTracingSmokeParticleAlphaScale;
 extern idCVar r_pathTracingSmokeParticleEdgeFade;

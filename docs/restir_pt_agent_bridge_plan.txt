@@ -818,6 +818,25 @@ Current status before enabling:
       camera movement can create blue edge sections until history catches up.
       Treat this as expected offscreen/disocclusion behavior for temporary
       reprojection.
+    - r_pathTracingDebugMode 32 shades the temporal output reservoir using the
+      same temporal indices/gates as mode 31, then previews TargetFunction *
+      WeightSum. The conservative visibility ray from mode 28 is controlled by
+      r_pathTracingRestirPTPreviewVisibility and should stay off by default
+      because it adds another ray per pixel to an already heavy temporal PT
+      debug path. It is still a debug view and does not enable spatial reuse or
+      production final shading.
+    - User validation showed mode 32 works at about 1280x720 but can
+      device-remove the GPU when pushed much beyond 720p. Treat this as current
+      debug workload/TDR pressure, not a ReSTIR PT data-path correctness
+      failure. r_pathTracingRestirPTPreviewMaxPixels exists as an experimental
+      cap, but the practical rule is to test mode 32 at or below 720p until it
+      is optimized.
+    - The optimization path is to split initial sampling, temporal resampling,
+      visibility, and final/preview shading into separate profiled passes; use
+      lower internal resolution or checkerboard execution; keep visibility rays
+      optional until a denoiser/upscaler path exists; tune initial sample count,
+      bounce depth, and hybrid-shift/reconnection costs after correctness; and
+      replace camera-only reprojection with real vertex/object motion vectors.
     - Primary-surface history clearing is independent from the camera-sensitive
       smoke reservoir reset path. A test build tied it to
       m_smokeReservoirNeedsClear and turned moving-camera mode 29 into

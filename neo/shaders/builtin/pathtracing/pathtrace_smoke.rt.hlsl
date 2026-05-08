@@ -1327,12 +1327,35 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
 #include "Rtxdi/PT/InitialSampling.hlsli"
 #include "Rtxdi/PT/TemporalResampling.hlsli"
 
-float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
+void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
+void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
+RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
+float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir);
+
+RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, uint2 pixel, out float4 rejectionColor, out bool selectedPrevSample)
 {
+    rejectionColor = float4(0.55, 0.05, 0.04, 1.0);
+    selectedPrevSample = false;
+
     if (!RAB_IsSurfaceValid(currentSurface))
     {
-        return float4(0.55, 0.05, 0.04, 1.0);
+        const RTXDI_PTReservoir emptyReservoir = RTXDI_EmptyPTReservoir();
+        StoreRestirPTInitialReservoir(pixel, emptyReservoir);
+        StoreRestirPTTemporalOutputReservoir(pixel, emptyReservoir);
+        return RTXDI_EmptyPTReservoir();
     }
+
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(currentSurface))
+    {
+        const RTXDI_PTReservoir emptyReservoir = RTXDI_EmptyPTReservoir();
+        StoreRestirPTInitialReservoir(pixel, emptyReservoir);
+        StoreRestirPTTemporalOutputReservoir(pixel, emptyReservoir);
+        rejectionColor = float4(saturate(currentSurface.material.diffuseAlbedo * 0.025), 1.0);
+        return RTXDI_EmptyPTReservoir();
+    }
+
+    const RTXDI_PTReservoir currentReservoir = GenerateRestirPTInitialReservoir(currentSurface, pixel);
+    StoreRestirPTInitialReservoir(pixel, currentReservoir);
 
     int2 previousPixel;
     const bool projected = RestirPTProjectWorldToPreviousPixel(
@@ -1341,13 +1364,17 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
         previousPixel);
     if (!projected)
     {
-        return float4(0.05, 0.12, 0.55, 1.0);
+        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
+        rejectionColor = float4(0.05, 0.12, 0.55, 1.0);
+        return currentReservoir;
     }
 
     const RAB_Surface previousSurface = RAB_GetGBufferSurface(previousPixel, true);
     if (!RAB_IsSurfaceValid(previousSurface))
     {
-        return float4(0.05, 0.12, 0.55, 1.0);
+        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
+        rejectionColor = float4(0.05, 0.12, 0.55, 1.0);
+        return currentReservoir;
     }
 
     const float normalSimilarity = dot(RAB_GetSurfaceNormal(currentSurface), RAB_GetSurfaceNormal(previousSurface));
@@ -1357,7 +1384,9 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
         currentSurface.surfaceClass == previousSurface.surfaceClass;
     if (!materialMatch || normalSimilarity < 0.85 || roughnessDelta > 0.20)
     {
-        return EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
+        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
+        rejectionColor = EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
+        return currentReservoir;
     }
 
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
@@ -1368,7 +1397,9 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
         RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
     if (!RTXDI_IsValidPTReservoir(previousReservoir))
     {
-        return float4(0.05, 0.12, 0.55, 1.0);
+        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
+        rejectionColor = float4(0.05, 0.12, 0.55, 1.0);
+        return currentReservoir;
     }
 
     RTXDI_PTTemporalResamplingRuntimeParameters runtimeParams = RTXDI_EmptyPTTemporalResamplingRuntimeParameters();
@@ -1388,7 +1419,6 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, rtxdiRuntimeParams.frameIndex, 0x51ed270bu);
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
-    bool selectedPrevSample = false;
     const RTXDI_PTReservoir temporalReservoir = RTXDI_PTTemporalResampling(
         RestirPTParams.temporalResampling,
         runtimeParams,
@@ -1401,20 +1431,49 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
         selectedPrevSample,
         ptud);
 
-    RTXDI_StorePTReservoir(
-        temporalReservoir,
-        RestirPTParams.reservoirBuffer,
-        reservoirPosition,
-        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
+    StoreRestirPTTemporalOutputReservoir(pixel, temporalReservoir);
 
+    return temporalReservoir;
+}
+
+float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    float4 rejectionColor;
+    bool selectedPrevSample;
+    const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTTemporalReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample);
     if (!RTXDI_IsValidPTReservoir(temporalReservoir))
     {
-        return float4(0.55, 0.05, 0.04, 1.0);
+        return rejectionColor;
     }
 
     const float selectedBoost = selectedPrevSample ? 0.18 : 0.0;
     const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
     return float4(0.02, saturate(0.36 + selectedBoost + historyTint * 0.28), 0.08 + historyTint * 0.10, 1.0);
+}
+
+float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
+{
+    float4 rejectionColor;
+    bool selectedPrevSample;
+    const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTTemporalReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample);
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        return rejectionColor;
+    }
+
+    float3 contribution = max(temporalReservoir.TargetFunction, float3(0.0, 0.0, 0.0)) * max(temporalReservoir.WeightSum, 0.0);
+    if (!all(contribution == contribution) || any(abs(contribution) > 65504.0))
+    {
+        contribution = float3(0.0, 0.0, 0.0);
+    }
+    if (traceVisibility)
+    {
+        contribution *= RestirPTTraceReservoirVisibility(currentSurface, temporalReservoir);
+    }
+
+    const float3 preview = contribution / (1.0 + contribution);
+    const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    return float4(saturate(currentSurface.material.diffuseAlbedo * 0.015 + preview + float3(0.0, 0.025, 0.015) * historyTint), 1.0);
 }
 
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
@@ -1424,6 +1483,16 @@ void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
         RestirPTParams.reservoirBuffer,
         pixel,
         RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+}
+
+void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
+{
+    const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
+    RTXDI_StorePTReservoir(
+        reservoir,
+        RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
 }
 
 float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel)
@@ -2535,6 +2604,10 @@ void RayGen()
         {
             SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirDebug(primaryHistorySurface, pixel);
         }
+        else if (debugMode == 32)
+        {
+            SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
+        }
         else
         {
             SmokeOutput[pixel] = SmokeMissColor();
@@ -2635,6 +2708,10 @@ void RayGen()
     else if (debugMode == 31)
     {
         SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 32)
+    {
+        SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
     }
     else if (debugMode == 8)
     {
