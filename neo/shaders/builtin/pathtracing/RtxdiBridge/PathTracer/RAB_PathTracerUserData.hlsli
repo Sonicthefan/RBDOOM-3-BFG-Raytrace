@@ -19,4 +19,12 @@ void RAB_PathTracerUserDataSetPathType(inout RAB_PathTracerUserData ptud, RTXDI_
     ptud.pathType = type;
 }
 
+void RAB_ReconnectionDenoiserCallback(const RTXDI_PTReservoir neighborSample, RAB_Surface surface, inout RAB_PathTracerUserData ptud)
+{
+}
+
+void RAB_LastBounceDenoiserCallback(float3 lightPos, RAB_Surface surface, inout RAB_PathTracerUserData ptud)
+{
+}
+
 #endif

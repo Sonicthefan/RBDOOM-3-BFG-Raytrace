@@ -49,6 +49,11 @@ uint RAB_GetCurrentLightCount()
     return emissiveTriangleCount + analyticCount;
 }
 
+int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
+{
+    return lightIndex < RAB_GetCurrentLightCount() ? (int)lightIndex : -1;
+}
+
 RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
 {
     if (previousFrame)

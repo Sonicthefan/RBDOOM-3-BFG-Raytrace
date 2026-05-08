@@ -541,7 +541,7 @@ RtxdiBridge/*.hlsli
     the backend copies current to previous after dispatch for next-frame
     validation. The history record includes material identity plus the RAB
     material roughness/F0. When `r_pathTracingToyFakePBRSpecular 1` is enabled,
-    modes 26/27/28/29/30 sample Doom specular textures and store the same converted
+    modes 26/27/28/29/30/31 sample Doom specular textures and store the same converted
     fake-PBR roughness/F0 that mode 18 uses.
 
     Step 6 RNG scaffolding lives in `RAB_RandomSamplerState.hlsli`. It keeps a
@@ -1164,6 +1164,19 @@ User validation reports mode 30 is mostly green, with purple/orange outlines on
 moving-object and silhouette edges. Treat those outlines as the expected limit
 of camera-only screen-space reprojection, not a failure of the primary history
 copy or previous-camera state.
+
+Mode 31 is the first temporal-reservoir validation view. PathTraceSmokeDispatch
+sets the ReSTIR PT context to temporal mode only for debug mode 31, which gives
+RTXDI the alternating initial/temporal input/output reservoir indices. The
+shader writes the current initial reservoir, projects the current primary
+surface to the previous pixel, rejects missing or mismatched previous
+surface/reservoir data, then calls RTXDI_PTTemporalResampling and stores the
+temporal output reservoir. This remains a diagnostic color view; it is not final
+shading and it does not enable spatial reuse.
+User validation reports mode 31 is broadly similar to mode 30; violent camera
+motion can leave blue edge bands until history catches up. Treat those bands as
+offscreen/disocclusion misses from the temporary reprojection path rather than
+reservoir corruption.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver

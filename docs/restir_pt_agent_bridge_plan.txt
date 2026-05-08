@@ -808,13 +808,23 @@ Current status before enabling:
     - User validation showed mode 30 mostly green, with purple/orange outlines
       around moving objects and silhouettes. That is the expected edge/disocclusion
       limit of camera-only reprojection.
+    - r_pathTracingDebugMode 31 is the first temporal-reservoir diagnostic. It
+      sets the ReSTIR PT context to temporal mode, uses the mode 30 previous
+      pixel as the temporal candidate, rejects missing/mismatched previous
+      surfaces before RTXDI resampling, calls RTXDI_PTTemporalResampling, and
+      visualizes validity. It still does not feed final shading or spatial
+      reuse.
+    - User validation showed mode 31 is broadly similar to mode 30; violent
+      camera movement can create blue edge sections until history catches up.
+      Treat this as expected offscreen/disocclusion behavior for temporary
+      reprojection.
     - Primary-surface history clearing is independent from the camera-sensitive
       smoke reservoir reset path. A test build tied it to
       m_smokeReservoirNeedsClear and turned moving-camera mode 29 into
       full-screen blue because every camera signature change erased the previous
       history before the validation read.
     - Full vertex/object motion vectors are still missing, so temporal
-      resampling remains disabled.
+      resampling remains diagnostic-only.
 
 Actions:
     - Dispatch RTXDI temporal PT resampling shader logic.

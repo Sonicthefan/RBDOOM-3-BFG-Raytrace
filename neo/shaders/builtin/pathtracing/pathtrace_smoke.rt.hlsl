@@ -1325,6 +1325,97 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
 
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
 #include "Rtxdi/PT/InitialSampling.hlsli"
+#include "Rtxdi/PT/TemporalResampling.hlsli"
+
+float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return float4(0.55, 0.05, 0.04, 1.0);
+    }
+
+    int2 previousPixel;
+    const bool projected = RestirPTProjectWorldToPreviousPixel(
+        RAB_GetSurfaceWorldPos(currentSurface),
+        DispatchRaysDimensions().xy,
+        previousPixel);
+    if (!projected)
+    {
+        return float4(0.05, 0.12, 0.55, 1.0);
+    }
+
+    const RAB_Surface previousSurface = RAB_GetGBufferSurface(previousPixel, true);
+    if (!RAB_IsSurfaceValid(previousSurface))
+    {
+        return float4(0.05, 0.12, 0.55, 1.0);
+    }
+
+    const float normalSimilarity = dot(RAB_GetSurfaceNormal(currentSurface), RAB_GetSurfaceNormal(previousSurface));
+    const float roughnessDelta = abs(GetRoughness(currentSurface.material) - GetRoughness(previousSurface.material));
+    const bool materialMatch = currentSurface.materialId == previousSurface.materialId &&
+        currentSurface.materialIndex == previousSurface.materialIndex &&
+        currentSurface.surfaceClass == previousSurface.surfaceClass;
+    if (!materialMatch || normalSimilarity < 0.85 || roughnessDelta > 0.20)
+    {
+        return EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
+    }
+
+    const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
+    const uint2 previousReservoirPosition = RTXDI_PixelPosToReservoirPos(uint2(previousPixel), 0u);
+    const RTXDI_PTReservoir previousReservoir = RTXDI_LoadPTReservoir(
+        RestirPTParams.reservoirBuffer,
+        previousReservoirPosition,
+        RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
+    if (!RTXDI_IsValidPTReservoir(previousReservoir))
+    {
+        return float4(0.05, 0.12, 0.55, 1.0);
+    }
+
+    RTXDI_PTTemporalResamplingRuntimeParameters runtimeParams = RTXDI_EmptyPTTemporalResamplingRuntimeParameters();
+    runtimeParams.pixelPosition = pixel;
+    runtimeParams.reservoirPosition = reservoirPosition;
+    runtimeParams.motionVector = float3(
+        (float)previousPixel.x - (float)pixel.x,
+        (float)previousPixel.y - (float)pixel.y,
+        previousSurface.linearDepth - currentSurface.linearDepth);
+    runtimeParams.cameraPos = CameraOriginAndTMax.xyz;
+    runtimeParams.prevCameraPos = PrevCameraOriginAndValid.xyz;
+    runtimeParams.prevPrevCameraPos = PrevCameraOriginAndValid.xyz;
+
+    RTXDI_RuntimeParameters rtxdiRuntimeParams = (RTXDI_RuntimeParameters)0;
+    rtxdiRuntimeParams.activeCheckerboardField = 0u;
+    rtxdiRuntimeParams.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, rtxdiRuntimeParams.frameIndex, 0x51ed270bu);
+    RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
+    bool selectedPrevSample = false;
+    const RTXDI_PTReservoir temporalReservoir = RTXDI_PTTemporalResampling(
+        RestirPTParams.temporalResampling,
+        runtimeParams,
+        RestirPTParams.hybridShift,
+        RestirPTParams.reconnection,
+        rtxdiRuntimeParams,
+        RestirPTParams.reservoirBuffer,
+        rng,
+        RestirPTParams.bufferIndices,
+        selectedPrevSample,
+        ptud);
+
+    RTXDI_StorePTReservoir(
+        temporalReservoir,
+        RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
+
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        return float4(0.55, 0.05, 0.04, 1.0);
+    }
+
+    const float selectedBoost = selectedPrevSample ? 0.18 : 0.0;
+    const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    return float4(0.02, saturate(0.36 + selectedBoost + historyTint * 0.28), 0.08 + historyTint * 0.10, 1.0);
+}
 
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
 {
@@ -2440,6 +2531,10 @@ void RayGen()
         {
             SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceReprojectionDebug(primaryHistorySurface);
         }
+        else if (debugMode == 31)
+        {
+            SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirDebug(primaryHistorySurface, pixel);
+        }
         else
         {
             SmokeOutput[pixel] = SmokeMissColor();
@@ -2536,6 +2631,10 @@ void RayGen()
     else if (debugMode == 30)
     {
         SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceReprojectionDebug(primaryHistorySurface);
+    }
+    else if (debugMode == 31)
+    {
+        SmokeOutput[pixel] = EvaluateRestirPTTemporalReservoirDebug(primaryHistorySurface, pixel);
     }
     else if (debugMode == 8)
     {

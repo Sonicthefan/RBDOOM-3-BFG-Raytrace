@@ -373,6 +373,7 @@ Implemented debug CVars:
   28 = ReSTIR PT initial reservoir visibility preview
   29 = ReSTIR PT primary-surface history validation
   30 = ReSTIR PT screen-space reprojection validation
+  31 = ReSTIR PT temporal reservoir validation
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -505,7 +506,7 @@ Implemented debug CVars:
 
 - r_pathTracingToyFakePBRSpecular
   Opt-in shader experiment. Defaults to 0. When enabled, mode 18 and the
-  ReSTIR PT bridge modes 26/27/28/29/30 also enable specular-map sampling and
+  ReSTIR PT bridge modes 26/27/28/29/30/31 also enable specular-map sampling and
   interpret Doom legacy specular maps using the same rbdoom3/Kennedith98-style
   fake-PBR idea as the raster interaction shaders: derive approximate F0 and
   roughness from the gamma-space specular texture. For ReSTIR PT this roughness
@@ -2068,6 +2069,7 @@ For ReSTIR PT initial-sampling reservoir validation:
     r_pathTracingDebugMode 28
     r_pathTracingDebugMode 29
     r_pathTracingDebugMode 30
+    r_pathTracingDebugMode 31
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2164,7 +2166,7 @@ the backend copies current to previous after dispatch so the next frame can read
 stable previous records. The record stores world position/depth, geometry and
 shading normals, view direction, material identity, surface flags, diffuse
 albedo, opacity, alpha cutoff, and the RAB material roughness/F0. When
-`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30 sample the
+`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31 sample the
 Doom specular texture and store the converted fake-PBR roughness/F0 in that
 history record. Mode 29 colors the current-vs-previous same-pixel comparison:
 blue means current valid but no previous history yet, red means previous valid
@@ -2202,6 +2204,26 @@ orange outlines around moving objects and silhouettes look like an edge-detect
 overlay; that is expected for this temporary screen-space method because moving
 objects, disocclusions, and subpixel edge changes do not have vertex/object
 motion yet.
+
+Mode 31 is the first temporal-reservoir diagnostic. It switches the RTXDI
+ReSTIR PT context to temporal mode for that debug view so the packed reservoir
+buffer indices ping-pong through `initialPathTracerOutputBufferIndex`,
+`temporalResamplingInputBufferIndex`, and `temporalResamplingOutputBufferIndex`.
+The shader still runs inside the existing raygen path: it writes the current
+initial reservoir, uses the mode 30 previous-pixel reprojection as the temporal
+candidate, rejects missing or mismatched previous surfaces before RTXDI
+resampling, then calls `RTXDI_PTTemporalResampling` and writes the temporal
+output reservoir. The color key remains diagnostic only: green means a valid
+temporal reservoir path, blue means no usable previous surface/reservoir,
+yellow/purple/orange are the material/normal/roughness rejection colors from
+mode 29/30, and red means invalid current or temporal output. Mode 31 does not
+feed final shading, does not enable spatial reuse, and does not solve moving
+object motion vectors.
+User validation: mode 31 looks broadly similar to mode 30 in normal motion.
+Violent camera movement can produce blue sections around screen edges until
+history catches up. That is expected because those pixels reproject offscreen or
+into disoccluded areas and therefore have no usable previous primary surface or
+reservoir yet.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom
