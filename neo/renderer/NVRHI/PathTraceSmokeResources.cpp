@@ -9,6 +9,7 @@
 // directly.
 
 #include "PathTracePrimaryPass.h"
+#include "PathTraceCVars.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceReservoirs.h"
 #include "PathTraceSmokeDispatch.h"
@@ -24,6 +25,87 @@ bool RtSmokeSceneBufferHandles::IsValid() const
         dynamicVertexBuffer && dynamicIndexBuffer && dynamicTriangleClassBuffer && dynamicTriangleMaterialBuffer && dynamicTriangleMaterialIndexBuffer &&
         materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer && doomAnalyticLightBuffer &&
         rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer;
+}
+
+static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
+{
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    const RtPathTraceSceneInputMaterials& materials = inputs.materials;
+    const RtPathTraceSceneInputLights& lights = inputs.lights;
+    const RtPathTraceSceneInputPortalPolicy& portal = inputs.portalPolicy;
+    const RtPathTraceSceneInputSignatures& signatures = inputs.signatures;
+    const RtPathTraceSceneInputDiagnostics& diagnostics = inputs.diagnostics;
+
+    common->Printf("PathTracePrimaryPass: PT scene inputs valid=%d source=%d debugMode=%d output=%dx%d caps=0x%08x sig geometry=%llu material=%llu light=%llu output=%llu camera=%llu debug=%llu uploadGen=%llu reservoir=%llu\n",
+        inputs.valid ? 1 : 0,
+        inputs.sceneSource,
+        inputs.debugMode,
+        inputs.outputWidth,
+        inputs.outputHeight,
+        inputs.capabilityFlags,
+        static_cast<unsigned long long>(signatures.geometryMembership),
+        static_cast<unsigned long long>(signatures.materialTable),
+        static_cast<unsigned long long>(signatures.lightMembership),
+        static_cast<unsigned long long>(signatures.outputResolution),
+        static_cast<unsigned long long>(signatures.cameraProjection),
+        static_cast<unsigned long long>(signatures.debugFeaturePolicy),
+        static_cast<unsigned long long>(signatures.cpuUploadGeneration),
+        static_cast<unsigned long long>(signatures.reservoirScene));
+    common->Printf("PathTracePrimaryPass: PT scene inputs geometry static v/i/t=%d/%d/%d dynamic v/i/t=%d/%d/%d rigidRoute v/i/t/inst=%d/%d/%d/%d skinned surfaces/tris=%d/%d current=%d prevTransform=%d prevVertex=%d prevSkinned=%d caps=0x%08x\n",
+        geometry.staticVertexCount,
+        geometry.staticIndexCount,
+        geometry.staticTriangleCount,
+        geometry.dynamicVertexCount,
+        geometry.dynamicIndexCount,
+        geometry.dynamicTriangleCount,
+        geometry.rigidRouteVertexCount,
+        geometry.rigidRouteIndexCount,
+        geometry.rigidRouteTriangleCount,
+        geometry.rigidRouteInstanceCount,
+        geometry.skinnedSurfaceCount,
+        geometry.skinnedTriangleCount,
+        geometry.currentGeometryValid ? 1 : 0,
+        geometry.previousTransformAvailable ? 1 : 0,
+        geometry.previousVertexDataAvailable ? 1 : 0,
+        geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
+        geometry.capabilityFlags);
+    common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d activeTextures=%d caps=0x%08x light emissive=%d static=%d dynamic=%d candidates=%d textured=%d doom=%d generation=%llu caps=0x%08x\n",
+        materials.materialTablePath ? materials.materialTablePath : "unknown",
+        materials.materialTableEntryCount,
+        materials.activeTextureCount,
+        materials.capabilityFlags,
+        lights.emissiveTriangleCount,
+        lights.emissiveStaticTriangleCount,
+        lights.emissiveDynamicTriangleCount,
+        lights.lightCandidateCount,
+        lights.texturedLightCandidateCount,
+        lights.doomAnalyticLightCount,
+        static_cast<unsigned long long>(lights.lightUniverseGeneration),
+        lights.capabilityFlags);
+    common->Printf("PathTracePrimaryPass: PT scene inputs portal current/total=%d/%d steps static/rigid/light/scene=%d/%d/%d/%d light selected/edges/blocked=%d/%d/%d rigid selected/edges/blocked=%d/%d/%d defaultEquivalent=%d uploads geometry/material/light=%llu/%llu/%llu timings scene/capture/material/emissive/bufferCreate/upload/accel=%d/%d/%d/%d/%d/%d/%d\n",
+        portal.currentArea,
+        portal.totalAreas,
+        portal.staticAreaPreloadSteps,
+        portal.rigidResidencySteps,
+        portal.lightAreaSteps,
+        portal.sceneUniverseSteps,
+        portal.selectedAreaCount,
+        portal.portalEdges,
+        portal.blockedPortalEdges,
+        portal.rigidSelectedAreaCount,
+        portal.rigidPortalEdges,
+        portal.rigidBlockedPortalEdges,
+        portal.defaultPolicyEquivalent ? 1 : 0,
+        static_cast<unsigned long long>(diagnostics.geometryUploadBytes),
+        static_cast<unsigned long long>(diagnostics.materialUploadBytes),
+        static_cast<unsigned long long>(diagnostics.lightUploadBytes),
+        diagnostics.sceneBuildMs,
+        diagnostics.captureMs,
+        diagnostics.materialMs,
+        diagnostics.emissiveMs,
+        diagnostics.bufferCreateMs,
+        diagnostics.bufferUploadMs,
+        diagnostics.accelSubmitMs);
 }
 
 static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
@@ -221,6 +303,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
 RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeSceneResourceCommitBuildDesc& desc)
 {
     RtSmokeSceneResourceCommitDesc commitDesc;
+    commitDesc.sceneInputs = desc.sceneInputs;
     commitDesc.buffers = desc.buffers;
     commitDesc.staticBlasDesc = desc.staticBlasDesc;
     commitDesc.dynamicBlasDesc = desc.dynamicBlasDesc;
@@ -467,179 +550,35 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
         return false;
     }
 
-    if (m_smokeOutputTexture && m_smokeAccumulationTexture && m_smokeReadbackTexture &&
-        m_smokeReservoirBuffers.IsValidFor(width, height) &&
-        m_restirPTReservoirBuffers.IsValidFor(width, height, rtxdi::CheckerboardMode::Off) &&
-        m_restirPTPrimarySurfaceHistoryBuffers.IsValidFor(width, height) &&
-        width == m_smokeOutputWidth && height == m_smokeOutputHeight)
+    const bool alreadyValid = m_frameResources.IsValidFor(width, height, rtxdi::CheckerboardMode::Off);
+    if (alreadyValid)
     {
         return true;
     }
 
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!device)
+    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, rtxdi::CheckerboardMode::Off))
     {
         return false;
     }
 
-    const bool replacingExistingOutput =
-        m_smokeOutputTexture || m_smokeAccumulationTexture || m_smokeReadbackTexture ||
-        m_smokeReservoirBuffers.current || m_smokeReservoirBuffers.previous || m_smokeReservoirBuffers.spatialScratch ||
-        m_restirPTReservoirBuffers.reservoirs ||
-        m_restirPTPrimarySurfaceHistoryBuffers.current || m_restirPTPrimarySurfaceHistoryBuffers.previous;
-    if (replacingExistingOutput)
-    {
-        common->Printf("PathTracePrimaryPass: resizing PT output old=%dx%d new=%dx%d; waiting for GPU idle\n",
-            m_smokeOutputWidth, m_smokeOutputHeight, width, height);
-        device->waitForIdle();
-        device->runGarbageCollection();
-    }
-
-    nvrhi::TextureDesc outputDesc;
-    outputDesc.width = width;
-    outputDesc.height = height;
-    outputDesc.mipLevels = 1;
-    outputDesc.arraySize = 1;
-    outputDesc.format = nvrhi::Format::RGBA32_FLOAT;
-    outputDesc.dimension = nvrhi::TextureDimension::Texture2D;
-    outputDesc.isUAV = true;
-    outputDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
-    outputDesc.keepInitialState = true;
-    outputDesc.debugName = "PathTraceSmokeOutput";
-    nvrhi::TextureHandle outputTexture = device->createTexture(outputDesc);
-
-    if (!outputTexture)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke output UAV (%dx%d)\n", width, height);
-        return false;
-    }
-
-    outputDesc.debugName = "PathTraceSmokeAccumulation";
-    nvrhi::TextureHandle accumulationTexture = device->createTexture(outputDesc);
-    if (!accumulationTexture)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke accumulation UAV (%dx%d)\n", width, height);
-        return false;
-    }
-
-    nvrhi::TextureDesc readbackDesc = outputDesc;
-    readbackDesc.isShaderResource = false;
-    readbackDesc.isUAV = false;
-    readbackDesc.initialState = nvrhi::ResourceStates::Unknown;
-    readbackDesc.keepInitialState = false;
-    readbackDesc.debugName = "PathTraceSmokeReadback";
-    nvrhi::StagingTextureHandle readbackTexture = device->createStagingTexture(readbackDesc, nvrhi::CpuAccessMode::Read);
-
-    if (!readbackTexture)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke readback texture (%dx%d)\n", width, height);
-        return false;
-    }
-
-    m_smokeOutputTexture = outputTexture;
-    m_smokeAccumulationTexture = accumulationTexture;
-    m_smokeReadbackTexture = readbackTexture;
-    m_smokeOutputWidth = width;
-    m_smokeOutputHeight = height;
     ResetRayTracingSmokeSceneResources();
-
-    RtSmokeReservoirBufferCreateDesc reservoirDesc;
-    reservoirDesc.device = device;
-    reservoirDesc.existingBuffers = m_smokeReservoirBuffers;
-    reservoirDesc.width = width;
-    reservoirDesc.height = height;
-    const RtSmokeReservoirBufferCreateResult reservoirResult = CreateSmokeReservoirBuffers(reservoirDesc);
-    if (!reservoirResult.Succeeded())
-    {
-        common->Printf("PathTracePrimaryPass: %s (%dx%d)\n", reservoirResult.errorMessage ? reservoirResult.errorMessage : "failed to create RT smoke ReSTIR reservoir buffers", width, height);
-        return false;
-    }
-    m_smokeReservoirBuffers = reservoirResult.buffers;
-
-    RtRestirPTReservoirBufferCreateDesc restirPTReservoirDesc;
-    restirPTReservoirDesc.device = device;
-    restirPTReservoirDesc.existingBuffers = m_restirPTReservoirBuffers;
-    restirPTReservoirDesc.width = static_cast<uint32_t>(width);
-    restirPTReservoirDesc.height = static_cast<uint32_t>(height);
-    restirPTReservoirDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
-    const RtRestirPTReservoirBufferCreateResult restirPTReservoirResult = CreateRestirPTReservoirBuffers(restirPTReservoirDesc);
-    if (!restirPTReservoirResult.Succeeded())
-    {
-        common->Printf("PathTracePrimaryPass: %s (%dx%d)\n", restirPTReservoirResult.errorMessage ? restirPTReservoirResult.errorMessage : "failed to create RT ReSTIR PT packed reservoir buffer", width, height);
-        return false;
-    }
-    m_restirPTReservoirBuffers = restirPTReservoirResult.buffers;
-
-    RtRestirPTPrimarySurfaceHistoryBufferCreateDesc primaryHistoryDesc;
-    primaryHistoryDesc.device = device;
-    primaryHistoryDesc.existingBuffers = m_restirPTPrimarySurfaceHistoryBuffers;
-    primaryHistoryDesc.width = static_cast<uint32_t>(width);
-    primaryHistoryDesc.height = static_cast<uint32_t>(height);
-    const RtRestirPTPrimarySurfaceHistoryBufferCreateResult primaryHistoryResult = CreateRestirPTPrimarySurfaceHistoryBuffers(primaryHistoryDesc);
-    if (!primaryHistoryResult.Succeeded())
-    {
-        common->Printf("PathTracePrimaryPass: %s (%dx%d)\n", primaryHistoryResult.errorMessage ? primaryHistoryResult.errorMessage : "failed to create RT ReSTIR PT primary-surface history buffers", width, height);
-        return false;
-    }
-    m_restirPTPrimarySurfaceHistoryBuffers = primaryHistoryResult.buffers;
-    m_restirPTPrimarySurfaceHistoryNeedsClear = true;
-    m_restirPTPrimarySurfaceHistoryViewValid = false;
-    m_restirPTPrimarySurfaceHistoryViewWidth = 0;
-    m_restirPTPrimarySurfaceHistoryViewHeight = 0;
-
-    RtRestirPTContextUpdateDesc restirPTContextDesc;
-    restirPTContextDesc.width = static_cast<uint32_t>(width);
-    restirPTContextDesc.height = static_cast<uint32_t>(height);
-    restirPTContextDesc.frameIndex = m_restirPTFrameIndex;
-    restirPTContextDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
-    restirPTContextDesc.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
-    if (!UpdateRestirPTContextState(m_restirPTContextState, restirPTContextDesc))
-    {
-        common->Printf("PathTracePrimaryPass: failed to initialize RT ReSTIR PT context (%dx%d)\n", width, height);
-        return false;
-    }
-
-    common->Printf("PathTracePrimaryPass: RT ReSTIR PT packed reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u\n",
-        width,
-        height,
-        m_restirPTReservoirBuffers.reservoirElementCount,
-        static_cast<unsigned long long>(m_restirPTReservoirBuffers.reservoirBytes),
-        m_restirPTReservoirBuffers.reservoirParams.reservoirArrayPitch,
-        m_restirPTReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
-        rtxdi::c_NumReSTIRPTReservoirBuffers,
-        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
-
-    common->Printf("PathTracePrimaryPass: RT ReSTIR PT primary-surface history output=%dx%d records=%u bytes=%llu stride=%u\n",
-        width,
-        height,
-        m_restirPTPrimarySurfaceHistoryBuffers.surfaceCount,
-        static_cast<unsigned long long>(m_restirPTPrimarySurfaceHistoryBuffers.surfaceBytes),
-        RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE);
-
-    common->Printf("PathTracePrimaryPass: RT smoke output UAV initialized (%dx%d)\n", width, height);
     return true;
 }
 
 void PathTracePrimaryPass::InvalidateForBackBufferResize()
 {
     ResetRayTracingSmokeSceneResources();
-    m_smokeOutputTexture = nullptr;
-    m_smokeAccumulationTexture = nullptr;
-    m_smokeReadbackTexture = nullptr;
-    m_smokeOutputWidth = 0;
-    m_smokeOutputHeight = 0;
+    m_frameResources.ResetOutputSizedResources(RT_FRAME_RESET_BACKBUFFER_RESIZE);
 }
 
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
 {
-    m_smokeAccumulationSignature = 0;
-    m_smokeAccumulationFrameCount = 0;
+    m_frameResources.ResetSceneDependentState();
+    m_sceneInputs = RtPathTraceSceneInputs();
     m_smokeBindingSet = nullptr;
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;
-    m_smokeReadbackQueued = false;
-    m_smokeReadbackDelayFrames = 0;
-    m_smokeReadbackCooldownFrames = 0;
     m_smokeStaticBlasCacheValid = false;
     m_smokeGeometryUniverse.Clear();
     m_sceneUniverse.Clear();
@@ -680,23 +619,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeLightCandidateBytes = 0;
     m_smokeDoomAnalyticLightCount = 0;
     m_smokeDoomAnalyticLightBytes = 0;
-    m_smokeReservoirBuffers.Reset();
-    m_restirPTReservoirBuffers.Reset();
-    m_restirPTPrimarySurfaceHistoryBuffers.Reset();
-    m_restirPTContextState.Reset();
-    m_smokeReservoirSceneSignature = 0;
-    m_smokeReservoirDispatchSignature = 0;
-    m_smokeReservoirNeedsClear = false;
-    m_restirPTPrimarySurfaceHistoryNeedsClear = true;
-    m_restirPTPrimarySurfaceHistoryViewValid = false;
-    m_restirPTPrimarySurfaceHistoryViewWidth = 0;
-    m_restirPTPrimarySurfaceHistoryViewHeight = 0;
-    m_smokeReservoirResetCount = 0;
-    m_smokeReservoirClearCount = 0;
 }
 
 void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc)
 {
+    m_sceneInputs = desc.sceneInputs;
     m_smokeStaticVertexBuffer = desc.buffers.staticVertexBuffer;
     m_smokeStaticIndexBuffer = desc.buffers.staticIndexBuffer;
     m_smokeStaticTriangleClassBuffer = desc.buffers.staticTriangleClassBuffer;
@@ -737,10 +664,21 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeLightCandidateBytes = desc.lightCandidateBytes;
     m_smokeDoomAnalyticLightCount = desc.doomAnalyticLightCount;
     m_smokeDoomAnalyticLightBytes = desc.doomAnalyticLightBytes;
-    if (m_smokeReservoirSceneSignature != desc.reservoirSceneSignature)
+    if (m_frameResources.smokeReservoirSceneSignature != desc.reservoirSceneSignature)
     {
-        m_smokeReservoirSceneSignature = desc.reservoirSceneSignature;
-        m_smokeReservoirNeedsClear = true;
+        m_frameResources.smokeReservoirSceneSignature = desc.reservoirSceneSignature;
+        m_frameResources.smokeReservoirNeedsClear = true;
+        m_frameResources.MarkResetReason(RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
+    }
+    const uint64_t uploadBytes =
+        desc.sceneInputs.diagnostics.geometryUploadBytes +
+        desc.sceneInputs.diagnostics.materialUploadBytes +
+        desc.sceneInputs.diagnostics.lightUploadBytes;
+    m_frameResources.RecordSceneResourceCommit(uploadBytes, desc.bindingSet != nullptr, desc.staticBlas != nullptr || desc.dynamicBlas != nullptr);
+    if (r_pathTracingSceneInputsDump.GetInteger() != 0)
+    {
+        PrintPathTraceSceneInputsDump(m_sceneInputs);
+        r_pathTracingSceneInputsDump.SetInteger(0);
     }
     m_smokeSceneBuilt = true;
 }

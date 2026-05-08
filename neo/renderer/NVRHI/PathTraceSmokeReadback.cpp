@@ -22,28 +22,28 @@ int g_smokeLastReadbackTimingLogMs = -1000000;
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
-    const int debugMode = idMath::ClampInt(0, 32, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 37, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested)
     {
-        m_smokeReadbackQueued = false;
-        m_smokeReadbackDelayFrames = 0;
-        m_smokeReadbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
+        m_frameResources.readbackQueued = false;
+        m_frameResources.readbackDelayFrames = 0;
+        m_frameResources.readbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
         return;
     }
 
-    if (!m_smokeReadbackQueued || !m_smokeReadbackTexture)
+    if (!m_frameResources.readbackQueued || !m_frameResources.readbackTexture)
     {
-        if (m_smokeReadbackCooldownFrames > 0)
+        if (m_frameResources.readbackCooldownFrames > 0)
         {
-            --m_smokeReadbackCooldownFrames;
+            --m_frameResources.readbackCooldownFrames;
         }
         return;
     }
 
-    if (m_smokeReadbackDelayFrames > 0)
+    if (m_frameResources.readbackDelayFrames > 0)
     {
-        --m_smokeReadbackDelayFrames;
+        --m_frameResources.readbackDelayFrames;
         return;
     }
 
@@ -58,17 +58,18 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     const int waitForIdleMs = Sys_Milliseconds() - readbackStartMs;
 
     size_t rowPitch = 0;
-    void* readbackData = device->mapStagingTexture(m_smokeReadbackTexture, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &rowPitch);
+    void* readbackData = device->mapStagingTexture(m_frameResources.readbackTexture, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &rowPitch);
     if (!readbackData)
     {
         common->Printf("PathTracePrimaryPass: RT smoke UAV readback map failed\n");
-        m_smokeReadbackQueued = false;
-        m_smokeReadbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
+        m_frameResources.readbackQueued = false;
+        m_frameResources.readbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
         return;
     }
+    m_frameResources.RecordReadbackMapped();
 
-    const int sampleX = m_smokeOutputWidth / 2;
-    const int sampleY = m_smokeOutputHeight / 2;
+    const int sampleX = m_frameResources.width / 2;
+    const int sampleY = m_frameResources.height / 2;
     const byte* readbackBytes = static_cast<const byte*>(readbackData);
     const float* centerRgba = reinterpret_cast<const float*>(readbackBytes + rowPitch * sampleY + sizeof(float) * 4 * sampleX);
 
@@ -81,10 +82,10 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     int overlapFallbackOnly = 0;
     int overlapNeither = 0;
     int overlapUnknown = 0;
-    for (int y = 0; y < m_smokeOutputHeight; ++y)
+    for (int y = 0; y < m_frameResources.height; ++y)
     {
         const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
-        for (int x = 0; x < m_smokeOutputWidth; ++x)
+        for (int x = 0; x < m_frameResources.width; ++x)
         {
             const float* rgba = row + x * 4;
             if (rgba[1] > 0.5f)
@@ -143,14 +144,14 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     if (r_pathTracingSmokeLog.GetInteger() != 0 || ShouldLogSmokeTiming(readbackMs, Sys_Milliseconds(), g_smokeLastReadbackTimingLogMs))
     {
         common->Printf("PathTracePrimaryPass: RT smoke UAV readback %dx%d center rgba=(%.3f, %.3f, %.3f, %.3f), hits=%d, misses=%d, rowPitch=%u, total=%d ms, waitForIdle=%d ms\n",
-            m_smokeOutputWidth, m_smokeOutputHeight,
+            m_frameResources.width, m_frameResources.height,
             centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
             greenHits, redMisses, static_cast<unsigned int>(rowPitch),
             readbackMs, waitForIdleMs);
     }
     if (debugMode == 24 && (overlapDumpRequested || r_pathTracingSmokeLog.GetInteger() != 0))
     {
-        const int totalPixels = Max(1, m_smokeOutputWidth * m_smokeOutputHeight);
+        const int totalPixels = Max(1, m_frameResources.width * m_frameResources.height);
         common->Printf("PathTracePrimaryPass: PT rigid route overlap pixels total=%d match=%d(%.2f%%) rigidOnly=%d(%.2f%%) rigidInFront=%d(%.2f%%) fallbackInFront=%d(%.2f%%) fallbackOnly=%d(%.2f%%) neither=%d(%.2f%%) unknown=%d(%.2f%%) colorCode green/cyan/blue/orange/gray/black tolerance=1.5pxRayT\n",
             totalPixels,
             overlapMatch, 100.0f * static_cast<float>(overlapMatch) / static_cast<float>(totalPixels),
@@ -163,8 +164,9 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
         r_pathTracingRigidRouteOverlapDump.SetInteger(0);
     }
 
-    device->unmapStagingTexture(m_smokeReadbackTexture);
-    m_smokeReadbackLogged = true;
-    m_smokeReadbackQueued = false;
-    m_smokeReadbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
+    device->unmapStagingTexture(m_frameResources.readbackTexture);
+    m_frameResources.RecordReadbackUnmapped();
+    m_frameResources.readbackLogged = true;
+    m_frameResources.readbackQueued = false;
+    m_frameResources.readbackCooldownFrames = RT_SMOKE_READBACK_INTERVAL_FRAMES;
 }

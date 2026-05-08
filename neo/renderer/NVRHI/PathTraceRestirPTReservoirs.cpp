@@ -72,14 +72,14 @@ uint32_t RestirPTPrimarySurfaceHistoryCount(uint32_t width, uint32_t height)
 
 uint64_t RestirPTPrimarySurfaceHistoryByteSize(uint32_t width, uint32_t height)
 {
-    return static_cast<uint64_t>(RestirPTPrimarySurfaceHistoryCount(width, height)) * static_cast<uint64_t>(RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE);
+    return static_cast<uint64_t>(RestirPTPrimarySurfaceHistoryCount(width, height)) * static_cast<uint64_t>(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE);
 }
 
 bool RestirPTPrimarySurfaceHistoryBufferHasCapacity(nvrhi::BufferHandle buffer, uint32_t width, uint32_t height)
 {
     return
         buffer &&
-        buffer->getDesc().structStride == RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE &&
+        buffer->getDesc().structStride == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE &&
         buffer->getDesc().byteSize >= RestirPTPrimarySurfaceHistoryByteSize(width, height);
 }
 
@@ -93,7 +93,7 @@ nvrhi::BufferHandle CreateRestirPTPrimarySurfaceHistoryBuffer(nvrhi::IDevice* de
     nvrhi::BufferDesc desc;
     desc.debugName = debugName;
     desc.byteSize = RestirPTPrimarySurfaceHistoryByteSize(width, height);
-    desc.structStride = RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE;
+    desc.structStride = RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE;
     desc.canHaveUAVs = true;
     desc.canHaveTypedViews = false;
     desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
@@ -194,8 +194,8 @@ bool RtRestirPTPrimarySurfaceHistoryBufferHandles::IsValidFor(uint32_t requested
         height == requiredHeight &&
         surfaceCount >= requiredCount &&
         surfaceBytes >= requiredBytes &&
-        current->getDesc().structStride == RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE &&
-        previous->getDesc().structStride == RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE &&
+        current->getDesc().structStride == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE &&
+        previous->getDesc().structStride == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE &&
         current->getDesc().byteSize >= requiredBytes &&
         previous->getDesc().byteSize >= requiredBytes;
 }

@@ -20,11 +20,24 @@ Material scope:
 - Store stable facts only: material id, stable universe index, fallback albedo,
   material flags, alpha/cutout facts, texture availability facts, emissive facts,
   and similar data derived from material/texture metadata.
+- Future reflection, glass/transmission, denoise, upscale, and DLSS/RR work
+  should extend these stable facts semantically before adding shader-visible
+  resources. Reserved semantic fields include roughness, F0/specular color,
+  metallic when a conventional source exists, opacity, alpha cutoff,
+  transmission/tint color, default IOR, thickness approximation, height/parallax
+  or displacement height, material class flags, and texture-role availability.
 - Do not store current-frame descriptor indexes or visible texture binding slots
   in persistent material records. Those are rebuilt by
   PathTraceDynamicMaterialState after the visible texture set is known.
 - Do not treat dynamic/game-logic material expression state as stable truth
   unless a future bridge explicitly records that state and invalidation rule.
+- Prefer engine material/image/stage state over filename/path hints. Filename
+  tokens can remain compatibility tie-breakers for legacy content, but they are
+  not the final material model.
+- Preserve dynamic/evaluated material state separately from stable material
+  capability. For example, a material may be capable of transmission or emissive
+  contribution while the current frame's material parms, animations, or
+  GUI/cinematic state make the evaluated value different.
 
 Identity:
 
@@ -104,3 +117,40 @@ Relation to geometry universe:
   stable universeIndex.
 - PathTraceDynamicMaterialState maps visible material ids to compact
   shader-visible material rows and descriptor slots for the current frame.
+
+Reflection, Glass, And Denoise Reservations
+-------------------------------------------
+
+Reflection/specular:
+
+- MaterialUniverse should eventually provide roughness and F0/specular facts
+  from the best available engine/PBR source. Doom legacy specular-map
+  conversion is a stopgap until material roles are interpreted more completely.
+- Reflection history must not be folded into diffuse/ReSTIR history. Future
+  reflection output/history should have separate names and reset policy, and
+  should carry hit distance, confidence, roughness, F0, geometric normal,
+  shading normal, and motion information needed by denoisers/upscalers.
+- Half-resolution or checkerboard reflection policy is allowed later, but it
+  should be expressed as a pass setting, not hidden in material classification.
+
+Glass/transmission:
+
+- Current glass/window handling is a debug visibility approximation. Do not
+  promote it to final policy by treating all glass as ordinary alpha test.
+- Reserved material facts are opacity, alpha cutoff, default IOR, tint or
+  transmission color, thickness approximation, and Doom window/liquid class
+  flags. Nested surface and liquid behavior remain user-decision items.
+- Ask before finalizing Doom-specific glass/liquid behavior. Until then,
+  transmission bounce limits should remain reserved/fail-closed and any visual
+  glass handling should stay clearly labeled as temporary.
+
+Denoise/upscale/Ray Reconstruction:
+
+- Required material-facing inputs are albedo, normal, roughness, depth,
+  specular/F0, diffuse/specular separation, emissive contribution, exposure
+  context, and history reset reasons. MaterialUniverse should own stable
+  material capability/facts; frame resources or pass outputs should own the
+  evaluated current-frame images.
+- Do not integrate DLSS/RR against camera-only motion. Ray Reconstruction needs
+  geometry/material/history contracts that can distinguish current and previous
+  surface identity and motion.

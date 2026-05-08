@@ -9,6 +9,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceReservoirs.h"
 #include "PathTraceRestirPTReservoirs.h"
+#include "PathTraceSceneInputs.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -108,6 +109,7 @@ struct RtSmokeBindingBuildResult
 
 struct RtSmokeSceneResourceCommitDesc
 {
+    RtPathTraceSceneInputs sceneInputs;
     RtSmokeSceneBufferHandles buffers;
     nvrhi::rt::AccelStructDesc staticBlasDesc;
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;
@@ -132,6 +134,7 @@ struct RtSmokeSceneResourceCommitDesc
 
 struct RtSmokeSceneResourceCommitBuildDesc
 {
+    RtPathTraceSceneInputs sceneInputs;
     RtSmokeSceneBufferHandles buffers;
     nvrhi::rt::AccelStructDesc staticBlasDesc;
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;

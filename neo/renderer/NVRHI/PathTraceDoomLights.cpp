@@ -904,10 +904,10 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
 
 }
 
-std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef)
+std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable)
 {
     std::vector<PathTraceDoomAnalyticLightCandidate> gpuCandidates;
-    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
+    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || (!forceEnable && r_pathTracingAnalyticLightCandidates.GetInteger() == 0))
     {
         return gpuCandidates;
     }

@@ -43,6 +43,12 @@ Geometry scope:
   persistent records.
 - Transient/dynamic data should stay in the per-frame dynamic capture path until
   it has a deliberate identity/history design.
+- Future denoise/upscale/RR and reflection history need previous-frame geometry
+  state. Reserved geometry facts include previous transform, previous
+  skinned/deformed vertex positions or deltas, previous range validity,
+  current-to-previous range mapping, and a durable object/entity identity. Do
+  not invent the final entity/object ID without confirming the Doom renderer/game
+  source that survives updates, map transitions, and save/load behavior.
 
 Area/portal residency:
 
@@ -123,3 +129,25 @@ The next useful work is still CPU-side and behavior-preserving:
 Do not expand the persistent record model to every dynamic visual effect just
 because the static cache has history fields. Motion vectors need identity, but
 not every visible triangle deserves persistent identity.
+
+Reflection, Denoise, And Upscale Reservations
+---------------------------------------------
+
+- Primary-ray, reflection, ReSTIR, denoise, upscale, and DLSS/RR work all need a
+  stable current/previous geometry contract. Static-world surfaces can use
+  persistent range history; rigid entities need current and previous transforms;
+  skinned/deformed meshes need either previous positions or a deliberate
+  invalidation/fallback.
+- Motion vectors should be geometry-derived where possible. Camera-only
+  reprojection remains a debug bridge for modes 30-33, not a sufficient RR
+  integration input.
+- Hit distance, geometric normal, shading normal, material identity, object or
+  entity identity, and previous-position validity should be available to future
+  reflection/specular and denoise passes. The existing primary-surface record
+  already reserves previous position/motion and object/entity fields; the
+  geometry universe still needs the durable producer for those fields.
+- Resource names should remain separate by signal: diffuse/path color,
+  reflection/specular output and history, transmission/glass output and history,
+  albedo, normal, roughness, depth, motion vectors, hit distance, confidence,
+  and exposure/history reset metadata. Do not reuse diffuse ReSTIR history as a
+  reflection or temporal resolve history.

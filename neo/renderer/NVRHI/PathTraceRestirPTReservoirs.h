@@ -12,6 +12,8 @@
 
 #include <Rtxdi/PT/ReSTIRPT.h>
 
+#include "PathTracePrimarySurface.h"
+
 struct RtRestirPTReservoirBufferHandles
 {
     nvrhi::BufferHandle reservoirs;
@@ -44,8 +46,6 @@ struct RtRestirPTReservoirBufferCreateResult
 
 RtRestirPTReservoirBufferCreateResult CreateRestirPTReservoirBuffers(const RtRestirPTReservoirBufferCreateDesc& desc);
 bool ClearRestirPTReservoirBuffers(nvrhi::ICommandList* commandList, const RtRestirPTReservoirBufferHandles& buffers);
-
-static constexpr uint32_t RT_RESTIR_PT_PRIMARY_SURFACE_HISTORY_STRIDE = 128;
 
 struct RtRestirPTPrimarySurfaceHistoryBufferHandles
 {

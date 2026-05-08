@@ -75,6 +75,10 @@ RayDesc RAB_SetupSmokeContinuationRay(RAB_Surface surface, float3 direction)
 PathTraceSmokePayload RAB_TraceSmokePathRay(RayDesc ray)
 {
     PathTraceSmokePayload payload = InitSmokePayload();
+    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_DIFFUSE_SECONDARY_RAY))
+    {
+        return payload;
+    }
     TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
     return payload;
 }
@@ -87,13 +91,14 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
         return false;
     }
 
-    const uint emissiveTriangleCount = (uint)max(EmissiveInfo.x, 0.0);
-    const uint uploadedAnalyticCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
+    const uint uploadedAnalyticCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
     const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
+    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
 
     uint selectedLightIndex = RAB_INVALID_LIGHT_INDEX;
     RAB_LightSample selectedLightSample = RAB_EmptyLightSample();
+    float2 selectedLightUv = float2(0.5, 0.5);
     float selectedLightPdf = 0.0;
     float selectedScore = 0.0;
 
@@ -105,6 +110,10 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
         {
             const float xi = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState);
             const uint trialLightIndex = SelectSmokeWeightedEmissiveTriangle(emissiveTriangleCount, xi);
+            if (trialLightIndex >= emissiveTriangleCount)
+            {
+                continue;
+            }
             const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[trialLightIndex];
             const RAB_LightInfo lightInfo = RAB_LoadLightInfo(trialLightIndex, false);
             const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, float2(0.5, 0.5));
@@ -114,6 +123,7 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
                 selectedScore = score;
                 selectedLightIndex = trialLightIndex;
                 selectedLightSample = lightSample;
+                selectedLightUv = float2(0.5, 0.5);
                 selectedLightPdf = max(emissiveTriangle.sampleWeightAndPdf.y, 1.0 / max((float)emissiveTriangleCount, 1.0));
             }
         }
@@ -139,6 +149,7 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
                 selectedScore = score;
                 selectedLightIndex = trialLightIndex;
                 selectedLightSample = lightSample;
+                selectedLightUv = sampleUv;
                 selectedLightPdf = 1.0 / max((float)analyticCount, 1.0);
             }
         }
@@ -175,7 +186,7 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
 
     RTXDI_SampledLightData sampledLightData = RTXDI_SampledLightData_CreateInvalidData();
     RTXDI_SampledLightData_SetLightData(sampledLightData, selectedLightIndex);
-    RTXDI_SampledLightData_SetUVData(sampledLightData, float2(0.5, 0.5));
+    RTXDI_SampledLightData_SetUVData(sampledLightData, selectedLightUv);
 
     return ctx.RecordNeeLightSample(
         sampledLightData,
@@ -188,7 +199,8 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
 
 void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRandomContext ptRandContext, inout RAB_PathTracerUserData ptud)
 {
-    const uint maxBridgeBounces = min(ctx.GetMaxPathBounce(), 3u);
+    const uint integratorMaxSecondaryBounces = PathTraceIntegratorMaxPathDepth() > 0u ? PathTraceIntegratorMaxPathDepth() - 1u : 0u;
+    const uint maxBridgeBounces = min(min(ctx.GetMaxPathBounce(), 3u), min(integratorMaxSecondaryBounces, PathTraceIntegratorDiffuseBounceLimit()));
 
     [loop]
     while (ctx.GetBounceDepth() <= maxBridgeBounces)
@@ -201,9 +213,18 @@ void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRand
             break;
         }
 
-        if (ctx.ShouldSampleNee())
+        if (PathTraceIntegratorNextEventEstimationEnabled() && ctx.ShouldSampleNee())
         {
             RAB_RecordSmokeNeeSample(ctx, currentSurface, ptRandContext);
+        }
+        if (ctx.GetBounceDepth() >= maxBridgeBounces)
+        {
+            break;
+        }
+
+        if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_DIFFUSE_SECONDARY_RAY))
+        {
+            break;
         }
 
         RTXDI_BrdfRaySample brdfSample = RAB_SampleSmokeBrdfForPathTrace(currentSurface, ptRandContext.replayRandomSamplerState);

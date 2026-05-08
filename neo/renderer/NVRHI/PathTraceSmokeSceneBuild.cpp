@@ -393,10 +393,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 32, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28 || requestedDebugMode == 29 || requestedDebugMode == 30 || requestedDebugMode == 31 || requestedDebugMode == 32;
+    const int requestedDebugMode = idMath::ClampInt(0, 37, r_pathTracingDebugMode.GetInteger());
+    const bool restirPTDebugMode = requestedDebugMode >= 26 && requestedDebugMode <= 33;
+    const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode;
 
-    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
+    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
         return;
     }
@@ -413,14 +415,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     m_smokeSceneMapName.c_str(),
                     renderWorld->mapName.c_str());
             }
-            m_smokeAccumulationSignature = 0;
-            m_smokeAccumulationFrameCount = 0;
+            m_frameResources.smokeAccumulationSignature = 0;
+            m_frameResources.smokeAccumulationFrameCount = 0;
             m_smokeBindingSet = nullptr;
             m_smokeSceneBuilt = false;
             m_smokeTestDispatched = false;
-            m_smokeReadbackQueued = false;
-            m_smokeReadbackDelayFrames = 0;
-            m_smokeReadbackCooldownFrames = 0;
+            m_frameResources.readbackQueued = false;
+            m_frameResources.readbackDelayFrames = 0;
+            m_frameResources.readbackCooldownFrames = 0;
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
@@ -461,11 +463,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeLightCandidateBytes = 0;
             m_smokeDoomAnalyticLightCount = 0;
             m_smokeDoomAnalyticLightBytes = 0;
-            m_smokeReservoirSceneSignature = 0;
-            m_smokeReservoirDispatchSignature = 0;
-            m_smokeReservoirNeedsClear = true;
-            m_smokeReservoirResetCount = 0;
-            m_smokeReservoirClearCount = 0;
+            m_frameResources.smokeReservoirSceneSignature = 0;
+            m_frameResources.smokeReservoirDispatchSignature = 0;
+            m_frameResources.smokeReservoirNeedsClear = true;
+            m_frameResources.smokeReservoirResetCount = 0;
+            m_frameResources.smokeReservoirClearCount = 0;
+            m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
             m_smokeSceneRenderWorld = renderWorld;
             m_smokeSceneMapName = renderWorld->mapName;
             m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
@@ -546,7 +549,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0 &&
         (requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
-            requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28 || requestedDebugMode == 29 ||
+            restirPTDebugMode ||
+            integratorDebugMode ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0) ||
             (requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0));
     const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
@@ -808,9 +812,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
         }
     }
+    RtPathTraceRigidResidencyStats rigidResidencyStats;
     if (useDrawSurfMirrorDynamicFrame)
     {
-        const RtPathTraceRigidResidencyStats rigidResidencyStats = m_smokeGeometryUniverse.UpdateRigidResidency(
+        rigidResidencyStats = m_smokeGeometryUniverse.UpdateRigidResidency(
             viewDef,
             m_instanceUniverse,
             rigidResidencyEnabled,
@@ -1061,7 +1066,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (enableRigidRouteForMode && (requestedDebugMode == 20 || requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28 || requestedDebugMode == 29))
+        if (enableRigidRouteForMode && (requestedDebugMode == 20 || restirPTDebugMode || integratorDebugMode))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(
                 materialTable.materialIds,
@@ -1120,8 +1125,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         emissiveInventoryStats.skippedRuntimeInactiveTriangles = runtimeInactiveEmissiveTrianglesBeforeStatsRebuild;
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
-    doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef);
-    if (r_pathTracingSmokeLog.GetInteger() != 0 && r_pathTracingAnalyticLightCandidates.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
+    const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates;
+    doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, restirPTAnalyticLightCandidates);
+    if (r_pathTracingSmokeLog.GetInteger() != 0 && enableDoomAnalyticLightCandidates && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
         common->Printf("PathTracePrimaryPass: Doom analytic lights gpu=%d bytes=%d intensityScale=%.3f\n",
             static_cast<int>(doomAnalyticLights.size()),
@@ -1646,8 +1653,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeBindingBuildDesc bindingBuildDesc;
     bindingBuildDesc.device = device;
     bindingBuildDesc.tlas = m_smokeTlas;
-    bindingBuildDesc.outputTexture = m_smokeOutputTexture;
-    bindingBuildDesc.accumulationTexture = m_smokeAccumulationTexture;
+    bindingBuildDesc.outputTexture = m_frameResources.outputTexture;
+    bindingBuildDesc.accumulationTexture = m_frameResources.accumulationTexture;
     bindingBuildDesc.fallbackTexture = fallbackTexture;
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
     bindingBuildDesc.restirPTConstantsBuffer = m_restirPTConstantsBuffer;
@@ -1657,9 +1664,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.existingTextureDescriptorTable = m_smokeTextureDescriptorTable;
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
-    bindingBuildDesc.reservoirBuffers = m_smokeReservoirBuffers;
-    bindingBuildDesc.restirPTReservoirBuffers = m_restirPTReservoirBuffers;
-    bindingBuildDesc.primarySurfaceHistoryBuffers = m_restirPTPrimarySurfaceHistoryBuffers;
+    bindingBuildDesc.reservoirBuffers = m_frameResources.smokeReservoirBuffers;
+    bindingBuildDesc.restirPTReservoirBuffers = m_frameResources.restirPTReservoirBuffers;
+    bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
     bindingBuildDesc.maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;
@@ -1682,7 +1689,158 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
+    uint64 sceneInputCameraSignature = 1469598103934665603ull;
+    if (viewDef)
+    {
+        sceneInputCameraSignature = HashSmokeBytes(sceneInputCameraSignature, &viewDef->renderView.vieworg, sizeof(viewDef->renderView.vieworg));
+        sceneInputCameraSignature = HashSmokeBytes(sceneInputCameraSignature, &viewDef->renderView.viewaxis, sizeof(viewDef->renderView.viewaxis));
+        sceneInputCameraSignature = HashSmokeBytes(sceneInputCameraSignature, &viewDef->renderView.fov_x, sizeof(viewDef->renderView.fov_x));
+        sceneInputCameraSignature = HashSmokeBytes(sceneInputCameraSignature, &viewDef->renderView.fov_y, sizeof(viewDef->renderView.fov_y));
+    }
+
+    uint64 sceneInputLightSignature = 1469598103934665603ull;
+    sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &lightUniverseStats.generation, sizeof(lightUniverseStats.generation));
+    sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &emissiveInventoryStats.capturedTriangles, sizeof(emissiveInventoryStats.capturedTriangles));
+    sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &emissiveInventoryStats.candidateMaterials, sizeof(emissiveInventoryStats.candidateMaterials));
+    const int doomAnalyticLightCountForSignature = static_cast<int>(doomAnalyticLights.size());
+    sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &doomAnalyticLightCountForSignature, sizeof(doomAnalyticLightCountForSignature));
+
+    const uint64_t staticUploadBytes =
+        staticBlasCacheHit ? 0ull :
+        static_cast<uint64_t>(bufferCreateDesc.staticVertexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.staticIndexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.staticTriangleClassBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.staticTriangleMaterialBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.staticTriangleMaterialIndexBytes);
+    const uint64_t dynamicUploadBytes =
+        static_cast<uint64_t>(bufferCreateDesc.dynamicVertexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.dynamicIndexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.dynamicTriangleClassBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.dynamicTriangleMaterialBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.dynamicTriangleMaterialIndexBytes);
+    const uint64_t rigidRouteUploadBytes =
+        static_cast<uint64_t>(bufferCreateDesc.rigidRouteVertexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.rigidRouteIndexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.rigidRouteTriangleMaterialBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.rigidRouteTriangleMaterialIndexBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.rigidRouteInstanceBytes);
+    const uint64_t materialUploadBytes = static_cast<uint64_t>(bufferCreateDesc.materialTableBytes);
+    const uint64_t lightUploadBytes =
+        static_cast<uint64_t>(bufferCreateDesc.emissiveTriangleBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.lightCandidateBytes) +
+        static_cast<uint64_t>(bufferCreateDesc.doomAnalyticLightBytes);
+
+    RtPathTraceSceneInputs sceneInputs;
+    sceneInputs.valid = true;
+    sceneInputs.sceneSource = sceneSource;
+    sceneInputs.debugMode = requestedDebugMode;
+    sceneInputs.outputWidth = m_frameResources.width;
+    sceneInputs.outputHeight = m_frameResources.height;
+    sceneInputs.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER |
+        RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED |
+        RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED |
+        RT_SCENE_INPUT_GEOMETRY_PREVIOUS_TRANSFORM_RESERVED |
+        RT_SCENE_INPUT_GEOMETRY_PREVIOUS_VERTEX_RESERVED |
+        RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
+    if (sceneSource == 3)
+    {
+        sceneInputs.capabilityFlags |= RT_SCENE_INPUT_SOURCE3_BASELINE | RT_SCENE_INPUT_PORTAL_AREA_RESIDENCY | RT_SCENE_INPUT_PORTAL_BLOCK_VIEW_REPORTED;
+    }
+    if (sceneSource == 0)
+    {
+        sceneInputs.capabilityFlags |= RT_SCENE_INPUT_SOURCE0_EMERGENCY_FALLBACK;
+    }
+    sceneInputs.signatures.geometryMembership = staticSignature.hash;
+    sceneInputs.signatures.materialTable = materialTableSignature;
+    sceneInputs.signatures.lightMembership = sceneInputLightSignature;
+    sceneInputs.signatures.outputResolution = (static_cast<uint64>(m_frameResources.width) << 32) | static_cast<uint32_t>(m_frameResources.height);
+    sceneInputs.signatures.cameraProjection = sceneInputCameraSignature;
+    sceneInputs.signatures.debugFeaturePolicy = static_cast<uint64>(requestedDebugMode);
+    sceneInputs.signatures.cpuUploadGeneration = m_smokeGeometryFrameIndex;
+    sceneInputs.signatures.reservoirScene = reservoirSceneSignature;
+
+    sceneInputs.portalPolicy.sceneSource = sceneSource;
+    sceneInputs.portalPolicy.currentArea = lightUniverseStats.currentArea >= 0 ? lightUniverseStats.currentArea : (viewDef ? viewDef->areaNum : -1);
+    sceneInputs.portalPolicy.totalAreas = lightUniverseStats.totalAreas;
+    sceneInputs.portalPolicy.staticAreaPreloadSteps = idMath::ClampInt(0, 8, r_pathTracingStaticAreaPreloadPortalSteps.GetInteger());
+    sceneInputs.portalPolicy.rigidResidencySteps = idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger());
+    sceneInputs.portalPolicy.lightAreaSteps = idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger());
+    sceneInputs.portalPolicy.sceneUniverseSteps = idMath::ClampInt(0, 8, r_pathTracingScenePortalSteps.GetInteger());
+    sceneInputs.portalPolicy.selectedAreaCount = lightUniverseStats.selectedAreaCount;
+    sceneInputs.portalPolicy.portalEdges = lightUniverseStats.selectedPortalEdges;
+    sceneInputs.portalPolicy.blockedPortalEdges = lightUniverseStats.selectedBlockedPortalEdges;
+    sceneInputs.portalPolicy.rigidSelectedAreaCount = rigidResidencyStats.selectedAreas;
+    sceneInputs.portalPolicy.rigidPortalEdges = rigidResidencyStats.portalEdges;
+    sceneInputs.portalPolicy.rigidBlockedPortalEdges = rigidResidencyStats.blockedPortalEdges;
+    sceneInputs.portalPolicy.defaultPolicyEquivalent =
+        sceneInputs.portalPolicy.staticAreaPreloadSteps == sceneInputs.portalPolicy.rigidResidencySteps &&
+        sceneInputs.portalPolicy.rigidResidencySteps == sceneInputs.portalPolicy.lightAreaSteps;
+
+    sceneInputs.geometry.tlas = m_smokeTlas;
+    sceneInputs.geometry.staticBlas = smokeStaticBlas;
+    sceneInputs.geometry.dynamicBlas = smokeDynamicBlas;
+    sceneInputs.geometry.staticVertexBuffer = smokeStaticVertexBuffer;
+    sceneInputs.geometry.staticIndexBuffer = smokeStaticIndexBuffer;
+    sceneInputs.geometry.staticTriangleClassBuffer = smokeStaticTriangleClassBuffer;
+    sceneInputs.geometry.staticTriangleMaterialBuffer = smokeStaticTriangleMaterialBuffer;
+    sceneInputs.geometry.staticTriangleMaterialIndexBuffer = smokeStaticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.dynamicVertexBuffer = smokeDynamicVertexBuffer;
+    sceneInputs.geometry.dynamicIndexBuffer = smokeDynamicIndexBuffer;
+    sceneInputs.geometry.dynamicTriangleClassBuffer = smokeDynamicTriangleClassBuffer;
+    sceneInputs.geometry.dynamicTriangleMaterialBuffer = smokeDynamicTriangleMaterialBuffer;
+    sceneInputs.geometry.dynamicTriangleMaterialIndexBuffer = smokeDynamicTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.rigidRouteVertexBuffer = smokeRigidRouteVertexBuffer;
+    sceneInputs.geometry.rigidRouteIndexBuffer = smokeRigidRouteIndexBuffer;
+    sceneInputs.geometry.rigidRouteTriangleMaterialBuffer = smokeRigidRouteTriangleMaterialBuffer;
+    sceneInputs.geometry.rigidRouteTriangleMaterialIndexBuffer = smokeRigidRouteTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.rigidRouteInstanceBuffer = smokeRigidRouteInstanceBuffer;
+    sceneInputs.geometry.staticVertexCount = staticVertexCacheCount;
+    sceneInputs.geometry.staticIndexCount = staticIndexCacheCount;
+    sceneInputs.geometry.staticTriangleCount = staticTriangleCacheCount;
+    sceneInputs.geometry.dynamicVertexCount = dynamicVertexCount;
+    sceneInputs.geometry.dynamicIndexCount = dynamicIndexCount;
+    sceneInputs.geometry.dynamicTriangleCount = dynamicIndexCount / 3;
+    sceneInputs.geometry.rigidRouteVertexCount = rigidRouteBuild.stats.vertices;
+    sceneInputs.geometry.rigidRouteIndexCount = rigidRouteBuild.stats.indexes;
+    sceneInputs.geometry.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
+    sceneInputs.geometry.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
+    sceneInputs.geometry.skinnedSurfaceCount = classStats.skinnedDeformedSurfaces;
+    sceneInputs.geometry.skinnedTriangleCount = classStats.skinnedDeformedTriangles;
+    sceneInputs.geometry.currentGeometryValid = hasStaticBlas || hasDynamicBlas;
+    sceneInputs.geometry.capabilityFlags = RT_SCENE_INPUT_GEOMETRY_PREVIOUS_TRANSFORM_RESERVED | RT_SCENE_INPUT_GEOMETRY_PREVIOUS_VERTEX_RESERVED;
+
+    sceneInputs.materials.materialTableBuffer = smokeMaterialTableBuffer;
+    sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
+    sceneInputs.materials.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
+    sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
+    sceneInputs.materials.materialTablePath = materialTablePath;
+    sceneInputs.materials.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER | RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED | RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED;
+
+    sceneInputs.lights.emissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
+    sceneInputs.lights.lightCandidateBuffer = smokeLightCandidateBuffer;
+    sceneInputs.lights.doomAnalyticLightBuffer = smokeDoomAnalyticLightBuffer;
+    sceneInputs.lights.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
+    sceneInputs.lights.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
+    sceneInputs.lights.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
+    sceneInputs.lights.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
+    sceneInputs.lights.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
+    sceneInputs.lights.doomAnalyticLightCount = static_cast<int>(doomAnalyticLights.size());
+    sceneInputs.lights.lightUniverseGeneration = lightUniverseStats.generation;
+    sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
+
+    sceneInputs.diagnostics.geometryUploadBytes = staticUploadBytes + dynamicUploadBytes + rigidRouteUploadBytes;
+    sceneInputs.diagnostics.materialUploadBytes = materialUploadBytes;
+    sceneInputs.diagnostics.lightUploadBytes = lightUploadBytes;
+    sceneInputs.diagnostics.sceneBuildMs = Sys_Milliseconds() - sceneStartMs;
+    sceneInputs.diagnostics.captureMs = captureMs;
+    sceneInputs.diagnostics.materialMs = materialMs;
+    sceneInputs.diagnostics.emissiveMs = emissiveMs;
+    sceneInputs.diagnostics.bufferCreateMs = bufferCreateMs;
+    sceneInputs.diagnostics.bufferUploadMs = bufferUploadMs;
+    sceneInputs.diagnostics.accelSubmitMs = accelSubmitMs;
+
     RtSmokeSceneResourceCommitBuildDesc resourceCommitBuildDesc;
+    resourceCommitBuildDesc.sceneInputs = sceneInputs;
     resourceCommitBuildDesc.buffers = smokeBuffers;
     resourceCommitBuildDesc.staticBlasDesc = smokeStaticBlasDesc;
     resourceCommitBuildDesc.dynamicBlasDesc = smokeDynamicBlasDesc;

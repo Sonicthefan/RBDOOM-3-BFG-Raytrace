@@ -23,5 +23,5 @@ struct PathTraceDoomAnalyticLightCandidate
 };
 static_assert((sizeof(PathTraceDoomAnalyticLightCandidate) % 16) == 0, "PathTraceDoomAnalyticLightCandidate must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
-std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef);
+std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable = false);
 void RunPathTraceDoomLightDiagnostics(const viewDef_t* viewDef);

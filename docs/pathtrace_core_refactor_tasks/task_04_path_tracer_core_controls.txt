@@ -1,0 +1,147 @@
+Task 04 - Path Tracer Core Controls And First Reflection Baseline
+=================================================================
+
+Goal
+----
+
+Create a real early-stage path tracer core contract before deeper ReSTIR work.
+The current mode 18 path is still a toy one-bounce debug renderer: it has
+selected-light/emissive scale controls and accumulation, but it does not expose
+proper samples-per-pixel, max path depth, per-lobe bounce policy, or reflection
+behavior. ReSTIR should consume a configurable path tracer; it should not become
+the first place where basic path tracing policy exists.
+
+This task is allowed to add controls and a minimal reflection/specular baseline,
+but it should stay deliberately small. Do not turn it into the full denoiser,
+glass, or DLSS/RR task.
+
+Primary files likely involved:
+
+- neo/renderer/NVRHI/PathTraceCVars.*
+- neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+- neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+- neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Surface.hlsli
+- neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Material.hlsli
+- neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+
+Preferred new names, if extracting helpers:
+
+- PathTraceIntegratorSettings
+- PathTraceIntegratorConstants
+- PathTracePathState.hlsli
+
+Step-by-step plan
+-----------------
+
+1. Inventory the current mode 18 and ReSTIR bridge controls:
+
+       r_pathTracingToyMaxRayDistance
+       r_pathTracingToyLightScale
+       r_pathTracingToyEmissiveScale
+       r_pathTracingToyLightTraceCap
+       r_pathTracingToyFakePBRSpecular
+       r_pathTracingToyAccumulation
+       r_pathTracingToyAccumMaxFrames
+       ReSTIR bridge debug-mode bounce caps and visibility toggles
+
+2. Add explicit integrator settings with conservative defaults:
+
+       r_pathTracingSamplesPerPixel
+       r_pathTracingMaxPathDepth
+       r_pathTracingDiffuseBounceLimit
+       r_pathTracingSpecularBounceLimit
+       r_pathTracingTransmissionBounceLimit
+       r_pathTracingReflectionMode
+       r_pathTracingRussianRouletteDepth
+       r_pathTracingNextEventEstimation
+
+   Defaults should preserve current validated behavior as closely as possible:
+   1 SPP, low depth, diffuse-first, no expensive high-resolution surprise.
+   Treat every new ray multiplier as part of a device-removal budget:
+   resolution * SPP * path depth * direct-light trials * visibility rays *
+   reflection rays.
+
+3. Pack those settings into dispatch constants through a named struct or helper.
+   Keep shader and C++ layouts synchronized. Do not casually consume spare
+   float lanes without documenting them.
+
+4. Fold the new settings into accumulation/history signatures. Changing SPP,
+   depth, reflection mode, NEE policy, or lobe limits must reset accumulation
+   and any affected history.
+
+5. Implement a first reflection baseline:
+
+       mirror-ish reflection from low roughness / high F0 surfaces
+       rough-specular fallback that can be disabled or clamped
+       max one reflected bounce in the first slice unless explicitly testing
+       no denoiser dependency
+       no glass/transmission policy beyond a fail-closed placeholder
+
+   The first result can be crude, but it must be controlled, debuggable, and
+   separate from diffuse direct-light behavior.
+
+6. Keep diffuse and specular/reflection contribution accounting distinct in
+   shader helper names even if the first mode composites them immediately. This
+   prevents future denoise/RR work from needing another conceptual split.
+
+7. Add debug views or color keys for:
+
+       path depth
+       reflection hit/miss
+       specular disabled by roughness/F0 gate
+       max-depth termination
+       Russian-roulette disabled/enabled state
+
+8. Add a diagnostic line or dump field for effective ray budget:
+
+       internal resolution
+       SPP
+       max path depth
+       diffuse/specular/transmission limits
+       selected-light or NEE trial count
+       visibility enabled
+       reflection enabled
+       estimated worst-case rays per pixel
+       estimated dispatch rays
+
+   This does not need to be a perfect physical count. It is a safety signal so a
+   future agent does not raise resolution and SPP while missing the multiplicative
+   workload.
+
+9. Update the ReSTIR bridge path-tracer skeleton to read the same integrator
+   settings where appropriate, but do not enable temporal/spatial ReSTIR changes
+   in this task.
+
+10. Rebuild PathTracingShaders after shader changes.
+
+11. Update docs/pathtracing.txt and docs/pathtrace_modules.txt.
+
+Acceptance criteria
+-------------------
+
+- There are explicit CVars or documented settings for samples per pixel, max
+  path depth, diffuse/specular bounce limits, and first reflection mode.
+- Mode 18 can still run with current low-cost behavior by default.
+- A controlled reflection/specular path exists for validation, even if crude.
+- Changing sampling/depth/reflection settings resets accumulation/history.
+- ReSTIR bridge code has a clear path to use the same integrator settings
+  instead of hard-coded debug bounce behavior.
+- The effective ray budget is visible enough to explain why a setting is risky
+  before device removal happens.
+
+Forbidden shortcuts
+-------------------
+
+- Do not bury SPP or max depth as magic constants in the shader.
+- Do not make ReSTIR debug modes the only path that can trace secondary or
+  reflection rays.
+- Do not fold reflection history into diffuse accumulation as a final policy.
+- Do not enable multi-SPP, high max depth, or extra reflection rays by default
+  at full resolution.
+- Do not judge stability from average FPS alone; high per-dispatch latency can
+  still trigger device removal.
+- Do not implement glass/transmission as ordinary alpha-test reflection.
+- Do not use this task to redesign scene membership, material universe, or Doom
+  light candidate ownership.

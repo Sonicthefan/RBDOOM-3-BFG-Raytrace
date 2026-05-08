@@ -1,0 +1,143 @@
+Task 05 - ReSTIR PT Pass Split
+==============================
+
+Goal
+----
+
+Split ReSTIR PT work into explicit initial, temporal, spatial, and shading
+passes. The existing modes 26-33 are useful validation references, but the final
+architecture should not generate reservoirs, temporally resample, shade, trace
+visibility, and present debug color in one monolithic raygen path.
+
+Prerequisite: complete or explicitly defer
+task_04_path_tracer_core_controls.txt. ReSTIR PT should consume the same
+integrator settings and path-tracing contracts as mode 18 where applicable
+instead of growing a separate hard-coded path tracer.
+
+Primary files likely involved:
+
+- neo/renderer/NVRHI/PathTraceRestirPT.*
+- neo/renderer/NVRHI/PathTraceRestirPTReservoirs.*
+- neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+- neo/renderer/NVRHI/PathTraceSmokeResources.*
+- neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+- neo/shaders/builtin/pathtracing/RtxdiBridge/*
+- docs/restir_pt_agent_bridge_plan.txt
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+
+Preferred new module names:
+
+- PathTraceRestirPasses.h/.cpp
+- pathtrace_restir_initial.rt.hlsl or .hlsli helpers
+- pathtrace_restir_temporal.rt.hlsl or .hlsli helpers
+- pathtrace_restir_shade.rt.hlsl or .hlsli helpers
+
+Exact shader file shape depends on the existing shader build system. Do not
+invent a file layout that cannot be built by the current PathTracingShaders
+target.
+
+Step-by-step plan
+-----------------
+
+1. Freeze current behavior as reference:
+
+       mode 26 initial reservoir heat/writer
+       mode 27 initial reservoir shading preview
+       mode 28 initial reservoir visibility preview
+       mode 29 primary-surface history validation
+       mode 30 camera reprojection validation
+       mode 31 temporal reservoir validation
+       mode 32 temporal reservoir shading preview
+       mode 33 temporal reservoir source attribution
+
+2. Add a pass enum or explicit pass descriptors:
+
+       InitialReservoir
+       TemporalReservoir
+       SpatialReservoir
+       ReservoirShading
+       DebugVisualize
+
+3. Move RTXDI context update and buffer index selection into ReSTIR pass setup.
+   Smoke dispatch should ask for a pass plan instead of deciding resampling mode
+   from debug mode directly.
+
+4. Initial pass:
+
+       consume primary surface, scene inputs, material/light inputs
+       call RAB_PathTrace/GenerateInitialSamples
+       write only initial reservoir output
+       optionally write small debug metadata
+       no final presentation color except through a debug visualizer pass
+
+5. Temporal pass:
+
+       consume current primary surface
+       consume previous primary surface
+       consume previous/current reservoir slice selected by RTXDI parameters
+       apply rejection/invalidation
+       call RTXDI_PTTemporalResampling
+       write temporal output
+
+6. Spatial pass:
+
+       add a disabled or debug-only first pass if full implementation is too
+       large
+       consume normal/depth/material-aware neighbor data
+       write spatial output
+       keep room for half/internal-resolution policy, but do not enable
+       resolution scaling without a debug mode and reset policy
+
+7. Shading/visibility pass:
+
+       consume selected reservoir output
+       trace visibility only under explicit toggle or pass option
+       write diffuse/direct-light contribution texture
+       do not combine with primary-surface generation
+
+8. Keep mode 32/33 high-resolution safety cap until the split is proven.
+
+9. Add per-pass CPU timing and Optick GPU markers. Avoid treating present/wait
+   locations as proof of root cause without dispatch timing.
+
+10. Add explicit pass-level stability controls:
+
+       initial sample count
+       temporal enable/disable
+       spatial enable/disable
+       visibility enable/disable
+       preview shading enable/disable
+       max pixels / resolution scale
+       optional tile or chunk dimensions if a pass remains too long
+
+   The first split should make it possible to lower or disable one stage without
+   changing scene/material/light inputs.
+
+11. Rebuild PathTracingShaders after shader changes.
+
+12. Update docs.
+
+Acceptance criteria
+-------------------
+
+- Initial and temporal reservoir work can be profiled separately.
+- Debug visualizers read pass outputs instead of duplicating pass logic.
+- Mode 26-33 outputs either match the previous diagnostic intent or document the
+  intentional change.
+- High-resolution mode 32/33 risk is reduced or at least isolated to a named
+  pass.
+- A device-removal failure can be narrowed to a specific pass or resource
+  transition instead of the whole smoke raygen.
+
+Forbidden shortcuts
+-------------------
+
+- Do not mutate PathTraceSmokeReservoir into RTXDI_PackedPTReservoir.
+- Do not patch NVIDIA RTXDI load/store just to preserve local buffer habits.
+- Do not make one "do everything" ReSTIR pass with a cleaner name.
+- Do not enable spatial reuse without visible rejection/debug tooling.
+- Do not remove the mode 32/33 safety cap just because the average frame rate
+  looks acceptable.
+- Do not add denoiser/RR integration before primary-surface and motion inputs
+  are explicit.

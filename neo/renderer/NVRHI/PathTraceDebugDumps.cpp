@@ -242,6 +242,69 @@ const char* SmokeDynamicModelName(dynamicModel_t dynamicModel)
     }
 }
 
+RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
+{
+    RtPathTraceDebugModeInfo info;
+    info.mode = debugMode;
+
+    switch (debugMode)
+    {
+    case 0: info.name = "hit/miss"; info.category = "pass-output-visualizer"; info.output = "primary hit mask"; break;
+    case 1: info.name = "depth"; info.category = "pass-output-visualizer"; info.output = "primary depth"; break;
+    case 2: info.name = "interpolated normal"; info.category = "pass-output-visualizer"; info.output = "primary interpolated normal"; break;
+    case 3: info.name = "surface class"; info.category = "scene-geometry-diagnostic"; info.output = "triangle surface class"; break;
+    case 4: info.name = "uv"; info.category = "material-texture-diagnostic"; info.output = "primary UV"; break;
+    case 5: info.name = "geometric normal"; info.category = "pass-output-visualizer"; info.output = "primary geometric normal"; break;
+    case 6: info.name = "material ID hash color"; info.category = "material-texture-diagnostic"; info.output = "material identity hash"; break;
+    case 7: info.name = "material table debug color"; info.category = "material-texture-diagnostic"; info.output = "material table record"; break;
+    case 8: info.name = "sampled diffuse texture probe"; info.category = "material-texture-diagnostic"; info.output = "diffuse texture sample"; break;
+    case 9: info.name = "alpha/coverage preview"; info.category = "material-texture-diagnostic"; info.output = "alpha coverage"; break;
+    case 10: info.name = "albedo"; info.category = "material-texture-diagnostic"; info.output = "diffuse albedo"; break;
+    case 11: info.name = "translucent overlay inspection"; info.category = "material-texture-diagnostic"; info.output = "translucent overlay"; break;
+    case 12: info.name = "translucent subtype classification"; info.category = "material-texture-diagnostic"; info.output = "translucent subtype"; break;
+    case 13: info.name = "fixed-light Lambert shading"; info.category = "temporary-behavior-experiment"; info.output = "fixed diagnostic light"; info.behaviorChanging = true; info.temporary = true; break;
+    case 14: info.name = "selected point-light direct lighting"; info.category = "light-diagnostic"; info.output = "selected-light direct term"; break;
+    case 15: info.name = "selected point-light influence"; info.category = "light-diagnostic"; info.output = "selected-light influence"; break;
+    case 16: info.name = "normal map preview"; info.category = "material-texture-diagnostic"; info.output = "decoded normal map"; break;
+    case 17: info.name = "specular map preview"; info.category = "material-texture-diagnostic"; info.output = "decoded specular map"; break;
+    case 18: info.name = "toy path trace"; info.category = "temporary-behavior-experiment"; info.output = "path tracer color"; info.owner = "path-tracer-core"; info.behaviorChanging = true; info.temporary = true; break;
+    case 19: info.name = "emissive triangle inventory"; info.category = "light-diagnostic"; info.output = "emissive candidate inventory"; break;
+    case 20: info.name = "single-frame reservoir direct lighting"; info.category = "temporary-behavior-experiment"; info.output = "smoke reservoir direct light"; info.owner = "smoke-reservoir"; info.behaviorChanging = true; info.temporary = true; break;
+    case 21: info.name = "solid drawSurf mirror bounds boxes"; info.category = "scene-geometry-diagnostic"; info.output = "drawSurf bounds"; break;
+    case 22: info.name = "wireframe drawSurf mirror bounds boxes"; info.category = "scene-geometry-diagnostic"; info.output = "drawSurf bounds wireframe"; break;
+    case 23: info.name = "experimental routed rigid TLAS instances"; info.category = "scene-geometry-diagnostic"; info.output = "rigid route instances"; info.temporary = true; break;
+    case 24: info.name = "fallback-vs-rigid-route overlap"; info.category = "scene-geometry-diagnostic"; info.output = "route overlap validation"; break;
+    case 25: info.name = "routed rigid lighting"; info.category = "scene-geometry-diagnostic"; info.output = "rigid route lighting validation"; break;
+    case 26: info.name = "ReSTIR PT initial reservoir diagnostics"; info.category = "pass-output-visualizer"; info.output = "initial reservoir metadata"; info.owner = "restir-pt"; break;
+    case 27: info.name = "ReSTIR PT initial reservoir shading"; info.category = "pass-output-visualizer"; info.output = "initial reservoir shading"; info.owner = "restir-pt"; break;
+    case 28: info.name = "ReSTIR PT initial visibility preview"; info.category = "pass-output-visualizer"; info.output = "initial reservoir visibility/shading"; info.owner = "restir-pt"; break;
+    case 29: info.name = "ReSTIR PT primary-surface history"; info.category = "pass-output-visualizer"; info.output = "primary surface history fields"; info.owner = "primary-surface"; break;
+    case 30: info.name = "ReSTIR PT screen-space reprojection"; info.category = "temporary-behavior-experiment"; info.output = "primary surface reprojection"; info.owner = "primary-surface"; info.temporary = true; break;
+    case 31: info.name = "ReSTIR PT temporal reservoir"; info.category = "pass-output-visualizer"; info.output = "temporal reservoir metadata"; info.owner = "restir-pt"; break;
+    case 32: info.name = "ReSTIR PT temporal reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "temporal reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
+    case 33: info.name = "ReSTIR PT temporal light-source attribution"; info.category = "pass-output-visualizer"; info.output = "temporal reservoir source attribution"; info.owner = "restir-pt"; break;
+    case 34: info.name = "path tracer path-depth visualizer"; info.category = "pass-output-visualizer"; info.output = "path depth / SPP / bounce state"; info.owner = "path-tracer-core"; break;
+    case 35: info.name = "path tracer reflection hit/miss"; info.category = "pass-output-visualizer"; info.output = "reflection hit/miss"; info.owner = "path-tracer-core"; break;
+    case 36: info.name = "path tracer reflection roughness/F0 gate"; info.category = "pass-output-visualizer"; info.output = "reflection/specular gate"; info.owner = "path-tracer-core"; break;
+    case 37: info.name = "path tracer max-depth / Russian roulette"; info.category = "pass-output-visualizer"; info.output = "depth limit / Russian-roulette state"; info.owner = "path-tracer-core"; break;
+    default: break;
+    }
+
+    return info;
+}
+
+void LogPathTraceDebugModeInfo(const RtPathTraceDebugModeInfo& info)
+{
+    common->Printf("PathTracePrimaryPass: debug mode %d name='%s' category=%s output='%s' owner=%s behaviorChanging=%d temporary=%d\n",
+        info.mode,
+        info.name,
+        info.category,
+        info.output,
+        info.owner,
+        info.behaviorChanging ? 1 : 0,
+        info.temporary ? 1 : 0);
+}
+
 bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 {
     if (r_pathTracingTimingLog.GetInteger() == 0)
@@ -262,6 +325,47 @@ bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs)
 
     lastLogMs = nowMs;
     return true;
+}
+
+void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc)
+{
+    const RtPathTraceDebugModeInfo fallbackInfo = GetPathTraceDebugModeInfo(desc.debugMode);
+    const RtPathTraceDebugModeInfo& info = desc.debugModeInfo ? *desc.debugModeInfo : fallbackInfo;
+    common->Printf("PathTracePrimaryPass: PT pass timing total=%.3fms setup=%.3f restirContext=%.3f constants=%.3f barriers=%.3f clear(reservoir=%.3f primaryHistory=%.3f targets=%.3f) setState=%.3f dispatchSubmit=%.3f historyCopy=%.3f readback=%.3f output=%dx%d dispatch=%dx%d mode=%d '%s' category=%s output='%s' owner=%s restirPass=%s resampling=%d spp=%d maxDepth=%d estimatedRaysPerPixel=%d lights selected/analytic=%d/%d restirVisibility=%d previewMaxPixels=%d requestedClears reservoir/primaryHistory=%d/%d readbackQueued=%d optickGpuMarkers=%d\n",
+        desc.totalSubmitMs,
+        desc.setupMs,
+        desc.restirContextMs,
+        desc.constantsMs,
+        desc.barrierMs,
+        desc.reservoirClearMs,
+        desc.primaryHistoryClearMs,
+        desc.targetClearMs,
+        desc.setStateMs,
+        desc.dispatchSubmitMs,
+        desc.historyCopyMs,
+        desc.readbackCopyMs,
+        desc.outputWidth,
+        desc.outputHeight,
+        desc.dispatchWidth,
+        desc.dispatchHeight,
+        desc.debugMode,
+        info.name,
+        info.category,
+        info.output,
+        info.owner,
+        desc.restirPassLabel ? desc.restirPassLabel : "disabled",
+        desc.restirResamplingMode,
+        desc.samplesPerPixel,
+        desc.maxPathDepth,
+        desc.estimatedRaysPerPixel,
+        desc.selectedLights,
+        desc.analyticLights,
+        desc.restirPreviewVisibility,
+        desc.restirPreviewMaxPixels,
+        desc.reservoirClearRequested ? 1 : 0,
+        desc.primaryHistoryClearRequested ? 1 : 0,
+        desc.readbackQueued ? 1 : 0,
+        desc.optickGpuMarkers ? 1 : 0);
 }
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)

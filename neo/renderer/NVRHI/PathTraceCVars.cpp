@@ -423,6 +423,12 @@ idCVar r_pathTracingAnalyticLightCandidates(
     CVAR_RENDERER | CVAR_INTEGER,
     "Build, upload, and shade analytic sphere-light candidates from active Doom lights" );
 
+idCVar r_pathTracingRestirPTAnalyticLightCandidates(
+    "r_pathTracingRestirPTAnalyticLightCandidates",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Allow ReSTIR PT debug modes 26-33 to build and shade analytic Doom light candidates when the global analytic-light CVar is off; set 0 for emissive-only ReSTIR validation" );
+
 idCVar r_pathTracingAnalyticLightCandidateDump(
     "r_pathTracingAnalyticLightCandidateDump",
     "0",
@@ -617,9 +623,9 @@ idCVar r_pathTracingToyLightTraceCap(
 
 idCVar r_pathTracingToyFakePBRSpecular(
     "r_pathTracingToyFakePBRSpecular",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Use rbdoom3 legacy specmap-to-PBR roughness/F0 shading for mode 18 toy path tracing" );
+    "Use rbdoom3 legacy specmap-to-PBR roughness/F0 shading for mode 18 and related path-tracing visualizers; set 0 to opt out" );
 
 idCVar r_pathTracingToyAccumulation(
     "r_pathTracingToyAccumulation",
@@ -632,6 +638,60 @@ idCVar r_pathTracingToyAccumMaxFrames(
     "64",
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum accumulated frames for mode 18 toy path tracing" );
+
+idCVar r_pathTracingSamplesPerPixel(
+    "r_pathTracingSamplesPerPixel",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 path tracer samples per pixel; default 1, clamp 1..4 for the current monolithic dispatch" );
+
+idCVar r_pathTracingMaxPathDepth(
+    "r_pathTracingMaxPathDepth",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 maximum path depth including the primary hit; default 2 preserves the current one-bounce toy path" );
+
+idCVar r_pathTracingDiffuseBounceLimit(
+    "r_pathTracingDiffuseBounceLimit",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 diffuse secondary-bounce limit; default 1 preserves the current toy bounce" );
+
+idCVar r_pathTracingSpecularBounceLimit(
+    "r_pathTracingSpecularBounceLimit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 specular/reflection secondary-bounce limit; default 0 keeps reflections disabled" );
+
+idCVar r_pathTracingTransmissionBounceLimit(
+    "r_pathTracingTransmissionBounceLimit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Reserved transmission/glass bounce limit for the path tracer core; current shader path fails closed" );
+
+idCVar r_pathTracingReflectionMode(
+    "r_pathTracingReflectionMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 reflection mode: 0 off, 1 mirror-ish low-roughness validation bounce, 2 rougher validation bounce" );
+
+idCVar r_pathTracingRussianRouletteDepth(
+    "r_pathTracingRussianRouletteDepth",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Path depth where Russian roulette may start; 0 disables it in the current conservative shader path" );
+
+idCVar r_pathTracingNextEventEstimation(
+    "r_pathTracingNextEventEstimation",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable direct-light next-event-estimation style work in the mode 18 path tracer core" );
+
+idCVar r_pathTracingIntegratorDump(
+    "r_pathTracingIntegratorDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current path tracer core settings and estimated ray budget once" );
 
 idCVar r_pathTracingReservoirTwoSidedEmissives(
     "r_pathTracingReservoirTwoSidedEmissives",
@@ -656,6 +716,72 @@ idCVar r_pathTracingRestirPTPreviewMaxPixels(
     "921600",
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 32 ReSTIR PT preview safety cap in pixels; default is 1280x720, 0 disables the cap" );
+
+idCVar r_pathTracingRestirPTPassDump(
+    "r_pathTracingRestirPTPassDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the current ReSTIR PT pass plan and RTXDI reservoir buffer indices once" );
+
+idCVar r_pathTracingSafetyDump(
+    "r_pathTracingSafetyDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump path tracing dispatch safety metadata once before the RT dispatch" );
+
+idCVar r_pathTracingDisableAnyHitAlpha(
+    "r_pathTracingDisableAnyHitAlpha",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable any-hit alpha, translucent, glass, and particle rejection while preserving shadow self-ignore" );
+
+idCVar r_pathTracingDisableSelectedLightLoop(
+    "r_pathTracingDisableSelectedLightLoop",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable the legacy selected point-light loops in the smoke/path tracer shader" );
+
+idCVar r_pathTracingDisableAnalyticLightLoop(
+    "r_pathTracingDisableAnalyticLightLoop",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable Doom analytic light loops and RAB analytic light sampling in the smoke/path tracer shader" );
+
+idCVar r_pathTracingDisableEmissiveTriangleSampling(
+    "r_pathTracingDisableEmissiveTriangleSampling",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable emissive triangle sampling loops for mode 20 and ReSTIR PT validation paths" );
+
+idCVar r_pathTracingDisableDiffuseSecondaryRay(
+    "r_pathTracingDisableDiffuseSecondaryRay",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable diffuse secondary continuation rays in the toy path tracer and RAB path tracer bridge" );
+
+idCVar r_pathTracingDisableReflectionRay(
+    "r_pathTracingDisableReflectionRay",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable reflection/specular secondary rays in the toy path tracer" );
+
+idCVar r_pathTracingDisablePrimarySurfaceHistory(
+    "r_pathTracingDisablePrimarySurfaceHistory",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable primary surface history writes, clears, copies, and previous-camera history validity" );
+
+idCVar r_pathTracingDisableReservoirWrites(
+    "r_pathTracingDisableReservoirWrites",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable smoke and ReSTIR PT reservoir writes from the ray tracing shader" );
+
+idCVar r_pathTracingDisableRestirVisibilityRay(
+    "r_pathTracingDisableRestirVisibilityRay",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic kill switch: disable the ReSTIR PT preview visibility ray even when the preview visibility CVar or mode requests it" );
 
 idCVar r_pathTracingSmokeParticleDither(
     "r_pathTracingSmokeParticleDither",
@@ -759,6 +885,12 @@ idCVar r_pathTracingTimingLogInterval(
     CVAR_RENDERER | CVAR_INTEGER,
     "Minimum milliseconds between repeated RT smoke timing log lines; 0 logs every threshold hit" );
 
+idCVar r_pathTracingPassTimingDump(
+    "r_pathTracingPassTimingDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current RT/PT pseudo-pass CPU submit timings and debug-output classification once" );
+
 idCVar r_pathTracingOptickGpuMarkers(
     "r_pathTracingOptickGpuMarkers",
     "0",
@@ -770,6 +902,12 @@ idCVar r_pathTracingReservoirDump(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump current RT smoke reservoir ownership/reset state once" );
+
+idCVar r_pathTracingSceneInputsDump(
+    "r_pathTracingSceneInputsDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the committed RT/PT scene input package once" );
 
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",

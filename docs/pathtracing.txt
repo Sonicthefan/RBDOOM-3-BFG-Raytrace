@@ -31,6 +31,27 @@ For persistent material guardrails, see:
 
     docs/pathtrace_material_universe.md
 
+For the current plan to refactor the monolithic PathTracePrimaryPass /
+PathTraceSmokeDispatch execution layer into explicit frame resources, primary
+surface, ReSTIR, debug, and future denoise/reflection contracts, see:
+
+    docs/pathtrace_core_refactor_plan.txt
+    docs/pathtrace_core_refactor_tasks/00_agent_readme.txt
+
+The early refactor sequence must include a real path-tracer core settings pass
+before deeper ReSTIR work: samples per pixel, max path depth, diffuse/specular
+bounce limits, first reflection mode, and accumulation reset policy belong to
+the base integrator, not only to ReSTIR debug modes.
+
+The same refactor sequence must avoid locking in early reverse-engineered
+material and geometry assumptions as final contracts. The current
+PathTraceDoomMaterialClassifier can remain a stopgap, but the material universe
+needs room for the newer idTech4 material documentation and later RBDoom3/mod
+PBR roles such as metallic/roughness, AO, height/parallax, and displacement.
+Likewise, source3 portal-area residency is the validated BVH baseline, and the
+geometry contract must make current/previous frame vertex or transform data a
+near-term addition for motion vectors.
+
 Current State
 -------------
 
@@ -96,7 +117,16 @@ Current validated feature set:
   `PathTraceSmokePayload` hit, using the same smoke material, albedo, normal,
   opacity, emissive, and specular helpers as the existing modes. The
   `RAB_GetGBufferSurface` and `RAB_GetGBufferMaterial` callbacks now read
-  current/previous primary-surface history buffers. Mode 29 validates same-pixel
+  current/previous primary-surface buffers through the named
+  PathTracePrimarySurface contract. The record is versioned and mirrored on CPU
+  and shader sides at 176 bytes: header/version/valid flags, world position plus
+  view depth, geometric and shading normals, view direction, diffuse albedo,
+  alpha cutoff, roughness, F0/specular, emissive radiance, material/surface
+  flags, instance/primitive IDs, an object/entity ID placeholder,
+  height/parallax/displacement placeholder, and previous-position/object-motion
+  placeholder. The object/entity ID is deliberately not finalized yet; the
+  correct Doom renderer/game identity source must be chosen before object-motion
+  rejection or denoiser inputs depend on it. Mode 29 validates same-pixel
   history, and mode 30 validates temporary current-world-position to previous
   screen-space reprojection for camera motion. Full object/vertex motion vectors
   are still future work. The Step 6 RNG bridge is also present and wraps RTXDI's
@@ -216,13 +246,27 @@ RT scene residency and Doom portal areas:
 Current module/refactor state:
 
 - PathTracePrimaryPass is intentionally small and still owns most persistent
-  m_smoke* handles/counters, but static-world geometry cache ownership has
-  moved behind PathTraceGeometryUniverse as the first persistent-geometry
-  scaffold.
+  scene/build m_smoke* handles/counters, but output-sized PT textures,
+  accumulation/readback resources, smoke reservoirs, ReSTIR PT packed
+  reservoirs, primary-surface history buffers, frame settings, reset reasons,
+  and readback queue bookkeeping now live behind PathTraceFrameResources.
+  Static-world geometry cache ownership has moved behind
+  PathTraceGeometryUniverse as the first persistent-geometry scaffold.
 - PathTraceSmokeSceneBuild owns the high-level per-frame scene build sequence.
-- PathTraceSmokeResources owns NVRHI smoke resource creation/reset/commit.
+- PathTraceSmokeResources owns NVRHI smoke shader/pipeline creation,
+  scene-resource creation/reset/commit, and forwards output-sized resize
+  validation to PathTraceFrameResources.
+- PathTracePrimarySurface defines the CPU/shader primary-surface record and
+  shader helpers used by the current smoke raygen, ReSTIR PT RAB screen
+  callbacks, and mode 29/30 history/reprojection validation views.
+- PathTraceSceneInputs defines the CPU-side scene/material/light package
+  committed after a successful smoke scene build. It records TLAS/BLAS and
+  buffer handles, geometry/material/light counts, split signatures, source3
+  portal-policy facts, current/previous history placeholders, and upload/timing
+  estimates without changing GPU layouts or shader dispatch behavior.
 - PathTraceSmokeDispatch owns constants, resource transitions, dispatch, and
-  accumulation/readback queueing.
+  accumulation/readback use of the frame resources. It still runs the same
+  smoke raygen path; this refactor did not split shader dispatches.
 - Scene capture, material classification, texture discovery, texture registry,
   persistent material universe records, active material table construction,
   the static geometry universe scaffold, drawSurf mirror capture, instance
@@ -333,12 +377,14 @@ Implemented debug CVars:
   application/window back-buffer size. Changing one dimension first can produce
   a temporary odd aspect ratio, but aspect ratio itself is not expected to cause
   device removal. The dangerous transition is replacing the PT output,
-  accumulation, readback, smoke reservoir, or ReSTIR PT reservoir resources
-  while the previous frame's RT dispatch/blit/copy can still be in flight.
-  `ResizeRayTracingSmokeOutput` now waits for the GPU to idle and runs NVRHI
-  garbage collection before replacing existing output-sized PT resources. Keep
-  that fence at the resource owner; do not move it to the app/window resize
-  path, because app resolution changes do not drive PT output size.
+  accumulation, readback, smoke reservoir, ReSTIR PT reservoir, or primary
+  history resources while the previous frame's RT dispatch/blit/copy can still
+  be in flight. `ResizeRayTracingSmokeOutput` delegates that destructive
+  replacement to PathTraceFrameResources, which waits for the GPU to idle and
+  runs NVRHI garbage collection before replacing existing output-sized PT
+  resources. Keep that fence at the frame-resource owner; do not move it to the
+  app/window resize path, because app resolution changes do not drive PT output
+  size.
 
 - r_pathTracingDebugMode
   Selects the debug visualization:
@@ -374,6 +420,12 @@ Implemented debug CVars:
   29 = ReSTIR PT primary-surface history validation
   30 = ReSTIR PT screen-space reprojection validation
   31 = ReSTIR PT temporal reservoir validation
+  32 = ReSTIR PT temporal reservoir shading preview
+  33 = ReSTIR PT temporal light-source attribution
+  34 = path tracer core path-depth visualizer
+  35 = path tracer reflection hit/miss visualizer
+  36 = path tracer reflection roughness/F0 gate visualizer
+  37 = path tracer max-depth / Russian-roulette state visualizer
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -505,23 +557,149 @@ Implemented debug CVars:
   unchanged.
 
 - r_pathTracingToyFakePBRSpecular
-  Opt-in shader experiment. Defaults to 0. When enabled, mode 18 and the
-  ReSTIR PT bridge modes 26/27/28/29/30/31/32 also enable specular-map sampling and
-  interpret Doom legacy specular maps using the same rbdoom3/Kennedith98-style
-  fake-PBR idea as the raster interaction shaders: derive approximate F0 and
-  roughness from the gamma-space specular texture. For ReSTIR PT this roughness
-  and F0 are stored in the RAB material and primary-surface history records so
-  temporal/spatial validation sees the converted Doom material state instead of
-  treating every legacy surface as roughness 1.0. This is useful for a quick
-  visual check of less-flat PT diffuse/specular response, but it is not a full
-  Doom material conversion. It does not detect packed `_rmao` maps, does not add
-  glossy bounce sampling, and does not solve alpha/blend/decal/special-stage
-  classification.
+  Opt-out shader experiment. Defaults to 1. When enabled, mode 18, ReSTIR PT
+  bridge modes 26/27/28/29/30/31/32/33, and path-tracer visualizer modes
+  34/35/36/37 also enable specular-map sampling and interpret Doom legacy
+  specular maps using the same rbdoom3/Kennedith98-style fake-PBR idea as the
+  raster interaction shaders: derive approximate F0 and roughness from the
+  gamma-space specular texture. For ReSTIR PT this roughness and F0 are stored
+  in the RAB material and primary-surface history records so temporal/spatial
+  validation sees the converted Doom material state instead of treating every
+  legacy surface as roughness 1.0. This is useful for a quick visual check of
+  less-flat PT diffuse/specular response, but it is not a full Doom material
+  conversion. It does not detect packed `_rmao` maps, does not add glossy bounce
+  sampling, and does not solve alpha/blend/decal/special-stage classification.
 
 - r_pathTracingToyAccumulation / r_pathTracingToyAccumMaxFrames
   Enables mode 18 temporal accumulation across stable camera frames and caps
   the accumulated frame count. Accumulation resets on camera/FOV/output-size
   changes and on relevant lighting, ambient, and toy-path CVar changes.
+
+- r_pathTracingSamplesPerPixel
+  Explicit mode 18 samples per pixel. Defaults to 1 and currently clamps to 1..4
+  because the smoke raygen is still a monolithic validation dispatch. Values
+  above 1 jitter additional primary rays per pixel and multiply secondary/direct
+  ray work, so use `r_pathTracingIntegratorDump 1` before raising resolution and
+  SPP together.
+
+- r_pathTracingMaxPathDepth
+  Maximum mode 18 path depth including the primary hit. Defaults to 2, which
+  preserves the previous one-secondary-bounce toy behavior. Setting this to 1
+  disables secondary diffuse/reflection bounces even if their lobe limits are
+  nonzero.
+
+- r_pathTracingDiffuseBounceLimit / r_pathTracingSpecularBounceLimit /
+  r_pathTracingTransmissionBounceLimit
+  Explicit per-lobe mode 18 bounce limits. Defaults are diffuse=1, specular=0,
+  transmission=0, preserving the previous diffuse-only toy path. Transmission is
+  reserved and currently fails closed; glass/liquid policy is not implemented in
+  this task.
+
+- r_pathTracingReflectionMode
+  First opt-in reflection baseline for mode 18. Defaults to 0/off. Mode 1 traces
+  one mirror-ish validation bounce only on low-roughness/high-F0 surfaces when
+  `r_pathTracingSpecularBounceLimit > 0`; mode 2 relaxes the roughness gate for
+  rougher validation. It is crude and denoiser-free by design.
+
+Reflection/specular reservation:
+
+- The current reflection path is only a validation bounce in mode 18. Future
+  reflection work should have separate output/history names and carry roughness,
+  F0/specular, geometric normal, shading normal, hit distance, reflection
+  confidence, current/previous surface identity, and motion-vector or previous
+  position input. Do not fold reflection history into diffuse ReSTIR history.
+- Half-resolution or checkerboard reflection execution is a valid future policy,
+  but it should be an explicit pass setting after pass splitting, not an
+  implicit side effect of debug mode 18.
+
+- r_pathTracingRussianRouletteDepth
+  Reserved depth where Russian roulette may start. Defaults to 0, disabled. The
+  current conservative shader path only reports the configured state in debug
+  mode 37; it does not randomly terminate paths yet.
+
+- r_pathTracingNextEventEstimation
+  Enables the existing direct-light work from selected lights, emissive/Doom
+  analytic light candidates, and the ReSTIR PT bridge path tracer. Defaults to
+  1 to preserve current mode 18 behavior. Setting it to 0 leaves ambient and
+  emissive terms but suppresses direct-light visibility work in the new
+  integrator contract.
+
+- r_pathTracingIntegratorDump
+  One-shot dump of the path tracer core settings and rough ray-budget estimate:
+  output resolution, SPP, max depth, diffuse/specular/transmission limits,
+  reflection mode, Russian-roulette depth, NEE state, selected/analytic light
+  trial counts, estimated rays per pixel, and estimated dispatch rays. This is a
+  safety signal for device-removal risk; it is intentionally approximate rather
+  than a physical ray counter.
+
+Ray dispatch safety diagnostics:
+
+- r_pathTracingSafetyDump
+  One-shot pre-dispatch safety dump. It reports output size, debug mode, SPP,
+  depth/bounce/reflection/Russian-roulette/NEE settings, selected/analytic/
+  emissive/light-candidate counts, material table entries, active descriptor
+  table size, static/dynamic/rigid-route buffer capacities, TLAS/BLAS presence,
+  primary-history byte count, smoke/ReSTIR reservoir byte counts, binding-set
+  presence, and the current safety kill-mask.
+
+- r_pathTracingDisableAnyHitAlpha
+  Diagnostic kill switch for any-hit alpha/translucent/glass/particle rejection.
+  Shadow self-ignore still runs; only the alpha/translucent rejection path is
+  bypassed.
+
+- r_pathTracingDisableSelectedLightLoop
+  Diagnostic kill switch for legacy selected point-light loops and selected-light
+  sprite proxies.
+
+- r_pathTracingDisableAnalyticLightLoop
+  Diagnostic kill switch for Doom analytic light loops and ReSTIR/RAB analytic
+  light sampling. This is independent from the upload/build CVars.
+
+- r_pathTracingDisableEmissiveTriangleSampling
+  Diagnostic kill switch for emissive triangle sampling in mode 20 and ReSTIR PT
+  validation paths.
+
+- r_pathTracingDisableDiffuseSecondaryRay
+  Diagnostic kill switch for diffuse secondary/continuation rays in mode 18 and
+  the RAB path-tracer bridge.
+
+- r_pathTracingDisableReflectionRay
+  Diagnostic kill switch for mode 18 reflection/specular secondary rays.
+
+- r_pathTracingDisablePrimarySurfaceHistory
+  Diagnostic kill switch for primary-surface history writes, clears, copies, and
+  previous-camera history validity. Re-enabling it forces the history path to
+  clear before it becomes valid again.
+
+- r_pathTracingDisableReservoirWrites
+  Diagnostic kill switch for shader-side smoke and ReSTIR PT reservoir writes.
+  Re-enabling leaves the smoke reservoir clear request pending.
+
+- r_pathTracingDisableRestirVisibilityRay
+  Diagnostic kill switch for the ReSTIR PT preview visibility ray even when a
+  mode or `r_pathTracingRestirPTPreviewVisibility` requests it.
+
+Glass/transmission reservation:
+
+- `r_pathTracingTransmissionBounceLimit` is reserved and currently clamps/fails
+  closed. Do not treat the existing portal/window/object-glass visibility
+  approximations as final glass transport.
+- Future glass work needs explicit opacity, alpha cutoff, default IOR, tint or
+  transmission color, thickness approximation, nested-surface policy, and Doom
+  window/liquid class flags. Ask before finalizing Doom-specific glass or liquid
+  behavior.
+
+Denoise/upscale/Ray Reconstruction reservation:
+
+- Required future pass outputs/inputs are color, albedo, normal, roughness,
+  depth, motion vectors, hit distance, diffuse/specular separation, exposure,
+  and history reset reasons. Primary-surface history already reserves several
+  material/motion fields, but camera-only reprojection is not enough for DLSS/RR.
+- Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
+  geometry universe must provide current/previous transforms or vertex data for
+  surfaces whose history is reused.
+- Tiled ray dispatch remains a future stability lever for long GPU dispatches,
+  but it is intentionally not part of this reservation task.
 
 - r_pathTracingEmissiveInventoryDump
   One-shot dump of the current emissive triangle inventory: total/captured
@@ -619,6 +797,15 @@ Implemented debug CVars:
   emissive-candidate, light-candidate, or static-BLAS signature changes. The
   current reservoir is written by mode 20; previous and spatial scratch
   reservoirs are still reset/cleared ownership scaffolding.
+
+- r_pathTracingSceneInputsDump
+  One-shot dump of the committed RtPathTraceSceneInputs package after the next
+  successful scene build. It reports scene source, debug mode, output size,
+  geometry/material/light signatures, geometry counts and history placeholders,
+  material table path and active texture count, emissive/Doom analytic light
+  counts, source3 portal step/area/edge facts, and CPU upload/timing estimates.
+  This is a diagnostics contract only; it does not change dispatch routing or
+  shader-visible buffer layouts.
 
 - r_pathTracingDebugMode 20
   Single-frame direct lighting debug view from the emissive candidate contract.
@@ -1069,6 +1256,13 @@ term when r_pathTracingUseEmissiveMaps is 1.
   require the light to be visible or in front of the camera, and it does not
   add any sphere mesh to the BVH.
 
+- r_pathTracingRestirPTAnalyticLightCandidates
+  ReSTIR PT debug-mode convenience gate. Defaults to 1, so modes 26-33 build,
+  upload, and shade Doom analytic light candidates even when
+  `r_pathTracingAnalyticLightCandidates` is 0. Set this to 0, with the global
+  analytic-light CVar also 0, for emissive-only ReSTIR validation, CPU
+  light-candidate profiling, or device-removal narrowing.
+
 - r_pathTracingAnalyticLightCandidateDump
   One-shot dump of the analytic Doom light candidates that would be uploaded.
   The summary includes linked count, behind-camera count, portal steps,
@@ -1110,6 +1304,13 @@ term when r_pathTracingUseEmissiveMaps is 1.
   Enables slow-frame CPU timing logs for RT smoke scene build and dispatch
   submission. Scene-build timing includes material metadata-cache counters and
   whether the experimental RT smoke material table cache hit or rebuilt.
+  Dispatch timing now reports named pseudo-pass CPU submission costs for the
+  still-monolithic raygen path: setup, ReSTIR context update, constants upload,
+  resource barriers, reservoir/primary-history/target clears, ray tracing state
+  setup, RT dispatch submission, primary-history copy, and optional readback.
+  These numbers are CPU-side command submission timings; use
+  `r_pathTracingOptickGpuMarkers 1` only during targeted profiling when GPU
+  pass duration is needed.
 
 - r_pathTracingTimingThreshold
   Minimum RT smoke CPU time in milliseconds before timing logs are printed.
@@ -1117,6 +1318,14 @@ term when r_pathTracingUseEmissiveMaps is 1.
 - r_pathTracingTimingLogInterval
   Minimum milliseconds between repeated RT smoke timing log lines. Defaults to
   1000. Set to 0 to print every threshold hit while doing detailed profiling.
+
+- r_pathTracingPassTimingDump
+  One-shot dump of the current RT/PT dispatch pseudo-pass timing line,
+  independent of the slow-frame threshold. The line also includes the debug
+  mode classification, output family, owner, output resolution, dispatch
+  dimensions, SPP/max-depth settings, rough estimated rays per pixel,
+  ReSTIR pass label/resampling mode, preview-visibility flag, clear requests,
+  readback activity, and whether Optick GPU markers are enabled.
 
 - r_pathTracingOptickGpuMarkers
   Enables experimental Optick GPU markers inside the RT smoke/path tracing
@@ -1154,12 +1363,16 @@ PT output resize stability:
   PT/raster 3D for native resize frames, and invalidating the cached LDR
   framebuffer were still reasonable presentation safeguards, but they did not
   address the failing path.
-- The actual fix is in `PathTraceSmokeResources::ResizeRayTracingSmokeOutput`:
-  before replacing any existing PT output, accumulation, readback, smoke
-  reservoir, or ReSTIR PT reservoir handle, the code calls `waitForIdle()` and
-  `runGarbageCollection()`. This prevents old output-sized resources from being
-  released while the previous frame's ray dispatch, output blit, readback copy,
-  or descriptor use is still pending on the GPU.
+- The actual resize safety policy now lives in PathTraceFrameResources and is
+  called by `PathTraceSmokeResources::ResizeRayTracingSmokeOutput`: before
+  replacing any existing PT output, accumulation, readback, smoke reservoir,
+  ReSTIR PT reservoir, or primary-surface history handle, the code calls
+  `waitForIdle()` and `runGarbageCollection()`. This prevents old output-sized
+  resources from being released while the previous frame's ray dispatch, output
+  blit, readback copy, or descriptor use is still pending on the GPU. The
+  frame-resource diagnostics report the wait reason, reset reasons, output
+  resolution, resource byte counts, descriptor/AS commits, and readback queue
+  activity through `r_pathTracingReservoirDump`.
 - Future PT output-resolution work should continue to treat width/height as an
   internal render-scale pair. It is acceptable for users to enter width and
   height separately; the intermediate frame may look stretched, but it must not
@@ -1673,7 +1886,7 @@ Open issues:
 - Doom materials can have generated images, videos, blend stages, alpha tests,
   deform stages, lights, and special render behavior.
 - Normal/specular texture discovery exists and is folded into mode 14 direct
-  lighting, and mode 18 has an opt-in `r_pathTracingToyFakePBRSpecular` path
+  lighting, and mode 18 has an opt-out `r_pathTracingToyFakePBRSpecular` path
   that reuses rbdoom3's legacy specmap-to-PBR roughness/F0 approximation for a
   basic visual test. These paths are still diagnostic. The final renderer still
   needs a deliberate Doom material facts layer and PT/PBR interpretation,
@@ -1690,7 +1903,7 @@ Open issues:
 - Mode 18 has a crude one-bounce toy path tracer with accumulation, selected
   point lights, texture sampling, and emissive visibility. It is deliberately
   simple and does not include MIS, denoising, ReSTIR, or emissive area-light
-  sampling yet. `r_pathTracingToyFakePBRSpecular 1` can enable a basic
+  sampling yet. `r_pathTracingToyFakePBRSpecular 1` enables a basic
   specmap-derived F0/roughness direct-specular test in this mode, but the bounce
   path remains diffuse-only. Mode 14 remains the selected point-light
   direct-shadow diagnostic path.
@@ -1919,15 +2132,13 @@ For the current toy path tracing baseline:
     r_pathTracingLightCount 4
     r_pathTracingToyLightScale 0.3
     r_pathTracingToyEmissiveScale 4.0
-    r_pathTracingToyFakePBRSpecular 0
     r_pathTracingToyAccumulation 1
     r_pathTracingToyAccumMaxFrames 64
 
-For the optional mode 18 fake-PBR specular visual test:
+To opt out of the current fake-PBR specular material approximation:
 
     r_pathTracingDebugMode 18
-    r_pathTracingUseSpecularMaps 1
-    r_pathTracingToyFakePBRSpecular 1
+    r_pathTracingToyFakePBRSpecular 0
 
 For emissive candidate inspection:
 
@@ -2071,6 +2282,17 @@ For ReSTIR PT initial-sampling reservoir validation:
     r_pathTracingDebugMode 30
     r_pathTracingDebugMode 31
     r_pathTracingDebugMode 32
+    r_pathTracingDebugMode 33
+
+The host side now builds a CPU ReSTIR PT pass plan for modes 26-33 before the
+legacy smoke raygen dispatch. The plan names the active initial, temporal,
+shading, visibility, primary-surface, or source-attribution stage, chooses the
+RTXDI ReSTIRPTContext resampling mode, and records the RTXDI reservoir buffer
+indices that the current shader path will use. This is a pass-split scaffold,
+not a shader behavior change: modes 26-33 still run through the existing debug
+raygen paths. Use `r_pathTracingRestirPTPassDump 1` for a one-shot console dump
+of the current mode's pass label, flags, resampling mode, and reservoir buffer
+selection.
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2162,19 +2384,25 @@ binary visibility ray to the selected reservoir sample; soft penumbrae require
 many light samples over time/spatial reuse and later final shading/denoising.
 
 Mode 29 is the primary-surface history validation view. The RT shader now writes
-an output-sized current primary-surface history record for each raygen pixel and
-the backend copies current to previous after dispatch so the next frame can read
-stable previous records. The record stores world position/depth, geometry and
-shading normals, view direction, material identity, surface flags, diffuse
-albedo, opacity, alpha cutoff, and the RAB material roughness/F0. When
-`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31/32 sample the
-Doom specular texture and store the converted fake-PBR roughness/F0 in that
-history record. Mode 29 colors the current-vs-previous same-pixel comparison:
+an output-sized current primary-surface record for each raygen pixel and the
+backend copies current to previous after dispatch so the next frame can read
+stable previous records. The versioned PathTracePrimarySurface record stores
+world position/depth, geometry and shading normals, view direction, material
+identity, surface flags/class, diffuse albedo, opacity, alpha cutoff,
+roughness/F0, emissive radiance, instance/primitive IDs, an object/entity ID
+placeholder, a height/parallax/displacement placeholder, and a future
+previous-position/object-motion placeholder. When
+`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31/32/33
+sample the Doom specular texture and store the converted fake-PBR roughness/F0
+in that record; modes 34/35/36/37 use the same material policy for path-tracer
+core visualizers. Mode 29 colors the current-vs-previous same-pixel comparison:
 blue means current valid but no previous history yet, red means previous valid
 but current invalid, yellow means material mismatch, purple means normal
 mismatch, orange means roughness mismatch, and green means a conservative
-material/normal/roughness match. This is still same-pixel validation with no
-motion vectors or reprojection, so camera motion is expected to create
+material/normal/roughness match. Reprojection rejection and no-object-motion
+status constants are reserved for later object-motion validation; they are not
+part of the normal mode 29 success path. This is still same-pixel validation
+with no motion vectors or reprojection, so camera motion is expected to create
 mismatches. A previous test build produced a full-screen blue result during
 camera motion because the primary-surface history clear was tied to
 `m_smokeReservoirNeedsClear`, whose dispatch signature changes with camera
@@ -2204,7 +2432,11 @@ the previous primary history in normal gameplay views. The remaining purple and
 orange outlines around moving objects and silhouettes look like an edge-detect
 overlay; that is expected for this temporary screen-space method because moving
 objects, disocclusions, and subpixel edge changes do not have vertex/object
-motion yet.
+motion yet. A later visual check noticed that one debug color in this mode had
+swapped red/blue compared with an earlier expectation; the user confirmed the
+mode still performs its validation role, so treat this as visualizer color drift
+rather than a functional regression unless a future cleanup explicitly
+normalizes the palette.
 
 Mode 31 is the first temporal-reservoir diagnostic. It switches the RTXDI
 ReSTIR PT context to temporal mode for that debug view so the packed reservoir
@@ -2246,11 +2478,27 @@ as evidence that the ReSTIR PT data path is unusable. The debug path runs a
 full-screen raygen that builds the current initial PT reservoir and then invokes
 RTXDI temporal resampling/replay work per pixel; full-resolution presentation is
 expected to rely on later denoising/upscaling rather than brute-force full-res
-mode 32. `r_pathTracingRestirPTPreviewMaxPixels` exists as an experimental
-safety cap, but the practical validated guidance is still to keep mode 32 at or
-below 720p for now.
+mode 32/33. `r_pathTracingRestirPTPreviewMaxPixels` exists as an experimental
+safety cap for the temporal preview family, but the practical validated guidance
+is still to keep mode 32/33 at or below 720p for now.
 
-Clear optimization path for mode 32 / future final shading:
+Mode 33 is the temporal light-source attribution diagnostic. It uses the same
+temporal reservoir generation path as mode 32, but colors the selected temporal
+reservoir by the source that supplied the NEE sample: cyan/blue means a Doom
+analytic sphere light, orange means an emissive triangle, green means a non-NEE
+or indirect reservoir sample, and red means an invalid/unknown packed light.
+The normal mode 30/31 rejection colors still apply before a valid temporal
+reservoir exists. Modes 26 through 33 use
+`r_pathTracingRestirPTAnalyticLightCandidates 1` as a default-on convenience
+path for Doom analytic light candidate collection and shader-side analytic-light
+enablement when the global analytic-light CVar is off. Set
+`r_pathTracingAnalyticLightCandidates 0` and
+`r_pathTracingRestirPTAnalyticLightCandidates 0` to test emissive-only ReSTIR
+behavior. The same ReSTIR mode range also uses the routed rigid scene path and
+routed rigid emissive-card inventory, so temporal diagnostics see the same
+source3 membership baseline as the earlier initial-reservoir views.
+
+Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit
   pass-sized dispatches so initial sampling, temporal resampling, visibility,
   and final shading can be profiled and throttled independently;
@@ -2265,16 +2513,17 @@ Clear optimization path for mode 32 / future final shading:
 - profile GPU pass timing before raising resolution, because driver device
   removal here is consistent with timeout pressure from long RT dispatches.
 
-Rejected temporal-resolve shortcut: a follow-up mode 33 prototype tried to
+Rejected temporal-resolve shortcut: a follow-up, uncommitted mode 33 prototype tried to
 reuse `SmokeAccumulation` as previous resolved color, read it at the reprojected
 previous pixel, write current output to `SmokeOutput`, and copy output back to
 accumulation after dispatch. User validation reported that it mostly picked up
 emissives with little regular lighting, showed orange outlines, and
 device-removed after roughly 30 seconds. That prototype was removed from the
-active mode list. Do not reintroduce this shortcut as the next denoiser step;
-the next temporal resolve should use an explicit history resource/pass design
-with clear ownership, lower internal resolution/checkerboard execution, and GPU
-timing around each stage.
+active mode list; active mode 33 is now the light-source attribution diagnostic
+described above, not a temporal resolve. Do not reintroduce the resolved-color
+shortcut as the next denoiser step; the next temporal resolve should use an
+explicit history resource/pass design with clear ownership, lower internal
+resolution/checkerboard execution, and GPU timing around each stage.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom
@@ -2344,6 +2593,57 @@ For hitch diagnostics:
     r_pathTracingTimingLog 1
     r_pathTracingTimingThreshold 40
     r_pathTracingReadbackEnable 0
+
+For a one-shot current-frame pass timing and debug-output classification:
+
+    r_pathTracingPassTimingDump 1
+
+The pass timing line is submit-side CPU timing. Use it to separate setup,
+barrier, clear, dispatch submission, history-copy, and readback pressure before
+assuming a present or "Wait for Frame" stall names the root cause. For GPU pass
+duration, capture a targeted run with `r_pathTracingOptickGpuMarkers 1` in a
+stable Release/PT dev build.
+
+CPU-hotspot triage checklist:
+
+- Check scene build timing before blaming the raygen: capture/classification,
+  material discovery, emissive/light candidate generation, buffer creation,
+  buffer upload, BLAS/TLAS submit, and descriptor/binding rebuilds can all
+  dominate the frame before the RT dispatch is submitted.
+- Check whether skinned/deformed geometry, material table validation, texture
+  lookup, portal walks, readback, or debug overlays ran on the frame being
+  profiled.
+- Check whether a resource resize/replacement forced idle/garbage collection or
+  invalidated descriptors/history.
+
+Device-removal triage checklist:
+
+- Record build lane first. Release/PT dev Release is the only meaningful lane
+  for performance conclusions; Debug/validation runs are correctness traces.
+- Record the last timing line, debug mode, output resolution, estimated rays per
+  pixel, ReSTIR pass label, visibility/reflection/spatial/temporal toggles,
+  readback activity, and whether output-sized resources resized that frame.
+- Capture `r_pathTracingSafetyDump 1` before changing workload assumptions. If
+  the device removal happens at modest ray counts, treat invalid indexing,
+  resource lifetime, stale descriptors, barriers, or pathological shader control
+  flow as the first suspects.
+- Recommended bisect sequence for mode 18/20/26-33 device removal:
+  disable readback and Optick GPU markers, dump pass timing and safety metadata,
+  then toggle in this order until the failure disappears:
+  `r_pathTracingDisableAnyHitAlpha 1`,
+  `r_pathTracingDisableReflectionRay 1`,
+  `r_pathTracingDisableDiffuseSecondaryRay 1`,
+  `r_pathTracingDisableSelectedLightLoop 1`,
+  `r_pathTracingDisableAnalyticLightLoop 1`,
+  `r_pathTracingDisableEmissiveTriangleSampling 1`,
+  `r_pathTracingDisableRestirVisibilityRay 1`,
+  `r_pathTracingDisableReservoirWrites 1`,
+  `r_pathTracingDisablePrimarySurfaceHistory 1`.
+  Once a switch changes stability, re-enable earlier switches one at a time to
+  separate a bad index/resource path from pure workload fan-out.
+- Do not stop at "Wait for Frame", present, or average FPS until CPU staging,
+  upload/readback pressure, resource lifetime, and named pass timing have been
+  checked.
 
 If a hitch appears only with r_pathTracingSkipRaster3D 0, treat it as a raster
 tail issue unless another RT/PT diagnostic contradicts that. Skipping 3D raster

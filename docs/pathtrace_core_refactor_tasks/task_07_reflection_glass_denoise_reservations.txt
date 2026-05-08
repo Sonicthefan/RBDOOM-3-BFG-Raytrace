@@ -1,0 +1,102 @@
+Task 07 - Reflection, Glass, Denoise, And Upscale Reservations
+==============================================================
+
+Goal
+----
+
+Reserve architecture for reflection/specular, glass/transmission, denoise,
+upscale, and DLSS/RR inputs without implementing those systems prematurely.
+This task records the contracts and creates placeholders only where they reduce
+future churn.
+
+Prerequisite: task_04_path_tracer_core_controls.txt should own the first
+reflection baseline and integrator controls. This task is for the broader
+history/denoise/upscale contracts after that baseline exists.
+
+Primary files likely involved:
+
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+- docs/pathtrace_material_universe.md
+- docs/pathtrace_geometry_universe.md
+- neo/renderer/NVRHI/PathTraceMaterialUniverse.*
+- neo/renderer/NVRHI/PathTraceRestirPT.*
+- shader bridge material/surface headers
+
+Step-by-step plan
+-----------------
+
+1. Reflection/specular reservation:
+
+       roughness input
+       F0/specular input
+       geometric/shading normal
+       motion vector or previous position
+       hit distance
+       reflection confidence
+       separate history/output texture names
+       optional half-res/checkerboard policy
+
+2. Glass/transmission reservation:
+
+       opacity
+       alpha cutoff
+       default IOR
+       tint/transmission color
+       thickness approximation
+       nested surface policy
+       Doom window/liquid class flags
+
+   Ask the user before finalizing Doom-specific glass/liquid behavior.
+
+3. Denoise/upscale/RR reservation:
+
+       color
+       albedo
+       normal
+       roughness
+       depth
+       motion vectors
+       hit distance
+       diffuse/specular separation
+       exposure
+       history reset reasons
+
+4. Material universe additions must stay semantic:
+
+       classify from engine material/image/stage state first
+       filename/path hints last
+       preserve dynamic/evaluated material state separately from stable material
+       capability
+
+5. Geometry additions must support previous-frame state:
+
+       previous transform
+       previous skinned/deformed positions or deltas
+       previous range validity
+       entity/object mapping
+
+6. Do not create fake final resources unless a near-term pass will consume them.
+   It is acceptable to document names and add CVar-disabled placeholders, but
+   avoid permanent dead buffers.
+
+7. Update docs with what is reserved, what is intentionally unimplemented, and
+   what user decisions are needed.
+
+Acceptance criteria
+-------------------
+
+- Future reflection/glass/RR work has named inputs and owners.
+- The ReSTIR pass split does not paint the branch into diffuse-only assumptions.
+- Material and geometry universes know which future fields they must eventually
+  provide.
+
+Forbidden shortcuts
+-------------------
+
+- Do not add DLSS/RR integration against camera-only motion.
+- Do not fold reflection history into diffuse ReSTIR history.
+- Do not model glass as ordinary alpha test without a documented temporary
+  policy.
+- Do not build emissive sphere meshes in the BVH as the first answer to Doom
+  lights; analytic light candidates remain the planned route.

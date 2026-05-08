@@ -1,0 +1,143 @@
+Task 01 - Frame Resources And Orchestration Shell
+=================================================
+
+Goal
+----
+
+Create a no-visual-change frame/resource ownership layer so PT output-sized
+resources, frame settings, history state, and reset reasons are no longer
+implicitly owned by PathTracePrimaryPass and PathTraceSmokeDispatch.
+
+This task should not split shader dispatches yet. It prepares a stable owner for
+later primary-surface and ReSTIR pass extraction.
+
+Primary files likely involved:
+
+- neo/renderer/NVRHI/PathTracePrimaryPass.h
+- neo/renderer/NVRHI/PathTracePrimaryPass.cpp
+- neo/renderer/NVRHI/PathTraceSmokeResources.h
+- neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+- neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+- neo/renderer/NVRHI/PathTraceRestirPT.*
+- neo/renderer/NVRHI/PathTraceRestirPTReservoirs.*
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+
+Preferred new module names:
+
+- PathTraceFrameResources.h/.cpp
+- PathTraceFrameContext.h, if a separate pure data header is useful
+
+Only add new .cpp files if you are prepared to regenerate the build tree.
+
+Step-by-step plan
+-----------------
+
+1. Inventory all output-sized state currently owned by PathTracePrimaryPass:
+   smoke output, accumulation, readback, smoke reservoirs, ReSTIR PT packed
+   reservoirs, primary-surface history buffers, ReSTIR context state, output
+   dimensions, frame indices, clear flags, and history view state.
+
+   Also inventory CPU/GPU handoff state even when it is not output-sized:
+   upload buffers, descriptor tables, binding sets, readback queues, BLAS/TLAS
+   handles, buffer capacities, dirty flags, and any code path that calls
+   waitForIdle or rebuilds resources.
+
+2. Define a small frame settings struct:
+
+       width
+       height
+       debugMode
+       checkerboardMode
+       frameIndex
+       camera basis/projection tangents
+       previous camera basis/projection tangents
+       reset reason flags
+
+   Keep the first version CPU-only and explicitly initialized each frame.
+
+3. Define a frame resource owner that wraps existing output-sized handles
+   without changing NVRHI creation behavior yet. It may initially forward to
+   existing Create*/Clear* helpers.
+
+   The owner should distinguish:
+
+       stable persistent resources
+       capacity growth/reallocation
+       per-frame dirty-range uploads
+       destructive resize/replacement
+       diagnostic readback resources
+
+   The branch has enough RAM/VRAM headroom to prefer stable capacity and
+   over-allocation over constant rebuilds when that reduces CPU/GPU contention.
+
+4. Move the required resize safety policy into this owner:
+
+       if replacing existing output-sized PT resources:
+           waitForIdle()
+           runGarbageCollection()
+           release/recreate output-sized resources
+           mark affected histories invalid
+
+   Preserve the behavior currently fixed in ResizeRayTracingSmokeOutput.
+
+5. Move reset reason bookkeeping out of ad hoc booleans where possible. The
+   first version can still write back to existing m_smoke* fields, but the
+   reset cause should be inspectable in one place.
+
+6. Add CPU/GPU handoff diagnostics:
+
+       upload bytes by resource family
+       buffer capacity reused/grown/recreated
+       descriptor or binding set rebuild count
+       BLAS/TLAS rebuild count
+       readback queued/mapped/unmapped
+       waitForIdle call reason
+       CPU staging time before dispatch
+
+7. Keep PathTracePrimaryPass::Execute as the entry shell:
+
+       compute requested internal PT resolution
+       initialize frame resources
+       build scene inputs using existing smoke scene build
+       call existing smoke dispatch
+       present/debug blit
+
+8. Keep PathTraceSmokeDispatch behavior identical. Do not move raygen constants
+   or barriers in this task unless required to compile the new owner.
+
+9. Add one diagnostic dump or log line, behind an existing or new one-shot CVar
+   if practical, that reports internal resolution, reset reasons, and resource
+   validity.
+
+10. Update docs/pathtracing.txt and docs/pathtrace_modules.txt to describe the
+   new frame resource owner.
+
+Acceptance criteria
+-------------------
+
+- Mode 18 still renders with the same visible behavior.
+- Mode 20 still renders with the same visible behavior.
+- Modes 26-33 compile and keep their current behavior.
+- Changing r_pathTracingDebugWidth/Height still does not device-remove the GPU.
+- The resource owner is the only place where output-sized PT resize invalidation
+  policy lives.
+- Routine per-frame updates are separated from destructive resource replacement,
+  and `waitForIdle()` reasons are visible.
+- CPU staging/upload/readback pressure can be inspected before blaming GPU pass
+  cost.
+- PathTracePrimaryPass has fewer direct responsibilities or at least a clear
+  path to moving them in the next task.
+
+Forbidden shortcuts
+-------------------
+
+- Do not reintroduce window-size coupling for PT internal resolution.
+- Do not remove the GPU idle/garbage-collection fence for output-sized resource
+  replacement.
+- Do not turn `waitForIdle()` into the routine fix for CPU/GPU handoff problems.
+- Do not rebuild or reupload whole resources every frame if a stable-capacity
+  dirty-range path is practical.
+- Do not combine smoke reservoirs and RTXDI packed PT reservoirs.
+- Do not change shader ABI layouts unless absolutely required.
+- Do not make mode 32/33 higher-resolution by default.

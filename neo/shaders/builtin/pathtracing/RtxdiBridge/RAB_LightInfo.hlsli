@@ -42,10 +42,10 @@ bool RAB_IsLightInfoValid(RAB_LightInfo lightInfo)
 
 uint RAB_GetCurrentLightCount()
 {
-    const uint emissiveTriangleCount = (uint)max(EmissiveInfo.x, 0.0);
-    const uint uploadedAnalyticCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
+    const uint uploadedAnalyticCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
     const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
+    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
     return emissiveTriangleCount + analyticCount;
 }
 
@@ -61,7 +61,7 @@ RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
         return RAB_EmptyLightInfo();
     }
 
-    const uint emissiveTriangleCount = (uint)max(EmissiveInfo.x, 0.0);
+    const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
     if (index < emissiveTriangleCount)
     {
         const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[index];
@@ -79,9 +79,9 @@ RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
         return lightInfo;
     }
 
-    const uint uploadedAnalyticCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint uploadedAnalyticCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
     const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
+    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
     const uint analyticIndex = index - emissiveTriangleCount;
     if (analyticIndex < analyticCount)
     {

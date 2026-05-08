@@ -1,0 +1,416 @@
+RBDoom3 BFG RT/PT Core Refactor Plan
+====================================
+
+Generated: 2026-05-08
+Scope: PathTracePrimaryPass, PathTraceSmokeDispatch, and the smoke-path
+orchestration layer around the existing geometry/material/light/ReSTIR modules.
+
+Purpose
+-------
+
+The current path tracer grew out of debug smoke passes used to reverse-engineer
+renderer behavior and validate architecture choices. The surrounding modules
+are now directionally useful, but the core execution shape is still too
+monolithic:
+
+- PathTracePrimaryPass still owns most persistent smoke-path state.
+- PathTraceSmokeSceneBuild still produces a complete frame resource package for
+  one old smoke pipeline shape.
+- PathTraceSmokeDispatch still performs frame constants, history signatures,
+  reservoir clears, resource barriers, primary ray work, ReSTIR PT preview work,
+  debug visualization, accumulation, and presentation-target writes through one
+  raygen-oriented dispatch path.
+- Debug modes often create alternate behavior instead of visualizing stable pass
+  outputs.
+
+The refactor goal is not to throw away the current modules. The goal is to put
+stable data contracts and pass ownership in front of them so future ReSTIR PT,
+DLSS/RR, reflections, glass, denoising, and profiling work can land as narrow
+modules instead of adding more branches to the smoke raygen.
+
+Decision Summary
+----------------
+
+Keep and strengthen:
+
+- PathTraceGeometryUniverse as persistent geometry/instance/lifecycle owner.
+- PathTraceMaterialUniverse and PathTraceTextureRegistry as the authoritative
+  PT material/texture universe.
+- PathTraceLightUniverse, emissive candidates, and Doom analytic light
+  candidates as persistent light input producers.
+- PathTraceRestirPT and PathTraceRestirPTReservoirs as the RTXDI ABI bridge.
+- Existing mode 18/20/26-33 debug behavior as validation references until a
+  replacement pass produces equivalent or intentionally changed output.
+
+Replace or reshape:
+
+- The "smoke debug raygen as renderer core" layer.
+- Output-sized resource ownership hidden in smoke resource helpers.
+- Reservoir, primary-surface history, and debug visualization ownership hidden
+  inside PathTraceSmokeDispatch.
+- Mode-specific shader branches that both generate data and present debug color.
+
+Non-goals for this refactor phase:
+
+- No broad BVH/source3 rewrite.
+- No in-tree RTXPT/Donut revival.
+- No CMake/project reshuffle unless a task explicitly adds new translation
+  units and regenerates the build tree.
+- No final DLSS/RR integration before explicit motion/depth/normal/albedo/hit
+  distance contracts exist.
+- No attempt to make Debug or validation-heavy builds represent final
+  performance.
+
+Target Ownership Model
+----------------------
+
+The target frame shape is:
+
+    PathTracePrimaryPass
+        - feature gate and renderer entry/present glue
+        - calls one PT frame orchestrator
+        - should not own every persistent buffer directly forever
+
+    PathTraceFrameContext / PathTraceFrameResources
+        - internal PT resolution and resize/invalidation
+        - frame index and history reset reasons
+        - camera/current-previous matrices
+        - primary surfaces and histories
+        - diffuse/specular/history/debug output textures
+        - ReSTIR PT packed reservoirs
+        - smoke legacy reservoirs until retired
+
+    PathTraceSceneInputs
+        - stable references/counts/signatures for geometry, materials, textures,
+          emissive triangles, Doom analytic lights, TLAS/BLAS, and instance
+          identity
+        - built by existing scene/material/light modules, not by the pass graph
+
+    Explicit passes
+        1. Frame setup / resource validation
+        2. Scene input update
+        3. Primary surface pass
+        4. Configurable path-tracing integration pass
+        5. Initial ReSTIR PT reservoir pass
+        6. Temporal ReSTIR PT pass
+        7. Spatial ReSTIR PT pass
+        8. Reservoir visibility/final shading pass
+        9. Reflection/specular pass
+       10. Optional glass/transmission pass
+       11. Denoise/upscale/composite
+       12. Debug visualizer pass
+
+The important architectural rule is that debug modes consume the outputs above.
+They should not become alternate renderers unless the task is explicitly a
+temporary diagnostic.
+
+Data Contracts To Make Explicit
+-------------------------------
+
+Frame setup contract:
+
+- internal PT width/height independent of window size
+- resolution scale and per-pass resolution policy
+- frame index
+- camera basis, projection, jitter, exposure, and previous camera state
+- history validity and reset reasons
+- output resource lifetime and GPU-idle requirements for destructive resize
+
+Scene/geometry contract:
+
+- static geometry ranges
+- dynamic/rigid/skinned update lists
+- static BLAS, dynamic BLAS, skinned/dynamic BLAS, rigid route BLAS/TLAS
+- stable instance IDs
+- previous-frame instance mapping
+- previous transform/range validity
+- current and previous vertex data or compact per-vertex deltas for motion
+  vectors
+- object/entity ID suitable for debug and future motion-vector rejection
+- Doom renderer area/portal membership as the residency/culling unit
+- greedy current-area plus four portal-step capture remains a validated baseline
+  for source3 BVH residency until a targeted regression proves otherwise
+- visible portal-boundary supplementation is the preferred future contingency:
+  areas reached through portal openings in player line of sight may be unioned
+  into the selected set, but those LoS-added areas must not recursively
+  propagate their own portal connections. This is intended to handle dense rows
+  of small portal cells without making every direction use a deeper walk, and it
+  may later allow the all-direction walk depth to drop to 2 or 3 if validated.
+- one shared per-frame portal-area selection contract should feed static
+  preload, rigid residency, emissive/light filtering, and Doom analytic-light
+  selection where their policies match. Separate portal-step CVars may remain
+  useful for diagnostics, but the default path should not duplicate equivalent
+  portal walks without measurement.
+
+Material/texture contract:
+
+- one shader-visible PT material table
+- albedo, emissive, opacity/alpha-test, roughness, F0/specular
+- surface class flags: opaque, alpha-tested, decal, GUI, glass, liquid,
+  particle, sky, special/translucent
+- normal-map flags, including legacy Doom green/Y flip support
+- original idTech4 tangent basis or a deliberate documented fallback
+- richer source-material facts derived from the idTech4 material documentation,
+  not only the current reverse-engineered classifier
+- extensible slots/flags for future high-quality PBR assets inherited from
+  RBDoom3 or mods: metallic/roughness, ambient occlusion, height/parallax,
+  displacement, clearcoat, anisotropy, transmission, and future texture roles
+- explicit separation between "Doom material semantic input", "current stopgap
+  PT interpretation", and "shader-facing packed output"
+
+Light contract:
+
+- persistent emissive triangle records
+- Doom analytic light records
+- area/portal/PVS-style membership, not screen-visible-only membership
+- stable current/previous light identity
+- importance/alias data for ReSTIR input
+- flags for shadowing, dynamic/static, volumetric/special, active/inactive
+
+Primary surface contract:
+
+- world position and depth
+- geometric normal and shading normal
+- view direction
+- material index and material flags
+- instance ID, primitive ID, object/entity ID
+- albedo, roughness, F0/specular, emissive, opacity/alpha cutoff
+- motion vector or previous position
+- validity/rejection flags
+
+Path tracer core contract:
+
+- explicit samples per pixel, including deterministic debug SPP and stochastic
+  accumulation SPP
+- max path depth and per-lobe bounce limits
+- diffuse, specular/reflection, transmission, emissive, analytic-light, and
+  environment contribution policy
+- per-bounce throughput, PDF, Russian-roulette, and MIS policy, even if early
+  implementations disable some terms
+- first reflection path for mirror-ish and rough specular surfaces
+- separate diffuse and specular outputs/histories once the feature is more than
+  a debug preview
+- debug controls that change only sampling/integration policy, not scene
+  membership or material contracts
+
+ReSTIR PT pass contract:
+
+- Initial pass writes only initial RTXDI packed reservoirs and optional primary
+  pass side data. It must not also be the final debug presenter.
+- Temporal pass consumes current/previous primary surfaces and previous
+  reservoirs, applies rejection, and writes temporal output.
+- Spatial pass consumes temporal/current reservoir data and writes spatial
+  output. It may be designed for half/internal resolution, but do not enable a
+  quality-affecting scale change until it has debug views.
+- Visibility/shading pass evaluates selected reservoirs and writes lighting
+  textures. Visibility rays must be separately toggleable/profilable.
+
+GPU Stability And Device-Removal Risk Model
+-------------------------------------------
+
+The original smoke/debug path commonly failed as GPU device removal when
+internal resolution or per-pixel work increased. Treat this as an architecture
+failure mode, not only an optimization problem. A frame can report acceptable
+average FPS while one monolithic ray tracing dispatch still runs too long,
+touches too many UAVs, or holds too much unresolved work for the driver.
+
+Primary risks to control:
+
+- long single RT dispatches that combine primary rays, secondary/path replay,
+  temporal resampling, visibility rays, preview shading, debug output, and
+  accumulation
+- unbounded ray fan-out from resolution * SPP * bounce count * light count *
+  optional visibility/reflection rays
+- full-resolution execution of debug ReSTIR previews before denoise/upscale or
+  checkerboard/half-res policy exists
+- output-sized resource replacement while previous frame GPU work can still
+  reference old textures, buffers, descriptors, acceleration structures, or
+  readback targets
+- incorrect or incomplete UAV/SRV/AS barriers between split passes
+- descriptor/binding-set reuse after resize or scene-resource rebuild
+- optional readback, debug overlays, and terminal diagnostics accidentally
+  adding stalls or long GPU loops to the render path
+- treating `Wait for Frame`, present, or swapchain stalls as root causes without
+  measuring the upstream pass that missed budget
+
+Required guardrails:
+
+- keep conservative default resolution, SPP, bounce, visibility, and reflection
+  settings until per-pass timing proves headroom
+- preserve the GPU idle/garbage-collection fence before destructive replacement
+  of output-sized PT resources
+- split work into named passes with barriers and timing before raising
+  resolution or sample counts
+- add per-pass dispatch dimensions, effective rays-per-pixel, and reset reasons
+  to diagnostics
+- keep high-risk debug modes capped until their work is split or throttled
+- verify Release/PT dev Release separately from Debug/validation correctness
+  runs
+
+CPU/GPU Coordination Risk Model
+-------------------------------
+
+RAM and VRAM capacity are not the immediate limiting factors for this branch.
+Even bloated debug builds have been acceptable in memory footprint compared with
+the target machine. The weaker area is CPU/GPU coordination: Doom 3 is not a
+highly multithreaded renderer, and CPU-heavy staging can interfere with GPU
+submission, resource lifetime, and frame pacing.
+
+Primary risks to control:
+
+- rebuilding large CPU vectors every frame when persistent records plus dirty
+  ranges would be enough
+- synchronous material discovery, surface classification, geometry capture,
+  emissive inventory, BLAS/TLAS input building, and descriptor rebuilds on the
+  render path
+- CPU uploads that replace whole buffers instead of using stable capacity and
+  dirty-range updates
+- readback/debug/diagnostic paths that stall or delay GPU submission
+- `waitForIdle()` used as a routine synchronization tool instead of a rare
+  destructive-resize/lifetime fence
+- CPU work scheduled immediately before GPU dispatch, creating bubbles even when
+  the GPU workload itself would be acceptable
+- conflating memory headroom with synchronization safety. More RAM/VRAM allows
+  persistent buffers and slack capacity, but does not fix bad handoff timing.
+
+Required guardrails:
+
+- prefer persistent CPU/GPU records with stable capacity, generation counters,
+  and dirty ranges over frame-local rebuild/upload churn
+- keep resource replacement separate from resource update; resize/destructive
+  replacement may wait for idle, routine updates should not
+- make upload byte counts, buffer reuse/growth, descriptor rebuilds, BLAS/TLAS
+  rebuilds, readback queueing, and CPU staging times visible in diagnostics
+- where practical, move expensive CPU preparation earlier in the frame or behind
+  persistent caches before adding more GPU features
+- use abundant RAM/VRAM intentionally for ring buffers, history buffers,
+  over-allocated stable resources, and ping-pong ownership so CPU and GPU do not
+  fight over the same object lifetime
+
+Known CPU-heavy areas to profile and research:
+
+- scene extraction and surface capture: drawSurf walks, Doom surface capture,
+  rigid/static/skinned classification, vertex transforms, and source3 geometry
+  selection can become single-threaded render-path work if they rebuild the
+  frame from scratch
+- skinned/deformed geometry preparation: CPU skinning, previous-frame vertex
+  capture, and motion-vector inputs are likely to become expensive unless they
+  have persistent ownership and dirty/update ranges
+- material discovery and table construction: the current stopgap material
+  classifier, texture lookup, fake-PBR conversion, and shader-visible material
+  table updates must not turn into per-frame string/path/metadata work
+- descriptor and binding-set churn: bindless texture/material tables should be
+  stable-capacity resources with generation tracking instead of repeatedly
+  rebuilding broad descriptor state
+- BLAS/TLAS staging and submission: building instance lists, build-input
+  buffers, scratch/result lifetime, refit-vs-rebuild policy, and compaction are
+  high-risk CPU/GPU handoff areas even when the traversal work is GPU-side
+- light and emissive candidate preparation: persistent light records, area
+  membership, and importance/alias data should prevent full emissive/light
+  inventories from being rediscovered every frame
+- readback and diagnostic paths: logs, debug overlays, timing readbacks, and
+  one-shot dumps must be throttled and kept out of the steady-state path
+- resource resize and replacement: output-sized buffers/textures, AS handles,
+  descriptors, and history resources need delayed destruction or explicit idle
+  fences only at destructive boundaries
+
+Lower-priority CPU suspects until timing proves otherwise:
+
+- duplicate portal BFS walks are more likely to cause semantic drift than raw
+  CPU cost; keep timing and selected-area counts before centralizing them
+- memory footprint is not currently the limiting factor; using more RAM/VRAM for
+  stable caches and ring buffers is preferred over lowering memory at the cost
+  of more CPU rebuilds
+
+Mitigation research should focus on:
+
+- persistent scene/material/light databases with dirty deltas
+- Vulkan/NVRHI upload ring buffers, delayed destruction, and descriptor-table
+  lifetime patterns
+- RT acceleration-structure update/refit/rebuild policies for mixed static,
+  rigid, dynamic, and skinned geometry
+- GPU or cached CPU skinning paths that produce current/previous vertex data
+- bindless material/texture table compaction without per-frame full rebuilds
+- multi-threaded scene extraction where it can be introduced without fighting
+  idTech4 render-world ownership
+
+Reference Lessons Used
+----------------------
+
+The local Q2RTX Ray Reconstruction reference is not a code template for this
+branch, but it reinforces several architecture constraints:
+
+- Primary rays write many stable images/buffers before later lighting,
+  reflection, denoise, and composite work consume them.
+- Motion is geometry-derived where possible: triangles carry previous positions
+  and instances carry previous transforms.
+- Light selection uses persistent light records and cluster/PVS-style light
+  lists instead of relying on screen-visible emissives.
+- Temporal light reuse needs current/previous identity mapping and invalidation
+  when an old light cannot be matched.
+- Dispatches are split enough to profile and barrier between primary rays,
+  direct lighting, reflection/refraction, denoise, and composite work.
+
+Branch-specific constraints:
+
+- The active RBDoom baseline is source3 with rigid BLAS/TLAS routing, static
+  area preload, rigid residency, and Doom analytic light candidates.
+- The old drawSurf-visible-only path is an emergency comparison path, not the
+  default architecture.
+- PathTraceSmokeResources::ResizeRayTracingSmokeOutput currently owns a
+  required GPU idle/garbage-collection fence before replacing output-sized PT
+  resources. Keep that behavior in the resource owner when refactoring.
+- Mode 32/33 at high resolution can device-remove the GPU because the current
+  monolithic raygen combines too much work. Pass splitting is a stability
+  requirement, not only a cleanliness refactor.
+- PathTraceDoomMaterialClassifier is functional but was built from early
+  reverse engineering. It may remain a compatibility/stopgap layer, but new
+  contracts must leave room for a richer idTech4 material interpreter and
+  conventional PBR asset inputs.
+- Geometry capture also came from early guesswork. Source3 plus Doom
+  area/portal traversal is now the validated baseline, and future work should
+  design for two-frame vertex/transform capture instead of another visibility
+  only BVH path.
+- Static preload, rigid residency, emissive light-universe selection, and Doom
+  analytic-light selection currently have separate portal-step CVars and
+  separate walk implementations. Investigate and document whether their policies
+  genuinely need to diverge; if not, prefer one shared per-frame selection
+  result plus per-consumer filtering.
+
+Execution Order
+---------------
+
+Use the files in docs/pathtrace_core_refactor_tasks in order:
+
+1. task_01_frame_resources.txt
+2. task_02_primary_surface_contract.txt
+3. task_03_scene_input_contracts.txt
+4. task_04_path_tracer_core_controls.txt
+5. task_05_restir_pass_split.txt
+6. task_06_debug_timing_validation.txt
+7. task_07_reflection_glass_denoise_reservations.txt
+
+Each task is intentionally small enough for one agent to execute and validate
+without redesigning the whole renderer. If a task exposes missing Doom 3 engine
+semantics, stop and ask the user instead of inventing rules. Important examples
+are original tangent basis access, object/entity identity choice, material parm
+animation semantics, and glass/liquid policy.
+
+Definition Of Done For The Refactor Series
+------------------------------------------
+
+- PathTracePrimaryPass is a renderer shell and no longer the long-term owner of
+  unrelated smoke buffers/counters.
+- Output-sized PT resources are owned by one frame-resource owner with explicit
+  resize and history reset reasons.
+- The primary surface is a named pass/output, not an incidental side effect of a
+  debug raygen branch.
+- Samples per pixel, max depth, bounce policy, and reflection/specular policy
+  are explicit controls of the path tracer core.
+- ReSTIR initial, temporal, spatial, and final shading work are separately
+  dispatchable, separately toggleable, and separately profiled.
+- Debug modes visualize explicit intermediate resources.
+- Existing validated debug modes have either equivalent behavior or documented
+  intentional changes.
+- New tasks leave docs/pathtracing.txt and docs/pathtrace_modules.txt current
+  when ownership changes.

@@ -25,14 +25,24 @@ The current RT/PT path is still an experimental "smoke" path:
 
 - r_pathTracing mode 18: toy path tracer / textured smoke path with selected
   lights, emissives, accumulation, ambient/lighting CVars, and debug modes.
-  `r_pathTracingToyFakePBRSpecular` can opt this mode into a shader-local
-  rbdoom3 legacy specmap-to-PBR F0/roughness approximation for direct specular
-  testing.
+  `r_pathTracingToyFakePBRSpecular` defaults on and can be set to 0 to opt out
+  of the shader-local rbdoom3 legacy specmap-to-PBR F0/roughness approximation
+  for direct specular testing. The same fake-PBR toggle is shared by the
+  path-tracer visualizer modes 34-37 so their reflection/path-state views
+  validate the same material policy. The mode now also has an explicit early
+  integrator contract: samples per pixel, max path depth, diffuse/specular/
+  transmission bounce limits, reflection mode, Russian-roulette depth
+  reservation, NEE toggle, and a one-shot ray-budget dump. Defaults preserve
+  the previous one-sample, one-diffuse-bounce behavior; reflection is opt-in.
 - r_pathTracing mode 19: emissive inventory/debug pass for future ReSTIR/PT
   preparation.
 - r_pathTracing mode 20: first single-frame reservoir direct-lighting debug view
   from emissive candidates. It writes current reservoirs only; spatial and
   temporal reuse are still off.
+- r_pathTracing modes 34-37: path tracer core visualizers for path depth,
+  reflection hit/miss, reflection roughness/F0 gating, and max-depth /
+  Russian-roulette state. They are diagnostics over the mode 18 integrator
+  contract, not alternate renderers.
 - r_pathTracing mode 21: PT-native solid drawSurf mirror bounds boxes for
   spatial/BVH/source diagnostics.
 - r_pathTracing mode 22: PT-native wireframe drawSurf mirror bounds boxes. This
@@ -69,6 +79,10 @@ The current RT/PT path is still an experimental "smoke" path:
   shader path keeps old selected point lights available for comparison, while
   r_pathTracingAnalyticLightReplaceSelected can suppress that legacy constant
   array so the analytic lights can be inspected visually on their own.
+- r_pathTracingRestirPTAnalyticLightCandidates: default-on ReSTIR PT debug
+  convenience gate. Modes 26-33 can build/use Doom analytic light candidates
+  even when the global analytic-light CVar is off, but setting this to 0 restores
+  emissive-only ReSTIR validation and profiling isolation.
 - r_pathTracingAnalyticLightMaxGpu: cap for analytic Doom light candidates
   uploaded/sampled by the smoke shader. This is still a direct per-hit loop,
   so keep it conservative until ReSTIR candidate selection exists.
@@ -124,27 +138,64 @@ File map
 --------
 
 PathTracePrimaryPass.h
-    Declares PathTracePrimaryPass, the frame-level owner for the experimental
-    RT smoke state. The class still owns most persistent m_smoke* handles,
-    counters, and private pass methods, but static-world geometry cache storage
-    now lives in PathTraceGeometryUniverse. Most behavior is implemented in
-    smaller PathTrace* modules.
+    Declares PathTracePrimaryPass, the frame-level shell for the experimental
+    RT smoke state. The class still owns scene/build m_smoke* handles,
+    counters, and private pass methods, but output-sized frame resources now
+    live behind PathTraceFrameResources and static-world geometry cache storage
+    lives in PathTraceGeometryUniverse. Most behavior is implemented in smaller
+    PathTrace* modules.
 
 PathTracePrimaryPass.cpp
     Thin pass shell. Performs RT feature detection, per-frame entry flow, output
     sizing, and debug-present blit. The PT output size is controlled by
     r_pathTracingDebugWidth/r_pathTracingDebugHeight, not the application window
-    size. Internal PT output-size changes wait for the GPU to idle before old
-    output, accumulation, readback, smoke reservoir, or ReSTIR PT reservoir
-    resources can be replaced. When PT is active, a known native-size resize
-    also waits for the GPU to idle before ResizeImages() so previous-frame RT/AS
-    work cannot overlap swapchain teardown, then invalidates PT output, scene,
-    BLAS, smoke reservoirs, ReSTIR PT reservoirs/context, and the cached LDR
-    blit framebuffer. The resize frame skips PT execution and debug
+    size. Internal PT output-size changes are delegated to
+    PathTraceFrameResources, which waits for the GPU to idle before old output,
+    accumulation, readback, smoke reservoir, ReSTIR PT reservoir, or primary
+    history resources can be replaced. When PT is active, a known native-size
+    resize also waits for the GPU to idle before ResizeImages() so
+    previous-frame RT/AS work cannot overlap swapchain teardown, then
+    invalidates PT output, scene, BLAS, smoke reservoirs, ReSTIR PT
+    reservoirs/context, and the cached LDR blit framebuffer. The resize frame
+    skips PT execution and debug
     presentation; if r_pathTracingSkipRaster3D owns the 3D view, it skips raster
     3D too instead of falling back into the normal 3D path. Avoid putting scene
     build, dispatch, resource lifetime, or diagnostics back here unless the pass
     shell itself truly owns the work.
+
+PathTraceFrameResources.h / PathTraceFrameResources.cpp
+    Output-sized PT frame resource owner. It owns the smoke output texture,
+    accumulation texture, diagnostic readback texture, smoke reservoir buffers,
+    RTXDI/ReSTIR PT packed reservoirs, primary-surface history buffers, ReSTIR
+    PT context state, frame settings, reset reason flags, accumulation counters,
+    primary-history view state, and readback queue bookkeeping. It is the single
+    owner for destructive output-sized replacement policy: replacing existing PT
+    output-sized resources waits for GPU idle, runs NVRHI garbage collection,
+    recreates resources, and marks affected histories invalid. Its diagnostics
+    are printed by `r_pathTracingReservoirDump` alongside the reservoir dump.
+
+PathTracePrimarySurface.h
+    CPU-side mirror for the shader primary-surface record. The current record is
+    version 2 and 176 bytes, with fields for valid/status flags, world position
+    plus depth, geometric and shading normals, view direction, diffuse albedo,
+    alpha cutoff, roughness, F0/specular, emissive radiance, material flags,
+    surface class, instance/primitive IDs, a deliberate object/entity ID
+    placeholder, height/parallax/displacement placeholder, and previous-position
+    or object-motion placeholder. Do not choose the final object/entity ID here
+    without confirming the durable Doom renderer/game identity source. Treat the
+    height, previous-position/motion, object/entity, roughness, F0, opacity, and
+    alpha fields as denoise/upscale/reflection reservations; they are not a
+    license to wire DLSS/RR before real motion and reset policy exist.
+
+PathTraceSceneInputs.h
+    CPU-side PT scene input contract. It packages the committed TLAS/BLAS
+    handles, static/dynamic/rigid/skinned geometry counts, material table buffer
+    and signature, texture descriptor table and active texture count, emissive
+    and Doom analytic light buffers/counts, source3 portal policy facts,
+    history-availability placeholders, and CPU upload/timing diagnostics. This
+    is not a shader ABI and does not change GPU buffer layouts. It exists so PT
+    and ReSTIR work can consume a named scene/material/light package instead of
+    reaching back into capture internals or PathTracePrimaryPass private state.
 
 RenderBackend.cpp
     Calls PathTracePrimaryPass from DrawViewInternal for 3D views. When
@@ -159,9 +210,11 @@ PathTraceSmokeSceneBuild.cpp
     construction, emissive inventory generation, buffer creation/upload,
     BLAS/TLAS submission, binding creation, resource commit, and scene build
     diagnostics. It also asks PathTraceDoomLights for analytic Doom light
-    candidates before scene buffer creation when that CVar path is enabled. This
-    is the right place to adjust high-level build order, but it should delegate
-    specialized work to narrower modules.
+    candidates before scene buffer creation when that CVar path is enabled. At
+    the end of a successful build it also packages RtPathTraceSceneInputs with
+    split geometry/material/light/output/camera/debug/upload signatures and
+    source3 portal-policy facts. This is the right place to adjust high-level
+    build order, but it should delegate specialized work to narrower modules.
 
 PathTraceSmokeResources.h
     Resource-facing structs for smoke geometry buffers, binding build inputs,
@@ -171,18 +224,16 @@ PathTraceSmokeResources.h
     buffers.
 
 PathTraceSmokeResources.cpp
-    Persistent NVRHI resource lifetime. Creates pipeline/output/readback
-    resources, creates scene geometry buffers and binding resources, packages
-    committed scene resources, resets smoke state, and commits successful scene
-    builds back into PathTracePrimaryPass state. `ResizeRayTracingSmokeOutput`
-    is the owner for PT internal render-resolution changes from
-    r_pathTracingDebugWidth/r_pathTracingDebugHeight. When replacing existing
-    output-sized resources it must wait for GPU idle and run NVRHI garbage
-    collection before old output, accumulation, readback, smoke reservoir, or
-    ReSTIR PT reservoir handles are released. This fixed a hard device-removal
-    crash that initially looked like an app-resize or aspect-ratio issue but was
-    actually old PT resources being replaced while previous-frame GPU work could
-    still reference them.
+    Persistent NVRHI smoke resource lifetime for shader/pipeline, scene geometry
+    buffers, binding resources, commit packaging, smoke state reset, and
+    successful scene-build commit back into PathTracePrimaryPass state.
+    `ResizeRayTracingSmokeOutput` remains the pass-facing entry for PT internal
+    render-resolution changes from r_pathTracingDebugWidth/
+    r_pathTracingDebugHeight, but it delegates output-sized resource ownership
+    and destructive resize safety to PathTraceFrameResources. The smoke raygen
+    dispatch path and shader ABI are unchanged by this ownership split. Scene
+    commits now retain the latest RtPathTraceSceneInputs package and can print
+    it with `r_pathTracingSceneInputsDump 1`.
 
 PathTraceSmokeDispatch.h
     Exposes the smoke constants buffer size without exposing the full constants
@@ -194,6 +245,24 @@ PathTraceSmokeDispatch.cpp
     and queues optional readback. It uploads Doom analytic light counts/scales
     through dispatch constants and can suppress the legacy selected point-light
     constant array when r_pathTracingAnalyticLightReplaceSelected is enabled.
+    It also owns the current `PathTraceIntegratorSettings` CPU packing for mode
+    18 and the ReSTIR PT bridge: SPP, max path depth, diffuse/specular/
+    transmission limits, reflection mode, Russian-roulette depth reservation,
+    NEE enable, accumulation-signature participation, and the one-shot
+    `r_pathTracingIntegratorDump` ray-budget estimate. Slow dispatch logs and
+    `r_pathTracingPassTimingDump 1` now report pseudo-pass CPU submit timing for
+    setup, ReSTIR context update, constants upload, barriers, clears, RT
+    dispatch submission, primary-history copy, and optional readback. These are
+    command-submission timings around the monolithic raygen, not GPU duration
+    measurements for separated shader passes. The dispatch constants also carry
+    shader-side safety metadata: a diagnostic kill-mask plus static/dynamic/
+    rigid-route geometry capacities and primary-history/smoke-reservoir
+    capacities. `r_pathTracingSafetyDump 1` prints the pre-dispatch safety state
+    once, and the `r_pathTracingDisable*` kill switches can independently
+    disable any-hit alpha rejection, selected light loops, analytic light loops,
+    emissive triangle sampling, diffuse secondary rays, reflection rays,
+    primary-surface history writes/copies, reservoir writes, and ReSTIR preview
+    visibility rays.
 
 PathTraceSmokeReadback.cpp
     Optional diagnostic readback of the smoke output texture. Handles delayed
@@ -500,11 +569,21 @@ PathTraceRestirPT.cpp
     initial sampling, reconnection, temporal, hybrid-shift, boiling-filter, and
     spatial parameters. It does not dispatch shader passes.
 
+PathTraceRestirPasses.h
+    CPU-side ReSTIR PT pass-plan contract. It maps debug modes 26-33 to named
+    initial, temporal, spatial, shading, and debug-visualization stages, owns the
+    RTXDI resampling-mode selection for the host context update, and resolves
+    the current RTXDI reservoir buffer indices for diagnostics. This is a
+    scaffolding split in front of the existing monolithic smoke raygen; it does
+    not add separate shader dispatches yet.
+
 PathTraceRestirPTReservoirs.h
     NVIDIA ReSTIR PT packed reservoir declarations. This is the new RTXDI ABI
     bridge boundary for a single RWStructuredBuffer<RTXDI_PackedPTReservoir>
     using RTXDI reservoir addressing and the stock two PT reservoir slices. It
-    is separate from the mode 20 smoke reservoirs.
+    is separate from the mode 20 smoke reservoirs. It also declares the
+    current/previous primary-surface buffer handles, using the stride from
+    PathTracePrimarySurface.h rather than a local ad hoc history constant.
 
 PathTraceRestirPTReservoirs.cpp
     Creates/reuses and clears the packed ReSTIR PT reservoir buffer. Sizing uses
@@ -512,7 +591,8 @@ PathTraceRestirPTReservoirs.cpp
     rtxdi::c_NumReSTIRPTReservoirBuffers instead of width*height linear
     addressing. The buffer is allocated with the RT smoke output size and bound
     into the smoke ray tracing shader ABI at u29, but no ReSTIR pass writes or
-    reads it yet.
+    reads it yet. It also creates/reuses and clears the current/previous
+    primary-surface buffers used by modes 29-33.
 
 pathtrace_smoke.rt.hlsl
     Existing smoke ray tracing shader. It now includes the RTXDI ReSTIR PT
@@ -522,6 +602,15 @@ pathtrace_smoke.rt.hlsl
     `RTXDI_PT_RESERVOIR_BUFFER`, and compiles NVIDIA's PT reservoir load/store
     helpers. The shader does not call those helpers yet, and the existing mode
     18/20 smoke behavior should remain unchanged.
+
+PathTracePrimarySurface.hlsli
+    Shader-side primary-surface contract and helper layer. It defines the
+    versioned 176-byte PathTracePrimarySurfaceRecord, pack/unpack helpers
+    between RAB_Surface/RAB_Material and the buffer record, current/previous
+    buffer load/store helpers, camera-only previous-pixel projection, mode 29/30
+    debug status colors, and the RAB screen callbacks used by RTXDI. The include
+    keeps compatibility wrapper names for the current smoke raygen until primary
+    surface generation becomes its own pass.
 
 RtxdiBridge/*.hlsli
     Local RBDoom3 shader bridge declarations for future RTXDI RAB callbacks.
@@ -536,13 +625,14 @@ RtxdiBridge/*.hlsli
     `RAB_BuildSurfaceFromSmokePayload` and `RAB_BuildMaterialFromSmokePayload`
     translate a traced smoke hit into bridge records without changing the
     existing mode 18/20 lighting paths. `RAB_GetGBufferSurface` and
-    `RAB_GetGBufferMaterial` now read output-sized current/previous
-    primary-surface history buffers. Raygen writes the current primary hit, and
-    the backend copies current to previous after dispatch for next-frame
-    validation. The history record includes material identity plus the RAB
-    material roughness/F0. When `r_pathTracingToyFakePBRSpecular 1` is enabled,
-    modes 26/27/28/29/30/31/32 sample Doom specular textures and store the same converted
-    fake-PBR roughness/F0 that mode 18 uses.
+    `RAB_GetGBufferMaterial` now call the named PathTracePrimarySurface helper
+    layer instead of reading an ad hoc local history struct. Raygen writes the
+    current primary hit, and the backend copies current to previous after
+    dispatch for next-frame validation. When `r_pathTracingToyFakePBRSpecular 1`
+    is enabled, modes 26/27/28/29/30/31/32/33 sample Doom specular textures and
+    store the same converted fake-PBR roughness/F0 that mode 18 uses. Modes
+    34/35/36/37 use the same fake-PBR material toggle for their path-tracer core
+    visualizers.
 
     Step 6 RNG scaffolding lives in `RAB_RandomSamplerState.hlsli`. It keeps a
     local `RAB_RandomSamplerState` wrapper but initializes and advances it
@@ -564,6 +654,18 @@ RtxdiBridge/*.hlsli
     flags, and glass/window fallback flags. Do not delete or collapse those
     fields just because the current validation path does not sample glossy,
     mirror, refraction, or transmission lobes yet.
+
+    Reflection, glass, denoise, and upscale reservations are documented without
+    allocating fake final resources. Future reflection/specular work should keep
+    separate output/history names, hit distance, confidence, roughness/F0,
+    normals, and motion inputs instead of folding into diffuse/ReSTIR history.
+    Future glass/transmission work needs explicit opacity, alpha cutoff, IOR,
+    tint, thickness, nested-surface, and Doom window/liquid policy; the current
+    glass handling remains a temporary visibility approximation until the user
+    confirms that policy. Future denoise/upscale/RR work needs color, albedo,
+    normal, roughness, depth, motion vectors, hit distance, diffuse/specular
+    separation, exposure, and history reset reasons, with geometry-derived
+    motion rather than camera-only reprojection.
 
     Step 8 light scaffolding is split across `RAB_LightInfo.hlsli`,
     `RAB_LightSampling.hlsli`, and `RAB_MISCallbacks.hlsli`. The current bridge
@@ -591,11 +693,14 @@ RtxdiBridge/*.hlsli
 
 PathTraceDebugDumps.h
     Shared diagnostic structs and dump/trigger APIs for scene build, material,
-    texture, timing, and one-shot diagnostic CVars.
+    texture, timing, debug-mode classification, and one-shot diagnostic CVars.
 
 PathTraceDebugDumps.cpp
     Console diagnostics implementation and diagnostic trigger/reset orchestration.
-    Should format and gate terminal output, not own render resources.
+    Should format and gate terminal output, not own render resources. It also
+    owns the current debug-mode classification table that labels modes as
+    pass-output visualizers, scene/geometry diagnostics, material/texture
+    diagnostics, light diagnostics, or temporary behavior-changing experiments.
 
 PathTraceSurfaceDebugDumps.h
     Surface-targeted diagnostic dump declarations.
@@ -646,13 +751,15 @@ Typical flow:
 
 Mode 18 fake-PBR specular test:
 
-1. PathTraceCVars defines `r_pathTracingToyFakePBRSpecular`, default 0.
+1. PathTraceCVars defines `r_pathTracingToyFakePBRSpecular`, default 1.
 2. PathTraceSmokeDispatch folds the CVar into the accumulation reset signature,
-   enables specular-map sampling for mode 18 when the toggle is active, and
-   passes a texture flag bit to the raygen constants.
-3. pathtrace_smoke.rt.hlsl tests that flag in mode 18, samples the existing
-   `specularTextureIndex`, derives approximate F0/roughness from the Doom
-   legacy spec map, and uses that for selected/analytic direct specular.
+   enables specular-map sampling for mode 18, ReSTIR PT bridge modes, and
+   path-tracer visualizer modes when the toggle is active, and passes a texture
+   flag bit to the raygen constants.
+3. pathtrace_smoke.rt.hlsl tests that flag, samples the existing
+   `specularTextureIndex`, derives approximate F0/roughness from the Doom legacy
+   spec map, and uses that for selected/analytic direct specular and related
+   validation records.
 
 This is deliberately a visual smoke test. It does not add CPU material fields,
 does not detect packed `_rmao`/`rmaomap` usage, and does not replace the material
@@ -1028,7 +1135,11 @@ Doom renderer lights now have a separate authored-light path. PathTraceDoomLight
 builds stable identity/probe diagnostics and an opt-in analytic sphere-light
 candidate buffer from active Doom point lights in the selected current-area plus
 portal-neighbor set. The shader samples that separate buffer for visual
-inspection when r_pathTracingAnalyticLightCandidates is enabled. The bridge is
+inspection when r_pathTracingAnalyticLightCandidates is enabled. ReSTIR PT debug
+modes 26-33 also have the separate
+`r_pathTracingRestirPTAnalyticLightCandidates` convenience gate, default 1, so
+normal ReSTIR validation sees the authored-light list; set it to 0 with the
+global analytic-light CVar off for emissive-only ReSTIR isolation. The bridge is
 verified at a basic level: lights appear, preserve RGB color, follow game
 animation/on-off state, and survive level-load transitions. The current light
 model is intentionally crude and treats every eligible point light as a sphere
@@ -1071,6 +1182,16 @@ r_pathTracingReservoirDump 1 to inspect the current signature/reset state. Mode
 20 writes current reservoirs for one-frame direct emissive lighting; previous
 and spatial scratch reservoirs are not consumed yet.
 
+RtPathTraceSceneInputs now records the committed scene/material/light package
+for the smoke path. The package names TLAS/BLAS and buffer handles, geometry
+counts, material table/texture descriptor inputs, emissive and Doom analytic
+light inputs, split signatures, source3 portal policy facts, current/previous
+history placeholders, and CPU upload/timing estimates. It intentionally keeps
+the existing shader buffer layouts and dispatch behavior unchanged while giving
+future ReSTIR/PT passes one contract to consume. Use
+`r_pathTracingSceneInputsDump 1` for a one-shot console dump after the next
+successful scene commit.
+
 RTXDI-compatible ReSTIR PT host plumbing now exists separately from the smoke
 reservoirs. PathTraceRestirPTReservoirs allocates a packed
 RTXDI_PackedPTReservoir buffer sized by RTXDI's tiled reservoir parameters and
@@ -1104,12 +1225,27 @@ weighted emissive-triangle distribution and keeps the best local target from a
 small trial set. This is still a debug visibility aid, not final light sampling.
 It does not shade from the reservoir, does not enable temporal/spatial reuse,
 does not use previous-frame G-buffer history, does not trace final RAB
-visibility, and does not change modes 18/20.
+visibility, and does not change modes 18/20. The RAB path-tracer skeleton now
+reads the same integrator max-depth, diffuse-bounce, and NEE settings as mode
+18 where those settings apply, instead of keeping an unrelated hard-coded
+continuation policy.
 
-Mode 26 uses the same source3 scene-membership baseline as the playable modes
-for validation: rigid TLAS routing, rigid residency, and routed rigid
-emissive-card inventory are enabled for it. Without this, mode 26 can test
-ReSTIR PT against a culled/fallback scene that does not match modes 18/20.
+Modes 26 through 33 now also build a CPU-side `RtPathTraceRestirPassPlan` before
+the smoke raygen dispatch. The pass plan records whether the current mode is an
+initial-reservoir writer, temporal-reservoir writer, reservoir-shading preview,
+primary-surface debug view, source-attribution view, or visibility-tracing
+preview. PathTraceSmokeDispatch uses this plan to choose the RTXDI
+ReSTIRPTContext resampling mode and to dump the RTXDI initial/temporal/final
+buffer indices with `r_pathTracingRestirPTPassDump 1`. The shader still executes
+the existing validation paths inside one dispatch, so the pass plan is a data
+contract for the next split rather than a behavior change.
+
+Modes 26 through 33 use the same source3 scene-membership baseline as the
+playable modes for validation: rigid TLAS routing, rigid residency, routed
+rigid emissive-card inventory, and Doom analytic light candidate upload are
+enabled for the whole ReSTIR PT debug family. Without this, ReSTIR PT can test
+against a culled/fallback scene or an emissive-only light list that does not
+match modes 18/20.
 
 Mode 27 is the paired initial-reservoir shading preview. It uses the same
 initial reservoir write path and source3 scene-membership baseline as mode 26,
@@ -1140,14 +1276,17 @@ soft shadows require later multi-sample/temporal/spatial accumulation and final
 shading.
 
 Mode 29 validates the primary-surface history buffer contract needed before
-temporal/spatial ReSTIR PT. It compares current and previous same-pixel history
-records and highlights missing current/previous records, material mismatches,
-normal mismatches, and roughness mismatches. It intentionally does not reproject
-or use motion vectors yet. Primary-surface history clearing is deliberately
-separate from `m_smokeReservoirNeedsClear`: the reservoir reset signature is
-camera-sensitive, so using it to clear primary history made every moving-camera
-frame look like "current valid, no previous" full-screen blue even though the
-previous frame copy was otherwise valid.
+temporal/spatial ReSTIR PT. It compares current and previous same-pixel
+PathTracePrimarySurface records and highlights missing current/previous records,
+material mismatches, normal mismatches, and roughness mismatches. Rejected
+previous and no-object-motion statuses are reserved for later reprojection and
+object-motion validation; they are not part of the normal mode 29 success path.
+It intentionally does not reproject or use motion vectors yet. Primary-surface
+history clearing is deliberately separate from
+`m_smokeReservoirNeedsClear`: the reservoir reset signature is camera-sensitive,
+so using it to clear primary history made every moving-camera frame look like
+"current valid, no previous" full-screen blue even though the previous frame
+copy was otherwise valid.
 After splitting those lifetimes, user validation reports the moving-camera
 full-screen blue case is gone. Purple normal mismatches and orange roughness
 mismatches while moving are expected same-pixel-history artifacts until motion
@@ -1158,15 +1297,17 @@ temporal resampling is enabled. PathTraceSmokeDispatch stores the current camera
 basis/tangents after copying current primary history to previous; the next
 frame's shader projects each current primary world position into that previous
 camera and samples the previous history pixel. It uses the same color key as
-mode 29. This is useful for camera-motion validation on static world surfaces,
-but it is not a replacement for vertex/object motion vectors.
+mode 29. The no-object-motion status is reserved in the record/debug constants
+for future object-motion validation, but camera-only reprojection remains the
+current mode 30 behavior. This is useful for camera-motion validation on static
+world surfaces, but it is not a replacement for vertex/object motion vectors.
 User validation reports mode 30 is mostly green, with purple/orange outlines on
 moving-object and silhouette edges. Treat those outlines as the expected limit
 of camera-only screen-space reprojection, not a failure of the primary history
 copy or previous-camera state.
 
 Mode 31 is the first temporal-reservoir validation view. PathTraceSmokeDispatch
-sets the ReSTIR PT context to temporal mode only for debug mode 31, which gives
+sets the ReSTIR PT context to temporal mode for modes 31 through 33, which gives
 RTXDI the alternating initial/temporal input/output reservoir indices. The
 shader writes the current initial reservoir, projects the current primary
 surface to the previous pixel, rejects missing or mismatched previous
@@ -1193,8 +1334,16 @@ beyond 720p can device-remove the GPU. This is expected for the current
 prototype shape: the monolithic raygen performs full-screen current initial PT
 sampling, RTXDI temporal resampling / hybrid-shift work, and optional visibility
 inside one heavy RT dispatch. `r_pathTracingRestirPTPreviewMaxPixels` is an
-experimental safety cap, but the reliable testing rule is to keep mode 32 at or
-below 720p until the pass is restructured.
+experimental safety cap, but the reliable testing rule is to keep mode 32/33 at
+or below 720p until the pass is restructured.
+
+Mode 33 is the temporal light-source attribution diagnostic. It uses the same
+temporal reservoir path as mode 32 and colors the selected temporal NEE source:
+cyan/blue for Doom analytic sphere lights, orange for emissive triangles, green
+for non-NEE or indirect samples, and red for invalid/unknown light data. The
+normal mode 30/31 rejection colors still appear before a valid temporal
+reservoir is available. Active mode 33 is not the rejected temporal resolved
+color prototype.
 
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
@@ -1207,9 +1356,10 @@ Rejected temporal-resolve shortcut: an uncommitted mode 33 prototype reused
 `SmokeAccumulation` as previous resolved color and copied `SmokeOutput` back
 into it after dispatch. User validation reported little regular lighting,
 mostly emissive contribution, orange outlines, and device removal after roughly
-30 seconds. The active mode was removed. Future temporal resolve work should
-not reuse this shortcut; it needs explicit history ownership, separated passes,
-lower internal resolution/checkerboard execution, and per-stage GPU timing.
+30 seconds. That prototype was removed; the active mode 33 slot is now source
+attribution. Future temporal resolve work should not reuse this shortcut; it
+needs explicit history ownership, separated passes, lower internal
+resolution/checkerboard execution, and per-stage GPU timing.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver
@@ -1349,11 +1499,14 @@ Primary files involved:
 
 Current state:
 
-PathTracePrimaryPass still owns persistent m_smoke* state. Several modules define
-private PathTracePrimaryPass methods so they can work with that state without a
-large public state object. Static-world geometry cache storage is the first
-exception: it now lives behind RtSmokeGeometryUniverse so persistent geometry can
-grow without making PathTracePrimaryPass larger.
+PathTracePrimaryPass still owns persistent scene/build m_smoke* state. Several
+modules define private PathTracePrimaryPass methods so they can work with that
+state without a large public state object. Output-sized frame resources are the
+first broad orchestration exception: they now live behind
+RtPathTraceFrameResources so resize/reset policy and frame diagnostics can grow
+without adding more ad hoc fields to PathTracePrimaryPass. Static-world
+geometry cache storage also lives behind RtSmokeGeometryUniverse so persistent
+geometry can grow without making PathTracePrimaryPass larger.
 
 Safe next architectural step:
 
@@ -1371,6 +1524,18 @@ For broader smoke pass state, design a PathTraceSmokeState or PathTraceSmokeScen
 object first, then move ownership in one dedicated architecture change. Do not
 gradually leak pieces of m_smoke* state into unrelated helper modules without a
 plan.
+
+The current dedicated plan for that architecture change is:
+
+- docs/pathtrace_core_refactor_plan.txt
+- docs/pathtrace_core_refactor_tasks/00_agent_readme.txt
+- docs/pathtrace_core_refactor_tasks/task_01_frame_resources.txt
+- docs/pathtrace_core_refactor_tasks/task_02_primary_surface_contract.txt
+- docs/pathtrace_core_refactor_tasks/task_03_scene_input_contracts.txt
+- docs/pathtrace_core_refactor_tasks/task_04_path_tracer_core_controls.txt
+- docs/pathtrace_core_refactor_tasks/task_05_restir_pass_split.txt
+- docs/pathtrace_core_refactor_tasks/task_06_debug_timing_validation.txt
+- docs/pathtrace_core_refactor_tasks/task_07_reflection_glass_denoise_reservations.txt
 
 What to avoid:
 

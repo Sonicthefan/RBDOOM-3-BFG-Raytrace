@@ -8,11 +8,10 @@
 
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceDrawSurfCapture.h"
+#include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
-#include "PathTraceReservoirs.h"
-#include "PathTraceRestirPT.h"
-#include "PathTraceRestirPTReservoirs.h"
+#include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
 
 #include <nvrhi/nvrhi.h>
@@ -51,13 +50,7 @@ private:
     bool m_smokeSceneRebuildLogged;
     bool m_smokeTestDispatched;
     bool m_smokeWaitingForDoomSurfaceLogged;
-    bool m_smokeReadbackQueued;
-    bool m_smokeReadbackLogged;
-    int m_smokeReadbackDelayFrames;
-    int m_smokeReadbackCooldownFrames;
     int m_smokeSceneLogCooldownFrames;
-    int m_smokeOutputWidth;
-    int m_smokeOutputHeight;
     bool m_smokeStaticBlasCacheValid;
     uint64 m_smokeStaticBlasSignature;
     int m_smokeStaticBlasCacheHitCount;
@@ -110,9 +103,8 @@ private:
     float m_smokeBoundsOverlayTanY = 1.0f;
     float m_smokeBoundsOverlayModelViewMatrix[16] = {};
     float m_smokeBoundsOverlayProjectionMatrix[16] = {};
-    nvrhi::TextureHandle m_smokeOutputTexture;
-    nvrhi::TextureHandle m_smokeAccumulationTexture;
-    nvrhi::StagingTextureHandle m_smokeReadbackTexture;
+    RtPathTraceFrameResources m_frameResources;
+    RtPathTraceSceneInputs m_sceneInputs;
     nvrhi::rt::AccelStructDesc m_smokeStaticBlasDesc;
     nvrhi::rt::AccelStructDesc m_smokeDynamicBlasDesc;
     nvrhi::rt::AccelStructHandle m_smokeStaticBlas;
@@ -132,28 +124,6 @@ private:
     int m_smokeLightCandidateBytes = 0;
     int m_smokeDoomAnalyticLightCount = 0;
     int m_smokeDoomAnalyticLightBytes = 0;
-    RtSmokeReservoirBufferHandles m_smokeReservoirBuffers;
-    RtRestirPTReservoirBufferHandles m_restirPTReservoirBuffers;
-    RtRestirPTPrimarySurfaceHistoryBufferHandles m_restirPTPrimarySurfaceHistoryBuffers;
-    RtRestirPTContextState m_restirPTContextState;
-    uint32_t m_restirPTFrameIndex = 0;
-    uint64 m_smokeReservoirSceneSignature = 0;
-    uint64 m_smokeReservoirDispatchSignature = 0;
-    bool m_smokeReservoirNeedsClear = false;
-    bool m_restirPTPrimarySurfaceHistoryNeedsClear = true;
-    bool m_restirPTPrimarySurfaceHistoryViewValid = false;
-    int m_restirPTPrimarySurfaceHistoryViewWidth = 0;
-    int m_restirPTPrimarySurfaceHistoryViewHeight = 0;
-    idVec3 m_restirPTPrimarySurfaceHistoryViewOrigin = vec3_origin;
-    idVec3 m_restirPTPrimarySurfaceHistoryViewForward = idVec3(1.0f, 0.0f, 0.0f);
-    idVec3 m_restirPTPrimarySurfaceHistoryViewLeft = idVec3(0.0f, 1.0f, 0.0f);
-    idVec3 m_restirPTPrimarySurfaceHistoryViewUp = idVec3(0.0f, 0.0f, 1.0f);
-    float m_restirPTPrimarySurfaceHistoryViewTanX = 1.0f;
-    float m_restirPTPrimarySurfaceHistoryViewTanY = 1.0f;
-    int m_smokeReservoirResetCount = 0;
-    int m_smokeReservoirClearCount = 0;
-    uint64 m_smokeAccumulationSignature = 0;
-    int m_smokeAccumulationFrameCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;

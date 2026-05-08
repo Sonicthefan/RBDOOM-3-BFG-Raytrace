@@ -28,7 +28,7 @@ const int RT_SMOKE_MAX_OUTPUT_HEIGHT = 2160;
 
 void ApplyRestirPTPreviewResolutionCap(int debugMode, int& outputWidth, int& outputHeight)
 {
-    if (debugMode != 32)
+    if (debugMode != 32 && debugMode != 33)
     {
         return;
     }
@@ -81,8 +81,8 @@ void ApplyRestirPTPreviewResolutionCap(int debugMode, int& outputWidth, int& out
         s_lastLoggedCappedWidth != cappedWidth ||
         s_lastLoggedCappedHeight != cappedHeight)
     {
-        common->Printf("PathTracePrimaryPass: mode 32 ReSTIR PT preview capped output %dx%d -> %dx%d (maxPixels=%d)\n",
-            outputWidth, outputHeight, cappedWidth, cappedHeight, maxPixels);
+        common->Printf("PathTracePrimaryPass: mode %d ReSTIR PT preview capped output %dx%d -> %dx%d (maxPixels=%d)\n",
+            debugMode, outputWidth, outputHeight, cappedWidth, cappedHeight, maxPixels);
         s_lastLoggedRequestedWidth = outputWidth;
         s_lastLoggedRequestedHeight = outputHeight;
         s_lastLoggedCappedWidth = cappedWidth;
@@ -183,13 +183,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeSceneRebuildLogged(false)
     , m_smokeTestDispatched(false)
     , m_smokeWaitingForDoomSurfaceLogged(false)
-    , m_smokeReadbackQueued(false)
-    , m_smokeReadbackLogged(false)
-    , m_smokeReadbackDelayFrames(0)
-    , m_smokeReadbackCooldownFrames(0)
     , m_smokeSceneLogCooldownFrames(0)
-    , m_smokeOutputWidth(0)
-    , m_smokeOutputHeight(0)
     , m_smokeStaticBlasCacheValid(false)
     , m_smokeStaticBlasSignature(0)
     , m_smokeStaticBlasCacheHitCount(0)
@@ -204,21 +198,6 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
     , m_smokeTextureProbeMaterialId(0)
     , m_smokeTextureProbeRequestedIndex(-1)
     , m_smokeSceneOrigin(vec3_origin)
-    , m_smokeReservoirSceneSignature(0)
-    , m_smokeReservoirDispatchSignature(0)
-    , m_smokeReservoirNeedsClear(false)
-    , m_restirPTPrimarySurfaceHistoryNeedsClear(true)
-    , m_restirPTPrimarySurfaceHistoryViewValid(false)
-    , m_restirPTPrimarySurfaceHistoryViewWidth(0)
-    , m_restirPTPrimarySurfaceHistoryViewHeight(0)
-    , m_restirPTPrimarySurfaceHistoryViewOrigin(vec3_origin)
-    , m_restirPTPrimarySurfaceHistoryViewForward(idVec3(1.0f, 0.0f, 0.0f))
-    , m_restirPTPrimarySurfaceHistoryViewLeft(idVec3(0.0f, 1.0f, 0.0f))
-    , m_restirPTPrimarySurfaceHistoryViewUp(idVec3(0.0f, 0.0f, 1.0f))
-    , m_restirPTPrimarySurfaceHistoryViewTanX(1.0f)
-    , m_restirPTPrimarySurfaceHistoryViewTanY(1.0f)
-    , m_smokeReservoirResetCount(0)
-    , m_smokeReservoirClearCount(0)
 {
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
     if (device)
@@ -235,9 +214,7 @@ PathTracePrimaryPass::PathTracePrimaryPass(idRenderBackend* backend)
 PathTracePrimaryPass::~PathTracePrimaryPass()
 {
     ResetRayTracingSmokeSceneResources();
-    m_smokeOutputTexture = nullptr;
-    m_smokeAccumulationTexture = nullptr;
-    m_smokeReadbackTexture = nullptr;
+    m_frameResources.ResetOutputSizedResources(RT_FRAME_RESET_SCENE_RESOURCES);
     m_smokeConstantsBuffer = nullptr;
     m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
@@ -278,8 +255,12 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     InitRayTracingSmokeTest();
     int outputWidth = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_WIDTH, RT_SMOKE_MAX_OUTPUT_WIDTH, r_pathTracingDebugWidth.GetInteger());
     int outputHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, r_pathTracingDebugHeight.GetInteger());
-    const int debugMode = idMath::ClampInt(0, 32, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 37, r_pathTracingDebugMode.GetInteger());
     ApplyRestirPTPreviewResolutionCap(debugMode, outputWidth, outputHeight);
+    m_frameResources.ClearResetReasons();
+    m_frameResources.settings.debugMode = debugMode;
+    m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
+    m_frameResources.settings.frameIndex = m_frameResources.restirPTFrameIndex;
     if (!ResizeRayTracingSmokeOutput(outputWidth, outputHeight))
     {
         return;
@@ -312,7 +293,7 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
 {
     OPTICK_EVENT("PT Blit Debug Output");
 
-    if (!m_smokeTestDispatched || !m_smokeOutputTexture || !m_backend || !targetFramebuffer)
+    if (!m_smokeTestDispatched || !m_frameResources.outputTexture || !m_backend || !targetFramebuffer)
     {
         return;
     }
@@ -326,12 +307,12 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
 
     {
         OPTICK_GPU_EVENT("PT GPU Blit Output Barriers");
-        commandList->setTextureState(m_smokeOutputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->commitBarriers();
     }
 
     BlitParameters blitParms;
-    blitParms.sourceTexture = m_smokeOutputTexture;
+    blitParms.sourceTexture = m_frameResources.outputTexture;
     blitParms.targetFramebuffer = targetFramebuffer;
     blitParms.targetViewport = targetViewport;
     blitParms.sampler = BlitSampler::Point;

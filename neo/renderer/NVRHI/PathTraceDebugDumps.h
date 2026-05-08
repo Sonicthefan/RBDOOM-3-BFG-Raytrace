@@ -18,6 +18,52 @@ const int RT_SMOKE_DEBUG_TEXTURE_COVERAGE_CLASS_COUNT = 5;
 
 struct viewDef_t;
 
+struct RtPathTraceDebugModeInfo
+{
+    int mode = 0;
+    const char* name = "unknown";
+    const char* category = "unknown";
+    const char* output = "unknown";
+    const char* owner = "legacy-smoke-raygen";
+    bool behaviorChanging = false;
+    bool temporary = false;
+};
+
+struct RtPathTraceDispatchTimingLogDesc
+{
+    double totalSubmitMs = 0.0;
+    double setupMs = 0.0;
+    double restirContextMs = 0.0;
+    double constantsMs = 0.0;
+    double barrierMs = 0.0;
+    double reservoirClearMs = 0.0;
+    double primaryHistoryClearMs = 0.0;
+    double targetClearMs = 0.0;
+    double setStateMs = 0.0;
+    double dispatchSubmitMs = 0.0;
+    double historyCopyMs = 0.0;
+    double readbackCopyMs = 0.0;
+    int outputWidth = 0;
+    int outputHeight = 0;
+    int dispatchWidth = 0;
+    int dispatchHeight = 0;
+    int debugMode = 0;
+    int samplesPerPixel = 1;
+    int maxPathDepth = 1;
+    int estimatedRaysPerPixel = 1;
+    int selectedLights = 0;
+    int analyticLights = 0;
+    int restirResamplingMode = 0;
+    int restirPreviewVisibility = 0;
+    int restirPreviewMaxPixels = 0;
+    bool reservoirClearRequested = false;
+    bool primaryHistoryClearRequested = false;
+    bool readbackQueued = false;
+    bool optickGpuMarkers = false;
+    const RtPathTraceDebugModeInfo* debugModeInfo = nullptr;
+    const char* restirPassLabel = "disabled";
+};
+
 struct RtSmokeTextureCoverageClassStats
 {
     int triangles = 0;
@@ -261,7 +307,10 @@ const char* SmokeTextureColorFormatName(textureColor_t colorFormat);
 const char* SmokeDeformName(deform_t deform);
 const char* SmokeDynamicModelName(dynamicModel_t dynamicModel);
 
+RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode);
+void LogPathTraceDebugModeInfo(const RtPathTraceDebugModeInfo& info);
 bool ShouldLogSmokeTiming(int elapsedMs, int nowMs, int& lastLogMs);
+void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc);
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc);
 void LogSmokeSceneRebuildSummary(const RtSmokeSceneBuildSummaryLogDesc& desc);
 void LogSmokeSceneCaptureSummary(const RtSmokeSceneBuildSummaryLogDesc& desc);

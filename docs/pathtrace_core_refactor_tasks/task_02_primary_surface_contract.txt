@@ -1,0 +1,120 @@
+Task 02 - Primary Surface Contract And Pass Boundary
+====================================================
+
+Goal
+----
+
+Turn the current primary-surface history side effect into an explicit PT primary
+surface contract. The first implementation may still be dispatched through the
+existing smoke raygen, but the data layout, ownership, clear/copy lifetime, and
+debug views must become pass-facing instead of debug-mode-facing.
+
+Primary files likely involved:
+
+- neo/renderer/NVRHI/PathTraceRestirPTReservoirs.h
+- neo/renderer/NVRHI/PathTraceRestirPTReservoirs.cpp
+- neo/renderer/NVRHI/PathTraceSmokeResources.*
+- neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+- neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+- neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Surface.hlsli
+- neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Material.hlsli
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+
+Preferred new module names:
+
+- PathTracePrimarySurface.h/.cpp
+- PathTracePrimarySurface.hlsli
+
+Step-by-step plan
+-----------------
+
+1. Document the existing 128-byte primary-surface history record layout from
+   shader and host code before changing it.
+
+2. Define a named CPU/shader contract for the primary surface record. Required
+   first fields:
+
+       valid flags
+       world position
+       view depth
+       geometric normal
+       shading normal
+       view direction
+       material index
+       material flags/surface class
+       instance ID
+       primitive ID
+       object/entity ID placeholder
+       albedo
+       roughness
+       F0/specular
+       emissive
+       opacity/alpha cutoff
+       optional height/parallax/displacement metadata placeholder
+       previous position or motion vector placeholder
+
+   If the existing 128-byte stride cannot hold all fields, do not silently drop
+   important fields. Either make a deliberate versioned layout change or split
+   auxiliary data into a second buffer.
+
+3. Keep current/previous buffers separate and keep primary-surface clearing
+   independent from reservoir clearing. This separation already fixed a bad
+   moving-camera validation failure.
+
+4. Add explicit history state:
+
+       current valid
+       previous valid
+       same-pixel history valid
+       camera reprojection available
+       object motion available
+       reset reason
+
+5. Move primary-surface write helpers into a named shader include. Existing
+   mode 29/30/31/32/33 code should call the helper instead of open-coding
+   record packing.
+
+6. Preserve mode 29 and mode 30 as validation views:
+
+       mode 29 = same-pixel primary surface history validation
+       mode 30 = camera-only reprojection validation
+
+   Do not pretend camera-only reprojection is final motion-vector support.
+
+7. Add debug visualization outputs for missing current, missing previous,
+   material mismatch, normal mismatch, roughness mismatch, rejected previous,
+   and no object motion.
+
+8. Add a hard comment/TODO where object/entity ID must be finalized. If the
+   correct Doom 3 identity source is unclear, ask the user before choosing it.
+
+9. Update ReSTIR RAB screen callbacks to consume the named primary-surface
+   contract instead of local ad hoc history reads.
+
+10. Update docs/pathtracing.txt and docs/pathtrace_modules.txt.
+
+Acceptance criteria
+-------------------
+
+- Mode 29 remains useful and does not regress to full-screen "no previous" on
+  ordinary camera motion.
+- Mode 30 still shows camera-only reprojection behavior with expected edge and
+  moving-object limits.
+- ReSTIR PT debug modes continue to compile.
+- The primary-surface record is documented enough for a new agent to add motion
+  vectors or denoiser inputs without rediscovering the layout.
+- The surface/material fields are versioned or extensible enough that richer
+  material semantics can be added without redefining the entire record.
+
+Forbidden shortcuts
+-------------------
+
+- Do not treat current ray hits as previous-frame history.
+- Do not bind reservoir reset signatures to primary-surface history clearing.
+- Do not invent a final object ID without user confirmation if the right Doom
+  renderer/game identity is ambiguous.
+- Do not reconstruct idTech4 tangent basis in every shader as the final answer
+  if original tangent/sign data can be passed through the geometry path.
+- Do not make the current stopgap material classifier output the only material
+  data the primary-surface contract can ever carry.

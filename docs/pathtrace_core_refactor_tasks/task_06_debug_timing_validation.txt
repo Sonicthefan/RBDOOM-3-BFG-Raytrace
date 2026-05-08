@@ -1,0 +1,134 @@
+Task 06 - Debug Visualizers, Timing, And Validation
+===================================================
+
+Goal
+----
+
+Make debug modes visualize stable intermediate resources and make performance
+diagnostics per-pass. This keeps future optimization and stability work from
+being blocked by a monolithic dispatch whose output cannot be decomposed.
+
+Primary files likely involved:
+
+- neo/renderer/NVRHI/PathTraceCVars.*
+- neo/renderer/NVRHI/PathTraceDebugDumps.*
+- neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+- neo/renderer/NVRHI/PathTraceSmokeReadback.cpp
+- neo/renderer/NVRHI/PathTraceRestirPT.*
+- neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+
+Step-by-step plan
+-----------------
+
+1. List current debug modes and classify each one:
+
+       pass output visualizer
+       scene/geometry diagnostic
+       material/texture diagnostic
+       light diagnostic
+       temporary behavior-changing experiment
+
+2. For behavior-changing experiments, either:
+
+       keep them clearly marked as temporary, or
+       convert them to visualize an explicit pass output.
+
+3. Add a debug-output selection layer:
+
+       primary surface fields
+       material fields
+       light lists/candidates
+       initial reservoir metadata
+       temporal reservoir metadata
+       spatial reservoir metadata
+       visibility/shading output
+       reflection/specular output
+       path depth / SPP / bounce-limit state
+       history reset reason
+
+4. Add per-pass timing hooks:
+
+       CPU start/end timestamps
+       Optick GPU marker
+       CPU staging/pre-dispatch time
+       output resolution
+       dispatch dimensions
+       rays-per-pixel or samples-per-pixel policy
+       clear/barrier timing if practical
+       resource resize/recreate events
+       descriptor/binding set rebuild events
+       UAV/SRV/AS barrier stage names
+       max-pixel/resolution caps that were applied
+       upload bytes and readback activity
+
+5. Add a CPU-hotspot triage checklist:
+
+       did scene extraction/capture rebuild large CPU vectors?
+       did skinned/deformed geometry preparation run on the render path?
+       did material discovery/classification or texture lookup run broadly?
+       did bindless/material descriptor state rebuild instead of dirty-update?
+       did BLAS/TLAS build-input staging rebuild or upload whole buffers?
+       did emissive/light candidate generation rediscover persistent records?
+       did any readback/log/debug overlay path stall or delay submission?
+       did resource resize/replacement force idle or descriptor recreation?
+       did portal walks dominate timing, or are they only semantically divergent?
+
+   Treat these as the likely CPU-heavy ray-tracing areas before assuming the
+   shader dispatch itself is the only problem.
+
+6. Add a device-removal triage checklist:
+
+       was the run Debug/validation or Release/PT dev Release?
+       was CPU staging unusually high before dispatch?
+       did output-sized resources resize this frame?
+       were old resources/descriptors/AS handles replaced safely?
+       which named pass ran last?
+       what was the internal resolution and effective ray budget?
+       were visibility/reflection/spatial/temporal toggles enabled?
+       did readback or debug overlay work run?
+       were descriptor tables, binding sets, BLAS, or TLAS rebuilt?
+       were whole buffers uploaded when dirty-range updates would suffice?
+       did the failure follow a barrier/resource state change?
+
+   Record this in docs when a crash is investigated. Do not stop at "Wait for
+   Frame" or present unless upstream pass timing has already been ruled out.
+
+7. Keep terminal dumps one-shot or throttled. Existing users depend on dumps not
+   spamming the console every frame.
+
+8. Add smoke validation presets only when they reduce manual setup. Do not hide
+   important CVars behind a preset if the task is validating a specific policy.
+
+9. Add a validation checklist to docs for every ownership-changing task:
+
+       build target
+       shader target if applicable
+       modes to check
+       CVars to set
+       expected log lines
+       known acceptable artifacts
+
+10. Keep Release/PT dev Release as the meaningful performance lane. Debug and
+   validation-layer-heavy runs are correctness/tracing lanes.
+
+Acceptance criteria
+-------------------
+
+- A developer can tell which pass caused a slowdown or device removal risk.
+- A developer can tell whether the weak link was GPU pass length, CPU staging,
+  upload/readback pressure, or resource lifetime/synchronization.
+- Debug modes are documented as output visualizers or temporary experiments.
+- Console diagnostics remain usable and throttled.
+- Existing mode 18/20/26-33 validation notes stay coherent after the pass split.
+
+Forbidden shortcuts
+-------------------
+
+- Do not infer root cause from "Wait for Frame" or present stalls alone.
+- Do not make Debug FPS claims as final performance conclusions.
+- Do not call a problem "GPU bound" until CPU staging, upload, readback, and
+  resource rebuild costs are visible.
+- Do not add always-on readback or logging in the render loop.
+- Do not delete working debug modes until their replacement visualizer exists.

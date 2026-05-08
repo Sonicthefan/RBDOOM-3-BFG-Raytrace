@@ -1,0 +1,226 @@
+Task 03 - Scene, Material, And Light Input Contracts
+====================================================
+
+Goal
+----
+
+Introduce explicit scene input packages consumed by PT passes. Existing modules
+should produce stable contracts; passes should not reach backward into scene
+capture, material discovery, Doom light entities, or PathTracePrimaryPass
+private state.
+
+This task is also the point where the branch stops treating the early
+reverse-engineered material classifier and geometry capture shape as final
+architecture. They are allowed to remain as stopgaps, but the inputs and outputs
+must be rich enough for the newer idTech4 material documents, RBDoom3/mod PBR
+assets, source3 portal residency, and upcoming two-frame motion-vector capture.
+
+Primary files likely involved:
+
+- neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+- neo/renderer/NVRHI/PathTraceSmokeResources.*
+- neo/renderer/NVRHI/PathTraceGeometryUniverse.*
+- neo/renderer/NVRHI/PathTraceInstanceUniverse.*
+- neo/renderer/NVRHI/PathTraceMaterialUniverse.*
+- neo/renderer/NVRHI/PathTraceTextureRegistry.*
+- neo/renderer/NVRHI/PathTraceLightUniverse.*
+- neo/renderer/NVRHI/PathTraceDoomLights.*
+- neo/renderer/NVRHI/PathTraceEmissiveCandidates.*
+- docs/pathtrace_geometry_universe.md
+- docs/pathtrace_material_universe.md
+- docs/pathtrace_interactive_surfaces.md
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+
+Preferred new module names:
+
+- PathTraceSceneInputs.h
+- PathTraceSceneInputs.cpp, only if needed
+
+Step-by-step plan
+-----------------
+
+1. Define a CPU-side `RtPathTraceSceneInputs` struct or equivalent with stable
+   references/counts/signatures for:
+
+       TLAS and BLAS handles
+       static/dynamic/rigid/skinned geometry buffers
+       material table buffer/count/signature
+       texture descriptor table and active texture count
+       emissive triangle buffer/count/signature
+       light candidate buffer/count/signature
+       Doom analytic light buffer/count/signature
+       instance/primitive identity buffers
+       camera-area/portal-selection facts
+       current/previous geometry-history availability
+       material semantic table version/capability flags
+
+2. Build the struct at the end of the existing scene build. Do not change GPU
+   buffer layouts in the first slice unless the contract cannot be represented
+   with existing buffers.
+
+3. Split signatures into meaningful domains:
+
+       geometry membership
+       material table
+       light membership
+       output resolution
+       camera/projection
+       debug feature policy
+       CPU staging / upload generation
+
+   Avoid one giant "anything changed" signature for all histories.
+
+4. Add a stable comments block explaining source3 baseline policy:
+
+       source3 is default
+       source0 is emergency fallback
+       portal-area membership drives residency
+       PS_BLOCK_VIEW is counted/reported but does not hard-stop current default
+       current-area plus four portal steps is the validated greedy baseline
+       portal-area membership is preferred over screen-visible-only capture
+       future LoS portal supplementation should add visible boundary areas only,
+       without recursively walking outward from those LoS-added areas
+
+5. Audit current portal-walk ownership before adding more consumers:
+
+       static area preload uses r_pathTracingStaticAreaPreloadPortalSteps
+       rigid residency uses r_pathTracingRigidResidencyPortalSteps
+       emissive light-universe selection uses r_pathTracingLightAreaPortalSteps
+       Doom analytic lights also use r_pathTracingLightAreaPortalSteps
+       diagnostics-only scene-universe selection uses r_pathTracingScenePortalSteps
+
+   Today these paths mostly repeat the same multi-seed camera-area BFS pattern:
+   viewDef->areaNum, initialViewAreaOrigin, vieworg, and short view-axis probes
+   feed NumPortalsInArea/GetPortal traversal. Determine whether the separate
+   CVars are true policy differences or just historical growth. Add timing and
+   selected-area-count diagnostics before changing behavior.
+
+6. If the audit shows equivalent default policy, introduce a shared per-frame
+   `RtPathTracePortalSelection` or equivalent:
+
+       seed areas and current area
+       selected area bitset/depths
+       portal edge and blocked-edge counts
+       selected area count
+       portal step limit used
+       optional LoS-added area bitset/depth/source flag
+       source/provenance for diagnostics
+
+   Consumers can still apply their own filtering after the shared selection:
+   static surfaces, rigid instances, emissive candidates, and Doom light bounds
+   do not need identical acceptance rules. The shared part is the area walk.
+
+   Keep a future extension point for visible portal-boundary supplementation:
+   after the normal multi-seed BFS, inspect portal boundaries in player line of
+   sight and union their far-side areas into the selected set. Those areas should
+   be marked as LoS-added and must not enqueue their own neighbors. This is a
+   targeted fix for dense chains of tiny portal regions that can consume depth-4
+   traversal while still being visually adjacent. Do not implement this until a
+   task explicitly asks for it and supplies validation scenes/dumps.
+
+7. Extend geometry input records only after documenting previous-frame needs:
+
+       previous transform
+       previous range
+       previous vertex or delta data
+       current and previous skinned/deformed vertex data availability
+       per-record history validity and invalidation reason
+       dirty/invalidation flags
+       live entity validation
+       portal-area membership and traversal depth provenance
+
+   The first implementation may only record CPU-side capability/history fields.
+   Do not prematurely rewrite GPU buffers, but do not design a record that makes
+   two-frame vertex capture or motion-vector generation hard to add soon.
+
+8. Extend material input records only through the material universe:
+
+       base color
+       emissive
+       opacity/alpha cutoff
+       roughness/fake-PBR
+       F0/specular
+       metallic/roughness/PBR texture roles
+       ambient occlusion role
+       height/parallax role
+       displacement role
+       normal map flags
+       surface class flags
+       stage semantics and dynamic material-parm/evaluated register facts
+       source provenance: idTech4 semantic, RBDoom3/PBR asset, stopgap fallback
+
+   Preserve Doom material stage semantics. Do not classify by filename first.
+   PathTraceDoomMaterialClassifier is useful as a stopgap because it captured
+   many reverse-engineered cases, but it is not the final model. The richer
+   contract should be able to consume the idTech4 material documents and support
+   later conventional PBR sources without replacing the whole shader-visible
+   material table again.
+
+9. Extend light input records through the light universe and Doom light module:
+
+       persistent emissive identities
+       current active/dimmed state
+       Doom analytic sphere/disk/spot candidate data
+       area membership
+       importance weight
+       current/previous identity mapping placeholder
+
+10. Add one-shot dumps for the final `RtPathTraceSceneInputs` package:
+
+       geometry counts/signatures
+       geometry history availability
+       portal area/depth provenance
+       portal selection timing per consumer and shared total if centralized
+       material counts/signatures
+       material semantic capability counts
+       light counts/signatures
+       area selection summary
+       history reset consequences
+       CPU staging time and upload byte estimates per scene-input domain
+
+11. Update docs.
+
+Acceptance criteria
+-------------------
+
+- Existing smoke dispatch receives one scene input package or an equivalent
+  narrow commit descriptor instead of reading scattered PathTracePrimaryPass
+  fields where practical.
+- ReSTIR bridge code can identify the material/light/geometry buffers it should
+  consume without reading scene capture internals.
+- Mode 18, mode 20, and ReSTIR debug modes still use the source3 scene-membership
+  baseline.
+- The material contract can represent current Doom stopgap interpretation,
+  documented idTech4 material semantics, and future PBR texture roles.
+- The geometry contract leaves explicit room for two-frame vertex/transform data
+  needed by motion vectors.
+- The portal walk mechanics are documented well enough to answer whether
+  geometry and lights should share one selected-area result or keep separate
+  policy knobs.
+- Scene input updates expose whether CPU preparation/upload churn, not only GPU
+  ray work, is pressuring frame pacing.
+
+Forbidden shortcuts
+-------------------
+
+- Do not move scene building inside ReSTIR-specific code.
+- Do not make ReSTIR rebuild its own light list from game entities.
+- Do not keep stale dynamic emissives as a replacement for current evaluated
+  material state.
+- Do not widen the rigid residency workaround beyond its current conservative
+  intent without user approval.
+- Do not freeze PathTraceDoomMaterialClassifier's current outputs as the maximum
+  material model.
+- Do not make a final material contract that cannot represent conventional PBR,
+  parallax, or displacement inputs.
+- Do not design geometry records that only ever know about the current frame.
+- Do not remove separate portal-step CVars until diagnostics prove their
+  behavior is redundant.
+- Do not assume multiple portal walks are expensive without timing them; the
+  first risk is semantic drift, not necessarily CPU cost.
+- Do not turn the future LoS portal supplement into an unbounded visible-portal
+  flood. LoS-added areas are terminal additions unless a later validated design
+  says otherwise.
+- Do not treat available RAM/VRAM as permission for frame-local CPU rebuilds on
+  the render path. Use that headroom for persistent records and stable buffers.

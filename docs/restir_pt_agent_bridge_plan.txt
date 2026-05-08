@@ -825,25 +825,39 @@ Current status before enabling:
       because it adds another ray per pixel to an already heavy temporal PT
       debug path. It is still a debug view and does not enable spatial reuse or
       production final shading.
+    - r_pathTracingDebugMode 33 is the temporal light-source attribution
+      diagnostic. It uses the same temporal reservoir path as mode 32, but
+      colors the selected NEE light source: cyan/blue for Doom analytic sphere
+      lights, orange for emissive triangles, green for non-NEE or indirect
+      reservoir samples, and red for invalid/unknown light data. Rejection
+      colors from modes 30/31 can still appear before a valid temporal
+      reservoir exists.
+    - ReSTIR PT modes 26 through 33 force Doom analytic light candidate upload
+      and shader-side analytic-light enablement even when
+      r_pathTracingAnalyticLightCandidates is 0. They also share the routed
+      rigid scene path and routed rigid emissive inventory so the ReSTIR debug
+      family tests the same source3 membership baseline instead of accidentally
+      becoming emissive-only or fallback-scene diagnostics.
     - User validation showed mode 32 works at about 1280x720 but can
       device-remove the GPU when pushed much beyond 720p. Treat this as current
       debug workload/TDR pressure, not a ReSTIR PT data-path correctness
       failure. r_pathTracingRestirPTPreviewMaxPixels exists as an experimental
-      cap, but the practical rule is to test mode 32 at or below 720p until it
-      is optimized.
+      cap, but the practical rule is to test mode 32/33 at or below 720p until
+      it is optimized.
     - The optimization path is to split initial sampling, temporal resampling,
       visibility, and final/preview shading into separate profiled passes; use
       lower internal resolution or checkerboard execution; keep visibility rays
       optional until a denoiser/upscaler path exists; tune initial sample count,
       bounce depth, and hybrid-shift/reconnection costs after correctness; and
       replace camera-only reprojection with real vertex/object motion vectors.
-    - A follow-up mode 33 temporal-resolve shortcut was attempted and removed
+    - A follow-up, uncommitted mode 33 temporal-resolve shortcut was attempted and removed
       before commit. It reused SmokeAccumulation as previous resolved color,
       sampled it at the reprojected previous pixel, wrote current output to
       SmokeOutput, then copied SmokeOutput back to SmokeAccumulation after
       dispatch. User validation reported mostly emissive contribution, little
       regular lighting, orange outlines, and device removal after roughly 30
-      seconds. Do not rebuild the next denoiser attempt around that shortcut;
+      seconds. Active mode 33 is now source attribution, not this temporal
+      resolve. Do not rebuild the next denoiser attempt around that shortcut;
       use explicit history ownership, separated passes, lower internal
       resolution/checkerboard execution, and per-stage GPU timing.
     - Primary-surface history clearing is independent from the camera-sensitive
