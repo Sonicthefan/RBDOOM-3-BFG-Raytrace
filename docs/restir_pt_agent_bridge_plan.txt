@@ -745,6 +745,15 @@ Current implementation note (2026-05-08):
     User validation reported that mode 27 works fairly well, runs well
     performance-wise, and has no serious stability/gameplay issues. Remaining
     rough normals and black objects are local RAB material/normal cleanup.
+    r_pathTracingDebugMode 28 is the paired initial-only reservoir visibility
+    preview. It keeps the mode 27 preview path but multiplies the contribution
+    by one conservative shadow/visibility ray to the selected reservoir target.
+    NEE reservoirs decode their packed RTXDI light reference; non-NEE
+    reservoirs use the translated reservoir world position. This is still a
+    bridge validation mode before temporal/spatial resampling.
+    User validation reported no issues with mode 28. The 100% sharp shadows are
+    expected at this stage because the preview uses one binary visibility ray to
+    the selected reservoir sample, not soft-shadow integration.
 
 Goal:
     Dispatch initial path tracing and write packed PT reservoirs.
@@ -761,6 +770,7 @@ Actions:
 Success criteria:
     - Can debug valid/invalid reservoirs.
     - Initial-only mode renders similarly to baseline one-sample indirect path tracing, within expected stochastic difference.
+    - Mode 28 shows plausible occluded/dark regions compared with mode 27 without destabilizing gameplay or the GPU device.
     - Clearing reservoir buffer produces black/invalid output as expected.
 
 Do not:

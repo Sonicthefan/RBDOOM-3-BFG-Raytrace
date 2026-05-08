@@ -1113,6 +1113,18 @@ the hit shader. The RAB surface builder now constrains decoded shading normals
 to the oriented geometric-normal hemisphere before BRDF checks, which avoids
 fully black reservoir-lit surfaces when a normal map tilts past the valid side.
 
+Mode 28 is the paired initial-reservoir visibility preview. It keeps the same
+mode 27 reservoir generation and preview shading, but multiplies the preview by
+one conservative visibility ray toward the selected reservoir target. NEE
+reservoirs decode the packed RTXDI sampled-light reference and resample the
+current RAB light; non-NEE reservoirs use the translated reservoir world
+position. This is still initial-only validation, not temporal/spatial ReSTIR PT
+or final path replay.
+User validation reported no issues. Hard-edged shadows are expected because the
+mode traces a single binary visibility ray to the selected reservoir sample;
+soft shadows require later multi-sample/temporal/spatial accumulation and final
+shading.
+
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver
 removes the device. This resembles the older mode 18 `r_pathTracingLightCount

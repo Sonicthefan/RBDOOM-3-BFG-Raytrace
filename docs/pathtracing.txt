@@ -2044,6 +2044,7 @@ For ReSTIR PT initial-sampling reservoir validation:
 
     r_pathTracingDebugMode 26
     r_pathTracingDebugMode 27
+    r_pathTracingDebugMode 28
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2061,8 +2062,8 @@ translucent/special surfaces, and invalid hits store empty reservoirs. The
 visible output is a sparse heat/debug view for selected useful reservoirs; it
 is not final ReSTIR PT shading.
 Temporal reuse, spatial reuse, previous-frame surface history, environment
-sampling, and traced RAB visibility are still off. Modes 18 and 20 remain the
-stable toy PT and single-frame direct reservoir paths.
+sampling, and dispatched ReSTIR PT resampling passes are still off. Modes 18
+and 20 remain the stable toy PT and single-frame direct reservoir paths.
 
 Mode 26 must use the same source3 scene membership baseline as the playable PT
 diagnostic modes. It now participates in rigid TLAS routing, rigid residency,
@@ -2117,6 +2118,22 @@ of reconstructing TBN from triangle UV gradients in the hit shader. Mode 27 RAB
 surface setup also now constrains decoded shading normals to the oriented
 geometric-normal hemisphere before BRDF evaluation, so an over-tilted or
 wrong-convention normal map should not turn a reservoir-lit surface fully black.
+
+Mode 28 is the paired initial-reservoir visibility preview. It keeps mode 27's
+initial reservoir generation and shading preview, then multiplies the preview
+contribution by one conservative visibility ray from the current surface to the
+selected reservoir target. For NEE reservoirs it decodes the packed RTXDI light
+reference, resamples the current RAB light, respects non-shadow-casting Doom
+analytic lights, and ignores the selected static emissive triangle for direct
+emissive visibility rays so the light does not immediately shadow itself. For
+non-NEE reservoirs it falls back to the reservoir translated world position.
+This mode is intentionally a validation bridge for reservoir visibility and
+shadowing; it does not enable temporal reuse, spatial reuse, final RTXDI shading
+passes, or full path replay.
+User validation: mode 28 showed no gameplay/stability issues. The visible
+shadows are expected to be 100% sharp in this mode because the preview uses one
+binary visibility ray to the selected reservoir sample; soft penumbrae require
+many light samples over time/spatial reuse and later final shading/denoising.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom

@@ -393,8 +393,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 27, r_pathTracingDebugMode.GetInteger());
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || requestedDebugMode == 26 || requestedDebugMode == 27;
+    const int requestedDebugMode = idMath::ClampInt(0, 28, r_pathTracingDebugMode.GetInteger());
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_smokeOutputTexture || !m_smokeAccumulationTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -546,7 +546,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0 &&
         (requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
-            requestedDebugMode == 26 || requestedDebugMode == 27 ||
+            requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28 ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0) ||
             (requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0));
     const bool rigidResidencyBoundsDebug = requestedDebugMode == 21 || requestedDebugMode == 22;
@@ -1061,7 +1061,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (enableRigidRouteForMode && (requestedDebugMode == 20 || requestedDebugMode == 26 || requestedDebugMode == 27))
+        if (enableRigidRouteForMode && (requestedDebugMode == 20 || requestedDebugMode == 26 || requestedDebugMode == 27 || requestedDebugMode == 28))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(
                 materialTable.materialIds,
@@ -1602,7 +1602,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",
                 requestedDebugMode,
                 routedRigidInstances,
-                requestedDebugMode == 23 ? "rigidOnly" : (requestedDebugMode == 24 ? "fallbackAndRigidValidation" : (requestedDebugMode == 25 ? "fallbackAndRigidLighting" : (requestedDebugMode == 27 ? "mode27RestirPTInitialShading" : (requestedDebugMode == 26 ? "mode26RestirPTInitial" : (requestedDebugMode == 20 ? "mode20Integration" : "mode18Integration"))))));
+                requestedDebugMode == 23 ? "rigidOnly" : (requestedDebugMode == 24 ? "fallbackAndRigidValidation" : (requestedDebugMode == 25 ? "fallbackAndRigidLighting" : (requestedDebugMode == 28 ? "mode28RestirPTInitialVisibility" : (requestedDebugMode == 27 ? "mode27RestirPTInitialShading" : (requestedDebugMode == 26 ? "mode26RestirPTInitial" : (requestedDebugMode == 20 ? "mode20Integration" : "mode18Integration")))))));
         }
     }
     accelSubmitDesc.commandList = commandList;
