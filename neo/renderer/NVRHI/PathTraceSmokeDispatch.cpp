@@ -53,6 +53,10 @@ struct PathTraceSmokeConstants
     float boundsOverlayInfo[4];
     float doomAnalyticLightInfo[4];
     float restirPTInfo[4];
+    float prevCameraOriginAndValid[4];
+    float prevCameraForwardAndTanX[4];
+    float prevCameraLeftAndTanY[4];
+    float prevCameraUpAndTanY[4];
 };
 
 uint64 HashSmokeDispatchValue(uint64 hash, uint64 value)
@@ -106,8 +110,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 29, r_pathTracingDebugMode.GetInteger());
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    int debugMode = idMath::ClampInt(0, 30, r_pathTracingDebugMode.GetInteger());
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
@@ -265,12 +269,33 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29) ? 8u : 0u) |
-        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29))) ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29) ? 64u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30) ? 8u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30))) ? 16u : 0u) |
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || debugMode == 26 || debugMode == 27 || debugMode == 28 || debugMode == 29 || debugMode == 30) ? 64u : 0u) |
         (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && debugMode == 18 ? 128u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
+    const bool previousHistoryViewValid =
+        m_restirPTPrimarySurfaceHistoryViewValid &&
+        m_restirPTPrimarySurfaceHistoryViewWidth == m_smokeOutputWidth &&
+        m_restirPTPrimarySurfaceHistoryViewHeight == m_smokeOutputHeight &&
+        !m_restirPTPrimarySurfaceHistoryNeedsClear;
+    constants.prevCameraOriginAndValid[0] = m_restirPTPrimarySurfaceHistoryViewOrigin.x;
+    constants.prevCameraOriginAndValid[1] = m_restirPTPrimarySurfaceHistoryViewOrigin.y;
+    constants.prevCameraOriginAndValid[2] = m_restirPTPrimarySurfaceHistoryViewOrigin.z;
+    constants.prevCameraOriginAndValid[3] = previousHistoryViewValid ? 1.0f : 0.0f;
+    constants.prevCameraForwardAndTanX[0] = m_restirPTPrimarySurfaceHistoryViewForward.x;
+    constants.prevCameraForwardAndTanX[1] = m_restirPTPrimarySurfaceHistoryViewForward.y;
+    constants.prevCameraForwardAndTanX[2] = m_restirPTPrimarySurfaceHistoryViewForward.z;
+    constants.prevCameraForwardAndTanX[3] = m_restirPTPrimarySurfaceHistoryViewTanX;
+    constants.prevCameraLeftAndTanY[0] = m_restirPTPrimarySurfaceHistoryViewLeft.x;
+    constants.prevCameraLeftAndTanY[1] = m_restirPTPrimarySurfaceHistoryViewLeft.y;
+    constants.prevCameraLeftAndTanY[2] = m_restirPTPrimarySurfaceHistoryViewLeft.z;
+    constants.prevCameraLeftAndTanY[3] = m_restirPTPrimarySurfaceHistoryViewTanY;
+    constants.prevCameraUpAndTanY[0] = m_restirPTPrimarySurfaceHistoryViewUp.x;
+    constants.prevCameraUpAndTanY[1] = m_restirPTPrimarySurfaceHistoryViewUp.y;
+    constants.prevCameraUpAndTanY[2] = m_restirPTPrimarySurfaceHistoryViewUp.z;
+    constants.prevCameraUpAndTanY[3] = m_restirPTPrimarySurfaceHistoryViewTanY;
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
     const bool replaceSelectedLightsWithAnalytic = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 && r_pathTracingAnalyticLightReplaceSelected.GetInteger() != 0;
     const int selectedLightCount = (debugMode == 14 || debugMode == 15 || debugMode == 18) && !replaceSelectedLightsWithAnalytic
@@ -523,6 +548,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_restirPTPrimarySurfaceHistoryBuffers.current,
         0,
         m_restirPTPrimarySurfaceHistoryBuffers.surfaceBytes);
+    m_restirPTPrimarySurfaceHistoryViewValid = true;
+    m_restirPTPrimarySurfaceHistoryViewWidth = m_smokeOutputWidth;
+    m_restirPTPrimarySurfaceHistoryViewHeight = m_smokeOutputHeight;
+    m_restirPTPrimarySurfaceHistoryViewOrigin = cameraOrigin;
+    m_restirPTPrimarySurfaceHistoryViewForward = cameraForward;
+    m_restirPTPrimarySurfaceHistoryViewLeft = cameraLeft;
+    m_restirPTPrimarySurfaceHistoryViewUp = cameraUp;
+    m_restirPTPrimarySurfaceHistoryViewTanX = constants.cameraForwardAndTanX[3];
+    m_restirPTPrimarySurfaceHistoryViewTanY = constants.cameraLeftAndTanY[3];
     if (debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0)
     {
         m_smokeAccumulationFrameCount = Min(m_smokeAccumulationFrameCount + 1, accumulationMaxFrames);

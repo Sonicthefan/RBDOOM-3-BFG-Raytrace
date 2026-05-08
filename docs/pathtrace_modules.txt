@@ -541,7 +541,7 @@ RtxdiBridge/*.hlsli
     the backend copies current to previous after dispatch for next-frame
     validation. The history record includes material identity plus the RAB
     material roughness/F0. When `r_pathTracingToyFakePBRSpecular 1` is enabled,
-    modes 26/27/28/29 sample Doom specular textures and store the same converted
+    modes 26/27/28/29/30 sample Doom specular textures and store the same converted
     fake-PBR roughness/F0 that mode 18 uses.
 
     Step 6 RNG scaffolding lives in `RAB_RandomSamplerState.hlsli`. It keeps a
@@ -1152,6 +1152,18 @@ After splitting those lifetimes, user validation reports the moving-camera
 full-screen blue case is gone. Purple normal mismatches and orange roughness
 mismatches while moving are expected same-pixel-history artifacts until motion
 vectors and reprojection are wired.
+
+Mode 30 validates a temporary screen-space reprojection path before RTXDI
+temporal resampling is enabled. PathTraceSmokeDispatch stores the current camera
+basis/tangents after copying current primary history to previous; the next
+frame's shader projects each current primary world position into that previous
+camera and samples the previous history pixel. It uses the same color key as
+mode 29. This is useful for camera-motion validation on static world surfaces,
+but it is not a replacement for vertex/object motion vectors.
+User validation reports mode 30 is mostly green, with purple/orange outlines on
+moving-object and silhouette edges. Treat those outlines as the expected limit
+of camera-only screen-space reprojection, not a failure of the primary history
+copy or previous-camera state.
 
 Mode 20 has a known device-remove stress risk under heavier/high-FPS testing.
 When it fails, the scene/surface buffers can visibly degrade before the driver

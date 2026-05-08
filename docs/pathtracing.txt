@@ -95,10 +95,11 @@ Current validated feature set:
   now build `RAB_Surface` and `RAB_Material` records from an actual
   `PathTraceSmokePayload` hit, using the same smoke material, albedo, normal,
   opacity, emissive, and specular helpers as the existing modes. The
-  `RAB_GetGBufferSurface` and `RAB_GetGBufferMaterial` callbacks still return
-  invalid data for both current and previous frame requests because no real
-  current/previous primary-surface buffers or motion vectors are exposed to this
-  smoke shader yet. The Step 6 RNG bridge is also present and wraps RTXDI's
+  `RAB_GetGBufferSurface` and `RAB_GetGBufferMaterial` callbacks now read
+  current/previous primary-surface history buffers. Mode 29 validates same-pixel
+  history, and mode 30 validates temporary current-world-position to previous
+  screen-space reprojection for camera motion. Full object/vertex motion vectors
+  are still future work. The Step 6 RNG bridge is also present and wraps RTXDI's
   own random sampler initialization and `RTXDI_GetNextRandom` behind local
   `RAB_RandomSamplerState` callbacks so future path replay can preserve seed
   plus consumed random index. Step 7 adds conservative opaque-diffuse BRDF
@@ -367,6 +368,11 @@ Implemented debug CVars:
   23 = experimental routed rigid TLAS instances
   24 = fallback-vs-rigid-route overlap validation
   25 = routed rigid lighting validation
+  26 = ReSTIR PT initial reservoir diagnostics
+  27 = ReSTIR PT initial reservoir shading preview
+  28 = ReSTIR PT initial reservoir visibility preview
+  29 = ReSTIR PT primary-surface history validation
+  30 = ReSTIR PT screen-space reprojection validation
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -499,7 +505,7 @@ Implemented debug CVars:
 
 - r_pathTracingToyFakePBRSpecular
   Opt-in shader experiment. Defaults to 0. When enabled, mode 18 and the
-  ReSTIR PT bridge modes 26/27/28/29 also enable specular-map sampling and
+  ReSTIR PT bridge modes 26/27/28/29/30 also enable specular-map sampling and
   interpret Doom legacy specular maps using the same rbdoom3/Kennedith98-style
   fake-PBR idea as the raster interaction shaders: derive approximate F0 and
   roughness from the gamma-space specular texture. For ReSTIR PT this roughness
@@ -2061,6 +2067,7 @@ For ReSTIR PT initial-sampling reservoir validation:
     r_pathTracingDebugMode 27
     r_pathTracingDebugMode 28
     r_pathTracingDebugMode 29
+    r_pathTracingDebugMode 30
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2157,7 +2164,7 @@ the backend copies current to previous after dispatch so the next frame can read
 stable previous records. The record stores world position/depth, geometry and
 shading normals, view direction, material identity, surface flags, diffuse
 albedo, opacity, alpha cutoff, and the RAB material roughness/F0. When
-`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29 sample the
+`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30 sample the
 Doom specular texture and store the converted fake-PBR roughness/F0 in that
 history record. Mode 29 colors the current-vs-previous same-pixel comparison:
 blue means current valid but no previous history yet, red means previous valid
@@ -2176,6 +2183,25 @@ history match, and moving-camera views no longer collapse to full-screen blue.
 Remaining purple normal mismatches and orange roughness mismatches during
 motion are expected same-pixel history artifacts until motion vectors and
 reprojection are implemented.
+
+Mode 30 is the temporary screen-space reprojection validation view for ReSTIR PT
+history. The backend stores the camera basis/tangents that produced the
+previous primary-surface history buffer. The shader projects each current
+primary hit's world position into that previous camera, samples
+`PrimarySurfaceHistoryPrevious` at the resulting previous pixel, and then uses
+the same material/normal/roughness color key as mode 29. This should turn many
+static-world camera-motion mismatches back toward green before real temporal
+ReSTIR is enabled. It is deliberately not a final motion-vector solution:
+animated/skinned meshes, moving rigid props, doors/platforms, particles,
+translucency, and disocclusions still need vertex/object motion or explicit
+invalidation before temporal reuse can be trusted.
+User validation: mode 30 is mostly green during camera motion, which confirms
+that static-world current-position to previous-camera reprojection is finding
+the previous primary history in normal gameplay views. The remaining purple and
+orange outlines around moving objects and silhouettes look like an edge-detect
+overlay; that is expected for this temporary screen-space method because moving
+objects, disocclusions, and subpixel edge changes do not have vertex/object
+motion yet.
 
 Mode 20 reservoir scope is intentionally narrower than mode 18 lighting. Mode
 20 samples `SmokeEmissiveTriangles` / `SmokeLightCandidates`; regular Doom

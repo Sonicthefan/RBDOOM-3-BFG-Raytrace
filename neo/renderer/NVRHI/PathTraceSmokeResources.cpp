@@ -583,6 +583,9 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
     }
     m_restirPTPrimarySurfaceHistoryBuffers = primaryHistoryResult.buffers;
     m_restirPTPrimarySurfaceHistoryNeedsClear = true;
+    m_restirPTPrimarySurfaceHistoryViewValid = false;
+    m_restirPTPrimarySurfaceHistoryViewWidth = 0;
+    m_restirPTPrimarySurfaceHistoryViewHeight = 0;
 
     RtRestirPTContextUpdateDesc restirPTContextDesc;
     restirPTContextDesc.width = static_cast<uint32_t>(width);
@@ -685,6 +688,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeReservoirDispatchSignature = 0;
     m_smokeReservoirNeedsClear = false;
     m_restirPTPrimarySurfaceHistoryNeedsClear = true;
+    m_restirPTPrimarySurfaceHistoryViewValid = false;
+    m_restirPTPrimarySurfaceHistoryViewWidth = 0;
+    m_restirPTPrimarySurfaceHistoryViewHeight = 0;
     m_smokeReservoirResetCount = 0;
     m_smokeReservoirClearCount = 0;
 }

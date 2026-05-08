@@ -210,6 +210,10 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 BoundsOverlayInfo;
     float4 DoomAnalyticLightInfo;
     float4 RestirPTInfo;
+    float4 PrevCameraOriginAndValid;
+    float4 PrevCameraForwardAndTanX;
+    float4 PrevCameraLeftAndTanY;
+    float4 PrevCameraUpAndTanY;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -1206,6 +1210,34 @@ RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame)
     return RAB_GetGBufferSurface(pixelPosition, previousFrame).material;
 }
 
+bool RestirPTProjectWorldToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)
+{
+    previousPixel = int2(-1, -1);
+    if (PrevCameraOriginAndValid.w < 0.5)
+    {
+        return false;
+    }
+
+    const float3 delta = worldPosition - PrevCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, PrevCameraForwardAndTanX.xyz);
+    if (forwardDistance <= 0.05)
+    {
+        return false;
+    }
+
+    const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
+    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
+    {
+        return false;
+    }
+
+    const float2 previousPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    previousPixel = int2(floor(previousPixelFloat));
+    return previousPixel.x >= 0 && previousPixel.y >= 0 &&
+        (uint)previousPixel.x < dimensions.x && (uint)previousPixel.y < dimensions.y;
+}
+
 bool RAB_AreMaterialsSimilar(RAB_Surface a, RAB_Surface b)
 {
     if (!RAB_IsSurfaceValid(a) || !RAB_IsSurfaceValid(b))
@@ -1218,9 +1250,8 @@ bool RAB_AreMaterialsSimilar(RAB_Surface a, RAB_Surface b)
     return normalSimilarity >= 0.85 && roughnessDelta <= 0.20 && RAB_AreMaterialsSimilar(a.material, b.material);
 }
 
-float4 EvaluateRestirPTPrimarySurfaceHistoryDebug(RAB_Surface currentSurface, uint2 pixel)
+float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)
 {
-    const RAB_Surface previousSurface = RAB_GetGBufferSurface(int2((int)pixel.x, (int)pixel.y), true);
     const bool currentValid = RAB_IsSurfaceValid(currentSurface);
     const bool previousValid = RAB_IsSurfaceValid(previousSurface);
 
@@ -1259,6 +1290,33 @@ float4 EvaluateRestirPTPrimarySurfaceHistoryDebug(RAB_Surface currentSurface, ui
     const float currentRoughness = saturate(GetRoughness(currentSurface.material));
     const float3 albedo = saturate(currentSurface.material.diffuseAlbedo);
     return float4(saturate(float3(0.02, 0.30, 0.08) + albedo * 0.25 + currentRoughness * float3(0.0, 0.18, 0.08)), 1.0);
+}
+
+float4 EvaluateRestirPTPrimarySurfaceHistoryDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    const RAB_Surface previousSurface = RAB_GetGBufferSurface(int2((int)pixel.x, (int)pixel.y), true);
+    return EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
+}
+
+float4 EvaluateRestirPTPrimarySurfaceReprojectionDebug(RAB_Surface currentSurface)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return float4(0.55, 0.05, 0.04, 1.0);
+    }
+
+    int2 previousPixel;
+    const bool projected = RestirPTProjectWorldToPreviousPixel(
+        RAB_GetSurfaceWorldPos(currentSurface),
+        DispatchRaysDimensions().xy,
+        previousPixel);
+    if (!projected)
+    {
+        return float4(0.05, 0.12, 0.55, 1.0);
+    }
+
+    const RAB_Surface previousSurface = RAB_GetGBufferSurface(previousPixel, true);
+    return EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
@@ -1356,7 +1414,7 @@ RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pi
 {
     RTXDI_PTInitialSamplingRuntimeParameters runtimeParams = RTXDI_EmptyPTInitialSamplingRuntimeParameters();
     runtimeParams.cameraPos = CameraOriginAndTMax.xyz;
-    runtimeParams.prevCameraPos = CameraOriginAndTMax.xyz;
+    runtimeParams.prevCameraPos = PrevCameraOriginAndValid.w >= 0.5 ? PrevCameraOriginAndValid.xyz : CameraOriginAndTMax.xyz;
     runtimeParams.prevPrevCameraPos = CameraOriginAndTMax.xyz;
 
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
@@ -2378,6 +2436,10 @@ void RayGen()
         {
             SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceHistoryDebug(primaryHistorySurface, pixel);
         }
+        else if (debugMode == 30)
+        {
+            SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceReprojectionDebug(primaryHistorySurface);
+        }
         else
         {
             SmokeOutput[pixel] = SmokeMissColor();
@@ -2470,6 +2532,10 @@ void RayGen()
     else if (debugMode == 29)
     {
         SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceHistoryDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 30)
+    {
+        SmokeOutput[pixel] = EvaluateRestirPTPrimarySurfaceReprojectionDebug(primaryHistorySurface);
     }
     else if (debugMode == 8)
     {

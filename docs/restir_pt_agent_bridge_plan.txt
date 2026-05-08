@@ -800,13 +800,21 @@ Current status before enabling:
       direction, diffuse albedo, opacity, and fake-PBR roughness/F0 derived from
       Doom specular textures when r_pathTracingToyFakePBRSpecular is enabled.
     - r_pathTracingDebugMode 29 validates same-pixel current/previous history.
+    - r_pathTracingDebugMode 30 validates temporary screen-space reprojection by
+      projecting the current primary world position into the camera that wrote
+      the previous history buffer, then comparing the reprojected previous
+      surface. This is only a camera/static-world bridge until vertex/object
+      motion vectors exist.
+    - User validation showed mode 30 mostly green, with purple/orange outlines
+      around moving objects and silhouettes. That is the expected edge/disocclusion
+      limit of camera-only reprojection.
     - Primary-surface history clearing is independent from the camera-sensitive
       smoke reservoir reset path. A test build tied it to
       m_smokeReservoirNeedsClear and turned moving-camera mode 29 into
       full-screen blue because every camera signature change erased the previous
       history before the validation read.
-    - Motion vectors and reprojection are still missing, so temporal resampling
-      remains disabled.
+    - Full vertex/object motion vectors are still missing, so temporal
+      resampling remains disabled.
 
 Actions:
     - Dispatch RTXDI temporal PT resampling shader logic.

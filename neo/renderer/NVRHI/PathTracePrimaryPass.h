@@ -141,6 +141,15 @@ private:
     uint64 m_smokeReservoirDispatchSignature = 0;
     bool m_smokeReservoirNeedsClear = false;
     bool m_restirPTPrimarySurfaceHistoryNeedsClear = true;
+    bool m_restirPTPrimarySurfaceHistoryViewValid = false;
+    int m_restirPTPrimarySurfaceHistoryViewWidth = 0;
+    int m_restirPTPrimarySurfaceHistoryViewHeight = 0;
+    idVec3 m_restirPTPrimarySurfaceHistoryViewOrigin = vec3_origin;
+    idVec3 m_restirPTPrimarySurfaceHistoryViewForward = idVec3(1.0f, 0.0f, 0.0f);
+    idVec3 m_restirPTPrimarySurfaceHistoryViewLeft = idVec3(0.0f, 1.0f, 0.0f);
+    idVec3 m_restirPTPrimarySurfaceHistoryViewUp = idVec3(0.0f, 0.0f, 1.0f);
+    float m_restirPTPrimarySurfaceHistoryViewTanX = 1.0f;
+    float m_restirPTPrimarySurfaceHistoryViewTanY = 1.0f;
     int m_smokeReservoirResetCount = 0;
     int m_smokeReservoirClearCount = 0;
     uint64 m_smokeAccumulationSignature = 0;
