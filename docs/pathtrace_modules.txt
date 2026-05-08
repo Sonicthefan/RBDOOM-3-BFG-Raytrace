@@ -77,7 +77,10 @@ The current RT/PT path is still an experimental "smoke" path:
   showed the early low diagnostic scale under-lit authored Doom helper lights.
 - r_pathTracingAnalyticSphereLightRadiusScale and min/max: convert Doom point
   light radius into the first diagnostic sphere-emitter size. This is not final
-  physical classification of round/square/projected/area light materials.
+  physical classification of round/square/projected/area light materials. These
+  CVars are consumed by PathTraceDoomLights.cpp when it builds
+  PathTraceDoomAnalyticLightCandidate records; the default radius scale is 0.08
+  and the default min/max clamp is 4.0/64.0 world units.
 - Source3 RT residency uses Doom renderer area/portal selection rather than
   current raster visibility alone. The final drawSurf stream is the freshness
   source for transforms/material overrides/runtime registers; portal-selected
@@ -439,7 +442,10 @@ PathTraceDoomLights.cpp
     analytic light selection uses the same multi-seed portal policy as rigid
     residency, then resolves each light through bounds/area membership. This
     specifically avoids losing authored lights near a visible portal when the
-    camera area's single seed falls into a tiny connector area.
+    camera area's single seed falls into a tiny connector area. Candidate sphere
+    size is controlled here by `r_pathTracingAnalyticSphereLightRadiusScale`
+    with `r_pathTracingAnalyticSphereLightRadiusMin` /
+    `r_pathTracingAnalyticSphereLightRadiusMax` clamps.
 
 PathTraceLightSelection.h
     Debug light selection structs and constants used by smoke dispatch.

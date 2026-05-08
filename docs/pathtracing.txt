@@ -309,10 +309,14 @@ Refactor chronology:
     `GetLightDefHandle`, records entity/material/color/state/area/portal-depth
     fields, and builds a separate GPU analytic-light buffer. The shader samples
     those candidates in mode 14/18/20-style lighting without adding sphere
-    meshes to the BVH. The first render path was then changed from a hard
-    center-point shadow ray to one-sample solid-angle sphere sampling, with
-    the default intensity scale raised to 4.0 and the default radius scale
-    raised to 0.08 after visual testing. Initial in-game validation confirmed
+    meshes to the BVH. `PathTraceDoomLights.cpp` owns the candidate radius
+    policy through `r_pathTracingAnalyticSphereLightRadiusScale`,
+    `r_pathTracingAnalyticSphereLightRadiusMin`, and
+    `r_pathTracingAnalyticSphereLightRadiusMax`. The first render path was then
+    changed from a hard center-point shadow ray to one-sample solid-angle sphere
+    sampling, with the default intensity scale raised to 4.0 and
+    `r_pathTracingAnalyticSphereLightRadiusScale` raised to 0.08 after visual
+    testing. Initial in-game validation confirmed
     the candidates appear, obey RGB color, follow light animations/on-off game
     logic, and survive a level-load transition after adding game-state and
     render-world map-change guards.
@@ -1806,8 +1810,12 @@ For visual testing of Doom analytic lights:
     r_pathTracingAnalyticLightCandidates 1
     r_pathTracingAnalyticLightReplaceSelected 1
     r_pathTracingAnalyticLightIntensityScale 4
+    r_pathTracingAnalyticSphereLightRadiusScale 0.08
 
 Then sweep r_pathTracingAnalyticLightIntensityScale through 0, 1, 4, and 5.
+For radius validation, sweep r_pathTracingAnalyticSphereLightRadiusScale through
+0.02, 0.08, and 0.16 while leaving min/max at their defaults unless testing
+light-size clamps specifically.
 With r_pathTracingAnalyticLightReplaceSelected enabled, the old selected
 point-light array is suppressed so visible changes come from the analytic Doom
 light buffer. Turn the replace CVar back to 0 to compare against the legacy
