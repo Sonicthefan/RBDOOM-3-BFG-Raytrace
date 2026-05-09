@@ -117,6 +117,7 @@ struct RtSmokeSceneResourceCommitDesc
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;
     nvrhi::rt::AccelStructHandle staticBlas;
     nvrhi::rt::AccelStructHandle dynamicBlas;
+    nvrhi::rt::AccelStructHandle tlas;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
     nvrhi::BindingSetHandle bindingSet;
@@ -144,6 +145,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     nvrhi::rt::AccelStructDesc dynamicBlasDesc;
     nvrhi::rt::AccelStructHandle staticBlas;
     nvrhi::rt::AccelStructHandle dynamicBlas;
+    nvrhi::rt::AccelStructHandle tlas;
     bool hasStaticBlas = false;
     uint64 staticBlasSignature = 0;
     nvrhi::BindingSetHandle bindingSet;

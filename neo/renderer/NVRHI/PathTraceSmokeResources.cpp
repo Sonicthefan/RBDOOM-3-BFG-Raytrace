@@ -267,6 +267,107 @@ static void PrintPathTracePortalTransitionDump(
         next.textureDescriptorTableWritten ? 1 : 0);
 }
 
+static bool ConsumePathTraceSceneRetireDumpEvent()
+{
+    const int dumpMode = r_pathTracingSceneRetireDump.GetInteger();
+    if (dumpMode == 1)
+    {
+        r_pathTracingSceneRetireDump.SetInteger(0);
+        return true;
+    }
+    return dumpMode >= 2;
+}
+
+static bool SmokeTextureTableChanged(const std::vector<nvrhi::TextureHandle>& oldTable, const std::vector<nvrhi::TextureHandle>& newTable)
+{
+    if (oldTable.size() != newTable.size())
+    {
+        return true;
+    }
+    for (size_t textureIndex = 0; textureIndex < oldTable.size(); ++textureIndex)
+    {
+        if (oldTable[textureIndex] != newTable[textureIndex])
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers, const RtSmokeSceneBufferHandles& newBuffers)
+{
+    return
+        oldBuffers.staticVertexBuffer != newBuffers.staticVertexBuffer ||
+        oldBuffers.staticIndexBuffer != newBuffers.staticIndexBuffer ||
+        oldBuffers.staticTriangleClassBuffer != newBuffers.staticTriangleClassBuffer ||
+        oldBuffers.staticTriangleMaterialBuffer != newBuffers.staticTriangleMaterialBuffer ||
+        oldBuffers.staticTriangleMaterialIndexBuffer != newBuffers.staticTriangleMaterialIndexBuffer ||
+        oldBuffers.dynamicVertexBuffer != newBuffers.dynamicVertexBuffer ||
+        oldBuffers.dynamicIndexBuffer != newBuffers.dynamicIndexBuffer ||
+        oldBuffers.dynamicTriangleClassBuffer != newBuffers.dynamicTriangleClassBuffer ||
+        oldBuffers.dynamicTriangleMaterialBuffer != newBuffers.dynamicTriangleMaterialBuffer ||
+        oldBuffers.dynamicTriangleMaterialIndexBuffer != newBuffers.dynamicTriangleMaterialIndexBuffer ||
+        oldBuffers.materialTableBuffer != newBuffers.materialTableBuffer ||
+        oldBuffers.emissiveTriangleBuffer != newBuffers.emissiveTriangleBuffer ||
+        oldBuffers.lightCandidateBuffer != newBuffers.lightCandidateBuffer ||
+        oldBuffers.doomAnalyticLightBuffer != newBuffers.doomAnalyticLightBuffer ||
+        oldBuffers.rigidRouteVertexBuffer != newBuffers.rigidRouteVertexBuffer ||
+        oldBuffers.rigidRouteIndexBuffer != newBuffers.rigidRouteIndexBuffer ||
+        oldBuffers.rigidRouteTriangleMaterialBuffer != newBuffers.rigidRouteTriangleMaterialBuffer ||
+        oldBuffers.rigidRouteTriangleMaterialIndexBuffer != newBuffers.rigidRouteTriangleMaterialIndexBuffer ||
+        oldBuffers.rigidRouteInstanceBuffer != newBuffers.rigidRouteInstanceBuffer;
+}
+
+static bool SmokeScenePackageHandlesChanged(const RtRetiredSmokeScenePackage& oldPackage, const RtSmokeSceneResourceCommitDesc& next)
+{
+    return
+        SmokeSceneBuffersChanged(oldPackage.buffers, next.buffers) ||
+        oldPackage.staticBlas != next.staticBlas ||
+        oldPackage.dynamicBlas != next.dynamicBlas ||
+        oldPackage.tlas != next.tlas ||
+        oldPackage.bindingSet != next.bindingSet ||
+        oldPackage.textureDescriptorTable != next.textureDescriptorTable ||
+        SmokeTextureTableChanged(oldPackage.activeTextureTable, next.activeTextureTable);
+}
+
+static void PrintPathTraceSceneRetireEvent(
+    const char* eventName,
+    uint64 currentFrame,
+    int retireFrames,
+    size_t queueSize,
+    int releasedCount,
+    const RtRetiredSmokeScenePackage& package,
+    const RtPathTraceSceneInputs& nextSceneInputs,
+    bool sceneTransitionChanged,
+    bool portalTransitionChanged,
+    bool waitedForIdle)
+{
+    const RtPathTraceSceneInputPortalPolicy& oldPortal = package.sceneInputs.portalPolicy;
+    const RtPathTraceSceneInputPortalPolicy& newPortal = nextSceneInputs.portalPolicy;
+    common->Printf("PathTracePrimaryPass: PT scene retire %s currentFrame=%llu retireFrame=%llu retireFrames=%d queue=%u released=%d oldArea=%d oldSelected=%d newArea=%d newSelected=%d sceneTransition=%d portalTransition=%d waitIdle=%d oldHandles buffers=%d staticBlas=%d dynamicBlas=%d tlas=%d bindingSet=%d descriptorTable=%d activeTextures=%d sceneSig=%llu\n",
+        eventName,
+        static_cast<unsigned long long>(currentFrame),
+        static_cast<unsigned long long>(package.retireFrame),
+        retireFrames,
+        static_cast<unsigned int>(queueSize),
+        releasedCount,
+        oldPortal.currentArea,
+        oldPortal.selectedAreaCount,
+        newPortal.currentArea,
+        newPortal.selectedAreaCount,
+        sceneTransitionChanged ? 1 : 0,
+        portalTransitionChanged ? 1 : 0,
+        waitedForIdle ? 1 : 0,
+        package.buffers.IsValid() ? 1 : 0,
+        package.staticBlas ? 1 : 0,
+        package.dynamicBlas ? 1 : 0,
+        package.tlas ? 1 : 0,
+        package.bindingSet ? 1 : 0,
+        package.textureDescriptorTable ? 1 : 0,
+        static_cast<int>(package.activeTextureTable.size()),
+        static_cast<unsigned long long>(package.sceneSignature));
+}
+
 static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
 {
     return byteSize > structStride ? byteSize : structStride;
@@ -426,6 +527,18 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         }
     }
 
+    if (!result.textureDescriptorTable)
+    {
+        OPTICK_EVENT("PT Create Empty Texture Descriptor Table");
+        result.textureDescriptorTable = desc.device->createDescriptorTable(desc.textureBindlessLayout);
+        result.textureDescriptorTableCreated = result.textureDescriptorTable != nullptr;
+    }
+    if (!result.textureDescriptorTable)
+    {
+        result.errorMessage = "failed to create RT smoke texture descriptor table";
+        return result;
+    }
+
     {
         OPTICK_EVENT("PT Final Binding Set Items");
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, desc.fallbackTexture));
@@ -470,6 +583,7 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.dynamicBlasDesc = desc.dynamicBlasDesc;
     commitDesc.staticBlas = desc.staticBlas;
     commitDesc.dynamicBlas = desc.dynamicBlas;
+    commitDesc.tlas = desc.tlas;
     commitDesc.hasStaticBlas = desc.hasStaticBlas;
     commitDesc.staticBlasSignature = desc.staticBlasSignature;
     commitDesc.bindingSet = desc.bindingSet;
@@ -746,8 +860,144 @@ void PathTracePrimaryPass::InvalidateForBackBufferResize()
     m_frameResources.ResetOutputSizedResources(RT_FRAME_RESET_BACKBUFFER_RESIZE);
 }
 
+bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
+{
+    RtSmokeSceneBufferHandles buffers;
+    buffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
+    buffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
+    buffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
+    buffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
+    buffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+    buffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
+    buffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+    buffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
+    buffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
+    buffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+    buffers.materialTableBuffer = m_smokeMaterialTableBuffer;
+    buffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    buffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
+    buffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
+    buffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
+    buffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+    buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
+    buffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
+    buffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+
+    return
+        buffers.IsValid() ||
+        m_smokeStaticBlas ||
+        m_smokeDynamicBlas ||
+        m_smokeTlas ||
+        m_smokeBindingSet ||
+        m_smokeTextureDescriptorTable ||
+        !m_smokeActiveTextureTable.empty();
+}
+
+RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeScenePackage() const
+{
+    RtRetiredSmokeScenePackage package;
+    package.sceneInputs = m_sceneInputs;
+    package.sceneSignature = m_sceneInputs.valid ? BuildPathTraceSceneTransitionSignature(m_sceneInputs) : 0;
+    package.currentArea = m_sceneInputs.portalPolicy.currentArea;
+    package.selectedAreaCount = m_sceneInputs.portalPolicy.selectedAreaCount;
+    package.buffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
+    package.buffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
+    package.buffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
+    package.buffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
+    package.buffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+    package.buffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
+    package.buffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+    package.buffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
+    package.buffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
+    package.buffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+    package.buffers.materialTableBuffer = m_smokeMaterialTableBuffer;
+    package.buffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    package.buffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
+    package.buffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
+    package.buffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
+    package.buffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+    package.buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
+    package.buffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
+    package.buffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    package.staticBlas = m_smokeStaticBlas;
+    package.dynamicBlas = m_smokeDynamicBlas;
+    package.tlas = m_smokeTlas;
+    package.bindingSet = m_smokeBindingSet;
+    package.textureDescriptorTable = m_smokeTextureDescriptorTable;
+    package.activeTextureTable = m_smokeActiveTextureTable;
+    return package;
+}
+
+void PathTracePrimaryPass::PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle)
+{
+    if (retireFrames <= 0)
+    {
+        return;
+    }
+
+    package.retireFrame = currentFrame + static_cast<uint64>(retireFrames);
+    m_retiredSmokeScenePackages.push_back(package);
+
+    if (ConsumePathTraceSceneRetireDumpEvent())
+    {
+        PrintPathTraceSceneRetireEvent(
+            "retire",
+            currentFrame,
+            retireFrames,
+            m_retiredSmokeScenePackages.size(),
+            0,
+            m_retiredSmokeScenePackages.back(),
+            nextSceneInputs,
+            sceneTransitionChanged,
+            portalTransitionChanged,
+            waitedForIdle);
+    }
+}
+
+int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame, const RtPathTraceSceneInputs& previousSceneInputs, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle)
+{
+    RtRetiredSmokeScenePackage firstReleasedPackage;
+    int releasedCount = 0;
+    while (!m_retiredSmokeScenePackages.empty() && m_retiredSmokeScenePackages.front().retireFrame <= currentFrame)
+    {
+        if (releasedCount == 0)
+        {
+            firstReleasedPackage = m_retiredSmokeScenePackages.front();
+        }
+        m_retiredSmokeScenePackages.pop_front();
+        ++releasedCount;
+    }
+
+    if (releasedCount > 0 && ConsumePathTraceSceneRetireDumpEvent())
+    {
+        const int retireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
+        PrintPathTraceSceneRetireEvent(
+            "release",
+            currentFrame,
+            retireFrames,
+            m_retiredSmokeScenePackages.size(),
+            releasedCount,
+            firstReleasedPackage,
+            nextSceneInputs.valid ? nextSceneInputs : previousSceneInputs,
+            sceneTransitionChanged,
+            portalTransitionChanged,
+            waitedForIdle);
+    }
+
+    return releasedCount;
+}
+
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
 {
+    if (r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0 && (HasRetainableRayTracingSmokeScenePackage() || !m_retiredSmokeScenePackages.empty()))
+    {
+        nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+        if (device)
+        {
+            device->waitForIdle();
+        }
+    }
+
     m_frameResources.ResetSceneDependentState();
     m_sceneInputs = RtPathTraceSceneInputs();
     m_smokeBindingSet = nullptr;
@@ -793,35 +1043,15 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeLightCandidateBytes = 0;
     m_smokeDoomAnalyticLightCount = 0;
     m_smokeDoomAnalyticLightBytes = 0;
+    m_retiredSmokeScenePackages.clear();
 }
 
 void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc)
 {
     const RtPathTraceSceneInputs previousSceneInputs = m_sceneInputs;
-    RtSmokeSceneBufferHandles previousBuffers;
-    previousBuffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
-    previousBuffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
-    previousBuffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
-    previousBuffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
-    previousBuffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
-    previousBuffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
-    previousBuffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
-    previousBuffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
-    previousBuffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
-    previousBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
-    previousBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
-    previousBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
-    previousBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
-    previousBuffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
-    previousBuffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
-    previousBuffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
-    previousBuffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
-    previousBuffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
-    previousBuffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
-    const nvrhi::rt::AccelStructHandle previousStaticBlas = m_smokeStaticBlas;
-    const nvrhi::rt::AccelStructHandle previousDynamicBlas = m_smokeDynamicBlas;
-    const nvrhi::BindingSetHandle previousBindingSet = m_smokeBindingSet;
-    const nvrhi::DescriptorTableHandle previousTextureDescriptorTable = m_smokeTextureDescriptorTable;
+    RtRetiredSmokeScenePackage previousPackage = CaptureRetiredRayTracingSmokeScenePackage();
+    const bool previousPackageHasResources = HasRetainableRayTracingSmokeScenePackage();
+    const bool packageHandlesChanged = previousPackageHasResources && SmokeScenePackageHandlesChanged(previousPackage, desc);
     const bool sceneTransitionChanged = PathTraceSceneTransitionChanged(previousSceneInputs, desc.sceneInputs);
     const bool portalTransitionChanged = PathTracePortalTransitionChanged(previousSceneInputs, desc.sceneInputs);
     bool waitedForIdle = false;
@@ -834,6 +1064,49 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
             waitedForIdle = true;
         }
     }
+
+    const uint64 currentFrame = static_cast<uint64>(Max(idLib::frameNumber, 0));
+    const int retireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
+    ReleaseExpiredRetiredRayTracingSmokeScenePackages(
+        currentFrame,
+        previousSceneInputs,
+        desc.sceneInputs,
+        sceneTransitionChanged,
+        portalTransitionChanged,
+        waitedForIdle);
+    if (retireFrames == 0 && !m_retiredSmokeScenePackages.empty())
+    {
+        const RtRetiredSmokeScenePackage firstReleasedPackage = m_retiredSmokeScenePackages.front();
+        const int releasedCount = static_cast<int>(m_retiredSmokeScenePackages.size());
+        m_retiredSmokeScenePackages.clear();
+        if (ConsumePathTraceSceneRetireDumpEvent())
+        {
+            PrintPathTraceSceneRetireEvent(
+                "release",
+                currentFrame,
+                retireFrames,
+                m_retiredSmokeScenePackages.size(),
+                releasedCount,
+                firstReleasedPackage,
+                desc.sceneInputs,
+                sceneTransitionChanged,
+                portalTransitionChanged,
+                waitedForIdle);
+        }
+    }
+
+    if ((sceneTransitionChanged || packageHandlesChanged) && previousPackageHasResources)
+    {
+        PushRetiredRayTracingSmokeScenePackage(
+            previousPackage,
+            currentFrame,
+            retireFrames,
+            desc.sceneInputs,
+            sceneTransitionChanged,
+            portalTransitionChanged,
+            waitedForIdle);
+    }
+
     const int portalTransitionDump = r_pathTracingPortalTransitionDump.GetInteger();
     const bool dumpNextPortalTransition = portalTransitionDump == 1 && portalTransitionChanged;
     const bool dumpEveryPortalTransition = portalTransitionDump == 2 && portalTransitionChanged;
@@ -844,11 +1117,11 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
             previousSceneInputs,
             desc,
             waitedForIdle,
-            previousBuffers,
-            previousStaticBlas,
-            previousDynamicBlas,
-            previousBindingSet,
-            previousTextureDescriptorTable);
+            previousPackage.buffers,
+            previousPackage.staticBlas,
+            previousPackage.dynamicBlas,
+            previousPackage.bindingSet,
+            previousPackage.textureDescriptorTable);
         if (dumpNextPortalTransition)
         {
             r_pathTracingPortalTransitionDump.SetInteger(0);
@@ -879,6 +1152,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeDynamicBlasDesc = desc.dynamicBlasDesc;
     m_smokeStaticBlas = desc.staticBlas;
     m_smokeDynamicBlas = desc.dynamicBlas;
+    m_smokeTlas = desc.tlas;
     if (desc.hasStaticBlas)
     {
         m_smokeStaticBlasCacheValid = true;

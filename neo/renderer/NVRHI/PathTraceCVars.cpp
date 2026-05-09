@@ -957,6 +957,18 @@ idCVar r_pathTracingWaitForIdleOnPortalChange(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic: wait for GPU idle before replacing committed PT scene resources when portal/scene membership changes" );
 
+idCVar r_pathTracingSceneRetireFrames(
+    "r_pathTracingSceneRetireFrames",
+    "6",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Number of frames to retain replaced PT scene packages before releasing old handles; clamped 0..32" );
+
+idCVar r_pathTracingSceneRetireDump(
+    "r_pathTracingSceneRetireDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "PT scene retirement logging: 0 off, 1 next retire/release event then off, 2 every retire/release event" );
+
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",
     "1",

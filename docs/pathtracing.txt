@@ -871,6 +871,20 @@ Denoise/upscale/Ray Reconstruction reservation:
   fence-based retirement. This path is silent unless transition dumping is also
   enabled. Do not leave this enabled as a performance solution.
 
+- r_pathTracingSceneRetireFrames
+  Frame-lagged lifetime for replaced committed PT scene packages. The default
+  is `6`, clamped to `0..32`. Nonzero values keep old scene buffers,
+  static/dynamic BLAS handles, the TLAS handle, binding set, descriptor table,
+  and active texture handles alive after replacement so portal transitions do
+  not need a normal `waitForIdle()`. Setting this to `0` restores immediate
+  replacement for A/B testing.
+
+- r_pathTracingSceneRetireDump
+  Retirement diagnostics: `0` off, `1` print the next retire/release event and
+  auto-disable, `2` print every event. Logs include current frame, retire frame,
+  queue size, released count, old/new area facts, transition flags, diagnostic
+  wait usage, and which old package handle groups were retained.
+
 - r_pathTracingDebugMode 20
   Single-frame direct lighting debug view from the emissive candidate contract.
   It samples one emissive triangle candidate per pixel, writes the current

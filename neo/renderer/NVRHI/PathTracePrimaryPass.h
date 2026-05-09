@@ -13,13 +13,32 @@
 #include "PathTraceLightUniverse.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSmokeResources.h"
 
 #include <nvrhi/nvrhi.h>
+#include <deque>
 #include <vector>
 
 class idRenderBackend;
-struct RtSmokeSceneResourceCommitDesc;
 struct viewDef_t;
+
+struct RtRetiredSmokeScenePackage
+{
+    uint64 retireFrame = 0;
+    uint64 sceneSignature = 0;
+    int currentArea = -1;
+    int selectedAreaCount = 0;
+
+    RtPathTraceSceneInputs sceneInputs;
+    RtSmokeSceneBufferHandles buffers;
+
+    nvrhi::rt::AccelStructHandle staticBlas;
+    nvrhi::rt::AccelStructHandle dynamicBlas;
+    nvrhi::rt::AccelStructHandle tlas;
+    nvrhi::BindingSetHandle bindingSet;
+    nvrhi::DescriptorTableHandle textureDescriptorTable;
+    std::vector<nvrhi::TextureHandle> activeTextureTable;
+};
 
 class PathTracePrimaryPass {
 public:
@@ -38,6 +57,10 @@ private:
     bool ResizeRayTracingSmokeOutput(int width, int height);
     void ResetRayTracingSmokeSceneResources();
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
+    bool HasRetainableRayTracingSmokeScenePackage() const;
+    RtRetiredSmokeScenePackage CaptureRetiredRayTracingSmokeScenePackage() const;
+    void PushRetiredRayTracingSmokeScenePackage(RtRetiredSmokeScenePackage& package, uint64 currentFrame, int retireFrames, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle);
+    int ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint64 currentFrame, const RtPathTraceSceneInputs& previousSceneInputs, const RtPathTraceSceneInputs& nextSceneInputs, bool sceneTransitionChanged, bool portalTransitionChanged, bool waitedForIdle);
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
@@ -115,6 +138,7 @@ private:
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
+    std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
     int m_smokeMaterialTableEntryCount = 0;
     int m_smokeEmissiveTriangleCount = 0;
     int m_smokeEmissiveStaticTriangleCount = 0;

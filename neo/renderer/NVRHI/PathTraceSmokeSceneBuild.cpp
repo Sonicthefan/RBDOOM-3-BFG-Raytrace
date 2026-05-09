@@ -1661,7 +1661,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.boundsOverlayLineBuffer = m_smokeBoundsOverlayLineBuffer;
     bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
     bindingBuildDesc.textureBindlessLayout = m_smokeTextureBindlessLayout;
-    bindingBuildDesc.existingTextureDescriptorTable = m_smokeTextureDescriptorTable;
+    const int sceneRetireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
+    bindingBuildDesc.existingTextureDescriptorTable = sceneRetireFrames > 0 ? nullptr : m_smokeTextureDescriptorTable;
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
     bindingBuildDesc.reservoirBuffers = m_frameResources.smokeReservoirBuffers;
@@ -1847,6 +1848,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.dynamicBlasDesc = smokeDynamicBlasDesc;
     resourceCommitBuildDesc.staticBlas = smokeStaticBlas;
     resourceCommitBuildDesc.dynamicBlas = smokeDynamicBlas;
+    resourceCommitBuildDesc.tlas = m_smokeTlas;
     resourceCommitBuildDesc.hasStaticBlas = hasStaticBlas;
     resourceCommitBuildDesc.staticBlasSignature = staticSignature.hash;
     resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;

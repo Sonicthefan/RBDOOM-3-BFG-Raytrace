@@ -166,6 +166,8 @@ extern idCVar r_pathTracingReservoirDump;
 extern idCVar r_pathTracingSceneInputsDump;
 extern idCVar r_pathTracingPortalTransitionDump;
 extern idCVar r_pathTracingWaitForIdleOnPortalChange;
+extern idCVar r_pathTracingSceneRetireFrames;
+extern idCVar r_pathTracingSceneRetireDump;
 extern idCVar r_pathTracingSkipRaster3D;
 extern idCVar r_pathTracingReadbackEnable;
 extern idCVar r_pathTracingMaterialCache;

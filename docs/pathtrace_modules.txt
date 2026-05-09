@@ -245,7 +245,13 @@ PathTraceSmokeResources.cpp
     `r_pathTracingWaitForIdleOnPortalChange` is a diagnostic-only device idle
     inserted immediately before replacing committed PT scene resources when the
     scene transition signature changes; use it to prove or disprove an in-flight
-    lifetime hazard before implementing frame-retired scene resources.
+    lifetime hazard. Normal replacement now uses frame-lagged retirement:
+    `r_pathTracingSceneRetireFrames` defaults to 6 and keeps replaced scene
+    buffers, BLAS/TLAS handles, binding sets, descriptor tables, and active
+    texture handles alive until their retire frame passes. With retirement
+    enabled, scene binding creation uses a fresh descriptor table instead of
+    rewriting the previous committed table in place. Use
+    `r_pathTracingSceneRetireDump 1` or `2` to inspect retire/release events.
 
 PathTraceSmokeDispatch.h
     Exposes the smoke constants buffer size without exposing the full constants
