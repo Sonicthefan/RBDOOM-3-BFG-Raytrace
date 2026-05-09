@@ -506,13 +506,22 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     pipelineDesc.globalBindingLayouts = { m_smokeBindingLayout, m_smokeTextureBindlessLayout };
     pipelineDesc.shaders = {
         { "", m_smokeShaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration), nullptr },
-        { "", m_smokeShaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss), nullptr }
+        { "", m_smokeShaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss), nullptr },
+        { "", m_smokeShaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss), nullptr }
     };
     pipelineDesc.hitGroups = {
         {
             "HitGroup",
             m_smokeShaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit),
             m_smokeShaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit),
+            nullptr,
+            nullptr,
+            false
+        },
+        {
+            "ShadowHitGroup",
+            m_smokeShaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit),
+            m_smokeShaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit),
             nullptr,
             nullptr,
             false
@@ -538,7 +547,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
 
     m_smokeShaderTable->setRayGenerationShader("RayGen");
     m_smokeShaderTable->addMissShader("Miss");
+    m_smokeShaderTable->addMissShader("ShadowMiss");
     m_smokeShaderTable->addHitGroup("HitGroup");
+    m_smokeShaderTable->addHitGroup("ShadowHitGroup");
 
     common->Printf("PathTracePrimaryPass: RT smoke pipeline initialized\n");
 }

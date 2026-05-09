@@ -1,0 +1,190 @@
+Mode 18 NEE Timing Findings
+===========================
+
+Date: 2026-05-09
+
+Scope
+-----
+
+This note records the findings from the first shadow-payload reduction pass and
+the follow-up Nsight timing checks around mode 18 frame time. The goal is to
+separate payload/live-state pressure from the current direct-lighting workload
+that dominates frame time when next-event estimation is enabled.
+
+What Changed In Task 01
+-----------------------
+
+Task 01 moved shadow visibility rays off the full `PathTraceSmokePayload`.
+Shadow rays now use a smaller `PathTraceSmokeShadowPayload` through:
+
+- `TraceSmokeShadowVisibility`
+- `ShadowMiss`
+- `ShadowAnyHit`
+- `ShadowClosestHit`
+- the `ShadowHitGroup` shader-table entry
+
+Primary, secondary, routed-rigid debug, reflection, and general debug rays still
+use the legacy `PathTraceSmokePayload`.
+
+The new shader-table shape is visible in Nsight captures:
+
+    miss SBT: stride 64, size 128
+    hit SBT:  stride 64, size 128
+
+That indicates two miss records and two hit-group records are active:
+
+    Miss + ShadowMiss
+    HitGroup + ShadowHitGroup
+
+Shadow Payload Result
+---------------------
+
+The shadow payload split is viable in the current pipeline shape and did not
+introduce new crashes in user testing. However, it did not materially reduce
+the dominant RayGen live-state numbers.
+
+Observed RT Live State values after the change were still around:
+
+    447, 447, 398, 398, 398, 398, 371...
+
+This suggests the current worst live-state pressure is structural to the
+monolithic RayGen and mode 18 integrator shape, not only the old shadow payload.
+The split is still useful cleanup, but it is too small to solve the dominant
+frame-time problem by itself.
+
+Key Timing Observations
+-----------------------
+
+The user captured several Nsight `vkCmdTraceRaysKHR` timings.
+
+With analytic lights disabled and mode 18 pushed with 3 SPP:
+
+    1280x720, 3 SPP, maxDepth 1, NEE 1:  2.4 ms
+    1280x720, 3 SPP, maxDepth 2, NEE 1: 17.8 ms
+    1280x720, 3 SPP, maxDepth 2, NEE 0:  2.8 ms
+
+With diffuse secondary rays disabled:
+
+    3 SPP, maxDepth 2, NEE 1, diffuse secondary disabled: 2.8 ms
+
+With the selected-light loop disabled:
+
+    3 SPP, maxDepth 2, NEE 1, selected-light loop disabled: about +0 ms
+
+With the user's default launch CVar set, analytic lights included, but NEE off:
+
+    1280x720, 3 SPP, NEE 0:       2.6 ms
+    2500x2000, 3 SPP, NEE 0:     14.0 ms
+
+The high-resolution NEE-off run scales almost exactly with pixel count:
+
+    2500*2000 / (1280*720) ~= 5.43
+    14.0 / 2.6 ~= 5.38
+
+Interpretation
+--------------
+
+The base primary/secondary mode 18 path scales normally when NEE is disabled.
+Resolution, SPP, texture sampling, the basic secondary ray, and the presence of
+analytic-light setup are not the main pathological cost by themselves.
+
+The frame-time explosion appears when NEE is enabled at maxDepth 2. The
+secondary diffuse hit is cheap without NEE, but expensive when it runs the
+selected-light direct-lighting path.
+
+The likely cause is brute-force next-event estimation at secondary path
+vertices:
+
+    samplesPerPixel
+      * path depth
+      * selected light count
+      * shadow visibility rays
+
+The current selected-light loop was useful as a debug/direct-lighting scaffold,
+but it does not scale as a path-tracing integrator once it is evaluated on
+secondary vertices. The cost is not just a payload-size issue. It is workload
+fan-out from direct-light loops and shadow rays inside the monolithic mode 18
+raygen.
+
+Analytic Light Hotspots
+-----------------------
+
+Nsight hotspots also showed loads of `PathTraceDoomAnalyticLightCandidate`.
+Those correspond to:
+
+    EvaluateDoomAnalyticSphereLights
+
+That loop can also multiply per-hit work when analytic lights are enabled,
+especially with a high `r_pathTracingAnalyticLightMaxGpu` cap. However, the
+NEE-off default-launch tests show that analytic-light setup is not the
+pathological cost unless NEE/direct-light evaluation is active.
+
+Current Cause Hypothesis
+------------------------
+
+The dominant mode 18 frame-time problem is:
+
+    brute-force direct-light / NEE evaluation on secondary path vertices,
+    especially the selected-light loop and its shadow visibility rays.
+
+The shadow payload split was a correct first payload-reduction step, but the
+measured cost now points more strongly at NEE fan-out than at the shadow payload
+alone.
+
+Recommended Next Task
+---------------------
+
+Do not remove direct lighting long-term. Primary-only NEE or disabling
+secondary NEE is useful as a diagnostic throttle, but it is not a final renderer
+policy because it removes a basic visual feature.
+
+The next durable task should replace brute-force per-vertex direct-light loops
+with bounded NEE sampling:
+
+- choose one or a small fixed number of light samples per path vertex
+- trace visibility only for those selected samples
+- account for the light-selection PDF/weight
+- keep a legacy full-loop mode for comparison
+- feed the bounded selection from the light universe / ReSTIR-ready candidate
+  path rather than treating the legacy selected-light array as the final
+  integrator light list
+
+A useful CVar shape for development would be:
+
+    r_pathTracingSecondaryNeeMode
+
+with possible modes:
+
+    0 = off / diagnostic throttle
+    1 = bounded sampled NEE
+    2 = legacy full selected-light loop
+
+The intended long-term default should be bounded sampled NEE, not off.
+
+Useful Validation Matrix
+------------------------
+
+For future agents, keep analytic lights off first when isolating the base mode
+18 integrator:
+
+    r_pathTracingAnalyticLightCandidates 0
+    r_pathTracingDisableAnalyticLightLoop 1
+    r_pathTracingSamplesPerPixel 3
+    r_pathTracingMaxPathDepth 2
+
+Then compare:
+
+    r_pathTracingNextEventEstimation 0
+    r_pathTracingNextEventEstimation 1
+    r_pathTracingDisableDiffuseSecondaryRay 1
+    r_pathTracingDisableSelectedLightLoop 1
+
+After the base cause is confirmed, turn analytic lights back on and sweep:
+
+    r_pathTracingAnalyticLightMaxGpu 1
+    r_pathTracingAnalyticLightMaxGpu 4
+    r_pathTracingAnalyticLightMaxGpu 8
+    r_pathTracingAnalyticLightMaxGpu 16
+
+This separates selected-light NEE fan-out from Doom analytic-light candidate
+fan-out.

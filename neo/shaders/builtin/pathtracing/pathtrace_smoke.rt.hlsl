@@ -29,6 +29,15 @@ struct PathTraceSmokePayload
     uint shadowIgnoreMaterialId;
 };
 
+struct PathTraceSmokeShadowPayload
+{
+    uint hit;
+    uint rayMode;
+    uint ignoreInstanceId;
+    uint ignorePrimitiveIndex;
+    uint ignoreMaterialId;
+};
+
 struct PathTraceSmokeVertex
 {
     float4 position;
@@ -1149,6 +1158,17 @@ PathTraceSmokePayload InitSmokePayload()
     return payload;
 }
 
+PathTraceSmokeShadowPayload InitSmokeShadowPayload(uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
+{
+    PathTraceSmokeShadowPayload payload;
+    payload.hit = 0u;
+    payload.rayMode = ignoreInstanceId != 0xffffffffu ? 2u : 1u;
+    payload.ignoreInstanceId = ignoreInstanceId;
+    payload.ignorePrimitiveIndex = ignorePrimitiveIndex;
+    payload.ignoreMaterialId = ignoreMaterialId;
+    return payload;
+}
+
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material;
@@ -2084,11 +2104,7 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
 
 float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
 {
-    PathTraceSmokePayload shadowPayload = InitSmokePayload();
-    shadowPayload.value = ignoreInstanceId != 0xffffffffu ? 2u : 1u;
-    shadowPayload.shadowIgnoreInstanceId = ignoreInstanceId;
-    shadowPayload.shadowIgnorePrimitiveIndex = ignorePrimitiveIndex;
-    shadowPayload.shadowIgnoreMaterialId = ignoreMaterialId;
+    PathTraceSmokeShadowPayload shadowPayload = InitSmokeShadowPayload(ignoreInstanceId, ignorePrimitiveIndex, ignoreMaterialId);
 
     RayDesc shadowRay;
     shadowRay.Origin = origin;
@@ -2104,13 +2120,13 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, ui
         SmokeScene,
         rayFlags,
         0xff,
-        0,
         1,
-        0,
+        1,
+        1,
         shadowRay,
         shadowPayload);
 
-    return shadowPayload.value == 0 ? 1.0 : 0.0;
+    return shadowPayload.hit == 0u ? 1.0 : 0.0;
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
@@ -3260,6 +3276,12 @@ void Miss(inout PathTraceSmokePayload payload)
     payload.value = 0;
 }
 
+[shader("miss")]
+void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
+{
+    payload.hit = 0u;
+}
+
 [shader("anyhit")]
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
@@ -3282,6 +3304,40 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
     {
         IgnoreHit();
     }
+}
+
+[shader("anyhit")]
+void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    const uint instanceId = InstanceID();
+    const uint primitiveIndex = PrimitiveIndex();
+    payload.hit = 1u;
+    if (payload.rayMode == 2u &&
+        instanceId == payload.ignoreInstanceId)
+    {
+        const uint materialId = LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
+        if (primitiveIndex == payload.ignorePrimitiveIndex || materialId == payload.ignoreMaterialId)
+        {
+            payload.hit = 0u;
+            IgnoreHit();
+            return;
+        }
+    }
+    if (instanceId >= 2u)
+    {
+        return;
+    }
+    if (SmokeAlphaRejectsHit(instanceId, primitiveIndex, attributes.barycentrics, payload.rayMode))
+    {
+        payload.hit = 0u;
+        IgnoreHit();
+    }
+}
+
+[shader("closesthit")]
+void ShadowClosestHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    payload.hit = 1u;
 }
 
 [shader("closesthit")]
