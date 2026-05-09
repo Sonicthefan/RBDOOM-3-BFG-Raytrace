@@ -125,7 +125,7 @@ RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface 
 
 float RAB_GetLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Surface surface)
 {
-    if (lightSample.valid == 0u || lightSample.solidAnglePdf <= 1.0e-6 || !RAB_IsSurfaceValid(surface))
+    if (!RAB_IsReplayableLightSample(lightSample) || !RAB_IsSurfaceValid(surface))
     {
         return 0.0;
     }
@@ -183,7 +183,7 @@ float RAB_GetPTSampleTargetPdfForSurface(float3 samplePosition, float3 radiance,
 
 bool RAB_GetConservativeVisibility(RAB_Surface surface, RAB_LightSample lightSample)
 {
-    return RAB_IsSurfaceValid(surface) && lightSample.valid != 0u;
+    return RAB_IsSurfaceValid(surface) && RAB_IsReplayableLightSample(lightSample);
 }
 
 float RAB_GetConservativeVisibility(RAB_Surface surface, float3 samplePosition)

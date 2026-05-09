@@ -186,14 +186,25 @@ Recommended Task Order
 
    Store valid source IDs, PDFs, target weights, and replay-safe metadata.
    Separate legacy full-loop contribution fields from true sampled-light fields
-   so future reservoir/RAB code cannot double-apply PDFs.
+   so future reservoir/RAB code cannot double-apply PDFs. The current native NEE
+   contract exposes `ValidateSmokeDoomAnalyticLightSampleForReplay`,
+   `EvaluateSmokeDoomAnalyticLightSampleForSurface`, and
+   `SmokeNeeAnalyticTargetWeight`; those helpers validate source type/index,
+   render-light identity, positive PDFs, sample distance, and the combined
+   `lightSelectionPdf * solidAnglePdf` before replay/final shading. Analytic
+   samples currently mark solid-angle-scaled local radiance with
+   `SMOKE_NEE_SAMPLE_FLAG_ANALYTIC_SOLID_ANGLE_SCALED`, so future reservoir
+   code must not treat `radiance` as an unscaled physical source value or divide
+   by `solidAnglePdf` a second time.
 
 5. Hand the stable sample contract to the ReSTIR/PT bridge.
 
    ReSTIR/PT should own reservoirs, temporal reuse, spatial reuse, ping-pong
    resources, rejection, final selected-sample shading, and history validation.
    The NEE module should only build/evaluate samples and expose clean PDFs and
-   target weights.
+   target weights. The RAB light bridge mirrors the same rule with
+   `RAB_IsReplayableLightSample` before target-PDF and conservative-visibility
+   callbacks consume a selected light sample.
 
 Non-Goals
 ---------

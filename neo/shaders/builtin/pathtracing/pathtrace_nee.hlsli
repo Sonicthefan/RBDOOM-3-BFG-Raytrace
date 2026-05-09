@@ -19,6 +19,8 @@ static const uint SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF = 0u;
 static const uint SMOKE_NEE_ANALYTIC_LIGHT_MODE_SAMPLED = 1u;
 static const uint SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL = 2u;
 
+static const uint SMOKE_NEE_SAMPLE_FLAG_ANALYTIC_SOLID_ANGLE_SCALED = 0x40000000u;
+
 struct SmokeNeeSurface
 {
     float3 position;
@@ -39,9 +41,25 @@ struct SmokeNeeSurface
 
 // Native extension record for selected-light NEE today and later analytic,
 // emissive, environment, BRDF/MIS, visibility replay, and source attribution.
-// These fields are RTXDI-shaped but not RTXDI-equivalent yet: targetPdf is only
-// valid when a later target-function evaluator writes it, and point-like legacy
-// selected lights do not have a finite solid-angle PDF.
+// The record is local and RTXDI-shaped, not an RTXDI reservoir:
+// - sourceType/eventType identify how the candidate was produced.
+// - sourceIndex is the shader-visible light-buffer index for replay; analytic
+//   samples also mirror renderLightIndex in sourceInstanceId as the current
+//   best stable Doom light identity.
+// - direction/distance describe the sampled direction from the shaded surface.
+// - radiance is the evaluable contribution convention for this local NEE path.
+//   Doom analytic sphere samples currently store solid-angle-scaled radiance,
+//   marked by SMOKE_NEE_SAMPLE_FLAG_ANALYTIC_SOLID_ANGLE_SCALED, so future
+//   reservoir code must not divide by solidAnglePdf again.
+// - lightSelectionPdf is the discrete proposal PDF over the eligible uploaded
+//   light universe. A reservoir selecting one candidate does not mean the
+//   authored or uploaded light universe has been reduced to one light.
+// - solidAnglePdf is the directional sample PDF for the chosen light surface.
+// - samplePdf is lightSelectionPdf * solidAnglePdf for sampled proposals.
+// - targetWeight is the local reflected-radiance score used for RIS/ReSTIR
+//   weighting; targetPdf remains zero until a true target-PDF evaluator is
+//   wired for this smoke NEE record.
+// - flags preserves source light flags plus local sample-contract flags.
 struct SmokeNeeLightSample
 {
     uint sourceType;
@@ -181,6 +199,25 @@ float3 EvaluateSmokeNeeSpecular(in SmokeNeeSurface surface, float3 lightDir, flo
     const float specularNdotH = saturate(dot(surface.normal, halfVector));
     const float specularTerm = pow(specularNdotH, 32.0) * visibility;
     return surface.specularColor * radiance * specularTerm;
+}
+
+bool SmokeNeeIsFinitePositive(float value)
+{
+    return value > 0.0 && value < 3.402823e+38 && value == value;
+}
+
+float SmokeNeeAnalyticTargetWeight(in SmokeNeeSurface surface, float3 lightDir, float3 radiance)
+{
+    const float ndotl = saturate(dot(surface.normal, lightDir));
+    if (ndotl <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float3 diffuse = surface.albedo * max(radiance, float3(0.0, 0.0, 0.0)) * ndotl;
+    const float3 specular = EvaluateSmokeNeeSpecular(surface, lightDir, radiance, 1.0);
+    const float3 reflected = diffuse + specular;
+    return max(max(reflected.r, reflected.g), reflected.b);
 }
 
 bool BuildSmokeSelectedLightSample(in SmokeNeeSurface surface, uint lightIndex, float lightScale, float maxToyRayDistance, float samplePdf, out SmokeNeeLightSample sample)
@@ -371,13 +408,47 @@ bool BuildSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, uint lightInd
     sample.solidAnglePdf = 1.0 / solidAngle;
     sample.samplePdf = sample.lightSelectionPdf * sample.solidAnglePdf;
     sample.targetPdf = 0.0;
-    sample.targetWeight = sampledNdotL * max(max(sample.radiance.r, sample.radiance.g), sample.radiance.b);
+    sample.targetWeight = SmokeNeeAnalyticTargetWeight(surface, sampledLightDir, sample.radiance);
     sample.misWeight = 1.0;
-    sample.flags = light.flags;
+    sample.flags = light.flags | SMOKE_NEE_SAMPLE_FLAG_ANALYTIC_SOLID_ANGLE_SCALED;
     return true;
 }
 
-SmokeNeeResult EvaluateSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, in SmokeNeeLightSample sample)
+uint SmokeDoomAnalyticLightCount()
+{
+    if (!DoomAnalyticLightsEnabled())
+    {
+        return 0u;
+    }
+
+    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+    return min(uploadedCount, traceCap);
+}
+
+bool ValidateSmokeDoomAnalyticLightSampleForReplay(in SmokeNeeLightSample sample)
+{
+    const uint lightCount = SmokeDoomAnalyticLightCount();
+    if (sample.sourceType != SMOKE_NEE_SOURCE_DOOM_ANALYTIC ||
+        sample.eventType != SMOKE_NEE_EVENT_NEXT_EVENT ||
+        sample.sourceIndex >= lightCount)
+    {
+        return false;
+    }
+
+    const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[sample.sourceIndex];
+    const float expectedSamplePdf = sample.lightSelectionPdf * sample.solidAnglePdf;
+    return
+        sample.sourceInstanceId == light.renderLightIndex &&
+        SmokeNeeIsFinitePositive(sample.lightSelectionPdf) &&
+        SmokeNeeIsFinitePositive(sample.solidAnglePdf) &&
+        SmokeNeeIsFinitePositive(sample.samplePdf) &&
+        SmokeNeeIsFinitePositive(sample.distance) &&
+        sample.samplePdf >= expectedSamplePdf * 0.999 &&
+        sample.samplePdf <= expectedSamplePdf * 1.001;
+}
+
+SmokeNeeResult EvaluateSmokeDoomAnalyticLightSampleForSurface(in SmokeNeeSurface surface, in SmokeNeeLightSample sample, bool traceVisibility)
 {
     SmokeNeeResult result = InitSmokeNeeResult();
     result.sourceType = sample.sourceType;
@@ -392,14 +463,7 @@ SmokeNeeResult EvaluateSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, 
     result.targetWeight = sample.targetWeight;
     result.misWeight = sample.misWeight;
     result.flags = sample.flags;
-    if (sample.sourceType != SMOKE_NEE_SOURCE_DOOM_ANALYTIC)
-    {
-        return result;
-    }
-
-    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
-    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    if (sample.sourceIndex >= min(uploadedCount, traceCap))
+    if (!ValidateSmokeDoomAnalyticLightSampleForReplay(sample))
     {
         return result;
     }
@@ -416,14 +480,20 @@ SmokeNeeResult EvaluateSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, 
     const float sphereRadius = clamp(light.originAndRadius.w, 0.01, max(light.doomRadiusAndArea.x, 1.0));
     const float sampledHitT = SmokeRaySphereHitT(shadowOrigin, sample.direction, light.originAndRadius.xyz, sphereRadius, sample.distance);
     const float shadowTMax = max(sampledHitT - 0.5, 0.01);
-    const float visibility = (sample.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) != 0u
+    const float visibility = traceVisibility && (sample.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) != 0u
         ? TraceSmokeShadowVisibility(shadowOrigin, sample.direction, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu)
         : 1.0;
 
     result.visibility = visibility;
+    result.targetWeight = SmokeNeeAnalyticTargetWeight(surface, sample.direction, sample.radiance);
     result.contribution = surface.albedo * sample.radiance * (ndotl * visibility);
     result.contribution += EvaluateSmokeNeeSpecular(surface, sample.direction, sample.radiance, visibility);
     return result;
+}
+
+SmokeNeeResult EvaluateSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, in SmokeNeeLightSample sample)
+{
+    return EvaluateSmokeDoomAnalyticLightSampleForSurface(surface, sample, true);
 }
 
 float3 EvaluateDoomAnalyticSphereLightsLegacyFullForSurface(in SmokeNeeSurface surface, uint seed)

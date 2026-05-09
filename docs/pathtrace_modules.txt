@@ -653,10 +653,26 @@ pathtrace_nee.hlsli
     placeholder. These records are RTXDI-shaped extension points, not
     RTXDI-equivalent sampling state yet: selected point lights have a discrete
     light-selection PDF and no finite solid-angle PDF, while `targetPdf` remains
-    zero until a real reflected-radiance target evaluator is added.
+    zero until a real reflected-radiance target evaluator is added. Doom
+    analytic samples expose replay helpers for future reservoir final shading:
+    `ValidateSmokeDoomAnalyticLightSampleForReplay` rejects stale source
+    indexes, changed render-light identities, invalid PDFs, and invalid
+    distances; `EvaluateSmokeDoomAnalyticLightSampleForSurface` evaluates one
+    already-selected analytic sample without choosing a new light or looping the
+    light buffer; and `SmokeNeeAnalyticTargetWeight` computes the local target
+    score. Analytic NEE radiance is currently marked as solid-angle-scaled local
+    radiance, so reservoir code must not divide it by `solidAnglePdf` again.
     `r_pathTracingSecondaryNeeVisibility` can skip the sampled selected-light
     shadow ray as a diagnostic isolation gate, but the default traces
     visibility.
+
+RtxdiBridge/RAB_LightSample.hlsli and RAB_LightSampling.hlsli
+    Local RAB light sample contract for ReSTIR/PT bridge callbacks. A
+    `RAB_LightSample` represents one replayable selected light sample, not an
+    accumulated full-loop lighting result. `RAB_IsReplayableLightSample`
+    centralizes the current validity checks for target-PDF and conservative
+    visibility callbacks: the sample must be valid, have a positive finite
+    solid-angle PDF, and have a positive finite distance.
 
 PathTracePrimarySurface.hlsli
     Shader-side primary-surface contract and helper layer. It defines the

@@ -108,12 +108,21 @@ Current validated feature set:
   light proposals from the current uploaded candidate set, and mode 2 keeps the
   legacy full analytic-light loop as the reference. The bounded proposal count
   is controlled by `r_pathTracingSecondaryAnalyticNeeSamples`; it does not
-  reduce the authored/uploaded analytic-light universe. The native NEE records reserve source
-  identity, proposal PDF, target-weight, visibility, MIS, and path-event fields
-  for later RTXDI/ReSTIR PT extension without importing NVIDIA sample code. They
-  are RTXDI-shaped local records, not RTXDI-equivalent records yet: selected
-  point lights use a discrete proposal PDF, leave `targetPdf` unset until a real
-  target-function evaluator exists, and do not claim a finite solid-angle PDF.
+  reduce the authored/uploaded analytic-light universe. The native NEE records
+  reserve source identity, proposal PDF, target-weight, visibility, MIS, and
+  path-event fields for later RTXDI/ReSTIR PT extension without importing NVIDIA
+  sample code. They are RTXDI-shaped local records, not RTXDI-equivalent records
+  yet: selected point lights use a discrete proposal PDF, leave `targetPdf`
+  unset until a real target-function evaluator exists, and do not claim a finite
+  solid-angle PDF.
+  Doom analytic samples now have replay-safe helper boundaries:
+  `ValidateSmokeDoomAnalyticLightSampleForReplay`,
+  `EvaluateSmokeDoomAnalyticLightSampleForSurface`, and
+  `SmokeNeeAnalyticTargetWeight`. These helpers let future reservoir final
+  shading evaluate one already-selected analytic sample without reselecting or
+  looping the light buffer. Current analytic NEE radiance is explicitly marked
+  as solid-angle-scaled local radiance, so later ReSTIR code must not divide it
+  by `solidAnglePdf` again.
 - Mode 19 emissive triangle inventory visualization. The CPU inventory is a
   broad material/triangle candidate list for future ReSTIR/PT work, while the
   debug view samples emissive texture luminance and skips skinned/deformed
