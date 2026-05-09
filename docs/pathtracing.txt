@@ -844,9 +844,32 @@ Denoise/upscale/Ray Reconstruction reservation:
   successful scene build. It reports scene source, debug mode, output size,
   geometry/material/light signatures, geometry counts and history placeholders,
   material table path and active texture count, emissive/Doom analytic light
-  counts, source3 portal step/area/edge facts, and CPU upload/timing estimates.
-  This is a diagnostics contract only; it does not change dispatch routing or
-  shader-visible buffer layouts.
+  counts, source3 view/current area plus portal step/area/edge facts, and CPU
+  upload/timing estimates. This is a diagnostics contract only; it does not
+  change dispatch routing or shader-visible buffer layouts.
+
+- r_pathTracingPortalTransitionDump
+  Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
+  committed scene transition changes source, portal area/set counts, selected
+  geometry/material/light counts, scene signatures, or core resource handles,
+  this prints old/new portal facts, geometry/material/light counts, upload byte
+  estimates, descriptor-table create/write flags, binding-set changes, buffer
+  handle changes, and static/dynamic BLAS handle changes. It is intended for
+  portal-threshold corruption/device-removal diagnosis and does not change
+  rendering behavior. Values are:
+  `0` off, `1` print the next portal-area transition and auto-disable,
+  `2` print every portal-area transition, `3` print every broad scene/resource
+  transition. Use `1` for normal in-game testing; `3` is expected to be noisy.
+
+- r_pathTracingWaitForIdleOnPortalChange
+  Diagnostic synchronization gate. When nonzero and the same PT scene
+  transition signature changes, `PathTraceSmokeResources` waits for the NVRHI
+  device to idle immediately before replacing the committed PT scene resources.
+  If portal-threshold texture corruption or device removal disappears with this
+  enabled, treat it as evidence for an in-flight resource/descriptor lifetime
+  hazard and replace the diagnostic wait with frame-retired scene resources or
+  fence-based retirement. This path is silent unless transition dumping is also
+  enabled. Do not leave this enabled as a performance solution.
 
 - r_pathTracingDebugMode 20
   Single-frame direct lighting debug view from the emissive candidate contract.

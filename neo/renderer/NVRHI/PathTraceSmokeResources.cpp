@@ -82,7 +82,8 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         lights.doomAnalyticLightCount,
         static_cast<unsigned long long>(lights.lightUniverseGeneration),
         lights.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT scene inputs portal current/total=%d/%d steps static/rigid/light/scene=%d/%d/%d/%d light selected/edges/blocked=%d/%d/%d rigid selected/edges/blocked=%d/%d/%d defaultEquivalent=%d uploads geometry/material/light=%llu/%llu/%llu timings scene/capture/material/emissive/bufferCreate/upload/accel=%d/%d/%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs portal view/current/total=%d/%d/%d steps static/rigid/light/scene=%d/%d/%d/%d light selected/edges/blocked=%d/%d/%d rigid selected/edges/blocked=%d/%d/%d defaultEquivalent=%d uploads geometry/material/light=%llu/%llu/%llu timings scene/capture/material/emissive/bufferCreate/upload/accel=%d/%d/%d/%d/%d/%d/%d\n",
+        portal.viewArea,
         portal.currentArea,
         portal.totalAreas,
         portal.staticAreaPreloadSteps,
@@ -106,6 +107,164 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         diagnostics.bufferCreateMs,
         diagnostics.bufferUploadMs,
         diagnostics.accelSubmitMs);
+}
+
+static uint64_t HashPathTraceTransitionValue(uint64_t hash, uint64_t value)
+{
+    hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+    return hash;
+}
+
+static uint64_t BuildPathTraceSceneTransitionSignature(const RtPathTraceSceneInputs& inputs)
+{
+    const RtPathTraceSceneInputSignatures& signatures = inputs.signatures;
+    const RtPathTraceSceneInputPortalPolicy& portal = inputs.portalPolicy;
+    const RtPathTraceSceneInputGeometry& geometry = inputs.geometry;
+    const RtPathTraceSceneInputMaterials& materials = inputs.materials;
+    const RtPathTraceSceneInputLights& lights = inputs.lights;
+
+    uint64_t hash = 1469598103934665603ull;
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(inputs.valid ? 1 : 0));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(inputs.sceneSource));
+    hash = HashPathTraceTransitionValue(hash, signatures.geometryMembership);
+    hash = HashPathTraceTransitionValue(hash, signatures.materialTable);
+    hash = HashPathTraceTransitionValue(hash, signatures.lightMembership);
+    hash = HashPathTraceTransitionValue(hash, signatures.outputResolution);
+    hash = HashPathTraceTransitionValue(hash, signatures.reservoirScene);
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.viewArea));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.currentArea));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.selectedAreaCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidSelectedAreaCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.staticAreaPreloadSteps));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidResidencySteps));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.lightAreaSteps));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.staticTriangleCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.dynamicTriangleCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.rigidRouteInstanceCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialTableEntryCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.activeTextureCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(lights.emissiveTriangleCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(lights.lightCandidateCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(lights.doomAnalyticLightCount));
+    return hash;
+}
+
+static uint64_t BuildPathTracePortalTransitionSignature(const RtPathTraceSceneInputs& inputs)
+{
+    const RtPathTraceSceneInputPortalPolicy& portal = inputs.portalPolicy;
+
+    uint64_t hash = 1469598103934665603ull;
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(inputs.valid ? 1 : 0));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(inputs.sceneSource));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.viewArea));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.currentArea));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.selectedAreaCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidSelectedAreaCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.staticAreaPreloadSteps));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidResidencySteps));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.lightAreaSteps));
+    return hash;
+}
+
+static bool PathTraceSceneTransitionChanged(const RtPathTraceSceneInputs& previous, const RtPathTraceSceneInputs& next)
+{
+    return previous.valid && next.valid && BuildPathTraceSceneTransitionSignature(previous) != BuildPathTraceSceneTransitionSignature(next);
+}
+
+static bool PathTracePortalTransitionChanged(const RtPathTraceSceneInputs& previous, const RtPathTraceSceneInputs& next)
+{
+    return previous.valid && next.valid && BuildPathTracePortalTransitionSignature(previous) != BuildPathTracePortalTransitionSignature(next);
+}
+
+template< typename HandleType >
+static int HandleChanged(const HandleType& oldHandle, const HandleType& newHandle)
+{
+    return oldHandle != newHandle ? 1 : 0;
+}
+
+static void PrintPathTracePortalTransitionDump(
+    const RtPathTraceSceneInputs& previous,
+    const RtSmokeSceneResourceCommitDesc& next,
+    bool waitedForIdle,
+    const RtSmokeSceneBufferHandles& oldBuffers,
+    nvrhi::rt::AccelStructHandle oldStaticBlas,
+    nvrhi::rt::AccelStructHandle oldDynamicBlas,
+    nvrhi::BindingSetHandle oldBindingSet,
+    nvrhi::DescriptorTableHandle oldTextureDescriptorTable)
+{
+    const RtPathTraceSceneInputs& current = next.sceneInputs;
+    const RtPathTraceSceneInputPortalPolicy& oldPortal = previous.portalPolicy;
+    const RtPathTraceSceneInputPortalPolicy& newPortal = current.portalPolicy;
+    const RtPathTraceSceneInputGeometry& oldGeometry = previous.geometry;
+    const RtPathTraceSceneInputGeometry& newGeometry = current.geometry;
+    const RtPathTraceSceneInputMaterials& oldMaterials = previous.materials;
+    const RtPathTraceSceneInputMaterials& newMaterials = current.materials;
+    const RtPathTraceSceneInputLights& oldLights = previous.lights;
+    const RtPathTraceSceneInputLights& newLights = current.lights;
+
+    common->Printf("PathTracePrimaryPass: PT portal transition waitIdle=%d oldSig=%llu newSig=%llu sceneSource %d->%d viewArea %d->%d currentArea %d->%d selectedAreas light %d->%d rigid %d->%d steps static %d->%d rigid %d->%d light %d->%d\n",
+        waitedForIdle ? 1 : 0,
+        static_cast<unsigned long long>(BuildPathTraceSceneTransitionSignature(previous)),
+        static_cast<unsigned long long>(BuildPathTraceSceneTransitionSignature(current)),
+        previous.sceneSource,
+        current.sceneSource,
+        oldPortal.viewArea,
+        newPortal.viewArea,
+        oldPortal.currentArea,
+        newPortal.currentArea,
+        oldPortal.selectedAreaCount,
+        newPortal.selectedAreaCount,
+        oldPortal.rigidSelectedAreaCount,
+        newPortal.rigidSelectedAreaCount,
+        oldPortal.staticAreaPreloadSteps,
+        newPortal.staticAreaPreloadSteps,
+        oldPortal.rigidResidencySteps,
+        newPortal.rigidResidencySteps,
+        oldPortal.lightAreaSteps,
+        newPortal.lightAreaSteps);
+    common->Printf("PathTracePrimaryPass: PT portal transition counts staticTri %d->%d dynamicTri %d->%d rigidInst %d->%d materialEntries %d->%d activeTextures %d->%d emissive %d->%d candidates %d->%d analytic %d->%d uploadBytes old %llu/%llu/%llu new %llu/%llu/%llu\n",
+        oldGeometry.staticTriangleCount,
+        newGeometry.staticTriangleCount,
+        oldGeometry.dynamicTriangleCount,
+        newGeometry.dynamicTriangleCount,
+        oldGeometry.rigidRouteInstanceCount,
+        newGeometry.rigidRouteInstanceCount,
+        oldMaterials.materialTableEntryCount,
+        newMaterials.materialTableEntryCount,
+        oldMaterials.activeTextureCount,
+        newMaterials.activeTextureCount,
+        oldLights.emissiveTriangleCount,
+        newLights.emissiveTriangleCount,
+        oldLights.lightCandidateCount,
+        newLights.lightCandidateCount,
+        oldLights.doomAnalyticLightCount,
+        newLights.doomAnalyticLightCount,
+        static_cast<unsigned long long>(previous.diagnostics.geometryUploadBytes),
+        static_cast<unsigned long long>(previous.diagnostics.materialUploadBytes),
+        static_cast<unsigned long long>(previous.diagnostics.lightUploadBytes),
+        static_cast<unsigned long long>(current.diagnostics.geometryUploadBytes),
+        static_cast<unsigned long long>(current.diagnostics.materialUploadBytes),
+        static_cast<unsigned long long>(current.diagnostics.lightUploadBytes));
+    common->Printf("PathTracePrimaryPass: PT portal transition resources buffers staticV/I/TM=%d/%d/%d dynamicV/I/TM=%d/%d/%d rigidV/I/Inst=%d/%d/%d material=%d emissive/candidate/analytic=%d/%d/%d blas static/dynamic=%d/%d bindingSet=%d descriptorTable=%d descriptorCreated=%d descriptorWritten=%d\n",
+        HandleChanged(oldBuffers.staticVertexBuffer, next.buffers.staticVertexBuffer),
+        HandleChanged(oldBuffers.staticIndexBuffer, next.buffers.staticIndexBuffer),
+        HandleChanged(oldBuffers.staticTriangleMaterialBuffer, next.buffers.staticTriangleMaterialBuffer),
+        HandleChanged(oldBuffers.dynamicVertexBuffer, next.buffers.dynamicVertexBuffer),
+        HandleChanged(oldBuffers.dynamicIndexBuffer, next.buffers.dynamicIndexBuffer),
+        HandleChanged(oldBuffers.dynamicTriangleMaterialBuffer, next.buffers.dynamicTriangleMaterialBuffer),
+        HandleChanged(oldBuffers.rigidRouteVertexBuffer, next.buffers.rigidRouteVertexBuffer),
+        HandleChanged(oldBuffers.rigidRouteIndexBuffer, next.buffers.rigidRouteIndexBuffer),
+        HandleChanged(oldBuffers.rigidRouteInstanceBuffer, next.buffers.rigidRouteInstanceBuffer),
+        HandleChanged(oldBuffers.materialTableBuffer, next.buffers.materialTableBuffer),
+        HandleChanged(oldBuffers.emissiveTriangleBuffer, next.buffers.emissiveTriangleBuffer),
+        HandleChanged(oldBuffers.lightCandidateBuffer, next.buffers.lightCandidateBuffer),
+        HandleChanged(oldBuffers.doomAnalyticLightBuffer, next.buffers.doomAnalyticLightBuffer),
+        HandleChanged(oldStaticBlas, next.staticBlas),
+        HandleChanged(oldDynamicBlas, next.dynamicBlas),
+        HandleChanged(oldBindingSet, next.bindingSet),
+        HandleChanged(oldTextureDescriptorTable, next.textureDescriptorTable),
+        next.textureDescriptorTableCreated ? 1 : 0,
+        next.textureDescriptorTableWritten ? 1 : 0);
 }
 
 static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
@@ -218,6 +377,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         {
             OPTICK_EVENT("PT Create Texture Descriptor Table");
             result.textureDescriptorTable = desc.device->createDescriptorTable(desc.textureBindlessLayout);
+            result.textureDescriptorTableCreated = result.textureDescriptorTable != nullptr;
         }
         if (!result.textureDescriptorTable)
         {
@@ -252,6 +412,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
 
         {
             OPTICK_EVENT("PT Write Texture Descriptor Table");
+            result.textureDescriptorTableWritten = textureSlotCount > 0;
             for (int textureSlot = 0; textureSlot < textureSlotCount; ++textureSlot)
             {
                 nvrhi::TextureHandle texture = result.activeTextureTable[textureSlot + 1];
@@ -313,6 +474,8 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.staticBlasSignature = desc.staticBlasSignature;
     commitDesc.bindingSet = desc.bindingSet;
     commitDesc.textureDescriptorTable = desc.textureDescriptorTable;
+    commitDesc.textureDescriptorTableCreated = desc.textureDescriptorTableCreated;
+    commitDesc.textureDescriptorTableWritten = desc.textureDescriptorTableWritten;
     if (desc.activeTextureTable)
     {
         commitDesc.activeTextureTable = *desc.activeTextureTable;
@@ -634,6 +797,64 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
 
 void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc)
 {
+    const RtPathTraceSceneInputs previousSceneInputs = m_sceneInputs;
+    RtSmokeSceneBufferHandles previousBuffers;
+    previousBuffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
+    previousBuffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
+    previousBuffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
+    previousBuffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
+    previousBuffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+    previousBuffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
+    previousBuffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+    previousBuffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
+    previousBuffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
+    previousBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+    previousBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
+    previousBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    previousBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
+    previousBuffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
+    previousBuffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
+    previousBuffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+    previousBuffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
+    previousBuffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
+    previousBuffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    const nvrhi::rt::AccelStructHandle previousStaticBlas = m_smokeStaticBlas;
+    const nvrhi::rt::AccelStructHandle previousDynamicBlas = m_smokeDynamicBlas;
+    const nvrhi::BindingSetHandle previousBindingSet = m_smokeBindingSet;
+    const nvrhi::DescriptorTableHandle previousTextureDescriptorTable = m_smokeTextureDescriptorTable;
+    const bool sceneTransitionChanged = PathTraceSceneTransitionChanged(previousSceneInputs, desc.sceneInputs);
+    const bool portalTransitionChanged = PathTracePortalTransitionChanged(previousSceneInputs, desc.sceneInputs);
+    bool waitedForIdle = false;
+    if (sceneTransitionChanged && r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0)
+    {
+        nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+        if (device)
+        {
+            device->waitForIdle();
+            waitedForIdle = true;
+        }
+    }
+    const int portalTransitionDump = r_pathTracingPortalTransitionDump.GetInteger();
+    const bool dumpNextPortalTransition = portalTransitionDump == 1 && portalTransitionChanged;
+    const bool dumpEveryPortalTransition = portalTransitionDump == 2 && portalTransitionChanged;
+    const bool dumpEverySceneTransition = portalTransitionDump >= 3 && sceneTransitionChanged;
+    if (dumpNextPortalTransition || dumpEveryPortalTransition || dumpEverySceneTransition)
+    {
+        PrintPathTracePortalTransitionDump(
+            previousSceneInputs,
+            desc,
+            waitedForIdle,
+            previousBuffers,
+            previousStaticBlas,
+            previousDynamicBlas,
+            previousBindingSet,
+            previousTextureDescriptorTable);
+        if (dumpNextPortalTransition)
+        {
+            r_pathTracingPortalTransitionDump.SetInteger(0);
+        }
+    }
+
     m_sceneInputs = desc.sceneInputs;
     m_smokeStaticVertexBuffer = desc.buffers.staticVertexBuffer;
     m_smokeStaticIndexBuffer = desc.buffers.staticIndexBuffer;

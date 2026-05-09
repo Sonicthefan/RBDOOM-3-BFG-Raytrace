@@ -193,7 +193,8 @@ PathTraceSceneInputs.h
     CPU-side PT scene input contract. It packages the committed TLAS/BLAS
     handles, static/dynamic/rigid/skinned geometry counts, material table buffer
     and signature, texture descriptor table and active texture count, emissive
-    and Doom analytic light buffers/counts, source3 portal policy facts,
+    and Doom analytic light buffers/counts, source3 view/current-area portal
+    policy facts,
     history-availability placeholders, and CPU upload/timing diagnostics. This
     is not a shader ABI and does not change GPU buffer layouts. It exists so PT
     and ReSTIR work can consume a named scene/material/light package instead of
@@ -235,7 +236,16 @@ PathTraceSmokeResources.cpp
     and destructive resize safety to PathTraceFrameResources. The smoke raygen
     dispatch path and shader ABI are unchanged by this ownership split. Scene
     commits now retain the latest RtPathTraceSceneInputs package and can print
-    it with `r_pathTracingSceneInputsDump 1`.
+    it with `r_pathTracingSceneInputsDump 1`. `r_pathTracingPortalTransitionDump`
+    logs scene/portal/resource-handle transitions, including descriptor table
+    create/write flags and BLAS/binding/resource replacement facts. Its normal
+    test value is `1`, which captures the next portal-area transition and then
+    disables itself; value `3` is the intentionally noisy broad resource
+    transition dump.
+    `r_pathTracingWaitForIdleOnPortalChange` is a diagnostic-only device idle
+    inserted immediately before replacing committed PT scene resources when the
+    scene transition signature changes; use it to prove or disprove an in-flight
+    lifetime hazard before implementing frame-retired scene resources.
 
 PathTraceSmokeDispatch.h
     Exposes the smoke constants buffer size without exposing the full constants

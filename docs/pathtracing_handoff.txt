@@ -91,6 +91,20 @@ Latest mode 18 NEE state:
   no stability or performance improvement either. Treat that slice as a clean
   contract-preparation step, not a fix for the high-load corruption/device
   removal issue.
+- New portal/resource-lifetime diagnostic slice: `PathTraceSmokeResources`
+  can now detect committed PT scene transitions across scene source,
+  view/current area, selected portal counts, geometry/material/light counts,
+  scene signatures, descriptor table create/write state, binding-set changes,
+  buffer handle replacement, and static/dynamic BLAS handle replacement.
+  `r_pathTracingPortalTransitionDump 1` prints the next portal-area transition
+  and then auto-disables; `2` prints every portal-area transition; `3` prints
+  every broad scene/resource transition and is expected to flood the console.
+  `r_pathTracingWaitForIdleOnPortalChange 1` waits for the NVRHI device to idle
+  immediately before replacing committed PT scene resources on broad scene
+  transitions, and now runs silently unless dumping is separately enabled. This
+  is diagnostic only: if it stops portal-threshold texture corruption/device
+  removal, the real fix should be frame-retired PT scene resources or
+  fence-based retirement, not a permanent idle.
 
 Recommended next validation:
 
@@ -109,6 +123,22 @@ Then compare:
     r_pathTracingSecondaryNeeVisibility 1
     r_pathTracingDisableDiffuseSecondaryRay 1
     r_pathTracingDisableSelectedLightLoop 1
+
+For portal/resource lifetime diagnosis, run the same baseline with:
+
+    r_pathTracingPortalTransitionDump 1
+    r_pathTracingWaitForIdleOnPortalChange 0
+
+This captures one portal-area transition and auto-disables so the console is not
+flooded. Then repeat the portal-threshold movement test with:
+
+    r_pathTracingWaitForIdleOnPortalChange 1
+
+If the wait-for-idle variant removes the corruption/crash, prioritize a real
+scene-resource retirement queue for old buffers, descriptor tables, binding
+sets, and BLAS/TLAS handles. If it does not help, keep the transition logs and
+move to descriptor reuse, acceleration rebuild, and monolithic shader pressure
+diagnostics without treating portal scene replacement as proven.
 
 If mode 1 is still unstable with analytic lights off, keep the next slice
 diagnostic and narrow, but stop treating CVar stripping as a root-cause finder

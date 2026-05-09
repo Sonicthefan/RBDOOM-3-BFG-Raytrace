@@ -53,6 +53,7 @@ struct RtPathTraceSceneInputSignatures
 struct RtPathTraceSceneInputPortalPolicy
 {
     int sceneSource = 0;
+    int viewArea = -1;
     int currentArea = -1;
     int totalAreas = 0;
     int staticAreaPreloadSteps = 0;

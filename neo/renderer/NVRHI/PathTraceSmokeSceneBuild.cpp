@@ -1760,6 +1760,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.signatures.reservoirScene = reservoirSceneSignature;
 
     sceneInputs.portalPolicy.sceneSource = sceneSource;
+    sceneInputs.portalPolicy.viewArea = viewDef ? viewDef->areaNum : -1;
     sceneInputs.portalPolicy.currentArea = lightUniverseStats.currentArea >= 0 ? lightUniverseStats.currentArea : (viewDef ? viewDef->areaNum : -1);
     sceneInputs.portalPolicy.totalAreas = lightUniverseStats.totalAreas;
     sceneInputs.portalPolicy.staticAreaPreloadSteps = idMath::ClampInt(0, 8, r_pathTracingStaticAreaPreloadPortalSteps.GetInteger());
@@ -1851,6 +1852,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.bindingSet = bindingBuildResult.bindingSet;
     resourceCommitBuildDesc.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     resourceCommitBuildDesc.activeTextureTable = &bindingBuildResult.activeTextureTable;
+    resourceCommitBuildDesc.textureDescriptorTableCreated = bindingBuildResult.textureDescriptorTableCreated;
+    resourceCommitBuildDesc.textureDescriptorTableWritten = bindingBuildResult.textureDescriptorTableWritten;
     resourceCommitBuildDesc.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
     resourceCommitBuildDesc.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     resourceCommitBuildDesc.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;

@@ -945,6 +945,18 @@ idCVar r_pathTracingSceneInputsDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the committed RT/PT scene input package once" );
 
+idCVar r_pathTracingPortalTransitionDump(
+    "r_pathTracingPortalTransitionDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic PT transition logging: 0 off, 1 next portal-area transition then off, 2 every portal-area transition, 3 every scene/resource transition" );
+
+idCVar r_pathTracingWaitForIdleOnPortalChange(
+    "r_pathTracingWaitForIdleOnPortalChange",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic: wait for GPU idle before replacing committed PT scene resources when portal/scene membership changes" );
+
 idCVar r_pathTracingSkipRaster3D(
     "r_pathTracingSkipRaster3D",
     "1",

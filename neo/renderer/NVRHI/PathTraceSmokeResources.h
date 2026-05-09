@@ -101,6 +101,8 @@ struct RtSmokeBindingBuildResult
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
+    bool textureDescriptorTableCreated = false;
+    bool textureDescriptorTableWritten = false;
     const char* errorMessage = nullptr;
     int failedTextureSlot = -1;
 
@@ -120,6 +122,8 @@ struct RtSmokeSceneResourceCommitDesc
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     std::vector<nvrhi::TextureHandle> activeTextureTable;
+    bool textureDescriptorTableCreated = false;
+    bool textureDescriptorTableWritten = false;
     int materialTableEntryCount = 0;
     int emissiveTriangleCount = 0;
     int emissiveStaticTriangleCount = 0;
@@ -145,6 +149,8 @@ struct RtSmokeSceneResourceCommitBuildDesc
     nvrhi::BindingSetHandle bindingSet;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     const std::vector<nvrhi::TextureHandle>* activeTextureTable = nullptr;
+    bool textureDescriptorTableCreated = false;
+    bool textureDescriptorTableWritten = false;
     int materialTableEntryCount = 0;
     int emissiveTriangleCount = 0;
     int emissiveStaticTriangleCount = 0;
