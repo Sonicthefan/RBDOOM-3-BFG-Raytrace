@@ -120,9 +120,11 @@ Current validated feature set:
   `EvaluateSmokeDoomAnalyticLightSampleForSurface`, and
   `SmokeNeeAnalyticTargetWeight`. These helpers let future reservoir final
   shading evaluate one already-selected analytic sample without reselecting or
-  looping the light buffer. Current analytic NEE radiance is explicitly marked
-  as solid-angle-scaled local radiance, so later ReSTIR code must not divide it
-  by `solidAnglePdf` again.
+  looping the light buffer. The replay validation now checks both renderer
+  light identity and Doom entity identity (`renderLightIndex` plus
+  `entityNumber`) before accepting an analytic sample. Current analytic NEE
+  radiance is explicitly marked as solid-angle-scaled local radiance, so later
+  ReSTIR code must not divide it by `solidAnglePdf` again.
 - Mode 19 emissive triangle inventory visualization. The CPU inventory is a
   broad material/triangle candidate list for future ReSTIR/PT work, while the
   debug view samples emissive texture luminance and skips skinned/deformed
@@ -2416,8 +2418,12 @@ the initial path-tracer output slice from `RTXDI_PTParameters`. The local
 RAB light list per visited path vertex before continuing the BRDF path, because
 the original BRDF-only probe was too sparse to show visible reservoirs in
 normal Doom scenes. The NEE picker uses the existing weighted emissive-triangle
-distribution and keeps the best local target from a small trial set; a single
-uniform pick from the full light list was also too weak. This is not a
+distribution and uniform analytic-light proposals, then streams the candidates
+through a small local RIS selector. It no longer keeps the highest-scoring
+analytic trial while recording the raw uniform draw PDF; the RIS estimator is
+folded into `radianceOverPdf` with a matching scalar effective `neePdf` for the
+path-tracer metadata. A single uniform pick from the full light list was too
+weak for validation. This is not a
 roughness/PBR problem: mode 26 is currently diffuse-only with roughness 1.0,
 which is valid enough for this reservoir visibility check. Misses, unsupported
 translucent/special surfaces, and invalid hits store empty reservoirs. The

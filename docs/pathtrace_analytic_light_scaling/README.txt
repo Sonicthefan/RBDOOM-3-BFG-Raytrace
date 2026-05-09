@@ -190,9 +190,9 @@ Recommended Task Order
    contract exposes `ValidateSmokeDoomAnalyticLightSampleForReplay`,
    `EvaluateSmokeDoomAnalyticLightSampleForSurface`, and
    `SmokeNeeAnalyticTargetWeight`; those helpers validate source type/index,
-   render-light identity, positive PDFs, sample distance, and the combined
-   `lightSelectionPdf * solidAnglePdf` before replay/final shading. Analytic
-   samples currently mark solid-angle-scaled local radiance with
+   render-light identity, Doom entity identity, positive PDFs, sample distance,
+   and the combined `lightSelectionPdf * solidAnglePdf` before replay/final
+   shading. Analytic samples currently mark solid-angle-scaled local radiance with
    `SMOKE_NEE_SAMPLE_FLAG_ANALYTIC_SOLID_ANGLE_SCALED`, so future reservoir
    code must not treat `radiance` as an unscaled physical source value or divide
    by `solidAnglePdf` a second time.
@@ -204,7 +204,9 @@ Recommended Task Order
    The NEE module should only build/evaluate samples and expose clean PDFs and
    target weights. The RAB light bridge mirrors the same rule with
    `RAB_IsReplayableLightSample` before target-PDF and conservative-visibility
-   callbacks consume a selected light sample.
+   callbacks consume a selected light sample. Its path-tracer NEE probe uses a
+   local RIS selector for multiple analytic trials instead of keeping the
+   highest-scoring trial while reporting the raw uniform light PDF.
 
 Non-Goals
 ---------

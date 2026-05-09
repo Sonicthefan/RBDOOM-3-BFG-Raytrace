@@ -656,12 +656,13 @@ pathtrace_nee.hlsli
     zero until a real reflected-radiance target evaluator is added. Doom
     analytic samples expose replay helpers for future reservoir final shading:
     `ValidateSmokeDoomAnalyticLightSampleForReplay` rejects stale source
-    indexes, changed render-light identities, invalid PDFs, and invalid
-    distances; `EvaluateSmokeDoomAnalyticLightSampleForSurface` evaluates one
-    already-selected analytic sample without choosing a new light or looping the
-    light buffer; and `SmokeNeeAnalyticTargetWeight` computes the local target
-    score. Analytic NEE radiance is currently marked as solid-angle-scaled local
-    radiance, so reservoir code must not divide it by `solidAnglePdf` again.
+    indexes, changed render-light identities, changed Doom entity identities,
+    invalid PDFs, and invalid distances; `EvaluateSmokeDoomAnalyticLightSampleForSurface`
+    evaluates one already-selected analytic sample without choosing a new light
+    or looping the light buffer; and `SmokeNeeAnalyticTargetWeight` computes the
+    local target score. Analytic NEE radiance is currently marked as
+    solid-angle-scaled local radiance, so reservoir code must not divide it by
+    `solidAnglePdf` again.
     `r_pathTracingSecondaryNeeVisibility` can skip the sampled selected-light
     shadow ray as a diagnostic isolation gate, but the default traces
     visibility.
@@ -1292,8 +1293,10 @@ conservative NEE sample from the current RAB light list per visited path vertex
 before BRDF continuation so initial reservoirs are visible near valid light
 candidates; the first BRDF-only probe and the first single uniform light pick
 were too sparse to validate visually. The current NEE picker uses the existing
-weighted emissive-triangle distribution and keeps the best local target from a
-small trial set. This is still a debug visibility aid, not final light sampling.
+weighted emissive-triangle distribution plus uniform analytic-light proposals,
+then streams valid candidates through a small local RIS selector. This replaced
+the earlier best-target heuristic, whose recorded raw light PDF was not valid
+after max-score selection. This is still a debug visibility aid, not final light sampling.
 It does not shade from the reservoir, does not enable temporal/spatial reuse,
 does not use previous-frame G-buffer history, does not trace final RAB
 visibility, and does not change modes 18/20. The RAB path-tracer skeleton now

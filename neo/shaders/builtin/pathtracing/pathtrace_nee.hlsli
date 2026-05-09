@@ -44,8 +44,8 @@ struct SmokeNeeSurface
 // The record is local and RTXDI-shaped, not an RTXDI reservoir:
 // - sourceType/eventType identify how the candidate was produced.
 // - sourceIndex is the shader-visible light-buffer index for replay; analytic
-//   samples also mirror renderLightIndex in sourceInstanceId as the current
-//   best stable Doom light identity.
+//   samples also mirror renderLightIndex in sourceInstanceId and entityNumber
+//   in sourceEntityId as the current stable Doom light identities.
 // - direction/distance describe the sampled direction from the shaded surface.
 // - radiance is the evaluable contribution convention for this local NEE path.
 //   Doom analytic sphere samples currently store solid-angle-scaled radiance,
@@ -67,6 +67,7 @@ struct SmokeNeeLightSample
     uint sourceIndex;
     uint sourceMaterialId;
     uint sourceInstanceId;
+    uint sourceEntityId;
     uint sourcePrimitiveIndex;
     float3 direction;
     float distance;
@@ -95,6 +96,7 @@ struct SmokeNeeResult
     uint sourceIndex;
     uint sourceMaterialId;
     uint sourceInstanceId;
+    uint sourceEntityId;
     uint sourcePrimitiveIndex;
     uint flags;
 };
@@ -107,6 +109,7 @@ SmokeNeeLightSample InitSmokeNeeLightSample()
     sample.sourceIndex = 0xffffffffu;
     sample.sourceMaterialId = 0xffffffffu;
     sample.sourceInstanceId = 0xffffffffu;
+    sample.sourceEntityId = 0xffffffffu;
     sample.sourcePrimitiveIndex = 0xffffffffu;
     sample.direction = float3(0.0, 0.0, 1.0);
     sample.distance = 0.0;
@@ -137,6 +140,7 @@ SmokeNeeResult InitSmokeNeeResult()
     result.sourceIndex = 0xffffffffu;
     result.sourceMaterialId = 0xffffffffu;
     result.sourceInstanceId = 0xffffffffu;
+    result.sourceEntityId = 0xffffffffu;
     result.sourcePrimitiveIndex = 0xffffffffu;
     result.flags = 0u;
     return result;
@@ -264,6 +268,7 @@ SmokeNeeResult EvaluateSmokeSelectedLightSample(in SmokeNeeSurface surface, in S
     result.sourceIndex = sample.sourceIndex;
     result.sourceMaterialId = sample.sourceMaterialId;
     result.sourceInstanceId = sample.sourceInstanceId;
+    result.sourceEntityId = sample.sourceEntityId;
     result.sourcePrimitiveIndex = sample.sourcePrimitiveIndex;
     result.lightSelectionPdf = sample.lightSelectionPdf;
     result.samplePdf = sample.samplePdf;
@@ -401,6 +406,7 @@ bool BuildSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, uint lightInd
     sample.eventType = SMOKE_NEE_EVENT_NEXT_EVENT;
     sample.sourceIndex = lightIndex;
     sample.sourceInstanceId = light.renderLightIndex;
+    sample.sourceEntityId = light.entityNumber;
     sample.direction = sampledLightDir;
     sample.distance = lightDistance;
     sample.radiance = lightColor * directScale;
@@ -440,6 +446,7 @@ bool ValidateSmokeDoomAnalyticLightSampleForReplay(in SmokeNeeLightSample sample
     const float expectedSamplePdf = sample.lightSelectionPdf * sample.solidAnglePdf;
     return
         sample.sourceInstanceId == light.renderLightIndex &&
+        sample.sourceEntityId == light.entityNumber &&
         SmokeNeeIsFinitePositive(sample.lightSelectionPdf) &&
         SmokeNeeIsFinitePositive(sample.solidAnglePdf) &&
         SmokeNeeIsFinitePositive(sample.samplePdf) &&
@@ -456,6 +463,7 @@ SmokeNeeResult EvaluateSmokeDoomAnalyticLightSampleForSurface(in SmokeNeeSurface
     result.sourceIndex = sample.sourceIndex;
     result.sourceMaterialId = sample.sourceMaterialId;
     result.sourceInstanceId = sample.sourceInstanceId;
+    result.sourceEntityId = sample.sourceEntityId;
     result.sourcePrimitiveIndex = sample.sourcePrimitiveIndex;
     result.lightSelectionPdf = sample.lightSelectionPdf;
     result.samplePdf = sample.samplePdf;

@@ -70,6 +70,7 @@ Step-By-Step Procedure
        sourceType
        sourceIndex
        sourceInstanceId or stable light id
+       sourceEntityId or equivalent game/entity identity when available
        sampled position/direction
        distance
        radiance or intensity convention
@@ -141,6 +142,8 @@ Acceptance Criteria
 - Legacy full-loop contribution scaling is not disguised as reservoir-ready
   sampled radiance.
 - A single analytic sample can be replayed/evaluated with bounds checks.
+- Analytic replay validates more than the transient shader-visible index; the
+  current contract checks renderer light identity and Doom entity identity.
 - ReSTIR/PT can consume the helper contract without taking ownership of NEE
   shader internals.
 - No NVIDIA sample/runtime code is copied.
