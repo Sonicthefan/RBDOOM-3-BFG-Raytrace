@@ -88,7 +88,13 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     const float centerDistanceSquared = max(dot(toCenter, toCenter), 1.0e-4);
     const float centerDistance = sqrt(centerDistanceSquared);
     const float3 centerDir = toCenter / centerDistance;
-    const float sphereRadius = max(lightInfo.radius, 0.01);
+    const float doomRadius = max(lightInfo.influenceRadius, 1.0);
+    if (centerDistance > doomRadius)
+    {
+        return lightSample;
+    }
+
+    const float sphereRadius = clamp(lightInfo.radius, 0.01, doomRadius);
     const float sinThetaMax = saturate(sphereRadius / centerDistance);
     const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
     const float solidAngle = max(2.0 * RTXDI_PI * (1.0 - cosThetaMax), 1.0e-5);
@@ -96,6 +102,12 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     const float hitT = RAB_RaySphereHitT(surface.worldPos, sampledDir, lightInfo.position, sphereRadius, centerDistance);
     const float3 samplePosition = surface.worldPos + sampledDir * hitT;
     const float3 sampleNormal = RAB_SafeNormalize(samplePosition - lightInfo.position, -sampledDir);
+    const float radiusFraction = saturate(centerDistance / doomRadius);
+    const float doomInfluence = saturate(1.0 - radiusFraction * radiusFraction);
+    if (doomInfluence <= 0.0)
+    {
+        return lightSample;
+    }
 
     lightSample.valid = 1u;
     lightSample.lightType = lightInfo.lightType;
@@ -104,7 +116,7 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     lightSample.position = samplePosition;
     lightSample.normal = sampleNormal;
     lightSample.distance = hitT;
-    lightSample.radiance = lightInfo.radiance;
+    lightSample.radiance = lightInfo.radiance * doomInfluence;
     lightSample.areaPdf = 1.0 / max(lightInfo.area, 1.0e-4);
     lightSample.solidAnglePdf = 1.0 / solidAngle;
     return lightSample;
@@ -161,7 +173,7 @@ float RAB_GetLightTargetPdfForVolume(RAB_LightInfo lightInfo, float3 volumeCente
     }
 
     const float distance = length(lightInfo.position - volumeCenter);
-    const float reach = max(volumeRadius + lightInfo.radius, 1.0);
+    const float reach = max(volumeRadius + max(lightInfo.radius, lightInfo.influenceRadius), 1.0);
     const float attenuation = saturate(1.0 - distance / reach);
     return lightInfo.weight * max(attenuation, 0.01);
 }

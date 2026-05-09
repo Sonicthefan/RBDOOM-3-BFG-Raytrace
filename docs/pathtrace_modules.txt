@@ -745,7 +745,10 @@ RtxdiBridge/*.hlsli
     sphere lights from the existing shader buffers, compute a simple reflected
     target weight for supported opaque-diffuse RAB surfaces, return direction
     and distance, and provide a conservative visibility callback that only
-    rejects invalid surfaces/samples. Previous-frame light loading returns
+    rejects invalid surfaces/samples. RAB Doom analytic samples now mirror the
+    native mode 18 analytic convention: they reject surfaces outside the Doom
+    influence radius (`doomRadiusAndArea.x`) and apply the same quadratic
+    influence falloff before RIS/target evaluation. Previous-frame light loading returns
     empty data. Environment sampling is still zero/unsupported. MIS callbacks
     are present but intentionally neutral until `RAB_PathTrace` and consistent
     NEE/BRDF path accounting exist.
@@ -1296,7 +1299,9 @@ were too sparse to validate visually. The current NEE picker uses the existing
 weighted emissive-triangle distribution plus uniform analytic-light proposals,
 then streams valid candidates through a small local RIS selector. This replaced
 the earlier best-target heuristic, whose recorded raw light PDF was not valid
-after max-score selection. This is still a debug visibility aid, not final light sampling.
+after max-score selection. Doom analytic RAB samples also honor the same Doom
+influence radius and falloff used by mode 18 native analytic NEE, so ReSTIR-side
+proposals no longer reuse out-of-volume Doom lights. This is still a debug visibility aid, not final light sampling.
 It does not shade from the reservoir, does not enable temporal/spatial reuse,
 does not use previous-frame G-buffer history, does not trace final RAB
 visibility, and does not change modes 18/20. The RAB path-tracer skeleton now

@@ -206,7 +206,9 @@ Recommended Task Order
    `RAB_IsReplayableLightSample` before target-PDF and conservative-visibility
    callbacks consume a selected light sample. Its path-tracer NEE probe uses a
    local RIS selector for multiple analytic trials instead of keeping the
-   highest-scoring trial while reporting the raw uniform light PDF.
+   highest-scoring trial while reporting the raw uniform light PDF. RAB Doom
+   analytic sampling also honors the same Doom influence radius and quadratic
+   falloff as mode 18 native analytic NEE.
 
 Non-Goals
 ---------

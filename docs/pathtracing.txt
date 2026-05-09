@@ -170,8 +170,11 @@ Current validated feature set:
   existing smoke light data: current-frame emissive triangle loading/sampling,
   current-frame Doom analytic sphere loading/sampling, light target weighting,
   light direction/distance helpers, conservative visibility that only verifies
-  valid surface/sample data, and neutral MIS callback placeholders. There is
-  still no traced RAB visibility, no environment light bridge, and no
+  valid surface/sample data, and neutral MIS callback placeholders. The Doom
+  analytic RAB path uses the same Doom influence radius and quadratic falloff
+  convention as mode 18 native analytic NEE, so ReSTIR-side proposals do not
+  survive outside the authored light volume. There is still no traced RAB
+  visibility, no environment light bridge, and no
   previous-frame light buffer. Step 9 adds a compile-validated `RAB_PathTrace`
   skeleton around the smoke TLAS path: it samples the current opaque-diffuse RAB
   BRDF, sets RTXDI continuation-ray state, traces the engine `SmokeScene`,
@@ -2422,7 +2425,9 @@ distribution and uniform analytic-light proposals, then streams the candidates
 through a small local RIS selector. It no longer keeps the highest-scoring
 analytic trial while recording the raw uniform draw PDF; the RIS estimator is
 folded into `radianceOverPdf` with a matching scalar effective `neePdf` for the
-path-tracer metadata. A single uniform pick from the full light list was too
+path-tracer metadata. Doom analytic RAB samples reject points outside
+`doomRadiusAndArea.x` and apply the same quadratic influence falloff as mode 18
+native analytic NEE. A single uniform pick from the full light list was too
 weak for validation. This is not a
 roughness/PBR problem: mode 26 is currently diffuse-only with roughness 1.0,
 which is valid enough for this reservoir visibility check. Misses, unsupported
