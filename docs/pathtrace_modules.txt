@@ -631,16 +631,29 @@ pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
     source category constants, small surface/light-sample/result records, the
     legacy selected-light full-loop evaluator, the one-sample bounded selected
-    point-light evaluator, and the Doom analytic sphere-light loop. Primary
-    selected-light direct lighting still routes through the legacy full loop.
+    point-light evaluator, and the legacy full Doom analytic sphere-light loop.
+    Primary selected-light and analytic direct lighting still route through the
+    legacy full loops.
     Secondary diffuse/reflection hits use `r_pathTracingSecondaryNeeMode`: 0 =
     no secondary selected-light NEE, 1 = one uniformly selected point light with
-    inverse-PDF compensation, 2 = legacy full selected-light loop. Doom analytic
-    lights remain under the existing analytic-light CVars until their sampled
-    PDF contract is added. The sample/result records now explicitly carry
+    inverse-PDF compensation, 2 = legacy full selected-light loop. Secondary
+    Doom analytic-light NEE uses `r_pathTracingSecondaryAnalyticNeeMode`: 0 =
+    off, 1 = uniformly sampled bounded proposals from the current uploaded
+    analytic candidate set, 2 = legacy full analytic-light loop. The sampled
+    mode is the default and uses `r_pathTracingSecondaryAnalyticNeeSamples` as the per-vertex
+    proposal count and compensates the discrete light-selection PDF; it does
+    not shrink the authored/uploaded analytic-light universe to the sample
+    count. Doom analytic lights remain under the existing analytic-light
+    candidate/upload CVars, but their loop now builds and evaluates native
+    SmokeNee light-sample/result records instead of bypassing the NEE contract.
+    The sample/result records now explicitly carry
     native extension fields for source type/index, future material/instance/
-    primitive identity, light-selection/sample/target PDFs, target weight,
-    visibility, path event classification, and an MIS placeholder.
+    primitive identity, light-selection/sample proposal PDFs, target weight,
+    target-PDF reservation, visibility, path event classification, and an MIS
+    placeholder. These records are RTXDI-shaped extension points, not
+    RTXDI-equivalent sampling state yet: selected point lights have a discrete
+    light-selection PDF and no finite solid-angle PDF, while `targetPdf` remains
+    zero until a real reflected-radiance target evaluator is added.
     `r_pathTracingSecondaryNeeVisibility` can skip the sampled selected-light
     shadow ray as a diagnostic isolation gate, but the default traces
     visibility.

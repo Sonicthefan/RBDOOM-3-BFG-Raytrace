@@ -15,6 +15,10 @@ static const uint SMOKE_NEE_SELECTED_LIGHT_MODE_OFF = 0u;
 static const uint SMOKE_NEE_SELECTED_LIGHT_MODE_SAMPLED = 1u;
 static const uint SMOKE_NEE_SELECTED_LIGHT_MODE_LEGACY_FULL = 2u;
 
+static const uint SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF = 0u;
+static const uint SMOKE_NEE_ANALYTIC_LIGHT_MODE_SAMPLED = 1u;
+static const uint SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL = 2u;
+
 struct SmokeNeeSurface
 {
     float3 position;
@@ -35,6 +39,9 @@ struct SmokeNeeSurface
 
 // Native extension record for selected-light NEE today and later analytic,
 // emissive, environment, BRDF/MIS, visibility replay, and source attribution.
+// These fields are RTXDI-shaped but not RTXDI-equivalent yet: targetPdf is only
+// valid when a later target-function evaluator writes it, and point-like legacy
+// selected lights do not have a finite solid-angle PDF.
 struct SmokeNeeLightSample
 {
     uint sourceType;
@@ -137,7 +144,7 @@ SmokeNeeSurface BuildSmokeNeeSurface(
     surface.specularColor = useSpecular ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
     surface.f0 = surface.specularColor;
     surface.roughness = 1.0;
-    if (SmokeToyFakePBRSpecularEnabled() && max(max(surface.specularColor.r, surface.specularColor.g), surface.specularColor.b) > 0.0)
+    if (useSpecular && SmokeToyFakePBRSpecularEnabled() && max(max(surface.specularColor.r, surface.specularColor.g), surface.specularColor.b) > 0.0)
     {
         SmokePBRFromSpecmap(saturate(surface.specularColor), surface.f0, surface.roughness);
     }
@@ -150,7 +157,33 @@ SmokeNeeSurface BuildSmokeNeeSurface(
     return surface;
 }
 
-bool BuildSmokeSelectedLightSample(SmokeNeeSurface surface, uint lightIndex, float lightScale, float maxToyRayDistance, float samplePdf, out SmokeNeeLightSample sample)
+float3 EvaluateSmokeNeeSpecular(in SmokeNeeSurface surface, float3 lightDir, float3 radiance, float visibility)
+{
+    if (visibility <= 0.0 || max(max(surface.specularColor.r, surface.specularColor.g), surface.specularColor.b) <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 halfVector = SafeNormalize(lightDir + surface.viewDir, surface.normal);
+    if (SmokeToyFakePBRSpecularEnabled())
+    {
+        const float ndotl = saturate(dot(surface.normal, lightDir));
+        const float hdotN = saturate(dot(surface.normal, halfVector));
+        const float ldotH = saturate(dot(lightDir, halfVector));
+        const float rr = surface.roughness * surface.roughness;
+        const float rrrr = max(rr * rr, 1.0e-4);
+        const float D = max((hdotN * hdotN) * (rrrr - 1.0) + 1.0, 1.0e-4);
+        const float VFapprox = max((ldotH * ldotH) * (surface.roughness + 0.5), 1.0e-4);
+        const float specularTerm = (rrrr / (4.0 * D * D * VFapprox)) * ndotl * visibility;
+        return surface.f0 * radiance * specularTerm;
+    }
+
+    const float specularNdotH = saturate(dot(surface.normal, halfVector));
+    const float specularTerm = pow(specularNdotH, 32.0) * visibility;
+    return surface.specularColor * radiance * specularTerm;
+}
+
+bool BuildSmokeSelectedLightSample(in SmokeNeeSurface surface, uint lightIndex, float lightScale, float maxToyRayDistance, float samplePdf, out SmokeNeeLightSample sample)
 {
     sample = InitSmokeNeeLightSample();
 
@@ -179,14 +212,14 @@ bool BuildSmokeSelectedLightSample(SmokeNeeSurface surface, uint lightIndex, flo
     sample.radiance = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0)) * (directScale * lightScale);
     sample.lightSelectionPdf = samplePdf;
     sample.samplePdf = samplePdf;
-    sample.targetPdf = samplePdf;
+    sample.targetPdf = 0.0;
     sample.solidAnglePdf = 0.0;
     sample.targetWeight = ndotl * max(max(sample.radiance.r, sample.radiance.g), sample.radiance.b);
     sample.misWeight = 1.0;
     return true;
 }
 
-SmokeNeeResult EvaluateSmokeSelectedLightSample(SmokeNeeSurface surface, SmokeNeeLightSample sample, float maxToyRayDistance, bool traceVisibility)
+SmokeNeeResult EvaluateSmokeSelectedLightSample(in SmokeNeeSurface surface, in SmokeNeeLightSample sample, float maxToyRayDistance, bool traceVisibility)
 {
     SmokeNeeResult result = InitSmokeNeeResult();
     result.sourceType = sample.sourceType;
@@ -218,11 +251,11 @@ SmokeNeeResult EvaluateSmokeSelectedLightSample(SmokeNeeSurface surface, SmokeNe
     const float invPdf = 1.0 / sample.samplePdf;
     result.visibility = visibility;
     result.targetWeight = ndotl * max(max(sample.radiance.r, sample.radiance.g), sample.radiance.b);
-    result.contribution = (surface.albedo * sample.radiance * ndotl + EvaluateSmokeSpecular(surface.specularColor, surface.normal, sample.direction, surface.viewDir, sample.radiance, 1.0, 1.0)) * visibility * invPdf;
+    result.contribution = (surface.albedo * sample.radiance * ndotl + EvaluateSmokeNeeSpecular(surface, sample.direction, sample.radiance, 1.0)) * visibility * invPdf;
     return result;
 }
 
-float3 EvaluateSmokeLegacySelectedLightNee(SmokeNeeSurface surface, float lightScale, float maxToyRayDistance)
+float3 EvaluateSmokeLegacySelectedLightNee(in SmokeNeeSurface surface, float lightScale, float maxToyRayDistance)
 {
     const uint lightCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP) ? 0u : min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
     if (lightCount == 0u)
@@ -247,7 +280,7 @@ float3 EvaluateSmokeLegacySelectedLightNee(SmokeNeeSurface surface, float lightS
         const float visibility = TraceSmokeShadowVisibility(shadowOrigin, sample.direction, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu);
         const float ndotl = saturate(dot(surface.normal, sample.direction));
         direct += surface.albedo * sample.radiance * (ndotl * visibility);
-        direct += EvaluateSmokeSpecular(surface.specularColor, surface.normal, sample.direction, surface.viewDir, sample.radiance, 1.0, visibility);
+        direct += EvaluateSmokeNeeSpecular(surface, sample.direction, sample.radiance, visibility);
     }
 
     return direct;
@@ -263,7 +296,7 @@ uint SelectSmokeUniformSelectedLight(uint lightCount, uint seed)
     return min((uint)(randomValue * (float)lightCount), lightCount - 1u);
 }
 
-float3 EvaluateSmokeSampledSelectedLightNee(SmokeNeeSurface surface, float lightScale, float maxToyRayDistance, uint seed, bool traceVisibility)
+float3 EvaluateSmokeSampledSelectedLightNee(in SmokeNeeSurface surface, float lightScale, float maxToyRayDistance, uint seed, bool traceVisibility)
 {
     const uint lightCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP) ? 0u : min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
     if (lightCount == 0u)
@@ -282,7 +315,118 @@ float3 EvaluateSmokeSampledSelectedLightNee(SmokeNeeSurface surface, float light
     return EvaluateSmokeSelectedLightSample(surface, sample, maxToyRayDistance, traceVisibility).contribution;
 }
 
-float3 EvaluateDoomAnalyticSphereLights(float3 albedo, float3 specularColor, float3 normal, float3 viewDir, float3 hitPosition, uint seed)
+bool BuildSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, uint lightIndex, float intensityScale, float lightSelectionPdf, uint seed, out SmokeNeeLightSample sample)
+{
+    sample = InitSmokeNeeLightSample();
+
+    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+    if (lightIndex >= min(uploadedCount, traceCap) || lightSelectionPdf <= 0.0)
+    {
+        return false;
+    }
+
+    const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[lightIndex];
+    const float3 toLight = light.originAndRadius.xyz - surface.position;
+    const float distanceSquared = max(dot(toLight, toLight), 1.0);
+    const float lightDistance = sqrt(distanceSquared);
+    const float3 lightDir = toLight / lightDistance;
+    const float ndotl = saturate(dot(surface.normal, lightDir));
+    if (ndotl <= 0.0)
+    {
+        return false;
+    }
+
+    const float doomRadius = max(light.doomRadiusAndArea.x, 1.0);
+    if (lightDistance > doomRadius)
+    {
+        return false;
+    }
+
+    const float sphereRadius = clamp(light.originAndRadius.w, 0.01, doomRadius);
+    const float sinThetaMax = saturate(sphereRadius / lightDistance);
+    const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
+    const float solidAngle = max(6.2831853 * (1.0 - cosThetaMax), 1.0e-5);
+    const uint lightSeed = seed ^ (light.renderLightIndex + 1u) * 747796405u ^ (lightIndex + 1u) * 2891336453u;
+    const float3 sampledLightDir = SmokeSampleSphereSolidAngle(lightDir, cosThetaMax, lightSeed);
+    const float sampledNdotL = saturate(dot(surface.normal, sampledLightDir));
+    if (sampledNdotL <= 0.0)
+    {
+        return false;
+    }
+
+    const float radiusFraction = saturate(lightDistance / doomRadius);
+    const float doomInfluence = saturate(1.0 - radiusFraction * radiusFraction);
+    const float directScale = (solidAngle * 0.318309886) * doomInfluence * intensityScale;
+    const float3 lightColor = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
+
+    sample.sourceType = SMOKE_NEE_SOURCE_DOOM_ANALYTIC;
+    sample.eventType = SMOKE_NEE_EVENT_NEXT_EVENT;
+    sample.sourceIndex = lightIndex;
+    sample.sourceInstanceId = light.renderLightIndex;
+    sample.direction = sampledLightDir;
+    sample.distance = lightDistance;
+    sample.radiance = lightColor * directScale;
+    sample.lightSelectionPdf = lightSelectionPdf;
+    sample.solidAnglePdf = 1.0 / solidAngle;
+    sample.samplePdf = sample.lightSelectionPdf * sample.solidAnglePdf;
+    sample.targetPdf = 0.0;
+    sample.targetWeight = sampledNdotL * max(max(sample.radiance.r, sample.radiance.g), sample.radiance.b);
+    sample.misWeight = 1.0;
+    sample.flags = light.flags;
+    return true;
+}
+
+SmokeNeeResult EvaluateSmokeDoomAnalyticLightSample(in SmokeNeeSurface surface, in SmokeNeeLightSample sample)
+{
+    SmokeNeeResult result = InitSmokeNeeResult();
+    result.sourceType = sample.sourceType;
+    result.eventType = sample.eventType;
+    result.sourceIndex = sample.sourceIndex;
+    result.sourceMaterialId = sample.sourceMaterialId;
+    result.sourceInstanceId = sample.sourceInstanceId;
+    result.sourcePrimitiveIndex = sample.sourcePrimitiveIndex;
+    result.lightSelectionPdf = sample.lightSelectionPdf;
+    result.samplePdf = sample.samplePdf;
+    result.targetPdf = sample.targetPdf;
+    result.targetWeight = sample.targetWeight;
+    result.misWeight = sample.misWeight;
+    result.flags = sample.flags;
+    if (sample.sourceType != SMOKE_NEE_SOURCE_DOOM_ANALYTIC)
+    {
+        return result;
+    }
+
+    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+    if (sample.sourceIndex >= min(uploadedCount, traceCap))
+    {
+        return result;
+    }
+
+    const float ndotl = saturate(dot(surface.normal, sample.direction));
+    if (ndotl <= 0.0)
+    {
+        return result;
+    }
+
+    const float normalOffsetSign = dot(surface.normal, sample.direction) >= 0.0 ? 1.0 : -1.0;
+    const float3 shadowOrigin = surface.position + surface.normal * (normalOffsetSign * 0.75) + sample.direction * 0.25;
+    const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[sample.sourceIndex];
+    const float sphereRadius = clamp(light.originAndRadius.w, 0.01, max(light.doomRadiusAndArea.x, 1.0));
+    const float sampledHitT = SmokeRaySphereHitT(shadowOrigin, sample.direction, light.originAndRadius.xyz, sphereRadius, sample.distance);
+    const float shadowTMax = max(sampledHitT - 0.5, 0.01);
+    const float visibility = (sample.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) != 0u
+        ? TraceSmokeShadowVisibility(shadowOrigin, sample.direction, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu)
+        : 1.0;
+
+    result.visibility = visibility;
+    result.contribution = surface.albedo * sample.radiance * (ndotl * visibility);
+    result.contribution += EvaluateSmokeNeeSpecular(surface, sample.direction, sample.radiance, visibility);
+    return result;
+}
+
+float3 EvaluateDoomAnalyticSphereLightsLegacyFullForSurface(in SmokeNeeSurface surface, uint seed)
 {
     if (!DoomAnalyticLightsEnabled())
     {
@@ -302,55 +446,116 @@ float3 EvaluateDoomAnalyticSphereLights(float3 albedo, float3 specularColor, flo
     [loop]
     for (uint lightIndex = 0u; lightIndex < lightCount; ++lightIndex)
     {
-        const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[lightIndex];
-        const float3 toLight = light.originAndRadius.xyz - hitPosition;
-        const float distanceSquared = max(dot(toLight, toLight), 1.0);
-        const float lightDistance = sqrt(distanceSquared);
-        const float3 lightDir = toLight / lightDistance;
-        const float ndotl = saturate(dot(normal, lightDir));
-        if (ndotl <= 0.0)
+        SmokeNeeLightSample sample;
+        if (!BuildSmokeDoomAnalyticLightSample(surface, lightIndex, intensityScale, 1.0, seed, sample))
         {
             continue;
         }
 
-        const float doomRadius = max(light.doomRadiusAndArea.x, 1.0);
-        if (lightDistance > doomRadius)
-        {
-            continue;
-        }
-
-        const float sphereRadius = clamp(light.originAndRadius.w, 0.01, doomRadius);
-        const float sinThetaMax = saturate(sphereRadius / lightDistance);
-        const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
-        const float solidAngle = max(6.2831853 * (1.0 - cosThetaMax), 1.0e-5);
-        const uint lightSeed = seed ^ (light.renderLightIndex + 1u) * 747796405u ^ (lightIndex + 1u) * 2891336453u;
-        const float3 sampledLightDir = SmokeSampleSphereSolidAngle(lightDir, cosThetaMax, lightSeed);
-        const float sampledNdotL = saturate(dot(normal, sampledLightDir));
-        if (sampledNdotL <= 0.0)
-        {
-            continue;
-        }
-
-        const float normalOffsetSign = dot(normal, sampledLightDir) >= 0.0 ? 1.0 : -1.0;
-        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + sampledLightDir * 0.25;
-        const float sampledHitT = SmokeRaySphereHitT(shadowOrigin, sampledLightDir, light.originAndRadius.xyz, sphereRadius, lightDistance);
-        const float shadowTMax = max(sampledHitT - 0.5, 0.01);
-        const float visibility = (light.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) != 0u
-            ? TraceSmokeShadowVisibility(shadowOrigin, sampledLightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu)
-            : 1.0;
-
-        const float radiusFraction = saturate(lightDistance / doomRadius);
-        const float doomInfluence = saturate(1.0 - radiusFraction * radiusFraction);
-        const float directScale = (solidAngle * 0.318309886) * doomInfluence * intensityScale;
-        const float3 lightColor = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
-        direct += albedo * lightColor * (sampledNdotL * directScale * visibility);
-        direct += EvaluateSmokeSpecular(specularColor, normal, sampledLightDir, viewDir, lightColor, directScale, visibility);
+        direct += EvaluateSmokeDoomAnalyticLightSample(surface, sample).contribution;
     }
 
     return direct;
 }
 
-float3 EvaluateSmokeMode18NeeDirectLighting(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap, bool useSpecular, bool includeEmissive, uint seed, uint selectedLightMode)
+uint SelectSmokeUniformDoomAnalyticLight(uint lightCount, uint seed, uint proposalIndex)
+{
+    if (lightCount == 0u)
+    {
+        return 0xffffffffu;
+    }
+
+    const uint proposalSeed = seed ^ 0xa511e9b3u ^ (proposalIndex + 1u) * 2246822519u;
+    const float randomValue = SmokeHashToUnitFloat(proposalSeed);
+    return min((uint)(randomValue * (float)lightCount), lightCount - 1u);
+}
+
+float3 EvaluateSmokeSampledDoomAnalyticNee(in SmokeNeeSurface surface, uint seed, uint requestedSampleCount)
+{
+    if (!DoomAnalyticLightsEnabled())
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
+    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+    const uint lightCount = min(uploadedCount, traceCap);
+    const uint sampleCount = min(clamp(requestedSampleCount, 0u, 8u), lightCount);
+    const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
+    if (lightCount == 0u || sampleCount == 0u || intensityScale <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float lightSelectionPdf = 1.0 / (float)lightCount;
+    const float sampleAverageScale = 1.0 / (float)sampleCount;
+    float3 direct = float3(0.0, 0.0, 0.0);
+
+    [loop]
+    for (uint proposalIndex = 0u; proposalIndex < sampleCount; ++proposalIndex)
+    {
+        const uint lightIndex = SelectSmokeUniformDoomAnalyticLight(lightCount, seed, proposalIndex);
+        SmokeNeeLightSample sample;
+        if (!BuildSmokeDoomAnalyticLightSample(surface, lightIndex, intensityScale, lightSelectionPdf, seed ^ proposalIndex * 3266489917u, sample))
+        {
+            continue;
+        }
+
+        // The per-light evaluator uses a one-sample solid-angle estimator whose
+        // radiance already includes the solid-angle scale. Sampled secondary
+        // mode compensates only the discrete light proposal PDF here.
+        direct += EvaluateSmokeDoomAnalyticLightSample(surface, sample).contribution * (sampleAverageScale / sample.lightSelectionPdf);
+    }
+
+    return direct;
+}
+
+float3 EvaluateDoomAnalyticSphereLightsForSurface(in SmokeNeeSurface surface, uint seed)
+{
+    return EvaluateDoomAnalyticSphereLightsLegacyFullForSurface(surface, seed);
+}
+
+float3 EvaluateSmokeSecondaryAnalyticNee(in SmokeNeeSurface surface, uint seed, uint analyticLightMode)
+{
+    const uint mode = clamp(analyticLightMode, SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF, SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL);
+    if (mode == SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL)
+    {
+        return EvaluateDoomAnalyticSphereLightsLegacyFullForSurface(surface, seed);
+    }
+
+    if (mode == SMOKE_NEE_ANALYTIC_LIGHT_MODE_SAMPLED)
+    {
+        return EvaluateSmokeSampledDoomAnalyticNee(surface, seed, PathTraceIntegratorSecondaryAnalyticNeeSamples());
+    }
+
+    return float3(0.0, 0.0, 0.0);
+}
+
+float3 EvaluateDoomAnalyticSphereLights(float3 albedo, float3 specularColor, float3 normal, float3 viewDir, float3 hitPosition, uint seed)
+{
+    SmokeNeeSurface surface;
+    surface.position = hitPosition;
+    surface.normal = SafeNormalize(normal, float3(0.0, 0.0, 1.0));
+    surface.geometricNormal = surface.normal;
+    surface.viewDir = SafeNormalize(viewDir, float3(0.0, 0.0, 1.0));
+    surface.albedo = albedo;
+    surface.specularColor = specularColor;
+    surface.f0 = specularColor;
+    surface.roughness = 1.0;
+    if (SmokeToyFakePBRSpecularEnabled() && max(max(specularColor.r, specularColor.g), specularColor.b) > 0.0)
+    {
+        SmokePBRFromSpecmap(saturate(specularColor), surface.f0, surface.roughness);
+    }
+    surface.materialId = 0xffffffffu;
+    surface.materialIndex = 0xffffffffu;
+    surface.instanceId = 0xffffffffu;
+    surface.primitiveIndex = 0xffffffffu;
+    surface.surfaceClass = 0u;
+    surface.flags = 0u;
+    return EvaluateDoomAnalyticSphereLightsForSurface(surface, seed);
+}
+
+float3 EvaluateSmokeMode18NeeDirectLighting(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap, bool useSpecular, bool includeEmissive, uint seed, uint selectedLightMode, uint analyticLightMode)
 {
     PathTraceSmokeMaterial material;
     const SmokeNeeSurface surface = BuildSmokeNeeSurface(payload, rayOrigin, rayDirection, useNormalMap, useSpecular, material);
@@ -377,7 +582,15 @@ float3 EvaluateSmokeMode18NeeDirectLighting(PathTraceSmokePayload payload, float
         direct += EvaluateSmokeSampledSelectedLightNee(surface, lightScale, maxToyRayDistance, seed, PathTraceIntegratorSecondaryNeeVisibilityEnabled());
     }
 
-    direct += EvaluateDoomAnalyticSphereLights(surface.albedo, surface.specularColor, surface.normal, surface.viewDir, surface.position, seed);
+    const uint analyticMode = clamp(analyticLightMode, SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF, SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL);
+    if (analyticMode == SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL)
+    {
+        direct += EvaluateDoomAnalyticSphereLightsLegacyFullForSurface(surface, seed);
+    }
+    else if (analyticMode == SMOKE_NEE_ANALYTIC_LIGHT_MODE_SAMPLED)
+    {
+        direct += EvaluateSmokeSecondaryAnalyticNee(surface, seed, analyticMode);
+    }
 
     return direct;
 }

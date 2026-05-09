@@ -123,6 +123,8 @@ extern idCVar r_pathTracingRussianRouletteDepth;
 extern idCVar r_pathTracingNextEventEstimation;
 extern idCVar r_pathTracingSecondaryNeeMode;
 extern idCVar r_pathTracingSecondaryNeeVisibility;
+extern idCVar r_pathTracingSecondaryAnalyticNeeMode;
+extern idCVar r_pathTracingSecondaryAnalyticNeeSamples;
 extern idCVar r_pathTracingIntegratorDump;
 extern idCVar r_pathTracingReservoirTwoSidedEmissives;
 extern idCVar r_pathTracingReservoirCandidateTrials;

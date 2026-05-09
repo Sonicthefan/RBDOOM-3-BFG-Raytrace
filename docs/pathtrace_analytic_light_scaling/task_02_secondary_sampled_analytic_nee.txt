@@ -1,0 +1,205 @@
+Task 02 - Add Secondary Sampled Analytic NEE
+============================================
+
+Goal
+----
+
+Replace full analytic-light fanout for secondary/reflection NEE with a bounded
+sampled analytic-light path.
+
+This is the first task that should produce real analytic-light performance
+movement. It must keep the legacy full loop available for comparison.
+
+The core rule for this task is:
+
+    bounded sampled proposals, not bounded authored-light universe
+
+Do not make performance look better by reducing the whole Doom analytic-light
+universe to 4 or 8 total lights. Bound the number of proposals evaluated at a
+path vertex while keeping the eligible light set broad enough for ReSTIR/PT.
+
+Strict Build Rule
+-----------------
+
+Use PT retail for validation:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Do not use Debug commands, Debug executables, or Debug copy paths. If shaders
+change, copy the generated `base/renderprogs2` outputs to the prepared game
+folder before runtime testing.
+
+Required Starting Point
+-----------------------
+
+Complete Task 01 first or verify that the current code already provides:
+
+- an explicit secondary analytic NEE policy gate
+- a legacy full analytic-light reference path
+- bounds-checked analytic sample replay
+- clear distinction between selected-light NEE and analytic-light NEE
+
+Step-By-Step Procedure
+----------------------
+
+1. Read:
+
+       docs/pathtrace_analytic_light_scaling/README.txt
+       docs/pathtrace_analytic_light_scaling/task_01_contract_and_mode_gates.txt
+       docs/pathtrace_nee_extraction/README.txt
+
+2. Inspect the current analytic-light sample struct and builder:
+
+       SmokeNeeLightSample
+       BuildSmokeDoomAnalyticLightSample
+       EvaluateSmokeDoomAnalyticLightSample
+
+3. Decide the first sampled candidate count.
+
+   Start with one analytic-light candidate per secondary NEE evaluation. If a
+   CVar already exists for sample count, use it. Otherwise add a narrowly named
+   CVar such as:
+
+       r_pathTracingSecondaryAnalyticNeeSamples
+
+   Clamp it to a small range, for example 0-8. Default should be 1 for sampled
+   mode.
+
+4. Implement a simple unbiased or explicitly documented biased light-index
+   proposal.
+
+   First acceptable version:
+
+       choose uniformly from the current eligible analytic-light set
+       lightSelectionPdf = 1.0 / candidateCount
+
+   The eligible set may be limited by a temporary high safety cap while the
+   branch is experimental, but it must not be intentionally reduced to the
+   small per-vertex sample count. If a CVar named like `MaxGpu` is being used
+   as the candidate universe, document whether it is a safety/upload limit or a
+   quality/performance shortcut.
+
+   Better first version if existing data is convenient:
+
+       choose from current portal-walk analytic candidates only
+       lightSelectionPdf = 1.0 / candidateCountInCurrentList
+
+   Do not loop all lights to score them in sampled mode. That recreates the
+   old cost. Also do not pre-drop most authored lights as a substitute for a
+   sampleable distribution.
+
+5. Fix the analytic sample record semantics before using it for sampled mode.
+
+   The record must distinguish:
+
+       physical/evaluable radiance or intensity data
+       lightSelectionPdf
+       solidAnglePdf
+       combined samplePdf
+       targetPdf or targetWeight
+       any legacy full-loop scale, if still needed
+
+   Do not leave a sampled-mode record where `samplePdf` looks valid but the
+   evaluator ignores it while `radiance` already bakes in the full-loop
+   solid-angle scale.
+
+6. Implement a sampled secondary analytic evaluator.
+
+   Shape:
+
+       for sampleIndex in 0 .. sampleCount-1:
+           choose analytic light index from proposal
+           build SmokeNeeLightSample
+           evaluate contribution for that one sample
+           apply PDF compensation according to the selected estimator
+
+   The loop bound must be the sample count, not uploaded analytic light count.
+
+7. Wire secondary/reflection NEE policy:
+
+       off:
+           no secondary analytic NEE
+
+       sampled:
+           call the sampled evaluator
+
+       legacy full:
+           call the legacy full-loop evaluator
+
+   Primary direct lighting may remain legacy full unless the user explicitly
+   asks to sample primary lighting too.
+
+8. Add minimal diagnostics.
+
+   Prefer existing timing/log mechanisms if available. Useful counters:
+
+       analytic lights uploaded
+       analytic candidate count seen by sampled mode
+       analytic samples requested
+       analytic samples evaluated
+       analytic shadow rays requested
+       selected secondary analytic mode
+
+   Do not add large spammy logs every frame unless gated by an existing
+   diagnostic CVar.
+
+9. Validate visually with a known analytic-light-heavy scene.
+
+   Compare:
+
+       secondary analytic off
+       secondary analytic sampled 1
+       secondary analytic sampled 2-4
+       secondary analytic legacy full
+
+   Expected visual result:
+
+       sampled mode may be noisier or dimmer/brighter initially
+       it should remain plausible enough to evaluate performance
+       legacy full remains the reference
+
+10. Validate performance in PT retail.
+
+   The important scaling test:
+
+        increase eligible/uploaded analytic light count
+        keep sampled secondary count fixed
+        confirm sampled secondary cost does not scale linearly with total light
+        count
+
+    If the test only lowers the uploaded light cap until the scene has few
+    lights, it has not validated the ReSTIR-ready design.
+
+11. If shaders changed, copy renderprogs2 outputs before runtime testing.
+
+12. Update docs if behavior or CVars changed:
+
+        docs/pathtracing.txt
+        docs/pathtrace_modules.txt
+        docs/pathtrace_analytic_light_scaling/README.txt
+
+Acceptance Criteria
+-------------------
+
+- Secondary/reflection analytic NEE sampled mode loops by sample count, not by
+  uploaded analytic light count.
+- The authored/eligible analytic-light universe is not artificially reduced to
+  the small per-vertex sample count.
+- `r_pathTracingSecondaryNeeMode 0` or the new analytic-specific off state
+  actually disables secondary analytic NEE.
+- Legacy full analytic NEE remains available.
+- Sample PDFs/weights are either correct for sampled evaluation or explicitly
+  marked as legacy-only and not reused by sampled mode.
+- Performance changes are tested with PT retail, not Debug.
+- Shader changes are copied into the prepared game folder before playtesting.
+
+Stop Conditions
+---------------
+
+Stop and report instead of guessing if:
+
+- correct PDF compensation is unclear for the current Doom analytic falloff
+- portal-walk candidate counts are not available in the shader-visible buffer
+- sampled mode requires large CPU-side light-list changes before a minimal
+  shader-only version can be tested

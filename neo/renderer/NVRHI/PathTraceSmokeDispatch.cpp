@@ -80,6 +80,8 @@ struct PathTraceIntegratorSettings
     int nextEventEstimation = 1;
     int secondaryNeeMode = 1;
     int secondaryNeeVisibility = 1;
+    int secondaryAnalyticNeeMode = 2;
+    int secondaryAnalyticNeeSamples = 1;
 };
 
 struct PathTraceDispatchTileSettings
@@ -126,6 +128,8 @@ PathTraceIntegratorSettings BuildPathTraceIntegratorSettings()
     settings.nextEventEstimation = r_pathTracingNextEventEstimation.GetInteger() != 0 ? 1 : 0;
     settings.secondaryNeeMode = idMath::ClampInt(0, 2, r_pathTracingSecondaryNeeMode.GetInteger());
     settings.secondaryNeeVisibility = r_pathTracingSecondaryNeeVisibility.GetInteger() != 0 ? 1 : 0;
+    settings.secondaryAnalyticNeeMode = idMath::ClampInt(0, 2, r_pathTracingSecondaryAnalyticNeeMode.GetInteger());
+    settings.secondaryAnalyticNeeSamples = idMath::ClampInt(0, 8, r_pathTracingSecondaryAnalyticNeeSamples.GetInteger());
     return settings;
 }
 
@@ -175,6 +179,8 @@ uint64 HashPathTraceIntegratorSettings(uint64 hash, const PathTraceIntegratorSet
     hash = HashSmokeDispatchValue(hash, static_cast<uint64>(settings.nextEventEstimation));
     hash = HashSmokeDispatchValue(hash, static_cast<uint64>(settings.secondaryNeeMode));
     hash = HashSmokeDispatchValue(hash, static_cast<uint64>(settings.secondaryNeeVisibility));
+    hash = HashSmokeDispatchValue(hash, static_cast<uint64>(settings.secondaryAnalyticNeeMode));
+    hash = HashSmokeDispatchValue(hash, static_cast<uint64>(settings.secondaryAnalyticNeeSamples));
     return hash;
 }
 
@@ -188,7 +194,10 @@ int EstimatePathTraceRaysPerPixel(const PathTraceIntegratorSettings& settings, i
     {
         neeTrials += selectedLightCount + analyticLightCount;
         const int secondarySelectedTrials = settings.secondaryNeeMode == 2 ? selectedLightCount : (settings.secondaryNeeMode == 1 && selectedLightCount > 0 ? 1 : 0);
-        neeTrials += secondarySurfaceCount * (secondarySelectedTrials + analyticLightCount);
+        const int secondaryAnalyticTrials = settings.secondaryAnalyticNeeMode == 2
+            ? analyticLightCount
+            : (settings.secondaryAnalyticNeeMode == 1 && analyticLightCount > 0 ? Min(settings.secondaryAnalyticNeeSamples, analyticLightCount) : 0);
+        neeTrials += secondarySurfaceCount * (secondarySelectedTrials + secondaryAnalyticTrials);
     }
     return settings.samplesPerPixel * (1 + diffuseRayCount + reflectionRayCount + neeTrials);
 }
@@ -567,8 +576,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.integratorInfo2[3] = static_cast<float>(integratorSettings.nextEventEstimation);
     constants.neeInfo[0] = static_cast<float>(integratorSettings.secondaryNeeMode);
     constants.neeInfo[1] = static_cast<float>(integratorSettings.secondaryNeeVisibility);
-    constants.neeInfo[2] = 0.0f;
-    constants.neeInfo[3] = 0.0f;
+    constants.neeInfo[2] = static_cast<float>(integratorSettings.secondaryAnalyticNeeMode);
+    constants.neeInfo[3] = static_cast<float>(integratorSettings.secondaryAnalyticNeeSamples);
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] = 0.0f;
@@ -595,7 +604,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             static_cast<uint64>(Max(0, m_frameResources.width)) *
             static_cast<uint64>(Max(0, m_frameResources.height)) *
             static_cast<uint64>(Max(1, estimatedRaysPerPixel));
-        common->Printf("PathTracePrimaryPass: PT integrator settings output=%dx%d spp=%d maxDepth=%d diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d selectedLights=%d analyticLights=%d estimatedRaysPerPixel=%d estimatedDispatchRays=%llu\n",
+        common->Printf("PathTracePrimaryPass: PT integrator settings output=%dx%d spp=%d maxDepth=%d diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d secondaryAnalyticNeeMode=%d secondaryAnalyticNeeSamples=%d selectedLights=%d analyticLights=%d estimatedRaysPerPixel=%d estimatedDispatchRays=%llu\n",
             m_frameResources.width,
             m_frameResources.height,
             integratorSettings.samplesPerPixel,
@@ -608,6 +617,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             integratorSettings.nextEventEstimation,
             integratorSettings.secondaryNeeMode,
             integratorSettings.secondaryNeeVisibility,
+            integratorSettings.secondaryAnalyticNeeMode,
+            integratorSettings.secondaryAnalyticNeeSamples,
             selectedLightRequestCount,
             analyticLightTraceCount,
             estimatedRaysPerPixel,
@@ -618,7 +629,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         const int activeDescriptorCount = Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1);
         common->Printf(
-            "PathTracePrimaryPass: PT safety pre-dispatch output=%dx%d debugMode=%d spp=%d maxDepth=%d bounce diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d killMask=0x%08x selectedLights actual/effective=%d/%d analytic actual/effective=%d/%d emissive actual/effective=%d/%d lightCandidates actual/effective=%d/%d materialEntries=%d activeTextureDescriptors=%d activeTextureTableSize=%d geometry static(v/i/t)=%d/%d/%d dynamic(v/i/t)=%d/%d/%d rigid(v/i/t/inst)=%d/%d/%d/%d AS tlas/static/dynamic=%d/%d/%d primaryHistory count/bytes=%u/%llu smokeReservoir count/bytes=%d/%llu restirReservoir elements/bytes=%u/%llu bindingSet=%d textureTable=%d\n",
+            "PathTracePrimaryPass: PT safety pre-dispatch output=%dx%d debugMode=%d spp=%d maxDepth=%d bounce diffuse/spec/trans=%d/%d/%d reflectionMode=%d rrDepth=%d nee=%d secondaryNeeMode=%d secondaryNeeVisibility=%d secondaryAnalyticNeeMode=%d secondaryAnalyticNeeSamples=%d killMask=0x%08x selectedLights actual/effective=%d/%d analytic actual/effective=%d/%d emissive actual/effective=%d/%d lightCandidates actual/effective=%d/%d materialEntries=%d activeTextureDescriptors=%d activeTextureTableSize=%d geometry static(v/i/t)=%d/%d/%d dynamic(v/i/t)=%d/%d/%d rigid(v/i/t/inst)=%d/%d/%d/%d AS tlas/static/dynamic=%d/%d/%d primaryHistory count/bytes=%u/%llu smokeReservoir count/bytes=%d/%llu restirReservoir elements/bytes=%u/%llu bindingSet=%d textureTable=%d\n",
             m_frameResources.width,
             m_frameResources.height,
             debugMode,
@@ -632,6 +643,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             integratorSettings.nextEventEstimation,
             integratorSettings.secondaryNeeMode,
             integratorSettings.secondaryNeeVisibility,
+            integratorSettings.secondaryAnalyticNeeMode,
+            integratorSettings.secondaryAnalyticNeeSamples,
             safetyDisableMask,
             disableSelectedLightLoop ? 0 : selectedLightRequestCount,
             selectedLightCount,

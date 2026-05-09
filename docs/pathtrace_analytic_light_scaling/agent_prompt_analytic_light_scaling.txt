@@ -1,0 +1,124 @@
+Paste-Ready Agent Prompt - Analytic Light Scaling
+=================================================
+
+Use this prompt to start a focused coding agent on the next analytic-light
+scaling task.
+
+Prompt
+------
+
+You are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Goal:
+
+    Make Doom analytic-light NEE scale to large light counts by replacing
+    secondary/reflection full-fanout analytic-light loops with bounded sampled
+    analytic-light evaluation, while preserving the legacy full loop as a
+    reference/debug mode and keeping the sample contract ReSTIR/PT-ready.
+
+    Critical rule: bounded sampled proposals, not bounded authored-light
+    universe. Do not make the renderer fast by reducing Doom's authored light
+    universe to a tiny cap. Keep many persistent light records eligible, build
+    a sampleable distribution, and evaluate only a small bounded number of
+    proposals per vertex.
+
+Read these first, in order:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_nee_extraction/README.txt
+    docs/pathtrace_analytic_light_scaling/README.txt
+    docs/pathtrace_analytic_light_scaling/task_01_contract_and_mode_gates.txt
+    docs/pathtrace_analytic_light_scaling/task_02_secondary_sampled_analytic_nee.txt
+
+If Task 01 is already complete, begin Task 02. If Task 01 is not complete, do
+Task 01 first and stop before doing Task 02.
+
+Important code files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSample.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSampling.hlsli
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceDoomLights.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Reference only:
+
+    E:\prog\references\RTXDI-main\Doc\RestirPT.md
+    E:\prog\references\RTXDI-main\Doc\ShaderAPI.md
+    E:\prog\references\RTXDI-main\Samples\FullSample
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi
+
+License rule:
+
+    Study RTXDI architecture and extension points, but do not copy NVIDIA
+    sample/runtime code, comments, struct layouts, or helper bodies. Implement
+    native RBDoom3 code from first principles.
+
+Hard build rule:
+
+    Do not use legacy Debug builds for this task. Do not suggest, run, or copy
+    from the old Debug build folder. Use only the PT retail commands below
+    unless the user explicitly assigns PT-dev diagnostics.
+
+    Use PT retail:
+
+        cmake --preset win64-pt-retail
+        cmake --build --preset win64-pt-retail-release
+
+    Copy the executable from:
+
+        E:\prog\rbdoom-3-bfg-rt\build-win64-pt-retail\Release\RBDoom3BFG.exe
+
+    to:
+
+        E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+    If shader files are touched, also copy the updated generated shader blobs:
+
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\dxil\builtin\pathtracing\pathtrace_smoke.rt.bin
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin
+
+    to the matching paths under:
+
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Task constraints:
+
+    - Keep changes narrow and reviewable.
+    - Do not redesign material classification.
+    - Do not redesign geometry/BVH.
+    - Do not redesign portal walking in this task.
+    - Do not implement full temporal/spatial ReSTIR unless explicitly assigned.
+    - Do not remove the legacy full analytic-light loop.
+    - Do not cap the authored light universe to 4 or 8 lights as the solution.
+    - Do not treat shader include extraction as a performance fix by itself.
+    - Do not stage, commit, or push unless explicitly asked.
+
+Expected first useful result:
+
+    Secondary/reflection analytic NEE sampled mode loops by analytic sample
+    count, not uploaded analytic light count. Off mode actually disables
+    secondary analytic NEE. Legacy full mode remains available for comparison.
+    The eligible light universe remains broad; only per-vertex proposal
+    evaluation is bounded.
+
+Validation:
+
+    Test mode 18 with analytic-light-heavy scenes using PT retail. Compare:
+
+        secondary analytic off
+        secondary analytic sampled 1
+        secondary analytic sampled 2-4
+        secondary analytic legacy full
+
+    Confirm performance scales with sampled count rather than total uploaded
+    analytic lights. Visual quality only needs to be plausible in the first
+    sampled pass; the legacy full loop is the reference.

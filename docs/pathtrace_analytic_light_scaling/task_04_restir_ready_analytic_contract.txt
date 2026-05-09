@@ -1,0 +1,157 @@
+Task 04 - Make Analytic Light Samples ReSTIR-Ready
+==================================================
+
+Goal
+----
+
+Stabilize the analytic-light sample contract so ReSTIR/PT can consume Doom
+analytic lights without inheriting legacy full-loop assumptions.
+
+This task does not implement full temporal/spatial ReSTIR. It prepares the NEE
+module and RAB/bridge records so the ReSTIR/PT task can own reservoirs cleanly.
+
+Contract rule:
+
+    bounded sampled proposals, not bounded authored-light universe
+
+Reservoirs may store one selected candidate, but the proposal distribution that
+created that candidate must still represent the broader Doom light universe.
+
+Strict Build Rule
+-----------------
+
+Use PT retail for validation:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Do not use Debug commands, Debug executables, or Debug copy paths. If shaders
+change, copy the generated `base/renderprogs2` outputs to the prepared game
+folder before runtime testing.
+
+Required Starting Point
+-----------------------
+
+Complete Tasks 01 and 02 first. Task 03 is recommended but not strictly
+required if the first ReSTIR-ready contract uses a simple global distribution.
+
+Step-By-Step Procedure
+----------------------
+
+1. Read:
+
+       docs/pathtrace_analytic_light_scaling/README.txt
+       docs/pathtrace_analytic_light_scaling/task_02_secondary_sampled_analytic_nee.txt
+       docs/pathtrace_nee_extraction/README.txt
+       docs/restir_pt_agent_bridge_plan
+
+   If `docs/restir_pt_agent_bridge_plan` is a folder, read its README or the
+   current task file first.
+
+2. Inspect local RAB files:
+
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo.hlsli
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSample.hlsli
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSampling.hlsli
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_MISCallbacks.hlsli
+
+3. Inspect RTXDI reference docs and samples only for architecture:
+
+       E:\prog\references\RTXDI-main\Doc\RestirPT.md
+       E:\prog\references\RTXDI-main\Doc\ShaderAPI.md
+       E:\prog\references\RTXDI-main\Samples\FullSample
+
+   Do not copy function bodies, comments, structs, or helper implementations.
+
+4. Define local analytic sample semantics in comments near the local struct.
+
+   Required meanings:
+
+       sourceType
+       sourceIndex
+       sourceInstanceId or stable light id
+       sampled position/direction
+       distance
+       radiance or intensity convention
+       lightSelectionPdf
+       solidAnglePdf
+       samplePdf
+       targetPdf or targetWeight
+       visibility policy
+       legacy-only fields, if any
+
+   Include a short comment that one reservoir-selected candidate is not the same
+   thing as limiting the authored-light universe to one or a few lights.
+
+5. Remove ambiguity from legacy-scaled fields.
+
+   If a field bakes in old full-loop solid-angle/direct-scale behavior, name it
+   as legacy-only or keep it out of the ReSTIR-ready sample path. Reservoir code
+   must not see a record that appears to have valid PDFs while carrying
+   pre-divided or pre-integrated contribution data.
+
+6. Add replay-safe validation helpers.
+
+   Helpers should reject samples when:
+
+       source type is not analytic
+       source index is outside current uploaded/capped analytic count
+       source identity no longer matches, if stable identity is available
+       PDF is zero, negative, NaN, or otherwise invalid
+       sampled distance is invalid
+
+7. Expose one local helper that evaluates a single analytic sample without
+   selecting a new light.
+
+   This helper is what later reservoir final shading should call. It should not
+   choose a random light and should not loop all lights.
+
+8. Expose one local helper that computes the target weight/PDF for a candidate.
+
+   It can be approximate at first, but it must be explicit. If it is not a true
+   RTXDI target PDF yet, document that clearly.
+
+9. Keep ownership boundaries clean:
+
+       NEE module:
+           builds/evaluates one sample
+           computes local PDFs/weights
+           traces visibility when asked
+
+       ReSTIR/PT bridge:
+           owns reservoirs
+           owns temporal/spatial reuse
+           owns history and ping-pong resources
+           owns sample replay policy
+
+10. Add or update docs:
+
+        docs/pathtrace_modules.txt
+        docs/pathtracing.txt
+        docs/pathtrace_analytic_light_scaling/README.txt
+
+11. Build/test with PT retail and copy shader outputs if needed.
+
+Acceptance Criteria
+-------------------
+
+- Analytic light sample fields have clear semantics.
+- The sample contract can represent proposals drawn from a broad light universe
+  even when only one candidate is selected for a reservoir.
+- Legacy full-loop contribution scaling is not disguised as reservoir-ready
+  sampled radiance.
+- A single analytic sample can be replayed/evaluated with bounds checks.
+- ReSTIR/PT can consume the helper contract without taking ownership of NEE
+  shader internals.
+- No NVIDIA sample/runtime code is copied.
+- No Debug build instructions or Debug copy paths are added.
+
+Stop Conditions
+---------------
+
+Stop and report instead of guessing if:
+
+- the current light records lack a stable enough ID for replay
+- the target PDF convention conflicts with existing RAB callbacks
+- making the contract correct requires changing reservoir layout in the same
+  task

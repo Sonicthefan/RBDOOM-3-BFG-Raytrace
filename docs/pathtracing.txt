@@ -102,9 +102,18 @@ Current validated feature set:
   selected-light direct lighting still uses the legacy full selected-light loop
   for comparison, while secondary selected-light NEE can run off, one-sample
   bounded uniform sampling, or the legacy full loop through
-  `r_pathTracingSecondaryNeeMode`. The native NEE records reserve source
-  identity, PDF/target, visibility, MIS, and path-event fields for later
-  RTXDI/ReSTIR PT extension without importing NVIDIA sample code.
+  `r_pathTracingSecondaryNeeMode`. Secondary/reflection Doom analytic-light NEE
+  has a separate explicit gate, `r_pathTracingSecondaryAnalyticNeeMode`; mode 0
+  disables it, mode 1 evaluates a bounded number of uniformly sampled analytic
+  light proposals from the current uploaded candidate set, and mode 2 keeps the
+  legacy full analytic-light loop as the reference. The bounded proposal count
+  is controlled by `r_pathTracingSecondaryAnalyticNeeSamples`; it does not
+  reduce the authored/uploaded analytic-light universe. The native NEE records reserve source
+  identity, proposal PDF, target-weight, visibility, MIS, and path-event fields
+  for later RTXDI/ReSTIR PT extension without importing NVIDIA sample code. They
+  are RTXDI-shaped local records, not RTXDI-equivalent records yet: selected
+  point lights use a discrete proposal PDF, leave `targetPdf` unset until a real
+  target-function evaluator exists, and do not claim a finite solid-angle PDF.
 - Mode 19 emissive triangle inventory visualization. The CPU inventory is a
   broad material/triangle candidate list for future ReSTIR/PT work, while the
   debug view samples emissive texture luminance and skips skinned/deformed
@@ -636,8 +645,10 @@ Reflection/specular reservation:
   selected-light NEE as a diagnostic throttle, 1 samples one uniformly selected
   point light and compensates by `selectedLightCount`, and 2 runs the legacy
   full selected-light loop. The default is 1. Doom analytic-light NEE remains
-  controlled by the existing analytic-light CVars and is intentionally not
-  folded into this selected-light sampler yet.
+  controlled by the analytic-specific secondary gate below and is not folded
+  into this selected-light sampler, but it now uses the same native
+  `SmokeNeeLightSample` and `SmokeNeeResult` helper boundary inside
+  `pathtrace_nee.hlsli`.
 
 - r_pathTracingSecondaryNeeVisibility
   Diagnostic visibility gate for sampled secondary selected-light NEE. Defaults
@@ -645,6 +656,22 @@ Reflection/specular reservation:
   to isolate sampled-light selection and weighting from shadow-ray visibility
   pressure; it shades selected samples as visible and is not a final lighting
   mode.
+
+- r_pathTracingSecondaryAnalyticNeeMode
+  Selects secondary/reflection Doom analytic-light NEE behavior in mode 18 when
+  `r_pathTracingNextEventEstimation` and analytic-light candidates are enabled:
+  0 disables secondary analytic NEE, 1 evaluates bounded uniformly sampled
+  analytic-light proposals, and 2 runs the legacy full analytic-light loop. The
+  default is 1 because testing with large analytic-light counts showed major
+  performance gains without obvious image loss. Primary-hit analytic direct
+  lighting still uses the legacy full loop for comparison.
+
+- r_pathTracingSecondaryAnalyticNeeSamples
+  Number of Doom analytic-light proposals evaluated per secondary/reflection
+  NEE vertex when `r_pathTracingSecondaryAnalyticNeeMode` is 1. It clamps to
+  0-8 and defaults to 4. This is a per-vertex proposal bound; the eligible
+  analytic light set remains the uploaded Doom analytic-light candidate buffer
+  after normal safety/upload caps.
 
 - r_pathTracingIntegratorDump
   One-shot dump of the path tracer core settings and rough ray-budget estimate:

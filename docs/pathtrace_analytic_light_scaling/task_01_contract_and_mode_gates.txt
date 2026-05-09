@@ -1,0 +1,139 @@
+Task 01 - Lock Analytic NEE Contract And Mode Gates
+===================================================
+
+Goal
+----
+
+Make the current analytic-light NEE behavior explicit and prepare mode gates so
+later sampled analytic NEE can be added without losing the full-loop reference
+path.
+
+This task is mostly inspection, small naming/guard cleanup, and documentation.
+It should not try to solve ReSTIR/PT or optimize every light path.
+
+Strict Build Rule
+-----------------
+
+Use PT retail for validation:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Do not use Debug commands, Debug executables, or Debug copy paths. If shaders
+change, copy the generated `base/renderprogs2` outputs to the prepared game
+folder before runtime testing.
+
+Step-By-Step Procedure
+----------------------
+
+1. Read the required docs:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+       docs/pathtrace_nee_extraction/README.txt
+       docs/pathtrace_analytic_light_scaling/README.txt
+
+2. Inspect the current NEE shader functions:
+
+       neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli
+       neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+   Identify every call path that can reach:
+
+       EvaluateSmokeMode18NeeDirectLighting
+       EvaluateDoomAnalyticSphereLightsForSurface
+       EvaluateSmokeDoomAnalyticLightSample
+       BuildSmokeDoomAnalyticLightSample
+       TraceSmokeShadowVisibility
+
+3. Record the current CVar behavior in notes before editing:
+
+       r_pathTracingNextEventEstimation
+       r_pathTracingSecondaryNeeMode
+       r_pathTracingDisableAnalyticLightLoop
+       r_pathTracingAnalyticLightCandidates
+       r_pathTracingAnalyticLightMaxGpu
+       r_pathTracingAnalyticLightIntensityScale
+       r_pathTracingAnalyticSphereLightRadiusScale
+
+4. Confirm whether `r_pathTracingSecondaryNeeMode 0` currently disables
+   selected-light NEE only or selected-light plus analytic-light NEE.
+
+   Expected starting state:
+
+       selected lights are gated
+       analytic lights are still evaluated afterward
+
+5. Add or tighten shader-side naming so the full analytic-light fanout is
+   visibly a legacy/reference path.
+
+   Acceptable examples:
+
+       EvaluateDoomAnalyticSphereLightsLegacyFull(...)
+       EvaluateSmokeLegacyFullAnalyticNee(...)
+
+   Keep wrapper compatibility if other code still calls the old function name.
+
+6. Add a central gate helper in `pathtrace_nee.hlsli` for secondary analytic
+   NEE policy.
+
+   The helper should make these states explicit:
+
+       off
+       sampled/bounded
+       legacy full
+
+   If existing CVars are insufficient or semantically ambiguous, add a C++ CVar
+   with a name that distinguishes analytic-light NEE from selected-light NEE.
+   Do not overload a CVar in a way that makes old testing notes misleading.
+
+7. Preserve current primary-hit visual behavior.
+
+   For this task, primary direct lighting may continue to use the legacy full
+   analytic loop. The first runtime target is secondary/reflection fanout.
+
+8. Add a bounds check to analytic sample replay if it is still missing:
+
+       sample.sourceIndex < uploaded/capped analytic light count
+
+   The immediate build/evaluate path may be safe, but the sample record is
+   intended for future replay/debug/reservoir paths.
+
+9. Document the mode semantics either in comments near the helper or in
+   `docs/pathtrace_analytic_light_scaling/README.txt` if behavior changed.
+
+10. Build with PT retail.
+
+11. If shaders changed, copy the PT executable and shader outputs to the
+    prepared game folder.
+
+12. Runtime smoke test:
+
+       r_pathTracing 1
+       r_pathTracingDebugMode 18
+       r_pathTracingAnalyticLightCandidates 1
+       r_pathTracingAnalyticLightReplaceSelected 1
+
+    Test secondary NEE off and legacy-full modes. The expected outcome is
+    behavior clarity, not a performance win yet.
+
+Acceptance Criteria
+-------------------
+
+- The full analytic-light loop is clearly named/documented as legacy or
+  reference behavior.
+- Secondary analytic NEE has an explicit policy gate.
+- `off`, `sampled`, and `legacy full` are representable without ambiguous CVar
+  interpretation.
+- Primary direct lighting remains visually comparable to the pre-task state.
+- PT retail build succeeds.
+- No Debug build instructions or Debug copy paths are added.
+
+Stop Conditions
+---------------
+
+Stop and report instead of guessing if:
+
+- the mode/CVar meaning conflicts with `docs/pathtracing.txt`
+- sampled mode would require changing primary lighting behavior immediately
+- the current shader cannot distinguish primary and secondary NEE call sites

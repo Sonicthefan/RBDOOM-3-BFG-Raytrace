@@ -699,6 +699,18 @@ idCVar r_pathTracingSecondaryNeeVisibility(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic gate for sampled secondary selected-light NEE visibility rays: 0 shades selected samples as visible, 1 traces shadow visibility" );
 
+idCVar r_pathTracingSecondaryAnalyticNeeMode(
+    "r_pathTracingSecondaryAnalyticNeeMode",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 secondary/reflection Doom analytic-light NEE: 0 off, 1 sampled/bounded proposals, 2 legacy full analytic-light loop" );
+
+idCVar r_pathTracingSecondaryAnalyticNeeSamples(
+    "r_pathTracingSecondaryAnalyticNeeSamples",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Number of uniformly sampled Doom analytic-light proposals evaluated per secondary/reflection NEE vertex when r_pathTracingSecondaryAnalyticNeeMode is 1" );
+
 idCVar r_pathTracingIntegratorDump(
     "r_pathTracingIntegratorDump",
     "0",

@@ -1,0 +1,167 @@
+Task 03 - Build Portal-Weighted Analytic Light Distribution
+===========================================================
+
+Goal
+----
+
+Improve sampled analytic-light candidate quality by using Doom's portal/area
+structure instead of a naive global uniform distribution.
+
+This task should reduce noise and missed important lights without returning to
+full-scene analytic-light fanout.
+
+This task must preserve the same rule as Task 02:
+
+    bounded sampled proposals, not bounded authored-light universe
+
+Portal/area filtering should build a better candidate distribution from the
+many-light universe. It should not become a tiny hard cap that makes most
+authored lights impossible to sample.
+
+Strict Build Rule
+-----------------
+
+Use PT retail for validation:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Do not use Debug commands, Debug executables, or Debug copy paths. If shaders
+change, copy the generated `base/renderprogs2` outputs to the prepared game
+folder before runtime testing.
+
+Required Starting Point
+-----------------------
+
+Complete Task 02 first. The sampled secondary analytic NEE path must exist and
+must not loop every uploaded analytic light.
+
+Step-By-Step Procedure
+----------------------
+
+1. Read:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+       docs/pathtrace_analytic_light_scaling/README.txt
+       docs/pathtrace_analytic_light_scaling/task_02_secondary_sampled_analytic_nee.txt
+
+2. Inspect CPU light-candidate production:
+
+       neo/renderer/NVRHI/PathTraceDoomLights.cpp
+       neo/renderer/NVRHI/PathTraceDoomLights.h
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+3. Identify what portal/area metadata is already available per analytic light.
+
+   Look for:
+
+       light area
+       portal-walk inclusion
+       renderLight index
+       dynamic/static identity
+       current selected/candidate-list order
+       uploaded count and trace cap
+
+4. Do not perform another independent expensive portal walk unless needed.
+
+   If geometry and light portal walks are currently separate, document that
+   fact and use the existing light-side result first. The user is still
+   investigating whether split walks are acceptable or should share data.
+
+5. Add a simple CPU-side candidate distribution.
+
+   First acceptable version:
+
+       one compact array of analytic light indices for the current portal-walk
+       region
+
+   Better version:
+
+       per-area or per-portal-cluster lists with offsets/counts
+
+   Keep the GPU-facing representation compact and stable. Do not expose raw
+   engine pointers or frame-local transient addresses.
+
+   The list can be spatially relevant and compact, but it must represent the
+   authored lights that are eligible for the current region. If a global
+   fallback is needed for correctness, keep it explicit rather than silently
+   dropping lights.
+
+6. Add a simple importance weight per analytic light.
+
+   Initial safe weight:
+
+       luminance(color) * radius_or_falloff_proxy
+
+   Optional distance/area bias can be added if the required surface/area data
+   is available at sample time.
+
+   Do not require physically perfect photometry for the first version.
+
+7. Choose the first sampling method.
+
+   Acceptable:
+
+       weighted linear scan over a small portal-walk-local list
+
+   Better if already easy:
+
+       alias table over the current compact candidate list
+
+   Avoid a global full-light scan per path vertex.
+
+8. Upload any new buffers through existing PT scene resource ownership.
+
+   Retain resource handles with the scene package. Do not introduce resource
+   lifetime shortcuts that bypass `r_pathTracingSceneRetireFrames`.
+
+9. Update `SmokeNeeLightSample` source metadata if needed:
+
+       sourceIndex
+       sourceInstanceId
+       sourceArea
+       proposalListId or proposalKind
+       lightSelectionPdf
+
+10. Validate that sampled mode uses the portal-weighted distribution and that
+    legacy full mode still uses the full uploaded/capped analytic list.
+
+    Also validate that the portal distribution is a proposal source over many
+    eligible lights, not a tiny total-light cap.
+
+11. Add diagnostics gated by an existing or new diagnostic CVar:
+
+        uploaded analytic lights
+        portal-local analytic candidate count
+        skipped because candidate list empty
+        fallback to global sampling count
+        average selected light weight if cheap
+
+12. Build/test with PT retail and copy changed shader outputs if needed.
+
+Acceptance Criteria
+-------------------
+
+- Sampled secondary analytic NEE can draw from a portal/area-relevant candidate
+  distribution.
+- Sampled mode cost scales with sampled candidate count and candidate-list
+  lookup cost, not full uploaded light count.
+- Portal/area relevance narrows proposal selection without pretending most
+  authored lights do not exist.
+- Empty/invalid portal-local lists fall back safely or disable sampled NEE for
+  that vertex without invalid reads.
+- New GPU buffers are owned by normal PT scene resources and protected by scene
+  retirement.
+- No Debug build instructions or Debug copy paths are added.
+
+Stop Conditions
+---------------
+
+Stop and report instead of guessing if:
+
+- the current light portal-walk data cannot be mapped back to shader-visible
+  analytic light indices
+- the needed per-area data is only available through engine internals the task
+  has not documented
+- resource lifetime would require bypassing the scene retirement package
