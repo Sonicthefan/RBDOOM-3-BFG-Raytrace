@@ -97,8 +97,14 @@ Current validated feature set:
 - Mode 14 unshadowed emissive/glow material preview from safe ambient/additive
   stages.
 - Mode 18 toy one-bounce path tracing with selected Doom lights, texture
-  sampling, force-ambient control, simple secondary rays, and temporal
-  accumulation.
+  sampling, force-ambient control, simple secondary rays, temporal
+  accumulation, and a first extracted native NEE shader module. Primary
+  selected-light direct lighting still uses the legacy full selected-light loop
+  for comparison, while secondary selected-light NEE can run off, one-sample
+  bounded uniform sampling, or the legacy full loop through
+  `r_pathTracingSecondaryNeeMode`. The native NEE records reserve source
+  identity, PDF/target, visibility, MIS, and path-event fields for later
+  RTXDI/ReSTIR PT extension without importing NVIDIA sample code.
 - Mode 19 emissive triangle inventory visualization. The CPU inventory is a
   broad material/triangle candidate list for future ReSTIR/PT work, while the
   debug view samples emissive texture luminance and skips skinned/deformed
@@ -624,23 +630,41 @@ Reflection/specular reservation:
   emissive terms but suppresses direct-light visibility work in the new
   integrator contract.
 
+- r_pathTracingSecondaryNeeMode
+  Selects secondary selected-light NEE behavior in mode 18 when
+  `r_pathTracingNextEventEstimation` is enabled: 0 disables secondary
+  selected-light NEE as a diagnostic throttle, 1 samples one uniformly selected
+  point light and compensates by `selectedLightCount`, and 2 runs the legacy
+  full selected-light loop. The default is 1. Doom analytic-light NEE remains
+  controlled by the existing analytic-light CVars and is intentionally not
+  folded into this selected-light sampler yet.
+
+- r_pathTracingSecondaryNeeVisibility
+  Diagnostic visibility gate for sampled secondary selected-light NEE. Defaults
+  to 1, which traces the selected sample's shadow visibility ray. Set to 0 only
+  to isolate sampled-light selection and weighting from shadow-ray visibility
+  pressure; it shades selected samples as visible and is not a final lighting
+  mode.
+
 - r_pathTracingIntegratorDump
   One-shot dump of the path tracer core settings and rough ray-budget estimate:
   output resolution, SPP, max depth, diffuse/specular/transmission limits,
-  reflection mode, Russian-roulette depth, NEE state, selected/analytic light
-  trial counts, estimated rays per pixel, and estimated dispatch rays. This is a
-  safety signal for device-removal risk; it is intentionally approximate rather
-  than a physical ray counter.
+  reflection mode, Russian-roulette depth, NEE state, secondary NEE mode and
+  sampled visibility gate, selected/analytic light trial counts, estimated rays
+  per pixel, and estimated dispatch rays. This is a safety signal for
+  device-removal risk; it is intentionally approximate rather than a physical
+  ray counter.
 
 Ray dispatch safety diagnostics:
 
 - r_pathTracingSafetyDump
   One-shot pre-dispatch safety dump. It reports output size, debug mode, SPP,
-  depth/bounce/reflection/Russian-roulette/NEE settings, selected/analytic/
-  emissive/light-candidate counts, material table entries, active descriptor
-  table size, static/dynamic/rigid-route buffer capacities, TLAS/BLAS presence,
-  primary-history byte count, smoke/ReSTIR reservoir byte counts, binding-set
-  presence, and the current safety kill-mask.
+  depth/bounce/reflection/Russian-roulette/NEE settings, secondary NEE mode and
+  sampled visibility gate, selected/analytic/emissive/light-candidate counts,
+  material table entries, active descriptor table size, static/dynamic/
+  rigid-route buffer capacities, TLAS/BLAS presence, primary-history byte
+  count, smoke/ReSTIR reservoir byte counts, binding-set presence, and the
+  current safety kill-mask.
 
 - r_pathTracingDispatchTileEnable
   Diagnostic device-removal mitigation path. When set, the smoke/path tracing

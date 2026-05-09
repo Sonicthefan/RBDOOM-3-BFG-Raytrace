@@ -687,6 +687,18 @@ idCVar r_pathTracingNextEventEstimation(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable direct-light next-event-estimation style work in the mode 18 path tracer core" );
 
+idCVar r_pathTracingSecondaryNeeMode(
+    "r_pathTracingSecondaryNeeMode",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 secondary selected-light NEE mode: 0 off, 1 one sampled selected light, 2 legacy full selected-light loop" );
+
+idCVar r_pathTracingSecondaryNeeVisibility(
+    "r_pathTracingSecondaryNeeVisibility",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic gate for sampled secondary selected-light NEE visibility rays: 0 shades selected samples as visible, 1 traces shadow visibility" );
+
 idCVar r_pathTracingIntegratorDump(
     "r_pathTracingIntegratorDump",
     "0",

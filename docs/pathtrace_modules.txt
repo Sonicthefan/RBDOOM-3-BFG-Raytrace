@@ -32,8 +32,10 @@ The current RT/PT path is still an experimental "smoke" path:
   validate the same material policy. The mode now also has an explicit early
   integrator contract: samples per pixel, max path depth, diffuse/specular/
   transmission bounce limits, reflection mode, Russian-roulette depth
-  reservation, NEE toggle, and a one-shot ray-budget dump. Defaults preserve
-  the previous one-sample, one-diffuse-bounce behavior; reflection is opt-in.
+  reservation, NEE toggle, secondary selected-light NEE mode, and a one-shot
+  ray-budget dump. Defaults preserve the previous one-sample,
+  one-diffuse-bounce behavior while replacing secondary selected-light fan-out
+  with one uniformly sampled selected point light; reflection is opt-in.
 - r_pathTracing mode 19: emissive inventory/debug pass for future ReSTIR/PT
   preparation.
 - r_pathTracing mode 20: first single-frame reservoir direct-lighting debug view
@@ -248,8 +250,9 @@ PathTraceSmokeDispatch.cpp
     It also owns the current `PathTraceIntegratorSettings` CPU packing for mode
     18 and the ReSTIR PT bridge: SPP, max path depth, diffuse/specular/
     transmission limits, reflection mode, Russian-roulette depth reservation,
-    NEE enable, accumulation-signature participation, and the one-shot
-    `r_pathTracingIntegratorDump` ray-budget estimate. Slow dispatch logs and
+    NEE enable, secondary selected-light NEE mode, accumulation-signature
+    participation, and the one-shot `r_pathTracingIntegratorDump` ray-budget
+    estimate. Slow dispatch logs and
     `r_pathTracingPassTimingDump 1` now report pseudo-pass CPU submit timing for
     setup, ReSTIR context update, constants upload, barriers, clears, RT
     dispatch submission, primary-history copy, and optional readback. These are
@@ -603,8 +606,28 @@ pathtrace_smoke.rt.hlsl
     `ConstantBuffer<RTXDI_PTParameters>` at b28 and
     `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29, defines
     `RTXDI_PT_RESERVOIR_BUFFER`, and compiles NVIDIA's PT reservoir load/store
-    helpers. The shader does not call those helpers yet, and the existing mode
-    18/20 smoke behavior should remain unchanged.
+    helpers. Mode 18 now calls the extracted native NEE/direct-lighting include
+    for selected-light and Doom analytic direct lighting; the rest of the smoke
+    shader still owns the monolithic raygen, debug modes, reservoir preview,
+    payloads, and hit/miss shaders.
+
+pathtrace_nee.hlsli
+    Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
+    source category constants, small surface/light-sample/result records, the
+    legacy selected-light full-loop evaluator, the one-sample bounded selected
+    point-light evaluator, and the Doom analytic sphere-light loop. Primary
+    selected-light direct lighting still routes through the legacy full loop.
+    Secondary diffuse/reflection hits use `r_pathTracingSecondaryNeeMode`: 0 =
+    no secondary selected-light NEE, 1 = one uniformly selected point light with
+    inverse-PDF compensation, 2 = legacy full selected-light loop. Doom analytic
+    lights remain under the existing analytic-light CVars until their sampled
+    PDF contract is added. The sample/result records now explicitly carry
+    native extension fields for source type/index, future material/instance/
+    primitive identity, light-selection/sample/target PDFs, target weight,
+    visibility, path event classification, and an MIS placeholder.
+    `r_pathTracingSecondaryNeeVisibility` can skip the sampled selected-light
+    shadow ray as a diagnostic isolation gate, but the default traces
+    visibility.
 
 PathTracePrimarySurface.hlsli
     Shader-side primary-surface contract and helper layer. It defines the

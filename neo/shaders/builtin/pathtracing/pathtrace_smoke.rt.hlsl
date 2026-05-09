@@ -220,6 +220,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 GeometryInfo1;
     float4 GeometryInfo2;
     float4 DispatchTileInfo;
+    float4 NeeInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -355,6 +356,16 @@ uint PathTraceIntegratorRussianRouletteDepth()
 bool PathTraceIntegratorNextEventEstimationEnabled()
 {
     return IntegratorInfo2.w >= 0.5;
+}
+
+uint PathTraceIntegratorSecondaryNeeMode()
+{
+    return clamp((uint)max(NeeInfo.x, 0.0), 0u, 2u);
+}
+
+bool PathTraceIntegratorSecondaryNeeVisibilityEnabled()
+{
+    return NeeInfo.y >= 0.5;
 }
 
 bool ProjectSmokeOverlayPoint(float3 worldPosition, uint2 dimensions, out float2 projectedPixel)
@@ -2212,139 +2223,7 @@ float3 SmokeSampleSphereSolidAngle(float3 axis, float cosThetaMax, uint seed)
     return SafeNormalize(axis * cosTheta + tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta), axis);
 }
 
-float3 EvaluateDoomAnalyticSphereLights(float3 albedo, float3 specularColor, float3 normal, float3 viewDir, float3 hitPosition, uint seed)
-{
-    if (!DoomAnalyticLightsEnabled())
-    {
-        return float3(0.0, 0.0, 0.0);
-    }
-
-    const uint uploadedCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
-    const uint traceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    const uint lightCount = min(uploadedCount, traceCap);
-    const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
-    if (lightCount == 0u || intensityScale <= 0.0)
-    {
-        return float3(0.0, 0.0, 0.0);
-    }
-
-    float3 direct = float3(0.0, 0.0, 0.0);
-    [loop]
-    for (uint lightIndex = 0u; lightIndex < lightCount; ++lightIndex)
-    {
-        const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[lightIndex];
-        const float3 toLight = light.originAndRadius.xyz - hitPosition;
-        const float distanceSquared = max(dot(toLight, toLight), 1.0);
-        const float lightDistance = sqrt(distanceSquared);
-        const float3 lightDir = toLight / lightDistance;
-        const float ndotl = saturate(dot(normal, lightDir));
-        if (ndotl <= 0.0)
-        {
-            continue;
-        }
-
-        const float doomRadius = max(light.doomRadiusAndArea.x, 1.0);
-        if (lightDistance > doomRadius)
-        {
-            continue;
-        }
-
-        const float sphereRadius = clamp(light.originAndRadius.w, 0.01, doomRadius);
-        const float sinThetaMax = saturate(sphereRadius / lightDistance);
-        const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
-        const float solidAngle = max(6.2831853 * (1.0 - cosThetaMax), 1.0e-5);
-        const uint lightSeed = seed ^ (light.renderLightIndex + 1u) * 747796405u ^ (lightIndex + 1u) * 2891336453u;
-        const float3 sampledLightDir = SmokeSampleSphereSolidAngle(lightDir, cosThetaMax, lightSeed);
-        const float sampledNdotL = saturate(dot(normal, sampledLightDir));
-        if (sampledNdotL <= 0.0)
-        {
-            continue;
-        }
-
-        const float normalOffsetSign = dot(normal, sampledLightDir) >= 0.0 ? 1.0 : -1.0;
-        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + sampledLightDir * 0.25;
-        const float sampledHitT = SmokeRaySphereHitT(shadowOrigin, sampledLightDir, light.originAndRadius.xyz, sphereRadius, lightDistance);
-        const float shadowTMax = max(sampledHitT - 0.5, 0.01);
-        const float visibility = (light.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) != 0u
-            ? TraceSmokeShadowVisibility(shadowOrigin, sampledLightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu)
-            : 1.0;
-
-        const float radiusFraction = saturate(lightDistance / doomRadius);
-        const float doomInfluence = saturate(1.0 - radiusFraction * radiusFraction);
-        const float directScale = (solidAngle * 0.318309886) * doomInfluence * intensityScale;
-        const float3 lightColor = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
-        direct += albedo * lightColor * (sampledNdotL * directScale * visibility);
-        direct += EvaluateSmokeSpecular(specularColor, normal, sampledLightDir, viewDir, lightColor, directScale, visibility);
-    }
-
-    return direct;
-}
-
-float3 EvaluateSmokeDirectLighting(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap, bool useSpecular, bool includeEmissive, uint seed)
-{
-    const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
-    const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
-    const float3 baseNormal = SafeNormalize(payload.normal, payload.geometricNormal);
-    const float3 normal = useNormalMap ? DecodeSmokeNormalTexture(material, payload.texCoord, baseNormal, payload.tangent, payload.bitangent) : baseNormal;
-    const float3 hitPosition = rayOrigin + rayDirection * payload.hitT;
-    const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
-    const float3 specularColor = useSpecular ? SampleSmokeDirectSpecular(material, payload.texCoord) : float3(0.0, 0.0, 0.0);
-    const float lightScale = max(ToyPathInfo.y, 0.0);
-    const float emissiveScale = max(ToyPathInfo.z, 0.0);
-    const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
-    const float3 emissive = includeEmissive ? SampleSmokeEmissive(material, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * emissiveScale : float3(0.0, 0.0, 0.0);
-    const float ambientScale = saturate(LightSpriteInfo.w);
-    const float maxToyRayDistance = max(ToyPathInfo.x, 64.0);
-    float3 direct = albedo * ambientScale + emissive;
-
-    if (!PathTraceIntegratorNextEventEstimationEnabled())
-    {
-        return direct;
-    }
-
-    const uint lightCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP) ? 0u : min((uint)LightInfo.x, RT_SMOKE_MAX_DEBUG_LIGHTS);
-    if (lightCount == 0u)
-    {
-        return direct + EvaluateDoomAnalyticSphereLights(albedo, specularColor, normal, viewDir, hitPosition, seed);
-    }
-
-    [loop]
-    for (uint lightIndex = 0u; lightIndex < lightCount; lightIndex++)
-    {
-        const float4 lightOriginAndRadius = LightOriginAndRadius[lightIndex];
-        const float3 toLight = lightOriginAndRadius.xyz - hitPosition;
-        const float lightDistance = length(toLight);
-        if (lightDistance <= 1.0e-3)
-        {
-            continue;
-        }
-        if (lightDistance > maxToyRayDistance)
-        {
-            continue;
-        }
-
-        const float3 lightDir = toLight / lightDistance;
-        const float ndotl = saturate(dot(normal, lightDir));
-        if (ndotl <= 0.0)
-        {
-            continue;
-        }
-
-        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
-        const float3 shadowOrigin = hitPosition + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
-        const float shadowTMax = min(max(lightDistance - 0.5, 0.01), maxToyRayDistance);
-        const float visibility = TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu);
-        const float lightAttenuation = saturate(1.0 - lightDistance / max(lightOriginAndRadius.w, 1.0));
-        const float directScale = 0.10 + lightAttenuation * lightAttenuation * 0.70;
-        const float3 lightColor = max(LightColorAndIntensity[lightIndex].rgb, float3(0.0, 0.0, 0.0));
-        direct += albedo * lightColor * (ndotl * directScale * visibility * lightScale);
-        direct += EvaluateSmokeSpecular(specularColor, normal, lightDir, viewDir, lightColor, directScale * lightScale, visibility);
-    }
-
-    direct += EvaluateDoomAnalyticSphereLights(albedo, specularColor, normal, viewDir, hitPosition, seed);
-
-    return direct;
-}
+#include "pathtrace_nee.hlsli"
 
 uint FindSmokeLightCandidateForTriangle(PathTraceSmokeEmissiveTriangle emissiveTriangle, uint candidateCount)
 {
@@ -2560,7 +2439,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         sampleIndex * 374761393u ^
         ((uint)max(ToyPathInfo.w, 0.0)) * 104729u;
     const bool useFakePBRSpecular = SmokeToyFakePBRSpecularEnabled();
-    float3 radiance = EvaluateSmokeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, useFakePBRSpecular, true, bounceSeed);
+    float3 radiance = EvaluateSmokeMode18NeeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, useFakePBRSpecular, true, bounceSeed, SMOKE_NEE_SELECTED_LIGHT_MODE_LEGACY_FULL);
 
     const bool allowSecondary = PathTraceIntegratorMaxPathDepth() > 1u;
     if (allowSecondary && PathTraceIntegratorDiffuseBounceLimit() > 0u)
@@ -2580,7 +2459,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
             pathFlags |= RT_PT_TOY_FLAG_DIFFUSE_HIT;
             const PathTraceSmokeMaterial bounceMaterial = LoadSmokeMaterial(bouncePayload.materialIndex);
             const float3 bounceAlbedo = SampleSmokeSurfaceAlbedo(bounceMaterial, bouncePayload.texCoord, bouncePayload.surfaceClass, bouncePayload.translucentSubtype, bouncePayload.vertexColor, bouncePayload.vertexColorAdd).rgb;
-            const float3 bounceDirect = EvaluateSmokeDirectLighting(bouncePayload, bounceRay.Origin, bounceRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x9e3779b9u);
+            const float3 bounceDirect = EvaluateSmokeMode18NeeDirectLighting(bouncePayload, bounceRay.Origin, bounceRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x9e3779b9u, PathTraceIntegratorSecondaryNeeMode());
             radiance += primaryAlbedo * bounceDirect * (0.28 + 0.22 * max(max(bounceAlbedo.r, bounceAlbedo.g), bounceAlbedo.b));
         }
     }
@@ -2606,7 +2485,7 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         {
             pathDepth = max(pathDepth, 2u);
             pathFlags |= RT_PT_TOY_FLAG_REFLECTION_HIT;
-            const float3 reflectionDirect = EvaluateSmokeDirectLighting(reflectionPayload, reflectionRay.Origin, reflectionRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x7feb352du);
+            const float3 reflectionDirect = EvaluateSmokeMode18NeeDirectLighting(reflectionPayload, reflectionRay.Origin, reflectionRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x7feb352du, PathTraceIntegratorSecondaryNeeMode());
             radiance += reflectionDirect * reflectionWeight;
         }
         else

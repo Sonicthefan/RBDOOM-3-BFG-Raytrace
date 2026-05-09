@@ -5,7 +5,127 @@ This document is for a fresh Codex or human contributor picking up the
 experimental Vulkan/NVRHI RT smoke/path tracing branch without reading the full
 chat history.
 
-Current snapshot - 2026-05-06
+Current snapshot - 2026-05-09
+-----------------------------
+
+Repository:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/pathtrace-core-refactor-plan
+
+Prepared game folder used for testing:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+Latest mode 18 NEE state:
+
+- The first native mode 18 NEE include now exists at
+  `neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli`.
+- `pathtrace_smoke.rt.hlsl` still owns the monolithic raygen, but mode 18
+  selected-light and Doom analytic direct-light helpers are now behind the NEE
+  include boundary.
+- The NEE structs now carry native extension points for source type/index,
+  surface material/instance/primitive identity, light-selection/sample/target
+  PDFs, target weight, visibility, MIS placeholder, and path-event
+  classification. This is a local contract only; it does not import RTXDI code
+  or enable temporal/spatial reuse.
+- `r_pathTracingSecondaryNeeMode` controls secondary selected-light NEE:
+  `0` = off/diagnostic throttle, `1` = one uniformly sampled selected point
+  light with inverse-PDF compensation, `2` = legacy full selected-light loop.
+- `r_pathTracingSecondaryNeeVisibility` defaults to `1` and controls only the
+  sampled secondary selected-light shadow visibility ray. Set it to `0` for
+  diagnosis only, to shade the selected sample as visible and isolate whether
+  remaining instability comes from the visibility ray path.
+- `r_pathTracingNextEventEstimation 0` remains the global NEE off switch.
+- Primary selected-light direct lighting still uses the legacy full selected
+  light loop for comparison. Doom analytic lights remain under their existing
+  analytic-light CVars and still use the legacy analytic loop.
+- Debug and Release/PT-dev builds passed after the extraction. The Release/PT
+  dev executable and updated DXIL/SPIR-V `pathtrace_smoke.rt.bin` files were
+  copied to `E:\prog\rbdoom-3-BFG-prebuilt`.
+- User runtime test with analytic lights off: the game launched and ran without
+  startup errors. The sampled secondary NEE path seems somewhat better and
+  crashes less often, but there are still issues. Analytic lights are still too
+  heavy to keep enabled for this validation. Do not treat the NEE extraction as
+  a complete device removal/stability fix.
+- Follow-up runtime test with analytic lights still off: comparing
+  `r_pathTracingSecondaryNeeVisibility 0` and `1` showed roughly a 50% RT speed
+  difference. The recent NEE changes may move the texture-corruption/device
+  crash threshold somewhat higher in resolution, but do not eliminate it. This
+  points at sampled selected-light shadow visibility rays and/or the broader
+  monolithic raygen/resource-pressure path as the next diagnostic target, not
+  analytic-light fan-out.
+- Further user observation: stripping path-tracing features with CVars mostly
+  delays the resolution at which texture corruption/device removal appears,
+  from around 720p/3SPP in the heavier path up toward 2500x2000 with more work
+  disabled. Treat this as a resolution/workload pressure threshold, not as proof
+  that any one stripped feature is the sole root cause.
+- Additional user observation: the corruption/crash is sensitive to portal
+  traversal thresholds. The typical pattern is texture corruption followed by a
+  crash when portal thresholds are crossed. Treat portal-area selection changes,
+  source3 residency/light-area set churn, and resource/descriptor lifetime
+  around those transitions as first suspects for the next diagnostic slice.
+- Follow-up nuance: there is also chronic texture corruption before the
+  portal-threshold crash. The chronic corruption and portal-crossing crash may
+  be two separate failure modes that both become visible once GPU load is high
+  enough to push FPS down. Do not assume portal traversal is the only cause of
+  corruption; treat it as one high-signal trigger to instrument alongside
+  general high-load texture/resource corruption.
+- Prior texture-off test: disabling real texture sampling reduced load, like
+  other feature stripping, but placeholder surfaces still eventually glitched
+  once rays or resolution were high enough. This argues against ordinary
+  material texture sampling or bad texture contents as the sole cause; keep RT
+  output/accumulation/history resources, descriptors, synchronization, and
+  monolithic shader/driver pressure in the suspect set.
+- Portal-depth reduction test: setting the main render-affecting portal depths
+  to 1 (`r_pathTracingRigidResidencyPortalSteps 1`,
+  `r_pathTracingStaticAreaPreloadPortalSteps 1`,
+  `r_pathTracingLightAreaPortalSteps 1`) still glitched and crashed easily.
+  Portal threshold crossings can still trigger failures, but traversal depth is
+  not the main stabilizing lever.
+- Task 03 NEE contract cleanup runtime result: no new problems observed after
+  adding the native source/PDF/visibility/MIS/path-event extension fields, but
+  no stability or performance improvement either. Treat that slice as a clean
+  contract-preparation step, not a fix for the high-load corruption/device
+  removal issue.
+
+Recommended next validation:
+
+    r_pathTracingAnalyticLightCandidates 0
+    r_pathTracingDisableAnalyticLightLoop 1
+    r_pathTracingSamplesPerPixel 3
+    r_pathTracingMaxPathDepth 2
+    r_pathTracingNextEventEstimation 1
+
+Then compare:
+
+    r_pathTracingSecondaryNeeMode 0
+    r_pathTracingSecondaryNeeMode 1
+    r_pathTracingSecondaryNeeMode 2
+    r_pathTracingSecondaryNeeVisibility 0
+    r_pathTracingSecondaryNeeVisibility 1
+    r_pathTracingDisableDiffuseSecondaryRay 1
+    r_pathTracingDisableSelectedLightLoop 1
+
+If mode 1 is still unstable with analytic lights off, keep the next slice
+diagnostic and narrow, but stop treating CVar stripping as a root-cause finder
+once it only moves the resolution threshold. The next code slice should target
+resolution/workload-scaled resource lifetime, descriptor/resource reuse,
+barrier/synchronization, or monolithic raygen pressure. Portal-threshold
+scene/light churn remains a useful trigger to instrument, but reducing portal
+depth to 1 did not stabilize the issue. The `SecondaryNeeVisibility 0/1` result
+still means visibility rays are a major cost multiplier, but the broader
+threshold behavior means they may only be exposing one underlying failure
+earlier. Keep the diagnostics able to distinguish chronic high-load texture
+corruption from the portal-threshold crash. Treat sampled analytic-light NEE as
+a later follow-up. Do not jump to full RTXDI/ReSTIR PT, ReGIR, material
+redesign, geometry/BVH changes, or a separate C++ pass unless the evidence
+specifically demands it.
+
+Historical snapshot - 2026-05-06
 -----------------------------
 
 Repository:
