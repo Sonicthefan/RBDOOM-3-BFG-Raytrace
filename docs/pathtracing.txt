@@ -642,6 +642,23 @@ Ray dispatch safety diagnostics:
   primary-history byte count, smoke/ReSTIR reservoir byte counts, binding-set
   presence, and the current safety kill-mask.
 
+- r_pathTracingDispatchTileEnable
+  Diagnostic device-removal mitigation path. When set, the smoke/path tracing
+  raygen uses the same TLAS, bindings, clears, and command list, but splits
+  `DispatchRays` into sequential screen-space rectangles. Default is 0, so the
+  normal full-screen dispatch path is unchanged.
+
+- r_pathTracingDispatchTileWidth / r_pathTracingDispatchTileHeight
+  Tiled-dispatch rectangle size in pixels. The last row/column dispatches a
+  smaller partial tile when the output size is not evenly divisible. Shader-side
+  output, primary-history, reservoir, reprojection, and random-seed coordinates
+  use absolute full-frame pixels rather than tile-local coordinates.
+
+- r_pathTracingDispatchTileDump
+  One-shot tiled-dispatch plan dump. It reports output size, tile size, tile
+  count, estimated rays per pixel, estimated rays per tile, and estimated rays
+  for the full frame.
+
 - r_pathTracingDisableAnyHitAlpha
   Diagnostic kill switch for any-hit alpha/translucent/glass/particle rejection.
   Shadow self-ignore still runs; only the alpha/translucent rejection path is
@@ -2627,6 +2644,11 @@ Device-removal triage checklist:
   the device removal happens at modest ray counts, treat invalid indexing,
   resource lifetime, stale descriptors, barriers, or pathological shader control
   flow as the first suspects.
+- If the failure correlates with sustained single-dispatch GPU time rather than
+  invalid resource access, enable `r_pathTracingDispatchTileEnable 1` and capture
+  `r_pathTracingDispatchTileDump 1`. Start with 512x512 tiles, then reduce to
+  256x256 or 128x128 if needed. Tiling is diagnostic dispatch shaping only; it
+  does not change scene selection, TLAS/BLAS inputs, or shading quality.
 - Recommended bisect sequence for mode 18/20/26-33 device removal:
   disable readback and Optick GPU markers, dump pass timing and safety metadata,
   then toggle in this order until the failure disappears:

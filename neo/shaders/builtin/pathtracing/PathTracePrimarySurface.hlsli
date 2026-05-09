@@ -115,7 +115,7 @@ void StorePathTracePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
         return;
     }
 
-    const uint2 dimensions = DispatchRaysDimensions().xy;
+    const uint2 dimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
         return;
@@ -137,7 +137,7 @@ RAB_Surface LoadPathTracePrimarySurfaceRecord(int2 pixelPosition, bool previousF
         return RAB_EmptySurface();
     }
 
-    const uint2 dimensions = DispatchRaysDimensions().xy;
+    const uint2 dimensions = PathTraceFullOutputSize();
     if (pixelPosition.x < 0 || pixelPosition.y < 0 ||
         (uint)pixelPosition.x >= dimensions.x || (uint)pixelPosition.y >= dimensions.y)
     {
@@ -314,7 +314,7 @@ float4 EvaluateRestirPTPrimarySurfaceReprojectionDebug(RAB_Surface currentSurfac
     int2 previousPixel;
     const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(
         RAB_GetSurfaceWorldPos(currentSurface),
-        DispatchRaysDimensions().xy,
+        PathTraceFullOutputSize(),
         previousPixel);
     if (!projected)
     {

@@ -729,6 +729,30 @@ idCVar r_pathTracingSafetyDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump path tracing dispatch safety metadata once before the RT dispatch" );
 
+idCVar r_pathTracingDispatchTileEnable(
+    "r_pathTracingDispatchTileEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic mode: split path tracing DispatchRays into screen-space tiles while preserving the same scene and resources" );
+
+idCVar r_pathTracingDispatchTileWidth(
+    "r_pathTracingDispatchTileWidth",
+    "512",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic tiled DispatchRays tile width in pixels when r_pathTracingDispatchTileEnable is set" );
+
+idCVar r_pathTracingDispatchTileHeight(
+    "r_pathTracingDispatchTileHeight",
+    "512",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic tiled DispatchRays tile height in pixels when r_pathTracingDispatchTileEnable is set" );
+
+idCVar r_pathTracingDispatchTileDump(
+    "r_pathTracingDispatchTileDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the current path tracing tiled DispatchRays plan once" );
+
 idCVar r_pathTracingDisableAnyHitAlpha(
     "r_pathTracingDisableAnyHitAlpha",
     "0",

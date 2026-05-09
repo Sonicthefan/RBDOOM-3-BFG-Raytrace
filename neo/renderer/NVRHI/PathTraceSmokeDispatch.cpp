@@ -64,6 +64,7 @@ struct PathTraceSmokeConstants
     float geometryInfo0[4];
     float geometryInfo1[4];
     float geometryInfo2[4];
+    float dispatchTileInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -76,6 +77,18 @@ struct PathTraceIntegratorSettings
     int reflectionMode = 0;
     int russianRouletteDepth = 0;
     int nextEventEstimation = 1;
+};
+
+struct PathTraceDispatchTileSettings
+{
+    bool enabled = false;
+    int tileWidth = 0;
+    int tileHeight = 0;
+    int tileColumns = 1;
+    int tileRows = 1;
+    int tileCount = 1;
+    uint64 estimatedRaysPerTile = 0;
+    uint64 estimatedRaysFullFrame = 0;
 };
 
 enum PathTraceSafetyDisableBits : uint32_t
@@ -165,6 +178,38 @@ int EstimatePathTraceRaysPerPixel(const PathTraceIntegratorSettings& settings, i
     const int reflectionRayCount = (settings.maxPathDepth > 1 && settings.specularBounceLimit > 0 && settings.reflectionMode > 0) ? 1 : 0;
     const int estimatedSurfaces = 1 + diffuseRayCount + reflectionRayCount;
     return settings.samplesPerPixel * (1 + diffuseRayCount + reflectionRayCount + estimatedSurfaces * neeTrialsPerSurface);
+}
+
+PathTraceDispatchTileSettings BuildPathTraceDispatchTileSettings(int outputWidth, int outputHeight, int estimatedRaysPerPixel)
+{
+    PathTraceDispatchTileSettings settings;
+    const int safeOutputWidth = Max(0, outputWidth);
+    const int safeOutputHeight = Max(0, outputHeight);
+    const uint64 estimatedRaysPerOutputPixel = static_cast<uint64>(Max(1, estimatedRaysPerPixel));
+    settings.tileWidth = safeOutputWidth;
+    settings.tileHeight = safeOutputHeight;
+    settings.estimatedRaysFullFrame =
+        static_cast<uint64>(safeOutputWidth) *
+        static_cast<uint64>(safeOutputHeight) *
+        estimatedRaysPerOutputPixel;
+
+    if (safeOutputWidth <= 0 || safeOutputHeight <= 0 || r_pathTracingDispatchTileEnable.GetInteger() == 0)
+    {
+        settings.estimatedRaysPerTile = settings.estimatedRaysFullFrame;
+        return settings;
+    }
+
+    settings.enabled = true;
+    settings.tileWidth = idMath::ClampInt(1, safeOutputWidth, r_pathTracingDispatchTileWidth.GetInteger());
+    settings.tileHeight = idMath::ClampInt(1, safeOutputHeight, r_pathTracingDispatchTileHeight.GetInteger());
+    settings.tileColumns = (safeOutputWidth + settings.tileWidth - 1) / settings.tileWidth;
+    settings.tileRows = (safeOutputHeight + settings.tileHeight - 1) / settings.tileHeight;
+    settings.tileCount = settings.tileColumns * settings.tileRows;
+    settings.estimatedRaysPerTile =
+        static_cast<uint64>(settings.tileWidth) *
+        static_cast<uint64>(settings.tileHeight) *
+        estimatedRaysPerOutputPixel;
+    return settings;
 }
 
 double PathTraceMicrosecondsToMilliseconds(uint64 elapsedUs)
@@ -459,6 +504,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         : 0;
     const int analyticLightTraceCount = enableDoomAnalyticLights ? Min(m_smokeDoomAnalyticLightCount, idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger())) : 0;
     const int estimatedRaysPerPixel = EstimatePathTraceRaysPerPixel(integratorSettings, selectedLightCount, analyticLightTraceCount);
+    const PathTraceDispatchTileSettings dispatchTileSettings = BuildPathTraceDispatchTileSettings(m_frameResources.width, m_frameResources.height, estimatedRaysPerPixel);
     constants.lightInfo[0] = static_cast<float>(selectedLightCount);
     constants.lightInfo[1] = static_cast<float>(lightSelectionMode);
     constants.lightInfo[2] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingSmokeParticleAlphaScale.GetFloat());
@@ -522,6 +568,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.geometryInfo2[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
     constants.geometryInfo2[2] = static_cast<float>(m_frameResources.primarySurfaceHistoryBuffers.surfaceCount);
     constants.geometryInfo2[3] = static_cast<float>(m_frameResources.smokeReservoirBuffers.reservoirCount);
+    constants.dispatchTileInfo[0] = 0.0f;
+    constants.dispatchTileInfo[1] = 0.0f;
+    constants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
+    constants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
     if (r_pathTracingIntegratorDump.GetInteger() != 0)
     {
         const uint64 estimatedDispatchRays =
@@ -595,6 +645,23 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeBindingSet ? 1 : 0,
             m_smokeTextureDescriptorTable ? 1 : 0);
         r_pathTracingSafetyDump.SetInteger(0);
+    }
+    if (r_pathTracingDispatchTileDump.GetInteger() != 0)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: PT tiled dispatch enabled=%d output=%dx%d tile=%dx%d tileCount=%d (%dx%d) estimatedRaysPerPixel=%d estimatedRaysPerTile=%llu estimatedRaysFullFrame=%llu\n",
+            dispatchTileSettings.enabled ? 1 : 0,
+            m_frameResources.width,
+            m_frameResources.height,
+            dispatchTileSettings.tileWidth,
+            dispatchTileSettings.tileHeight,
+            dispatchTileSettings.tileCount,
+            dispatchTileSettings.tileColumns,
+            dispatchTileSettings.tileRows,
+            estimatedRaysPerPixel,
+            static_cast<unsigned long long>(dispatchTileSettings.estimatedRaysPerTile),
+            static_cast<unsigned long long>(dispatchTileSettings.estimatedRaysFullFrame));
+        r_pathTracingDispatchTileDump.SetInteger(0);
     }
     for (int i = 0; i < selectedLightCount; i++)
     {
@@ -812,15 +879,45 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     args.width = m_frameResources.width;
     args.height = m_frameResources.height;
     args.depth = 1;
+    int timingDispatchWidth = args.width;
+    int timingDispatchHeight = args.height;
     const uint64 dispatchRaysStartUs = setStateCompleteUs;
-    if (optickGpuMarkers)
+    if (dispatchTileSettings.enabled)
     {
-        OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
-        commandList->dispatchRays(args);
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU Dispatch Ray Tiles");
+        }
+        timingDispatchWidth = dispatchTileSettings.tileWidth;
+        timingDispatchHeight = dispatchTileSettings.tileHeight;
+        for (int tileY = 0; tileY < m_frameResources.height; tileY += dispatchTileSettings.tileHeight)
+        {
+            for (int tileX = 0; tileX < m_frameResources.width; tileX += dispatchTileSettings.tileWidth)
+            {
+                PathTraceSmokeConstants tileConstants = constants;
+                tileConstants.dispatchTileInfo[0] = static_cast<float>(tileX);
+                tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
+                commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
+
+                nvrhi::rt::DispatchRaysArguments tileArgs;
+                tileArgs.width = Min(dispatchTileSettings.tileWidth, m_frameResources.width - tileX);
+                tileArgs.height = Min(dispatchTileSettings.tileHeight, m_frameResources.height - tileY);
+                tileArgs.depth = 1;
+                commandList->dispatchRays(tileArgs);
+            }
+        }
     }
     else
     {
-        commandList->dispatchRays(args);
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
+            commandList->dispatchRays(args);
+        }
+        else
+        {
+            commandList->dispatchRays(args);
+        }
     }
     const uint64 dispatchRaysCompleteUs = Sys_Microseconds();
     const uint64 historyCopyStartUs = dispatchRaysCompleteUs;
@@ -908,8 +1005,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.readbackCopyMs = PathTraceMicrosecondsToMilliseconds(readbackCopyCompleteUs - readbackCopyStartUs);
         timingDesc.outputWidth = m_frameResources.width;
         timingDesc.outputHeight = m_frameResources.height;
-        timingDesc.dispatchWidth = args.width;
-        timingDesc.dispatchHeight = args.height;
+        timingDesc.dispatchWidth = timingDispatchWidth;
+        timingDesc.dispatchHeight = timingDispatchHeight;
         timingDesc.debugMode = debugMode;
         timingDesc.samplesPerPixel = integratorSettings.samplesPerPixel;
         timingDesc.maxPathDepth = integratorSettings.maxPathDepth;

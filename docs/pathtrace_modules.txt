@@ -262,7 +262,10 @@ PathTraceSmokeDispatch.cpp
     disable any-hit alpha rejection, selected light loops, analytic light loops,
     emissive triangle sampling, diffuse secondary rays, reflection rays,
     primary-surface history writes/copies, reservoir writes, and ReSTIR preview
-    visibility rays.
+    visibility rays. `r_pathTracingDispatchTileEnable` can split the same
+    full-screen raygen work into sequential screen-space `DispatchRays` tiles
+    for device-removal diagnosis; clears remain outside the tile loop and the
+    shader uses absolute full-frame pixels for output/history/reservoir indexing.
 
 PathTraceSmokeReadback.cpp
     Optional diagnostic readback of the smoke output texture. Handles delayed

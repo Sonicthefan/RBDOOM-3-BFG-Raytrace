@@ -210,6 +210,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 GeometryInfo0;
     float4 GeometryInfo1;
     float4 GeometryInfo2;
+    float4 DispatchTileInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -271,6 +272,17 @@ uint PathTraceRigidRouteTriangleCount() { return (uint)max(GeometryInfo2.x, 0.0)
 uint PathTraceRigidRouteInstanceCount() { return (uint)max(GeometryInfo2.y, 0.0); }
 uint PathTracePrimarySurfaceHistoryCount() { return (uint)max(GeometryInfo2.z, 0.0); }
 uint PathTraceSmokeReservoirCount() { return (uint)max(GeometryInfo2.w, 0.0); }
+
+uint2 PathTraceDispatchTileOffset()
+{
+    return uint2((uint)max(DispatchTileInfo.x, 0.0), (uint)max(DispatchTileInfo.y, 0.0));
+}
+
+uint2 PathTraceFullOutputSize()
+{
+    const uint2 size = uint2((uint)max(DispatchTileInfo.z, 0.0), (uint)max(DispatchTileInfo.w, 0.0));
+    return (size.x > 0u && size.y > 0u) ? size : DispatchRaysDimensions().xy;
+}
 
 #include "RtxdiBridge/PathTraceRtxdiBridge.hlsli"
 
@@ -1298,7 +1310,7 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     int2 previousPixel;
     const bool projected = RestirPTProjectWorldToPreviousPixel(
         RAB_GetSurfaceWorldPos(currentSurface),
-        DispatchRaysDimensions().xy,
+        PathTraceFullOutputSize(),
         previousPixel);
     if (!projected)
     {
@@ -2396,7 +2408,7 @@ float EvaluateSmokeReservoirCandidatePotential(PathTraceSmokeEmissiveTriangle em
 
 float4 EvaluateSmokeReservoirDirectLighting(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
 {
-    const uint2 dimensions = DispatchRaysDimensions().xy;
+    const uint2 dimensions = PathTraceFullOutputSize();
     const uint reservoirIndex = pixel.y * dimensions.x + pixel.x;
 
     PathTraceSmokeReservoir reservoir = (PathTraceSmokeReservoir)0;
@@ -2657,8 +2669,13 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
 [shader("raygeneration")]
 void RayGen()
 {
-    const uint2 pixel = DispatchRaysIndex().xy;
-    const uint2 dimensions = DispatchRaysDimensions().xy;
+    const uint2 localPixel = DispatchRaysIndex().xy;
+    const uint2 pixel = localPixel + PathTraceDispatchTileOffset();
+    const uint2 dimensions = PathTraceFullOutputSize();
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
     const float2 uv = (float2(pixel) + 0.5) / float2(dimensions);
     const float2 ndc = uv * 2.0 - 1.0;
 
