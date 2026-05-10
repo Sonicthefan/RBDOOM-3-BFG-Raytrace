@@ -93,6 +93,14 @@ PathTracePrimarySurfaceRecord PackPathTracePrimarySurfaceRecord(RAB_Surface surf
     return record;
 }
 
+bool PathTracePrimarySurfaceRecordHasObjectMotion(PathTracePrimarySurfaceRecord record)
+{
+    const uint requiredFlags = RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+    return record.header.x == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
+        (record.header.y & requiredFlags) == requiredFlags &&
+        record.previousPositionOrMotion.w >= 0.5;
+}
+
 RAB_Surface UnpackPathTracePrimarySurfaceRecord(PathTracePrimarySurfaceRecord record)
 {
     RAB_Surface surface = RAB_EmptySurface();
@@ -240,20 +248,17 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixel(RAB_Surface currentSurface, u
         return false;
     }
 
-    float3 previousProjectionPosition = RAB_GetSurfaceWorldPos(currentSurface);
-#ifdef RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
-    float3 previousObjectPosition;
-    uint objectMotionDebugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
-    if (TryPathTracePrimarySurfaceObjectMotion(currentSurface, previousObjectPosition, objectMotionDebugStatus))
+    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
+    float3 previousProjectionPosition = currentRecord.worldPositionAndViewDepth.xyz;
+    if (PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
     {
-        previousProjectionPosition = previousObjectPosition;
+        previousProjectionPosition = currentRecord.previousPositionOrMotion.xyz;
     }
-    else if (objectMotionDebugStatus != RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION)
+    else if (currentRecord.header.z != RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION)
     {
-        debugStatus = objectMotionDebugStatus;
+        debugStatus = currentRecord.header.z;
         return false;
     }
-#endif
 
     if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousProjectionPosition, dimensions, previousPixel))
     {
@@ -457,17 +462,19 @@ float4 EvaluatePathTracePrimarySurfaceCombinedObjectMotionDebug(RAB_Surface curr
         return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
     }
 
-    if (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
+    if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
     {
-        return EvaluatePathTracePrimarySurfaceObjectMotionDebug(currentSurface, pixel);
+        return PathTracePrimarySurfaceDebugColor(currentRecord.header.z, currentSurface);
     }
 
-    if (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    int2 previousPixel;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixel))
     {
-        return EvaluatePathTracePrimarySurfaceRigidObjectMotionDebug(currentSurface, pixel);
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
     }
 
-    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
 }
 
 float4 EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(RAB_Surface currentSurface)
@@ -479,8 +486,7 @@ float4 EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(RAB_Surface curren
         return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
     }
 
-    const uint requiredFlags = RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
-    if ((record.header.y & requiredFlags) == requiredFlags && record.previousPositionOrMotion.w >= 0.5)
+    if (PathTracePrimarySurfaceRecordHasObjectMotion(record))
     {
         if (record.materialAndSurface.w == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
         {

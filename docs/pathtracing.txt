@@ -2611,15 +2611,17 @@ previous primary-surface history buffer. The shader projects each current
 primary hit into that previous camera, samples `PrimarySurfaceHistoryPrevious`
 at the resulting previous pixel, and then uses the same material/normal/
 roughness color key as mode 29. Static hits still use current-world-position
-camera reprojection. Skinned hits with validated previous skinned positions and
-routed rigid hits with continuous previous transforms now project their previous
-world position instead; if an eligible dynamic hit lacks required previous
-object state, the mode reports the skinned/rigid invalid reason instead of
-hiding it behind camera-only reprojection. This should turn many static-world
-camera-motion mismatches back toward green while also validating the first real
-object-motion reprojection path. It is still not a final motion-vector solution:
-particles, translucency, disocclusions, alternate motion, and denoiser export
-remain later tasks.
+camera reprojection. The shared reprojection helper now repacks the current
+primary surface and consumes the stored `previousPositionOrMotion` plus
+object-motion/previous-position flags. Skinned hits with validated previous
+skinned positions and routed rigid hits with continuous previous transforms
+therefore project the packed previous world position; if an eligible dynamic
+hit lacks required previous object state, the mode reports the skinned/rigid
+invalid reason instead of hiding it behind camera-only reprojection. This
+should turn many static-world camera-motion mismatches back toward green while
+also validating the first real object-motion reprojection path. It is still not
+a final motion-vector solution: particles, translucency, disocclusions,
+alternate motion, and denoiser export remain later tasks.
 User validation: mode 30 is mostly green during camera motion, which confirms
 that static-world current-position to previous-camera reprojection is finding
 the previous primary history in normal gameplay views. The remaining purple and
@@ -2736,18 +2738,19 @@ not contaminated by duplicate fallback coverage. This mode is diagnostic-only
 and does not change mode 18 shading or write a production motion-vector buffer.
 
 Mode 41 is the combined skinned/routed-rigid object-motion vector diagnostic.
-It uses the same source selection as primary-surface object-motion packing:
-validated skinned previous positions first, then routed rigid previous
-transforms. Valid dynamic hits encode current-to-previous pixel displacement
-with the same red/green direction plus blue magnitude convention as modes 38
-and 40. Static surfaces use the no-object-motion color; skinned and routed
-rigid invalid states keep their existing missing/range/out-of-range colors.
-Mode 41 also removes routed-ready rigid candidates from the dynamic fallback so
-the combined view represents the routed object-motion source rather than
-overlapping fallback geometry. The skinned half needs `r_pathTracingGpuSkinning
-1` for the diagnostic previous-position scaffold; with the CVar at 0, skinned
-surfaces should show the skinned missing-previous color. It is diagnostic-only
-and does not change mode 18 shading or write a production motion-vector buffer.
+It repacks the current primary surface and draws vectors from the packed
+`previousPositionOrMotion` field when the record carries object-motion and
+previous-position flags. Valid dynamic hits encode current-to-previous pixel
+displacement with the same red/green direction plus blue magnitude convention
+as modes 38 and 40. Static surfaces use the no-object-motion color; skinned and
+routed rigid invalid states keep their existing missing/range/out-of-range
+colors. Mode 41 also removes routed-ready rigid candidates from the dynamic
+fallback so the combined view represents the routed object-motion source rather
+than overlapping fallback geometry. The skinned half needs
+`r_pathTracingGpuSkinning 1` for the diagnostic previous-position scaffold;
+with the CVar at 0, skinned surfaces should show the skinned missing-previous
+color. It is diagnostic-only and does not change mode 18 shading or write a
+production motion-vector buffer.
 
 Mode 42 is the packed primary object-motion flags diagnostic. Instead of
 drawing vector direction, it repacks the current primary surface and verifies

@@ -1422,10 +1422,12 @@ temporal resampling is enabled. PathTraceSmokeDispatch stores the current camera
 basis/tangents after copying current primary history to previous; the next
 frame's shader projects each current primary surface into that previous camera
 and samples the previous history pixel. Static hits use current-world-position
-camera reprojection. Validated skinned hits and routed rigid hits use their
-packed previous world position for the previous-pixel lookup; if an eligible
-dynamic hit needs object motion but lacks valid previous state, the mode reports
-the skinned/rigid invalid color instead of silently falling back to camera-only
+camera reprojection. The shared reprojection helper now consumes the packed
+primary-surface `previousPositionOrMotion` plus object-motion/previous-position
+flags, so validated skinned hits and routed rigid hits use their packed
+previous world position for the previous-pixel lookup. If an eligible dynamic
+hit needs object motion but lacks valid previous state, the mode reports the
+skinned/rigid invalid color instead of silently falling back to camera-only
 reprojection. It uses the same color key as mode 29 plus the object-motion
 invalid colors.
 User validation reports mode 30 is mostly green, with purple/orange outlines on
@@ -1509,15 +1511,16 @@ copy. It is diagnostic-only and does not export a production motion-vector
 buffer.
 
 Mode 41 is the combined skinned/routed-rigid object-motion vector diagnostic.
-It uses the same source priority as primary-surface object-motion packing:
-validated skinned previous positions first, then routed rigid previous
-transforms. Static surfaces stay in the no-object-motion color, and skinned or
-routed-rigid invalid states keep their existing missing/range/out-of-range
-colors. Routed-ready dynamic fallback removal is active so the combined vector
-field is not polluted by overlapping fallback geometry. Its skinned branch needs
-`r_pathTracingGpuSkinning 1` for the diagnostic previous-position scaffold; with
-that CVar off, skinned surfaces correctly report missing skinned previous data.
-It is diagnostic-only and does not export a production motion-vector buffer.
+It repacks the current primary surface and visualizes the packed
+`previousPositionOrMotion` field when the record has object-motion and
+previous-position flags. Static surfaces stay in the no-object-motion color,
+and skinned or routed-rigid invalid states keep their existing
+missing/range/out-of-range colors. Routed-ready dynamic fallback removal is
+active so the combined vector field is not polluted by overlapping fallback
+geometry. Its skinned branch needs `r_pathTracingGpuSkinning 1` for the
+diagnostic previous-position scaffold; with that CVar off, skinned surfaces
+correctly report missing skinned previous data. It is diagnostic-only and does
+not export a production motion-vector buffer.
 
 Mode 42 is the packed primary object-motion flags diagnostic. It repacks the
 current primary surface and visualizes whether the stored
