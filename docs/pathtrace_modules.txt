@@ -202,7 +202,9 @@ PathTraceSceneInputs.h
     match/invalid diagnostics, off-by-default skinned GPU-skinning scaffold
     resource handles/counts, and CPU upload/timing diagnostics. This is not a
     shader ABI. The skinned previous bridge currently reports CPU-retained data
-    in the default path; `r_pathTracingGpuSkinning 1` additionally creates and
+    in the default path. Routed rigid instances report previous-transform
+    availability when the instance mirror observed the same stable instance in
+    the consecutive previous frame. `r_pathTracingGpuSkinning 1` additionally creates and
     binds diagnostic source/output/previous-position/dispatch buffers so
     primary-surface packing can consume validated skinned previous positions
     without making the BLAS path consume the scaffold output.
@@ -1154,6 +1156,12 @@ buffer and a skinned dispatch/range map explicitly at the smoke shader level so
 primary-surface records can reconstruct a previous world-space hit position for
 validated skinned dynamic triangles. Current/previous joint matrix buffers are
 declared but remain empty until a later task wires explicit joint-state upload.
+
+Routed rigid primary-surface motion is transform-based rather than vertex-copy
+based. `PathTraceRigidRouteInstance` carries current and previous object rows
+plus continuity flags; the shader reconstructs previous hit position from the
+current rigid triangle barycentrics and the previous transform. Do not add a
+duplicated previous rigid vertex buffer for this path.
 
 Safer places to touch:
 

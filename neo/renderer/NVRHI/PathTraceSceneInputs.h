@@ -107,6 +107,8 @@ struct RtPathTraceSceneInputGeometry
     int rigidRouteIndexCount = 0;
     int rigidRouteTriangleCount = 0;
     int rigidRouteInstanceCount = 0;
+    int rigidRoutePreviousTransformCount = 0;
+    int rigidRouteTransformContinuousCount = 0;
     int skinnedSurfaceCount = 0;
     int skinnedTriangleCount = 0;
     int skinnedRtCpuSurfaceCount = 0;

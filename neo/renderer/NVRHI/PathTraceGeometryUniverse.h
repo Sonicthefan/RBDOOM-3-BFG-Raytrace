@@ -367,6 +367,8 @@ struct RtPathTraceRigidRouteBuildStats
     int missingMaterialTableIndex = 0;
     int emittedSeenThisFrame = 0;
     int emittedFromCache = 0;
+    int previousTransformInstances = 0;
+    int transformContinuousInstances = 0;
 };
 
 struct RtPathTraceRigidRouteBuild
@@ -447,7 +449,10 @@ struct RtPathTraceRigidRouteInstanceObservation
     uint32_t materialOverrideId = 0;
     uint32_t sourceFlags = 0;
     bool seenThisFrame = true;
+    bool hasPreviousObjectToWorld = false;
+    bool transformContinuous = false;
     float objectToWorld[16] = {};
+    float previousObjectToWorld[16] = {};
     idStr materialName;
     idStr modelName;
 };

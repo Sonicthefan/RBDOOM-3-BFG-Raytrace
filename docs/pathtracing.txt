@@ -98,6 +98,11 @@ Current validated feature set:
   previous-position/object-motion fields for validated skinned hits; it does
   not change BLAS input, shading, material classification, raster GPU skinning,
   or the future GPU compute skinning plan.
+- Routed rigid instances now carry current and previous object-to-world rows in
+  their shader-visible route records when a consecutive previous observation is
+  available. Primary-surface packing can reconstruct a previous world-space hit
+  position from the current rigid triangle barycentrics and previous transform
+  without duplicating rigid vertex buffers.
 - Bindless material texture table using Texture.Load.
 - Manual bilinear Texture.Load filtering.
 - Doom diffuse YCoCg decode.
@@ -173,8 +178,10 @@ Current validated feature set:
   external consumer that expects another basis needs an explicit conversion
   shim. Mode 29 validates same-pixel history, and mode 30 validates temporary
   current-world-position to previous screen-space reprojection for camera
-  motion. Full rigid/object vector output is still future work. The Step 6 RNG
-  bridge is also present and wraps RTXDI's
+  motion. Routed rigid instances can now provide previous world positions for
+  primary-surface object motion when their previous transform is continuous,
+  but final denoiser-facing vector export and static-world disocclusion policy
+  are still future work. The Step 6 RNG bridge is also present and wraps RTXDI's
   own random sampler initialization and `RTXDI_GetNextRandom` behind local
   `RAB_RandomSamplerState` callbacks so future path replay can preserve seed
   plus consumed random index. Step 7 adds conservative opaque-diffuse BRDF

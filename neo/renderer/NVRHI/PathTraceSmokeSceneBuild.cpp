@@ -1417,11 +1417,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(m_instanceUniverse, materialTable.materialIds, rigidRouteMaxInstances);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
-            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d max=%d seen/cache=%d/%d verts/indexes/tris=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
                 rigidRouteBuild.stats.emittedInstances,
                 rigidRouteMaxInstances,
                 rigidRouteBuild.stats.emittedSeenThisFrame,
                 rigidRouteBuild.stats.emittedFromCache,
+                rigidRouteBuild.stats.previousTransformInstances,
+                rigidRouteBuild.stats.transformContinuousInstances,
                 rigidRouteBuild.stats.vertices,
                 rigidRouteBuild.stats.indexes,
                 rigidRouteBuild.stats.triangles,
@@ -2228,6 +2230,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.rigidRouteIndexCount = rigidRouteBuild.stats.indexes;
     sceneInputs.geometry.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
     sceneInputs.geometry.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
+    sceneInputs.geometry.rigidRoutePreviousTransformCount = rigidRouteBuild.stats.previousTransformInstances;
+    sceneInputs.geometry.rigidRouteTransformContinuousCount = rigidRouteBuild.stats.transformContinuousInstances;
     sceneInputs.geometry.skinnedSurfaceCount = classStats.skinnedDeformedSurfaces;
     sceneInputs.geometry.skinnedTriangleCount = classStats.skinnedDeformedTriangles;
     sceneInputs.geometry.skinnedRtCpuSurfaceCount = m_smokeSkinnedPreviousStats.currentRtCpuSkinnedSurfaceCount;
@@ -2260,6 +2264,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedCurrentJointMatrixCount = static_cast<int>(skinnedGpuScaffold.currentJointMatrices.size());
     sceneInputs.geometry.skinnedPreviousJointMatrixCount = static_cast<int>(skinnedGpuScaffold.previousJointMatrices.size());
     sceneInputs.geometry.currentGeometryValid = hasStaticBlas || hasDynamicBlas;
+    sceneInputs.geometry.previousTransformAvailable = rigidRouteBuild.stats.previousTransformInstances > 0;
     sceneInputs.geometry.skinnedPreviousCpuVertexDataRetained = m_smokeSkinnedPreviousStats.previousRetainedVertexCount > 0;
     sceneInputs.geometry.skinnedSourceGeometryAvailable =
         smokeSkinnedSourceVertexBuffer &&

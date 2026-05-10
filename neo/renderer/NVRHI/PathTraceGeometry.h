@@ -64,6 +64,12 @@ struct PathTraceSkinnedSurfaceDispatchRecord
     float previousObjectToWorld[12];
 };
 
+enum PathTraceRigidRouteInstanceFlags : uint32_t
+{
+    PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 1u << 0,
+    PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 1u << 1
+};
+
 struct PathTraceRigidRouteInstance
 {
     uint32_t vertexOffset = 0;
@@ -74,6 +80,12 @@ struct PathTraceRigidRouteInstance
     uint32_t vertexCount = 0;
     uint32_t indexCount = 0;
     uint32_t triangleCount = 0;
+    uint32_t flags = 0;
+    uint32_t instanceIdLo = 0;
+    uint32_t instanceIdHi = 0;
+    uint32_t padding0 = 0;
+    float currentObjectToWorld[12];
+    float previousObjectToWorld[12];
 };
 
 bool SmokeFloatIsFinite(float value);

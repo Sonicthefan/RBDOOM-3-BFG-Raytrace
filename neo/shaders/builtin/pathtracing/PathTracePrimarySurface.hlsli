@@ -20,6 +20,8 @@ static const uint RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION = 7u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS = 8u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH = 9u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE = 10u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_RIGID_MISSING_PREVIOUS = 11u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH = 12u;
 
 struct PathTracePrimarySurfaceRecord
 {
@@ -307,6 +309,14 @@ float4 PathTracePrimarySurfaceDebugColor(uint debugStatus, RAB_Surface currentSu
     if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE)
     {
         return float4(0.55, 0.02, 0.38, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_RIGID_MISSING_PREVIOUS)
+    {
+        return float4(0.08, 0.16, 0.32, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH)
+    {
+        return float4(0.45, 0.18, 0.04, 1.0);
     }
 
     const float currentRoughness = saturate(GetRoughness(currentSurface.material));

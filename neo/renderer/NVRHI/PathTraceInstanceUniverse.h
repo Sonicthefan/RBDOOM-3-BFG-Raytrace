@@ -67,6 +67,9 @@ struct RtPathTraceInstanceObservation
     uint32_t sourceFlags = 0;
     uint32_t trustFlags = 0;
     float objectToWorld[16] = {};
+    bool hasPreviousObjectToWorld = false;
+    bool transformContinuous = false;
+    float previousObjectToWorld[16] = {};
     idStr materialName;
     idStr modelName;
 };

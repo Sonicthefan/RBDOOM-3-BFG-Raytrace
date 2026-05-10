@@ -83,6 +83,16 @@ struct PathTraceRigidRouteInstance
     uint vertexCount;
     uint indexCount;
     uint triangleCount;
+    uint flags;
+    uint instanceIdLo;
+    uint instanceIdHi;
+    uint padding0;
+    float4 currentObjectToWorld0;
+    float4 currentObjectToWorld1;
+    float4 currentObjectToWorld2;
+    float4 previousObjectToWorld0;
+    float4 previousObjectToWorld1;
+    float4 previousObjectToWorld2;
 };
 
 struct PathTraceSmokeEmissiveTriangle
@@ -153,6 +163,8 @@ struct PathTraceSkinnedPreviousPosition
 
 static const uint PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 0x00000001u;
 static const uint PT_SKINNED_DISPATCH_RT_CPU_SKINNED = 0x00000002u;
+static const uint PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 0x00000001u;
+static const uint PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 0x00000002u;
 
 struct PathTraceSkinnedSurfaceDispatchRecord
 {
@@ -1360,7 +1372,15 @@ bool ComputeSmokeTriangleBarycentrics(float3 position, float3 p0, float3 p1, flo
     return all(barycentrics == barycentrics);
 }
 
-bool TryPathTracePrimarySurfaceObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
+float3 TransformPathTraceRigidRoutePoint(float4 row0, float4 row1, float4 row2, float3 localPoint)
+{
+    return float3(
+        dot(row0, float4(localPoint, 1.0)),
+        dot(row1, float4(localPoint, 1.0)),
+        dot(row2, float4(localPoint, 1.0)));
+}
+
+bool TryPathTracePrimarySurfaceSkinnedObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
 {
     previousWorldPosition = float3(0.0, 0.0, 0.0);
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
@@ -1446,6 +1466,87 @@ bool TryPathTracePrimarySurfaceObjectMotion(RAB_Surface surface, out float3 prev
     }
 
     return false;
+}
+
+bool TryPathTracePrimarySurfaceRigidObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
+{
+    previousWorldPosition = float3(0.0, 0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (surface.instanceId < 2u || surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_MISSING_PREVIOUS;
+    const uint routeInstanceIndex = surface.instanceId - 2u;
+    if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
+    {
+        return false;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    if ((routeInstance.flags & (PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS)) !=
+        (PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS))
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+    if (surface.primitiveIndex >= routeInstance.triangleCount ||
+        routeInstance.triangleOffset + surface.primitiveIndex >= PathTraceRigidRouteTriangleCount())
+    {
+        return false;
+    }
+
+    const uint indexOffset = routeInstance.indexOffset + surface.primitiveIndex * 3u;
+    if (indexOffset + 2u >= PathTraceRigidRouteIndexCount())
+    {
+        return false;
+    }
+
+    const uint i0 = SmokeRigidRouteIndices[indexOffset + 0u];
+    const uint i1 = SmokeRigidRouteIndices[indexOffset + 1u];
+    const uint i2 = SmokeRigidRouteIndices[indexOffset + 2u];
+    if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
+        routeInstance.vertexOffset + i0 >= PathTraceRigidRouteVertexCount() ||
+        routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
+        routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
+    {
+        return false;
+    }
+
+    const float3 local0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].position.xyz;
+    const float3 local1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].position.xyz;
+    const float3 local2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].position.xyz;
+    const float3 current0 = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, local0);
+    const float3 current1 = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, local1);
+    const float3 current2 = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, local2);
+
+    float3 barycentrics;
+    if (!ComputeSmokeTriangleBarycentrics(surface.worldPos, current0, current1, current2, barycentrics))
+    {
+        return false;
+    }
+
+    const float3 prev0 = TransformPathTraceRigidRoutePoint(routeInstance.previousObjectToWorld0, routeInstance.previousObjectToWorld1, routeInstance.previousObjectToWorld2, local0);
+    const float3 prev1 = TransformPathTraceRigidRoutePoint(routeInstance.previousObjectToWorld0, routeInstance.previousObjectToWorld1, routeInstance.previousObjectToWorld2, local1);
+    const float3 prev2 = TransformPathTraceRigidRoutePoint(routeInstance.previousObjectToWorld0, routeInstance.previousObjectToWorld1, routeInstance.previousObjectToWorld2, local2);
+    previousWorldPosition = prev0 * barycentrics.x + prev1 * barycentrics.y + prev2 * barycentrics.z;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return all(previousWorldPosition == previousWorldPosition);
+}
+
+bool TryPathTracePrimarySurfaceObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
+{
+    if (TryPathTracePrimarySurfaceSkinnedObjectMotion(surface, previousWorldPosition, debugStatus))
+    {
+        return true;
+    }
+    if (debugStatus != RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION)
+    {
+        return false;
+    }
+    return TryPathTracePrimarySurfaceRigidObjectMotion(surface, previousWorldPosition, debugStatus);
 }
 
 #define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_HELPERS

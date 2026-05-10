@@ -345,13 +345,32 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.currentArea = instance.currentArea;
     routeInstance.materialOverrideId = instance.materialOverrideId;
     routeInstance.sourceFlags = instance.sourceFlags;
+    routeInstance.hasPreviousObjectToWorld = instance.hasPreviousObjectToWorld;
+    routeInstance.transformContinuous = instance.transformContinuous;
     for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
     {
         routeInstance.objectToWorld[elementIndex] = instance.objectToWorld[elementIndex];
+        routeInstance.previousObjectToWorld[elementIndex] = instance.previousObjectToWorld[elementIndex];
     }
     routeInstance.materialName = instance.materialName;
     routeInstance.modelName = instance.modelName;
     return routeInstance;
+}
+
+void CopyRigidRouteTransformRows(float dst[12], const float objectToWorld[16])
+{
+    dst[0] = objectToWorld[0];
+    dst[1] = objectToWorld[4];
+    dst[2] = objectToWorld[8];
+    dst[3] = objectToWorld[12];
+    dst[4] = objectToWorld[1];
+    dst[5] = objectToWorld[5];
+    dst[6] = objectToWorld[9];
+    dst[7] = objectToWorld[13];
+    dst[8] = objectToWorld[2];
+    dst[9] = objectToWorld[6];
+    dst[10] = objectToWorld[10];
+    dst[11] = objectToWorld[14];
 }
 
 void TransformRigidResidencyBoundsPoint(const float objectToWorld[16], const idVec3& localPoint, idVec3& worldPoint)
@@ -3101,6 +3120,20 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         routeInstance.vertexCount = static_cast<uint32_t>(localVertices.size());
         routeInstance.indexCount = static_cast<uint32_t>(localIndexes.size());
         routeInstance.triangleCount = static_cast<uint32_t>(triangleCount);
+        routeInstance.instanceIdLo = static_cast<uint32_t>(instance.instanceId & 0xffffffffull);
+        routeInstance.instanceIdHi = static_cast<uint32_t>((instance.instanceId >> 32) & 0xffffffffull);
+        if (instance.hasPreviousObjectToWorld)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM;
+            ++build.stats.previousTransformInstances;
+        }
+        if (instance.transformContinuous)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+            ++build.stats.transformContinuousInstances;
+        }
+        CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, instance.objectToWorld);
+        CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, instance.hasPreviousObjectToWorld ? instance.previousObjectToWorld : instance.objectToWorld);
         build.instances.push_back(routeInstance);
         build.instanceSeenThisFrame.push_back(instance.seenThisFrame ? 1u : 0u);
         std::array<float, 16> objectToWorld = {};

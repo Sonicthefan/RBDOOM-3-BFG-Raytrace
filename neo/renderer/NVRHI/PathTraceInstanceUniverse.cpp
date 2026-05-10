@@ -149,7 +149,7 @@ void RtPathTraceInstanceUniverse::RecordObservation(
         ++meshRecord->seenCount;
     }
     m_frameMeshHashes.insert(meshObservation.stableHash);
-    m_frameInstances.push_back(instanceObservation);
+    RtPathTraceInstanceObservation frameInstance = instanceObservation;
 
     ++m_frameStats.usableDrawSurfs;
     switch (surfaceClass)
@@ -171,53 +171,59 @@ void RtPathTraceInstanceUniverse::RecordObservation(
             break;
     }
 
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH) != 0)
     {
         ++m_frameStats.staticUniverseMatches;
     }
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH) != 0)
     {
         ++m_frameStats.staticGeometryCacheMatches;
     }
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) != 0)
     {
         ++m_frameStats.materialOverrideObservations;
     }
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING) != 0)
     {
         ++m_frameStats.dynamicSkinnedDeformingCandidates;
     }
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED) != 0)
     {
         ++m_frameStats.callbackOrGeneratedCandidates;
     }
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_GUI) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_GUI) != 0)
     {
         ++m_frameStats.guiCandidates;
     }
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT) != 0)
+    if ((frameInstance.sourceFlags & RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT) != 0)
     {
         ++m_frameStats.particlesOrTransientCandidates;
     }
-    if (instanceObservation.materialName.IsEmpty() || instanceObservation.materialName.Icmp("<none>") == 0)
+    if (frameInstance.materialName.IsEmpty() || frameInstance.materialName.Icmp("<none>") == 0)
     {
         ++m_frameStats.missingMaterialOrSkinOverrideMetadata;
     }
 
-    InstanceHistory* history = FindOrCreateInstanceHistory(instanceObservation.instanceId);
+    InstanceHistory* history = FindOrCreateInstanceHistory(frameInstance.instanceId);
     if (history)
     {
         const bool hasAnyPrevious = history->lastSeenFrame > 0;
         const bool hasConsecutivePrevious = hasAnyPrevious && history->lastSeenFrame + 1 == m_frameIndex;
+        if (hasConsecutivePrevious)
+        {
+            frameInstance.hasPreviousObjectToWorld = true;
+            frameInstance.transformContinuous = true;
+            memcpy(frameInstance.previousObjectToWorld, history->lastObjectToWorld, sizeof(frameInstance.previousObjectToWorld));
+        }
         if (!hasAnyPrevious)
         {
-            memcpy(history->firstObjectToWorld, instanceObservation.objectToWorld, sizeof(history->firstObjectToWorld));
+            memcpy(history->firstObjectToWorld, frameInstance.objectToWorld, sizeof(history->firstObjectToWorld));
         }
         else
         {
-            history->maxObservedMatrixDelta = Max(history->maxObservedMatrixDelta, PtInstanceMaxMatrixDelta(history->firstObjectToWorld, instanceObservation.objectToWorld));
-            history->maxObservedOriginDelta = Max(history->maxObservedOriginDelta, PtInstanceOriginDelta(history->firstObjectToWorld, instanceObservation.objectToWorld));
-            if (PtInstanceMatricesMatch(history->lastObjectToWorld, instanceObservation.objectToWorld))
+            history->maxObservedMatrixDelta = Max(history->maxObservedMatrixDelta, PtInstanceMaxMatrixDelta(history->firstObjectToWorld, frameInstance.objectToWorld));
+            history->maxObservedOriginDelta = Max(history->maxObservedOriginDelta, PtInstanceOriginDelta(history->firstObjectToWorld, frameInstance.objectToWorld));
+            if (PtInstanceMatricesMatch(history->lastObjectToWorld, frameInstance.objectToWorld))
             {
                 if (hasConsecutivePrevious)
                 {
@@ -244,14 +250,15 @@ void RtPathTraceInstanceUniverse::RecordObservation(
             if (surfaceClass == RtSmokeSurfaceClass::RigidEntity)
             {
                 ++m_frameStats.everChangedRigidTransformObservations;
-                AddMovedRigidSample(meshObservation, instanceObservation, *history);
+                AddMovedRigidSample(meshObservation, frameInstance, *history);
             }
         }
-        memcpy(history->lastObjectToWorld, instanceObservation.objectToWorld, sizeof(history->lastObjectToWorld));
+        memcpy(history->lastObjectToWorld, frameInstance.objectToWorld, sizeof(history->lastObjectToWorld));
         history->lastSeenFrame = m_frameIndex;
     }
 
-    AddSample(meshObservation, instanceObservation, surfaceClass, numVerts, numIndexes);
+    m_frameInstances.push_back(frameInstance);
+    AddSample(meshObservation, frameInstance, surfaceClass, numVerts, numIndexes);
 }
 
 const RtPathTraceInstanceUniverseStats& RtPathTraceInstanceUniverse::GetFrameStats() const
