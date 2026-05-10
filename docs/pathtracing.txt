@@ -483,7 +483,8 @@ Implemented debug CVars:
   35 = path tracer reflection hit/miss visualizer
   36 = path tracer reflection roughness/F0 gate visualizer
   37 = path tracer max-depth / Russian-roulette state visualizer
-  38 = primary object-motion vector diagnostic
+  38 = skinned primary object-motion vector diagnostic
+  39 = routed-rigid object-motion eligibility diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2469,6 +2470,7 @@ selection.
 For primary object-motion vector validation:
 
     r_pathTracingDebugMode 38
+    r_pathTracingDebugMode 39
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2699,6 +2701,19 @@ state use the existing no-object-motion or skinned invalid colors. Rigid object
 motion is intentionally not visualized here because routed-rigid coverage can be
 view-dependent and needs a separate validation pass. This mode does not export a
 final motion-vector buffer.
+
+Mode 39 is the routed-rigid object-motion eligibility diagnostic. It does not
+draw vectors. It isolates rigid-class primary hits and reports whether the
+surface has a routed rigid instance with a continuous previous transform:
+green means the rigid object-motion source is valid for the current hit,
+cyan means the hit is rigid-class but still using the non-routed fallback path,
+and the existing rigid invalid colors show missing previous transform or
+range/index mismatch. Mode 39 removes routed-ready rigid candidates from the
+dynamic fallback path so green/cyan mixing points at true coverage gaps instead
+of deliberate overlap between two copies of the same routed-ready surface.
+Static, skinned, and other non-rigid surfaces use the no-object-motion color.
+This mode is diagnostic-only and does not change mode 18 shading or write a
+production motion-vector buffer.
 
 Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit

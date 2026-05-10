@@ -1486,6 +1486,17 @@ PT pixels. Static surfaces and missing/invalid skinned history use the existing
 no-object-motion or skinned invalid colors. It does not write a production
 motion-vector buffer.
 
+Mode 39 is the routed-rigid object-motion eligibility diagnostic. It does not
+visualize vectors; it reports whether rigid-class primary hits have a routed
+rigid instance with a continuous previous transform. Green means the current
+hit has valid routed rigid object-motion data, cyan means the hit is rigid-class
+but still on the non-routed fallback path, and the existing rigid invalid
+colors cover missing previous transform or range/index mismatch. The mode also
+uses routed-rigid dynamic fallback removal so overlap between the routed TLAS
+instance and the dynamic fallback copy does not look like a coverage failure.
+Non-rigid surfaces use the no-object-motion color. This mode is diagnostic-only
+and does not change final PT rendering.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before

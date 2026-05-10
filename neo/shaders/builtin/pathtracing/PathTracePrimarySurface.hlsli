@@ -393,6 +393,36 @@ float4 EvaluatePathTracePrimarySurfaceObjectMotionDebug(RAB_Surface currentSurfa
 #endif
 }
 
+float4 EvaluatePathTracePrimarySurfaceRigidEligibilityDebug(RAB_Surface currentSurface)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+    if (currentSurface.surfaceClass != RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+    }
+
+    if (currentSurface.instanceId < 2u)
+    {
+        return float4(0.02, 0.28, 0.38, 1.0);
+    }
+
+#ifdef RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
+    float3 previousObjectPosition;
+    uint objectMotionDebugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (TryPathTracePrimarySurfaceRigidObjectMotion(currentSurface, previousObjectPosition, objectMotionDebugStatus))
+    {
+        return float4(0.04, 0.48, 0.12, 1.0);
+    }
+    return PathTracePrimarySurfaceDebugColor(objectMotionDebugStatus, currentSurface);
+#else
+    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+#endif
+}
+
 float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)
 {
     if (!RAB_IsSurfaceValid(currentSurface) && !RAB_IsSurfaceValid(previousSurface))
