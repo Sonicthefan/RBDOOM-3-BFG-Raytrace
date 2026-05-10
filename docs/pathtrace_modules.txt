@@ -412,11 +412,13 @@ PathTraceGeometryUniverse.cpp
     lifecycle updates, append completion, and static record validation now go
     through the universe. `r_pathTracingGeometryUniverseRangeDump 1` prints a
     one-shot current/previous static range-history dump for validating normal
-    range mapping, not only failure cases. It also records eligible rigid
-    local-space mesh sources, validates them against the baked dynamic rigid
-    fallback payload, builds CPU-only reusable rigid BLAS/TLAS plans and
-    NVRHI-shaped input descriptor dumps, and now owns a default-on GPU scaffold
-    that can
+    range mapping, not only failure cases. The dump also reports union dirty
+    vertex/index/triangle extents as CPU bookkeeping for future partial uploads;
+    current static buffer uploads are still behavior-preserving and
+    all-or-nothing. It also records eligible rigid local-space mesh sources,
+    validates them against the baked dynamic rigid fallback payload, builds
+    CPU-only reusable rigid BLAS/TLAS plans and NVRHI-shaped input descriptor
+    dumps, and now owns a default-on GPU scaffold that can
     create/upload local-space rigid mesh input buffers and submit per-mesh BLAS
     builds. With the explicit rigid route gates, it can feed routed rigid TLAS
     instances into modes 18/20/23/24/25. Rigid residency no longer emits a

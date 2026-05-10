@@ -46,6 +46,12 @@ struct RtSmokeGeometryUniverseStats
     int staticDuplicateKeys = 0;
     int staticHistoryErrors = 0;
     int staticKeyVectorMismatches = 0;
+    int staticDirtyVertexOffset = -1;
+    int staticDirtyVertexCount = 0;
+    int staticDirtyIndexOffset = -1;
+    int staticDirtyIndexCount = 0;
+    int staticDirtyTriangleOffset = -1;
+    int staticDirtyTriangleCount = 0;
     int staticBytesKB = 0;
     uint64 frameIndex = 0;
     uint64 generation = 1;

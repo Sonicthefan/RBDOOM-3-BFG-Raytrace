@@ -40,6 +40,26 @@ bool SmokeGeometryRangesMatchCounts(const RtSmokeGeometryRangeRecord& a, const R
         a.triangles.count == b.triangles.count;
 }
 
+void AccumulateSmokeGeometryElementRange(const RtSmokeGeometryElementRange& range, int& offset, int& count)
+{
+    if (range.offset < 0 || range.count <= 0)
+    {
+        return;
+    }
+
+    if (offset < 0)
+    {
+        offset = range.offset;
+        count = range.count;
+        return;
+    }
+
+    const int begin = Min(offset, range.offset);
+    const int end = Max(offset + count, range.offset + range.count);
+    offset = begin;
+    count = end - begin;
+}
+
 uint64 RigidResidencyHashBytes(uint64 hash, const void* data, size_t size)
 {
     return HashSmokeBytes(hash, data, size);
@@ -1142,6 +1162,9 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateReco
         if (record.valid && record.dirty)
         {
             ++stats.staticDirty;
+            AccumulateSmokeGeometryElementRange(record.currentRange.vertices, stats.staticDirtyVertexOffset, stats.staticDirtyVertexCount);
+            AccumulateSmokeGeometryElementRange(record.currentRange.indexes, stats.staticDirtyIndexOffset, stats.staticDirtyIndexCount);
+            AccumulateSmokeGeometryElementRange(record.currentRange.triangles, stats.staticDirtyTriangleOffset, stats.staticDirtyTriangleCount);
         }
         if (!record.valid)
         {
@@ -1312,7 +1335,7 @@ void RtSmokeGeometryUniverse::LogStaticRangeHistory(int maxRecords) const
     const int materialTriangleCount = static_cast<int>(m_staticTriangleMaterialCache.size());
     const RtSmokeGeometryUniverseStats stats = GetStats(false);
 
-    common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump frame=%llu generation=%llu records=%d seen/new/gone/history/prev/dirty=%d/%d/%d/%d/%d/%d cache v/i/t=%d/%d/%d maxRecords=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump frame=%llu generation=%llu records=%d seen/new/gone/history/prev/dirty=%d/%d/%d/%d/%d/%d cache v/i/t=%d/%d/%d dirtyRange v/i/t=%d/%d/%d/%d/%d/%d maxRecords=%d\n",
         static_cast<unsigned long long>(m_currentFrameIndex),
         static_cast<unsigned long long>(m_generation),
         stats.staticRecords,
@@ -1325,6 +1348,12 @@ void RtSmokeGeometryUniverse::LogStaticRangeHistory(int maxRecords) const
         stats.staticVerts,
         stats.staticIndexes,
         stats.staticTriangles,
+        stats.staticDirtyVertexOffset,
+        stats.staticDirtyVertexCount,
+        stats.staticDirtyIndexOffset,
+        stats.staticDirtyIndexCount,
+        stats.staticDirtyTriangleOffset,
+        stats.staticDirtyTriangleCount,
         recordLimit);
 
     int logged = 0;
