@@ -95,6 +95,20 @@ uint64_t SumSmokeUploadBytes(const RtSmokeBufferUploadItem* items, int firstItem
     return bytes;
 }
 
+uint64_t SumSmokeSkippedUploadBytes(const RtSmokeBufferUploadItem* items, int firstItem, int itemCount)
+{
+    uint64_t bytes = 0;
+    for (int itemIndex = firstItem; itemIndex < firstItem + itemCount; ++itemIndex)
+    {
+        const RtSmokeBufferUploadItem& item = items[itemIndex];
+        if (item.skip && item.buffer && item.data && item.byteSize > 0)
+        {
+            bytes += static_cast<uint64_t>(item.byteSize);
+        }
+    }
+    return bytes;
+}
+
 template< typename T >
 uint64 HashSmokeVectorData(uint64 hash, const std::vector<T>& data)
 {
@@ -2388,6 +2402,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const uint64_t staticUploadBytes = SumSmokeUploadBytes(uploadItems, 0, 5);
     const uint64_t previousStaticUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 5);
+    const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
     const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 3);
@@ -2671,6 +2686,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.diagnostics.geometryUploadBytes = staticUploadBytes + previousStaticUploadBytes + dynamicUploadBytes + rigidRouteUploadBytes;
     sceneInputs.diagnostics.staticUploadBytes = staticUploadBytes;
     sceneInputs.diagnostics.previousStaticUploadBytes = previousStaticUploadBytes;
+    sceneInputs.diagnostics.previousStaticUploadSkippedBytes = previousStaticUploadSkippedBytes;
     sceneInputs.diagnostics.dynamicUploadBytes = dynamicUploadBytes;
     sceneInputs.diagnostics.rigidRouteUploadBytes = rigidRouteUploadBytes;
     sceneInputs.diagnostics.materialUploadBytes = materialUploadBytes;

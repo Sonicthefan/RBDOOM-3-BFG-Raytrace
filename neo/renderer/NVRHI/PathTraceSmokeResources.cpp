@@ -101,7 +101,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.dynamicParticleAlphaTriangleCount,
         geometry.dynamicUnknownTriangleCount,
         geometry.dynamicRetainedOccluderTriangleCount);
-    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevGpu=%d prevGpuUpload=%d prevCounts=%d prevRangesComplete=%d previous v/i/t/mi=%d/%d/%d/%d cpu v/i/t/mi/kb=%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevGpu=%d prevGpuUpload=%d prevGpuSkipBytes=%llu prevCounts=%d prevRangesComplete=%d previous v/i/t/mi=%d/%d/%d/%d cpu v/i/t/mi/kb=%d/%d/%d/%d/%d\n",
         geometry.staticSeenSurfaceCount,
         geometry.staticNewSurfaceCount,
         geometry.staticGoneSurfaceCount,
@@ -113,6 +113,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.staticPreviousCpuSnapshotAvailable ? 1 : 0,
         geometry.staticPreviousGpuSnapshotAvailable ? 1 : 0,
         geometry.staticPreviousGpuSnapshotUploadUsed ? 1 : 0,
+        static_cast<unsigned long long>(diagnostics.previousStaticUploadSkippedBytes),
         geometry.staticPreviousCountsMatch ? 1 : 0,
         geometry.staticPreviousRangesComplete ? 1 : 0,
         geometry.previousStaticVertexCount,
