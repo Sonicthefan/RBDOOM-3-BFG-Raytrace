@@ -2003,22 +2003,25 @@ Geometry universe status:
   ranges. For unchanged static world surfaces, consecutive-frame history maps
   the previous range to the same cached range.
 - Scene inputs now carry a conservative static previous-frame bridge: previous
-  static geometry buffer handles/counts from the last committed scene, current
-  seen/new/gone/history/previous-range counts, and booleans for previous count
-  match, complete previous ranges, previous static buffer availability, and
-  previous material-index buffer availability. The dump also reports whether
-  the previous static buffer handles alias the current persistent static
-  buffers. That aliasing is valid only for unchanged static ranges; this is
-  CPU-side scene-input metadata only and does not change the shader binding ABI
-  or make a new motion-vector consumer.
+  static geometry buffer handles/counts, current seen/new/gone/history/previous-
+  range counts, and booleans for previous count match, complete previous ranges,
+  previous static buffer availability, and previous material-index buffer
+  availability. The dump also reports whether the previous static buffer handles
+  alias the current persistent static buffers; with the dedicated previous static
+  GPU snapshot path that should normally be false once previous buffers exist.
+  This is CPU-side scene-input metadata only and does not change the shader
+  binding ABI or make a new motion-vector consumer.
 - The geometry universe retains a one-frame CPU snapshot of the previous static
   vertex/index/triangle-class/triangle-material arrays at `BeginFrame`. Scene
   inputs and `r_pathTracingGeometryUniverseRangeDump 1` report its counts and
-  size. This is a bridge for validating previous static data ownership; it is
-  uploaded into separate previous static GPU snapshot buffers for future
-  consumers, but those buffers are not bound into the shader ABI yet. Static
-  material-index history still follows the current material-table-derived path
-  until a dedicated material-history slice owns it.
+  size. PathTracePrimaryPass also retains the previous static material-index
+  array produced by the material table. That material-index array can be larger
+  than the static triangle count because it also carries static-side material IDs
+  used by full-level emissive and routed-rigid paths. This is a bridge for
+  validating previous static data ownership; the previous vertex/index/triangle-
+  class/triangle-material/material-index arrays are uploaded into separate
+  previous static GPU snapshot buffers for future consumers, but those buffers
+  are not bound into the shader ABI yet.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode

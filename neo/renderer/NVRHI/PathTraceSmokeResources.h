@@ -26,6 +26,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle previousStaticIndexBuffer;
     nvrhi::BufferHandle previousStaticTriangleClassBuffer;
     nvrhi::BufferHandle previousStaticTriangleMaterialBuffer;
+    nvrhi::BufferHandle previousStaticTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle dynamicVertexBuffer;
     nvrhi::BufferHandle dynamicIndexBuffer;
     nvrhi::BufferHandle dynamicTriangleClassBuffer;
@@ -63,6 +64,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t previousStaticIndexBytes = 0;
     size_t previousStaticTriangleClassBytes = 0;
     size_t previousStaticTriangleMaterialBytes = 0;
+    size_t previousStaticTriangleMaterialIndexBytes = 0;
     size_t dynamicVertexBytes = 0;
     size_t dynamicIndexBytes = 0;
     size_t dynamicTriangleClassBytes = 0;

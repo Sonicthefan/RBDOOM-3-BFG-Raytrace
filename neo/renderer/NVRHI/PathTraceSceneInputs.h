@@ -105,12 +105,15 @@ struct RtPathTraceSceneInputGeometry
     int staticVertexCount = 0;
     int staticIndexCount = 0;
     int staticTriangleCount = 0;
+    int staticMaterialIndexCount = 0;
     int previousStaticVertexCount = 0;
     int previousStaticIndexCount = 0;
     int previousStaticTriangleCount = 0;
+    int previousStaticMaterialIndexCount = 0;
     int previousStaticCpuVertexCount = 0;
     int previousStaticCpuIndexCount = 0;
     int previousStaticCpuTriangleCount = 0;
+    int previousStaticCpuMaterialIndexCount = 0;
     int previousStaticCpuBytesKB = 0;
     int staticSeenSurfaceCount = 0;
     int staticNewSurfaceCount = 0;

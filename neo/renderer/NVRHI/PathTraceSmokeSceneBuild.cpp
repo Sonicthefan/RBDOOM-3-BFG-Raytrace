@@ -932,6 +932,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokePreviousStaticIndexBuffer = nullptr;
             m_smokePreviousStaticTriangleClassBuffer = nullptr;
             m_smokePreviousStaticTriangleMaterialBuffer = nullptr;
+            m_smokePreviousStaticTriangleMaterialIndexBuffer = nullptr;
+            m_smokePreviousStaticTriangleMaterialIndexes.clear();
             m_smokeDynamicVertexBuffer = nullptr;
             m_smokeDynamicIndexBuffer = nullptr;
             m_smokeDynamicTriangleClassBuffer = nullptr;
@@ -1043,6 +1045,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const std::vector<uint32_t>& previousStaticIndexCache = m_smokeGeometryUniverse.PreviousStaticIndexes();
     const std::vector<uint32_t>& previousStaticTriangleClassCache = m_smokeGeometryUniverse.PreviousStaticTriangleClasses();
     const std::vector<uint32_t>& previousStaticTriangleMaterialCache = m_smokeGeometryUniverse.PreviousStaticTriangleMaterials();
+    const std::vector<uint32_t>& previousStaticTriangleMaterialIndexCache = m_smokePreviousStaticTriangleMaterialIndexes;
     const int captureStartMs = Sys_Milliseconds();
     bool usingDoomSurfaces = false;
     const int sceneSource = idMath::ClampInt(0, 3, r_pathTracingSceneSource.GetInteger());
@@ -1084,6 +1087,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokePreviousSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedVertexData.clear();
         m_smokePreviousSkinnedJointMatrices.clear();
+        m_smokePreviousStaticTriangleMaterialIndexes.clear();
         m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
@@ -1106,6 +1110,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokePreviousSkinnedSurfaceRecords.clear();
             m_smokePreviousSkinnedVertexData.clear();
             m_smokePreviousSkinnedJointMatrices.clear();
+            m_smokePreviousStaticTriangleMaterialIndexes.clear();
             m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
@@ -1120,6 +1125,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokePreviousSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedVertexData.clear();
         m_smokePreviousSkinnedJointMatrices.clear();
+        m_smokePreviousStaticTriangleMaterialIndexes.clear();
         m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
@@ -1902,6 +1908,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.previousStaticIndexBuffer = m_smokePreviousStaticIndexBuffer;
     bufferCreateDesc.existingBuffers.previousStaticTriangleClassBuffer = m_smokePreviousStaticTriangleClassBuffer;
     bufferCreateDesc.existingBuffers.previousStaticTriangleMaterialBuffer = m_smokePreviousStaticTriangleMaterialBuffer;
+    bufferCreateDesc.existingBuffers.previousStaticTriangleMaterialIndexBuffer = m_smokePreviousStaticTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
     bufferCreateDesc.existingBuffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
     bufferCreateDesc.existingBuffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
@@ -1931,6 +1938,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.previousStaticIndexBytes = previousStaticIndexCache.size() * sizeof(previousStaticIndexCache[0]);
     bufferCreateDesc.previousStaticTriangleClassBytes = previousStaticTriangleClassCache.size() * sizeof(previousStaticTriangleClassCache[0]);
     bufferCreateDesc.previousStaticTriangleMaterialBytes = previousStaticTriangleMaterialCache.size() * sizeof(previousStaticTriangleMaterialCache[0]);
+    bufferCreateDesc.previousStaticTriangleMaterialIndexBytes = previousStaticTriangleMaterialIndexCache.size() * sizeof(previousStaticTriangleMaterialIndexCache[0]);
     bufferCreateDesc.dynamicVertexBytes = dynamicVertexData.size() * sizeof(dynamicVertexData[0]);
     bufferCreateDesc.dynamicIndexBytes = dynamicIndexData.size() * sizeof(dynamicIndexData[0]);
     bufferCreateDesc.dynamicTriangleClassBytes = dynamicTriangleClassData.size() * sizeof(dynamicTriangleClassData[0]);
@@ -1971,6 +1979,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokePreviousStaticIndexBuffer = smokeBuffers.previousStaticIndexBuffer;
     nvrhi::BufferHandle smokePreviousStaticTriangleClassBuffer = smokeBuffers.previousStaticTriangleClassBuffer;
     nvrhi::BufferHandle smokePreviousStaticTriangleMaterialBuffer = smokeBuffers.previousStaticTriangleMaterialBuffer;
+    nvrhi::BufferHandle smokePreviousStaticTriangleMaterialIndexBuffer = smokeBuffers.previousStaticTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeDynamicVertexBuffer = smokeBuffers.dynamicVertexBuffer;
     nvrhi::BufferHandle smokeDynamicIndexBuffer = smokeBuffers.dynamicIndexBuffer;
     nvrhi::BufferHandle smokeDynamicTriangleClassBuffer = smokeBuffers.dynamicTriangleClassBuffer;
@@ -2170,6 +2179,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokePreviousStaticIndexBuffer, previousStaticIndexCache, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleClassBuffer, previousStaticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialBuffer, previousStaticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialIndexBuffer, previousStaticTriangleMaterialIndexCache, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, dynamicVertexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
         MakeSmokeVectorUploadItem(smokeDynamicIndexBuffer, dynamicIndexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
@@ -2320,11 +2330,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &doomAnalyticLightCountForSignature, sizeof(doomAnalyticLightCountForSignature));
 
     const uint64_t staticUploadBytes = SumSmokeUploadBytes(uploadItems, 0, 5);
-    const uint64_t previousStaticUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 4);
-    const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 9, 5);
-    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 14, 1);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 3);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 18, 5);
+    const uint64_t previousStaticUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 5);
+    const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
+    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 3);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 19, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -2387,7 +2397,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.previousStaticIndexBuffer = smokePreviousStaticIndexBuffer;
     sceneInputs.geometry.previousStaticTriangleClassBuffer = smokePreviousStaticTriangleClassBuffer;
     sceneInputs.geometry.previousStaticTriangleMaterialBuffer = smokePreviousStaticTriangleMaterialBuffer;
-    sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer = m_sceneInputs.geometry.staticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer = smokePreviousStaticTriangleMaterialIndexBuffer;
     sceneInputs.geometry.dynamicVertexBuffer = smokeDynamicVertexBuffer;
     sceneInputs.geometry.dynamicIndexBuffer = smokeDynamicIndexBuffer;
     sceneInputs.geometry.dynamicTriangleClassBuffer = smokeDynamicTriangleClassBuffer;
@@ -2407,12 +2417,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticVertexCount = staticVertexCacheCount;
     sceneInputs.geometry.staticIndexCount = staticIndexCacheCount;
     sceneInputs.geometry.staticTriangleCount = staticTriangleCacheCount;
+    sceneInputs.geometry.staticMaterialIndexCount = static_cast<int>(materialTable.staticMaterialIndexes.size());
     sceneInputs.geometry.previousStaticVertexCount = m_sceneInputs.geometry.staticVertexCount;
     sceneInputs.geometry.previousStaticIndexCount = m_sceneInputs.geometry.staticIndexCount;
     sceneInputs.geometry.previousStaticTriangleCount = m_sceneInputs.geometry.staticTriangleCount;
+    sceneInputs.geometry.previousStaticMaterialIndexCount = m_sceneInputs.geometry.staticMaterialIndexCount;
     sceneInputs.geometry.previousStaticCpuVertexCount = geometryUniverseStats.previousStaticVerts;
     sceneInputs.geometry.previousStaticCpuIndexCount = geometryUniverseStats.previousStaticIndexes;
     sceneInputs.geometry.previousStaticCpuTriangleCount = geometryUniverseStats.previousStaticTriangles;
+    sceneInputs.geometry.previousStaticCpuMaterialIndexCount = static_cast<int>(previousStaticTriangleMaterialIndexCache.size());
     sceneInputs.geometry.previousStaticCpuBytesKB = geometryUniverseStats.previousStaticBytesKB;
     sceneInputs.geometry.staticSeenSurfaceCount = geometryUniverseStats.staticSeenThisFrame;
     sceneInputs.geometry.staticNewSurfaceCount = geometryUniverseStats.staticNewThisFrame;
@@ -2432,6 +2445,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_sceneInputs.geometry.staticVertexCount == staticVertexCacheCount &&
         m_sceneInputs.geometry.staticIndexCount == staticIndexCacheCount &&
         m_sceneInputs.geometry.staticTriangleCount == staticTriangleCacheCount;
+    const bool staticPreviousMaterialIndexCountsMatch =
+        sceneInputs.geometry.previousStaticMaterialIndexCount > 0 &&
+        sceneInputs.geometry.previousStaticCpuMaterialIndexCount == sceneInputs.geometry.previousStaticMaterialIndexCount;
     sceneInputs.geometry.staticPreviousRangesComplete =
         sceneInputs.geometry.staticSeenSurfaceCount > 0 &&
         sceneInputs.geometry.staticPreviousRangeValidSurfaceCount == sceneInputs.geometry.staticSeenSurfaceCount;
@@ -2442,7 +2458,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         sceneInputs.geometry.previousStaticIndexBuffer &&
         sceneInputs.geometry.previousStaticTriangleClassBuffer &&
         sceneInputs.geometry.previousStaticTriangleMaterialBuffer &&
-        sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer;
+        sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer &&
+        staticPreviousMaterialIndexCountsMatch;
     sceneInputs.geometry.staticPreviousMaterialIndexBufferAvailable =
         sceneInputs.geometry.staticPreviousBuffersAvailable &&
         sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer;
@@ -2451,7 +2468,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         sceneInputs.geometry.previousStaticVertexBuffer &&
         sceneInputs.geometry.previousStaticIndexBuffer &&
         sceneInputs.geometry.previousStaticTriangleClassBuffer &&
-        sceneInputs.geometry.previousStaticTriangleMaterialBuffer;
+        sceneInputs.geometry.previousStaticTriangleMaterialBuffer &&
+        sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer;
     sceneInputs.geometry.staticPreviousBuffersAliasCurrent =
         sceneInputs.geometry.staticPreviousBuffersAvailable &&
         sceneInputs.geometry.previousStaticVertexBuffer == sceneInputs.geometry.staticVertexBuffer &&
@@ -2598,6 +2616,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Commit Scene Resources");
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
     }
+    m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     RtSmokeSceneBuildDiagnosticLogDesc sceneLogDesc;
