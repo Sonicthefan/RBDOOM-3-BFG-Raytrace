@@ -85,6 +85,7 @@ struct RtPathTraceSceneInputGeometry
     nvrhi::BufferHandle previousStaticIndexBuffer;
     nvrhi::BufferHandle previousStaticTriangleClassBuffer;
     nvrhi::BufferHandle previousStaticTriangleMaterialBuffer;
+    nvrhi::BufferHandle previousStaticTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle dynamicVertexBuffer;
     nvrhi::BufferHandle dynamicIndexBuffer;
     nvrhi::BufferHandle dynamicTriangleClassBuffer;
@@ -121,6 +122,7 @@ struct RtPathTraceSceneInputGeometry
     int staticDirtyTriangleCount = 0;
     bool staticDirtyRangeUploadUsed = false;
     bool staticPreviousBuffersAvailable = false;
+    bool staticPreviousMaterialIndexBufferAvailable = false;
     bool staticPreviousCountsMatch = false;
     bool staticPreviousRangesComplete = false;
     int dynamicVertexCount = 0;
