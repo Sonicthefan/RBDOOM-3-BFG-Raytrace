@@ -21,6 +21,7 @@
 #include "PathTracePrimaryPass.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
+#include "PathTraceSkinning.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderBackend.h"
@@ -315,12 +316,78 @@ void CopySmokeObjectToWorldRows(float dst[12], const float src[12])
     }
 }
 
+void CopySmokeJointMatrixRows(PathTraceSkinnedJointMatrix& dst, const idJointMat& src)
+{
+    const float* rows = src.ToFloatPtr();
+    for (int i = 0; i < 12; ++i)
+    {
+        dst.rows[i] = rows[i];
+    }
+}
+
+const idJointMat* SmokeSkinnedRecordJoints(const RtSmokeSkinnedSurfaceRecord& record)
+{
+    const srfTriangles_t* tri = reinterpret_cast<const srfTriangles_t*>(record.key.tri);
+    return GetSmokeRtCpuSkinningJoints(tri);
+}
+
+bool SmokeSkinnedJointRangeValid(const RtSmokeSkinnedSurfaceRecord& record, const std::vector<PathTraceSkinnedJointMatrix>& retainedJointMatrices)
+{
+    return record.retainedJointOffset >= 0 &&
+        record.jointCount > 0 &&
+        record.retainedJointOffset <= static_cast<int>(retainedJointMatrices.size()) &&
+        record.jointCount <= static_cast<int>(retainedJointMatrices.size()) - record.retainedJointOffset;
+}
+
+bool AppendSmokeSkinnedJointMatrices(const idJointMat* joints, int jointCount, std::vector<PathTraceSkinnedJointMatrix>& jointMatrices, int& jointOffset)
+{
+    jointOffset = -1;
+    if (!joints || jointCount <= 0)
+    {
+        return false;
+    }
+
+    jointOffset = static_cast<int>(jointMatrices.size());
+    jointMatrices.resize(jointMatrices.size() + jointCount);
+    for (int jointIndex = 0; jointIndex < jointCount; ++jointIndex)
+    {
+        CopySmokeJointMatrixRows(jointMatrices[jointOffset + jointIndex], joints[jointIndex]);
+    }
+    return true;
+}
+
+void RetainSmokeSkinnedCurrentJointMatrices(
+    std::vector<RtSmokeSkinnedSurfaceRecord>& currentRecords,
+    std::vector<PathTraceSkinnedJointMatrix>& nextPreviousSkinnedJointMatrices)
+{
+    nextPreviousSkinnedJointMatrices.clear();
+    for (RtSmokeSkinnedSurfaceRecord& current : currentRecords)
+    {
+        current.retainedJointOffset = -1;
+        if (!current.rtCpuSkinned || current.jointCount <= 0)
+        {
+            continue;
+        }
+
+        int jointOffset = -1;
+        if (AppendSmokeSkinnedJointMatrices(
+                SmokeSkinnedRecordJoints(current),
+                current.jointCount,
+                nextPreviousSkinnedJointMatrices,
+                jointOffset))
+        {
+            current.retainedJointOffset = jointOffset;
+        }
+    }
+}
+
 RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     int gpuSkinningMode,
     std::vector<RtSmokeSkinnedSurfaceRecord>& currentRecords,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& previousRecords,
     const std::vector<PathTraceSmokeVertex>& dynamicVertexData,
-    const std::vector<PathTraceSmokeVertex>& previousSkinnedVertexData)
+    const std::vector<PathTraceSmokeVertex>& previousSkinnedVertexData,
+    const std::vector<PathTraceSkinnedJointMatrix>& previousSkinnedJointMatrices)
 {
     RtSmokeSkinnedGpuScaffoldBuild build;
     if (gpuSkinningMode <= 0 || currentRecords.empty())
@@ -392,6 +459,28 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
         CopySmokeObjectToWorldRows(dispatch.currentObjectToWorld, record.objectToWorld);
         const RtSmokeSkinnedSurfaceRecord* previousRecord = FindSmokeSkinnedPreviousRecord(previousRecords, record);
         CopySmokeObjectToWorldRows(dispatch.previousObjectToWorld, previousRecord ? previousRecord->objectToWorld : record.objectToWorld);
+        int currentJointOffset = -1;
+        if (AppendSmokeSkinnedJointMatrices(
+                SmokeSkinnedRecordJoints(record),
+                record.jointCount,
+                build.currentJointMatrices,
+                currentJointOffset))
+        {
+            dispatch.currentJointOffset = static_cast<uint32_t>(currentJointOffset);
+            dispatch.flags |= PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS;
+        }
+        if (record.previousValid &&
+            previousRecord &&
+            previousRecord->jointCount == record.jointCount &&
+            SmokeSkinnedJointRangeValid(*previousRecord, previousSkinnedJointMatrices))
+        {
+            dispatch.previousJointOffset = static_cast<uint32_t>(build.previousJointMatrices.size());
+            build.previousJointMatrices.insert(
+                build.previousJointMatrices.end(),
+                previousSkinnedJointMatrices.begin() + previousRecord->retainedJointOffset,
+                previousSkinnedJointMatrices.begin() + previousRecord->retainedJointOffset + previousRecord->jointCount);
+            dispatch.flags |= PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS;
+        }
         build.dispatchRecords.push_back(dispatch);
     }
 
@@ -779,6 +868,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeSkinnedSurfaceRecords.clear();
             m_smokePreviousSkinnedSurfaceRecords.clear();
             m_smokePreviousSkinnedVertexData.clear();
+            m_smokePreviousSkinnedJointMatrices.clear();
             m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
             m_sceneUniverse.Clear();
             m_instanceUniverse.Clear();
@@ -933,6 +1023,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedVertexData.clear();
+        m_smokePreviousSkinnedJointMatrices.clear();
         m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
@@ -954,6 +1045,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeSkinnedSurfaceRecords.clear();
             m_smokePreviousSkinnedSurfaceRecords.clear();
             m_smokePreviousSkinnedVertexData.clear();
+            m_smokePreviousSkinnedJointMatrices.clear();
             m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
@@ -967,6 +1059,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedSurfaceRecords.clear();
         m_smokePreviousSkinnedVertexData.clear();
+        m_smokePreviousSkinnedJointMatrices.clear();
         m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
@@ -1122,6 +1215,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeGeometryUniverse.EndFrame();
     }
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
+    std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
     m_smokeSkinnedPreviousStats = UpdateSmokeSkinnedPreviousCpuBridge(
         currentSkinnedSurfaceRecords,
         m_smokePreviousSkinnedSurfaceRecords,
@@ -1134,10 +1228,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         currentSkinnedSurfaceRecords,
         m_smokePreviousSkinnedSurfaceRecords,
         dynamicVertexData,
-        m_smokePreviousSkinnedVertexData);
+        m_smokePreviousSkinnedVertexData,
+        m_smokePreviousSkinnedJointMatrices);
+    RetainSmokeSkinnedCurrentJointMatrices(
+        currentSkinnedSurfaceRecords,
+        nextPreviousSkinnedJointMatrices);
     m_smokeSkinnedSurfaceRecords = currentSkinnedSurfaceRecords;
     m_smokePreviousSkinnedSurfaceRecords = m_smokeSkinnedSurfaceRecords;
     m_smokePreviousSkinnedVertexData.swap(nextPreviousSkinnedVertexData);
+    m_smokePreviousSkinnedJointMatrices.swap(nextPreviousSkinnedJointMatrices);
 
     if (useDrawSurfMirrorDynamicFrame && r_pathTracingSceneSourceCompare.GetInteger() != 0)
     {

@@ -191,6 +191,7 @@ struct RtSmokeSkinnedSurfaceRecord
     int jointCount = 0;
     uintptr_t jointSource = 0;
     int retainedVertexOffset = -1;
+    int retainedJointOffset = -1;
     int gpuSourceVertexOffset = -1;
     int gpuOutputVertexOffset = -1;
     int gpuPreviousPositionOffset = -1;

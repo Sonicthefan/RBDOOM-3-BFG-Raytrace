@@ -43,7 +43,9 @@ enum PathTraceSkinnedSurfaceDispatchFlags : uint32_t
 {
     PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 1u << 0,
     PT_SKINNED_DISPATCH_RT_CPU_SKINNED = 1u << 1,
-    PT_SKINNED_DISPATCH_SOURCE_READY = 1u << 2
+    PT_SKINNED_DISPATCH_SOURCE_READY = 1u << 2,
+    PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS = 1u << 3,
+    PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS = 1u << 4
 };
 
 struct PathTraceSkinnedSurfaceDispatchRecord
