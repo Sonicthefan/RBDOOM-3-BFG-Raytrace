@@ -694,9 +694,10 @@ PathTracePrimarySurface.hlsli
     Shader-side primary-surface contract and helper layer. It defines the
     versioned 176-byte PathTracePrimarySurfaceRecord, pack/unpack helpers
     between RAB_Surface/RAB_Material and the buffer record, current/previous
-    buffer load/store helpers, camera-only previous-pixel projection, mode 29/30
-    debug status colors, and the RAB screen callbacks used by RTXDI. The include
-    keeps compatibility wrapper names for the current smoke raygen until primary
+    buffer load/store helpers, camera-only previous-pixel projection, the shared
+    packed-object-motion to current-to-previous-pixel helper, mode 29/30 debug
+    status colors, and the RAB screen callbacks used by RTXDI. The include keeps
+    compatibility wrapper names for the current smoke raygen until primary
     surface generation becomes its own pass.
 
 RtxdiBridge/*.hlsli
@@ -1511,7 +1512,7 @@ copy. It is diagnostic-only and does not export a production motion-vector
 buffer.
 
 Mode 41 is the combined skinned/routed-rigid object-motion vector diagnostic.
-It repacks the current primary surface and visualizes the packed
+It uses the shared packed-object-motion pixel helper to visualize the packed
 `previousPositionOrMotion` field when the record has object-motion and
 previous-position flags. Static surfaces stay in the no-object-motion color,
 and skinned or routed-rigid invalid states keep their existing
@@ -1532,9 +1533,10 @@ primary-surface debug colors. The skinned branch still requires
 `r_pathTracingGpuSkinning 1` for the diagnostic previous-position scaffold.
 
 Mode 43 is the packed object-motion reprojection match diagnostic. It uses the
-same packed object-motion flags as mode 42, projects the stored
-`previousPositionOrMotion.xyz` into the previous camera, reads the previous
-primary-surface history record at that pixel, and reports the normal
+same packed object-motion flags as mode 42, uses the shared packed-object-motion
+pixel helper to project the stored `previousPositionOrMotion.xyz` into the
+previous camera, reads the previous primary-surface history record at that
+pixel, and reports the normal
 material/normal/roughness match colors. Green means a packed skinned or
 routed-rigid object-motion source lands on a conservative previous-hit match;
 static/no-object and invalid dynamic states keep the existing primary-surface

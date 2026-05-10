@@ -177,12 +177,16 @@ Current validated feature set:
   motion-vector conversion is current pixel to previous pixel, in internal PT
   render-resolution pixels, using unjittered current/previous camera state; any
   external consumer that expects another basis needs an explicit conversion
-  shim. Mode 29 validates same-pixel history, and mode 30 validates temporary
-  current-world-position to previous screen-space reprojection for camera
-  motion. Routed rigid instances can now provide previous world positions for
-  primary-surface object motion when their previous transform is continuous,
-  but final denoiser-facing vector export and static-world disocclusion policy
-  are still future work. The Step 6 RNG bridge is also present and wraps RTXDI's
+  shim. The shader helper
+  `TryPathTracePrimarySurfacePackedObjectMotionPixels` now centralizes that
+  packed-object-motion to current-to-previous-pixel conversion for debug and
+  future temporal consumers. Mode 29 validates same-pixel history, and mode 30
+  validates temporary current-world-position to previous screen-space
+  reprojection for camera motion. Routed rigid instances can now provide
+  previous world positions for primary-surface object motion when their previous
+  transform is continuous, but final denoiser-facing vector export and
+  static-world disocclusion policy are still future work. The Step 6 RNG bridge
+  is also present and wraps RTXDI's
   own random sampler initialization and `RTXDI_GetNextRandom` behind local
   `RAB_RandomSamplerState` callbacks so future path replay can preserve seed
   plus consumed random index. Step 7 adds conservative opaque-diffuse BRDF
@@ -2740,8 +2744,8 @@ not contaminated by duplicate fallback coverage. This mode is diagnostic-only
 and does not change mode 18 shading or write a production motion-vector buffer.
 
 Mode 41 is the combined skinned/routed-rigid object-motion vector diagnostic.
-It repacks the current primary surface and draws vectors from the packed
-`previousPositionOrMotion` field when the record carries object-motion and
+It uses the shared packed-object-motion pixel helper to draw vectors from
+`previousPositionOrMotion` when the record carries object-motion and
 previous-position flags. Valid dynamic hits encode current-to-previous pixel
 displacement with the same red/green direction plus blue magnitude convention
 as modes 38 and 40. Static surfaces use the no-object-motion color; skinned and
@@ -2767,14 +2771,15 @@ and does not change mode 18 shading or write a production motion-vector buffer.
 
 Mode 43 is the packed object-motion reprojection match diagnostic. It repacks
 the current primary surface, requires the same object-motion and
-previous-position flags as mode 42, projects the packed
-`previousPositionOrMotion.xyz` through the previous camera, loads the previous
-primary-surface record at that pixel, and applies the normal primary-surface
-material/normal/roughness match colors. Static/no-object surfaces stay in the
-no-object-motion color, missing skinned/routed-rigid state keeps the existing
-invalid colors, and green means the packed object-motion source lands on a
-conservatively matching previous primary hit. This mode is diagnostic-only and
-does not change mode 18 shading or write a production motion-vector buffer.
+previous-position flags as mode 42, uses the shared packed-object-motion pixel
+helper to project `previousPositionOrMotion.xyz` through the previous camera,
+loads the previous primary-surface record at that pixel, and applies the normal
+primary-surface material/normal/roughness match colors. Static/no-object
+surfaces stay in the no-object-motion color, missing skinned/routed-rigid state
+keeps the existing invalid colors, and green means the packed object-motion
+source lands on a conservatively matching previous primary hit. This mode is
+diagnostic-only and does not change mode 18 shading or write a production
+motion-vector buffer.
 
 Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit

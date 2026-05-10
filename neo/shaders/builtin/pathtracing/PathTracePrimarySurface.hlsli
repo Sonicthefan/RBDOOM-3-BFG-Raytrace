@@ -269,6 +269,34 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixel(RAB_Surface currentSurface, u
     return true;
 }
 
+bool TryPathTracePrimarySurfacePackedObjectMotionPixels(RAB_Surface currentSurface, uint2 pixel, uint2 dimensions, out int2 previousPixel, out float2 motionPixels, out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    motionPixels = float2(0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+
+    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
+    if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
+    {
+        debugStatus = currentRecord.header.z;
+        return false;
+    }
+
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(currentRecord.previousPositionOrMotion.xyz, dimensions, previousPixel))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+        return false;
+    }
+
+    motionPixels = float2(previousPixel) - float2(pixel);
+    return true;
+}
+
 bool PathTracePrimarySurfacesAreSimilar(RAB_Surface a, RAB_Surface b, out uint debugStatus)
 {
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
@@ -457,24 +485,15 @@ float4 EvaluatePathTracePrimarySurfaceRigidObjectMotionDebug(RAB_Surface current
 
 float4 EvaluatePathTracePrimarySurfaceCombinedObjectMotionDebug(RAB_Surface currentSurface, uint2 pixel)
 {
-    if (!RAB_IsSurfaceValid(currentSurface))
-    {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
-    }
-
-    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
-    if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
-    {
-        return PathTracePrimarySurfaceDebugColor(currentRecord.header.z, currentSurface);
-    }
-
     int2 previousPixel;
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixel))
+    float2 motionPixels;
+    uint debugStatus;
+    if (!TryPathTracePrimarySurfacePackedObjectMotionPixels(currentSurface, pixel, PathTraceFullOutputSize(), previousPixel, motionPixels, debugStatus))
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
-    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
+    return PathTracePrimarySurfaceMotionVectorColor(motionPixels);
 }
 
 float4 EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(RAB_Surface currentSurface)
@@ -502,27 +521,17 @@ float4 EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(RAB_Surface curren
     return PathTracePrimarySurfaceDebugColor(record.header.z, currentSurface);
 }
 
-float4 EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(RAB_Surface currentSurface)
+float4 EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(RAB_Surface currentSurface, uint2 pixel)
 {
-    if (!RAB_IsSurfaceValid(currentSurface))
-    {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
-    }
-
-    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
-    if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
-    {
-        return PathTracePrimarySurfaceDebugColor(currentRecord.header.z, currentSurface);
-    }
-
     int2 previousPixel;
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixel))
+    float2 motionPixels;
+    uint debugStatus;
+    if (!TryPathTracePrimarySurfacePackedObjectMotionPixels(currentSurface, pixel, PathTraceFullOutputSize(), previousPixel, motionPixels, debugStatus))
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
     const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
-    uint debugStatus;
     if (!PathTracePrimarySurfacesAreSimilar(currentSurface, previousSurface, debugStatus))
     {
         return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);

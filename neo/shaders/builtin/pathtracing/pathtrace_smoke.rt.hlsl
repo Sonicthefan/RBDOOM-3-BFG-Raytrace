@@ -3082,7 +3082,7 @@ void RayGen()
     }
     else if (debugMode == 43)
     {
-        SmokeOutput[pixel] = EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(primaryHistorySurface);
+        SmokeOutput[pixel] = EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(primaryHistorySurface, pixel);
     }
     else if (debugMode == 8)
     {
