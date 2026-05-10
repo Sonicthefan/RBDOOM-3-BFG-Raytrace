@@ -502,6 +502,35 @@ float4 EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(RAB_Surface curren
     return PathTracePrimarySurfaceDebugColor(record.header.z, currentSurface);
 }
 
+float4 EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(RAB_Surface currentSurface)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
+    if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
+    {
+        return PathTracePrimarySurfaceDebugColor(currentRecord.header.z, currentSurface);
+    }
+
+    int2 previousPixel;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixel))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+    }
+
+    const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
+    uint debugStatus;
+    if (!PathTracePrimarySurfacesAreSimilar(currentSurface, previousSurface, debugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+
+    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
+}
+
 float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)
 {
     if (!RAB_IsSurfaceValid(currentSurface) && !RAB_IsSurfaceValid(previousSurface))

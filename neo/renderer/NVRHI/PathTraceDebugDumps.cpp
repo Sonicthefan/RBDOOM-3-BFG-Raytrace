@@ -292,6 +292,7 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 40: info.name = "routed-rigid object-motion vector"; info.category = "pass-output-visualizer"; info.output = "routed rigid current-to-previous object motion"; info.owner = "primary-surface"; break;
     case 41: info.name = "combined object-motion vector"; info.category = "pass-output-visualizer"; info.output = "skinned and routed rigid current-to-previous object motion"; info.owner = "primary-surface"; break;
     case 42: info.name = "packed primary object-motion flags"; info.category = "pass-output-visualizer"; info.output = "primary surface object-motion record flags"; info.owner = "primary-surface"; break;
+    case 43: info.name = "packed object-motion reprojection match"; info.category = "pass-output-visualizer"; info.output = "object-motion previous primary-surface match"; info.owner = "primary-surface"; break;
     default: break;
     }
 

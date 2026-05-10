@@ -285,12 +285,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::rt::State state;
     state.shaderTable = m_smokeShaderTable;
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
-    int debugMode = idMath::ClampInt(0, 42, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 43, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = debugMode >= 26 && debugMode <= 33;
     const bool requestedIntegratorDebugMode = debugMode >= 34 && debugMode <= 37;
-    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || requestedRestirPTDebugMode || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
+    if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || requestedRestirPTDebugMode || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }

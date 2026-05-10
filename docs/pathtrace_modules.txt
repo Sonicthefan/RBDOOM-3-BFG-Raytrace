@@ -1531,6 +1531,16 @@ use the no-object-motion color, and invalid states keep the existing
 primary-surface debug colors. The skinned branch still requires
 `r_pathTracingGpuSkinning 1` for the diagnostic previous-position scaffold.
 
+Mode 43 is the packed object-motion reprojection match diagnostic. It uses the
+same packed object-motion flags as mode 42, projects the stored
+`previousPositionOrMotion.xyz` into the previous camera, reads the previous
+primary-surface history record at that pixel, and reports the normal
+material/normal/roughness match colors. Green means a packed skinned or
+routed-rigid object-motion source lands on a conservative previous-hit match;
+static/no-object and invalid dynamic states keep the existing primary-surface
+debug colors. It is diagnostic-only and does not export a production
+motion-vector buffer.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before

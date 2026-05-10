@@ -488,6 +488,7 @@ Implemented debug CVars:
   40 = routed-rigid primary object-motion vector diagnostic
   41 = combined skinned/routed-rigid object-motion vector diagnostic
   42 = packed primary object-motion flags diagnostic
+  43 = packed object-motion reprojection match diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2477,6 +2478,7 @@ For primary object-motion vector validation:
     r_pathTracingDebugMode 40
     r_pathTracingDebugMode 41
     r_pathTracingDebugMode 42
+    r_pathTracingDebugMode 43
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2762,6 +2764,17 @@ reuse the normal primary-surface invalid colors. Use `r_pathTracingGpuSkinning
 1` when checking skinned records; with it disabled, skinned surfaces correctly
 report missing previous-position scaffold data. This mode is diagnostic-only
 and does not change mode 18 shading or write a production motion-vector buffer.
+
+Mode 43 is the packed object-motion reprojection match diagnostic. It repacks
+the current primary surface, requires the same object-motion and
+previous-position flags as mode 42, projects the packed
+`previousPositionOrMotion.xyz` through the previous camera, loads the previous
+primary-surface record at that pixel, and applies the normal primary-surface
+material/normal/roughness match colors. Static/no-object surfaces stay in the
+no-object-motion color, missing skinned/routed-rigid state keeps the existing
+invalid colors, and green means the packed object-motion source lands on a
+conservatively matching previous primary hit. This mode is diagnostic-only and
+does not change mode 18 shading or write a production motion-vector buffer.
 
 Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit
