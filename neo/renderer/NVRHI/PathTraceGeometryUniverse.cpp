@@ -1303,6 +1303,74 @@ void RtSmokeGeometryUniverse::LogStaticValidationFailures(int maxRecords) const
         keyVectorSizeMismatch ? 1 : 0);
 }
 
+void RtSmokeGeometryUniverse::LogStaticRangeHistory(int maxRecords) const
+{
+    const int recordLimit = maxRecords > 0 ? maxRecords : 0;
+    const int vertexCount = static_cast<int>(m_staticVertexCache.size());
+    const int indexCount = static_cast<int>(m_staticIndexCache.size());
+    const int triangleCount = static_cast<int>(m_staticTriangleClassCache.size());
+    const int materialTriangleCount = static_cast<int>(m_staticTriangleMaterialCache.size());
+    const RtSmokeGeometryUniverseStats stats = GetStats(false);
+
+    common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump frame=%llu generation=%llu records=%d seen/new/gone/history/prev/dirty=%d/%d/%d/%d/%d/%d cache v/i/t=%d/%d/%d maxRecords=%d\n",
+        static_cast<unsigned long long>(m_currentFrameIndex),
+        static_cast<unsigned long long>(m_generation),
+        stats.staticRecords,
+        stats.staticSeenThisFrame,
+        stats.staticNewThisFrame,
+        stats.staticDisappearedThisFrame,
+        stats.staticHistoryValid,
+        stats.staticPreviousRangeValid,
+        stats.staticDirty,
+        stats.staticVerts,
+        stats.staticIndexes,
+        stats.staticTriangles,
+        recordLimit);
+
+    int logged = 0;
+    for (size_t recordIndex = 0; recordIndex < m_staticSurfaceRecords.size() && logged < recordLimit; ++recordIndex)
+    {
+        const RtSmokePersistentStaticSurfaceRecord& record = m_staticSurfaceRecords[recordIndex];
+        if (!record.valid)
+        {
+            continue;
+        }
+
+        const bool currentRangeValid = IsSmokeGeometryRangeValid(record.currentRange, vertexCount, indexCount, triangleCount, materialTriangleCount);
+        const bool previousRangeValid =
+            !record.previousRangeValid ||
+            IsSmokeGeometryRangeValid(record.previousRange, vertexCount, indexCount, triangleCount, materialTriangleCount);
+        const bool rangeCountsMatch =
+            record.previousRangeValid &&
+            SmokeGeometryRangesMatchCounts(record.currentRange, record.previousRange);
+
+        common->Printf("PathTracePrimaryPass: RT smoke geometry range record index=%d key=%llu class=%u material=%u flags seen/new/gone/hist/prev/dirty=%d/%d/%d/%d/%d/%d valid current/previous/counts=%d/%d/%d frame last/prev=%llu/%llu format=%u ",
+            static_cast<int>(recordIndex),
+            static_cast<unsigned long long>(record.key),
+            record.surfaceClassId,
+            record.materialId,
+            record.seenThisFrame ? 1 : 0,
+            record.newlyCreatedThisFrame ? 1 : 0,
+            record.disappearedThisFrame ? 1 : 0,
+            record.historyValid ? 1 : 0,
+            record.previousRangeValid ? 1 : 0,
+            record.dirty ? 1 : 0,
+            currentRangeValid ? 1 : 0,
+            previousRangeValid ? 1 : 0,
+            rangeCountsMatch ? 1 : 0,
+            static_cast<unsigned long long>(record.lastSeenFrame),
+            static_cast<unsigned long long>(record.previousSeenFrame),
+            static_cast<uint32_t>(record.geometryFormat));
+        PrintSmokeGeometryRange("current", record.currentRange);
+        common->Printf(" ");
+        PrintSmokeGeometryRange("previous", record.previousRange);
+        common->Printf("\n");
+        ++logged;
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump logged=%d\n", logged);
+}
+
 void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation)
 {
     ++m_rigidMeshCandidateFrameStats.observations;

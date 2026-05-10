@@ -41,6 +41,7 @@ namespace {
 const int RT_SMOKE_SCENE_LOG_INTERVAL_FRAMES = 120;
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const int RT_SMOKE_GEOMETRY_VALIDATION_DUMP_RECORDS = 16;
+const int RT_SMOKE_GEOMETRY_RANGE_DUMP_RECORDS = 16;
 const int RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES = 64;
 const float RT_SMOKE_SKINNED_TELEPORT_DISTANCE = 1024.0f;
 
@@ -1946,6 +1947,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     staticGeometryRange.triangleCount = staticBucketRange.triangleCount;
     const bool validateGeometryUniverse = r_pathTracingGeometryUniverseValidate.GetInteger() != 0;
     const RtSmokeGeometryUniverseStats geometryUniverseStats = m_smokeGeometryUniverse.GetStats(validateGeometryUniverse);
+    if (r_pathTracingGeometryUniverseRangeDump.GetInteger() != 0)
+    {
+        m_smokeGeometryUniverse.LogStaticRangeHistory(RT_SMOKE_GEOMETRY_RANGE_DUMP_RECORDS);
+        r_pathTracingGeometryUniverseRangeDump.SetInteger(0);
+    }
     if (validateGeometryUniverse && geometryUniverseStats.staticValidationErrors > 0)
     {
         if (g_smokeLastGeometryValidationDumpGeneration != geometryUniverseStats.generation ||

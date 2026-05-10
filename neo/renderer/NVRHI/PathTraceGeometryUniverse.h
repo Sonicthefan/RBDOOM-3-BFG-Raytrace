@@ -540,6 +540,7 @@ public:
 
     RtSmokeGeometryUniverseStats GetStats(bool validateRecords) const;
     void LogStaticValidationFailures(int maxRecords) const;
+    void LogStaticRangeHistory(int maxRecords) const;
     void RecordRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation);
     const RtPathTraceRigidMeshCandidateStats& GetRigidMeshCandidateStats() const;
     void RunRigidMeshCandidateDiagnostics(bool dumpRequested, int sceneSource, const RtSmokeSurfaceClassStats* sourceClassStats = nullptr);

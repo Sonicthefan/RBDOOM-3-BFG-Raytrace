@@ -178,3 +178,4 @@ extern idCVar r_pathTracingMaterialUniverseValidate;
 extern idCVar r_pathTracingMaterialUniverseTable;
 extern idCVar r_pathTracingMaterialUniverseTableValidate;
 extern idCVar r_pathTracingGeometryUniverseValidate;
+extern idCVar r_pathTracingGeometryUniverseRangeDump;

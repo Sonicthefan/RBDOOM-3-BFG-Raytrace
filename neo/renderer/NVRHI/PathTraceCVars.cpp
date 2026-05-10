@@ -1028,3 +1028,9 @@ idCVar r_pathTracingGeometryUniverseValidate(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Run expensive RT smoke geometry-universe static record validation; reports validate=total/range/duplicate/history/keyVector" );
+
+idCVar r_pathTracingGeometryUniverseRangeDump(
+    "r_pathTracingGeometryUniverseRangeDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump one-shot RT smoke geometry-universe static current/previous range records" );
