@@ -2417,6 +2417,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticPreviousMaterialIndexBufferAvailable =
         sceneInputs.geometry.staticPreviousBuffersAvailable &&
         sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.staticPreviousBuffersAliasCurrent =
+        sceneInputs.geometry.staticPreviousBuffersAvailable &&
+        sceneInputs.geometry.previousStaticVertexBuffer == sceneInputs.geometry.staticVertexBuffer &&
+        sceneInputs.geometry.previousStaticIndexBuffer == sceneInputs.geometry.staticIndexBuffer &&
+        sceneInputs.geometry.previousStaticTriangleClassBuffer == sceneInputs.geometry.staticTriangleClassBuffer &&
+        sceneInputs.geometry.previousStaticTriangleMaterialBuffer == sceneInputs.geometry.staticTriangleMaterialBuffer &&
+        sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer == sceneInputs.geometry.staticTriangleMaterialIndexBuffer;
     sceneInputs.geometry.dynamicVertexCount = dynamicVertexCount;
     sceneInputs.geometry.dynamicIndexCount = dynamicIndexCount;
     sceneInputs.geometry.dynamicTriangleCount = dynamicIndexCount / 3;

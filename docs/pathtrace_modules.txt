@@ -209,7 +209,9 @@ PathTraceSceneInputs.h
     conservative scene-input metadata only: it records previous committed static
     buffer handles/counts, including the material-index buffer, and exposes
     whether current static records have complete previous ranges with matching
-    counts.
+    counts. It also reports when previous static handles alias the current
+    persistent static buffers, which is expected for unchanged static geometry
+    and is not a separate previous snapshot.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the

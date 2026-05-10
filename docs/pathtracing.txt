@@ -2006,9 +2006,11 @@ Geometry universe status:
   static geometry buffer handles/counts from the last committed scene, current
   seen/new/gone/history/previous-range counts, and booleans for previous count
   match, complete previous ranges, previous static buffer availability, and
-  previous material-index buffer availability. This is CPU-side scene-input
-  metadata only; it does not change the shader binding ABI or make a new
-  motion-vector consumer.
+  previous material-index buffer availability. The dump also reports whether
+  the previous static buffer handles alias the current persistent static
+  buffers. That aliasing is valid only for unchanged static ranges; this is
+  CPU-side scene-input metadata only and does not change the shader binding ABI
+  or make a new motion-vector consumer.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
