@@ -1497,6 +1497,15 @@ instance and the dynamic fallback copy does not look like a coverage failure.
 Non-rigid surfaces use the no-object-motion color. This mode is diagnostic-only
 and does not change final PT rendering.
 
+Mode 40 is the routed-rigid primary object-motion vector diagnostic. It mirrors
+mode 38's current-to-previous pixel encoding, but only for routed rigid hits
+whose previous transform is continuous. Missing previous transforms, range/index
+mismatches, and non-routed rigid fallback hits use the same invalid/no-object
+colors as mode 39. The mode uses routed-rigid dynamic fallback removal so the
+vector field comes from the routed instance rather than an overlapping fallback
+copy. It is diagnostic-only and does not export a production motion-vector
+buffer.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before

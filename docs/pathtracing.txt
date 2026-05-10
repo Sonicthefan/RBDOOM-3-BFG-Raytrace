@@ -485,6 +485,7 @@ Implemented debug CVars:
   37 = path tracer max-depth / Russian-roulette state visualizer
   38 = skinned primary object-motion vector diagnostic
   39 = routed-rigid object-motion eligibility diagnostic
+  40 = routed-rigid primary object-motion vector diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2471,6 +2472,7 @@ For primary object-motion vector validation:
 
     r_pathTracingDebugMode 38
     r_pathTracingDebugMode 39
+    r_pathTracingDebugMode 40
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2714,6 +2716,17 @@ of deliberate overlap between two copies of the same routed-ready surface.
 Static, skinned, and other non-rigid surfaces use the no-object-motion color.
 This mode is diagnostic-only and does not change mode 18 shading or write a
 production motion-vector buffer.
+
+Mode 40 is the routed-rigid primary object-motion vector diagnostic. It uses
+the same current-pixel to previous-pixel convention as mode 38, but only for
+routed rigid hits with a continuous previous transform. Valid routed rigid hits
+encode current-to-previous pixel displacement as signed red/green direction
+around 0.5 plus blue magnitude, capped at 32 internal PT pixels. Missing
+previous transforms, range/index mismatches, and non-routed rigid fallback hits
+use the same invalid/no-object colors as mode 39. Like mode 39, it removes
+routed-ready rigid candidates from the dynamic fallback so the vector view is
+not contaminated by duplicate fallback coverage. This mode is diagnostic-only
+and does not change mode 18 shading or write a production motion-vector buffer.
 
 Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit

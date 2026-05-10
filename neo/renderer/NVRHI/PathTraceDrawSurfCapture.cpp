@@ -669,7 +669,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
     const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
     const bool removeRoutedRigidDynamic =
-        (requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || routeMode18 || routeMode20) &&
+        (requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || routeMode18 || routeMode20) &&
         r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&

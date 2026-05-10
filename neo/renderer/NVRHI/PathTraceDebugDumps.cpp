@@ -289,6 +289,7 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 37: info.name = "path tracer max-depth / Russian roulette"; info.category = "pass-output-visualizer"; info.output = "depth limit / Russian-roulette state"; info.owner = "path-tracer-core"; break;
     case 38: info.name = "skinned object-motion vector"; info.category = "pass-output-visualizer"; info.output = "skinned current-to-previous object motion"; info.owner = "primary-surface"; break;
     case 39: info.name = "routed-rigid object-motion eligibility"; info.category = "scene-geometry-diagnostic"; info.output = "routed rigid previous-transform eligibility"; info.owner = "primary-surface"; break;
+    case 40: info.name = "routed-rigid object-motion vector"; info.category = "pass-output-visualizer"; info.output = "routed rigid current-to-previous object motion"; info.owner = "primary-surface"; break;
     default: break;
     }
 
