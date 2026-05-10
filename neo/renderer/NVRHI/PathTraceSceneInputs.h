@@ -233,6 +233,10 @@ struct RtPathTraceSceneInputLights
 struct RtPathTraceSceneInputDiagnostics
 {
     uint64_t geometryUploadBytes = 0;
+    uint64_t staticUploadBytes = 0;
+    uint64_t previousStaticUploadBytes = 0;
+    uint64_t dynamicUploadBytes = 0;
+    uint64_t rigidRouteUploadBytes = 0;
     uint64_t materialUploadBytes = 0;
     uint64_t lightUploadBytes = 0;
     int sceneBuildMs = 0;

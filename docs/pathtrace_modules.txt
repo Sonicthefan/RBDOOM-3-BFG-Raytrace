@@ -227,7 +227,10 @@ PathTraceSceneInputs.h
     counts. The classified total deliberately excludes retained occluders
     because retained occluders are also counted by class; its match flag reports
     whether the class split accounts for the aggregate dynamic triangle count.
-    These counts are diagnostics only and do not split the dynamic BLAS.
+    These counts are diagnostics only and do not split the dynamic BLAS. Upload
+    diagnostics also expose static, previous-static, dynamic, and rigid-route
+    geometry byte buckets next to the aggregate geometry/material/light upload
+    totals.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the

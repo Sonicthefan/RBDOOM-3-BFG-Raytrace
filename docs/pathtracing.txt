@@ -2076,6 +2076,11 @@ Geometry universe status:
   excludes retained occluders because retained occluders are also counted in
   their surface class; `match=1` means the class split accounts for the dynamic
   triangle payload.
+- Scene-input upload diagnostics split geometry upload bytes into static,
+  previous-static, dynamic, and rigid-route buckets next to the aggregate
+  geometry/material/light totals. This helps verify that previous-static
+  ownership and upload skipping are doing useful work without changing any
+  shader-visible bindings.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,

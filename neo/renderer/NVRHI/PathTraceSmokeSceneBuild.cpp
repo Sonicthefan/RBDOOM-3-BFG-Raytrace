@@ -2669,6 +2669,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
 
     sceneInputs.diagnostics.geometryUploadBytes = staticUploadBytes + previousStaticUploadBytes + dynamicUploadBytes + rigidRouteUploadBytes;
+    sceneInputs.diagnostics.staticUploadBytes = staticUploadBytes;
+    sceneInputs.diagnostics.previousStaticUploadBytes = previousStaticUploadBytes;
+    sceneInputs.diagnostics.dynamicUploadBytes = dynamicUploadBytes;
+    sceneInputs.diagnostics.rigidRouteUploadBytes = rigidRouteUploadBytes;
     sceneInputs.diagnostics.materialUploadBytes = materialUploadBytes;
     sceneInputs.diagnostics.lightUploadBytes = lightUploadBytes;
     sceneInputs.diagnostics.sceneBuildMs = Sys_Milliseconds() - sceneStartMs;
