@@ -1598,14 +1598,16 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     StoreRestirPTInitialReservoir(pixel, currentReservoir);
 
     int2 previousPixel;
-    const bool projected = RestirPTProjectWorldToPreviousPixel(
-        RAB_GetSurfaceWorldPos(currentSurface),
+    uint projectionDebugStatus;
+    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(
+        currentSurface,
         PathTraceFullOutputSize(),
-        previousPixel);
+        previousPixel,
+        projectionDebugStatus);
     if (!projected)
     {
         StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
-        rejectionColor = float4(0.05, 0.12, 0.55, 1.0);
+        rejectionColor = PathTracePrimarySurfaceDebugColor(projectionDebugStatus, currentSurface);
         return currentReservoir;
     }
 

@@ -2595,14 +2595,18 @@ reprojection are implemented.
 Mode 30 is the temporary screen-space reprojection validation view for ReSTIR PT
 history. The backend stores the camera basis/tangents that produced the
 previous primary-surface history buffer. The shader projects each current
-primary hit's world position into that previous camera, samples
-`PrimarySurfaceHistoryPrevious` at the resulting previous pixel, and then uses
-the same material/normal/roughness color key as mode 29. This should turn many
-static-world camera-motion mismatches back toward green before real temporal
-ReSTIR is enabled. It is deliberately not a final motion-vector solution:
-animated/skinned meshes, moving rigid props, doors/platforms, particles,
-translucency, and disocclusions still need vertex/object motion or explicit
-invalidation before temporal reuse can be trusted.
+primary hit into that previous camera, samples `PrimarySurfaceHistoryPrevious`
+at the resulting previous pixel, and then uses the same material/normal/
+roughness color key as mode 29. Static hits still use current-world-position
+camera reprojection. Skinned hits with validated previous skinned positions and
+routed rigid hits with continuous previous transforms now project their previous
+world position instead; if an eligible dynamic hit lacks required previous
+object state, the mode reports the skinned/rigid invalid reason instead of
+hiding it behind camera-only reprojection. This should turn many static-world
+camera-motion mismatches back toward green while also validating the first real
+object-motion reprojection path. It is still not a final motion-vector solution:
+particles, translucency, disocclusions, alternate motion, and denoiser export
+remain later tasks.
 User validation: mode 30 is mostly green during camera motion, which confirms
 that static-world current-position to previous-camera reprojection is finding
 the previous primary history in normal gameplay views. The remaining purple and
@@ -2623,12 +2627,14 @@ The shader still runs inside the existing raygen path: it writes the current
 initial reservoir, uses the mode 30 previous-pixel reprojection as the temporal
 candidate, rejects missing or mismatched previous surfaces before RTXDI
 resampling, then calls `RTXDI_PTTemporalResampling` and writes the temporal
-output reservoir. The color key remains diagnostic only: green means a valid
-temporal reservoir path, blue means no usable previous surface/reservoir,
-yellow/purple/orange are the material/normal/roughness rejection colors from
-mode 29/30, and red means invalid current or temporal output. Mode 31 does not
-feed final shading, does not enable spatial reuse, and does not solve moving
-object motion vectors.
+output reservoir. Because mode 30 now uses previous object positions for
+validated skinned and routed rigid hits, mode 31's motion vector input uses that
+object-aware previous pixel when available. The color key remains diagnostic
+only: green means a valid temporal reservoir path, blue means no usable previous
+surface/reservoir, yellow/purple/orange are the material/normal/roughness
+rejection colors from mode 29/30, skinned/rigid missing/range colors mean object
+motion was required but unavailable, and red means invalid current or temporal
+output. Mode 31 does not feed final shading or enable spatial reuse.
 User validation: mode 31 looks broadly similar to mode 30 in normal motion.
 Violent camera movement can produce blue sections around screen edges until
 history catches up. That is expected because those pixels reproject offscreen or

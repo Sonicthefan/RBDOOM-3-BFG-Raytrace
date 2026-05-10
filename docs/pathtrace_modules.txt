@@ -1420,12 +1420,14 @@ vectors and reprojection are wired.
 Mode 30 validates a temporary screen-space reprojection path before RTXDI
 temporal resampling is enabled. PathTraceSmokeDispatch stores the current camera
 basis/tangents after copying current primary history to previous; the next
-frame's shader projects each current primary world position into that previous
-camera and samples the previous history pixel. It uses the same color key as
-mode 29. The no-object-motion status is reserved in the record/debug constants
-for future object-motion validation, but camera-only reprojection remains the
-current mode 30 behavior. This is useful for camera-motion validation on static
-world surfaces, but it is not a replacement for vertex/object motion vectors.
+frame's shader projects each current primary surface into that previous camera
+and samples the previous history pixel. Static hits use current-world-position
+camera reprojection. Validated skinned hits and routed rigid hits use their
+packed previous world position for the previous-pixel lookup; if an eligible
+dynamic hit needs object motion but lacks valid previous state, the mode reports
+the skinned/rigid invalid color instead of silently falling back to camera-only
+reprojection. It uses the same color key as mode 29 plus the object-motion
+invalid colors.
 User validation reports mode 30 is mostly green, with purple/orange outlines on
 moving-object and silhouette edges. Treat those outlines as the expected limit
 of camera-only screen-space reprojection, not a failure of the primary history
@@ -1437,8 +1439,10 @@ RTXDI the alternating initial/temporal input/output reservoir indices. The
 shader writes the current initial reservoir, projects the current primary
 surface to the previous pixel, rejects missing or mismatched previous
 surface/reservoir data, then calls RTXDI_PTTemporalResampling and stores the
-temporal output reservoir. This remains a diagnostic color view; it is not final
-shading and it does not enable spatial reuse.
+temporal output reservoir. The previous-pixel lookup is object-aware for
+validated skinned/routed rigid hits and remains camera-only for static hits.
+This remains a diagnostic color view; it is not final shading and it does not
+enable spatial reuse.
 User validation reports mode 31 is broadly similar to mode 30; violent camera
 motion can leave blue edge bands until history catches up. Treat those bands as
 offscreen/disocclusion misses from the temporary reprojection path rather than

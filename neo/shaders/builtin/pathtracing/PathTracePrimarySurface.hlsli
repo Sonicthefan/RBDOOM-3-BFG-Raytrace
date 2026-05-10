@@ -222,6 +222,40 @@ bool RestirPTProjectWorldToPreviousPixel(float3 worldPosition, uint2 dimensions,
     return ProjectPathTracePrimarySurfaceToPreviousPixel(worldPosition, dimensions, previousPixel);
 }
 
+bool ProjectPathTracePrimarySurfaceToPreviousPixel(RAB_Surface currentSurface, uint2 dimensions, out int2 previousPixel, out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+
+    float3 previousProjectionPosition = RAB_GetSurfaceWorldPos(currentSurface);
+#ifdef RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
+    float3 previousObjectPosition;
+    uint objectMotionDebugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (TryPathTracePrimarySurfaceObjectMotion(currentSurface, previousObjectPosition, objectMotionDebugStatus))
+    {
+        previousProjectionPosition = previousObjectPosition;
+    }
+    else if (objectMotionDebugStatus != RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION)
+    {
+        debugStatus = objectMotionDebugStatus;
+        return false;
+    }
+#endif
+
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousProjectionPosition, dimensions, previousPixel))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+        return false;
+    }
+
+    return true;
+}
+
 bool PathTracePrimarySurfacesAreSimilar(RAB_Surface a, RAB_Surface b, out uint debugStatus)
 {
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
@@ -354,13 +388,11 @@ float4 EvaluateRestirPTPrimarySurfaceReprojectionDebug(RAB_Surface currentSurfac
     }
 
     int2 previousPixel;
-    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(
-        RAB_GetSurfaceWorldPos(currentSurface),
-        PathTraceFullOutputSize(),
-        previousPixel);
+    uint debugStatus;
+    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(currentSurface, PathTraceFullOutputSize(), previousPixel, debugStatus);
     if (!projected)
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
     const RAB_Surface previousSurface = RAB_GetGBufferSurface(previousPixel, true);
