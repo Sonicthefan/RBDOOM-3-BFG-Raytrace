@@ -196,15 +196,19 @@ PathTracePrimarySurface.h
 PathTraceSceneInputs.h
     CPU-side PT scene input contract. It packages the committed TLAS/BLAS
     handles, static/dynamic/rigid/skinned geometry counts, static dirty-range
-    summary, material table buffer and signature, texture descriptor table and
-    active texture count, emissive and Doom analytic light buffers/counts,
-    source3 view/current-area portal policy facts, history-availability
-    placeholders, skinned previous CPU-bridge match/invalid diagnostics,
-    off-by-default skinned GPU-skinning scaffold resource handles/counts, and
-    CPU upload/timing diagnostics. This is not a shader ABI. The static
-    dirty-range summary mirrors the geometry-universe CPU bookkeeping and
-    reports when reused static geometry buffers consumed it for partial
-    dirty-range uploads. New or resized static buffers still use full uploads.
+    summary, conservative previous static buffer/count/history facts, material
+    table buffer and signature, texture descriptor table and active texture
+    count, emissive and Doom analytic light buffers/counts, source3
+    view/current-area portal policy facts, history-availability placeholders,
+    skinned previous CPU-bridge match/invalid diagnostics, off-by-default
+    skinned GPU-skinning scaffold resource handles/counts, and CPU upload/timing
+    diagnostics. This is not a shader ABI. The static dirty-range summary
+    mirrors the geometry-universe CPU bookkeeping and reports when reused static
+    geometry buffers consumed it for partial dirty-range uploads. New or resized
+    static buffers still use full uploads. The previous static bridge is
+    conservative scene-input metadata only: it records previous committed static
+    buffer handles/counts and exposes whether current static records have
+    complete previous ranges with matching counts.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the

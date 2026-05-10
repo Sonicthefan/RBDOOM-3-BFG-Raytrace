@@ -81,6 +81,18 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
         geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
         geometry.capabilityFlags);
+    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevCounts=%d prevRangesComplete=%d previous v/i/t=%d/%d/%d\n",
+        geometry.staticSeenSurfaceCount,
+        geometry.staticNewSurfaceCount,
+        geometry.staticGoneSurfaceCount,
+        geometry.staticHistoryValidSurfaceCount,
+        geometry.staticPreviousRangeValidSurfaceCount,
+        geometry.staticPreviousBuffersAvailable ? 1 : 0,
+        geometry.staticPreviousCountsMatch ? 1 : 0,
+        geometry.staticPreviousRangesComplete ? 1 : 0,
+        geometry.previousStaticVertexCount,
+        geometry.previousStaticIndexCount,
+        geometry.previousStaticTriangleCount);
     common->Printf("PathTracePrimaryPass: PT skinned previous bridge matched=%d invalid=%d retainedVerts=%d noFrame=%d noSurface=%d countMismatch=%d materialChanged=%d classChanged=%d notRtCpu=%d skeletonChanged=%d transformDiscontinuous=%d prevBufferUnavailable=%d temporal topology/lod/transform/deform/material/prevBuffer=%d/%d/%d/%d/%d/%d\n",
         geometry.skinnedPreviousMatchedSurfaceCount,
         geometry.skinnedPreviousInvalidSurfaceCount,

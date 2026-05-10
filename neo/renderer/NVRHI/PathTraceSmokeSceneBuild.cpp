@@ -2358,6 +2358,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticTriangleClassBuffer = smokeStaticTriangleClassBuffer;
     sceneInputs.geometry.staticTriangleMaterialBuffer = smokeStaticTriangleMaterialBuffer;
     sceneInputs.geometry.staticTriangleMaterialIndexBuffer = smokeStaticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.previousStaticVertexBuffer = m_sceneInputs.geometry.staticVertexBuffer;
+    sceneInputs.geometry.previousStaticIndexBuffer = m_sceneInputs.geometry.staticIndexBuffer;
+    sceneInputs.geometry.previousStaticTriangleClassBuffer = m_sceneInputs.geometry.staticTriangleClassBuffer;
+    sceneInputs.geometry.previousStaticTriangleMaterialBuffer = m_sceneInputs.geometry.staticTriangleMaterialBuffer;
     sceneInputs.geometry.dynamicVertexBuffer = smokeDynamicVertexBuffer;
     sceneInputs.geometry.dynamicIndexBuffer = smokeDynamicIndexBuffer;
     sceneInputs.geometry.dynamicTriangleClassBuffer = smokeDynamicTriangleClassBuffer;
@@ -2377,6 +2381,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticVertexCount = staticVertexCacheCount;
     sceneInputs.geometry.staticIndexCount = staticIndexCacheCount;
     sceneInputs.geometry.staticTriangleCount = staticTriangleCacheCount;
+    sceneInputs.geometry.previousStaticVertexCount = m_sceneInputs.geometry.staticVertexCount;
+    sceneInputs.geometry.previousStaticIndexCount = m_sceneInputs.geometry.staticIndexCount;
+    sceneInputs.geometry.previousStaticTriangleCount = m_sceneInputs.geometry.staticTriangleCount;
+    sceneInputs.geometry.staticSeenSurfaceCount = geometryUniverseStats.staticSeenThisFrame;
+    sceneInputs.geometry.staticNewSurfaceCount = geometryUniverseStats.staticNewThisFrame;
+    sceneInputs.geometry.staticGoneSurfaceCount = geometryUniverseStats.staticDisappearedThisFrame;
+    sceneInputs.geometry.staticHistoryValidSurfaceCount = geometryUniverseStats.staticHistoryValid;
+    sceneInputs.geometry.staticPreviousRangeValidSurfaceCount = geometryUniverseStats.staticPreviousRangeValid;
     sceneInputs.geometry.staticDirtySurfaceCount = geometryUniverseStats.staticDirty;
     sceneInputs.geometry.staticDirtyVertexOffset = geometryUniverseStats.staticDirtyVertexOffset;
     sceneInputs.geometry.staticDirtyVertexCount = geometryUniverseStats.staticDirtyVertexCount;
@@ -2385,6 +2397,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticDirtyTriangleOffset = geometryUniverseStats.staticDirtyTriangleOffset;
     sceneInputs.geometry.staticDirtyTriangleCount = geometryUniverseStats.staticDirtyTriangleCount;
     sceneInputs.geometry.staticDirtyRangeUploadUsed = useStaticDirtyRangeUploads;
+    sceneInputs.geometry.staticPreviousCountsMatch =
+        m_sceneInputs.valid &&
+        m_sceneInputs.geometry.staticVertexCount == staticVertexCacheCount &&
+        m_sceneInputs.geometry.staticIndexCount == staticIndexCacheCount &&
+        m_sceneInputs.geometry.staticTriangleCount == staticTriangleCacheCount;
+    sceneInputs.geometry.staticPreviousRangesComplete =
+        sceneInputs.geometry.staticSeenSurfaceCount > 0 &&
+        sceneInputs.geometry.staticPreviousRangeValidSurfaceCount == sceneInputs.geometry.staticSeenSurfaceCount;
+    sceneInputs.geometry.staticPreviousBuffersAvailable =
+        sceneInputs.geometry.staticPreviousCountsMatch &&
+        sceneInputs.geometry.staticPreviousRangesComplete &&
+        sceneInputs.geometry.previousStaticVertexBuffer &&
+        sceneInputs.geometry.previousStaticIndexBuffer &&
+        sceneInputs.geometry.previousStaticTriangleClassBuffer &&
+        sceneInputs.geometry.previousStaticTriangleMaterialBuffer;
     sceneInputs.geometry.dynamicVertexCount = dynamicVertexCount;
     sceneInputs.geometry.dynamicIndexCount = dynamicIndexCount;
     sceneInputs.geometry.dynamicTriangleCount = dynamicIndexCount / 3;

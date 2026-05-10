@@ -2002,6 +2002,12 @@ Geometry universe status:
   dirty/history validity, and explicit current/previous vertex/index/triangle
   ranges. For unchanged static world surfaces, consecutive-frame history maps
   the previous range to the same cached range.
+- Scene inputs now carry a conservative static previous-frame bridge: previous
+  static geometry buffer handles/counts from the last committed scene, current
+  seen/new/gone/history/previous-range counts, and booleans for previous count
+  match, complete previous ranges, and previous static buffer availability.
+  This is CPU-side scene-input metadata only; it does not change the shader
+  binding ABI or make a new motion-vector consumer.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
@@ -2042,9 +2048,10 @@ Geometry universe status:
   to support static, rigid, and eventually skinned geometry. Avoid designs that
   only keep the current frame's packed buffers and throw away the previous
   geometry universe.
-- The next useful geometry step after the range-history, dirty-extent dump, and
-  partial dirty static-buffer uploads is stronger persistent GPU buffer
-  ownership: previous-frame buffers and stronger static/dynamic separation.
+- The next useful geometry step after the range-history, dirty-extent dump,
+  partial dirty static-buffer uploads, and static previous-frame scene-input
+  bridge is stronger persistent GPU buffer ownership and stronger static/dynamic
+  separation.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,
