@@ -1443,6 +1443,9 @@ temporal output reservoir. The previous-pixel lookup is object-aware for
 validated skinned/routed rigid hits and remains camera-only for static hits.
 This remains a diagnostic color view; it is not final shading and it does not
 enable spatial reuse.
+`RtPathTraceFrameResources` reports primary-history `objectMotion=1` only when
+scene inputs contain a concrete object-motion source: skinned previous-position
+dispatch ranges or routed rigid previous transforms.
 User validation reports mode 31 is broadly similar to mode 30; violent camera
 motion can leave blue edge bands until history catches up. Treat those bands as
 offscreen/disocclusion misses from the temporary reprojection path rather than

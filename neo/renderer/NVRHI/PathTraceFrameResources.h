@@ -121,7 +121,7 @@ struct RtPathTraceFrameResources
     void ResetReadbackQueue();
     void MarkResetReason(uint32_t reasonFlags);
     void ClearResetReasons();
-    void SetPrimarySurfaceHistoryView(const RtPathTraceFrameCameraState& view);
+    void SetPrimarySurfaceHistoryView(const RtPathTraceFrameCameraState& view, bool objectMotionAvailable);
     void InvalidatePrimarySurfaceHistory(uint32_t reasonFlags);
     void RecordSceneResourceCommit(uint64_t uploadBytes, bool rebuiltBindingSet, bool committedAccelerationStructures);
     void RecordReadbackQueued();

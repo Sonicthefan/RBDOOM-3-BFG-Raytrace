@@ -332,7 +332,7 @@ void RtPathTraceFrameResources::ClearResetReasons()
     settings.resetReasonFlags = RT_FRAME_RESET_NONE;
 }
 
-void RtPathTraceFrameResources::SetPrimarySurfaceHistoryView(const RtPathTraceFrameCameraState& view)
+void RtPathTraceFrameResources::SetPrimarySurfaceHistoryView(const RtPathTraceFrameCameraState& view, bool objectMotionAvailable)
 {
     primarySurfaceHistoryView = view;
     primarySurfaceHistoryView.valid = true;
@@ -340,7 +340,7 @@ void RtPathTraceFrameResources::SetPrimarySurfaceHistoryView(const RtPathTraceFr
     primarySurfaceHistoryState.previousValid = true;
     primarySurfaceHistoryState.samePixelHistoryValid = true;
     primarySurfaceHistoryState.cameraReprojectionAvailable = true;
-    primarySurfaceHistoryState.objectMotionAvailable = false;
+    primarySurfaceHistoryState.objectMotionAvailable = objectMotionAvailable;
 }
 
 void RtPathTraceFrameResources::InvalidatePrimarySurfaceHistory(uint32_t reasonFlags)

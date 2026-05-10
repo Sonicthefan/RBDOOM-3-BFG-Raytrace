@@ -2635,6 +2635,9 @@ surface/reservoir, yellow/purple/orange are the material/normal/roughness
 rejection colors from mode 29/30, skinned/rigid missing/range colors mean object
 motion was required but unavailable, and red means invalid current or temporal
 output. Mode 31 does not feed final shading or enable spatial reuse.
+The frame-resource diagnostics report `primaryState ... objectMotion=1` only
+when scene inputs contain a concrete object-motion source: skinned previous
+position dispatch ranges or routed rigid previous transforms.
 User validation: mode 31 looks broadly similar to mode 30 in normal motion.
 Violent camera movement can produce blue sections around screen edges until
 history catches up. That is expected because those pixels reproject offscreen or

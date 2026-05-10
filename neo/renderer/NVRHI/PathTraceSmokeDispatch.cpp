@@ -985,7 +985,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         currentHistoryView.up = cameraUp;
         currentHistoryView.tanX = constants.cameraForwardAndTanX[3];
         currentHistoryView.tanY = constants.cameraLeftAndTanY[3];
-        m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView);
+        const bool objectMotionAvailable =
+            (m_sceneInputs.geometry.skinnedPreviousPositionBufferAvailable && m_sceneInputs.geometry.skinnedSurfaceDispatchCount > 0) ||
+            (m_sceneInputs.geometry.previousTransformAvailable && m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
+        m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
     }
     if (debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0)
     {
