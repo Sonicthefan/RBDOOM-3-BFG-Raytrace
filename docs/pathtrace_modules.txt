@@ -219,7 +219,9 @@ PathTraceSceneInputs.h
     future consumers, without changing shader bindings. The material-index
     count is tracked independently because the static-side material-index table
     can include full-level emissive and routed-rigid material IDs beyond the
-    static triangle count.
+    static triangle count. `staticPreviousGpuSnapshotUploadUsed` reports whether
+    the retained previous static GPU snapshot actually needed a fresh upload in
+    the current scene build.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the
@@ -253,7 +255,9 @@ PathTraceSmokeSceneBuild.cpp
     snapshot plus the previous static material-index array are uploaded into
     separate non-shader-bound GPU buffers for future motion/history consumers.
     Previous material-index validity is checked against the previous material-
-    index count, not against static triangle count.
+    index count, not against static triangle count. When the previous static
+    snapshot signature matches the retained previous buffers, scene build skips
+    those five previous-static buffer uploads and keeps the existing GPU data.
 
 PathTraceSmokeResources.h
     Resource-facing structs for smoke geometry buffers, binding build inputs,

@@ -133,6 +133,7 @@ struct RtPathTraceSceneInputGeometry
     bool staticPreviousBuffersAliasCurrent = false;
     bool staticPreviousCpuSnapshotAvailable = false;
     bool staticPreviousGpuSnapshotAvailable = false;
+    bool staticPreviousGpuSnapshotUploadUsed = false;
     bool staticPreviousCountsMatch = false;
     bool staticPreviousRangesComplete = false;
     int dynamicVertexCount = 0;

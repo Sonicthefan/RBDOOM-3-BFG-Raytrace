@@ -2021,7 +2021,9 @@ Geometry universe status:
   validating previous static data ownership; the previous vertex/index/triangle-
   class/triangle-material/material-index arrays are uploaded into separate
   previous static GPU snapshot buffers for future consumers, but those buffers
-  are not bound into the shader ABI yet.
+  are not bound into the shader ABI yet. Once the same previous static snapshot
+  is already resident in the retained previous buffers, scene build skips the
+  repeat upload and reports `prevGpuUpload=0` in `r_pathTracingSceneInputsDump`.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode

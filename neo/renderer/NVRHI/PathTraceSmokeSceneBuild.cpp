@@ -95,6 +95,34 @@ uint64_t SumSmokeUploadBytes(const RtSmokeBufferUploadItem* items, int firstItem
     return bytes;
 }
 
+template< typename T >
+uint64 HashSmokeVectorData(uint64 hash, const std::vector<T>& data)
+{
+    const uint64 count = static_cast<uint64>(data.size());
+    hash = HashSmokeBytes(hash, &count, sizeof(count));
+    if (!data.empty())
+    {
+        hash = HashSmokeBytes(hash, data.data(), data.size() * sizeof(data[0]));
+    }
+    return hash;
+}
+
+uint64 ComputeSmokePreviousStaticSnapshotUploadSignature(
+    const std::vector<PathTraceSmokeVertex>& vertices,
+    const std::vector<uint32_t>& indexes,
+    const std::vector<uint32_t>& triangleClasses,
+    const std::vector<uint32_t>& triangleMaterials,
+    const std::vector<uint32_t>& triangleMaterialIndexes)
+{
+    uint64 hash = 14695981039346656037ull;
+    hash = HashSmokeVectorData(hash, vertices);
+    hash = HashSmokeVectorData(hash, indexes);
+    hash = HashSmokeVectorData(hash, triangleClasses);
+    hash = HashSmokeVectorData(hash, triangleMaterials);
+    hash = HashSmokeVectorData(hash, triangleMaterialIndexes);
+    return hash;
+}
+
 struct RtSmokeStaticDrawSurfCounts
 {
     int surfaces = 0;
@@ -934,6 +962,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokePreviousStaticTriangleMaterialBuffer = nullptr;
             m_smokePreviousStaticTriangleMaterialIndexBuffer = nullptr;
             m_smokePreviousStaticTriangleMaterialIndexes.clear();
+            m_smokePreviousStaticSnapshotUploadSignature = 0;
             m_smokeDynamicVertexBuffer = nullptr;
             m_smokeDynamicIndexBuffer = nullptr;
             m_smokeDynamicTriangleClassBuffer = nullptr;
@@ -1088,6 +1117,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokePreviousSkinnedVertexData.clear();
         m_smokePreviousSkinnedJointMatrices.clear();
         m_smokePreviousStaticTriangleMaterialIndexes.clear();
+        m_smokePreviousStaticSnapshotUploadSignature = 0;
         m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
@@ -1111,6 +1141,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokePreviousSkinnedVertexData.clear();
             m_smokePreviousSkinnedJointMatrices.clear();
             m_smokePreviousStaticTriangleMaterialIndexes.clear();
+            m_smokePreviousStaticSnapshotUploadSignature = 0;
             m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
@@ -1126,6 +1157,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokePreviousSkinnedVertexData.clear();
         m_smokePreviousSkinnedJointMatrices.clear();
         m_smokePreviousStaticTriangleMaterialIndexes.clear();
+        m_smokePreviousStaticSnapshotUploadSignature = 0;
         m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
         m_smokeStaticBlasCacheValid = false;
         m_smokeStaticBlasSignature = 0;
@@ -2168,6 +2200,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         geometryUniverseStats.staticDirty > 0 &&
         staticGeometryBuffersReused &&
         staticDirtyRangesValid;
+    const bool previousStaticSnapshotBuffersReused =
+        smokePreviousStaticVertexBuffer && smokePreviousStaticVertexBuffer == m_smokePreviousStaticVertexBuffer &&
+        smokePreviousStaticIndexBuffer && smokePreviousStaticIndexBuffer == m_smokePreviousStaticIndexBuffer &&
+        smokePreviousStaticTriangleClassBuffer && smokePreviousStaticTriangleClassBuffer == m_smokePreviousStaticTriangleClassBuffer &&
+        smokePreviousStaticTriangleMaterialBuffer && smokePreviousStaticTriangleMaterialBuffer == m_smokePreviousStaticTriangleMaterialBuffer &&
+        smokePreviousStaticTriangleMaterialIndexBuffer && smokePreviousStaticTriangleMaterialIndexBuffer == m_smokePreviousStaticTriangleMaterialIndexBuffer;
+    const bool previousStaticSnapshotDataAvailable =
+        !previousStaticVertexCache.empty() &&
+        !previousStaticIndexCache.empty() &&
+        !previousStaticTriangleClassCache.empty() &&
+        !previousStaticTriangleMaterialCache.empty() &&
+        !previousStaticTriangleMaterialIndexCache.empty();
+    const uint64 previousStaticSnapshotUploadSignature = previousStaticSnapshotDataAvailable
+        ? ComputeSmokePreviousStaticSnapshotUploadSignature(
+            previousStaticVertexCache,
+            previousStaticIndexCache,
+            previousStaticTriangleClassCache,
+            previousStaticTriangleMaterialCache,
+            previousStaticTriangleMaterialIndexCache)
+        : 0;
+    const bool skipPreviousStaticSnapshotUpload =
+        previousStaticSnapshotDataAvailable &&
+        previousStaticSnapshotBuffersReused &&
+        m_smokePreviousStaticSnapshotUploadSignature != 0 &&
+        m_smokePreviousStaticSnapshotUploadSignature == previousStaticSnapshotUploadSignature;
 
     const RtSmokeBufferUploadItem uploadItems[] = {
         MakeSmokeVectorUploadItem(smokeStaticVertexBuffer, staticVertexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1, geometryUniverseStats.staticDirtyVertexCount),
@@ -2175,11 +2232,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeStaticTriangleClassBuffer, staticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
         MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit),
-        MakeSmokeVectorUploadItem(smokePreviousStaticVertexBuffer, previousStaticVertexCache, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokePreviousStaticIndexBuffer, previousStaticIndexCache, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleClassBuffer, previousStaticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialBuffer, previousStaticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialIndexBuffer, previousStaticTriangleMaterialIndexCache, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokePreviousStaticVertexBuffer, previousStaticVertexCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticSnapshotUpload),
+        MakeSmokeVectorUploadItem(smokePreviousStaticIndexBuffer, previousStaticIndexCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticSnapshotUpload),
+        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleClassBuffer, previousStaticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticSnapshotUpload),
+        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialBuffer, previousStaticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticSnapshotUpload),
+        MakeSmokeVectorUploadItem(smokePreviousStaticTriangleMaterialIndexBuffer, previousStaticTriangleMaterialIndexCache, nvrhi::ResourceStates::ShaderResource, skipPreviousStaticSnapshotUpload),
         MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, dynamicVertexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
         MakeSmokeVectorUploadItem(smokeDynamicIndexBuffer, dynamicIndexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
@@ -2470,6 +2527,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         sceneInputs.geometry.previousStaticTriangleClassBuffer &&
         sceneInputs.geometry.previousStaticTriangleMaterialBuffer &&
         sceneInputs.geometry.previousStaticTriangleMaterialIndexBuffer;
+    sceneInputs.geometry.staticPreviousGpuSnapshotUploadUsed =
+        previousStaticSnapshotDataAvailable &&
+        sceneInputs.geometry.staticPreviousGpuSnapshotAvailable &&
+        !skipPreviousStaticSnapshotUpload;
     sceneInputs.geometry.staticPreviousBuffersAliasCurrent =
         sceneInputs.geometry.staticPreviousBuffersAvailable &&
         sceneInputs.geometry.previousStaticVertexBuffer == sceneInputs.geometry.staticVertexBuffer &&
@@ -2617,6 +2678,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
     }
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
+    m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     RtSmokeSceneBuildDiagnosticLogDesc sceneLogDesc;

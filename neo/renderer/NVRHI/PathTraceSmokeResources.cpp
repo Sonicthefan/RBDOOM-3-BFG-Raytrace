@@ -82,7 +82,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
         geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
         geometry.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevGpu=%d prevCounts=%d prevRangesComplete=%d previous v/i/t/mi=%d/%d/%d/%d cpu v/i/t/mi/kb=%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevGpu=%d prevGpuUpload=%d prevCounts=%d prevRangesComplete=%d previous v/i/t/mi=%d/%d/%d/%d cpu v/i/t/mi/kb=%d/%d/%d/%d/%d\n",
         geometry.staticSeenSurfaceCount,
         geometry.staticNewSurfaceCount,
         geometry.staticGoneSurfaceCount,
@@ -93,6 +93,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.staticPreviousBuffersAliasCurrent ? 1 : 0,
         geometry.staticPreviousCpuSnapshotAvailable ? 1 : 0,
         geometry.staticPreviousGpuSnapshotAvailable ? 1 : 0,
+        geometry.staticPreviousGpuSnapshotUploadUsed ? 1 : 0,
         geometry.staticPreviousCountsMatch ? 1 : 0,
         geometry.staticPreviousRangesComplete ? 1 : 0,
         geometry.previousStaticVertexCount,
@@ -1174,6 +1175,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokePreviousStaticTriangleMaterialBuffer = nullptr;
     m_smokePreviousStaticTriangleMaterialIndexBuffer = nullptr;
     m_smokePreviousStaticTriangleMaterialIndexes.clear();
+    m_smokePreviousStaticSnapshotUploadSignature = 0;
     m_smokeDynamicVertexBuffer = nullptr;
     m_smokeDynamicIndexBuffer = nullptr;
     m_smokeDynamicTriangleClassBuffer = nullptr;

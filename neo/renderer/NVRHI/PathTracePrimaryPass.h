@@ -156,6 +156,7 @@ private:
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
     std::vector<uint32_t> m_smokePreviousStaticTriangleMaterialIndexes;
+    uint64 m_smokePreviousStaticSnapshotUploadSignature = 0;
     int m_smokeMaterialTableEntryCount = 0;
     int m_smokeEmissiveTriangleCount = 0;
     int m_smokeEmissiveStaticTriangleCount = 0;
