@@ -187,7 +187,11 @@ PathTracePrimarySurface.h
     without confirming the durable Doom renderer/game identity source. Treat the
     height, previous-position/motion, object/entity, roughness, F0, opacity, and
     alpha fields as denoise/upscale/reflection reservations; they are not a
-    license to wire DLSS/RR before real motion and reset policy exist.
+    license to wire DLSS/RR before real motion and reset policy exist. The
+    internal PT motion convention is current pixel to previous pixel, in
+    internal PT render-resolution pixels, with unjittered current/previous
+    camera state. Conversions for consumers with different sign or resolution
+    conventions must be explicit.
 
 PathTraceSceneInputs.h
     CPU-side PT scene input contract. It packages the committed TLAS/BLAS
@@ -198,9 +202,10 @@ PathTraceSceneInputs.h
     match/invalid diagnostics, off-by-default skinned GPU-skinning scaffold
     resource handles/counts, and CPU upload/timing diagnostics. This is not a
     shader ABI. The skinned previous bridge currently reports CPU-retained data
-    in the default path; `r_pathTracingGpuSkinning 1` can additionally create
-    diagnostic source/output/previous-position/dispatch buffers without making
-    the raygen or BLAS path consume them.
+    in the default path; `r_pathTracingGpuSkinning 1` additionally creates and
+    binds diagnostic source/output/previous-position/dispatch buffers so
+    primary-surface packing can consume validated skinned previous positions
+    without making the BLAS path consume the scaffold output.
 
 RenderBackend.cpp
     Calls PathTracePrimaryPass from DrawViewInternal for 3D views. When
@@ -1143,10 +1148,12 @@ skinned positions shader-visible in the default path.
   buffers from the CPU bridge and report counts through scene inputs.
 - `2`: reserved for future validated GPU output consumption.
 
-The diagnostic scaffold does not dispatch compute, does not bind new shader
-resources, does not change BLAS input, and does not modify raster GPU skinning.
-Current/previous joint matrix buffers are declared but remain empty until the
-next task wires explicit joint-state upload.
+The diagnostic scaffold does not dispatch compute, does not change BLAS input,
+and does not modify raster GPU skinning. It now binds the previous-position
+buffer and a skinned dispatch/range map explicitly at the smoke shader level so
+primary-surface records can reconstruct a previous world-space hit position for
+validated skinned dynamic triangles. Current/previous joint matrix buffers are
+declared but remain empty until a later task wires explicit joint-state upload.
 
 Safer places to touch:
 

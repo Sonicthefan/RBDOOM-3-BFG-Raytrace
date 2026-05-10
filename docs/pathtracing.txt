@@ -92,6 +92,12 @@ Current validated feature set:
   from the existing CPU-skinned bridge, but the normal BLAS and shader path still
   consume the existing dynamic CPU-skinned output. Mode 2 is reserved for later
   validated GPU output use and is not active yet.
+- With `r_pathTracingGpuSkinning 1`, skinned primary-surface records can now
+  look up the retained previous CPU-skinned position for the same dynamic
+  triangle and barycentric point. This only fills the primary-surface
+  previous-position/object-motion fields for validated skinned hits; it does
+  not change BLAS input, shading, material classification, raster GPU skinning,
+  or the future GPU compute skinning plan.
 - Bindless material texture table using Texture.Load.
 - Manual bilinear Texture.Load filtering.
 - Doom diffuse YCoCg decode.
@@ -161,10 +167,14 @@ Current validated feature set:
   height/parallax/displacement placeholder, and previous-position/object-motion
   placeholder. The object/entity ID is deliberately not finalized yet; the
   correct Doom renderer/game identity source must be chosen before object-motion
-  rejection or denoiser inputs depend on it. Mode 29 validates same-pixel
-  history, and mode 30 validates temporary current-world-position to previous
-  screen-space reprojection for camera motion. Full object/vertex motion vectors
-  are still future work. The Step 6 RNG bridge is also present and wraps RTXDI's
+  rejection or denoiser inputs depend on it. The internal PT convention for
+  motion-vector conversion is current pixel to previous pixel, in internal PT
+  render-resolution pixels, using unjittered current/previous camera state; any
+  external consumer that expects another basis needs an explicit conversion
+  shim. Mode 29 validates same-pixel history, and mode 30 validates temporary
+  current-world-position to previous screen-space reprojection for camera
+  motion. Full rigid/object vector output is still future work. The Step 6 RNG
+  bridge is also present and wraps RTXDI's
   own random sampler initialization and `RTXDI_GetNextRandom` behind local
   `RAB_RandomSamplerState` callbacks so future path replay can preserve seed
   plus consumed random index. Step 7 adds conservative opaque-diffuse BRDF
@@ -1642,8 +1652,12 @@ Current behavior:
   ranges, matches current records to the previous frame by key, retains a
   skinned-only CPU copy of the previous RT CPU-skinned vertex output, and reports
   conservative match/invalid reason counts through `r_pathTracingSceneInputsDump`.
-- The retained previous copy is CPU-side only in this task. Shader-visible
-  previous skinned positions and PT-owned GPU skinning remain future work.
+- With `r_pathTracingGpuSkinning 1`, the retained previous copy is also uploaded
+  as a shader-visible previous-position buffer plus a dispatch/range map. The
+  closest-hit output is unchanged, but primary-surface packing can mark validated
+  skinned hits with `RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION` and
+  `RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION` and store the previous world-space
+  hit position in `previousPositionOrMotion.xyz`.
 - `r_pathTracingGpuSkinning` defaults to `0`. Value `1` builds diagnostic
   source/output/previous-position/dispatch buffers from those same records so
   the future GPU-skinning contract can be validated without changing rendering.

@@ -56,6 +56,10 @@ struct PathTraceSkinnedSurfaceDispatchRecord
     uint32_t previousJointOffset = 0;
     uint32_t surfaceRecordIndex = 0;
     uint32_t flags = 0;
+    uint32_t dynamicVertexOffset = 0;
+    uint32_t dynamicIndexOffset = 0;
+    uint32_t dynamicTriangleOffset = 0;
+    uint32_t triangleCount = 0;
     float currentObjectToWorld[12];
     float previousObjectToWorld[12];
 };

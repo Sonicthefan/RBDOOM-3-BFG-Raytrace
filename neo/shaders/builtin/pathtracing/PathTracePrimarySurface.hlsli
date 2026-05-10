@@ -17,6 +17,9 @@ static const uint RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH = 4u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_NORMAL_MISMATCH = 5u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_ROUGHNESS_MISMATCH = 6u;
 static const uint RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION = 7u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS = 8u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH = 9u;
+static const uint RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE = 10u;
 
 struct PathTracePrimarySurfaceRecord
 {
@@ -55,7 +58,22 @@ PathTracePrimarySurfaceRecord PackPathTracePrimarySurfaceRecord(RAB_Surface surf
         validFlags |= RT_PRIMARY_SURFACE_HAS_CAMERA_REPROJECTION;
     }
 
-    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, validFlags, RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, 0u);
+    uint debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    float3 previousWorldPosition = float3(0.0, 0.0, 0.0);
+#ifdef RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
+    uint objectMotionDebugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (TryPathTracePrimarySurfaceObjectMotion(surface, previousWorldPosition, objectMotionDebugStatus))
+    {
+        validFlags |= RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    }
+    else
+    {
+        debugStatus = objectMotionDebugStatus;
+    }
+#endif
+
+    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, validFlags, debugStatus, 0u);
     record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
     record.geometricNormalAndRoughness = float4(surface.geometryNormal, surface.material.roughness);
     record.shadingNormalAndOpacity = float4(surface.shadingNormal, surface.material.opacity);
@@ -63,7 +81,9 @@ PathTracePrimarySurfaceRecord PackPathTracePrimarySurfaceRecord(RAB_Surface surf
     record.albedoAndAlphaCutoff = float4(surface.material.diffuseAlbedo, surface.material.alphaCutoff);
     record.specularF0AndReserved = float4(surface.material.specularF0, 0.0);
     record.emissiveAndHeight = float4(surface.material.emissiveRadiance, 0.0);
-    record.previousPositionOrMotion = float4(0.0, 0.0, 0.0, 0.0);
+    record.previousPositionOrMotion = (validFlags & RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION) != 0u
+        ? float4(previousWorldPosition, 1.0)
+        : float4(0.0, 0.0, 0.0, 0.0);
     record.materialAndSurface = uint4(surface.materialId, surface.materialIndex, surface.flags, surface.surfaceClass);
     // TODO: replace the object/entity placeholder with the chosen Doom renderer/game identity
     // once the long-lived ID source is confirmed for map transitions, entity updates, and save/load.
@@ -275,6 +295,18 @@ float4 PathTracePrimarySurfaceDebugColor(uint debugStatus, RAB_Surface currentSu
     if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION)
     {
         return float4(0.02, 0.22, 0.24, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS)
+    {
+        return float4(0.10, 0.12, 0.30, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH)
+    {
+        return float4(0.45, 0.10, 0.05, 1.0);
+    }
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE)
+    {
+        return float4(0.55, 0.02, 0.38, 1.0);
     }
 
     const float currentRoughness = saturate(GetRoughness(currentSurface.material));

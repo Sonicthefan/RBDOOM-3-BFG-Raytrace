@@ -381,6 +381,10 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
         dispatch.previousJointOffset = UINT32_MAX;
         dispatch.surfaceRecordIndex = static_cast<uint32_t>(recordIndex);
         dispatch.flags = PT_SKINNED_DISPATCH_RT_CPU_SKINNED | PT_SKINNED_DISPATCH_SOURCE_READY;
+        dispatch.dynamicVertexOffset = static_cast<uint32_t>(record.currentVertexOffset);
+        dispatch.dynamicIndexOffset = static_cast<uint32_t>(record.currentIndexOffset);
+        dispatch.dynamicTriangleOffset = static_cast<uint32_t>(record.currentTriangleOffset);
+        dispatch.triangleCount = static_cast<uint32_t>(record.triangleCount);
         if (record.previousValid && record.gpuPreviousPositionOffset >= 0)
         {
             dispatch.flags |= PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS;
