@@ -135,6 +135,9 @@ struct RtPathTraceSceneInputGeometry
     int skinnedCurrentOutputVertexCount = 0;
     int skinnedPreviousPositionCount = 0;
     int skinnedSurfaceDispatchCount = 0;
+    int skinnedPreviousDispatchValidCount = 0;
+    int skinnedPreviousDispatchOutOfRangeCount = 0;
+    int skinnedPreviousDispatchMaxEnd = 0;
     int skinnedCurrentJointMatrixCount = 0;
     int skinnedPreviousJointMatrixCount = 0;
     bool currentGeometryValid = false;

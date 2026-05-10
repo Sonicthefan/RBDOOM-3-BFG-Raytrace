@@ -486,6 +486,8 @@ Implemented debug CVars:
   38 = skinned primary object-motion vector diagnostic
   39 = routed-rigid object-motion eligibility diagnostic
   40 = routed-rigid primary object-motion vector diagnostic
+  41 = combined skinned/routed-rigid object-motion vector diagnostic
+  42 = packed primary object-motion flags diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2473,6 +2475,8 @@ For primary object-motion vector validation:
     r_pathTracingDebugMode 38
     r_pathTracingDebugMode 39
     r_pathTracingDebugMode 40
+    r_pathTracingDebugMode 41
+    r_pathTracingDebugMode 42
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2702,7 +2706,10 @@ routed rigid surfaces, and dynamic surfaces without required previous skinned
 state use the existing no-object-motion or skinned invalid colors. Rigid object
 motion is intentionally not visualized here because routed-rigid coverage can be
 view-dependent and needs a separate validation pass. This mode does not export a
-final motion-vector buffer.
+final motion-vector buffer. Use `r_pathTracingGpuSkinning 1` when validating
+skinned vectors; despite the CVar name, mode 1 currently builds the diagnostic
+source/output/previous-position scaffold and still does not switch rendering to
+PT-owned GPU skinning.
 
 Mode 39 is the routed-rigid object-motion eligibility diagnostic. It does not
 draw vectors. It isolates rigid-class primary hits and reports whether the
@@ -2726,6 +2733,31 @@ previous transforms, range/index mismatches, and non-routed rigid fallback hits
 use the same invalid/no-object colors as mode 39. Like mode 39, it removes
 routed-ready rigid candidates from the dynamic fallback so the vector view is
 not contaminated by duplicate fallback coverage. This mode is diagnostic-only
+and does not change mode 18 shading or write a production motion-vector buffer.
+
+Mode 41 is the combined skinned/routed-rigid object-motion vector diagnostic.
+It uses the same source selection as primary-surface object-motion packing:
+validated skinned previous positions first, then routed rigid previous
+transforms. Valid dynamic hits encode current-to-previous pixel displacement
+with the same red/green direction plus blue magnitude convention as modes 38
+and 40. Static surfaces use the no-object-motion color; skinned and routed
+rigid invalid states keep their existing missing/range/out-of-range colors.
+Mode 41 also removes routed-ready rigid candidates from the dynamic fallback so
+the combined view represents the routed object-motion source rather than
+overlapping fallback geometry. The skinned half needs `r_pathTracingGpuSkinning
+1` for the diagnostic previous-position scaffold; with the CVar at 0, skinned
+surfaces should show the skinned missing-previous color. It is diagnostic-only
+and does not change mode 18 shading or write a production motion-vector buffer.
+
+Mode 42 is the packed primary object-motion flags diagnostic. Instead of
+drawing vector direction, it repacks the current primary surface and verifies
+the actual `PathTracePrimarySurfaceRecord` flags and
+`previousPositionOrMotion.w` selector. Valid packed skinned object motion is
+green, valid packed routed-rigid object motion is teal, static/no-object
+surfaces use the no-object-motion color, and missing/range/out-of-range states
+reuse the normal primary-surface invalid colors. Use `r_pathTracingGpuSkinning
+1` when checking skinned records; with it disabled, skinned surfaces correctly
+report missing previous-position scaffold data. This mode is diagnostic-only
 and does not change mode 18 shading or write a production motion-vector buffer.
 
 Clear optimization path for mode 32/33 / future final shading:

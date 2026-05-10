@@ -2915,7 +2915,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3071,6 +3071,14 @@ void RayGen()
     else if (debugMode == 40)
     {
         SmokeOutput[pixel] = EvaluatePathTracePrimarySurfaceRigidObjectMotionDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 41)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePrimarySurfaceCombinedObjectMotionDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 42)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(primaryHistorySurface);
     }
     else if (debugMode == 8)
     {

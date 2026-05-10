@@ -830,10 +830,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 40, r_pathTracingDebugMode.GetInteger());
+    const int requestedDebugMode = idMath::ClampInt(0, 42, r_pathTracingDebugMode.GetInteger());
     const bool restirPTDebugMode = requestedDebugMode >= 26 && requestedDebugMode <= 33;
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -1001,6 +1001,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
             requestedDebugMode == 39 ||
             requestedDebugMode == 40 ||
+            requestedDebugMode == 41 ||
+            requestedDebugMode == 42 ||
             restirPTDebugMode ||
             integratorDebugMode ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0) ||
@@ -2362,6 +2364,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedCurrentOutputVertexCount = static_cast<int>(skinnedGpuScaffold.currentOutputVertices.size());
     sceneInputs.geometry.skinnedPreviousPositionCount = static_cast<int>(skinnedGpuScaffold.previousPositions.size());
     sceneInputs.geometry.skinnedSurfaceDispatchCount = static_cast<int>(skinnedGpuScaffold.dispatchRecords.size());
+    for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : skinnedGpuScaffold.dispatchRecords)
+    {
+        if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) == 0u || dispatch.previousPositionOffset == UINT32_MAX)
+        {
+            continue;
+        }
+
+        const uint64 previousEnd = static_cast<uint64>(dispatch.previousPositionOffset) + static_cast<uint64>(dispatch.vertexCount);
+        sceneInputs.geometry.skinnedPreviousDispatchMaxEnd = Max(sceneInputs.geometry.skinnedPreviousDispatchMaxEnd, static_cast<int>(Min<uint64>(previousEnd, static_cast<uint64>(INT_MAX))));
+        if (previousEnd <= static_cast<uint64>(skinnedGpuScaffold.previousPositions.size()))
+        {
+            ++sceneInputs.geometry.skinnedPreviousDispatchValidCount;
+        }
+        else
+        {
+            ++sceneInputs.geometry.skinnedPreviousDispatchOutOfRangeCount;
+        }
+    }
     sceneInputs.geometry.skinnedCurrentJointMatrixCount = static_cast<int>(skinnedGpuScaffold.currentJointMatrices.size());
     sceneInputs.geometry.skinnedPreviousJointMatrixCount = static_cast<int>(skinnedGpuScaffold.previousJointMatrices.size());
     sceneInputs.geometry.currentGeometryValid = hasStaticBlas || hasDynamicBlas;

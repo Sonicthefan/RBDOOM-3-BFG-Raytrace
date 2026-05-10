@@ -450,6 +450,52 @@ float4 EvaluatePathTracePrimarySurfaceRigidObjectMotionDebug(RAB_Surface current
 #endif
 }
 
+float4 EvaluatePathTracePrimarySurfaceCombinedObjectMotionDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+    if (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    {
+        return EvaluatePathTracePrimarySurfaceObjectMotionDebug(currentSurface, pixel);
+    }
+
+    if (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return EvaluatePathTracePrimarySurfaceRigidObjectMotionDebug(currentSurface, pixel);
+    }
+
+    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+}
+
+float4 EvaluatePathTracePrimarySurfacePackedObjectMotionDebug(RAB_Surface currentSurface)
+{
+    const PathTracePrimarySurfaceRecord record = PackPathTracePrimarySurfaceRecord(currentSurface);
+    if (record.header.x != RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION ||
+        (record.header.y & RT_PRIMARY_SURFACE_VALID) == 0u)
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+    const uint requiredFlags = RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+    if ((record.header.y & requiredFlags) == requiredFlags && record.previousPositionOrMotion.w >= 0.5)
+    {
+        if (record.materialAndSurface.w == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+        {
+            return float4(0.04, 0.46, 0.14, 1.0);
+        }
+        if (record.materialAndSurface.w == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+        {
+            return float4(0.04, 0.36, 0.48, 1.0);
+        }
+        return float4(0.08, 0.38, 0.18, 1.0);
+    }
+
+    return PathTracePrimarySurfaceDebugColor(record.header.z, currentSurface);
+}
+
 float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)
 {
     if (!RAB_IsSurfaceValid(currentSurface) && !RAB_IsSurfaceValid(previousSurface))

@@ -1484,7 +1484,9 @@ pass. Valid skinned motion encodes current-to-previous pixel displacement as
 signed red/green direction around 0.5 plus blue magnitude, capped at 32 internal
 PT pixels. Static surfaces and missing/invalid skinned history use the existing
 no-object-motion or skinned invalid colors. It does not write a production
-motion-vector buffer.
+motion-vector buffer. `r_pathTracingGpuSkinning 1` is required for the
+diagnostic skinned source/output/previous-position scaffold; the current mode 1
+scaffold does not switch final rendering to PT-owned GPU skinning.
 
 Mode 39 is the routed-rigid object-motion eligibility diagnostic. It does not
 visualize vectors; it reports whether rigid-class primary hits have a routed
@@ -1505,6 +1507,26 @@ colors as mode 39. The mode uses routed-rigid dynamic fallback removal so the
 vector field comes from the routed instance rather than an overlapping fallback
 copy. It is diagnostic-only and does not export a production motion-vector
 buffer.
+
+Mode 41 is the combined skinned/routed-rigid object-motion vector diagnostic.
+It uses the same source priority as primary-surface object-motion packing:
+validated skinned previous positions first, then routed rigid previous
+transforms. Static surfaces stay in the no-object-motion color, and skinned or
+routed-rigid invalid states keep their existing missing/range/out-of-range
+colors. Routed-ready dynamic fallback removal is active so the combined vector
+field is not polluted by overlapping fallback geometry. Its skinned branch needs
+`r_pathTracingGpuSkinning 1` for the diagnostic previous-position scaffold; with
+that CVar off, skinned surfaces correctly report missing skinned previous data.
+It is diagnostic-only and does not export a production motion-vector buffer.
+
+Mode 42 is the packed primary object-motion flags diagnostic. It repacks the
+current primary surface and visualizes whether the stored
+`PathTracePrimarySurfaceRecord` has object-motion and previous-position flags
+plus a valid `previousPositionOrMotion.w` selector. Valid packed skinned records
+are green, valid packed routed-rigid records are teal, static/no-object records
+use the no-object-motion color, and invalid states keep the existing
+primary-surface debug colors. The skinned branch still requires
+`r_pathTracingGpuSkinning 1` for the diagnostic previous-position scaffold.
 
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
