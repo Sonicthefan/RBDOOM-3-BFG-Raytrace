@@ -2333,6 +2333,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticVertexCount = staticVertexCacheCount;
     sceneInputs.geometry.staticIndexCount = staticIndexCacheCount;
     sceneInputs.geometry.staticTriangleCount = staticTriangleCacheCount;
+    sceneInputs.geometry.staticDirtySurfaceCount = geometryUniverseStats.staticDirty;
+    sceneInputs.geometry.staticDirtyVertexOffset = geometryUniverseStats.staticDirtyVertexOffset;
+    sceneInputs.geometry.staticDirtyVertexCount = geometryUniverseStats.staticDirtyVertexCount;
+    sceneInputs.geometry.staticDirtyIndexOffset = geometryUniverseStats.staticDirtyIndexOffset;
+    sceneInputs.geometry.staticDirtyIndexCount = geometryUniverseStats.staticDirtyIndexCount;
+    sceneInputs.geometry.staticDirtyTriangleOffset = geometryUniverseStats.staticDirtyTriangleOffset;
+    sceneInputs.geometry.staticDirtyTriangleCount = geometryUniverseStats.staticDirtyTriangleCount;
     sceneInputs.geometry.dynamicVertexCount = dynamicVertexCount;
     sceneInputs.geometry.dynamicIndexCount = dynamicIndexCount;
     sceneInputs.geometry.dynamicTriangleCount = dynamicIndexCount / 3;

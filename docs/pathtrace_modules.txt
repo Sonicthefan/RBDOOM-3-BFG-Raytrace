@@ -195,14 +195,17 @@ PathTracePrimarySurface.h
 
 PathTraceSceneInputs.h
     CPU-side PT scene input contract. It packages the committed TLAS/BLAS
-    handles, static/dynamic/rigid/skinned geometry counts, material table buffer
-    and signature, texture descriptor table and active texture count, emissive
-    and Doom analytic light buffers/counts, source3 view/current-area portal
-    policy facts, history-availability placeholders, skinned previous CPU-bridge
-    match/invalid diagnostics, off-by-default skinned GPU-skinning scaffold
-    resource handles/counts, and CPU upload/timing diagnostics. This is not a
-    shader ABI. The skinned previous bridge currently reports CPU-retained data
-    in the default path. Routed rigid instances report previous-transform
+    handles, static/dynamic/rigid/skinned geometry counts, static dirty-range
+    summary, material table buffer and signature, texture descriptor table and
+    active texture count, emissive and Doom analytic light buffers/counts,
+    source3 view/current-area portal policy facts, history-availability
+    placeholders, skinned previous CPU-bridge match/invalid diagnostics,
+    off-by-default skinned GPU-skinning scaffold resource handles/counts, and
+    CPU upload/timing diagnostics. This is not a shader ABI. The static
+    dirty-range summary mirrors the geometry-universe CPU bookkeeping for
+    future partial-upload consumers; current static uploads remain
+    all-or-nothing. The skinned previous bridge currently reports CPU-retained
+    data in the default path. Routed rigid instances report previous-transform
     availability when the instance mirror observed the same stable instance in
     the consecutive previous frame. `r_pathTracingGpuSkinning 1` additionally creates and
     binds diagnostic source/output/previous-position/dispatch buffers so

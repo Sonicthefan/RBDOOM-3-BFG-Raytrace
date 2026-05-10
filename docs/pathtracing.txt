@@ -2014,8 +2014,11 @@ Geometry universe status:
   range counts, dirty count, current range, previous range, and current/previous
   count-match status. The summary also reports the union dirty vertex/index/
   triangle ranges that a future partial upload path would consume, but current
-  uploads remain all-or-nothing. It is intended to validate stable range mapping
-  without waiting for a validation failure.
+  uploads remain all-or-nothing. The committed scene-input package and
+  `r_pathTracingSceneInputsDump 1` expose the same static dirty surface count
+  and dirty vertex/index/triangle ranges for future partial-upload consumers.
+  It is intended to validate stable range mapping without waiting for a
+  validation failure.
 - Persistent geometry records are for static or future semi-static geometry with
   stable identity. One-frame effects such as muzzle flashes, particles, sparks,
   and temporary overlays should stay out of this model unless given a deliberate

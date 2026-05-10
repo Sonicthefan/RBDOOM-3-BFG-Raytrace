@@ -100,6 +100,13 @@ struct RtPathTraceSceneInputGeometry
     int staticVertexCount = 0;
     int staticIndexCount = 0;
     int staticTriangleCount = 0;
+    int staticDirtySurfaceCount = 0;
+    int staticDirtyVertexOffset = -1;
+    int staticDirtyVertexCount = 0;
+    int staticDirtyIndexOffset = -1;
+    int staticDirtyIndexCount = 0;
+    int staticDirtyTriangleOffset = -1;
+    int staticDirtyTriangleCount = 0;
     int dynamicVertexCount = 0;
     int dynamicIndexCount = 0;
     int dynamicTriangleCount = 0;
