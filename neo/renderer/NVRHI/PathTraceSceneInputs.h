@@ -35,7 +35,9 @@ enum RtPathTraceSceneInputCapabilityFlags : uint32_t
     RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER = 1u << 6,
     RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED = 1u << 7,
     RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED = 1u << 8,
-    RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED = 1u << 9
+    RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED = 1u << 9,
+    RT_SCENE_INPUT_SKINNED_SOURCE_GEOMETRY_RESERVED = 1u << 10,
+    RT_SCENE_INPUT_SKINNED_GPU_SKINNING_RESERVED = 1u << 11
 };
 
 struct RtPathTraceSceneInputSignatures
@@ -89,6 +91,12 @@ struct RtPathTraceSceneInputGeometry
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle rigidRouteInstanceBuffer;
+    nvrhi::BufferHandle skinnedSourceVertexBuffer;
+    nvrhi::BufferHandle skinnedCurrentOutputVertexBuffer;
+    nvrhi::BufferHandle skinnedPreviousPositionBuffer;
+    nvrhi::BufferHandle skinnedSurfaceDispatchBuffer;
+    nvrhi::BufferHandle skinnedCurrentJointMatrixBuffer;
+    nvrhi::BufferHandle skinnedPreviousJointMatrixBuffer;
     int staticVertexCount = 0;
     int staticIndexCount = 0;
     int staticTriangleCount = 0;
@@ -101,10 +109,40 @@ struct RtPathTraceSceneInputGeometry
     int rigidRouteInstanceCount = 0;
     int skinnedSurfaceCount = 0;
     int skinnedTriangleCount = 0;
+    int skinnedRtCpuSurfaceCount = 0;
+    int skinnedPreviousMatchedSurfaceCount = 0;
+    int skinnedPreviousInvalidSurfaceCount = 0;
+    int skinnedPreviousRetainedVertexCount = 0;
+    int skinnedPreviousNoFrameCount = 0;
+    int skinnedPreviousNoSurfaceCount = 0;
+    int skinnedPreviousCountMismatchCount = 0;
+    int skinnedPreviousMaterialChangedCount = 0;
+    int skinnedPreviousSurfaceClassChangedCount = 0;
+    int skinnedPreviousNotRtCpuSkinnedCount = 0;
+    int skinnedPreviousSkeletonChangedCount = 0;
+    int skinnedPreviousTransformDiscontinuityCount = 0;
+    int skinnedPreviousBufferUnavailableCount = 0;
+    int skinnedTemporalTopologyStableCount = 0;
+    int skinnedTemporalLodStableCount = 0;
+    int skinnedTemporalTransformContinuousCount = 0;
+    int skinnedTemporalDeformationContinuousCount = 0;
+    int skinnedTemporalMaterialStableCount = 0;
+    int skinnedTemporalPreviousBufferValidCount = 0;
+    int skinnedGpuSkinningMode = 0;
+    int skinnedSourceVertexCount = 0;
+    int skinnedCurrentOutputVertexCount = 0;
+    int skinnedPreviousPositionCount = 0;
+    int skinnedSurfaceDispatchCount = 0;
+    int skinnedCurrentJointMatrixCount = 0;
+    int skinnedPreviousJointMatrixCount = 0;
     bool currentGeometryValid = false;
     bool previousTransformAvailable = false;
     bool previousVertexDataAvailable = false;
     bool skinnedPreviousVertexDataAvailable = false;
+    bool skinnedPreviousCpuVertexDataRetained = false;
+    bool skinnedSourceGeometryAvailable = false;
+    bool skinnedGpuSkinningAvailable = false;
+    bool skinnedPreviousPositionBufferAvailable = false;
     uint32_t capabilityFlags = 0;
 };
 

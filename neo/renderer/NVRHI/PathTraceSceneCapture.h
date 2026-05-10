@@ -11,6 +11,7 @@
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 
+#include <cstdint>
 #include <vector>
 
 struct drawSurf_t;
@@ -129,6 +130,101 @@ struct RtSmokeBucketRange
 struct RtSmokeBucketRanges
 {
     RtSmokeBucketRange buckets[RT_SMOKE_CLASS_COUNT];
+};
+
+enum RtSmokeSkinnedSurfaceInvalidReasonFlags : uint32_t
+{
+    RT_SMOKE_SKINNED_INVALID_NONE = 0u,
+    RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_FRAME = 1u << 0,
+    RT_SMOKE_SKINNED_INVALID_NO_PREVIOUS_SURFACE = 1u << 1,
+    RT_SMOKE_SKINNED_INVALID_VERTEX_COUNT_MISMATCH = 1u << 2,
+    RT_SMOKE_SKINNED_INVALID_INDEX_COUNT_MISMATCH = 1u << 3,
+    RT_SMOKE_SKINNED_INVALID_TRIANGLE_COUNT_MISMATCH = 1u << 4,
+    RT_SMOKE_SKINNED_INVALID_MATERIAL_CHANGED = 1u << 5,
+    RT_SMOKE_SKINNED_INVALID_SURFACE_CLASS_CHANGED = 1u << 6,
+    RT_SMOKE_SKINNED_INVALID_NOT_RT_CPU_SKINNED = 1u << 7,
+    RT_SMOKE_SKINNED_INVALID_SKELETON_CHANGED = 1u << 8,
+    RT_SMOKE_SKINNED_INVALID_TRANSFORM_DISCONTINUITY = 1u << 9,
+    RT_SMOKE_SKINNED_INVALID_PREVIOUS_BUFFER_UNAVAILABLE = 1u << 10
+};
+
+enum RtSmokeSkinnedSurfaceTemporalStateFlags : uint32_t
+{
+    RT_SMOKE_SKINNED_TEMPORAL_HAS_VALID_PREVIOUS = 1u << 0,
+    RT_SMOKE_SKINNED_TEMPORAL_TOPOLOGY_STABLE = 1u << 1,
+    RT_SMOKE_SKINNED_TEMPORAL_LOD_STABLE = 1u << 2,
+    RT_SMOKE_SKINNED_TEMPORAL_TRANSFORM_CONTINUOUS = 1u << 3,
+    RT_SMOKE_SKINNED_TEMPORAL_DEFORMATION_CONTINUOUS = 1u << 4,
+    RT_SMOKE_SKINNED_TEMPORAL_MATERIAL_STABLE = 1u << 5,
+    RT_SMOKE_SKINNED_TEMPORAL_PREVIOUS_BUFFER_VALID = 1u << 6
+};
+
+struct RtSmokeSkinnedSurfaceKey
+{
+    int entityIndex = -1;
+    uintptr_t entityDef = 0;
+    uintptr_t model = 0;
+    uintptr_t tri = 0;
+    uint32_t materialId = 0;
+    uint32_t surfaceClassId = 0;
+};
+
+struct RtSmokeSkinnedSurfaceRecord
+{
+    RtSmokeSkinnedSurfaceKey key;
+    int currentVertexOffset = 0;
+    int currentIndexOffset = 0;
+    int currentTriangleOffset = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    int previousVertexOffset = -1;
+    int previousIndexOffset = -1;
+    int previousTriangleOffset = -1;
+    bool previousValid = false;
+    bool rtCpuSkinned = false;
+    bool basePoseLikely = false;
+    int entityIndex = -1;
+    uint32_t materialId = 0;
+    uint32_t invalidReasonFlags = RT_SMOKE_SKINNED_INVALID_NONE;
+    uint32_t temporalStateFlags = 0;
+    int jointCount = 0;
+    uintptr_t jointSource = 0;
+    int retainedVertexOffset = -1;
+    int gpuSourceVertexOffset = -1;
+    int gpuOutputVertexOffset = -1;
+    int gpuPreviousPositionOffset = -1;
+    int bucketIndex = 0;
+    bool hasEntityOrigin = false;
+    idVec3 entityOrigin = vec3_origin;
+    float objectToWorld[12] = {};
+};
+
+struct RtSmokeSkinnedPreviousFrameStats
+{
+    int currentSurfaceCount = 0;
+    int currentTriangleCount = 0;
+    int currentRtCpuSkinnedSurfaceCount = 0;
+    int previousMatchedSurfaceCount = 0;
+    int previousInvalidSurfaceCount = 0;
+    int previousRetainedVertexCount = 0;
+    int noPreviousFrameCount = 0;
+    int noPreviousSurfaceCount = 0;
+    int vertexCountMismatchCount = 0;
+    int indexCountMismatchCount = 0;
+    int triangleCountMismatchCount = 0;
+    int materialChangedCount = 0;
+    int surfaceClassChangedCount = 0;
+    int notRtCpuSkinnedCount = 0;
+    int skeletonChangedCount = 0;
+    int transformDiscontinuityCount = 0;
+    int previousBufferUnavailableCount = 0;
+    int topologyStableCount = 0;
+    int lodStableCount = 0;
+    int transformContinuousCount = 0;
+    int deformationContinuousCount = 0;
+    int materialStableCount = 0;
+    int previousBufferValidCount = 0;
 };
 
 struct RtSmokeSceneCaptureTiming
@@ -254,6 +350,23 @@ int AppendSmokeSurfaceGeometry(
     std::vector<uint32_t>& triangleMaterials,
     RtSmokeSurfaceSkipStats& skipStats,
     RtSmokeAttributeStats& attributeStats);
+void AddSmokeSkinnedSurfaceRecord(
+    std::vector<RtSmokeSkinnedSurfaceRecord>* records,
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    uint32_t surfaceClassId,
+    uint32_t materialId,
+    int bucketIndex,
+    int currentVertexOffset,
+    int currentIndexOffset,
+    int currentTriangleOffset,
+    int vertexCount,
+    int indexCount,
+    int triangleCount);
+void FinalizeSmokeSkinnedSurfaceRecordOffsets(
+    std::vector<RtSmokeSkinnedSurfaceRecord>* records,
+    int bucketIndex,
+    const RtSmokeBucketRange& range);
 
 bool CaptureDoomSurfacesForSmokeTest(
     const viewDef_t* viewDef,
@@ -276,6 +389,7 @@ bool CaptureDoomSurfacesForSmokeTest(
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
     RtSmokeSurfaceClassReasonSamples* reasonSamples,
+    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
     bool skipStaticWorldCapture = false,
     bool skipPromotedStaticSurfaceCapture = false,
     bool skipDynamicCapture = false);

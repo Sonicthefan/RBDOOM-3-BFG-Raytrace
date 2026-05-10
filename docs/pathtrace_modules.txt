@@ -194,11 +194,13 @@ PathTraceSceneInputs.h
     handles, static/dynamic/rigid/skinned geometry counts, material table buffer
     and signature, texture descriptor table and active texture count, emissive
     and Doom analytic light buffers/counts, source3 view/current-area portal
-    policy facts,
-    history-availability placeholders, and CPU upload/timing diagnostics. This
-    is not a shader ABI and does not change GPU buffer layouts. It exists so PT
-    and ReSTIR work can consume a named scene/material/light package instead of
-    reaching back into capture internals or PathTracePrimaryPass private state.
+    policy facts, history-availability placeholders, skinned previous CPU-bridge
+    match/invalid diagnostics, off-by-default skinned GPU-skinning scaffold
+    resource handles/counts, and CPU upload/timing diagnostics. This is not a
+    shader ABI. The skinned previous bridge currently reports CPU-retained data
+    in the default path; `r_pathTracingGpuSkinning 1` can additionally create
+    diagnostic source/output/previous-position/dispatch buffers without making
+    the raygen or BLAS path consume them.
 
 RenderBackend.cpp
     Calls PathTracePrimaryPass from DrawViewInternal for 3D views. When
@@ -312,7 +314,9 @@ PathTraceSceneCapture.cpp
     classification stats, and appends captured geometry for the scene builder.
     Also stamps per-triangle runtime emissive state from evaluated draw-surface
     shader registers; stable material metadata only describes emissive
-    capability, not whether a surface is currently emitting.
+    capability, not whether a surface is currently emitting. Skinned/deforming
+    captures also emit CPU-side key/range records after bucket offsets are
+    finalized so previous matching does not rely on same dynamic-buffer offsets.
 
 PathTraceSceneUniverse.h
     Diagnostics/static-preload scene-universe declarations. Defines direct
@@ -428,6 +432,10 @@ PathTraceSkinning.h
 PathTraceSkinning.cpp
     Current CPU skinning implementation used by scene capture. Handles joint
     lookup, skinned vertex position/normal transforms, and base-pose detection.
+    Previous-frame retention is still a CPU-side bridge around this output, not
+    the final PT-owned GPU skinning path. The Task 02 scaffold defines separate
+    source and output contracts so the rendered `PathTraceSmokeVertex` does not
+    become the long-term skinning source format.
 
 PathTraceSurfaceClassification.h
     Surface bucket classification enums, subtype constants, and classification
@@ -1121,12 +1129,32 @@ Primary files involved:
 Current state:
 
 Skinned/deformed surfaces are captured through a CPU skinning bridge. This works
-as a temporary path but is expected to move GPU-side later.
+as a temporary path but is expected to move GPU-side later. Current captures now
+record explicit skinned surface identity/range records, match them to previous
+records by key, retain a skinned-only CPU copy of prior RT CPU-skinned vertices,
+and expose conservative validity/invalid-reason diagnostics through
+`r_pathTracingSceneInputsDump`. The bridge deliberately does not make previous
+skinned positions shader-visible in the default path.
+
+`r_pathTracingGpuSkinning` is the off-by-default scaffold gate:
+
+- `0`: default CPU-skinned bridge only.
+- `1`: build diagnostic skinned source/current-output/previous-position/dispatch
+  buffers from the CPU bridge and report counts through scene inputs.
+- `2`: reserved for future validated GPU output consumption.
+
+The diagnostic scaffold does not dispatch compute, does not bind new shader
+resources, does not change BLAS input, and does not modify raster GPU skinning.
+Current/previous joint matrix buffers are declared but remain empty until the
+next task wires explicit joint-state upload.
 
 Safer places to touch:
 
 - Improve base-pose detection or diagnostics in PathTraceSkinning.cpp.
-- Add stats in PathTraceSceneCapture for skinned surface counts.
+- Add stats in PathTraceSceneCapture for skinned surface counts or previous
+  match reasons.
+- Extend `r_pathTracingGpuSkinning 1` diagnostics once joint-state upload is
+  added.
 - Add validation around joint availability.
 - Add a new narrow data-source abstraction if it preserves current CPU behavior.
 

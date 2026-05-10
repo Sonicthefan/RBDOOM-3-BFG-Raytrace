@@ -8,6 +8,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
@@ -610,7 +611,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
-    RtSmokeSurfaceClassReasonSamples* reasonSamples)
+    RtSmokeSurfaceClassReasonSamples* reasonSamples,
+    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords)
 {
     OPTICK_EVENT("PT Capture Dynamic Frame From DrawSurf Mirror");
 
@@ -736,6 +738,9 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
         std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
         const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+        const int bucketVertexStart = static_cast<int>(bucketVertices.size());
+        const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
+        const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
         const int appendStartMs = Sys_Milliseconds();
         const int emittedIndexes = AppendSmokeSurfaceGeometry(
             drawSurf,
@@ -762,6 +767,22 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         if (emittedIndexes <= 0)
         {
             continue;
+        }
+        if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
+        {
+            AddSmokeSkinnedSurfaceRecord(
+                skinnedSurfaceRecords,
+                drawSurf,
+                tri,
+                surfaceClassId,
+                materialId,
+                bucketIndex,
+                bucketVertexStart,
+                bucketIndexStart,
+                bucketTriangleStart,
+                static_cast<int>(bucketVertices.size()) - bucketVertexStart,
+                emittedIndexes,
+                emittedIndexes / 3);
         }
 
         AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
@@ -793,6 +814,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size());
             range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
             range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
+            FinalizeSmokeSkinnedSurfaceRecordOffsets(skinnedSurfaceRecords, bucketIndex, range);
 
             const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
             vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());

@@ -83,6 +83,15 @@ Current validated feature set:
 - Persistent static-world geometry cache.
 - Per-frame dynamic geometry capture.
 - RT-only CPU skinning for skinned MD5 characters.
+- CPU-side skinned/deforming surface identity and current-to-previous range
+  matching for the RT-only CPU-skinned bridge. The previous skinned vertex copy
+  is retained for diagnostics and later motion-vector wiring, but it is not yet
+  a shader-visible previous-position buffer.
+- Off-by-default PT GPU skinning scaffold. `r_pathTracingGpuSkinning 1` builds
+  diagnostic skinned source/current-output/previous-position/dispatch buffers
+  from the existing CPU-skinned bridge, but the normal BLAS and shader path still
+  consume the existing dynamic CPU-skinned output. Mode 2 is reserved for later
+  validated GPU output use and is not active yet.
 - Bindless material texture table using Texture.Load.
 - Manual bilinear Texture.Load filtering.
 - Doom diffuse YCoCg decode.
@@ -291,8 +300,9 @@ Current module/refactor state:
 - PathTraceSceneInputs defines the CPU-side scene/material/light package
   committed after a successful smoke scene build. It records TLAS/BLAS and
   buffer handles, geometry/material/light counts, split signatures, source3
-  portal-policy facts, current/previous history placeholders, and upload/timing
-  estimates without changing GPU layouts or shader dispatch behavior.
+  portal-policy facts, current/previous history placeholders, skinned previous
+  CPU-bridge diagnostics, and upload/timing estimates without changing GPU
+  layouts or shader dispatch behavior.
 - PathTraceSmokeDispatch owns constants, resource transitions, dispatch, and
   accumulation/readback use of the frame resources. It still runs the same
   smoke raygen path; this refactor did not split shader dispatches.
@@ -885,9 +895,18 @@ Denoise/upscale/Ray Reconstruction reservation:
   successful scene build. It reports scene source, debug mode, output size,
   geometry/material/light signatures, geometry counts and history placeholders,
   material table path and active texture count, emissive/Doom analytic light
-  counts, source3 view/current area plus portal step/area/edge facts, and CPU
-  upload/timing estimates. This is a diagnostics contract only; it does not
-  change dispatch routing or shader-visible buffer layouts.
+  counts, skinned previous-bridge and GPU-skinning scaffold counts, source3
+  view/current area plus portal step/area/edge facts, and CPU upload/timing
+  estimates. This is a diagnostics contract only; it does not change dispatch
+  routing or shader-visible buffer layouts.
+
+- r_pathTracingGpuSkinning
+  Off-by-default PT GPU skinning scaffold gate. `0` keeps only the existing
+  CPU-skinned bridge. `1` creates diagnostic skinned source/current-output/
+  previous-position/dispatch buffers from the CPU bridge and exposes their
+  counts in `r_pathTracingSceneInputsDump`. `2` is reserved for a later
+  validated switch to GPU output. No current mode consumes the scaffold buffers
+  for rendering yet.
 
 - r_pathTracingPortalTransitionDump
   Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
@@ -906,11 +925,11 @@ Denoise/upscale/Ray Reconstruction reservation:
   Diagnostic synchronization gate. When nonzero and the same PT scene
   transition signature changes, `PathTraceSmokeResources` waits for the NVRHI
   device to idle immediately before replacing the committed PT scene resources.
-  If portal-threshold texture corruption or device removal disappears with this
-  enabled, treat it as evidence for an in-flight resource/descriptor lifetime
-  hazard and replace the diagnostic wait with frame-retired scene resources or
-  fence-based retirement. This path is silent unless transition dumping is also
-  enabled. Do not leave this enabled as a performance solution.
+  This was used to confirm the portal-threshold texture corruption/device
+  removal failure as an in-flight scene-resource lifetime hazard. The normal
+  runtime fix is `r_pathTracingSceneRetireFrames`, not this full-device idle.
+  This path is silent unless transition dumping is also enabled. Keep it
+  disabled for normal testing and performance work.
 
 - r_pathTracingSceneRetireFrames
   Frame-lagged lifetime for replaced committed PT scene packages. The default
@@ -918,7 +937,9 @@ Denoise/upscale/Ray Reconstruction reservation:
   static/dynamic BLAS handles, the TLAS handle, binding set, descriptor table,
   and active texture handles alive after replacement so portal transitions do
   not need a normal `waitForIdle()`. Setting this to `0` restores immediate
-  replacement for A/B testing.
+  replacement for A/B testing. This is the confirmed fix for the high-GPU-load
+  portal-transition corruption/device-removal bug: heavy ray workloads only
+  made the hazard easier to hit by keeping older frames in flight longer.
 
 - r_pathTracingSceneRetireDump
   Retirement diagnostics: `0` off, `1` print the next retire/release event and
@@ -937,21 +958,20 @@ Denoise/upscale/Ray Reconstruction reservation:
   current-frame only. The result can still have screen-space-like gaps until an
   area has been seen and promoted.
 
-  Known stability risk: mode 20 can still stress the device in a similar
-  failure class to the earlier 32 selected lights at 120 FPS mode 18 issue.
-  That older failure was caused by brute-forcing every selected point light for
-  primary and one-bounce direct lighting: `r_pathTracingLightCount 32` could
-  reach up to 64 shadow rays per pixel, plus primary/bounce rays, with any-hit
-  alpha/material work on those shadow rays. At roughly 120 FPS while moving the
-  camera, queued GPU work could saturate, producing transient surface
-  corruption and then driver/device removal; a 60 FPS cap avoided it by reducing
-  submission pressure. Mode 20 symptoms are similar: surface/scene buffers begin
-  to fail visually, followed by a hang and device removal that may not be
-  screenshot-capturable. Treat this as a GPU resource/work submission hazard
-  until proven otherwise. For now, test mode 20 at conservative frame caps and
-  candidate counts, keep temporal/spatial reuse off, and prefer diagnostics that
-  narrow buffer/resource lifetime, UAV writes, barrier state, and per-pixel
-  shadow-ray load before increasing workload.
+  Resolved stability note: the earlier transient texture corruption followed by
+  device removal was not ultimately fixed by tiling, texture-sampling changes,
+  NEE extraction, or lower light counts. The decisive diagnostic was
+  `r_pathTracingWaitForIdleOnPortalChange 1`, which removed the failure by
+  forcing a full sync before committed PT scene resources were replaced during
+  portal/scene transitions. The production fix is frame-lagged scene-resource
+  retirement with `r_pathTracingSceneRetireFrames 6`, which keeps the old scene
+  package alive for later GPU work while allowing
+  `r_pathTracingWaitForIdleOnPortalChange` to remain disabled. High ray
+  workload, high internal resolution, and FPS below the frame cap made the bug
+  easier to trigger because more work remained in flight across portal
+  transitions. `r_pathTracingToyLightTraceCap` is still useful to keep the toy
+  mode manageable, but it should not be treated as the root-cause fix for this
+  device-removal class.
 
   Useful first test:
 
@@ -1618,6 +1638,17 @@ Current behavior:
   for MD5/skinned surfaces.
 - It uses current joint data and the weighted joint transform logic from the
   MD5 model path.
+- Scene capture now records explicit skinned/deforming surface keys and dynamic
+  ranges, matches current records to the previous frame by key, retains a
+  skinned-only CPU copy of the previous RT CPU-skinned vertex output, and reports
+  conservative match/invalid reason counts through `r_pathTracingSceneInputsDump`.
+- The retained previous copy is CPU-side only in this task. Shader-visible
+  previous skinned positions and PT-owned GPU skinning remain future work.
+- `r_pathTracingGpuSkinning` defaults to `0`. Value `1` builds diagnostic
+  source/output/previous-position/dispatch buffers from those same records so
+  the future GPU-skinning contract can be validated without changing rendering.
+  Joint matrix buffers and compute dispatch remain empty/inactive in this
+  scaffold, and `skinnedGpuSkinningAvailable` stays false.
 - This does not change the main raster r_useGPUSkinning setting.
 - Characters now animate correctly in the RT debug output.
 
@@ -2030,13 +2061,12 @@ Open issues:
   primary direct-light pass and the one-bounce direct-light pass. At
   r_pathTracingLightCount 32 this can mean up to 64 shadow rays per pixel,
   plus primary/bounce rays, and those shadow rays still execute any-hit
-  alpha/material code. With the Release build reaching roughly 120 FPS, this
-  could saturate queued GPU work when the camera was moving, leading to
-  transient surface corruption followed by driver/device removal. Keeping the
-  frame cap at 60 avoided the failure by reducing submission pressure, which
-  points to brute-force ray workload saturation rather than a static geometry
-  cache bug. r_pathTracingToyLightTraceCap now defaults to 8 and clamps the
-  mode 18 selected-light request before constants/shader dispatch.
+  alpha/material code. That ray workload made the portal-transition
+  resource-lifetime bug much easier to hit by increasing in-flight GPU work,
+  but it was not the root cause of the texture corruption/device-removal class.
+  `r_pathTracingSceneRetireFrames` now defaults to 6 and keeps replaced scene
+  packages alive; `r_pathTracingToyLightTraceCap` defaults to 8 and remains a
+  useful toy-mode workload guard before constants/shader dispatch.
 - Mode 13 is a fixed-light debug shader, not real Doom light integration.
 - Performance is not optimized. CPU skinning and per-frame dynamic rebuilds are
   acceptable for now but not final.

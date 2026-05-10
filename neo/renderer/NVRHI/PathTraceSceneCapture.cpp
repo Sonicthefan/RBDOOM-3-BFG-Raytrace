@@ -17,6 +17,7 @@
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../GLMatrix.h"
+#include "../Model_local.h"
 #include "../RenderCommon.h"
 
 #include <algorithm>
@@ -477,6 +478,90 @@ int AppendSmokeSurfaceGeometry(
     return emittedIndexes;
 }
 
+void AddSmokeSkinnedSurfaceRecord(
+    std::vector<RtSmokeSkinnedSurfaceRecord>* records,
+    const drawSurf_t* drawSurf,
+    const srfTriangles_t* tri,
+    uint32_t surfaceClassId,
+    uint32_t materialId,
+    int bucketIndex,
+    int currentVertexOffset,
+    int currentIndexOffset,
+    int currentTriangleOffset,
+    int vertexCount,
+    int indexCount,
+    int triangleCount)
+{
+    if (!records || !drawSurf || !tri)
+    {
+        return;
+    }
+
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
+
+    RtSmokeSkinnedSurfaceRecord record;
+    record.key.entityIndex = entityDef ? entityDef->index : -1;
+    record.key.entityDef = reinterpret_cast<uintptr_t>(entityDef);
+    record.key.model = reinterpret_cast<uintptr_t>(renderEntity ? renderEntity->hModel : nullptr);
+    record.key.tri = reinterpret_cast<uintptr_t>(tri);
+    record.key.materialId = materialId;
+    record.key.surfaceClassId = surfaceClassId;
+    record.currentVertexOffset = currentVertexOffset;
+    record.currentIndexOffset = currentIndexOffset;
+    record.currentTriangleOffset = currentTriangleOffset;
+    record.vertexCount = vertexCount;
+    record.indexCount = indexCount;
+    record.triangleCount = triangleCount;
+    record.rtCpuSkinned = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+    record.basePoseLikely = SmokeSkinnedSurfaceLikelyBasePose(drawSurf, tri);
+    record.entityIndex = record.key.entityIndex;
+    record.materialId = materialId;
+    record.jointCount = tri->staticModelWithJoints ? tri->staticModelWithJoints->numInvertedJoints : (renderEntity ? renderEntity->numJoints : 0);
+    record.jointSource = reinterpret_cast<uintptr_t>(tri->staticModelWithJoints ? static_cast<const void*>(tri->staticModelWithJoints) : static_cast<const void*>(renderEntity ? renderEntity->joints : nullptr));
+    record.bucketIndex = bucketIndex;
+    if (renderEntity)
+    {
+        record.hasEntityOrigin = true;
+        record.entityOrigin = renderEntity->origin;
+    }
+    if (space)
+    {
+        for (int row = 0; row < 3; ++row)
+        {
+            for (int column = 0; column < 4; ++column)
+            {
+                record.objectToWorld[row * 4 + column] = space->modelMatrix[row * 4 + column];
+            }
+        }
+    }
+
+    records->push_back(record);
+}
+
+void FinalizeSmokeSkinnedSurfaceRecordOffsets(
+    std::vector<RtSmokeSkinnedSurfaceRecord>* records,
+    int bucketIndex,
+    const RtSmokeBucketRange& range)
+{
+    if (!records)
+    {
+        return;
+    }
+
+    for (RtSmokeSkinnedSurfaceRecord& record : *records)
+    {
+        if (record.bucketIndex != bucketIndex)
+        {
+            continue;
+        }
+        record.currentVertexOffset += range.vertexOffset;
+        record.currentIndexOffset += range.indexOffset;
+        record.currentTriangleOffset += range.triangleOffset;
+    }
+}
+
 namespace {
 
 void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype translucentSubtype)
@@ -849,7 +934,7 @@ uint64 BuildSmokeStaticSurfaceKeyForDiagnostics(const drawSurf_t* drawSurf, cons
     return BuildSmokeStaticSurfaceKey(drawSurf, tri);
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -1069,6 +1154,9 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
             std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
             const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+            const int bucketVertexStart = static_cast<int>(bucketVertices.size());
+            const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
+            const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
             const int appendStartMs = Sys_Milliseconds();
             const int emittedIndexes = AppendSmokeSurfaceGeometry(
                 drawSurf,
@@ -1095,6 +1183,22 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             if (emittedIndexes <= 0)
             {
                 continue;
+            }
+            if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
+            {
+                AddSmokeSkinnedSurfaceRecord(
+                    skinnedSurfaceRecords,
+                    drawSurf,
+                    tri,
+                    surfaceClassId,
+                    materialId,
+                    bucketIndex,
+                    bucketVertexStart,
+                    bucketIndexStart,
+                    bucketTriangleStart,
+                    static_cast<int>(bucketVertices.size()) - bucketVertexStart,
+                    emittedIndexes,
+                    emittedIndexes / 3);
             }
 
             AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
@@ -1300,6 +1404,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             range.vertexCount = static_cast<int>(bucketVertexData[bucketIndex].size());
             range.indexCount = static_cast<int>(bucketIndexData[bucketIndex].size());
             range.triangleCount = static_cast<int>(bucketTriangleClassData[bucketIndex].size());
+            FinalizeSmokeSkinnedSurfaceRecordOffsets(skinnedSurfaceRecords, bucketIndex, range);
 
             const uint32_t vertexOffset = static_cast<uint32_t>(range.vertexOffset);
             vertexData.insert(vertexData.end(), bucketVertexData[bucketIndex].begin(), bucketVertexData[bucketIndex].end());

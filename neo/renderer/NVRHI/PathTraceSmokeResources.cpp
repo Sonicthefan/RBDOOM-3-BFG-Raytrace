@@ -51,7 +51,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         static_cast<unsigned long long>(signatures.debugFeaturePolicy),
         static_cast<unsigned long long>(signatures.cpuUploadGeneration),
         static_cast<unsigned long long>(signatures.reservoirScene));
-    common->Printf("PathTracePrimaryPass: PT scene inputs geometry static v/i/t=%d/%d/%d dynamic v/i/t=%d/%d/%d rigidRoute v/i/t/inst=%d/%d/%d/%d skinned surfaces/tris=%d/%d current=%d prevTransform=%d prevVertex=%d prevSkinned=%d caps=0x%08x\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs geometry static v/i/t=%d/%d/%d dynamic v/i/t=%d/%d/%d rigidRoute v/i/t/inst=%d/%d/%d/%d skinned surfaces/tris/rtCpu=%d/%d/%d current=%d prevTransform=%d prevVertex=%d prevSkinnedGpu=%d prevSkinnedCpuRetained=%d caps=0x%08x\n",
         geometry.staticVertexCount,
         geometry.staticIndexCount,
         geometry.staticTriangleCount,
@@ -64,11 +64,43 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.rigidRouteInstanceCount,
         geometry.skinnedSurfaceCount,
         geometry.skinnedTriangleCount,
+        geometry.skinnedRtCpuSurfaceCount,
         geometry.currentGeometryValid ? 1 : 0,
         geometry.previousTransformAvailable ? 1 : 0,
         geometry.previousVertexDataAvailable ? 1 : 0,
         geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
+        geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
         geometry.capabilityFlags);
+    common->Printf("PathTracePrimaryPass: PT skinned previous bridge matched=%d invalid=%d retainedVerts=%d noFrame=%d noSurface=%d countMismatch=%d materialChanged=%d classChanged=%d notRtCpu=%d skeletonChanged=%d transformDiscontinuous=%d prevBufferUnavailable=%d temporal topology/lod/transform/deform/material/prevBuffer=%d/%d/%d/%d/%d/%d\n",
+        geometry.skinnedPreviousMatchedSurfaceCount,
+        geometry.skinnedPreviousInvalidSurfaceCount,
+        geometry.skinnedPreviousRetainedVertexCount,
+        geometry.skinnedPreviousNoFrameCount,
+        geometry.skinnedPreviousNoSurfaceCount,
+        geometry.skinnedPreviousCountMismatchCount,
+        geometry.skinnedPreviousMaterialChangedCount,
+        geometry.skinnedPreviousSurfaceClassChangedCount,
+        geometry.skinnedPreviousNotRtCpuSkinnedCount,
+        geometry.skinnedPreviousSkeletonChangedCount,
+        geometry.skinnedPreviousTransformDiscontinuityCount,
+        geometry.skinnedPreviousBufferUnavailableCount,
+        geometry.skinnedTemporalTopologyStableCount,
+        geometry.skinnedTemporalLodStableCount,
+        geometry.skinnedTemporalTransformContinuousCount,
+        geometry.skinnedTemporalDeformationContinuousCount,
+        geometry.skinnedTemporalMaterialStableCount,
+        geometry.skinnedTemporalPreviousBufferValidCount);
+    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d joints current/previous=%d/%d available source/gpu/prevPos=%d/%d/%d\n",
+        geometry.skinnedGpuSkinningMode,
+        geometry.skinnedSourceVertexCount,
+        geometry.skinnedCurrentOutputVertexCount,
+        geometry.skinnedPreviousPositionCount,
+        geometry.skinnedSurfaceDispatchCount,
+        geometry.skinnedCurrentJointMatrixCount,
+        geometry.skinnedPreviousJointMatrixCount,
+        geometry.skinnedSourceGeometryAvailable ? 1 : 0,
+        geometry.skinnedGpuSkinningAvailable ? 1 : 0,
+        geometry.skinnedPreviousPositionBufferAvailable ? 1 : 0);
     common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d activeTextures=%d caps=0x%08x light emissive=%d static=%d dynamic=%d candidates=%d textured=%d doom=%d generation=%llu caps=0x%08x\n",
         materials.materialTablePath ? materials.materialTablePath : "unknown",
         materials.materialTableEntryCount,
@@ -245,7 +277,7 @@ static void PrintPathTracePortalTransitionDump(
         static_cast<unsigned long long>(current.diagnostics.geometryUploadBytes),
         static_cast<unsigned long long>(current.diagnostics.materialUploadBytes),
         static_cast<unsigned long long>(current.diagnostics.lightUploadBytes));
-    common->Printf("PathTracePrimaryPass: PT portal transition resources buffers staticV/I/TM=%d/%d/%d dynamicV/I/TM=%d/%d/%d rigidV/I/Inst=%d/%d/%d material=%d emissive/candidate/analytic=%d/%d/%d blas static/dynamic=%d/%d bindingSet=%d descriptorTable=%d descriptorCreated=%d descriptorWritten=%d\n",
+    common->Printf("PathTracePrimaryPass: PT portal transition resources buffers staticV/I/TM=%d/%d/%d dynamicV/I/TM=%d/%d/%d rigidV/I/Inst=%d/%d/%d skinnedSrc/Out/Prev/Dispatch=%d/%d/%d/%d material=%d emissive/candidate/analytic=%d/%d/%d blas static/dynamic=%d/%d bindingSet=%d descriptorTable=%d descriptorCreated=%d descriptorWritten=%d\n",
         HandleChanged(oldBuffers.staticVertexBuffer, next.buffers.staticVertexBuffer),
         HandleChanged(oldBuffers.staticIndexBuffer, next.buffers.staticIndexBuffer),
         HandleChanged(oldBuffers.staticTriangleMaterialBuffer, next.buffers.staticTriangleMaterialBuffer),
@@ -255,6 +287,10 @@ static void PrintPathTracePortalTransitionDump(
         HandleChanged(oldBuffers.rigidRouteVertexBuffer, next.buffers.rigidRouteVertexBuffer),
         HandleChanged(oldBuffers.rigidRouteIndexBuffer, next.buffers.rigidRouteIndexBuffer),
         HandleChanged(oldBuffers.rigidRouteInstanceBuffer, next.buffers.rigidRouteInstanceBuffer),
+        HandleChanged(oldBuffers.skinnedSourceVertexBuffer, next.buffers.skinnedSourceVertexBuffer),
+        HandleChanged(oldBuffers.skinnedCurrentOutputVertexBuffer, next.buffers.skinnedCurrentOutputVertexBuffer),
+        HandleChanged(oldBuffers.skinnedPreviousPositionBuffer, next.buffers.skinnedPreviousPositionBuffer),
+        HandleChanged(oldBuffers.skinnedSurfaceDispatchBuffer, next.buffers.skinnedSurfaceDispatchBuffer),
         HandleChanged(oldBuffers.materialTableBuffer, next.buffers.materialTableBuffer),
         HandleChanged(oldBuffers.emissiveTriangleBuffer, next.buffers.emissiveTriangleBuffer),
         HandleChanged(oldBuffers.lightCandidateBuffer, next.buffers.lightCandidateBuffer),
@@ -315,7 +351,13 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.rigidRouteIndexBuffer != newBuffers.rigidRouteIndexBuffer ||
         oldBuffers.rigidRouteTriangleMaterialBuffer != newBuffers.rigidRouteTriangleMaterialBuffer ||
         oldBuffers.rigidRouteTriangleMaterialIndexBuffer != newBuffers.rigidRouteTriangleMaterialIndexBuffer ||
-        oldBuffers.rigidRouteInstanceBuffer != newBuffers.rigidRouteInstanceBuffer;
+        oldBuffers.rigidRouteInstanceBuffer != newBuffers.rigidRouteInstanceBuffer ||
+        oldBuffers.skinnedSourceVertexBuffer != newBuffers.skinnedSourceVertexBuffer ||
+        oldBuffers.skinnedCurrentOutputVertexBuffer != newBuffers.skinnedCurrentOutputVertexBuffer ||
+        oldBuffers.skinnedPreviousPositionBuffer != newBuffers.skinnedPreviousPositionBuffer ||
+        oldBuffers.skinnedSurfaceDispatchBuffer != newBuffers.skinnedSurfaceDispatchBuffer ||
+        oldBuffers.skinnedCurrentJointMatrixBuffer != newBuffers.skinnedCurrentJointMatrixBuffer ||
+        oldBuffers.skinnedPreviousJointMatrixBuffer != newBuffers.skinnedPreviousJointMatrixBuffer;
 }
 
 static bool SmokeScenePackageHandlesChanged(const RtRetiredSmokeScenePackage& oldPackage, const RtSmokeSceneResourceCommitDesc& next)
@@ -407,6 +449,15 @@ static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* devi
     return CreateSmokeGeometryBuffer(device, debugName, byteSize, structStride, vertexBuffer, indexBuffer, accelStructInput);
 }
 
+static nvrhi::BufferHandle ReuseOrCreateOptionalSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride)
+{
+    if (byteSize == 0)
+    {
+        return nullptr;
+    }
+    return ReuseOrCreateSmokeGeometryBuffer(device, existingBuffer, debugName, byteSize, structStride, false, false, false);
+}
+
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc)
 {
     RtSmokeSceneBufferCreateResult result;
@@ -429,6 +480,12 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialBuffer, "PathTraceRigidRouteTriangleMaterials", desc.rigidRouteTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
+    result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
+    result.buffers.skinnedCurrentOutputVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentOutputVertexBuffer, "PathTraceSkinnedCurrentOutputVertices", desc.skinnedCurrentOutputVertexBytes, sizeof(PathTraceSmokeVertex));
+    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition));
+    result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord));
+    result.buffers.skinnedCurrentJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentJointMatrixBuffer, "PathTraceSkinnedCurrentJointMatrices", desc.skinnedCurrentJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
+    result.buffers.skinnedPreviousJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousJointMatrixBuffer, "PathTraceSkinnedPreviousJointMatrices", desc.skinnedPreviousJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
 
     if (!result.buffers.IsValid())
     {
@@ -882,9 +939,21 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
     buffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
     buffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    buffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
+    buffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
+    buffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
+    buffers.skinnedSurfaceDispatchBuffer = m_smokeSkinnedSurfaceDispatchBuffer;
+    buffers.skinnedCurrentJointMatrixBuffer = m_smokeSkinnedCurrentJointMatrixBuffer;
+    buffers.skinnedPreviousJointMatrixBuffer = m_smokeSkinnedPreviousJointMatrixBuffer;
 
     return
         buffers.IsValid() ||
+        m_smokeSkinnedSourceVertexBuffer ||
+        m_smokeSkinnedCurrentOutputVertexBuffer ||
+        m_smokeSkinnedPreviousPositionBuffer ||
+        m_smokeSkinnedSurfaceDispatchBuffer ||
+        m_smokeSkinnedCurrentJointMatrixBuffer ||
+        m_smokeSkinnedPreviousJointMatrixBuffer ||
         m_smokeStaticBlas ||
         m_smokeDynamicBlas ||
         m_smokeTlas ||
@@ -919,6 +988,12 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
     package.buffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
     package.buffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    package.buffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
+    package.buffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
+    package.buffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
+    package.buffers.skinnedSurfaceDispatchBuffer = m_smokeSkinnedSurfaceDispatchBuffer;
+    package.buffers.skinnedCurrentJointMatrixBuffer = m_smokeSkinnedCurrentJointMatrixBuffer;
+    package.buffers.skinnedPreviousJointMatrixBuffer = m_smokeSkinnedPreviousJointMatrixBuffer;
     package.staticBlas = m_smokeStaticBlas;
     package.dynamicBlas = m_smokeDynamicBlas;
     package.tlas = m_smokeTlas;
@@ -1005,6 +1080,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeTestDispatched = false;
     m_smokeStaticBlasCacheValid = false;
     m_smokeGeometryUniverse.Clear();
+    m_smokeSkinnedSurfaceRecords.clear();
+    m_smokePreviousSkinnedSurfaceRecords.clear();
+    m_smokePreviousSkinnedVertexData.clear();
+    m_smokeSkinnedPreviousStats = RtSmokeSkinnedPreviousFrameStats();
     m_sceneUniverse.Clear();
     m_instanceUniverse.Clear();
     m_smokeLightUniverse.Clear();
@@ -1033,6 +1112,12 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
     m_smokeRigidRouteTriangleMaterialIndexBuffer = nullptr;
     m_smokeRigidRouteInstanceBuffer = nullptr;
+    m_smokeSkinnedSourceVertexBuffer = nullptr;
+    m_smokeSkinnedCurrentOutputVertexBuffer = nullptr;
+    m_smokeSkinnedPreviousPositionBuffer = nullptr;
+    m_smokeSkinnedSurfaceDispatchBuffer = nullptr;
+    m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
+    m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;
@@ -1148,6 +1233,12 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeRigidRouteTriangleMaterialBuffer = desc.buffers.rigidRouteTriangleMaterialBuffer;
     m_smokeRigidRouteTriangleMaterialIndexBuffer = desc.buffers.rigidRouteTriangleMaterialIndexBuffer;
     m_smokeRigidRouteInstanceBuffer = desc.buffers.rigidRouteInstanceBuffer;
+    m_smokeSkinnedSourceVertexBuffer = desc.buffers.skinnedSourceVertexBuffer;
+    m_smokeSkinnedCurrentOutputVertexBuffer = desc.buffers.skinnedCurrentOutputVertexBuffer;
+    m_smokeSkinnedPreviousPositionBuffer = desc.buffers.skinnedPreviousPositionBuffer;
+    m_smokeSkinnedSurfaceDispatchBuffer = desc.buffers.skinnedSurfaceDispatchBuffer;
+    m_smokeSkinnedCurrentJointMatrixBuffer = desc.buffers.skinnedCurrentJointMatrixBuffer;
+    m_smokeSkinnedPreviousJointMatrixBuffer = desc.buffers.skinnedPreviousJointMatrixBuffer;
     m_smokeStaticBlasDesc = desc.staticBlasDesc;
     m_smokeDynamicBlasDesc = desc.dynamicBlasDesc;
     m_smokeStaticBlas = desc.staticBlas;

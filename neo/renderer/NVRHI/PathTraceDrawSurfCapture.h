@@ -12,6 +12,8 @@
 
 class RtSmokeGeometryUniverse;
 class RtPathTraceSceneUniverse;
+struct PathTraceSmokeVertex;
+struct RtSmokeSkinnedSurfaceRecord;
 struct viewDef_t;
 
 const int RT_PT_BOUNDS_OVERLAY_MAX_LINES = 4096;
@@ -48,4 +50,5 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeMaterialStats& materialStats,
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
-    RtSmokeSurfaceClassReasonSamples* reasonSamples);
+    RtSmokeSurfaceClassReasonSamples* reasonSamples,
+    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr);

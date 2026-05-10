@@ -957,6 +957,12 @@ idCVar r_pathTracingSceneInputsDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the committed RT/PT scene input package once" );
 
+idCVar r_pathTracingGpuSkinning(
+    "r_pathTracingGpuSkinning",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental PT skinned GPU-skinning scaffold: 0 = CPU-skinned bridge only, 1 = build diagnostic source/output buffers, 2 = reserved for validated GPU output use" );
+
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",
     "0",

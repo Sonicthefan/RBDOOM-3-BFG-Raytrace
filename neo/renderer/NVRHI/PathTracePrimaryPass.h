@@ -86,6 +86,10 @@ private:
     idStr m_smokeSceneMapName;
     ID_TIME_T m_smokeSceneMapTimeStamp = 0;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
+    std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
+    std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;
+    std::vector<PathTraceSmokeVertex> m_smokePreviousSkinnedVertexData;
+    RtSmokeSkinnedPreviousFrameStats m_smokeSkinnedPreviousStats;
     RtPathTraceSceneUniverse m_sceneUniverse;
     RtPathTraceInstanceUniverse m_instanceUniverse;
     RtSmokeLightUniverse m_smokeLightUniverse;
@@ -112,6 +116,12 @@ private:
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteInstanceBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedSourceVertexBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedCurrentOutputVertexBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedCurrentJointMatrixBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedPreviousJointMatrixBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::BufferHandle m_restirPTConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;

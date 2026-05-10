@@ -15,6 +15,51 @@ struct PathTraceSmokeVertex
     float color2[4];
 };
 
+// Source data for the future PT-owned GPU skinning path. This deliberately
+// stays separate from PathTraceSmokeVertex, which is the current rendered
+// world-space output format used by BLAS builds and hit shading.
+struct PathTraceSkinnedSourceVertex
+{
+    float localPosition[4];
+    float localNormal[4];
+    float localTangent[4];
+    float texCoord[4];
+    float color[4];
+    uint32_t jointIndices[4];
+    float jointWeights[4];
+};
+
+struct PathTraceSkinnedPreviousPosition
+{
+    float previousPosition[4];
+};
+
+struct PathTraceSkinnedJointMatrix
+{
+    float rows[12];
+};
+
+enum PathTraceSkinnedSurfaceDispatchFlags : uint32_t
+{
+    PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 1u << 0,
+    PT_SKINNED_DISPATCH_RT_CPU_SKINNED = 1u << 1,
+    PT_SKINNED_DISPATCH_SOURCE_READY = 1u << 2
+};
+
+struct PathTraceSkinnedSurfaceDispatchRecord
+{
+    uint32_t sourceVertexOffset = 0;
+    uint32_t outputVertexOffset = 0;
+    uint32_t previousPositionOffset = 0;
+    uint32_t vertexCount = 0;
+    uint32_t currentJointOffset = 0;
+    uint32_t previousJointOffset = 0;
+    uint32_t surfaceRecordIndex = 0;
+    uint32_t flags = 0;
+    float currentObjectToWorld[12];
+    float previousObjectToWorld[12];
+};
+
 struct PathTraceRigidRouteInstance
 {
     uint32_t vertexOffset = 0;
