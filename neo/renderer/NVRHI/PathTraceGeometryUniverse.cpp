@@ -838,6 +838,10 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticIndexCache.clear();
     m_staticTriangleClassCache.clear();
     m_staticTriangleMaterialCache.clear();
+    m_previousStaticVertexCache.clear();
+    m_previousStaticIndexCache.clear();
+    m_previousStaticTriangleClassCache.clear();
+    m_previousStaticTriangleMaterialCache.clear();
     m_rigidMeshCandidateRecords.clear();
     m_rigidMeshCandidateLookup.clear();
     m_frameRigidMeshCandidateHashes.clear();
@@ -866,6 +870,10 @@ void RtSmokeGeometryUniverse::ReserveStaticSurfaceRecords(size_t surfaceCount)
 
 void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex)
 {
+    m_previousStaticVertexCache = m_staticVertexCache;
+    m_previousStaticIndexCache = m_staticIndexCache;
+    m_previousStaticTriangleClassCache = m_staticTriangleClassCache;
+    m_previousStaticTriangleMaterialCache = m_staticTriangleMaterialCache;
     m_currentFrameIndex = frameIndex;
     m_frameActive = true;
     ResetRigidMeshCandidateFrameStats();
@@ -1124,6 +1132,26 @@ const std::vector<uint32_t>& RtSmokeGeometryUniverse::StaticTriangleMaterials() 
     return m_staticTriangleMaterialCache;
 }
 
+const std::vector<PathTraceSmokeVertex>& RtSmokeGeometryUniverse::PreviousStaticVertices() const
+{
+    return m_previousStaticVertexCache;
+}
+
+const std::vector<uint32_t>& RtSmokeGeometryUniverse::PreviousStaticIndexes() const
+{
+    return m_previousStaticIndexCache;
+}
+
+const std::vector<uint32_t>& RtSmokeGeometryUniverse::PreviousStaticTriangleClasses() const
+{
+    return m_previousStaticTriangleClassCache;
+}
+
+const std::vector<uint32_t>& RtSmokeGeometryUniverse::PreviousStaticTriangleMaterials() const
+{
+    return m_previousStaticTriangleMaterialCache;
+}
+
 RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateRecords) const
 {
     RtSmokeGeometryUniverseStats stats;
@@ -1132,6 +1160,14 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateReco
     stats.staticVerts = static_cast<int>(m_staticVertexCache.size());
     stats.staticIndexes = static_cast<int>(m_staticIndexCache.size());
     stats.staticTriangles = static_cast<int>(m_staticTriangleClassCache.size());
+    stats.previousStaticVerts = static_cast<int>(m_previousStaticVertexCache.size());
+    stats.previousStaticIndexes = static_cast<int>(m_previousStaticIndexCache.size());
+    stats.previousStaticTriangles = static_cast<int>(m_previousStaticTriangleClassCache.size());
+    stats.previousStaticCpuSnapshotAvailable =
+        !m_previousStaticVertexCache.empty() &&
+        !m_previousStaticIndexCache.empty() &&
+        !m_previousStaticTriangleClassCache.empty() &&
+        !m_previousStaticTriangleMaterialCache.empty();
     if (validateRecords && m_staticSurfaceKeys.size() != m_staticSurfaceRecords.size())
     {
         ++stats.staticKeyVectorMismatches;
@@ -1221,6 +1257,12 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateReco
         m_staticTriangleClassCache.size() * sizeof(m_staticTriangleClassCache[0]) +
         m_staticTriangleMaterialCache.size() * sizeof(m_staticTriangleMaterialCache[0]);
     stats.staticBytesKB = static_cast<int>((staticBytes + 1023) / 1024);
+    const size_t previousStaticBytes =
+        m_previousStaticVertexCache.size() * sizeof(m_previousStaticVertexCache[0]) +
+        m_previousStaticIndexCache.size() * sizeof(m_previousStaticIndexCache[0]) +
+        m_previousStaticTriangleClassCache.size() * sizeof(m_previousStaticTriangleClassCache[0]) +
+        m_previousStaticTriangleMaterialCache.size() * sizeof(m_previousStaticTriangleMaterialCache[0]);
+    stats.previousStaticBytesKB = static_cast<int>((previousStaticBytes + 1023) / 1024);
     stats.frameIndex = m_currentFrameIndex;
     stats.generation = m_generation;
     return stats;
@@ -1335,7 +1377,7 @@ void RtSmokeGeometryUniverse::LogStaticRangeHistory(int maxRecords) const
     const int materialTriangleCount = static_cast<int>(m_staticTriangleMaterialCache.size());
     const RtSmokeGeometryUniverseStats stats = GetStats(false);
 
-    common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump frame=%llu generation=%llu records=%d seen/new/gone/history/prev/dirty=%d/%d/%d/%d/%d/%d cache v/i/t=%d/%d/%d dirtyRange v/i/t=%d/%d/%d/%d/%d/%d maxRecords=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke geometry range history dump frame=%llu generation=%llu records=%d seen/new/gone/history/prev/dirty=%d/%d/%d/%d/%d/%d cache v/i/t=%d/%d/%d previousCpu v/i/t/kb=%d/%d/%d/%d available=%d dirtyRange v/i/t=%d/%d/%d/%d/%d/%d maxRecords=%d\n",
         static_cast<unsigned long long>(m_currentFrameIndex),
         static_cast<unsigned long long>(m_generation),
         stats.staticRecords,
@@ -1348,6 +1390,11 @@ void RtSmokeGeometryUniverse::LogStaticRangeHistory(int maxRecords) const
         stats.staticVerts,
         stats.staticIndexes,
         stats.staticTriangles,
+        stats.previousStaticVerts,
+        stats.previousStaticIndexes,
+        stats.previousStaticTriangles,
+        stats.previousStaticBytesKB,
+        stats.previousStaticCpuSnapshotAvailable ? 1 : 0,
         stats.staticDirtyVertexOffset,
         stats.staticDirtyVertexCount,
         stats.staticDirtyIndexOffset,

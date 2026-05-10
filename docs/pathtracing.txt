@@ -2011,6 +2011,11 @@ Geometry universe status:
   buffers. That aliasing is valid only for unchanged static ranges; this is
   CPU-side scene-input metadata only and does not change the shader binding ABI
   or make a new motion-vector consumer.
+- The geometry universe retains a one-frame CPU snapshot of the previous static
+  vertex/index/triangle-class/triangle-material arrays at `BeginFrame`. Scene
+  inputs and `r_pathTracingGeometryUniverseRangeDump 1` report its counts and
+  size. This is a bridge for validating previous static data ownership; it is
+  not yet uploaded as separate previous GPU buffers.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
@@ -2052,9 +2057,9 @@ Geometry universe status:
   only keep the current frame's packed buffers and throw away the previous
   geometry universe.
 - The next useful geometry step after the range-history, dirty-extent dump,
-  partial dirty static-buffer uploads, and static previous-frame scene-input
-  bridge is stronger persistent GPU buffer ownership and stronger static/dynamic
-  separation.
+  partial dirty static-buffer uploads, static previous-frame scene-input bridge,
+  and previous static CPU snapshot is stronger persistent GPU buffer ownership
+  and stronger static/dynamic separation.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,

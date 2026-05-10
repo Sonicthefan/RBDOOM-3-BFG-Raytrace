@@ -108,6 +108,10 @@ struct RtPathTraceSceneInputGeometry
     int previousStaticVertexCount = 0;
     int previousStaticIndexCount = 0;
     int previousStaticTriangleCount = 0;
+    int previousStaticCpuVertexCount = 0;
+    int previousStaticCpuIndexCount = 0;
+    int previousStaticCpuTriangleCount = 0;
+    int previousStaticCpuBytesKB = 0;
     int staticSeenSurfaceCount = 0;
     int staticNewSurfaceCount = 0;
     int staticGoneSurfaceCount = 0;
@@ -124,6 +128,7 @@ struct RtPathTraceSceneInputGeometry
     bool staticPreviousBuffersAvailable = false;
     bool staticPreviousMaterialIndexBufferAvailable = false;
     bool staticPreviousBuffersAliasCurrent = false;
+    bool staticPreviousCpuSnapshotAvailable = false;
     bool staticPreviousCountsMatch = false;
     bool staticPreviousRangesComplete = false;
     int dynamicVertexCount = 0;

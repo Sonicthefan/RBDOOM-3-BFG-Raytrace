@@ -211,7 +211,10 @@ PathTraceSceneInputs.h
     whether current static records have complete previous ranges with matching
     counts. It also reports when previous static handles alias the current
     persistent static buffers, which is expected for unchanged static geometry
-    and is not a separate previous snapshot.
+    and is not a separate previous snapshot. The geometry universe separately
+    retains and reports a one-frame CPU previous static snapshot; this proves
+    ownership of previous static data before adding separate previous GPU
+    buffers.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the
@@ -425,7 +428,9 @@ PathTraceGeometryUniverse.cpp
     generation/stat tracking while preserving the existing shader-facing buffer
     behavior. Static surface lookup, per-frame BeginFrame/Touch/EndFrame
     lifecycle updates, append completion, and static record validation now go
-    through the universe. `r_pathTracingGeometryUniverseRangeDump 1` prints a
+    through the universe. It snapshots the static CPU arrays at BeginFrame so
+    the scene-input layer can distinguish previous static CPU data ownership
+    from aliasing current persistent GPU buffers. `r_pathTracingGeometryUniverseRangeDump 1` prints a
     one-shot current/previous static range-history dump for validating normal
     range mapping, not only failure cases. The dump also reports union dirty
     vertex/index/triangle extents as CPU bookkeeping for future partial uploads;

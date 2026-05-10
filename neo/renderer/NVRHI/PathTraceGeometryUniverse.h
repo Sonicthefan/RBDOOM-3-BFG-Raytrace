@@ -53,6 +53,11 @@ struct RtSmokeGeometryUniverseStats
     int staticDirtyTriangleOffset = -1;
     int staticDirtyTriangleCount = 0;
     int staticBytesKB = 0;
+    int previousStaticVerts = 0;
+    int previousStaticIndexes = 0;
+    int previousStaticTriangles = 0;
+    int previousStaticBytesKB = 0;
+    bool previousStaticCpuSnapshotAvailable = false;
     uint64 frameIndex = 0;
     uint64 generation = 1;
 };
@@ -544,6 +549,11 @@ public:
     std::vector<uint32_t>& StaticTriangleMaterials();
     const std::vector<uint32_t>& StaticTriangleMaterials() const;
 
+    const std::vector<PathTraceSmokeVertex>& PreviousStaticVertices() const;
+    const std::vector<uint32_t>& PreviousStaticIndexes() const;
+    const std::vector<uint32_t>& PreviousStaticTriangleClasses() const;
+    const std::vector<uint32_t>& PreviousStaticTriangleMaterials() const;
+
     RtSmokeGeometryUniverseStats GetStats(bool validateRecords) const;
     void LogStaticValidationFailures(int maxRecords) const;
     void LogStaticRangeHistory(int maxRecords) const;
@@ -644,6 +654,10 @@ private:
     std::vector<uint32_t> m_staticIndexCache;
     std::vector<uint32_t> m_staticTriangleClassCache;
     std::vector<uint32_t> m_staticTriangleMaterialCache;
+    std::vector<PathTraceSmokeVertex> m_previousStaticVertexCache;
+    std::vector<uint32_t> m_previousStaticIndexCache;
+    std::vector<uint32_t> m_previousStaticTriangleClassCache;
+    std::vector<uint32_t> m_previousStaticTriangleMaterialCache;
     std::vector<RigidMeshCandidateRecord> m_rigidMeshCandidateRecords;
     std::unordered_map<uint64, size_t> m_rigidMeshCandidateLookup;
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;

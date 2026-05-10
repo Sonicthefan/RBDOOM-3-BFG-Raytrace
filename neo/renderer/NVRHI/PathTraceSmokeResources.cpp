@@ -81,7 +81,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
         geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
         geometry.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCounts=%d prevRangesComplete=%d previous v/i/t=%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevCounts=%d prevRangesComplete=%d previous v/i/t=%d/%d/%d cpu v/i/t/kb=%d/%d/%d/%d\n",
         geometry.staticSeenSurfaceCount,
         geometry.staticNewSurfaceCount,
         geometry.staticGoneSurfaceCount,
@@ -90,11 +90,16 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.staticPreviousBuffersAvailable ? 1 : 0,
         geometry.staticPreviousMaterialIndexBufferAvailable ? 1 : 0,
         geometry.staticPreviousBuffersAliasCurrent ? 1 : 0,
+        geometry.staticPreviousCpuSnapshotAvailable ? 1 : 0,
         geometry.staticPreviousCountsMatch ? 1 : 0,
         geometry.staticPreviousRangesComplete ? 1 : 0,
         geometry.previousStaticVertexCount,
         geometry.previousStaticIndexCount,
-        geometry.previousStaticTriangleCount);
+        geometry.previousStaticTriangleCount,
+        geometry.previousStaticCpuVertexCount,
+        geometry.previousStaticCpuIndexCount,
+        geometry.previousStaticCpuTriangleCount,
+        geometry.previousStaticCpuBytesKB);
     common->Printf("PathTracePrimaryPass: PT skinned previous bridge matched=%d invalid=%d retainedVerts=%d noFrame=%d noSurface=%d countMismatch=%d materialChanged=%d classChanged=%d notRtCpu=%d skeletonChanged=%d transformDiscontinuous=%d prevBufferUnavailable=%d temporal topology/lod/transform/deform/material/prevBuffer=%d/%d/%d/%d/%d/%d\n",
         geometry.skinnedPreviousMatchedSurfaceCount,
         geometry.skinnedPreviousInvalidSurfaceCount,
