@@ -22,7 +22,7 @@ int g_smokeLastReadbackTimingLogMs = -1000000;
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
-    const int debugMode = idMath::ClampInt(0, 37, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 38, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested)
     {

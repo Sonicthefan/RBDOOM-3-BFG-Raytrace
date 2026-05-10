@@ -483,6 +483,7 @@ Implemented debug CVars:
   35 = path tracer reflection hit/miss visualizer
   36 = path tracer reflection roughness/F0 gate visualizer
   37 = path tracer max-depth / Russian-roulette state visualizer
+  38 = primary object-motion vector diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2465,6 +2466,10 @@ raygen paths. Use `r_pathTracingRestirPTPassDump 1` for a one-shot console dump
 of the current mode's pass label, flags, resampling mode, and reservoir buffer
 selection.
 
+For primary object-motion vector validation:
+
+    r_pathTracingDebugMode 38
+
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
 RTXDI `GenerateInitialSamples`, and stores the returned `RTXDI_PTReservoir` into
@@ -2683,6 +2688,17 @@ enablement when the global analytic-light CVar is off. Set
 behavior. The same ReSTIR mode range also uses the routed rigid scene path and
 routed rigid emissive-card inventory, so temporal diagnostics see the same
 source3 membership baseline as the earlier initial-reservoir views.
+
+Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
+same primary hit data as mode 30, but only visualizes skinned surfaces with
+validated retained previous positions. Valid skinned hits encode
+current-to-previous pixel displacement as signed direction in red/green around
+0.5 and magnitude in blue, capped at 32 internal PT pixels. Static surfaces,
+routed rigid surfaces, and dynamic surfaces without required previous skinned
+state use the existing no-object-motion or skinned invalid colors. Rigid object
+motion is intentionally not visualized here because routed-rigid coverage can be
+view-dependent and needs a separate validation pass. This mode does not export a
+final motion-vector buffer.
 
 Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit

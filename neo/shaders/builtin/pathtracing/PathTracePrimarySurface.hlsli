@@ -222,6 +222,14 @@ bool RestirPTProjectWorldToPreviousPixel(float3 worldPosition, uint2 dimensions,
     return ProjectPathTracePrimarySurfaceToPreviousPixel(worldPosition, dimensions, previousPixel);
 }
 
+float4 PathTracePrimarySurfaceMotionVectorColor(float2 motionPixels)
+{
+    const float magnitude = length(motionPixels);
+    const float maxVisualizedPixels = 32.0;
+    const float2 signedDirection = saturate(motionPixels / (maxVisualizedPixels * 2.0) + 0.5);
+    return float4(signedDirection.x, signedDirection.y, saturate(magnitude / maxVisualizedPixels), 1.0);
+}
+
 bool ProjectPathTracePrimarySurfaceToPreviousPixel(RAB_Surface currentSurface, uint2 dimensions, out int2 previousPixel, out uint debugStatus)
 {
     previousPixel = int2(-1, -1);
@@ -356,6 +364,33 @@ float4 PathTracePrimarySurfaceDebugColor(uint debugStatus, RAB_Surface currentSu
     const float currentRoughness = saturate(GetRoughness(currentSurface.material));
     const float3 albedo = saturate(currentSurface.material.diffuseAlbedo);
     return float4(saturate(float3(0.02, 0.30, 0.08) + albedo * 0.25 + currentRoughness * float3(0.0, 0.18, 0.08)), 1.0);
+}
+
+float4 EvaluatePathTracePrimarySurfaceObjectMotionDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+#ifdef RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
+    float3 previousObjectPosition;
+    uint objectMotionDebugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (!TryPathTracePrimarySurfaceSkinnedObjectMotion(currentSurface, previousObjectPosition, objectMotionDebugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(objectMotionDebugStatus, currentSurface);
+    }
+
+    int2 previousPixel;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousObjectPosition, PathTraceFullOutputSize(), previousPixel))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+    }
+
+    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
+#else
+    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+#endif
 }
 
 float4 EvaluateRestirPTPrimarySurfacePairDebug(RAB_Surface currentSurface, RAB_Surface previousSurface)

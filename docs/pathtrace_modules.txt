@@ -1477,6 +1477,15 @@ normal mode 30/31 rejection colors still appear before a valid temporal
 reservoir is available. Active mode 33 is not the rejected temporal resolved
 color prototype.
 
+Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
+skinned hits with retained previous positions and intentionally treats routed
+rigid hits as no-object-motion until rigid coverage has a separate validation
+pass. Valid skinned motion encodes current-to-previous pixel displacement as
+signed red/green direction around 0.5 plus blue magnitude, capped at 32 internal
+PT pixels. Static surfaces and missing/invalid skinned history use the existing
+no-object-motion or skinned invalid colors. It does not write a production
+motion-vector buffer.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before
