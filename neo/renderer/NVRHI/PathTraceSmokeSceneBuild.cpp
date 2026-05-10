@@ -2542,6 +2542,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.dynamicVertexCount = dynamicVertexCount;
     sceneInputs.geometry.dynamicIndexCount = dynamicIndexCount;
     sceneInputs.geometry.dynamicTriangleCount = dynamicIndexCount / 3;
+    sceneInputs.geometry.dynamicClassifiedSurfaceCount =
+        dynamicStats.rigidSurfaces +
+        dynamicStats.skinnedCpuCurrentSurfaces +
+        dynamicStats.skinnedLikelyBasePoseSurfaces +
+        dynamicStats.skinnedRtCpuSkinnedSurfaces +
+        dynamicStats.particleAlphaSurfaces +
+        dynamicStats.unknownSurfaces;
+    sceneInputs.geometry.dynamicClassifiedTriangleCount =
+        (dynamicStats.rigidIndexes +
+        dynamicStats.skinnedCpuCurrentIndexes +
+        dynamicStats.skinnedLikelyBasePoseIndexes +
+        dynamicStats.skinnedRtCpuSkinnedIndexes +
+        dynamicStats.particleAlphaIndexes +
+        dynamicStats.unknownIndexes) / 3;
+    sceneInputs.geometry.dynamicClassifiedTriangleDelta =
+        sceneInputs.geometry.dynamicTriangleCount - sceneInputs.geometry.dynamicClassifiedTriangleCount;
+    sceneInputs.geometry.dynamicClassifiedCountsMatch =
+        sceneInputs.geometry.dynamicClassifiedTriangleDelta == 0;
     sceneInputs.geometry.dynamicRigidSurfaceCount = dynamicStats.rigidSurfaces;
     sceneInputs.geometry.dynamicRigidTriangleCount = dynamicStats.rigidIndexes / 3;
     sceneInputs.geometry.dynamicSkinnedCpuCurrentSurfaceCount = dynamicStats.skinnedCpuCurrentSurfaces;

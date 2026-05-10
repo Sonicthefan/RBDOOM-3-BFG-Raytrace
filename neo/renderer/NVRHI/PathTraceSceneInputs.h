@@ -139,6 +139,10 @@ struct RtPathTraceSceneInputGeometry
     int dynamicVertexCount = 0;
     int dynamicIndexCount = 0;
     int dynamicTriangleCount = 0;
+    int dynamicClassifiedSurfaceCount = 0;
+    int dynamicClassifiedTriangleCount = 0;
+    int dynamicClassifiedTriangleDelta = 0;
+    bool dynamicClassifiedCountsMatch = false;
     int dynamicRigidSurfaceCount = 0;
     int dynamicRigidTriangleCount = 0;
     int dynamicSkinnedCpuCurrentSurfaceCount = 0;

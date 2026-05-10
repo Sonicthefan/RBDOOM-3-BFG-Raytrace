@@ -224,7 +224,10 @@ PathTraceSceneInputs.h
     the current scene build. The same geometry section reports a dynamic
     fallback split for rigid, CPU-current skinned, likely-base-pose skinned, RT
     CPU-skinned, particle, unknown, and retained occluder surface/triangle
-    counts. Those counts are diagnostics only and do not split the dynamic BLAS.
+    counts. The classified total deliberately excludes retained occluders
+    because retained occluders are also counted by class; its match flag reports
+    whether the class split accounts for the aggregate dynamic triangle count.
+    These counts are diagnostics only and do not split the dynamic BLAS.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the

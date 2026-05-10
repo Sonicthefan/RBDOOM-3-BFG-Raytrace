@@ -82,7 +82,11 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
         geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
         geometry.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT scene inputs dynamic split surfaces rigid/skinnedCpu/basePose/rtCpu/particle/unknown/retained=%d/%d/%d/%d/%d/%d/%d tris=%d/%d/%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs dynamic split classified surfaces/tris/delta/match=%d/%d/%d/%d surfaces rigid/skinnedCpu/basePose/rtCpu/particle/unknown/retained=%d/%d/%d/%d/%d/%d/%d tris=%d/%d/%d/%d/%d/%d/%d\n",
+        geometry.dynamicClassifiedSurfaceCount,
+        geometry.dynamicClassifiedTriangleCount,
+        geometry.dynamicClassifiedTriangleDelta,
+        geometry.dynamicClassifiedCountsMatch ? 1 : 0,
         geometry.dynamicRigidSurfaceCount,
         geometry.dynamicSkinnedCpuCurrentSurfaceCount,
         geometry.dynamicSkinnedLikelyBasePoseSurfaceCount,

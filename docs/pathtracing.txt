@@ -2072,7 +2072,10 @@ Geometry universe status:
   aggregate dynamic vertex/index/triangle count: rigid, CPU-current skinned,
   likely-base-pose skinned, RT CPU-skinned, particle, unknown, and retained
   occluder surface/triangle counts. This is diagnostic metadata only; it does
-  not split the dynamic BLAS or change shader bindings.
+  not split the dynamic BLAS or change shader bindings. The classified total
+  excludes retained occluders because retained occluders are also counted in
+  their surface class; `match=1` means the class split accounts for the dynamic
+  triangle payload.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,
