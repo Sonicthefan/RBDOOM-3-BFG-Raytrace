@@ -52,7 +52,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         static_cast<unsigned long long>(signatures.debugFeaturePolicy),
         static_cast<unsigned long long>(signatures.cpuUploadGeneration),
         static_cast<unsigned long long>(signatures.reservoirScene));
-    common->Printf("PathTracePrimaryPass: PT scene inputs geometry static v/i/t=%d/%d/%d dirty surfaces=%d ranges v/i/t=%d/%d/%d/%d/%d/%d dynamic v/i/t=%d/%d/%d rigidRoute v/i/t/inst/prevXform=%d/%d/%d/%d/%d skinned surfaces/tris/rtCpu=%d/%d/%d current=%d prevTransform=%d prevVertex=%d prevSkinnedGpu=%d prevSkinnedCpuRetained=%d caps=0x%08x\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs geometry static v/i/t=%d/%d/%d dirty surfaces=%d ranges v/i/t=%d/%d/%d/%d/%d/%d dirtyUpload=%d dynamic v/i/t=%d/%d/%d rigidRoute v/i/t/inst/prevXform=%d/%d/%d/%d/%d skinned surfaces/tris/rtCpu=%d/%d/%d current=%d prevTransform=%d prevVertex=%d prevSkinnedGpu=%d prevSkinnedCpuRetained=%d caps=0x%08x\n",
         geometry.staticVertexCount,
         geometry.staticIndexCount,
         geometry.staticTriangleCount,
@@ -63,6 +63,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.staticDirtyIndexCount,
         geometry.staticDirtyTriangleOffset,
         geometry.staticDirtyTriangleCount,
+        geometry.staticDirtyRangeUploadUsed ? 1 : 0,
         geometry.dynamicVertexCount,
         geometry.dynamicIndexCount,
         geometry.dynamicTriangleCount,

@@ -202,12 +202,13 @@ PathTraceSceneInputs.h
     placeholders, skinned previous CPU-bridge match/invalid diagnostics,
     off-by-default skinned GPU-skinning scaffold resource handles/counts, and
     CPU upload/timing diagnostics. This is not a shader ABI. The static
-    dirty-range summary mirrors the geometry-universe CPU bookkeeping for
-    future partial-upload consumers; current static uploads remain
-    all-or-nothing. The skinned previous bridge currently reports CPU-retained
-    data in the default path. Routed rigid instances report previous-transform
-    availability when the instance mirror observed the same stable instance in
-    the consecutive previous frame. `r_pathTracingGpuSkinning 1` additionally creates and
+    dirty-range summary mirrors the geometry-universe CPU bookkeeping and
+    reports when reused static geometry buffers consumed it for partial
+    dirty-range uploads. New or resized static buffers still use full uploads.
+    The skinned previous bridge currently reports CPU-retained data in the
+    default path. Routed rigid instances report previous-transform availability
+    when the instance mirror observed the same stable instance in the
+    consecutive previous frame. `r_pathTracingGpuSkinning 1` additionally creates and
     binds diagnostic source/output/previous-position/dispatch buffers so
     primary-surface packing can consume validated skinned previous positions
     without making the BLAS path consume the scaffold output.
@@ -230,6 +231,10 @@ PathTraceSmokeSceneBuild.cpp
     split geometry/material/light/output/camera/debug/upload signatures and
     source3 portal-policy facts. This is the right place to adjust high-level
     build order, but it should delegate specialized work to narrower modules.
+    Reused static geometry buffers now use geometry-universe dirty ranges for
+    partial vertex/index/triangle-class/triangle-material uploads when the
+    ranges are valid; static material-index uploads remain full because they
+    are derived from the current material table.
 
 PathTraceSmokeResources.h
     Resource-facing structs for smoke geometry buffers, binding build inputs,

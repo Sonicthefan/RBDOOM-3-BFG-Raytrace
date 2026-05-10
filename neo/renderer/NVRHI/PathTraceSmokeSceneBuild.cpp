@@ -49,6 +49,52 @@ int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
 
+bool SmokeUploadElementRangeValid(int elementOffset, int elementCount, size_t elementTotal)
+{
+    return elementOffset >= 0 &&
+        elementCount > 0 &&
+        static_cast<size_t>(elementOffset) <= elementTotal &&
+        static_cast<size_t>(elementCount) <= elementTotal - static_cast<size_t>(elementOffset);
+}
+
+template< typename T >
+RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
+    nvrhi::BufferHandle buffer,
+    const std::vector<T>& data,
+    nvrhi::ResourceStates finalState,
+    bool skip,
+    int elementOffset = -1,
+    int elementCount = 0)
+{
+    RtSmokeBufferUploadItem item;
+    item.buffer = buffer;
+    item.data = data.data();
+    item.byteSize = data.size() * sizeof(T);
+    item.finalState = finalState;
+    item.skip = skip;
+    if (SmokeUploadElementRangeValid(elementOffset, elementCount, data.size()))
+    {
+        item.byteSize = static_cast<size_t>(elementCount) * sizeof(T);
+        item.sourceOffsetBytes = static_cast<size_t>(elementOffset) * sizeof(T);
+        item.destOffsetBytes = static_cast<uint64_t>(item.sourceOffsetBytes);
+    }
+    return item;
+}
+
+uint64_t SumSmokeUploadBytes(const RtSmokeBufferUploadItem* items, int firstItem, int itemCount)
+{
+    uint64_t bytes = 0;
+    for (int itemIndex = firstItem; itemIndex < firstItem + itemCount; ++itemIndex)
+    {
+        const RtSmokeBufferUploadItem& item = items[itemIndex];
+        if (!item.skip && item.buffer && item.data && item.byteSize > 0)
+        {
+            bytes += static_cast<uint64_t>(item.byteSize);
+        }
+    }
+    return bytes;
+}
+
 struct RtSmokeStaticDrawSurfCounts
 {
     int surfaces = 0;
@@ -2077,32 +2123,49 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         smokeDynamicBlas = dynamicBlasCreateResult.accelStruct;
     }
 
+    const bool staticGeometryBuffersReused =
+        smokeStaticVertexBuffer && smokeStaticVertexBuffer == m_smokeStaticVertexBuffer &&
+        smokeStaticIndexBuffer && smokeStaticIndexBuffer == m_smokeStaticIndexBuffer &&
+        smokeStaticTriangleClassBuffer && smokeStaticTriangleClassBuffer == m_smokeStaticTriangleClassBuffer &&
+        smokeStaticTriangleMaterialBuffer && smokeStaticTriangleMaterialBuffer == m_smokeStaticTriangleMaterialBuffer;
+    const bool staticDirtyRangesValid =
+        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyVertexOffset, geometryUniverseStats.staticDirtyVertexCount, staticVertexCache.size()) &&
+        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyIndexOffset, geometryUniverseStats.staticDirtyIndexCount, staticIndexCache.size()) &&
+        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyTriangleOffset, geometryUniverseStats.staticDirtyTriangleCount, staticTriangleClassCache.size()) &&
+        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyTriangleOffset, geometryUniverseStats.staticDirtyTriangleCount, staticTriangleMaterialCache.size());
+    const bool useStaticDirtyRangeUploads =
+        !staticBlasCacheHit &&
+        staticCacheChanged &&
+        geometryUniverseStats.staticDirty > 0 &&
+        staticGeometryBuffersReused &&
+        staticDirtyRangesValid;
+
     const RtSmokeBufferUploadItem uploadItems[] = {
-        { smokeStaticVertexBuffer, staticVertexCache.data(), staticVertexCache.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
-        { smokeStaticIndexBuffer, staticIndexCache.data(), staticIndexCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit },
-        { smokeStaticTriangleClassBuffer, staticTriangleClassCache.data(), staticTriangleClassCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
-        { smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache.data(), staticTriangleMaterialCache.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
-        { smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes.data(), materialTable.staticMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit },
-        { smokeDynamicVertexBuffer, dynamicVertexData.data(), dynamicVertexData.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::AccelStructBuildInput, false },
-        { smokeDynamicIndexBuffer, dynamicIndexData.data(), dynamicIndexData.size() * sizeof(uint32_t), nvrhi::ResourceStates::AccelStructBuildInput, false },
-        { smokeDynamicTriangleClassBuffer, dynamicTriangleClassData.data(), dynamicTriangleClassData.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData.data(), dynamicTriangleMaterialData.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes.data(), materialTable.dynamicMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeMaterialTableBuffer, materialTable.materials.data(), materialTable.materials.size() * sizeof(PathTraceSmokeMaterial), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeEmissiveTriangleBuffer, emissiveTriangles.data(), emissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeLightCandidateBuffer, lightCandidates.data(), lightCandidates.size() * sizeof(PathTraceSmokeLightCandidate), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeDoomAnalyticLightBuffer, doomAnalyticLights.data(), doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeRigidRouteVertexBuffer, rigidRouteBuild.vertices.data(), rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeRigidRouteIndexBuffer, rigidRouteBuild.indexes.data(), rigidRouteBuild.indexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials.data(), rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeRigidRouteTriangleMaterialIndexBuffer, rigidRouteBuild.triangleMaterialIndexes.data(), rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances.data(), rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeSkinnedSourceVertexBuffer, skinnedGpuScaffold.sourceVertices.data(), skinnedGpuScaffold.sourceVertices.size() * sizeof(PathTraceSkinnedSourceVertex), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeSkinnedCurrentOutputVertexBuffer, skinnedGpuScaffold.currentOutputVertices.data(), skinnedGpuScaffold.currentOutputVertices.size() * sizeof(PathTraceSmokeVertex), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeSkinnedPreviousPositionBuffer, skinnedGpuScaffold.previousPositions.data(), skinnedGpuScaffold.previousPositions.size() * sizeof(PathTraceSkinnedPreviousPosition), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeSkinnedSurfaceDispatchBuffer, skinnedGpuScaffold.dispatchRecords.data(), skinnedGpuScaffold.dispatchRecords.size() * sizeof(PathTraceSkinnedSurfaceDispatchRecord), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices.data(), skinnedGpuScaffold.currentJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix), nvrhi::ResourceStates::ShaderResource, false },
-        { smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices.data(), skinnedGpuScaffold.previousJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix), nvrhi::ResourceStates::ShaderResource, false }
+        MakeSmokeVectorUploadItem(smokeStaticVertexBuffer, staticVertexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1, geometryUniverseStats.staticDirtyVertexCount),
+        MakeSmokeVectorUploadItem(smokeStaticIndexBuffer, staticIndexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyIndexOffset : -1, geometryUniverseStats.staticDirtyIndexCount),
+        MakeSmokeVectorUploadItem(smokeStaticTriangleClassBuffer, staticTriangleClassCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
+        MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialBuffer, staticTriangleMaterialCache, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyTriangleOffset : -1, geometryUniverseStats.staticDirtyTriangleCount),
+        MakeSmokeVectorUploadItem(smokeStaticTriangleMaterialIndexBuffer, materialTable.staticMaterialIndexes, nvrhi::ResourceStates::ShaderResource, staticBlasCacheHit),
+        MakeSmokeVectorUploadItem(smokeDynamicVertexBuffer, dynamicVertexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
+        MakeSmokeVectorUploadItem(smokeDynamicIndexBuffer, dynamicIndexData, nvrhi::ResourceStates::AccelStructBuildInput, false),
+        MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeLightCandidateBuffer, lightCandidates, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDoomAnalyticLightBuffer, doomAnalyticLights, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRigidRouteVertexBuffer, rigidRouteBuild.vertices, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRigidRouteIndexBuffer, rigidRouteBuild.indexes, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialIndexBuffer, rigidRouteBuild.triangleMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedSourceVertexBuffer, skinnedGpuScaffold.sourceVertices, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedCurrentOutputVertexBuffer, skinnedGpuScaffold.currentOutputVertices, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, skinnedGpuScaffold.previousPositions, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedSurfaceDispatchBuffer, skinnedGpuScaffold.dispatchRecords, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices, nvrhi::ResourceStates::ShaderResource, false)
     };
     RtSmokeBufferUploadBatchDesc uploadBatchDesc;
     uploadBatchDesc.commandList = commandList;
@@ -2232,30 +2295,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int doomAnalyticLightCountForSignature = static_cast<int>(doomAnalyticLights.size());
     sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &doomAnalyticLightCountForSignature, sizeof(doomAnalyticLightCountForSignature));
 
-    const uint64_t staticUploadBytes =
-        staticBlasCacheHit ? 0ull :
-        static_cast<uint64_t>(bufferCreateDesc.staticVertexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.staticIndexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.staticTriangleClassBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.staticTriangleMaterialBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.staticTriangleMaterialIndexBytes);
-    const uint64_t dynamicUploadBytes =
-        static_cast<uint64_t>(bufferCreateDesc.dynamicVertexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.dynamicIndexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.dynamicTriangleClassBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.dynamicTriangleMaterialBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.dynamicTriangleMaterialIndexBytes);
-    const uint64_t rigidRouteUploadBytes =
-        static_cast<uint64_t>(bufferCreateDesc.rigidRouteVertexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.rigidRouteIndexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.rigidRouteTriangleMaterialBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.rigidRouteTriangleMaterialIndexBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.rigidRouteInstanceBytes);
-    const uint64_t materialUploadBytes = static_cast<uint64_t>(bufferCreateDesc.materialTableBytes);
-    const uint64_t lightUploadBytes =
-        static_cast<uint64_t>(bufferCreateDesc.emissiveTriangleBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.lightCandidateBytes) +
-        static_cast<uint64_t>(bufferCreateDesc.doomAnalyticLightBytes);
+    const uint64_t staticUploadBytes = SumSmokeUploadBytes(uploadItems, 0, 5);
+    const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 5);
+    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 1);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 11, 3);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 14, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -2340,6 +2384,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.staticDirtyIndexCount = geometryUniverseStats.staticDirtyIndexCount;
     sceneInputs.geometry.staticDirtyTriangleOffset = geometryUniverseStats.staticDirtyTriangleOffset;
     sceneInputs.geometry.staticDirtyTriangleCount = geometryUniverseStats.staticDirtyTriangleCount;
+    sceneInputs.geometry.staticDirtyRangeUploadUsed = useStaticDirtyRangeUploads;
     sceneInputs.geometry.dynamicVertexCount = dynamicVertexCount;
     sceneInputs.geometry.dynamicIndexCount = dynamicIndexCount;
     sceneInputs.geometry.dynamicTriangleCount = dynamicIndexCount / 3;

@@ -107,6 +107,7 @@ struct RtPathTraceSceneInputGeometry
     int staticDirtyIndexCount = 0;
     int staticDirtyTriangleOffset = -1;
     int staticDirtyTriangleCount = 0;
+    bool staticDirtyRangeUploadUsed = false;
     int dynamicVertexCount = 0;
     int dynamicIndexCount = 0;
     int dynamicTriangleCount = 0;

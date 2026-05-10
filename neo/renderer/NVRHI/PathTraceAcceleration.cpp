@@ -74,7 +74,8 @@ int UploadSmokeAccelerationBuffers(const RtSmokeBufferUploadBatchDesc& desc)
             const RtSmokeBufferUploadItem& item = desc.items[itemIndex];
             if (!item.skip && item.buffer && item.data && item.byteSize > 0)
             {
-                desc.commandList->writeBuffer(item.buffer, item.data, item.byteSize);
+                const byte* sourceBytes = static_cast<const byte*>(item.data) + item.sourceOffsetBytes;
+                desc.commandList->writeBuffer(item.buffer, sourceBytes, item.byteSize, item.destOffsetBytes);
             }
         }
     }

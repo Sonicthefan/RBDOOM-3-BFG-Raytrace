@@ -78,6 +78,8 @@ struct RtSmokeBufferUploadItem
     size_t byteSize = 0;
     nvrhi::ResourceStates finalState = nvrhi::ResourceStates::ShaderResource;
     bool skip = false;
+    size_t sourceOffsetBytes = 0;
+    uint64_t destOffsetBytes = 0;
 };
 
 struct RtSmokeBufferUploadBatchDesc
