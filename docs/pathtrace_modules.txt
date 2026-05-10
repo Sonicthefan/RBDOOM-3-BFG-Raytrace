@@ -213,8 +213,9 @@ PathTraceSceneInputs.h
     persistent static buffers, which is expected for unchanged static geometry
     and is not a separate previous snapshot. The geometry universe separately
     retains and reports a one-frame CPU previous static snapshot; this proves
-    ownership of previous static data before adding separate previous GPU
-    buffers.
+    ownership of previous static data. Scene build uploads that previous
+    static vertex/index/triangle-class/triangle-material snapshot into separate
+    GPU buffers for future consumers, without changing shader bindings.
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the
@@ -244,7 +245,9 @@ PathTraceSmokeSceneBuild.cpp
     Reused static geometry buffers now use geometry-universe dirty ranges for
     partial vertex/index/triangle-class/triangle-material uploads when the
     ranges are valid; static material-index uploads remain full because they
-    are derived from the current material table.
+    are derived from the current material table. The previous static CPU
+    snapshot is uploaded into separate non-shader-bound GPU buffers for future
+    motion/history consumers.
 
 PathTraceSmokeResources.h
     Resource-facing structs for smoke geometry buffers, binding build inputs,
@@ -430,7 +433,9 @@ PathTraceGeometryUniverse.cpp
     lifecycle updates, append completion, and static record validation now go
     through the universe. It snapshots the static CPU arrays at BeginFrame so
     the scene-input layer can distinguish previous static CPU data ownership
-    from aliasing current persistent GPU buffers. `r_pathTracingGeometryUniverseRangeDump 1` prints a
+    from aliasing current persistent GPU buffers. The snapshot currently covers
+    vertex, index, triangle-class, and triangle-material ID arrays; material
+    indexes remain material-table-derived. `r_pathTracingGeometryUniverseRangeDump 1` prints a
     one-shot current/previous static range-history dump for validating normal
     range mapping, not only failure cases. The dump also reports union dirty
     vertex/index/triangle extents as CPU bookkeeping for future partial uploads;

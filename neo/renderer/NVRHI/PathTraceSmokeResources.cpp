@@ -81,7 +81,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousVertexDataAvailable ? 1 : 0,
         geometry.skinnedPreviousCpuVertexDataRetained ? 1 : 0,
         geometry.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevCounts=%d prevRangesComplete=%d previous v/i/t=%d/%d/%d cpu v/i/t/kb=%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT static previous bridge seen/new/gone/history/prevRange=%d/%d/%d/%d/%d prevBuffers=%d prevMaterialIndex=%d prevAlias=%d prevCpu=%d prevGpu=%d prevCounts=%d prevRangesComplete=%d previous v/i/t=%d/%d/%d cpu v/i/t/kb=%d/%d/%d/%d\n",
         geometry.staticSeenSurfaceCount,
         geometry.staticNewSurfaceCount,
         geometry.staticGoneSurfaceCount,
@@ -91,6 +91,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.staticPreviousMaterialIndexBufferAvailable ? 1 : 0,
         geometry.staticPreviousBuffersAliasCurrent ? 1 : 0,
         geometry.staticPreviousCpuSnapshotAvailable ? 1 : 0,
+        geometry.staticPreviousGpuSnapshotAvailable ? 1 : 0,
         geometry.staticPreviousCountsMatch ? 1 : 0,
         geometry.staticPreviousRangesComplete ? 1 : 0,
         geometry.previousStaticVertexCount,
@@ -309,10 +310,13 @@ static void PrintPathTracePortalTransitionDump(
         static_cast<unsigned long long>(current.diagnostics.geometryUploadBytes),
         static_cast<unsigned long long>(current.diagnostics.materialUploadBytes),
         static_cast<unsigned long long>(current.diagnostics.lightUploadBytes));
-    common->Printf("PathTracePrimaryPass: PT portal transition resources buffers staticV/I/TM=%d/%d/%d dynamicV/I/TM=%d/%d/%d rigidV/I/Inst=%d/%d/%d skinnedSrc/Out/Prev/Dispatch=%d/%d/%d/%d material=%d emissive/candidate/analytic=%d/%d/%d blas static/dynamic=%d/%d bindingSet=%d descriptorTable=%d descriptorCreated=%d descriptorWritten=%d\n",
+    common->Printf("PathTracePrimaryPass: PT portal transition resources buffers staticV/I/TM=%d/%d/%d prevStaticV/I/TM=%d/%d/%d dynamicV/I/TM=%d/%d/%d rigidV/I/Inst=%d/%d/%d skinnedSrc/Out/Prev/Dispatch=%d/%d/%d/%d material=%d emissive/candidate/analytic=%d/%d/%d blas static/dynamic=%d/%d bindingSet=%d descriptorTable=%d descriptorCreated=%d descriptorWritten=%d\n",
         HandleChanged(oldBuffers.staticVertexBuffer, next.buffers.staticVertexBuffer),
         HandleChanged(oldBuffers.staticIndexBuffer, next.buffers.staticIndexBuffer),
         HandleChanged(oldBuffers.staticTriangleMaterialBuffer, next.buffers.staticTriangleMaterialBuffer),
+        HandleChanged(oldBuffers.previousStaticVertexBuffer, next.buffers.previousStaticVertexBuffer),
+        HandleChanged(oldBuffers.previousStaticIndexBuffer, next.buffers.previousStaticIndexBuffer),
+        HandleChanged(oldBuffers.previousStaticTriangleMaterialBuffer, next.buffers.previousStaticTriangleMaterialBuffer),
         HandleChanged(oldBuffers.dynamicVertexBuffer, next.buffers.dynamicVertexBuffer),
         HandleChanged(oldBuffers.dynamicIndexBuffer, next.buffers.dynamicIndexBuffer),
         HandleChanged(oldBuffers.dynamicTriangleMaterialBuffer, next.buffers.dynamicTriangleMaterialBuffer),
@@ -370,6 +374,10 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.staticTriangleClassBuffer != newBuffers.staticTriangleClassBuffer ||
         oldBuffers.staticTriangleMaterialBuffer != newBuffers.staticTriangleMaterialBuffer ||
         oldBuffers.staticTriangleMaterialIndexBuffer != newBuffers.staticTriangleMaterialIndexBuffer ||
+        oldBuffers.previousStaticVertexBuffer != newBuffers.previousStaticVertexBuffer ||
+        oldBuffers.previousStaticIndexBuffer != newBuffers.previousStaticIndexBuffer ||
+        oldBuffers.previousStaticTriangleClassBuffer != newBuffers.previousStaticTriangleClassBuffer ||
+        oldBuffers.previousStaticTriangleMaterialBuffer != newBuffers.previousStaticTriangleMaterialBuffer ||
         oldBuffers.dynamicVertexBuffer != newBuffers.dynamicVertexBuffer ||
         oldBuffers.dynamicIndexBuffer != newBuffers.dynamicIndexBuffer ||
         oldBuffers.dynamicTriangleClassBuffer != newBuffers.dynamicTriangleClassBuffer ||
@@ -498,6 +506,10 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.staticTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleClassBuffer, "PathTraceSmokeStaticWorldTriangleClasses", desc.staticTriangleClassBytes, sizeof(uint32_t), false, false, false);
     result.buffers.staticTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleMaterialBuffer, "PathTraceSmokeStaticWorldTriangleMaterials", desc.staticTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
     result.buffers.staticTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.staticTriangleMaterialIndexBuffer, "PathTraceSmokeStaticWorldTriangleMaterialIndexes", desc.staticTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.previousStaticVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticVertexBuffer, "PathTraceSmokePreviousStaticWorldVertices", desc.previousStaticVertexBytes, sizeof(PathTraceSmokeVertex));
+    result.buffers.previousStaticIndexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticIndexBuffer, "PathTraceSmokePreviousStaticWorldIndices", desc.previousStaticIndexBytes, sizeof(uint32_t));
+    result.buffers.previousStaticTriangleClassBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleClassBuffer, "PathTraceSmokePreviousStaticWorldTriangleClasses", desc.previousStaticTriangleClassBytes, sizeof(uint32_t));
+    result.buffers.previousStaticTriangleMaterialBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterials", desc.previousStaticTriangleMaterialBytes, sizeof(uint32_t));
     result.buffers.dynamicVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicVertexBuffer, "PathTraceSmokeDynamicCandidateVertices", desc.dynamicVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true);
     result.buffers.dynamicIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicIndexBuffer, "PathTraceSmokeDynamicCandidateIndices", desc.dynamicIndexBytes, sizeof(uint32_t), false, true, true);
     result.buffers.dynamicTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleClassBuffer, "PathTraceSmokeDynamicCandidateTriangleClasses", desc.dynamicTriangleClassBytes, sizeof(uint32_t), false, false, false);
@@ -961,6 +973,10 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
     buffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
     buffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+    buffers.previousStaticVertexBuffer = m_smokePreviousStaticVertexBuffer;
+    buffers.previousStaticIndexBuffer = m_smokePreviousStaticIndexBuffer;
+    buffers.previousStaticTriangleClassBuffer = m_smokePreviousStaticTriangleClassBuffer;
+    buffers.previousStaticTriangleMaterialBuffer = m_smokePreviousStaticTriangleMaterialBuffer;
     buffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
     buffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
     buffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
@@ -984,6 +1000,10 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
 
     return
         buffers.IsValid() ||
+        m_smokePreviousStaticVertexBuffer ||
+        m_smokePreviousStaticIndexBuffer ||
+        m_smokePreviousStaticTriangleClassBuffer ||
+        m_smokePreviousStaticTriangleMaterialBuffer ||
         m_smokeSkinnedSourceVertexBuffer ||
         m_smokeSkinnedCurrentOutputVertexBuffer ||
         m_smokeSkinnedPreviousPositionBuffer ||
@@ -1010,6 +1030,10 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
     package.buffers.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
     package.buffers.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+    package.buffers.previousStaticVertexBuffer = m_smokePreviousStaticVertexBuffer;
+    package.buffers.previousStaticIndexBuffer = m_smokePreviousStaticIndexBuffer;
+    package.buffers.previousStaticTriangleClassBuffer = m_smokePreviousStaticTriangleClassBuffer;
+    package.buffers.previousStaticTriangleMaterialBuffer = m_smokePreviousStaticTriangleMaterialBuffer;
     package.buffers.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
     package.buffers.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
     package.buffers.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
@@ -1135,6 +1159,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeStaticTriangleClassBuffer = nullptr;
     m_smokeStaticTriangleMaterialBuffer = nullptr;
     m_smokeStaticTriangleMaterialIndexBuffer = nullptr;
+    m_smokePreviousStaticVertexBuffer = nullptr;
+    m_smokePreviousStaticIndexBuffer = nullptr;
+    m_smokePreviousStaticTriangleClassBuffer = nullptr;
+    m_smokePreviousStaticTriangleMaterialBuffer = nullptr;
     m_smokeDynamicVertexBuffer = nullptr;
     m_smokeDynamicIndexBuffer = nullptr;
     m_smokeDynamicTriangleClassBuffer = nullptr;
@@ -1256,6 +1284,10 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeStaticTriangleClassBuffer = desc.buffers.staticTriangleClassBuffer;
     m_smokeStaticTriangleMaterialBuffer = desc.buffers.staticTriangleMaterialBuffer;
     m_smokeStaticTriangleMaterialIndexBuffer = desc.buffers.staticTriangleMaterialIndexBuffer;
+    m_smokePreviousStaticVertexBuffer = desc.buffers.previousStaticVertexBuffer;
+    m_smokePreviousStaticIndexBuffer = desc.buffers.previousStaticIndexBuffer;
+    m_smokePreviousStaticTriangleClassBuffer = desc.buffers.previousStaticTriangleClassBuffer;
+    m_smokePreviousStaticTriangleMaterialBuffer = desc.buffers.previousStaticTriangleMaterialBuffer;
     m_smokeDynamicVertexBuffer = desc.buffers.dynamicVertexBuffer;
     m_smokeDynamicIndexBuffer = desc.buffers.dynamicIndexBuffer;
     m_smokeDynamicTriangleClassBuffer = desc.buffers.dynamicTriangleClassBuffer;

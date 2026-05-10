@@ -2015,7 +2015,10 @@ Geometry universe status:
   vertex/index/triangle-class/triangle-material arrays at `BeginFrame`. Scene
   inputs and `r_pathTracingGeometryUniverseRangeDump 1` report its counts and
   size. This is a bridge for validating previous static data ownership; it is
-  not yet uploaded as separate previous GPU buffers.
+  uploaded into separate previous static GPU snapshot buffers for future
+  consumers, but those buffers are not bound into the shader ABI yet. Static
+  material-index history still follows the current material-table-derived path
+  until a dedicated material-history slice owns it.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
@@ -2058,8 +2061,8 @@ Geometry universe status:
   geometry universe.
 - The next useful geometry step after the range-history, dirty-extent dump,
   partial dirty static-buffer uploads, static previous-frame scene-input bridge,
-  and previous static CPU snapshot is stronger persistent GPU buffer ownership
-  and stronger static/dynamic separation.
+  previous static CPU snapshot, and previous static GPU snapshot is stronger
+  persistent GPU buffer ownership and stronger static/dynamic separation.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
 combine geometry, normals, alpha any-hit, material table data, bindless albedo,

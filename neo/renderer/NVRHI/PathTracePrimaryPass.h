@@ -103,6 +103,10 @@ private:
     nvrhi::BufferHandle m_smokeStaticTriangleClassBuffer;
     nvrhi::BufferHandle m_smokeStaticTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeStaticTriangleMaterialIndexBuffer;
+    nvrhi::BufferHandle m_smokePreviousStaticVertexBuffer;
+    nvrhi::BufferHandle m_smokePreviousStaticIndexBuffer;
+    nvrhi::BufferHandle m_smokePreviousStaticTriangleClassBuffer;
+    nvrhi::BufferHandle m_smokePreviousStaticTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeDynamicVertexBuffer;
     nvrhi::BufferHandle m_smokeDynamicIndexBuffer;
     nvrhi::BufferHandle m_smokeDynamicTriangleClassBuffer;
