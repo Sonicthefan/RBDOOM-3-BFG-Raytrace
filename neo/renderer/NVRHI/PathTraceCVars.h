@@ -167,6 +167,7 @@ extern idCVar r_pathTracingOptickGpuMarkers;
 extern idCVar r_pathTracingReservoirDump;
 extern idCVar r_pathTracingSceneInputsDump;
 extern idCVar r_pathTracingGpuSkinning;
+extern idCVar r_pathTracingMotionVectorExport;
 extern idCVar r_pathTracingPortalTransitionDump;
 extern idCVar r_pathTracingWaitForIdleOnPortalChange;
 extern idCVar r_pathTracingSceneRetireFrames;

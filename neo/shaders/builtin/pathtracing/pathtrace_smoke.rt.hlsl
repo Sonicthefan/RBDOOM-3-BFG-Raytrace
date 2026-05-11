@@ -273,6 +273,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 GeometryInfo4;
     float4 DispatchTileInfo;
     float4 NeeInfo;
+    float4 MotionVectorInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -1758,6 +1759,32 @@ bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 
     return false;
 }
 
+bool PathTraceMotionVectorExportEnabled()
+{
+    return MotionVectorInfo.x >= 0.5;
+}
+
+void StorePathTraceMotionVectorExport(uint2 pixel, RAB_Surface currentSurface)
+{
+    if (!PathTraceMotionVectorExportEnabled())
+    {
+        return;
+    }
+
+    int2 previousPixel;
+    float2 motionPixels;
+    uint debugStatus;
+    uint sourceKind;
+    if (TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    {
+        PathTraceMotionVectors[pixel] = motionPixels;
+    }
+    else
+    {
+        PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
+    }
+}
+
 float4 EvaluatePathTraceCombinedGeometryMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
 {
     int2 previousPixel;
@@ -3174,6 +3201,7 @@ void RayGen()
         primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
     }
     StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
+    StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
 
     if (payload.value == 0)
     {

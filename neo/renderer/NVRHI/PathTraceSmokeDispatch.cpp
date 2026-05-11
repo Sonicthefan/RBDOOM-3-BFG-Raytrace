@@ -68,6 +68,7 @@ struct PathTraceSmokeConstants
     float geometryInfo4[4];
     float dispatchTileInfo[4];
     float neeInfo[4];
+    float motionVectorInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -580,6 +581,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.neeInfo[1] = static_cast<float>(integratorSettings.secondaryNeeVisibility);
     constants.neeInfo[2] = static_cast<float>(integratorSettings.secondaryAnalyticNeeMode);
     constants.neeInfo[3] = static_cast<float>(integratorSettings.secondaryAnalyticNeeSamples);
+    constants.motionVectorInfo[0] = r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
+    constants.motionVectorInfo[1] = 0.0f;
+    constants.motionVectorInfo[2] = 0.0f;
+    constants.motionVectorInfo[3] = 0.0f;
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] = 0.0f;

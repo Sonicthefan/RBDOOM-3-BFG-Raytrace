@@ -963,6 +963,12 @@ idCVar r_pathTracingGpuSkinning(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental PT skinned GPU-skinning scaffold: 0 = CPU-skinned bridge only, 1 = diagnostic compute output buffer, 2 = compute overwrites skinned dynamic vertices before BLAS build" );
 
+idCVar r_pathTracingMotionVectorExport(
+    "r_pathTracingMotionVectorExport",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Off-by-default PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion into the private PT motion-vector UAV; no consumer reads it yet" );
+
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",
     "0",

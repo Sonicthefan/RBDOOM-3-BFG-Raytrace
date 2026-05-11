@@ -290,7 +290,9 @@ PathTraceSmokeResources.cpp
     and destructive resize safety to PathTraceFrameResources. The smoke raygen
     dispatch path now reserves a private RG16F PT motion-vector texture at
     shader UAV `u39`; it is allocated, bound, and reported by frame-resource
-    diagnostics, but no consumer reads it and normal PT output is unchanged.
+    diagnostics. `r_pathTracingMotionVectorExport 1` lets raygen populate it
+    with combined static/skinned/routed-rigid current-to-previous pixel motion,
+    but no consumer reads it and normal PT output is unchanged.
     Scene
     commits now retain the latest RtPathTraceSceneInputs package and can print
     it with `r_pathTracingSceneInputsDump 1`. `r_pathTracingPortalTransitionDump`

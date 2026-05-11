@@ -952,6 +952,14 @@ Denoise/upscale/Ray Reconstruction reservation:
   in the dynamic vertex buffer before dynamic BLAS build. This remains opt-in;
   the default path and raster GPU skinning are unchanged.
 
+- r_pathTracingMotionVectorExport
+  Off-by-default writer for the private PT RG16F motion-vector UAV. `0` leaves
+  the texture as an allocated/bound scaffold. `1` writes combined geometry
+  current-to-previous pixel motion into the private texture for static,
+  skinned, and routed-rigid hits that have valid previous geometry; unsupported
+  or invalid pixels write zero. No current consumer reads the texture, so
+  normal PT output is unchanged.
+
 - r_pathTracingPortalTransitionDump
   Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
   committed scene transition changes source, portal area/set counts, selected
@@ -2048,10 +2056,13 @@ Geometry universe status:
   resident in the retained previous buffers, scene build skips the repeat upload
   and reports `prevGpuUpload=0` in `r_pathTracingSceneInputsDump`.
 - The smoke path now reserves a private output-sized RG16F motion-vector export
-  texture in PathTraceFrameResources and binds it as raygen UAV `u39`. This is
-  a scaffold only: no external consumer reads it, and normal PT shading/output
-  is unchanged. The frame-resource diagnostics report its allocation as
-  `motion`.
+  texture in PathTraceFrameResources and binds it as raygen UAV `u39`.
+  `r_pathTracingMotionVectorExport 1` makes raygen write combined geometry
+  current-to-previous pixel motion into that private texture, using the same
+  shared static/skinned/routed-rigid helper as debug mode 49. Unsupported or
+  invalid pixels write zero. No external consumer reads it yet, and normal PT
+  shading/output is unchanged. The frame-resource diagnostics report its
+  allocation as `motion`.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
