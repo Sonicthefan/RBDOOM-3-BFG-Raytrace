@@ -215,13 +215,15 @@ PathTraceSceneInputs.h
     separately retains and reports a one-frame CPU previous static snapshot;
     PathTracePrimaryPass retains the previous static material-index array next
     to it. Scene build uploads those previous static vertex/index/triangle-
-    class/triangle-material/material-index arrays into separate GPU buffers for
-    future consumers, without changing shader bindings. The material-index
-    count is tracked independently because the static-side material-index table
-    can include full-level emissive and routed-rigid material IDs beyond the
-    static triangle count. `staticPreviousGpuSnapshotUploadUsed` reports whether
-    the retained previous static GPU snapshot actually needed a fresh upload in
-    the current scene build. The same geometry section reports a dynamic
+    class/triangle-material/material-index arrays into separate GPU buffers and
+    binds them at explicit reserved shader slots for future static/rigid
+    temporal consumers. No current shader path reads them for shading or motion.
+    The material-index count is tracked independently because the static-side
+    material-index table can include full-level emissive and routed-rigid
+    material IDs beyond the static triangle count.
+    `staticPreviousGpuSnapshotUploadUsed` reports whether the retained previous
+    static GPU snapshot actually needed a fresh upload in the current scene
+    build. The same geometry section reports a dynamic
     fallback split for rigid, CPU-current skinned, likely-base-pose skinned, RT
     CPU-skinned, particle, unknown, and retained occluder surface/triangle
     counts. The classified total deliberately excludes retained occluders

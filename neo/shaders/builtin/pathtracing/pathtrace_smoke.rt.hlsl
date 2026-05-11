@@ -230,6 +230,11 @@ RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent :
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
 StructuredBuffer<PathTraceSkinnedPreviousPosition> SmokeSkinnedPreviousPositions : register(t32);
 StructuredBuffer<PathTraceSkinnedSurfaceDispatchRecord> SmokeSkinnedSurfaceDispatch : register(t33);
+StructuredBuffer<PathTraceSmokeVertex> SmokePreviousStaticVertices : register(t34);
+StructuredBuffer<uint> SmokePreviousStaticIndices : register(t35);
+StructuredBuffer<uint> SmokePreviousStaticTriangleClasses : register(t36);
+StructuredBuffer<uint> SmokePreviousStaticTriangleMaterials : register(t37);
+StructuredBuffer<uint> SmokePreviousStaticTriangleMaterialIndexes : register(t38);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -264,6 +269,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 GeometryInfo1;
     float4 GeometryInfo2;
     float4 GeometryInfo3;
+    float4 GeometryInfo4;
     float4 DispatchTileInfo;
     float4 NeeInfo;
 };
@@ -329,6 +335,10 @@ uint PathTracePrimarySurfaceHistoryCount() { return (uint)max(GeometryInfo2.z, 0
 uint PathTraceSmokeReservoirCount() { return (uint)max(GeometryInfo2.w, 0.0); }
 uint PathTraceSkinnedPreviousPositionCount() { return (uint)max(GeometryInfo3.x, 0.0); }
 uint PathTraceSkinnedSurfaceDispatchCount() { return (uint)max(GeometryInfo3.y, 0.0); }
+uint PathTracePreviousStaticVertexCount() { return (uint)max(GeometryInfo4.x, 0.0); }
+uint PathTracePreviousStaticIndexCount() { return (uint)max(GeometryInfo4.y, 0.0); }
+uint PathTracePreviousStaticTriangleCount() { return (uint)max(GeometryInfo4.z, 0.0); }
+uint PathTracePreviousStaticMaterialIndexCount() { return (uint)max(GeometryInfo4.w, 0.0); }
 
 uint2 PathTraceDispatchTileOffset()
 {

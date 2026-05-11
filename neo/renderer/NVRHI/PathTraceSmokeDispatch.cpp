@@ -65,6 +65,7 @@ struct PathTraceSmokeConstants
     float geometryInfo1[4];
     float geometryInfo2[4];
     float geometryInfo3[4];
+    float geometryInfo4[4];
     float dispatchTileInfo[4];
     float neeInfo[4];
 };
@@ -599,6 +600,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
     constants.geometryInfo3[2] = 0.0f;
     constants.geometryInfo3[3] = 0.0f;
+    constants.geometryInfo4[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticVertexCount));
+    constants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
+    constants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));
+    constants.geometryInfo4[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticMaterialIndexCount));
     constants.dispatchTileInfo[0] = 0.0f;
     constants.dispatchTileInfo[1] = 0.0f;
     constants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));

@@ -2026,8 +2026,8 @@ Geometry universe status:
   availability. The dump also reports whether the previous static buffer handles
   alias the current persistent static buffers; with the dedicated previous static
   GPU snapshot path that should normally be false once previous buffers exist.
-  This is CPU-side scene-input metadata only and does not change the shader
-  binding ABI or make a new motion-vector consumer.
+  The previous static buffers are now explicit reserved shader bindings, but no
+  current shader path consumes them for shading or motion-vector output.
 - The geometry universe retains a one-frame CPU snapshot of the previous static
   vertex/index/triangle-class/triangle-material arrays at `BeginFrame`. Scene
   inputs and `r_pathTracingGeometryUniverseRangeDump 1` report its counts and
@@ -2037,10 +2037,10 @@ Geometry universe status:
   used by full-level emissive and routed-rigid paths. This is a bridge for
   validating previous static data ownership; the previous vertex/index/triangle-
   class/triangle-material/material-index arrays are uploaded into separate
-  previous static GPU snapshot buffers for future consumers, but those buffers
-  are not bound into the shader ABI yet. Once the same previous static snapshot
-  is already resident in the retained previous buffers, scene build skips the
-  repeat upload and reports `prevGpuUpload=0` in `r_pathTracingSceneInputsDump`.
+  previous static GPU snapshot buffers and bound at reserved smoke shader SRV
+  slots for future consumers. Once the same previous static snapshot is already
+  resident in the retained previous buffers, scene build skips the repeat upload
+  and reports `prevGpuUpload=0` in `r_pathTracingSceneInputsDump`.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode
@@ -2096,8 +2096,9 @@ Geometry universe status:
 - Scene-input upload diagnostics split geometry upload bytes into static,
   previous-static, dynamic, and rigid-route buckets next to the aggregate
   geometry/material/light totals. This helps verify that previous-static
-  ownership and upload skipping are doing useful work without changing any
-  shader-visible bindings. The static previous bridge line also reports
+  ownership and upload skipping are doing useful work while keeping the reserved
+  previous-static shader bindings populated. The static previous bridge line
+  also reports
   `prevGpuSkipBytes` so a skipped previous-static upload can be quantified.
 
 Modes 13 and 14 are not Doom lighting. They are proofs that the RT path can
