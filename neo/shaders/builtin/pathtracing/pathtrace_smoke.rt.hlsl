@@ -1563,16 +1563,20 @@ bool TryPathTracePrimarySurfaceObjectMotion(RAB_Surface surface, out float3 prev
 #define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
 #include "PathTracePrimarySurface.hlsli"
 
-float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
+bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out float3 previousPosition, out uint debugStatus)
 {
+    previousPosition = float3(0.0, 0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
     if (!RAB_IsSurfaceValid(currentSurface))
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
     }
 
     if (currentSurface.instanceId != 0u || currentSurface.surfaceClass != 0u)
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+        return false;
     }
 
     if (PathTracePreviousStaticVertexCount() == 0u ||
@@ -1580,7 +1584,8 @@ float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
         PathTracePreviousStaticTriangleCount() == 0u ||
         PathTracePreviousStaticMaterialIndexCount() == 0u)
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS;
+        return false;
     }
 
     const uint primitiveIndex = currentSurface.primitiveIndex;
@@ -1591,7 +1596,8 @@ float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
         indexOffset + 2u >= PathTracePreviousStaticIndexCount() ||
         primitiveIndex >= PathTracePreviousStaticMaterialIndexCount())
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        return false;
     }
 
     const uint currentClass = SmokeStaticTriangleClasses[primitiveIndex];
@@ -1604,7 +1610,8 @@ float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
         currentMaterialId != previousMaterialId ||
         currentMaterialIndex != previousMaterialIndex)
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH;
+        return false;
     }
 
     const uint ci0 = SmokeStaticIndices[indexOffset + 0u];
@@ -1620,7 +1627,8 @@ float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
         pi1 >= PathTracePreviousStaticVertexCount() ||
         pi2 >= PathTracePreviousStaticVertexCount())
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        return false;
     }
 
     const float3 c0 = SmokeStaticVertices[ci0].position.xyz;
@@ -1629,19 +1637,60 @@ float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
     float3 barycentrics;
     if (!ComputeSmokeTriangleBarycentrics(currentSurface.worldPos, c0, c1, c2, barycentrics))
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH, currentSurface);
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        return false;
     }
 
     const float3 p0 = SmokePreviousStaticVertices[pi0].position.xyz;
     const float3 p1 = SmokePreviousStaticVertices[pi1].position.xyz;
     const float3 p2 = SmokePreviousStaticVertices[pi2].position.xyz;
-    const float3 previousPosition = p0 * barycentrics.x + p1 * barycentrics.y + p2 * barycentrics.z;
-    if (!all(previousPosition == previousPosition) || length(previousPosition - currentSurface.worldPos) > 1.0)
+    previousPosition = p0 * barycentrics.x + p1 * barycentrics.y + p2 * barycentrics.z;
+    if (!all(previousPosition == previousPosition))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_NORMAL_MISMATCH;
+        return false;
+    }
+
+    return true;
+}
+
+float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
+{
+    float3 previousPosition;
+    uint debugStatus;
+    if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+    if (length(previousPosition - currentSurface.worldPos) > 1.0)
     {
         return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NORMAL_MISMATCH, currentSurface);
     }
-
     return float4(0.03, 0.42, 0.16, 1.0);
+}
+
+float4 EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(RAB_Surface currentSurface)
+{
+    float3 previousPosition;
+    uint debugStatus;
+    if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+
+    int2 previousPixel;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousPosition, PathTraceFullOutputSize(), previousPixel))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+    }
+
+    const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
+    if (!PathTracePrimarySurfacesAreSimilar(currentSurface, previousSurface, debugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+
+    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
@@ -3006,7 +3055,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3178,6 +3227,10 @@ void RayGen()
     else if (debugMode == 44)
     {
         SmokeOutput[pixel] = EvaluatePathTracePreviousStaticSnapshotDebug(primaryHistorySurface);
+    }
+    else if (debugMode == 45)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(primaryHistorySurface);
     }
     else if (debugMode == 8)
     {

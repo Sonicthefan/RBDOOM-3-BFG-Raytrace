@@ -501,6 +501,7 @@ Implemented debug CVars:
   42 = packed primary object-motion flags diagnostic
   43 = packed object-motion reprojection match diagnostic
   44 = previous static snapshot shader-binding diagnostic
+  45 = previous static snapshot reprojection match diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2551,6 +2552,7 @@ For primary object-motion vector validation:
     r_pathTracingDebugMode 42
     r_pathTracingDebugMode 43
     r_pathTracingDebugMode 44
+    r_pathTracingDebugMode 45
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2859,6 +2861,16 @@ surfaces use the no-object-motion color, missing previous static buffers use
 the missing-previous color, range failures reuse the rigid range color, material
 or class changes use the material-mismatch color, and position mismatches use
 the normal-mismatch color. It is diagnostic-only and does not feed motion
+vectors or final shading.
+
+Mode 45 is the previous static snapshot reprojection match diagnostic. It uses
+the same previous-static lookup as mode 44, projects the reconstructed previous
+static position through the previous camera, loads the previous primary-surface
+history record at that pixel, and applies the normal material/normal/roughness
+match colors. Green means the previous static snapshot can drive a conservative
+previous-hit match through the same temporal comparison used by the ReSTIR/PT
+primary-surface diagnostics. Non-static hits and static lookup failures reuse
+the mode 44 colors. It is diagnostic-only and does not feed production motion
 vectors or final shading.
 
 Clear optimization path for mode 32/33 / future final shading:
