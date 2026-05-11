@@ -145,7 +145,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedTemporalDeformationContinuousCount,
         geometry.skinnedTemporalMaterialStableCount,
         geometry.skinnedTemporalPreviousBufferValidCount);
-    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d compute pipe/dispatched/targetDyn/records/verts/max=%d/%d/%d/%d/%d/%d available source/gpu/prevPos=%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d compute pipe/dispatched/targetDyn/prevGpuPos/records/verts/max=%d/%d/%d/%d/%d/%d/%d available source/gpu/prevPos=%d/%d/%d\n",
         geometry.skinnedGpuSkinningMode,
         geometry.skinnedSourceVertexCount,
         geometry.skinnedCurrentOutputVertexCount,
@@ -159,6 +159,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedGpuComputePipelineAvailable ? 1 : 0,
         geometry.skinnedGpuComputeDispatched ? 1 : 0,
         geometry.skinnedGpuComputeTargetsDynamicVertexBuffer ? 1 : 0,
+        geometry.skinnedGpuComputeWritesPreviousPositions ? 1 : 0,
         geometry.skinnedGpuComputeDispatchCount,
         geometry.skinnedGpuComputeVertexCount,
         geometry.skinnedGpuComputeMaxVertexCount,
@@ -567,7 +568,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
     result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
     result.buffers.skinnedCurrentOutputVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentOutputVertexBuffer, "PathTraceSkinnedCurrentOutputVertices", desc.skinnedCurrentOutputVertexBytes, sizeof(PathTraceSmokeVertex), true);
-    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false);
+    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false, true);
     result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false);
     result.buffers.skinnedCurrentJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentJointMatrixBuffer, "PathTraceSkinnedCurrentJointMatrices", desc.skinnedCurrentJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
     result.buffers.skinnedPreviousJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousJointMatrixBuffer, "PathTraceSkinnedPreviousJointMatrices", desc.skinnedPreviousJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
@@ -912,6 +913,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         .setUnorderedAccessViewOffset(0);
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0));
+    skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(1));
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
     skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
@@ -1268,6 +1270,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
+    m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;

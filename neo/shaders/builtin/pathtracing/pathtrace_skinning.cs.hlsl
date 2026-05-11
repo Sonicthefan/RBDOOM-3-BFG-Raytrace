@@ -25,6 +25,15 @@ struct PathTraceSkinnedJointMatrix
     float4 row2;
 };
 
+struct PathTraceSkinnedPreviousPosition
+{
+    float4 previousPosition;
+};
+
+static const uint PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 0x00000001u;
+static const uint PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS = 0x00000010u;
+static const uint PT_SKINNED_INVALID_OFFSET = 0xffffffffu;
+
 struct PathTraceSkinnedSurfaceDispatchRecord
 {
     uint sourceVertexOffset;
@@ -49,6 +58,7 @@ struct PathTraceSkinnedSurfaceDispatchRecord
 
 StructuredBuffer<PathTraceSkinnedSourceVertex> SkinnedSourceVertices : register(t0);
 RWStructuredBuffer<PathTraceSmokeVertex> SkinnedCurrentOutputVertices : register(u0);
+RWStructuredBuffer<PathTraceSkinnedPreviousPosition> SkinnedPreviousPositions : register(u1);
 StructuredBuffer<PathTraceSkinnedSurfaceDispatchRecord> SkinnedSurfaceDispatch : register(t1);
 StructuredBuffer<PathTraceSkinnedJointMatrix> SkinnedCurrentJointMatrices : register(t2);
 StructuredBuffer<PathTraceSkinnedJointMatrix> SkinnedPreviousJointMatrices : register(t3);
@@ -95,7 +105,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     const uint vertexIndex = dispatchThreadId.x;
     const uint recordIndex = dispatchThreadId.y;
     const PathTraceSkinnedSurfaceDispatchRecord dispatchRecord = SkinnedSurfaceDispatch[recordIndex];
-    if (vertexIndex >= dispatchRecord.vertexCount || dispatchRecord.currentJointOffset == 0xffffffffu)
+    if (vertexIndex >= dispatchRecord.vertexCount || dispatchRecord.currentJointOffset == PT_SKINNED_INVALID_OFFSET)
     {
         return;
     }
@@ -140,4 +150,34 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     outputVertex.color = sourceVertex.color;
     outputVertex.color2 = float4(sourceVertex.jointWeights.xyz, sourceVertex.jointWeights.w);
     SkinnedCurrentOutputVertices[dispatchRecord.outputVertexOffset + vertexIndex] = outputVertex;
+
+    const bool hasPreviousPositionOutput =
+        dispatchRecord.previousPositionOffset != PT_SKINNED_INVALID_OFFSET &&
+        dispatchRecord.previousJointOffset != PT_SKINNED_INVALID_OFFSET &&
+        (dispatchRecord.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) != 0u &&
+        (dispatchRecord.flags & PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS) != 0u;
+    if (!hasPreviousPositionOutput)
+    {
+        return;
+    }
+
+    const PathTraceSkinnedJointMatrix previousJoint0 = SkinnedPreviousJointMatrices[dispatchRecord.previousJointOffset + jointIndices.x];
+    const PathTraceSkinnedJointMatrix previousJoint1 = SkinnedPreviousJointMatrices[dispatchRecord.previousJointOffset + jointIndices.y];
+    const PathTraceSkinnedJointMatrix previousJoint2 = SkinnedPreviousJointMatrices[dispatchRecord.previousJointOffset + jointIndices.z];
+    const PathTraceSkinnedJointMatrix previousJoint3 = SkinnedPreviousJointMatrices[dispatchRecord.previousJointOffset + jointIndices.w];
+
+    const float3 previousSkinnedPosition =
+        TransformJointPosition(previousJoint0, sourceVertex.localPosition) * jointWeights.x +
+        TransformJointPosition(previousJoint1, sourceVertex.localPosition) * jointWeights.y +
+        TransformJointPosition(previousJoint2, sourceVertex.localPosition) * jointWeights.z +
+        TransformJointPosition(previousJoint3, sourceVertex.localPosition) * jointWeights.w;
+    const float3 previousWorldPosition = TransformObjectPosition(
+        dispatchRecord.previousObjectToWorld0,
+        dispatchRecord.previousObjectToWorld1,
+        dispatchRecord.previousObjectToWorld2,
+        previousSkinnedPosition);
+
+    PathTraceSkinnedPreviousPosition previousOutput;
+    previousOutput.previousPosition = float4(previousWorldPosition, 1.0);
+    SkinnedPreviousPositions[dispatchRecord.previousPositionOffset + vertexIndex] = previousOutput;
 }

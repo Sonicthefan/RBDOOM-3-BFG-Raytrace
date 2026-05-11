@@ -91,10 +91,13 @@ Current validated feature set:
   diagnostic skinned source/current-output/previous-position/dispatch buffers
   and current/previous joint-matrix buffers from the existing CPU-skinned
   bridge, then dispatches a PT-owned compute shader into the diagnostic
-  current-output buffer. The normal BLAS and shader path still consume the
-  existing dynamic CPU-skinned output in mode 1. `r_pathTracingGpuSkinning 2`
-  retargets that compute dispatch to overwrite the validated skinned spans in
-  the dynamic vertex buffer before dynamic BLAS build. The mode 2 path remains
+  current-output buffer. When previous joint rows are available, that compute
+  pass also overwrites the previous-position buffer after the CPU bridge upload,
+  leaving the CPU upload as a conservative fallback for ranges without previous
+  joint data. The normal BLAS and shader path still consume the existing
+  dynamic CPU-skinned output in mode 1. `r_pathTracingGpuSkinning 2` retargets
+  the current-output writes to overwrite the validated skinned spans in the
+  dynamic vertex buffer before dynamic BLAS build. The mode 2 path remains
   opt-in and still uses the CPU bridge for source geometry, dispatch ranges,
   and joint rows.
 - With `r_pathTracingGpuSkinning 1`, skinned primary-surface records can now
@@ -937,10 +940,11 @@ Denoise/upscale/Ray Reconstruction reservation:
   CPU-skinned bridge. `1` creates diagnostic skinned source/current-output/
   previous-position/dispatch/current-joint/previous-joint buffers from the CPU
   bridge, dispatches `pathtrace_skinning.cs.hlsl` into the diagnostic output
-  buffer, and exposes counts in `r_pathTracingSceneInputsDump`. `2` retargets
-  the same compute dispatch to overwrite validated skinned spans in the dynamic
-  vertex buffer before dynamic BLAS build. This remains opt-in; the default
-  path and raster GPU skinning are unchanged.
+  buffer, overwrites validated previous-position ranges from previous joint
+  rows when available, and exposes counts in `r_pathTracingSceneInputsDump`.
+  `2` retargets the current-output writes to overwrite validated skinned spans
+  in the dynamic vertex buffer before dynamic BLAS build. This remains opt-in;
+  the default path and raster GPU skinning are unchanged.
 
 - r_pathTracingPortalTransitionDump
   Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
@@ -1678,18 +1682,22 @@ Current behavior:
   conservative match/invalid reason counts through `r_pathTracingSceneInputsDump`.
 - With `r_pathTracingGpuSkinning 1`, the retained previous copy is also uploaded
   as a shader-visible previous-position buffer plus a dispatch/range map. The
-  closest-hit output is unchanged, but primary-surface packing can mark validated
-  skinned hits with `RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION` and
+  compute scaffold now overwrites validated previous-position ranges from
+  previous joint rows when those rows exist; the CPU-retained upload remains the
+  fallback for ranges without previous joint data. The closest-hit output is
+  unchanged, but primary-surface packing can mark validated skinned hits with
+  `RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION` and
   `RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION` and store the previous world-space
   hit position in `previousPositionOrMotion.xyz`.
 - `r_pathTracingGpuSkinning` defaults to `0`. Value `1` builds diagnostic
   source/output/previous-position/dispatch/current-joint/previous-joint buffers
   from those same records so the future GPU-skinning contract can be validated
   without changing rendering. It also dispatches `pathtrace_skinning.cs.hlsl`
-  to write the diagnostic current-output buffer. Value `2` retargets the same
-  dispatch to validated skinned spans in the dynamic vertex buffer before
-  dynamic BLAS build, while still sourcing geometry/ranges/joints from the CPU
-  bridge.
+  to write the diagnostic current-output buffer and the previous-position
+  buffer when previous joints are available. Value `2` retargets the
+  current-output writes to validated skinned spans in the dynamic vertex buffer
+  before dynamic BLAS build, while still sourcing geometry/ranges/joints from
+  the CPU bridge.
 - This does not change the main raster r_useGPUSkinning setting.
 - Characters now animate correctly in the RT debug output.
 
