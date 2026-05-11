@@ -1613,6 +1613,16 @@ static/no-object and invalid dynamic states keep the existing primary-surface
 debug colors. It is diagnostic-only and does not export a production
 motion-vector buffer.
 
+Mode 44 is the previous static snapshot shader-binding diagnostic. It verifies
+that static-world primary hits can read the reserved previous-static
+vertex/index/triangle-class/triangle-material/material-index buffers by current
+persistent static primitive index. Green means the previous snapshot is
+shader-visible, range-safe, materially consistent, and reconstructs a previous
+position matching the current static hit. Non-static hits use the
+no-object-motion color and failures reuse the existing primary-surface
+missing/range/material/position mismatch colors. It is diagnostic-only and does
+not consume previous static data for production motion or shading.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before

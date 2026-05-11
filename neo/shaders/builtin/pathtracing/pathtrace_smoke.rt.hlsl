@@ -1563,6 +1563,87 @@ bool TryPathTracePrimarySurfaceObjectMotion(RAB_Surface surface, out float3 prev
 #define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_OBJECT_MOTION
 #include "PathTracePrimarySurface.hlsli"
 
+float4 EvaluatePathTracePreviousStaticSnapshotDebug(RAB_Surface currentSurface)
+{
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, currentSurface);
+    }
+
+    if (currentSurface.instanceId != 0u || currentSurface.surfaceClass != 0u)
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
+    }
+
+    if (PathTracePreviousStaticVertexCount() == 0u ||
+        PathTracePreviousStaticIndexCount() == 0u ||
+        PathTracePreviousStaticTriangleCount() == 0u ||
+        PathTracePreviousStaticMaterialIndexCount() == 0u)
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS, currentSurface);
+    }
+
+    const uint primitiveIndex = currentSurface.primitiveIndex;
+    const uint indexOffset = primitiveIndex * 3u;
+    if (primitiveIndex >= PathTraceStaticTriangleCount() ||
+        primitiveIndex >= PathTracePreviousStaticTriangleCount() ||
+        indexOffset + 2u >= PathTraceStaticIndexCount() ||
+        indexOffset + 2u >= PathTracePreviousStaticIndexCount() ||
+        primitiveIndex >= PathTracePreviousStaticMaterialIndexCount())
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH, currentSurface);
+    }
+
+    const uint currentClass = SmokeStaticTriangleClasses[primitiveIndex];
+    const uint previousClass = SmokePreviousStaticTriangleClasses[primitiveIndex];
+    const uint currentMaterialId = SmokeStaticTriangleMaterials[primitiveIndex];
+    const uint previousMaterialId = SmokePreviousStaticTriangleMaterials[primitiveIndex];
+    const uint currentMaterialIndex = SmokeStaticTriangleMaterialIndexes[primitiveIndex];
+    const uint previousMaterialIndex = SmokePreviousStaticTriangleMaterialIndexes[primitiveIndex];
+    if ((currentClass & RT_SMOKE_TRIANGLE_CLASS_MASK) != (previousClass & RT_SMOKE_TRIANGLE_CLASS_MASK) ||
+        currentMaterialId != previousMaterialId ||
+        currentMaterialIndex != previousMaterialIndex)
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH, currentSurface);
+    }
+
+    const uint ci0 = SmokeStaticIndices[indexOffset + 0u];
+    const uint ci1 = SmokeStaticIndices[indexOffset + 1u];
+    const uint ci2 = SmokeStaticIndices[indexOffset + 2u];
+    const uint pi0 = SmokePreviousStaticIndices[indexOffset + 0u];
+    const uint pi1 = SmokePreviousStaticIndices[indexOffset + 1u];
+    const uint pi2 = SmokePreviousStaticIndices[indexOffset + 2u];
+    if (ci0 >= PathTraceStaticVertexCount() ||
+        ci1 >= PathTraceStaticVertexCount() ||
+        ci2 >= PathTraceStaticVertexCount() ||
+        pi0 >= PathTracePreviousStaticVertexCount() ||
+        pi1 >= PathTracePreviousStaticVertexCount() ||
+        pi2 >= PathTracePreviousStaticVertexCount())
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH, currentSurface);
+    }
+
+    const float3 c0 = SmokeStaticVertices[ci0].position.xyz;
+    const float3 c1 = SmokeStaticVertices[ci1].position.xyz;
+    const float3 c2 = SmokeStaticVertices[ci2].position.xyz;
+    float3 barycentrics;
+    if (!ComputeSmokeTriangleBarycentrics(currentSurface.worldPos, c0, c1, c2, barycentrics))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH, currentSurface);
+    }
+
+    const float3 p0 = SmokePreviousStaticVertices[pi0].position.xyz;
+    const float3 p1 = SmokePreviousStaticVertices[pi1].position.xyz;
+    const float3 p2 = SmokePreviousStaticVertices[pi2].position.xyz;
+    const float3 previousPosition = p0 * barycentrics.x + p1 * barycentrics.y + p2 * barycentrics.z;
+    if (!all(previousPosition == previousPosition) || length(previousPosition - currentSurface.worldPos) > 1.0)
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NORMAL_MISMATCH, currentSurface);
+    }
+
+    return float4(0.03, 0.42, 0.16, 1.0);
+}
+
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
@@ -2925,7 +3006,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3093,6 +3174,10 @@ void RayGen()
     else if (debugMode == 43)
     {
         SmokeOutput[pixel] = EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 44)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePreviousStaticSnapshotDebug(primaryHistorySurface);
     }
     else if (debugMode == 8)
     {
