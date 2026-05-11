@@ -953,10 +953,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 46, r_pathTracingDebugMode.GetInteger());
+    const int requestedDebugMode = idMath::ClampInt(0, 47, r_pathTracingDebugMode.GetInteger());
     const bool restirPTDebugMode = requestedDebugMode >= 26 && requestedDebugMode <= 33;
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -1137,6 +1137,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             requestedDebugMode == 39 ||
             requestedDebugMode == 40 ||
             requestedDebugMode == 41 ||
+            requestedDebugMode == 47 ||
             requestedDebugMode == 42 ||
             requestedDebugMode == 43 ||
             restirPTDebugMode ||

@@ -1641,6 +1641,15 @@ as the skinned and routed-rigid object-motion vector modes. Non-static hits and
 static lookup failures reuse the mode 44 colors. It is diagnostic-only and does
 not consume previous static data for production motion or shading.
 
+Mode 47 is the combined geometry motion-vector diagnostic. Static-world hits
+use the previous-static snapshot path from mode 46, while skinned and
+routed-rigid hits use the packed object-motion path from mode 41. Other dynamic
+or invalid hits keep the existing object-motion rejection colors. Like mode 41,
+it removes routed-ready rigid candidates from the dynamic fallback path so the
+rigid portion visualizes the routed source rather than overlapping fallback
+geometry. It is diagnostic-only and does not consume previous geometry data for
+production motion or shading.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before
