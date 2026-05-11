@@ -504,6 +504,7 @@ Implemented debug CVars:
   45 = previous static snapshot reprojection match diagnostic
   46 = previous static snapshot motion-vector diagnostic
   47 = combined geometry motion-vector diagnostic
+  48 = combined geometry reprojection-match diagnostic
 
 - r_pathTracingMode20TestPreset
   One-shot console helper that applies the common mode 20 source3 routed-rigid
@@ -2557,6 +2558,7 @@ For primary object-motion vector validation:
     r_pathTracingDebugMode 45
     r_pathTracingDebugMode 46
     r_pathTracingDebugMode 47
+    r_pathTracingDebugMode 48
 
 Mode 26 is a gated RTXDI ReSTIR PT initial-sampling debug path. It traces the
 normal primary ray, converts supported current hits into RAB surfaces, calls
@@ -2893,6 +2895,15 @@ it removes routed-ready rigid candidates from the dynamic fallback path so the
 rigid portion visualizes the routed source rather than overlapping fallback
 geometry. It is diagnostic-only and does not feed production motion vectors or
 final shading.
+
+Mode 48 is the combined geometry reprojection-match diagnostic. Static-world
+hits use the previous-static reprojection path from mode 45, while skinned and
+routed-rigid hits use the packed object-motion reprojection path from mode 43.
+Other dynamic or invalid hits keep the existing object-motion rejection colors.
+Like mode 47, it removes routed-ready rigid candidates from the dynamic fallback
+path so the rigid portion validates the routed source rather than overlapping
+fallback geometry. It is diagnostic-only and does not feed production motion
+vectors or final shading.
 
 Clear optimization path for mode 32/33 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit

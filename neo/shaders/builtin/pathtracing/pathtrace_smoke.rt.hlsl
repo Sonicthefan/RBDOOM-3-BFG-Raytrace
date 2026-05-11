@@ -1723,6 +1723,18 @@ float4 EvaluatePathTraceCombinedGeometryMotionVectorDebug(RAB_Surface currentSur
     return EvaluatePathTracePrimarySurfaceCombinedObjectMotionDebug(currentSurface, pixel);
 }
 
+float4 EvaluatePathTraceCombinedGeometryReprojectionDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    if (RAB_IsSurfaceValid(currentSurface) &&
+        currentSurface.instanceId == 0u &&
+        currentSurface.surfaceClass == 0u)
+    {
+        return EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(currentSurface);
+    }
+
+    return EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(currentSurface, pixel);
+}
+
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
@@ -3085,7 +3097,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3269,6 +3281,10 @@ void RayGen()
     else if (debugMode == 47)
     {
         SmokeOutput[pixel] = EvaluatePathTraceCombinedGeometryMotionVectorDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 48)
+    {
+        SmokeOutput[pixel] = EvaluatePathTraceCombinedGeometryReprojectionDebug(primaryHistorySurface, pixel);
     }
     else if (debugMode == 8)
     {
