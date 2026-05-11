@@ -154,6 +154,7 @@ private:
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::BindingSetHandle m_smokeSkinnedGpuSkinningBindingSet;
+    nvrhi::BufferHandle m_smokeSkinnedGpuSkinningOutputBuffer;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;

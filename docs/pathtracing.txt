@@ -90,11 +90,13 @@ Current validated feature set:
 - Off-by-default PT GPU skinning scaffold. `r_pathTracingGpuSkinning 1` builds
   diagnostic skinned source/current-output/previous-position/dispatch buffers
   and current/previous joint-matrix buffers from the existing CPU-skinned
-  bridge. It now dispatches a PT-owned compute shader that writes the diagnostic
-  current-output buffer, but the normal BLAS and shader path still consume the
-  existing dynamic CPU-skinned output. The compute path skips the redundant CPU
-  upload of the output buffer it overwrites. Mode 2 is reserved for later
-  validated GPU output use and is not active yet.
+  bridge, then dispatches a PT-owned compute shader into the diagnostic
+  current-output buffer. The normal BLAS and shader path still consume the
+  existing dynamic CPU-skinned output in mode 1. `r_pathTracingGpuSkinning 2`
+  retargets that compute dispatch to overwrite the validated skinned spans in
+  the dynamic vertex buffer before dynamic BLAS build. The mode 2 path remains
+  opt-in and still uses the CPU bridge for source geometry, dispatch ranges,
+  and joint rows.
 - With `r_pathTracingGpuSkinning 1`, skinned primary-surface records can now
   look up the retained previous CPU-skinned position for the same dynamic
   triangle and barycentric point. This only fills the primary-surface
@@ -934,9 +936,11 @@ Denoise/upscale/Ray Reconstruction reservation:
   Off-by-default PT GPU skinning scaffold gate. `0` keeps only the existing
   CPU-skinned bridge. `1` creates diagnostic skinned source/current-output/
   previous-position/dispatch/current-joint/previous-joint buffers from the CPU
-  bridge and exposes their counts in `r_pathTracingSceneInputsDump`. `2` is
-  reserved for a later validated switch to GPU output. No current mode consumes
-  the scaffold buffers for rendering yet.
+  bridge, dispatches `pathtrace_skinning.cs.hlsl` into the diagnostic output
+  buffer, and exposes counts in `r_pathTracingSceneInputsDump`. `2` retargets
+  the same compute dispatch to overwrite validated skinned spans in the dynamic
+  vertex buffer before dynamic BLAS build. This remains opt-in; the default
+  path and raster GPU skinning are unchanged.
 
 - r_pathTracingPortalTransitionDump
   Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
@@ -1682,8 +1686,10 @@ Current behavior:
   source/output/previous-position/dispatch/current-joint/previous-joint buffers
   from those same records so the future GPU-skinning contract can be validated
   without changing rendering. It also dispatches `pathtrace_skinning.cs.hlsl`
-  to write the diagnostic current-output buffer. The result is not used for
-  BLAS input or hit shading yet.
+  to write the diagnostic current-output buffer. Value `2` retargets the same
+  dispatch to validated skinned spans in the dynamic vertex buffer before
+  dynamic BLAS build, while still sourcing geometry/ranges/joints from the CPU
+  bridge.
 - This does not change the main raster r_useGPUSkinning setting.
 - Characters now animate correctly in the RT debug output.
 
@@ -2766,9 +2772,9 @@ state use the existing no-object-motion or skinned invalid colors. Rigid object
 motion is intentionally not visualized here because routed-rigid coverage can be
 view-dependent and needs a separate validation pass. This mode does not export a
 final motion-vector buffer. Use `r_pathTracingGpuSkinning 1` when validating
-skinned vectors; despite the CVar name, mode 1 currently builds the diagnostic
-source/output/previous-position scaffold and still does not switch rendering to
-PT-owned GPU skinning.
+skinned previous-position data without changing BLAS input. Mode 2 is the
+opt-in path that lets the PT-owned compute output feed skinned dynamic BLAS
+spans for visual validation.
 
 Mode 39 is the routed-rigid object-motion eligibility diagnostic. It does not
 draw vectors. It isolates rigid-class primary hits and reports whether the

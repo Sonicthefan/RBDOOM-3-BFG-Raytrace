@@ -207,6 +207,7 @@ struct RtPathTraceSceneInputGeometry
     bool skinnedPreviousPositionBufferAvailable = false;
     bool skinnedGpuComputePipelineAvailable = false;
     bool skinnedGpuComputeDispatched = false;
+    bool skinnedGpuComputeTargetsDynamicVertexBuffer = false;
     uint32_t capabilityFlags = 0;
 };
 

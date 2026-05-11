@@ -221,6 +221,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeTlas = nullptr;
     m_smokeShaderTable = nullptr;
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
+    m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPipeline = nullptr;
     m_smokeSkinnedGpuSkinningShader = nullptr;
     m_smokePipeline = nullptr;

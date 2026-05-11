@@ -145,7 +145,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedTemporalDeformationContinuousCount,
         geometry.skinnedTemporalMaterialStableCount,
         geometry.skinnedTemporalPreviousBufferValidCount);
-    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d compute pipe/dispatched/records/verts/max=%d/%d/%d/%d/%d available source/gpu/prevPos=%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d compute pipe/dispatched/targetDyn/records/verts/max=%d/%d/%d/%d/%d/%d available source/gpu/prevPos=%d/%d/%d\n",
         geometry.skinnedGpuSkinningMode,
         geometry.skinnedSourceVertexCount,
         geometry.skinnedCurrentOutputVertexCount,
@@ -158,6 +158,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousJointMatrixCount,
         geometry.skinnedGpuComputePipelineAvailable ? 1 : 0,
         geometry.skinnedGpuComputeDispatched ? 1 : 0,
+        geometry.skinnedGpuComputeTargetsDynamicVertexBuffer ? 1 : 0,
         geometry.skinnedGpuComputeDispatchCount,
         geometry.skinnedGpuComputeVertexCount,
         geometry.skinnedGpuComputeMaxVertexCount,
@@ -550,7 +551,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.previousStaticTriangleClassBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleClassBuffer, "PathTraceSmokePreviousStaticWorldTriangleClasses", desc.previousStaticTriangleClassBytes, sizeof(uint32_t));
     result.buffers.previousStaticTriangleMaterialBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterials", desc.previousStaticTriangleMaterialBytes, sizeof(uint32_t));
     result.buffers.previousStaticTriangleMaterialIndexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.previousStaticTriangleMaterialIndexBuffer, "PathTraceSmokePreviousStaticWorldTriangleMaterialIndexes", desc.previousStaticTriangleMaterialIndexBytes, sizeof(uint32_t));
-    result.buffers.dynamicVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicVertexBuffer, "PathTraceSmokeDynamicCandidateVertices", desc.dynamicVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true);
+    result.buffers.dynamicVertexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicVertexBuffer, "PathTraceSmokeDynamicCandidateVertices", desc.dynamicVertexBytes, sizeof(PathTraceSmokeVertex), true, false, true, true);
     result.buffers.dynamicIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicIndexBuffer, "PathTraceSmokeDynamicCandidateIndices", desc.dynamicIndexBytes, sizeof(uint32_t), false, true, true);
     result.buffers.dynamicTriangleClassBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleClassBuffer, "PathTraceSmokeDynamicCandidateTriangleClasses", desc.dynamicTriangleClassBytes, sizeof(uint32_t), false, false, false);
     result.buffers.dynamicTriangleMaterialBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterials", desc.dynamicTriangleMaterialBytes, sizeof(uint32_t), false, false, false);
@@ -1266,6 +1267,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
+    m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;

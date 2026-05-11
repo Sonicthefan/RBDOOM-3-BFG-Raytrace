@@ -235,10 +235,12 @@ PathTraceSceneInputs.h
     The skinned previous bridge currently reports CPU-retained data in the
     default path. Routed rigid instances report previous-transform availability
     when the instance mirror observed the same stable instance in the
-    consecutive previous frame. `r_pathTracingGpuSkinning 1` additionally creates and
-    binds diagnostic source/output/previous-position/dispatch buffers so
-    primary-surface packing can consume validated skinned previous positions
-    without making the BLAS path consume the scaffold output.
+    consecutive previous frame. `r_pathTracingGpuSkinning 1` additionally
+    creates and binds diagnostic source/output/previous-position/dispatch
+    buffers so primary-surface packing can consume validated skinned previous
+    positions without making the BLAS path consume the scaffold output. The
+    opt-in `r_pathTracingGpuSkinning 2` path retargets the same compute dispatch
+    to validated skinned spans in the dynamic vertex buffer before BLAS build.
 
 RenderBackend.cpp
     Calls PathTracePrimaryPass from DrawViewInternal for 3D views. When
@@ -1202,11 +1204,12 @@ skinned positions shader-visible in the default path.
 - `1`: build diagnostic skinned source/current-output/previous-position/
   dispatch/current-joint/previous-joint buffers from the CPU bridge and report
   counts through scene inputs.
-- `2`: reserved for future validated GPU output consumption.
+- `2`: retarget the compute dispatch to validated skinned spans in the dynamic
+  vertex buffer before dynamic BLAS build.
 
-The diagnostic scaffold does not change BLAS input or modify raster GPU skinning
-in the default `0` mode. In
-`r_pathTracingGpuSkinning 1`, the scaffold dispatches the PT-owned
+The scaffold does not change BLAS input or modify raster GPU skinning in the
+default `0` mode. In `r_pathTracingGpuSkinning 1`, the scaffold dispatches the
+PT-owned
 `pathtrace_skinning.cs.hlsl` compute shader to write the diagnostic current
 output buffer, then leaves BLAS input and hit shading on the existing dynamic
 CPU-skinned output. The compute dispatch path does not upload the diagnostic
@@ -1216,6 +1219,10 @@ dispatch/range map explicitly at the smoke shader level so primary-surface
 records can reconstruct a previous world-space hit position for validated
 skinned dynamic triangles. Current/previous joint matrix buffers are filled with
 copied CPU-side joint rows when `r_pathTracingGpuSkinning 1` is enabled.
+In `r_pathTracingGpuSkinning 2`, those same dispatch records write the dynamic
+vertex range for each validated skinned surface, and the dynamic vertex buffer
+is transitioned back to acceleration-structure input before the dynamic BLAS
+build.
 
 Routed rigid primary-surface motion is transform-based rather than vertex-copy
 based. `PathTraceRigidRouteInstance` carries current and previous object rows
@@ -1228,8 +1235,8 @@ Safer places to touch:
 - Improve base-pose detection or diagnostics in PathTraceSkinning.cpp.
 - Add stats in PathTraceSceneCapture for skinned surface counts or previous
   match reasons.
-- Extend `r_pathTracingGpuSkinning 1` diagnostics once joint-state upload is
-  added.
+- Extend GPU skinning diagnostics around joint availability, dispatch coverage,
+  and mode 2 visual validation.
 - Add validation around joint availability.
 - Add a new narrow data-source abstraction if it preserves current CPU behavior.
 

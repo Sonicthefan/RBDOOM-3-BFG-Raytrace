@@ -528,13 +528,24 @@ void AddSmokeSkinnedSurfaceRecord(
     }
     if (space)
     {
-        for (int row = 0; row < 3; ++row)
-        {
-            for (int column = 0; column < 4; ++column)
-            {
-                record.objectToWorld[row * 4 + column] = space->modelMatrix[row * 4 + column];
-            }
-        }
+        record.objectToWorld[0] = space->modelMatrix[0];
+        record.objectToWorld[1] = space->modelMatrix[4];
+        record.objectToWorld[2] = space->modelMatrix[8];
+        record.objectToWorld[3] = space->modelMatrix[12];
+        record.objectToWorld[4] = space->modelMatrix[1];
+        record.objectToWorld[5] = space->modelMatrix[5];
+        record.objectToWorld[6] = space->modelMatrix[9];
+        record.objectToWorld[7] = space->modelMatrix[13];
+        record.objectToWorld[8] = space->modelMatrix[2];
+        record.objectToWorld[9] = space->modelMatrix[6];
+        record.objectToWorld[10] = space->modelMatrix[10];
+        record.objectToWorld[11] = space->modelMatrix[14];
+    }
+    else
+    {
+        record.objectToWorld[0] = 1.0f;
+        record.objectToWorld[5] = 1.0f;
+        record.objectToWorld[10] = 1.0f;
     }
 
     records->push_back(record);

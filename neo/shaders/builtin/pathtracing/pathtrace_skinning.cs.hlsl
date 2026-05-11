@@ -75,6 +75,20 @@ float3 SafeNormalize(float3 value, float3 fallback)
     return lengthSquared > 1.0e-8 ? value * rsqrt(lengthSquared) : fallback;
 }
 
+float3 TransformObjectPosition(float4 row0, float4 row1, float4 row2, float3 localPosition)
+{
+    const float4 local = float4(localPosition, 1.0);
+    return float3(dot(row0, local), dot(row1, local), dot(row2, local));
+}
+
+float3 TransformObjectNormal(float4 row0, float4 row1, float4 row2, float3 localNormal)
+{
+    return float3(
+        dot(row0.xyz, localNormal),
+        dot(row1.xyz, localNormal),
+        dot(row2.xyz, localNormal));
+}
+
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -108,9 +122,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         TransformJointNormal(joint3, sourceVertex.localNormal.xyz) * jointWeights.w;
     skinnedNormal = SafeNormalize(skinnedNormal, sourceVertex.localNormal.xyz);
 
+    const float3 worldPosition = TransformObjectPosition(
+        dispatchRecord.currentObjectToWorld0,
+        dispatchRecord.currentObjectToWorld1,
+        dispatchRecord.currentObjectToWorld2,
+        skinnedPosition);
+    const float3 worldNormal = SafeNormalize(TransformObjectNormal(
+        dispatchRecord.currentObjectToWorld0,
+        dispatchRecord.currentObjectToWorld1,
+        dispatchRecord.currentObjectToWorld2,
+        skinnedNormal), skinnedNormal);
+
     PathTraceSmokeVertex outputVertex;
-    outputVertex.position = float4(skinnedPosition, 1.0);
-    outputVertex.normal = float4(skinnedNormal, 0.0);
+    outputVertex.position = float4(worldPosition, 1.0);
+    outputVertex.normal = float4(worldNormal, 0.0);
     outputVertex.texCoord = sourceVertex.texCoord;
     outputVertex.color = sourceVertex.color;
     outputVertex.color2 = float4(sourceVertex.jointWeights.xyz, sourceVertex.jointWeights.w);
