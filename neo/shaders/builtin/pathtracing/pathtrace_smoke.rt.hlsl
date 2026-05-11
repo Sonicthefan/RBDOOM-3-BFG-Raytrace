@@ -1693,46 +1693,129 @@ float4 EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(RAB_Surface curr
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
 }
 
+bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus);
+bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus, out uint sourceKind);
+
 float4 EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
 {
-    float3 previousPosition;
+    int2 previousPixel;
+    float2 motionPixels;
     uint debugStatus;
-    if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
+    uint sourceKind;
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
     {
         return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
-    int2 previousPixel;
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousPosition, PathTraceFullOutputSize(), previousPixel))
+    if (sourceKind != 1u)
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
     }
 
-    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
+    return PathTracePrimarySurfaceMotionVectorColor(motionPixels);
+}
+
+bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    motionPixels = float2(0.0, 0.0);
+    float3 previousPosition;
+    if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
+    {
+        return false;
+    }
+
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousPosition, PathTraceFullOutputSize(), previousPixel))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+        return false;
+    }
+
+    motionPixels = float2(previousPixel) - float2(pixel);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return true;
+}
+
+bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus, out uint sourceKind)
+{
+    sourceKind = 0u;
+    if (RAB_IsSurfaceValid(currentSurface) &&
+        currentSurface.instanceId == 0u &&
+        currentSurface.surfaceClass == 0u)
+    {
+        sourceKind = 1u;
+        return TryPathTracePreviousStaticSnapshotMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus);
+    }
+
+    if (TryPathTracePrimarySurfacePackedObjectMotionPixels(currentSurface, pixel, PathTraceFullOutputSize(), previousPixel, motionPixels, debugStatus))
+    {
+        sourceKind = currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ? 2u :
+            (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY ? 3u : 4u);
+        return true;
+    }
+
+    return false;
 }
 
 float4 EvaluatePathTraceCombinedGeometryMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
 {
-    if (RAB_IsSurfaceValid(currentSurface) &&
-        currentSurface.instanceId == 0u &&
-        currentSurface.surfaceClass == 0u)
+    int2 previousPixel;
+    float2 motionPixels;
+    uint debugStatus;
+    uint sourceKind;
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
     {
-        return EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(currentSurface, pixel);
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
-    return EvaluatePathTracePrimarySurfaceCombinedObjectMotionDebug(currentSurface, pixel);
+    return PathTracePrimarySurfaceMotionVectorColor(motionPixels);
 }
 
 float4 EvaluatePathTraceCombinedGeometryReprojectionDebug(RAB_Surface currentSurface, uint2 pixel)
 {
-    if (RAB_IsSurfaceValid(currentSurface) &&
-        currentSurface.instanceId == 0u &&
-        currentSurface.surfaceClass == 0u)
+    int2 previousPixel;
+    float2 motionPixels;
+    uint debugStatus;
+    uint sourceKind;
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
     {
-        return EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(currentSurface);
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
-    return EvaluatePathTracePrimarySurfaceObjectMotionReprojectionDebug(currentSurface, pixel);
+    const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
+    if (!PathTracePrimarySurfacesAreSimilar(currentSurface, previousSurface, debugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+
+    return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
+}
+
+float4 EvaluatePathTraceCombinedGeometryMotionSourceDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    int2 previousPixel;
+    float2 motionPixels;
+    uint debugStatus;
+    uint sourceKind;
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+
+    if (sourceKind == 1u)
+    {
+        return float4(0.03, 0.42, 0.16, 1.0);
+    }
+    if (sourceKind == 2u)
+    {
+        return float4(0.48, 0.10, 0.62, 1.0);
+    }
+    if (sourceKind == 3u)
+    {
+        return float4(0.04, 0.36, 0.48, 1.0);
+    }
+
+    return float4(0.08, 0.38, 0.18, 1.0);
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
@@ -3097,7 +3180,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3285,6 +3368,10 @@ void RayGen()
     else if (debugMode == 48)
     {
         SmokeOutput[pixel] = EvaluatePathTraceCombinedGeometryReprojectionDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 49)
+    {
+        SmokeOutput[pixel] = EvaluatePathTraceCombinedGeometryMotionSourceDebug(primaryHistorySurface, pixel);
     }
     else if (debugMode == 8)
     {

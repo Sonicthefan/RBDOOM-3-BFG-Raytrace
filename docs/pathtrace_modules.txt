@@ -1659,6 +1659,14 @@ path so the rigid portion validates the routed source rather than overlapping
 fallback geometry. It is diagnostic-only and does not consume previous geometry
 data for production motion or shading.
 
+Mode 49 is the combined geometry motion-source diagnostic. It uses the shared
+combined geometry motion helper that future production export code should call,
+then colors valid static, skinned, and routed-rigid motion sources distinctly.
+Invalid or unsupported hits keep the same rejection colors used by modes 47 and
+48. Like modes 47 and 48, it removes routed-ready rigid candidates from the
+dynamic fallback path. It is diagnostic-only and does not consume previous
+geometry data for production motion or shading.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before
