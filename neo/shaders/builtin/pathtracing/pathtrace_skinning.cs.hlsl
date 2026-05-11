@@ -1,0 +1,118 @@
+struct PathTraceSmokeVertex
+{
+    float4 position;
+    float4 normal;
+    float4 texCoord;
+    float4 color;
+    float4 color2;
+};
+
+struct PathTraceSkinnedSourceVertex
+{
+    float4 localPosition;
+    float4 localNormal;
+    float4 localTangent;
+    float4 texCoord;
+    float4 color;
+    uint4 jointIndices;
+    float4 jointWeights;
+};
+
+struct PathTraceSkinnedJointMatrix
+{
+    float4 row0;
+    float4 row1;
+    float4 row2;
+};
+
+struct PathTraceSkinnedSurfaceDispatchRecord
+{
+    uint sourceVertexOffset;
+    uint outputVertexOffset;
+    uint previousPositionOffset;
+    uint vertexCount;
+    uint currentJointOffset;
+    uint previousJointOffset;
+    uint surfaceRecordIndex;
+    uint flags;
+    uint dynamicVertexOffset;
+    uint dynamicIndexOffset;
+    uint dynamicTriangleOffset;
+    uint triangleCount;
+    float4 currentObjectToWorld0;
+    float4 currentObjectToWorld1;
+    float4 currentObjectToWorld2;
+    float4 previousObjectToWorld0;
+    float4 previousObjectToWorld1;
+    float4 previousObjectToWorld2;
+};
+
+StructuredBuffer<PathTraceSkinnedSourceVertex> SkinnedSourceVertices : register(t0);
+RWStructuredBuffer<PathTraceSmokeVertex> SkinnedCurrentOutputVertices : register(u0);
+StructuredBuffer<PathTraceSkinnedSurfaceDispatchRecord> SkinnedSurfaceDispatch : register(t1);
+StructuredBuffer<PathTraceSkinnedJointMatrix> SkinnedCurrentJointMatrices : register(t2);
+StructuredBuffer<PathTraceSkinnedJointMatrix> SkinnedPreviousJointMatrices : register(t3);
+
+float3 TransformJointPosition(PathTraceSkinnedJointMatrix jointMatrix, float4 localPosition)
+{
+    return float3(
+        dot(jointMatrix.row0, localPosition),
+        dot(jointMatrix.row1, localPosition),
+        dot(jointMatrix.row2, localPosition));
+}
+
+float3 TransformJointNormal(PathTraceSkinnedJointMatrix jointMatrix, float3 localNormal)
+{
+    return float3(
+        dot(jointMatrix.row0.xyz, localNormal),
+        dot(jointMatrix.row1.xyz, localNormal),
+        dot(jointMatrix.row2.xyz, localNormal));
+}
+
+float3 SafeNormalize(float3 value, float3 fallback)
+{
+    const float lengthSquared = dot(value, value);
+    return lengthSquared > 1.0e-8 ? value * rsqrt(lengthSquared) : fallback;
+}
+
+[numthreads(64, 1, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint vertexIndex = dispatchThreadId.x;
+    const uint recordIndex = dispatchThreadId.y;
+    const PathTraceSkinnedSurfaceDispatchRecord dispatchRecord = SkinnedSurfaceDispatch[recordIndex];
+    if (vertexIndex >= dispatchRecord.vertexCount || dispatchRecord.currentJointOffset == 0xffffffffu)
+    {
+        return;
+    }
+
+    const PathTraceSkinnedSourceVertex sourceVertex = SkinnedSourceVertices[dispatchRecord.sourceVertexOffset + vertexIndex];
+    const uint4 jointIndices = sourceVertex.jointIndices;
+    const float4 jointWeights = sourceVertex.jointWeights;
+
+    const PathTraceSkinnedJointMatrix joint0 = SkinnedCurrentJointMatrices[dispatchRecord.currentJointOffset + jointIndices.x];
+    const PathTraceSkinnedJointMatrix joint1 = SkinnedCurrentJointMatrices[dispatchRecord.currentJointOffset + jointIndices.y];
+    const PathTraceSkinnedJointMatrix joint2 = SkinnedCurrentJointMatrices[dispatchRecord.currentJointOffset + jointIndices.z];
+    const PathTraceSkinnedJointMatrix joint3 = SkinnedCurrentJointMatrices[dispatchRecord.currentJointOffset + jointIndices.w];
+
+    float3 skinnedPosition =
+        TransformJointPosition(joint0, sourceVertex.localPosition) * jointWeights.x +
+        TransformJointPosition(joint1, sourceVertex.localPosition) * jointWeights.y +
+        TransformJointPosition(joint2, sourceVertex.localPosition) * jointWeights.z +
+        TransformJointPosition(joint3, sourceVertex.localPosition) * jointWeights.w;
+
+    float3 skinnedNormal =
+        TransformJointNormal(joint0, sourceVertex.localNormal.xyz) * jointWeights.x +
+        TransformJointNormal(joint1, sourceVertex.localNormal.xyz) * jointWeights.y +
+        TransformJointNormal(joint2, sourceVertex.localNormal.xyz) * jointWeights.z +
+        TransformJointNormal(joint3, sourceVertex.localNormal.xyz) * jointWeights.w;
+    skinnedNormal = SafeNormalize(skinnedNormal, sourceVertex.localNormal.xyz);
+
+    PathTraceSmokeVertex outputVertex;
+    outputVertex.position = float4(skinnedPosition, 1.0);
+    outputVertex.normal = float4(skinnedNormal, 0.0);
+    outputVertex.texCoord = sourceVertex.texCoord;
+    outputVertex.color = sourceVertex.color;
+    outputVertex.color2 = float4(sourceVertex.jointWeights.xyz, sourceVertex.jointWeights.w);
+    SkinnedCurrentOutputVertices[dispatchRecord.outputVertexOffset + vertexIndex] = outputVertex;
+}

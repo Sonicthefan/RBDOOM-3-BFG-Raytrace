@@ -81,6 +81,14 @@ RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
     return item;
 }
 
+RtSmokeBufferUploadItem MakeSmokeBufferStateItem(nvrhi::BufferHandle buffer, nvrhi::ResourceStates finalState)
+{
+    RtSmokeBufferUploadItem item;
+    item.buffer = buffer;
+    item.finalState = finalState;
+    return item;
+}
+
 uint64_t SumSmokeUploadBytes(const RtSmokeBufferUploadItem* items, int firstItem, int itemCount)
 {
     uint64_t bytes = 0;
@@ -574,6 +582,32 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     }
 
     return build;
+}
+
+int SmokeSkinnedGpuComputeVertexCount(const std::vector<PathTraceSkinnedSurfaceDispatchRecord>& dispatchRecords)
+{
+    int vertexCount = 0;
+    for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : dispatchRecords)
+    {
+        if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) != 0)
+        {
+            vertexCount += static_cast<int>(dispatch.vertexCount);
+        }
+    }
+    return vertexCount;
+}
+
+int SmokeSkinnedGpuComputeMaxVertexCount(const std::vector<PathTraceSkinnedSurfaceDispatchRecord>& dispatchRecords)
+{
+    uint32_t maxVertexCount = 0;
+    for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : dispatchRecords)
+    {
+        if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS) != 0)
+        {
+            maxVertexCount = Max(maxVertexCount, dispatch.vertexCount);
+        }
+    }
+    return static_cast<int>(maxVertexCount);
 }
 
 void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char* label)
@@ -2239,6 +2273,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         previousStaticSnapshotBuffersReused &&
         m_smokePreviousStaticSnapshotUploadSignature != 0 &&
         m_smokePreviousStaticSnapshotUploadSignature == previousStaticSnapshotUploadSignature;
+    const int skinnedGpuComputeVertexCount = SmokeSkinnedGpuComputeVertexCount(skinnedGpuScaffold.dispatchRecords);
+    const int skinnedGpuComputeMaxVertexCount = SmokeSkinnedGpuComputeMaxVertexCount(skinnedGpuScaffold.dispatchRecords);
+    const bool skinnedGpuComputeReady =
+        gpuSkinningMode >= 1 &&
+        m_smokeSkinnedGpuSkinningPipeline &&
+        m_smokeSkinnedGpuSkinningBindingLayout &&
+        smokeSkinnedSourceVertexBuffer &&
+        smokeSkinnedCurrentOutputVertexBuffer &&
+        smokeSkinnedSurfaceDispatchBuffer &&
+        smokeSkinnedCurrentJointMatrixBuffer &&
+        skinnedGpuComputeVertexCount > 0 &&
+        skinnedGpuComputeMaxVertexCount > 0;
+    bool skinnedGpuComputeDispatched = false;
 
     const RtSmokeBufferUploadItem uploadItems[] = {
         MakeSmokeVectorUploadItem(smokeStaticVertexBuffer, staticVertexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1, geometryUniverseStats.staticDirtyVertexCount),
@@ -2266,7 +2313,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialIndexBuffer, rigidRouteBuild.triangleMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedSourceVertexBuffer, skinnedGpuScaffold.sourceVertices, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeSkinnedCurrentOutputVertexBuffer, skinnedGpuScaffold.currentOutputVertices, nvrhi::ResourceStates::ShaderResource, false),
+        skinnedGpuComputeReady
+            ? MakeSmokeBufferStateItem(smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::UnorderedAccess)
+            : MakeSmokeVectorUploadItem(smokeSkinnedCurrentOutputVertexBuffer, skinnedGpuScaffold.currentOutputVertices, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, skinnedGpuScaffold.previousPositions, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedSurfaceDispatchBuffer, skinnedGpuScaffold.dispatchRecords, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
@@ -2285,6 +2334,47 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     else
     {
         bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+    }
+    if (skinnedGpuComputeReady)
+    {
+        nvrhi::BufferHandle previousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer ? smokeSkinnedPreviousJointMatrixBuffer : smokeSkinnedCurrentJointMatrixBuffer;
+        const nvrhi::BufferHandle previousBoundPreviousJointMatrixBuffer =
+            m_smokeSkinnedPreviousJointMatrixBuffer ? m_smokeSkinnedPreviousJointMatrixBuffer : m_smokeSkinnedCurrentJointMatrixBuffer;
+        const bool skinningBindingSetReusable =
+            m_smokeSkinnedGpuSkinningBindingSet &&
+            smokeSkinnedSourceVertexBuffer == m_smokeSkinnedSourceVertexBuffer &&
+            smokeSkinnedCurrentOutputVertexBuffer == m_smokeSkinnedCurrentOutputVertexBuffer &&
+            smokeSkinnedSurfaceDispatchBuffer == m_smokeSkinnedSurfaceDispatchBuffer &&
+            smokeSkinnedCurrentJointMatrixBuffer == m_smokeSkinnedCurrentJointMatrixBuffer &&
+            previousJointMatrixBuffer == previousBoundPreviousJointMatrixBuffer;
+        if (!skinningBindingSetReusable)
+        {
+            nvrhi::BindingSetDesc skinningBindingSetDesc;
+            skinningBindingSetDesc.bindings = {
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(0, smokeSkinnedSourceVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(0, smokeSkinnedCurrentOutputVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(1, smokeSkinnedSurfaceDispatchBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(2, smokeSkinnedCurrentJointMatrixBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(3, previousJointMatrixBuffer)
+            };
+            m_smokeSkinnedGpuSkinningBindingSet = device->createBindingSet(skinningBindingSetDesc, m_smokeSkinnedGpuSkinningBindingLayout);
+        }
+        if (m_smokeSkinnedGpuSkinningBindingSet)
+        {
+            nvrhi::ComputeState skinningComputeState;
+            skinningComputeState.pipeline = m_smokeSkinnedGpuSkinningPipeline;
+            skinningComputeState.bindings = { m_smokeSkinnedGpuSkinningBindingSet };
+            commandList->setComputeState(skinningComputeState);
+            const uint32_t groupsX = (static_cast<uint32_t>(skinnedGpuComputeMaxVertexCount) + 63u) / 64u;
+            commandList->dispatch(groupsX, static_cast<uint32_t>(skinnedGpuScaffold.dispatchRecords.size()), 1);
+            commandList->setBufferState(smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->commitBarriers();
+            skinnedGpuComputeDispatched = true;
+        }
+    }
+    else
+    {
+        m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
@@ -2644,6 +2734,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     sceneInputs.geometry.skinnedCurrentJointMatrixCount = static_cast<int>(skinnedGpuScaffold.currentJointMatrices.size());
     sceneInputs.geometry.skinnedPreviousJointMatrixCount = static_cast<int>(skinnedGpuScaffold.previousJointMatrices.size());
+    sceneInputs.geometry.skinnedGpuComputeDispatchCount = skinnedGpuComputeReady ? static_cast<int>(skinnedGpuScaffold.dispatchRecords.size()) : 0;
+    sceneInputs.geometry.skinnedGpuComputeVertexCount = skinnedGpuComputeReady ? skinnedGpuComputeVertexCount : 0;
+    sceneInputs.geometry.skinnedGpuComputeMaxVertexCount = skinnedGpuComputeReady ? skinnedGpuComputeMaxVertexCount : 0;
     sceneInputs.geometry.currentGeometryValid = hasStaticBlas || hasDynamicBlas;
     sceneInputs.geometry.previousTransformAvailable = rigidRouteBuild.stats.previousTransformInstances > 0;
     sceneInputs.geometry.skinnedPreviousCpuVertexDataRetained = m_smokeSkinnedPreviousStats.previousRetainedVertexCount > 0;
@@ -2657,7 +2750,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedPreviousPositionBufferAvailable =
         smokeSkinnedPreviousPositionBuffer &&
         !skinnedGpuScaffold.previousPositions.empty();
-    sceneInputs.geometry.skinnedGpuSkinningAvailable = false;
+    sceneInputs.geometry.skinnedGpuComputePipelineAvailable = gpuSkinningMode >= 1 && m_smokeSkinnedGpuSkinningPipeline != nullptr;
+    sceneInputs.geometry.skinnedGpuComputeDispatched = skinnedGpuComputeDispatched;
+    sceneInputs.geometry.skinnedGpuSkinningAvailable = skinnedGpuComputeDispatched;
     sceneInputs.geometry.capabilityFlags =
         RT_SCENE_INPUT_GEOMETRY_PREVIOUS_TRANSFORM_RESERVED |
         RT_SCENE_INPUT_GEOMETRY_PREVIOUS_VERTEX_RESERVED |

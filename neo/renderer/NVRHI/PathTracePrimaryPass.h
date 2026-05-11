@@ -150,8 +150,10 @@ private:
     nvrhi::rt::AccelStructHandle m_smokeDynamicBlas;
     nvrhi::rt::AccelStructHandle m_smokeTlas;
     nvrhi::BindingLayoutHandle m_smokeBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
+    nvrhi::BindingSetHandle m_smokeSkinnedGpuSkinningBindingSet;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
@@ -167,6 +169,8 @@ private:
     int m_smokeDoomAnalyticLightCount = 0;
     int m_smokeDoomAnalyticLightBytes = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
+    nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
+    nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
 };

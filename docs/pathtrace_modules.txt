@@ -1204,14 +1204,18 @@ skinned positions shader-visible in the default path.
   counts through scene inputs.
 - `2`: reserved for future validated GPU output consumption.
 
-The diagnostic scaffold does not dispatch compute, does not change BLAS input,
-and does not modify raster GPU skinning. It now binds the previous-position
-buffer and a skinned dispatch/range map explicitly at the smoke shader level so
-primary-surface records can reconstruct a previous world-space hit position for
-validated skinned dynamic triangles. Current/previous joint matrix buffers are
-now filled with copied CPU-side joint rows when `r_pathTracingGpuSkinning 1` is
-enabled, but rendering still ignores those buffers until PT-owned GPU skinning is
-implemented.
+The diagnostic scaffold does not change BLAS input or modify raster GPU skinning
+in the default `0` mode. In
+`r_pathTracingGpuSkinning 1`, the scaffold dispatches the PT-owned
+`pathtrace_skinning.cs.hlsl` compute shader to write the diagnostic current
+output buffer, then leaves BLAS input and hit shading on the existing dynamic
+CPU-skinned output. The compute dispatch path does not upload the diagnostic
+output buffer from the CPU before overwriting it. It also binds the
+previous-position buffer and a skinned
+dispatch/range map explicitly at the smoke shader level so primary-surface
+records can reconstruct a previous world-space hit position for validated
+skinned dynamic triangles. Current/previous joint matrix buffers are filled with
+copied CPU-side joint rows when `r_pathTracingGpuSkinning 1` is enabled.
 
 Routed rigid primary-surface motion is transform-based rather than vertex-copy
 based. `PathTraceRigidRouteInstance` carries current and previous object rows

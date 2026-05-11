@@ -90,9 +90,11 @@ Current validated feature set:
 - Off-by-default PT GPU skinning scaffold. `r_pathTracingGpuSkinning 1` builds
   diagnostic skinned source/current-output/previous-position/dispatch buffers
   and current/previous joint-matrix buffers from the existing CPU-skinned
-  bridge, but the normal BLAS and shader path still consume the existing dynamic
-  CPU-skinned output. Mode 2 is reserved for later validated GPU output use and
-  is not active yet.
+  bridge. It now dispatches a PT-owned compute shader that writes the diagnostic
+  current-output buffer, but the normal BLAS and shader path still consume the
+  existing dynamic CPU-skinned output. The compute path skips the redundant CPU
+  upload of the output buffer it overwrites. Mode 2 is reserved for later
+  validated GPU output use and is not active yet.
 - With `r_pathTracingGpuSkinning 1`, skinned primary-surface records can now
   look up the retained previous CPU-skinned position for the same dynamic
   triangle and barycentric point. This only fills the primary-surface
@@ -1679,8 +1681,9 @@ Current behavior:
 - `r_pathTracingGpuSkinning` defaults to `0`. Value `1` builds diagnostic
   source/output/previous-position/dispatch/current-joint/previous-joint buffers
   from those same records so the future GPU-skinning contract can be validated
-  without changing rendering. Compute dispatch remains inactive in this
-  scaffold, and `skinnedGpuSkinningAvailable` stays false.
+  without changing rendering. It also dispatches `pathtrace_skinning.cs.hlsl`
+  to write the diagnostic current-output buffer. The result is not used for
+  BLAS input or hit shading yet.
 - This does not change the main raster r_useGPUSkinning setting.
 - Characters now animate correctly in the RT debug output.
 

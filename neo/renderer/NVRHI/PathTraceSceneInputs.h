@@ -194,6 +194,9 @@ struct RtPathTraceSceneInputGeometry
     int skinnedPreviousDispatchMaxEnd = 0;
     int skinnedCurrentJointMatrixCount = 0;
     int skinnedPreviousJointMatrixCount = 0;
+    int skinnedGpuComputeDispatchCount = 0;
+    int skinnedGpuComputeVertexCount = 0;
+    int skinnedGpuComputeMaxVertexCount = 0;
     bool currentGeometryValid = false;
     bool previousTransformAvailable = false;
     bool previousVertexDataAvailable = false;
@@ -202,6 +205,8 @@ struct RtPathTraceSceneInputGeometry
     bool skinnedSourceGeometryAvailable = false;
     bool skinnedGpuSkinningAvailable = false;
     bool skinnedPreviousPositionBufferAvailable = false;
+    bool skinnedGpuComputePipelineAvailable = false;
+    bool skinnedGpuComputeDispatched = false;
     uint32_t capabilityFlags = 0;
 };
 

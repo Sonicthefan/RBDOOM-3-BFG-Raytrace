@@ -15,6 +15,7 @@
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceTextureRegistry.h"
+#include "../RenderProgs.h"
 #include "../../sys/DeviceManager.h"
 
 extern DeviceManager* deviceManager;
@@ -144,7 +145,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedTemporalDeformationContinuousCount,
         geometry.skinnedTemporalMaterialStableCount,
         geometry.skinnedTemporalPreviousBufferValidCount);
-    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d available source/gpu/prevPos=%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT skinned GPU scaffold mode=%d sourceVerts=%d currentOutVerts=%d previousPositions=%d dispatchRecords=%d prevDispatch valid/outOfRange/maxEnd=%d/%d/%d joints current/previous=%d/%d compute pipe/dispatched/records/verts/max=%d/%d/%d/%d/%d available source/gpu/prevPos=%d/%d/%d\n",
         geometry.skinnedGpuSkinningMode,
         geometry.skinnedSourceVertexCount,
         geometry.skinnedCurrentOutputVertexCount,
@@ -155,6 +156,11 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedPreviousDispatchMaxEnd,
         geometry.skinnedCurrentJointMatrixCount,
         geometry.skinnedPreviousJointMatrixCount,
+        geometry.skinnedGpuComputePipelineAvailable ? 1 : 0,
+        geometry.skinnedGpuComputeDispatched ? 1 : 0,
+        geometry.skinnedGpuComputeDispatchCount,
+        geometry.skinnedGpuComputeVertexCount,
+        geometry.skinnedGpuComputeMaxVertexCount,
         geometry.skinnedSourceGeometryAvailable ? 1 : 0,
         geometry.skinnedGpuSkinningAvailable ? 1 : 0,
         geometry.skinnedPreviousPositionBufferAvailable ? 1 : 0);
@@ -485,12 +491,14 @@ static size_t SmokeBufferRequiredBytes(size_t byteSize, uint32_t structStride)
     return byteSize > structStride ? byteSize : structStride;
 }
 
-static bool SmokeBufferHasCapacity(nvrhi::BufferHandle buffer, size_t byteSize, uint32_t structStride)
+static bool SmokeBufferHasCapacity(nvrhi::BufferHandle buffer, size_t byteSize, uint32_t structStride, bool unorderedAccess)
 {
-    return buffer && buffer->getDesc().byteSize >= SmokeBufferRequiredBytes(byteSize, structStride);
+    return buffer &&
+        buffer->getDesc().byteSize >= SmokeBufferRequiredBytes(byteSize, structStride) &&
+        (!unorderedAccess || buffer->getDesc().canHaveUAVs);
 }
 
-static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput)
+static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false)
 {
     if (!device)
     {
@@ -504,28 +512,29 @@ static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, con
     desc.isVertexBuffer = vertexBuffer;
     desc.isIndexBuffer = indexBuffer;
     desc.isAccelStructBuildInput = accelStructInput;
+    desc.canHaveUAVs = unorderedAccess;
     desc.initialState = nvrhi::ResourceStates::Common;
     desc.keepInitialState = true;
     return device->createBuffer(desc);
 }
 
-static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput)
+static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false)
 {
-    if (SmokeBufferHasCapacity(existingBuffer, byteSize, structStride))
+    if (SmokeBufferHasCapacity(existingBuffer, byteSize, structStride, unorderedAccess))
     {
         return existingBuffer;
     }
 
-    return CreateSmokeGeometryBuffer(device, debugName, byteSize, structStride, vertexBuffer, indexBuffer, accelStructInput);
+    return CreateSmokeGeometryBuffer(device, debugName, byteSize, structStride, vertexBuffer, indexBuffer, accelStructInput, unorderedAccess);
 }
 
-static nvrhi::BufferHandle ReuseOrCreateOptionalSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride)
+static nvrhi::BufferHandle ReuseOrCreateOptionalSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool unorderedAccess = false)
 {
     if (byteSize == 0)
     {
         return nullptr;
     }
-    return ReuseOrCreateSmokeGeometryBuffer(device, existingBuffer, debugName, byteSize, structStride, false, false, false);
+    return ReuseOrCreateSmokeGeometryBuffer(device, existingBuffer, debugName, byteSize, structStride, false, false, false, unorderedAccess);
 }
 
 RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferCreateDesc& desc)
@@ -556,7 +565,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer, "PathTraceRigidRouteTriangleMaterialIndexes", desc.rigidRouteTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
     result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
-    result.buffers.skinnedCurrentOutputVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentOutputVertexBuffer, "PathTraceSkinnedCurrentOutputVertices", desc.skinnedCurrentOutputVertexBytes, sizeof(PathTraceSmokeVertex));
+    result.buffers.skinnedCurrentOutputVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentOutputVertexBuffer, "PathTraceSkinnedCurrentOutputVertices", desc.skinnedCurrentOutputVertexBytes, sizeof(PathTraceSmokeVertex), true);
     result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false);
     result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false);
     result.buffers.skinnedCurrentJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentJointMatrixBuffer, "PathTraceSkinnedCurrentJointMatrices", desc.skinnedCurrentJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
@@ -895,6 +904,42 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BindingLayoutDesc skinningBindingLayoutDesc;
+    skinningBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+    skinningBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+    skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(0));
+    skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1));
+    skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2));
+    skinningBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
+    m_smokeSkinnedGpuSkinningBindingLayout = device->createBindingLayout(skinningBindingLayoutDesc);
+    if (!m_smokeSkinnedGpuSkinningBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create PT skinned GPU skinning binding layout\n");
+    }
+    else
+    {
+        const programInfo_t skinningProgram = renderProgManager.GetProgramInfo(BUILTIN_PT_SKINNING_CS);
+        m_smokeSkinnedGpuSkinningShader = skinningProgram.cs;
+        if (!m_smokeSkinnedGpuSkinningShader)
+        {
+            common->Printf("PathTracePrimaryPass: PT skinned GPU skinning shader unavailable\n");
+        }
+        else
+        {
+            nvrhi::ComputePipelineDesc skinningPipelineDesc;
+            skinningPipelineDesc.CS = m_smokeSkinnedGpuSkinningShader;
+            skinningPipelineDesc.bindingLayouts = { m_smokeSkinnedGpuSkinningBindingLayout };
+            m_smokeSkinnedGpuSkinningPipeline = device->createComputePipeline(skinningPipelineDesc);
+            if (!m_smokeSkinnedGpuSkinningPipeline)
+            {
+                common->Printf("PathTracePrimaryPass: failed to create PT skinned GPU skinning compute pipeline\n");
+            }
+        }
+    }
+
     nvrhi::BindlessLayoutDesc textureBindlessLayoutDesc;
     textureBindlessLayoutDesc
         .setVisibility(nvrhi::ShaderType::AllRayTracing)
@@ -1220,6 +1265,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedSurfaceDispatchBuffer = nullptr;
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
+    m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;
