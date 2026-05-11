@@ -295,6 +295,7 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 43: info.name = "packed object-motion reprojection match"; info.category = "pass-output-visualizer"; info.output = "object-motion previous primary-surface match"; info.owner = "primary-surface"; break;
     case 44: info.name = "previous static snapshot binding"; info.category = "scene-geometry-diagnostic"; info.output = "previous static snapshot lookup validation"; info.owner = "primary-surface"; break;
     case 45: info.name = "previous static reprojection match"; info.category = "pass-output-visualizer"; info.output = "previous static snapshot reprojection match"; info.owner = "primary-surface"; break;
+    case 46: info.name = "previous static motion vector"; info.category = "pass-output-visualizer"; info.output = "static current-to-previous object motion"; info.owner = "primary-surface"; break;
     default: break;
     }
 

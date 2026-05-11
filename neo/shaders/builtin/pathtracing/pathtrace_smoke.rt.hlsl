@@ -1693,6 +1693,24 @@ float4 EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(RAB_Surface curr
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
 }
 
+float4 EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    float3 previousPosition;
+    uint debugStatus;
+    if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
+    {
+        return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
+    }
+
+    int2 previousPixel;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousPosition, PathTraceFullOutputSize(), previousPixel))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+    }
+
+    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
+}
+
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
@@ -3055,7 +3073,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3231,6 +3249,10 @@ void RayGen()
     else if (debugMode == 45)
     {
         SmokeOutput[pixel] = EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(primaryHistorySurface);
+    }
+    else if (debugMode == 46)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(primaryHistorySurface, pixel);
     }
     else if (debugMode == 8)
     {

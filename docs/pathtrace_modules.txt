@@ -1633,6 +1633,14 @@ Non-static hits and static lookup failures reuse the mode 44 colors. It is
 diagnostic-only and does not consume previous static data for production motion
 or shading.
 
+Mode 46 is the previous static snapshot motion-vector diagnostic. It uses the
+same previous-static lookup as mode 44, projects the reconstructed previous
+static position through the previous camera, and visualizes current-to-previous
+pixel displacement with the same signed red/green plus blue magnitude convention
+as the skinned and routed-rigid object-motion vector modes. Non-static hits and
+static lookup failures reuse the mode 44 colors. It is diagnostic-only and does
+not consume previous static data for production motion or shading.
+
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
 off by default; add lower internal resolution / checkerboard execution before
