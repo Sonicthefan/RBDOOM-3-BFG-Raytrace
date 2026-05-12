@@ -50,12 +50,13 @@ Current mode map:
 - 31: temporal reservoir validation.
 - 32: temporal reservoir shading preview.
 - 33: temporal light-source attribution.
+- 50: spatial reservoir shading preview.
 
 Next implementation target:
-Turn the mode 32 temporal-reservoir shading preview into the first rough visible
-ReSTIR PT test. It should output material-aware lighting from selected temporal
-reservoirs, keep diagnostics intact, and stay conservative about visibility,
-resolution, and spatial reuse.
+Validate and harden the mode 50 spatial-reservoir shading preview against mode
+32. It should stay debug-only until the TemporalAndSpatial path is known to
+launch reliably, avoid full-screen diagnostic collapse, and avoid making
+movement flicker/ghosting worse than temporal-only mode 32.
 
 Current rough-preview rule:
 Mode 32 is the visible temporal-lighting preview. Keep rejection/source debug
@@ -63,3 +64,9 @@ color in modes 31 and 33. Mode 32 should fall back to near-black material
 context for invalid reservoirs so movement does not become a full-screen
 diagnostic overlay. Use r_pathTracingRestirPTPreviewExposure for preview-only
 exposure adjustment.
+
+Mode 50 uses RTXDI TemporalAndSpatial buffer indices and the same rough preview
+shading path as mode 32. It currently uses a shader-local 32-entry neighbor
+offset table rather than a host-bound RTXDI neighbor-offset buffer. Tune
+`r_pathTracingRestirPTSpatialSamples` and `r_pathTracingRestirPTSpatialRadius`
+only at conservative output resolution.

@@ -1194,6 +1194,14 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "ReSTIR attribution",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_attribution.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_attribution.rt.bin");
+    case 4:
+        return initLibrary(
+            m_smokeRestirSpatialShaderLibrary,
+            m_smokeRestirSpatialPipeline,
+            m_smokeRestirSpatialShaderTable,
+            "ReSTIR spatial",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin");
     default:
         return false;
     }

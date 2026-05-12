@@ -7,7 +7,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation, 26 = ReSTIR PT initial reservoir diagnostics, 27 = ReSTIR PT initial reservoir shading preview, 28 = ReSTIR PT initial reservoir visibility preview, 29 = ReSTIR PT primary-surface history validation, 30 = ReSTIR PT reprojection validation, 31 = ReSTIR PT temporal reservoir validation, 32 = ReSTIR PT temporal shading preview, 33 = temporal light-source attribution, 34-37 = path-tracer core visualizers, 38 = skinned object-motion vector diagnostic, 39 = routed-rigid object-motion eligibility, 40 = routed-rigid object-motion vector diagnostic, 41 = combined skinned/routed-rigid object-motion vector diagnostic, 42 = packed primary object-motion flags, 43 = packed object-motion reprojection match, 44 = previous static snapshot binding, 45 = previous static reprojection match, 46 = previous static motion-vector diagnostic, 47 = combined geometry motion-vector diagnostic, 48 = combined geometry reprojection-match diagnostic, 49 = combined geometry motion-source diagnostic" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation, 26 = ReSTIR PT initial reservoir diagnostics, 27 = ReSTIR PT initial reservoir shading preview, 28 = ReSTIR PT initial reservoir visibility preview, 29 = ReSTIR PT primary-surface history validation, 30 = ReSTIR PT reprojection validation, 31 = ReSTIR PT temporal reservoir validation, 32 = ReSTIR PT temporal shading preview, 33 = temporal light-source attribution, 34-37 = path-tracer core visualizers, 38 = skinned object-motion vector diagnostic, 39 = routed-rigid object-motion eligibility, 40 = routed-rigid object-motion vector diagnostic, 41 = combined skinned/routed-rigid object-motion vector diagnostic, 42 = packed primary object-motion flags, 43 = packed object-motion reprojection match, 44 = previous static snapshot binding, 45 = previous static reprojection match, 46 = previous static motion-vector diagnostic, 47 = combined geometry motion-vector diagnostic, 48 = combined geometry reprojection-match diagnostic, 49 = combined geometry motion-source diagnostic, 50 = ReSTIR PT spatial reservoir shading preview" );
 
 idCVar r_pathTracingMode20TestPreset(
     "r_pathTracingMode20TestPreset",
@@ -427,7 +427,7 @@ idCVar r_pathTracingRestirPTAnalyticLightCandidates(
     "r_pathTracingRestirPTAnalyticLightCandidates",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Allow ReSTIR PT debug modes 26-33 to build and shade analytic Doom light candidates when the global analytic-light CVar is off; set 0 for emissive-only ReSTIR validation" );
+    "Allow ReSTIR PT debug modes 26-33 and 50 to build and shade analytic Doom light candidates when the global analytic-light CVar is off; set 0 for emissive-only ReSTIR validation" );
 
 idCVar r_pathTracingAnalyticLightCandidateDump(
     "r_pathTracingAnalyticLightCandidateDump",
@@ -751,13 +751,25 @@ idCVar r_pathTracingRestirPTTemporalDepthThreshold(
     "r_pathTracingRestirPTTemporalDepthThreshold",
     "0.1",
     CVAR_RENDERER | CVAR_FLOAT,
-    "ReSTIR PT temporal neighbor relative depth threshold for modes 31-33" );
+    "ReSTIR PT temporal/spatial neighbor relative depth threshold for modes 31-33 and 50" );
 
 idCVar r_pathTracingRestirPTTemporalNormalThreshold(
     "r_pathTracingRestirPTTemporalNormalThreshold",
     "0.35",
     CVAR_RENDERER | CVAR_FLOAT,
-    "ReSTIR PT temporal neighbor normal dot threshold for modes 31-33; softened from RTXDI default for Doom normal-map stability" );
+    "ReSTIR PT temporal/spatial neighbor normal dot threshold for modes 31-33 and 50; softened from RTXDI default for Doom normal-map stability" );
+
+idCVar r_pathTracingRestirPTSpatialSamples(
+    "r_pathTracingRestirPTSpatialSamples",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 50 ReSTIR PT spatial neighbor samples per pixel; low by default for early Vulkan/driver stability" );
+
+idCVar r_pathTracingRestirPTSpatialRadius(
+    "r_pathTracingRestirPTSpatialRadius",
+    "16",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Mode 50 ReSTIR PT spatial neighbor sampling radius in pixels" );
 
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",

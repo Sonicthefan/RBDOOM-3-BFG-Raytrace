@@ -299,6 +299,7 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 47: info.name = "combined geometry motion vector"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid current-to-previous motion"; info.owner = "primary-surface"; break;
     case 48: info.name = "combined geometry reprojection match"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid previous primary-surface match"; info.owner = "primary-surface"; break;
     case 49: info.name = "combined geometry motion source"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid motion source coverage"; info.owner = "primary-surface"; break;
+    case 50: info.name = "ReSTIR PT spatial reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "temporal plus spatial reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
     default: break;
     }
 

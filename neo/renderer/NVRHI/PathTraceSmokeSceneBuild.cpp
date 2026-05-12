@@ -19,6 +19,7 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTracePrimaryPass.h"
+#include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinning.h"
@@ -986,8 +987,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 49, r_pathTracingDebugMode.GetInteger());
-    const bool restirPTDebugMode = requestedDebugMode >= 26 && requestedDebugMode <= 33;
+    const int requestedDebugMode = idMath::ClampInt(0, 50, r_pathTracingDebugMode.GetInteger());
+    const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 

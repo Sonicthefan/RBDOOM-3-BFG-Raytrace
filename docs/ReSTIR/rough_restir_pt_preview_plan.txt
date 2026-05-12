@@ -21,6 +21,7 @@ Current Baseline
 - Mode 31 calls RTXDI_PTTemporalResampling and validates temporal reservoirs.
 - Mode 32 shades the temporal reservoir as a preview.
 - Mode 33 colors temporal source attribution.
+- Mode 50 runs the first debug-only TemporalAndSpatial ReSTIR PT preview.
 - ReSTIR shader libraries are now split and force-specialized per mode, which
   makes iteration feasible again. Keep core mode 18 independent from ReSTIR
   debug-mode shader cost.
@@ -58,7 +59,8 @@ Immediate Implementation Steps
 
 Do Not Do Yet
 -------------
-- Do not add spatial reuse in the same slice.
+- Do not treat mode 50 as production spatial reuse; it is still a debug raygen
+  preview with a shader-local neighbor-offset table.
 - Do not merge ReSTIR debug libraries back into the core path tracer.
 - Do not make the authored Doom light universe smaller to hide performance
   issues. Bound proposals per shading point instead.
@@ -90,6 +92,31 @@ Success Criteria
 - Moving the camera does not immediately collapse to solid diagnostic color.
 - Doom analytic lights and emissives can both contribute when their candidate
   gates are enabled.
-- Known limitations are documented instead of hidden: no spatial reuse, fragile
-  light identity remap, conservative visibility, limited resolution, and no
-  production final pass yet.
+- Known limitations are documented instead of hidden: spatial reuse is mode-50
+  debug-only, light identity remap is fragile, visibility is conservative,
+  resolution is limited, and there is no production final pass yet.
+
+Spatial Follow-Up
+-----------------
+Mode 50 uses RTXDI's TemporalAndSpatial buffer-index layout: initial output 0,
+temporal previous input 1, temporal current output 0, spatial input 0, spatial
+output 1, and final shading input 1. It first executes the same temporal
+reservoir generation used by mode 32, then calls RTXDI_PTSpatialResampling and
+stores the spatial result. The preview shades the spatial reservoir with the
+same rough NEE reconstruction fallback used by mode 32.
+
+The first mode 50 implementation intentionally avoids a new host descriptor for
+RTXDI neighbor offsets. It uses a 32-entry shader-local offset table and sets
+`neighborOffsetMask = 31`. Replace this with a real RTXDI neighbor-offset buffer
+when spatial reuse graduates out of debug-only preview work.
+
+Controls:
+
+  r_pathTracingRestirPTSpatialSamples
+  r_pathTracingRestirPTSpatialRadius
+
+The spatial pass reuses `r_pathTracingRestirPTTemporalDepthThreshold` and
+`r_pathTracingRestirPTTemporalNormalThreshold` for neighbor validation. Its
+disocclusion boost sample count is deliberately tied to the normal spatial
+sample count for now, avoiding a hidden multi-sample workload jump while
+device-removal limits are still being characterized.

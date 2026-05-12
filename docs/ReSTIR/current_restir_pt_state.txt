@@ -26,8 +26,10 @@ Active ReSTIR shader libraries:
   Mode 32.
 - pathtrace_smoke_restir_attribution.rt.hlsl
   Mode 33.
+- pathtrace_smoke_restir_spatial.rt.hlsl
+  Mode 50.
 
-Modes 31, 32, and 33 force-specialize the debug mode at compile time through
+Modes 31, 32, 33, and 50 force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
 reported roughly 13 second first-load stalls for each specialized ReSTIR mode,
 down from roughly 197 seconds for the unspecialized ReSTIR library.
@@ -38,6 +40,8 @@ Functional Pieces Already Present
 - Packed RTXDI PT reservoir buffers.
 - Initial reservoir generation diagnostics.
 - Temporal reservoir generation using RTXDI_PTTemporalResampling.
+- Debug-only spatial reservoir generation using RTXDI_PTSpatialResampling in
+  mode 50.
 - Primary-surface history and reprojection diagnostics.
 - Doom analytic-light candidates through the RAB bridge.
 - Emissive candidate data through the material/emissive inventory path.
@@ -70,7 +74,8 @@ made static, skinned, and routed-rigid edges flash during movement. The wrapper
 now only computes motion/depth hints and lets RTXDI perform its own surface and
 reservoir validation.
 
-The RTXDI temporal neighbor thresholds are exposed for modes 31-33:
+The RTXDI temporal/spatial neighbor thresholds are exposed for modes 31-33 and
+50:
 
   r_pathTracingRestirPTTemporalDepthThreshold
   r_pathTracingRestirPTTemporalNormalThreshold
@@ -80,9 +85,26 @@ The normal threshold defaults to 0.35 instead of RTXDI's stock 0.6 because Doom
 too twitchy on particular object sides. Tighten it when looking for ghosting;
 loosen it when stable motion sources still show small edge/object flashes.
 
+Mode 50 adds the first spatial-reservoir shading preview. It uses RTXDI's
+TemporalAndSpatial buffer-index contract, builds the current initial reservoir,
+runs temporal reuse, then spatially resamples the temporal output before using
+the same rough lighting preview path as mode 32. The branch does not have a
+host-bound RTXDI neighbor-offset buffer yet, so mode 50 uses a shader-local
+32-entry offset table for this debug slice. Spatial samples and radius are
+controlled by:
+
+  r_pathTracingRestirPTSpatialSamples
+  r_pathTracingRestirPTSpatialRadius
+
+The spatial depth/normal validation thresholds currently reuse the temporal
+threshold CVars above. The disocclusion boost sample count is clamped to the
+same sample count as `r_pathTracingRestirPTSpatialSamples` to avoid a hidden
+8x work spike during early Vulkan/device-removal testing.
+
 Main Gaps
 ---------
-- No spatial reuse yet.
+- Spatial reuse is debug-only in mode 50; it is not split into a production
+  pass or denoiser-facing output yet.
 - No production final ReSTIR PT pass outside the debug raygen path.
 - Light identity is still index-fragile across changing emissive/light order.
 - RAB visibility remains conservative/preview-oriented.
@@ -95,12 +117,12 @@ Main Gaps
 
 Recommended Next Milestone
 --------------------------
-Convert the existing temporal-reservoir shading preview into a rough visible
-ReSTIR PT test mode before adding spatial reuse. The milestone should prove
-"temporal reservoir selected light -> material-aware lighting -> visible output"
-with Doom analytic and emissive candidates. Spatial reuse, denoiser-facing
-buffers, and reflection/glass integration should follow only after that preview
-is stable enough to compare against mode 18.
+Validate mode 50 at conservative resolution against mode 32. It should remain a
+rough debug preview: look for obvious crashes, full-screen diagnostic collapse,
+or spatial reuse causing worse flicker/ghosting than temporal-only mode 32.
+Denoiser-facing buffers, a real split spatial pass, and reflection/glass
+integration should follow only after the mode 50 data path is stable enough to
+compare against mode 18.
 
 Rough Preview Control
 ---------------------
@@ -108,8 +130,9 @@ Mode 32 is the rough temporal lighting preview. Its exposure is controlled by:
 
   r_pathTracingRestirPTPreviewExposure
 
-Default is 1. The value is clamped to 0..16 and only affects the mode 32 preview
-mapping. It does not change mode 18 and does not change reservoir selection.
+Default is 1. The value is clamped to 0..16 and only affects the mode 32 and
+mode 50 preview mapping. It does not change mode 18 and does not change
+reservoir selection.
 
 When `TargetFunction * WeightSum` is effectively black but the temporal
 reservoir still contains a packed NEE light, mode 32 has a preview-only fallback

@@ -167,7 +167,8 @@ Current validated feature set:
   separate temporal-family libraries:
   `pathtrace_smoke_restir_temporal.rt.bin` for mode 31,
   `pathtrace_smoke_restir_temporal_shading.rt.bin` for mode 32, and
-  `pathtrace_smoke_restir_attribution.rt.bin` for mode 33. Modes 29-30 are
+  `pathtrace_smoke_restir_attribution.rt.bin` for mode 33, and
+  `pathtrace_smoke_restir_spatial.rt.bin` for mode 50. Modes 29-30 are
   primary-surface history/reprojection diagnostics and use the core shader
   table. The core library keeps only the minimal RAB material/surface shims
   needed by shared primary-surface helpers; defining `RB_PT_ENABLE_RESTIR` in a
@@ -662,7 +663,7 @@ Implemented debug CVars:
 
 - r_pathTracingToyFakePBRSpecular
   Opt-out shader experiment. Defaults to 1. When enabled, mode 18, ReSTIR PT
-  bridge modes 26/27/28/29/30/31/32/33, and path-tracer visualizer modes
+  bridge modes 26/27/28/29/30/31/32/33/50, and path-tracer visualizer modes
   34/35/36/37 also enable specular-map sampling and interpret Doom legacy
   specular maps using the same rbdoom3/Kennedith98-style fake-PBR idea as the
   raster interaction shaders: derive approximate F0 and roughness from the
@@ -837,21 +838,33 @@ Ray dispatch safety diagnostics:
   mode or `r_pathTracingRestirPTPreviewVisibility` requests it.
 
 - r_pathTracingRestirPTPreviewExposure
-  Mode 32 rough ReSTIR PT lighting-preview exposure multiplier. Defaults to 1,
-  clamps to 0..16, and only changes the preview tonemap for
+  Mode 32/50 rough ReSTIR PT lighting-preview exposure multiplier. Defaults to
+  1, clamps to 0..16, and only changes the preview tonemap for
   `TargetFunction * WeightSum`. It does not affect mode 18 or reservoir
   selection.
 
 - r_pathTracingRestirPTTemporalDepthThreshold
-  RTXDI ReSTIR PT temporal neighbor relative-depth threshold for modes 31-33.
-  Defaults to 0.1. Lower values reject history more aggressively; higher values
-  tolerate more depth mismatch at the cost of more ghosting risk.
+  RTXDI ReSTIR PT temporal/spatial neighbor relative-depth threshold for modes
+  31-33 and 50. Defaults to 0.1. Lower values reject history more
+  aggressively; higher values tolerate more depth mismatch at the cost of more
+  ghosting risk.
 
 - r_pathTracingRestirPTTemporalNormalThreshold
-  RTXDI ReSTIR PT temporal neighbor normal-dot threshold for modes 31-33.
+  RTXDI ReSTIR PT temporal/spatial neighbor normal-dot threshold for modes
+  31-33 and 50.
   Defaults to 0.35, softened from RTXDI's stock 0.6 for Doom 3 normal-map and
   legacy tangent-basis stability. Raise it to reject more history; lower it if
   stable motion-source objects still flicker on particular sides or distances.
+
+- r_pathTracingRestirPTSpatialSamples
+  Mode 50 RTXDI_PTSpatialResampling neighbor samples per pixel. Defaults to 1
+  for early Vulkan/device-removal stability and clamps to 1..32. The temporary
+  debug path ties disocclusion boost samples to this same value to avoid hidden
+  workload jumps.
+
+- r_pathTracingRestirPTSpatialRadius
+  Mode 50 RTXDI_PTSpatialResampling neighbor sampling radius in pixels.
+  Defaults to 16 and clamps to 1..128.
 
 Glass/transmission reservation:
 
@@ -1496,8 +1509,8 @@ term when r_pathTracingUseEmissiveMaps is 1.
   add any sphere mesh to the BVH.
 
 - r_pathTracingRestirPTAnalyticLightCandidates
-  ReSTIR PT debug-mode convenience gate. Defaults to 1, so modes 26-33 build,
-  upload, and shade Doom analytic light candidates even when
+  ReSTIR PT debug-mode convenience gate. Defaults to 1, so modes 26-33 and 50
+  build, upload, and shade Doom analytic light candidates even when
   `r_pathTracingAnalyticLightCandidates` is 0. Set this to 0, with the global
   analytic-light CVar also 0, for emissive-only ReSTIR validation, CPU
   light-candidate profiling, or device-removal narrowing.
@@ -2347,11 +2360,13 @@ into a prepared Doom 3 BFG game folder. When shaders change, also copy:
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.bin
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_temporal_shading.rt.bin
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_attribution.rt.bin
+    base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_initial.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_temporal_shading.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_attribution.rt.bin
+    base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin
 
 to the matching paths in the prepared game folder. The RT shader library is
 loaded from `base/renderprogs2` at runtime; copying only the exe can leave a
@@ -2623,13 +2638,14 @@ For ReSTIR PT initial-sampling reservoir validation:
     r_pathTracingDebugMode 31
     r_pathTracingDebugMode 32
     r_pathTracingDebugMode 33
+    r_pathTracingDebugMode 50
 
-The host side now builds a CPU ReSTIR PT pass plan for modes 26-33 before the
+The host side now builds a CPU ReSTIR PT pass plan for modes 26-33 and 50 before the
 legacy smoke raygen dispatch. The plan names the active initial, temporal,
-shading, visibility, primary-surface, or source-attribution stage, chooses the
+spatial, shading, visibility, primary-surface, or source-attribution stage, chooses the
 RTXDI ReSTIRPTContext resampling mode, and records the RTXDI reservoir buffer
 indices that the current shader path will use. This is a pass-split scaffold,
-not a shader behavior change: modes 26-33 still run through the existing debug
+not a production pass split: modes 26-33 and 50 still run through the existing debug
 raygen paths. Use `r_pathTracingRestirPTPassDump 1` for a one-shot console dump
 of the current mode's pass label, flags, resampling mode, and reservoir buffer
 selection.
@@ -2753,7 +2769,7 @@ identity, surface flags/class, diffuse albedo, opacity, alpha cutoff,
 roughness/F0, emissive radiance, instance/primitive IDs, an object/entity ID
 placeholder, a height/parallax/displacement placeholder, and a future
 previous-position/object-motion placeholder. When
-`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31/32/33
+`r_pathTracingToyFakePBRSpecular 1` is enabled, modes 26/27/28/29/30/31/32/33/50
 sample the Doom specular texture and store the converted fake-PBR roughness/F0
 in that record; modes 34/35/36/37 use the same material policy for path-tracer
 core visualizers. Mode 29 colors the current-vs-previous same-pixel comparison:
@@ -2873,7 +2889,7 @@ RTXDI_PTTemporalResampling own previous-neighbor validation.
 
 The remaining mode 32 object/side-specific flicker is most likely temporal
 neighbor validation sensitivity rather than source coverage when mode 49 stays
-stable. Modes 31-33 expose the RTXDI temporal depth/normal thresholds through
+stable. Modes 31-33 and 50 expose the RTXDI temporal/spatial depth/normal thresholds through
 `r_pathTracingRestirPTTemporalDepthThreshold` and
 `r_pathTracingRestirPTTemporalNormalThreshold`; use
 `r_pathTracingRestirPTPassDump 1` to print the active values.
@@ -2885,9 +2901,9 @@ as evidence that the ReSTIR PT data path is unusable. The debug path runs a
 full-screen raygen that builds the current initial PT reservoir and then invokes
 RTXDI temporal resampling/replay work per pixel; full-resolution presentation is
 expected to rely on later denoising/upscaling rather than brute-force full-res
-mode 32/33. `r_pathTracingRestirPTPreviewMaxPixels` exists as an experimental
+mode 32/33/50. `r_pathTracingRestirPTPreviewMaxPixels` exists as an experimental
 safety cap for the temporal preview family, but the practical validated guidance
-is still to keep mode 32/33 at or below 720p for now.
+is still to keep mode 32/33/50 at or below 720p for now.
 
 Mode 33 is the temporal light-source attribution diagnostic. It uses the same
 temporal reservoir generation path as mode 32, but colors the selected temporal
@@ -2895,15 +2911,26 @@ reservoir by the source that supplied the NEE sample: cyan/blue means a Doom
 analytic sphere light, orange means an emissive triangle, green means a non-NEE
 or indirect reservoir sample, and red means an invalid/unknown packed light.
 The normal mode 30/31 rejection colors still apply before a valid temporal
-reservoir exists. Modes 26 through 33 use
+reservoir exists. Modes 26 through 33 and mode 50 use
 `r_pathTracingRestirPTAnalyticLightCandidates 1` as a default-on convenience
 path for Doom analytic light candidate collection and shader-side analytic-light
 enablement when the global analytic-light CVar is off. Set
 `r_pathTracingAnalyticLightCandidates 0` and
 `r_pathTracingRestirPTAnalyticLightCandidates 0` to test emissive-only ReSTIR
 behavior. The same ReSTIR mode range also uses the routed rigid scene path and
-routed rigid emissive-card inventory, so temporal diagnostics see the same
-source3 membership baseline as the earlier initial-reservoir views.
+routed rigid emissive-card inventory, so temporal and spatial diagnostics see
+the same source3 membership baseline as the earlier initial-reservoir views.
+
+Mode 50 is the first rough spatial-reservoir shading preview. It uses RTXDI's
+TemporalAndSpatial buffer-index layout, generates the current initial reservoir,
+runs the same temporal pass as mode 32, then calls RTXDI_PTSpatialResampling and
+shades the spatial output reservoir with the same rough preview/reconstruction
+path. This is still a debug raygen path, not the production ReSTIR final pass.
+The current implementation uses a shader-local 32-entry neighbor-offset table
+instead of a host-bound RTXDI neighbor-offset buffer; replace that descriptor
+contract when spatial reuse moves out of debug-only preview work. Test mode 50
+at conservative output resolution first, using mode 32 as the temporal-only
+comparison.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with
@@ -3037,7 +3064,7 @@ Invalid or unsupported hits keep the same rejection colors used by modes 47 and
 dynamic fallback path. It is diagnostic-only and does not feed production motion
 vectors or final shading.
 
-Clear optimization path for mode 32/33 / future final shading:
+Clear optimization path for mode 32/33/50 / future final shading:
 - move ReSTIR PT stages out of the monolithic debug raygen into explicit
   pass-sized dispatches so initial sampling, temporal resampling, visibility,
   and final shading can be profiled and throttled independently;
@@ -3171,7 +3198,7 @@ Device-removal triage checklist:
   `r_pathTracingDispatchTileDump 1`. Start with 512x512 tiles, then reduce to
   256x256 or 128x128 if needed. Tiling is diagnostic dispatch shaping only; it
   does not change scene selection, TLAS/BLAS inputs, or shading quality.
-- Recommended bisect sequence for mode 18/20/26-33 device removal:
+- Recommended bisect sequence for mode 18/20/26-33/50 device removal:
   disable readback and Optick GPU markers, dump pass timing and safety metadata,
   then toggle in this order until the failure disappears:
   `r_pathTracingDisableAnyHitAlpha 1`,

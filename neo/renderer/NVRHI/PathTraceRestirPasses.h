@@ -55,13 +55,15 @@ struct RtPathTraceRestirPassBufferSelection
     uint32_t initialOutput = 0;
     uint32_t temporalInput = 0;
     uint32_t temporalOutput = 0;
+    uint32_t spatialInput = 0;
+    uint32_t spatialOutput = 0;
     uint32_t finalShadingInput = 0;
     uint32_t debugInput = 0;
 };
 
 inline bool IsPathTraceRestirPTDebugMode(int debugMode)
 {
-    return debugMode >= 26 && debugMode <= 33;
+    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50;
 }
 
 inline const char* PathTraceRestirPassKindName(RtPathTraceRestirPassKind pass)
@@ -146,6 +148,17 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
         plan.label = "mode33TemporalSourceAttribution";
         break;
+    case 50:
+        plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
+        plan.output = RtPathTraceRestirPassKind::ReservoirShading;
+        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
+        if (temporalPreviewVisibility)
+        {
+            plan.flags |= RT_RESTIR_PASS_TRACES_VISIBILITY;
+        }
+        plan.label = "mode50SpatialReservoirShading";
+        break;
     default:
         break;
     }
@@ -160,7 +173,9 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     uint32_t frameIndex,
     rtxdi::CheckerboardMode checkerboardMode,
     float temporalDepthThreshold,
-    float temporalNormalThreshold)
+    float temporalNormalThreshold,
+    uint32_t spatialSamples,
+    float spatialRadius)
 {
     RtRestirPTContextUpdateDesc desc;
     desc.width = width;
@@ -170,6 +185,8 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     desc.resamplingMode = plan.resamplingMode;
     desc.temporalDepthThreshold = temporalDepthThreshold;
     desc.temporalNormalThreshold = temporalNormalThreshold;
+    desc.spatialSamples = spatialSamples;
+    desc.spatialRadius = spatialRadius;
     return desc;
 }
 
@@ -181,9 +198,13 @@ inline RtPathTraceRestirPassBufferSelection ResolveRestirPTPassBufferSelection(
     selection.initialOutput = parameters.bufferIndices.initialPathTracerOutputBufferIndex;
     selection.temporalInput = parameters.bufferIndices.temporalResamplingInputBufferIndex;
     selection.temporalOutput = parameters.bufferIndices.temporalResamplingOutputBufferIndex;
+    selection.spatialInput = parameters.bufferIndices.spatialResamplingInputBufferIndex;
+    selection.spatialOutput = parameters.bufferIndices.spatialResamplingOutputBufferIndex;
     selection.finalShadingInput = parameters.bufferIndices.finalShadingInputBufferIndex;
-    selection.debugInput = (plan.flags & RT_RESTIR_PASS_WRITES_TEMPORAL) != 0
+    selection.debugInput = (plan.flags & RT_RESTIR_PASS_WRITES_SPATIAL) != 0
+        ? selection.spatialOutput
+        : ((plan.flags & RT_RESTIR_PASS_WRITES_TEMPORAL) != 0
         ? selection.temporalOutput
-        : selection.initialOutput;
+        : selection.initialOutput);
     return selection;
 }

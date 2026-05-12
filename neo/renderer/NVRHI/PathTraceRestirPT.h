@@ -19,6 +19,8 @@ struct RtRestirPTContextUpdateDesc
     rtxdi::ReSTIRPT_ResamplingMode resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
     float temporalDepthThreshold = 0.1f;
     float temporalNormalThreshold = 0.35f;
+    uint32_t spatialSamples = 1;
+    float spatialRadius = 16.0f;
 };
 
 struct RtRestirPTContextState

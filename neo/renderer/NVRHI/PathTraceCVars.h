@@ -133,6 +133,8 @@ extern idCVar r_pathTracingRestirPTPreviewMaxPixels;
 extern idCVar r_pathTracingRestirPTPreviewExposure;
 extern idCVar r_pathTracingRestirPTTemporalDepthThreshold;
 extern idCVar r_pathTracingRestirPTTemporalNormalThreshold;
+extern idCVar r_pathTracingRestirPTSpatialSamples;
+extern idCVar r_pathTracingRestirPTSpatialRadius;
 extern idCVar r_pathTracingRestirPTPassDump;
 extern idCVar r_pathTracingSafetyDump;
 extern idCVar r_pathTracingDispatchTileEnable;

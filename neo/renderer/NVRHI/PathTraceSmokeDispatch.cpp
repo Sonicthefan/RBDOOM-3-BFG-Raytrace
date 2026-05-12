@@ -284,21 +284,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
 
-    int debugMode = idMath::ClampInt(0, 49, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 50, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
-    const bool requestedRestirPTDebugMode = debugMode >= 26 && debugMode <= 33;
+    const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
     const bool requestedIntegratorDebugMode = debugMode >= 34 && debugMode <= 37;
     if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || requestedRestirPTDebugMode || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
     {
         debugMode = 7;
     }
-    const bool restirPTDebugMode = debugMode >= 26 && debugMode <= 33;
+    const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
     const bool integratorDebugMode = debugMode >= 34 && debugMode <= 37;
     const bool restirPTInitialOnlyMode = debugMode >= 26 && debugMode <= 28;
     const bool restirPTTemporalMode = debugMode == 31;
     const bool restirPTTemporalShadingMode = debugMode == 32;
     const bool restirPTAttributionMode = debugMode == 33;
+    const bool restirPTSpatialShadingMode = debugMode == 50;
     if (restirPTInitialOnlyMode && !m_smokeRestirInitialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(0);
@@ -314,6 +315,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (restirPTAttributionMode && !m_smokeRestirAttributionShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(3);
+    }
+    else if (restirPTSpatialShadingMode && !m_smokeRestirSpatialShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(4);
     }
     nvrhi::rt::State state;
     if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
@@ -331,6 +336,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (restirPTAttributionMode && m_smokeRestirAttributionShaderTable)
     {
         state.shaderTable = m_smokeRestirAttributionShaderTable;
+    }
+    else if (restirPTSpatialShadingMode && m_smokeRestirSpatialShaderTable)
+    {
+        state.shaderTable = m_smokeRestirSpatialShaderTable;
     }
     else
     {
@@ -477,7 +486,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         restirPTFrameIndex,
         rtxdi::CheckerboardMode::Off,
         idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalDepthThreshold.GetFloat()),
-        idMath::ClampFloat(-1.0f, 1.0f, r_pathTracingRestirPTTemporalNormalThreshold.GetFloat()));
+        idMath::ClampFloat(-1.0f, 1.0f, r_pathTracingRestirPTTemporalNormalThreshold.GetFloat()),
+        static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingRestirPTSpatialSamples.GetInteger())),
+        idMath::ClampFloat(1.0f, 128.0f, r_pathTracingRestirPTSpatialRadius.GetFloat()));
     if (!UpdateRestirPTContextState(m_frameResources.restirPTContextState, restirPTContextDesc))
     {
         return;
@@ -488,7 +499,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.restirPTContextState.parameters);
     if (r_pathTracingRestirPTPassDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d buffers initialOut=%u temporalIn=%u temporalOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -498,12 +509,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTBufferSelection.initialOutput,
             restirPTBufferSelection.temporalInput,
             restirPTBufferSelection.temporalOutput,
+            restirPTBufferSelection.spatialInput,
+            restirPTBufferSelection.spatialOutput,
             restirPTBufferSelection.finalShadingInput,
             restirPTBufferSelection.debugInput,
             (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1 : 0,
             r_pathTracingRestirPTPreviewMaxPixels.GetInteger(),
             restirPTContextDesc.temporalDepthThreshold,
-            restirPTContextDesc.temporalNormalThreshold);
+            restirPTContextDesc.temporalNormalThreshold,
+            restirPTContextDesc.spatialSamples,
+            restirPTContextDesc.spatialRadius);
         r_pathTracingRestirPTPassDump.SetInteger(0);
     }
 
