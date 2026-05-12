@@ -63,7 +63,7 @@ struct RtPathTraceRestirPassBufferSelection
 
 inline bool IsPathTraceRestirPTDebugMode(int debugMode)
 {
-    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50;
+    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50 || debugMode == 51;
 }
 
 inline const char* PathTraceRestirPassKindName(RtPathTraceRestirPassKind pass)
@@ -159,6 +159,13 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         }
         plan.label = "mode50SpatialReservoirShading";
         break;
+    case 51:
+        plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
+        plan.output = RtPathTraceRestirPassKind::DebugVisualize;
+        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
+        plan.label = "mode51SpatialSourceAttribution";
+        break;
     default:
         break;
     }
@@ -174,6 +181,8 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     rtxdi::CheckerboardMode checkerboardMode,
     float temporalDepthThreshold,
     float temporalNormalThreshold,
+    bool temporalReservoirReuse,
+    bool temporalFallbackSampling,
     uint32_t spatialSamples,
     float spatialRadius)
 {
@@ -185,6 +194,8 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     desc.resamplingMode = plan.resamplingMode;
     desc.temporalDepthThreshold = temporalDepthThreshold;
     desc.temporalNormalThreshold = temporalNormalThreshold;
+    desc.temporalReservoirReuse = temporalReservoirReuse;
+    desc.temporalFallbackSampling = temporalFallbackSampling;
     desc.spatialSamples = spatialSamples;
     desc.spatialRadius = spatialRadius;
     return desc;

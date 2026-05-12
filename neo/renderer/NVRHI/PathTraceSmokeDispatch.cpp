@@ -284,7 +284,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
 
-    int debugMode = idMath::ClampInt(0, 50, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 52, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
@@ -300,6 +300,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTTemporalShadingMode = debugMode == 32;
     const bool restirPTAttributionMode = debugMode == 33;
     const bool restirPTSpatialShadingMode = debugMode == 50;
+    const bool restirPTSpatialAttributionMode = debugMode == 51;
     if (restirPTInitialOnlyMode && !m_smokeRestirInitialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(0);
@@ -319,6 +320,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (restirPTSpatialShadingMode && !m_smokeRestirSpatialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(4);
+    }
+    else if (restirPTSpatialAttributionMode && !m_smokeRestirSpatialAttributionShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(5);
     }
     nvrhi::rt::State state;
     if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
@@ -340,6 +345,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (restirPTSpatialShadingMode && m_smokeRestirSpatialShaderTable)
     {
         state.shaderTable = m_smokeRestirSpatialShaderTable;
+    }
+    else if (restirPTSpatialAttributionMode && m_smokeRestirSpatialAttributionShaderTable)
+    {
+        state.shaderTable = m_smokeRestirSpatialAttributionShaderTable;
     }
     else
     {
@@ -487,6 +496,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         rtxdi::CheckerboardMode::Off,
         idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalDepthThreshold.GetFloat()),
         idMath::ClampFloat(-1.0f, 1.0f, r_pathTracingRestirPTTemporalNormalThreshold.GetFloat()),
+        r_pathTracingRestirPTTemporalReservoirReuse.GetInteger() != 0,
+        r_pathTracingRestirPTTemporalFallbackSampling.GetInteger() != 0,
         static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingRestirPTSpatialSamples.GetInteger())),
         idMath::ClampFloat(1.0f, 128.0f, r_pathTracingRestirPTSpatialRadius.GetFloat()));
     if (!UpdateRestirPTContextState(m_frameResources.restirPTContextState, restirPTContextDesc))
@@ -499,7 +510,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.restirPTContextState.parameters);
     if (r_pathTracingRestirPTPassDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f spatial samples=%u radius=%.1f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -517,6 +528,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingRestirPTPreviewMaxPixels.GetInteger(),
             restirPTContextDesc.temporalDepthThreshold,
             restirPTContextDesc.temporalNormalThreshold,
+            restirPTContextDesc.temporalReservoirReuse ? 1 : 0,
+            restirPTContextDesc.temporalFallbackSampling ? 1 : 0,
             restirPTContextDesc.spatialSamples,
             restirPTContextDesc.spatialRadius);
         r_pathTracingRestirPTPassDump.SetInteger(0);
@@ -641,8 +654,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.neeInfo[2] = static_cast<float>(integratorSettings.secondaryAnalyticNeeMode);
     constants.neeInfo[3] = static_cast<float>(integratorSettings.secondaryAnalyticNeeSamples);
     constants.motionVectorInfo[0] = motionVectorExportEnabled ? 1.0f : 0.0f;
-    constants.motionVectorInfo[1] = 0.0f;
-    constants.motionVectorInfo[2] = 0.0f;
+    constants.motionVectorInfo[1] = r_pathTracingRestirPTTemporalAnalyticNeeReuse.GetInteger() != 0 ? 1.0f : 0.0f;
+    constants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
     constants.motionVectorInfo[3] = 0.0f;
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
@@ -918,6 +931,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     if (disableReservoirWrites)
     {
         m_frameResources.smokeReservoirNeedsClear = true;
+        m_frameResources.restirPTReservoirNeedsClear = true;
     }
     if (disablePrimarySurfaceHistory &&
         (!m_frameResources.primarySurfaceHistoryNeedsClear ||
@@ -942,8 +956,23 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 reservoirClearCompleteUs = Sys_Microseconds();
+    const bool restirPTReservoirClearRequested = !disableReservoirWrites && requestedRestirPTDebugMode && m_frameResources.restirPTReservoirNeedsClear;
+    const uint64 restirPTReservoirClearStartUs = reservoirClearCompleteUs;
+    if (restirPTReservoirClearRequested)
+    {
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU Clear ReSTIR PT Reservoirs");
+        }
+        if (ClearRestirPTReservoirBuffers(commandList, m_frameResources.restirPTReservoirBuffers))
+        {
+            m_frameResources.restirPTReservoirNeedsClear = false;
+            ++m_frameResources.restirPTReservoirClearCount;
+        }
+    }
+    const uint64 restirPTReservoirClearCompleteUs = Sys_Microseconds();
     const bool primaryHistoryClearRequested = !disablePrimarySurfaceHistory && m_frameResources.primarySurfaceHistoryNeedsClear;
-    const uint64 primaryHistoryClearStartUs = reservoirClearCompleteUs;
+    const uint64 primaryHistoryClearStartUs = restirPTReservoirClearCompleteUs;
     if (primaryHistoryClearRequested)
     {
         if (optickGpuMarkers)

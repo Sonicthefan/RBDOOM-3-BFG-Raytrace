@@ -774,7 +774,7 @@ void RunDoomLightProbeDump(const viewDef_t* viewDef, const std::vector<DoomLight
     r_pathTracingDoomLightProbeDump.SetInteger(0);
 }
 
-std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(const std::vector<DoomLightRecord>& records)
+std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(const std::vector<DoomLightRecord>& records, bool preserveZeroRadianceSlots, bool stableReservoirOrder)
 {
     std::vector<DoomLightRecord> candidates;
     candidates.reserve(records.size());
@@ -783,12 +783,29 @@ std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(const std::vector<Doo
     const float radiusMax = Max(radiusMin, r_pathTracingAnalyticSphereLightRadiusMax.GetFloat());
     for (DoomLightRecord record : records)
     {
-        if (!record.active || !record.pointLight || record.parallel || !record.selectedArea || record.radiusMax <= 1.0f)
+        const bool eligibleLight = record.pointLight && !record.parallel && !record.suppressed && record.selectedArea && record.radiusMax > 1.0f;
+        if (!eligibleLight || (!preserveZeroRadianceSlots && !record.active))
         {
             continue;
         }
         record.sphereRadius = idMath::ClampFloat(radiusMin, radiusMax, record.radiusMax * radiusScale);
         candidates.push_back(record);
+    }
+
+    if (stableReservoirOrder)
+    {
+        std::stable_sort(candidates.begin(), candidates.end(), [](const DoomLightRecord& a, const DoomLightRecord& b) {
+            if (a.portalDepth != b.portalDepth)
+            {
+                return a.portalDepth < b.portalDepth;
+            }
+            if (a.index != b.index)
+            {
+                return a.index < b.index;
+            }
+            return a.entityNumber < b.entityNumber;
+        });
+        return candidates;
     }
 
     std::stable_sort(candidates.begin(), candidates.end(), [](const DoomLightRecord& a, const DoomLightRecord& b) {
@@ -818,7 +835,7 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
         return;
     }
 
-    std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records);
+    std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, false, false);
 
     if (r_pathTracingAnalyticLightCandidateDump.GetInteger() == 0)
     {
@@ -917,7 +934,9 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
         idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()));
     const std::unordered_map<int, DoomLightGameMetadata> gameMetadataByHandle = BuildDoomLightGameMetadataByHandle();
     const std::vector<DoomLightRecord> records = CollectDoomLightRecords(viewDef, selection, gameMetadataByHandle);
-    const std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records);
+    const bool preserveZeroRadianceSlots = forceEnable;
+    const bool stableReservoirOrder = forceEnable;
+    const std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, preserveZeroRadianceSlots, stableReservoirOrder);
     const int maxGpuCandidates = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
     gpuCandidates.reserve(Min(maxGpuCandidates, static_cast<int>(candidates.size())));
 

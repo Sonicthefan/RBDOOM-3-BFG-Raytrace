@@ -1202,6 +1202,14 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "ReSTIR spatial",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin");
+    case 5:
+        return initLibrary(
+            m_smokeRestirSpatialAttributionShaderLibrary,
+            m_smokeRestirSpatialAttributionPipeline,
+            m_smokeRestirSpatialAttributionShaderTable,
+            "ReSTIR spatial attribution",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_spatial_attribution.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_spatial_attribution.rt.bin");
     default:
         return false;
     }
@@ -1620,6 +1628,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     {
         m_frameResources.smokeReservoirSceneSignature = desc.reservoirSceneSignature;
         m_frameResources.smokeReservoirNeedsClear = true;
+        m_frameResources.restirPTReservoirNeedsClear = true;
         m_frameResources.MarkResetReason(RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
     }
     const uint64_t uploadBytes =

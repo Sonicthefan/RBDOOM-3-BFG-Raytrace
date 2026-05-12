@@ -197,9 +197,10 @@ RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame)
     return RAB_GetGBufferSurface(pixelPosition, previousFrame).material;
 }
 
-bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat)
+bool ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat, out float previousLinearDepth)
 {
     previousPixelFloat = float2(-1.0, -1.0);
+    previousLinearDepth = 0.0;
     if (PrevCameraOriginAndValid.w < 0.5)
     {
         return false;
@@ -211,6 +212,7 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, ui
     {
         return false;
     }
+    previousLinearDepth = length(delta);
 
     const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
     const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
@@ -222,6 +224,12 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, ui
     previousPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
     return previousPixelFloat.x >= 0.0 && previousPixelFloat.y >= 0.0 &&
         previousPixelFloat.x < (float)dimensions.x && previousPixelFloat.y < (float)dimensions.y;
+}
+
+bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat)
+{
+    float previousLinearDepth;
+    return ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
 }
 
 bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)
@@ -328,7 +336,9 @@ bool PathTracePrimarySurfacesAreSimilar(RAB_Surface a, RAB_Surface b, out uint d
         return false;
     }
 
-    const float normalSimilarity = dot(RAB_GetSurfaceNormal(a), RAB_GetSurfaceNormal(b));
+    const float3 aGeometryNormal = SafeNormalize(a.geometryNormal, a.shadingNormal);
+    const float3 bGeometryNormal = SafeNormalize(b.geometryNormal, b.shadingNormal);
+    const float normalSimilarity = dot(aGeometryNormal, bGeometryNormal);
     const float roughnessDelta = abs(GetRoughness(a.material) - GetRoughness(b.material));
     const bool materialMatch = a.materialId == b.materialId &&
         a.materialIndex == b.materialIndex &&

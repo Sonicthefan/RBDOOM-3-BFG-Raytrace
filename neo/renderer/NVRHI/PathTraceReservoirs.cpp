@@ -105,12 +105,14 @@ uint64 ComputeSmokeReservoirSceneSignature(
     uint64 materialTableSignature,
     uint64 staticBlasSignature,
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    const std::vector<PathTraceSmokeLightCandidate>& lightCandidates)
+    const std::vector<PathTraceSmokeLightCandidate>& lightCandidates,
+    const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights)
 {
     uint64 hash = 1469598103934665603ull;
     const uint64 version = 1;
     const uint64 emissiveCount = static_cast<uint64>(emissiveTriangles.size());
     const uint64 lightCandidateCount = static_cast<uint64>(lightCandidates.size());
+    const uint64 doomAnalyticLightCount = static_cast<uint64>(doomAnalyticLights.size());
     hash = HashSmokeBytes(hash, &version, sizeof(version));
     hash = HashSmokeBytes(hash, &materialTableSignature, sizeof(materialTableSignature));
     hash = HashSmokeBytes(hash, &staticBlasSignature, sizeof(staticBlasSignature));
@@ -123,6 +125,15 @@ uint64 ComputeSmokeReservoirSceneSignature(
     if (!lightCandidates.empty())
     {
         hash = HashSmokeBytes(hash, lightCandidates.data(), lightCandidates.size() * sizeof(lightCandidates[0]));
+    }
+    hash = HashSmokeBytes(hash, &doomAnalyticLightCount, sizeof(doomAnalyticLightCount));
+    for (const PathTraceDoomAnalyticLightCandidate& light : doomAnalyticLights)
+    {
+        hash = HashSmokeBytes(hash, light.originAndRadius, sizeof(light.originAndRadius));
+        hash = HashSmokeBytes(hash, light.doomRadiusAndArea, sizeof(light.doomRadiusAndArea));
+        hash = HashSmokeBytes(hash, &light.flags, sizeof(light.flags));
+        hash = HashSmokeBytes(hash, &light.renderLightIndex, sizeof(light.renderLightIndex));
+        hash = HashSmokeBytes(hash, &light.entityNumber, sizeof(light.entityNumber));
     }
     return hash;
 }

@@ -29,6 +29,8 @@ struct PathTraceSmokePayload
     uint shadowIgnoreInstanceId;
     uint shadowIgnorePrimitiveIndex;
     uint shadowIgnoreMaterialId;
+    float3 debugVector;
+    uint debugFlags;
 };
 
 struct PathTraceSmokeShadowPayload
@@ -765,6 +767,15 @@ float3 TransformObjectVectorToWorld(float3 objectVector)
         dot(objectToWorld[2].xyz, objectVector));
 }
 
+float3 TransformObjectPointToWorld(float3 objectPoint)
+{
+    const float3x4 objectToWorld = ObjectToWorld3x4();
+    return float3(
+        dot(objectToWorld[0], float4(objectPoint, 1.0)),
+        dot(objectToWorld[1], float4(objectPoint, 1.0)),
+        dot(objectToWorld[2], float4(objectPoint, 1.0)));
+}
+
 float3 TransformObjectNormalToWorld(float3 objectNormal, float3 fallback)
 {
     return SafeNormalize(TransformObjectVectorToWorld(objectNormal), fallback);
@@ -1291,6 +1302,8 @@ PathTraceSmokePayload InitSmokePayload()
     payload.shadowIgnoreInstanceId = 0xffffffffu;
     payload.shadowIgnorePrimitiveIndex = 0xffffffffu;
     payload.shadowIgnoreMaterialId = 0xffffffffu;
+    payload.debugVector = float3(0.0, 0.0, 0.0);
+    payload.debugFlags = 0u;
     return payload;
 }
 
@@ -1759,6 +1772,7 @@ float4 EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(RAB_Surface curr
 
 bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus);
 bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus, out uint sourceKind);
+bool TryPathTraceCombinedGeometryMotionPixelsAndDepth(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus, out uint sourceKind);
 
 float4 EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
 {
@@ -1780,18 +1794,19 @@ float4 EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(RAB_Surface curr
     return PathTracePrimarySurfaceMotionVectorColor(motionPixels);
 }
 
-bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus)
+bool TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus)
 {
     previousPixel = int2(-1, -1);
     previousPixelFloat = float2(-1.0, -1.0);
     motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
     float3 previousPosition;
     if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
     {
         return false;
     }
 
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloat(previousPosition, PathTraceFullOutputSize(), previousPixelFloat))
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(previousPosition, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth))
     {
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
         return false;
@@ -1800,6 +1815,43 @@ bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, 
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return true;
+}
+
+bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus)
+{
+    float expectedPrevDepth;
+    return TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus);
+}
+
+bool TryPathTracePackedObjectMotionPixelsAndDepth(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+
+    const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
+    if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
+    {
+        debugStatus = currentRecord.header.z;
+        return false;
+    }
+
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+        return false;
+    }
+
+    previousPixel = int2(floor(previousPixelFloat));
+    motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     return true;
 }
 
@@ -1855,6 +1907,24 @@ bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 
     }
 
     return false;
+}
+
+bool TryPathTraceCombinedGeometryMotionPixelsAndDepth(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus, out uint sourceKind)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    sourceKind = PathTraceMotionVectorSourceKind(currentSurface);
+    if (RAB_IsSurfaceValid(currentSurface) &&
+        currentSurface.instanceId == 0u &&
+        currentSurface.surfaceClass == 0u)
+    {
+        return TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus);
+    }
+
+    return TryPathTracePackedObjectMotionPixelsAndDepth(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus);
 }
 
 bool PathTraceMotionVectorExportEnabled()
@@ -1950,6 +2020,43 @@ float4 EvaluatePathTraceCombinedGeometryMotionSourceDebug(RAB_Surface currentSur
     return float4(0.08, 0.38, 0.18, 1.0);
 }
 
+float4 EvaluatePathTraceRigidRouteTransformParityDebug(PathTraceSmokePayload payload)
+{
+    if (payload.value == 0u)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (payload.instanceId < 2u || payload.surfaceClass != RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return float4(0.04, 0.08, 0.32, 1.0);
+    }
+    if ((payload.debugFlags & 0x1u) == 0u)
+    {
+        return float4(0.55, 0.04, 0.04, 1.0);
+    }
+
+    const float routeError = payload.debugVector.x;
+    const float tlasError = payload.debugVector.y;
+    const float routeVsTlasError = payload.debugVector.z;
+    if (routeVsTlasError > 0.05)
+    {
+        return float4(0.75, 0.0, 0.85, 1.0);
+    }
+    if (routeError <= 0.01 && tlasError <= 0.01)
+    {
+        return float4(0.02, 0.65, 0.12, 1.0);
+    }
+    if (routeError <= 0.05)
+    {
+        return float4(0.75, 0.68, 0.04, 1.0);
+    }
+    if (routeError <= 0.25)
+    {
+        return float4(0.95, 0.38, 0.02, 1.0);
+    }
+    return float4(0.85, 0.02, 0.02, 1.0);
+}
+
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
@@ -1993,6 +2100,52 @@ void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoi
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
 float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir);
 
+bool RestirPTReservoirConnectsToNeeLight(RTXDI_PTReservoir reservoir)
+{
+    return RTXDI_IsValidPTReservoir(reservoir) && RTXDI_ConnectsToNeeLight(reservoir);
+}
+
+bool RestirPTShouldRejectPreviousNeeReservoir(RTXDI_PTReservoir reservoir)
+{
+    return MotionVectorInfo.y < 0.5 && RestirPTReservoirConnectsToNeeLight(reservoir);
+}
+
+bool RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(int2 previousPixel)
+{
+    if (MotionVectorInfo.y >= 0.5)
+    {
+        return false;
+    }
+
+    const uint2 dimensions = PathTraceFullOutputSize();
+    [unroll]
+    for (int offsetY = -1; offsetY <= 1; ++offsetY)
+    {
+        [unroll]
+        for (int offsetX = -1; offsetX <= 1; ++offsetX)
+        {
+            const int2 samplePixel = previousPixel + int2(offsetX, offsetY);
+            if (samplePixel.x < 0 || samplePixel.y < 0 ||
+                (uint)samplePixel.x >= dimensions.x || (uint)samplePixel.y >= dimensions.y)
+            {
+                continue;
+            }
+
+            const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos((uint2)samplePixel, 0u);
+            const RTXDI_PTReservoir previousReservoir = RTXDI_LoadPTReservoir(
+                RestirPTParams.reservoirBuffer,
+                reservoirPosition,
+                RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
+            if (RestirPTShouldRejectPreviousNeeReservoir(previousReservoir))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, uint2 pixel, out float4 rejectionColor, out bool selectedPrevSample)
 {
@@ -2028,22 +2181,25 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     int2 previousPixel;
     float2 previousPixelFloat;
     float2 motionPixels;
+    float expectedPrevDepth;
     uint projectionDebugStatus;
     uint motionSourceKind;
-    bool projected = TryPathTraceCombinedGeometryMotionPixels(
+    bool projected = TryPathTraceCombinedGeometryMotionPixelsAndDepth(
         currentSurface,
         pixel,
         previousPixel,
         previousPixelFloat,
         motionPixels,
+        expectedPrevDepth,
         projectionDebugStatus,
         motionSourceKind);
     if (!projected)
     {
-        projected = ProjectPathTracePrimarySurfaceToPreviousPixelFloat(
+        projected = ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(
             currentSurface.worldPos,
             PathTraceFullOutputSize(),
-            previousPixelFloat);
+            previousPixelFloat,
+            expectedPrevDepth);
         previousPixel = int2(floor(previousPixelFloat));
         motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
         if (!projected)
@@ -2055,10 +2211,6 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     }
 
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
-    const RAB_Surface exactPreviousSurface = RAB_GetGBufferSurface(previousPixel, true);
-    const float expectedPrevDepth = RAB_IsSurfaceValid(exactPreviousSurface)
-        ? exactPreviousSurface.linearDepth
-        : currentSurface.linearDepth;
 
     RTXDI_PTTemporalResamplingRuntimeParameters runtimeParams = RTXDI_EmptyPTTemporalResamplingRuntimeParameters();
     runtimeParams.pixelPosition = pixel;
@@ -2074,8 +2226,13 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, rtxdiRuntimeParams.frameIndex, 0x51ed270bu);
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
-    const RTXDI_PTReservoir temporalReservoir = RTXDI_PTTemporalResampling(
-        RestirPTParams.temporalResampling,
+    RTXDI_PTTemporalResamplingParameters temporalParams = RestirPTParams.temporalResampling;
+    if (RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(previousPixel))
+    {
+        temporalParams.maxReservoirAge = 0u;
+    }
+    RTXDI_PTReservoir temporalReservoir = RTXDI_PTTemporalResampling(
+        temporalParams,
         runtimeParams,
         RestirPTParams.hybridShift,
         RestirPTParams.reconnection,
@@ -2085,6 +2242,11 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
         RestirPTParams.bufferIndices,
         selectedPrevSample,
         ptud);
+    if (selectedPrevSample && RestirPTShouldRejectPreviousNeeReservoir(temporalReservoir))
+    {
+        temporalReservoir = currentReservoir;
+        selectedPrevSample = false;
+    }
 
     StoreRestirPTTemporalOutputReservoir(pixel, temporalReservoir);
 
@@ -2241,13 +2403,10 @@ float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint
     }
 
     float3 contribution = RestirPTSanitizePreviewContribution(temporalReservoir.TargetFunction * max(temporalReservoir.WeightSum, 0.0));
-    if (RAB_Luminance(contribution) <= 1.0e-6)
+    float3 reconstructedContribution;
+    if (RestirPTTryEvaluateNeeReservoirPreview(currentSurface, temporalReservoir, reconstructedContribution))
     {
-        float3 reconstructedContribution;
-        if (RestirPTTryEvaluateNeeReservoirPreview(currentSurface, temporalReservoir, reconstructedContribution))
-        {
-            contribution = reconstructedContribution;
-        }
+        contribution = reconstructedContribution;
     }
     if (traceVisibility)
     {
@@ -2277,13 +2436,10 @@ float4 EvaluateRestirPTSpatialReservoirShading(RAB_Surface currentSurface, uint2
     }
 
     float3 contribution = RestirPTSanitizePreviewContribution(spatialReservoir.TargetFunction * max(spatialReservoir.WeightSum, 0.0));
-    if (RAB_Luminance(contribution) <= 1.0e-6)
+    float3 reconstructedContribution;
+    if (RestirPTTryEvaluateNeeReservoirPreview(currentSurface, spatialReservoir, reconstructedContribution))
     {
-        float3 reconstructedContribution;
-        if (RestirPTTryEvaluateNeeReservoirPreview(currentSurface, spatialReservoir, reconstructedContribution))
-        {
-            contribution = reconstructedContribution;
-        }
+        contribution = reconstructedContribution;
     }
     if (traceVisibility)
     {
@@ -2301,23 +2457,19 @@ float4 EvaluateRestirPTSpatialReservoirShading(RAB_Surface currentSurface, uint2
 }
 #endif
 
-#ifdef RB_PT_ENABLE_RESTIR_ATTRIBUTION
-float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+float4 RestirPTReservoirLightSourceAttributionColor(RTXDI_PTReservoir reservoir)
 {
-    float4 rejectionColor;
-    bool selectedPrevSample;
-    const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTTemporalReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample);
-    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    if (!RTXDI_IsValidPTReservoir(reservoir))
     {
-        return rejectionColor;
+        return float4(0.55, 0.04, 0.04, 1.0);
     }
 
-    const float contributionLuminance = RAB_Luminance(max(temporalReservoir.TargetFunction, float3(0.0, 0.0, 0.0)) * max(temporalReservoir.WeightSum, 0.0));
+    const float contributionLuminance = RAB_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)) * max(reservoir.WeightSum, 0.0));
     const float heat = saturate(log2(1.0 + contributionLuminance) * 0.18);
 
-    if (RTXDI_ConnectsToNeeLight(temporalReservoir))
+    if (RTXDI_ConnectsToNeeLight(reservoir))
     {
-        const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(temporalReservoir);
+        const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
         if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
         {
             return float4(0.55, 0.04, 0.04, 1.0);
@@ -2343,8 +2495,48 @@ float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface
 
     return float4(0.08, saturate(0.55 + heat * 0.4), 0.12, 1.0);
 }
+
+#ifdef RB_PT_ENABLE_RESTIR_ATTRIBUTION
+float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    float4 rejectionColor;
+    bool selectedPrevSample;
+    const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTTemporalReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample);
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        return rejectionColor;
+    }
+
+    return RestirPTReservoirLightSourceAttributionColor(temporalReservoir);
+}
 #else
 float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
+
+#ifdef RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION
+float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    float4 rejectionColor;
+    bool selectedPrevSample;
+    bool spatialResampled;
+    const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTSpatialReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample, spatialResampled);
+    if (!RTXDI_IsValidPTReservoir(spatialReservoir))
+    {
+        return rejectionColor;
+    }
+
+    const float4 sourceColor = RestirPTReservoirLightSourceAttributionColor(spatialReservoir);
+    if (sourceColor.r > 0.5 && sourceColor.g < 0.2 && sourceColor.b < 0.2)
+    {
+        return sourceColor;
+    }
+    return spatialResampled ? sourceColor : lerp(sourceColor, float4(0.18, 0.18, 0.18, 1.0), 0.2);
+}
+#else
+float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
     return float4(0.16, 0.04, 0.20, 1.0);
 }
@@ -2366,6 +2558,11 @@ float4 EvaluateRestirPTSpatialReservoirShading(RAB_Surface currentSurface, uint2
 }
 
 float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
     return float4(0.16, 0.04, 0.20, 1.0);
 }
@@ -2453,15 +2650,19 @@ float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel
 
     if (analyticCount > 0u)
     {
-        const uint analyticTrialCount = min(analyticCount, 8u);
+        const uint analyticTrialCount = min(analyticCount, clamp((uint)max(MotionVectorInfo.z, 1.0), 1u, 128u));
+        const uint localWindow = min(analyticCount, 32u);
         [loop]
         for (uint trialIndex = 0u; trialIndex < analyticTrialCount; ++trialIndex)
         {
+            const float branchXi = SmokeHashToUnitFloat(seed ^ (trialIndex + 11u) * 2246822519u);
             const float xi = SmokeHashToUnitFloat(seed ^ (trialIndex + 17u) * 1597334677u);
             const float2 uv = float2(
                 SmokeHashToUnitFloat(seed ^ (trialIndex + 29u) * 3812015801u),
                 SmokeHashToUnitFloat(seed ^ (trialIndex + 41u) * 3266489917u));
-            const uint analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
+            const bool useLocalWindow = analyticCount > localWindow && branchXi < 0.75;
+            const uint proposalDomain = useLocalWindow ? localWindow : analyticCount;
+            const uint analyticIndex = min((uint)(xi * (float)proposalDomain), proposalDomain - 1u);
             const uint lightIndex = emissiveTriangleCount + analyticIndex;
             const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
             const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
@@ -2716,6 +2917,11 @@ float4 EvaluateRestirPTSpatialReservoirShading(RAB_Surface currentSurface, uint2
 }
 
 float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
     return float4(0.16, 0.04, 0.20, 1.0);
 }
@@ -3532,6 +3738,20 @@ void RayGen()
                 const float distanceDelta = abs(rigidPayload.hitT - fallbackPayload.hitT);
                 if (distanceDelta <= 1.5)
                 {
+                    const bool surfaceClassMatches = rigidPayload.surfaceClass == fallbackPayload.surfaceClass;
+                    const bool materialMatches =
+                        rigidPayload.materialId == fallbackPayload.materialId &&
+                        rigidPayload.materialIndex == fallbackPayload.materialIndex;
+                    if (!surfaceClassMatches)
+                    {
+                        SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
+                        return;
+                    }
+                    if (!materialMatches)
+                    {
+                        SmokeOutput[pixel] = float4(1.0, 1.0, 0.0, 1.0);
+                        return;
+                    }
                     SmokeOutput[pixel] = float4(0.0, 1.0, 0.0, 1.0);
                     return;
                 }
@@ -3576,7 +3796,7 @@ void RayGen()
         {
             SmokeOutput[pixel] = float4(saturate(EvaluateSmokeLightSpriteProxies(ray.Origin, ray.Direction, ray.TMax)), 1.0);
         }
-        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || (debugMode >= 34 && debugMode <= 37))
+        else if (debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 25 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || debugMode == 52 || (debugMode >= 34 && debugMode <= 37))
         {
             SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         }
@@ -3615,6 +3835,10 @@ void RayGen()
         else if (debugMode == 50)
         {
             SmokeOutput[pixel] = EvaluateRestirPTSpatialReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
+        }
+        else if (debugMode == 51)
+        {
+            SmokeOutput[pixel] = EvaluateRestirPTSpatialLightSourceAttribution(primaryHistorySurface, pixel);
         }
         else
         {
@@ -3729,6 +3953,10 @@ void RayGen()
     {
         SmokeOutput[pixel] = EvaluateRestirPTSpatialReservoirShading(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5);
     }
+    else if (debugMode == 51)
+    {
+        SmokeOutput[pixel] = EvaluateRestirPTSpatialLightSourceAttribution(primaryHistorySurface, pixel);
+    }
     else if (debugMode == 38)
     {
         SmokeOutput[pixel] = EvaluatePathTracePrimarySurfaceObjectMotionDebug(primaryHistorySurface, pixel);
@@ -3776,6 +4004,10 @@ void RayGen()
     else if (debugMode == 49)
     {
         SmokeOutput[pixel] = EvaluatePathTraceCombinedGeometryMotionSourceDebug(primaryHistorySurface, pixel);
+    }
+    else if (debugMode == 52)
+    {
+        SmokeOutput[pixel] = EvaluatePathTraceRigidRouteTransformParityDebug(payload);
     }
     else if (debugMode == 8)
     {
@@ -4240,6 +4472,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         const float3 p0 = v0.position.xyz;
         const float3 p1 = v1.position.xyz;
         const float3 p2 = v2.position.xyz;
+        const float3 localHit = p0 * barycentrics.x + p1 * barycentrics.y + p2 * barycentrics.z;
         const float3 n0 = v0.normal.xyz;
         const float3 n1 = v1.normal.xyz;
         const float3 n2 = v2.normal.xyz;
@@ -4249,6 +4482,11 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 
         payload.value = 1;
         payload.hitT = RayTCurrent();
+        const float3 actualWorld = WorldRayOrigin() + WorldRayDirection() * payload.hitT;
+        const float3 tlasWorld = TransformObjectPointToWorld(localHit);
+        const float3 routeWorld = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, localHit);
+        payload.debugVector = float3(length(routeWorld - actualWorld), length(tlasWorld - actualWorld), length(routeWorld - tlasWorld));
+        payload.debugFlags = 0x1u;
         const float3 worldRayFallback = SafeNormalize(-WorldRayDirection(), float3(0.0, 0.0, 1.0));
         const float3 objectGeometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), worldRayFallback);
         payload.geometricNormal = TransformObjectNormalToWorld(objectGeometricNormal, worldRayFallback);

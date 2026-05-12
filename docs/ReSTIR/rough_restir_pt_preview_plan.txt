@@ -22,6 +22,7 @@ Current Baseline
 - Mode 32 shades the temporal reservoir as a preview.
 - Mode 33 colors temporal source attribution.
 - Mode 50 runs the first debug-only TemporalAndSpatial ReSTIR PT preview.
+- Mode 51 colors spatial source attribution after TemporalAndSpatial reuse.
 - ReSTIR shader libraries are now split and force-specialized per mode, which
   makes iteration feasible again. Keep core mode 18 independent from ReSTIR
   debug-mode shader cost.
@@ -83,6 +84,22 @@ for preview only. This is acceptable for the rough milestone because it proves
 candidate selection and material-aware direct lighting visibility, but it must
 not be mistaken for the final ReSTIR PT estimator.
 
+Temporal NEE Safety Note
+------------------------
+The validated rough-preview state keeps temporal reservoir reuse enabled but NEE
+light-reservoir reuse disabled:
+
+  r_pathTracingRestirPTTemporalReservoirReuse 1
+  r_pathTracingRestirPTTemporalAnalyticNeeReuse 0
+
+The CVar name is historical. In the current implementation it rejects prior-frame
+NEE reservoirs from both Doom analytic lights and emissive/strobe sources before
+temporal combine. This was required after a same-portal robot-train/strobe
+sequence proved that current-frame NEE sampling was clean, but stale previous
+NEE reservoirs could corrupt area lighting when the animated source stopped
+offscreen. The long-term fix is stable light-domain identity and remapping; do
+not treat the current guard as final quality behavior.
+
 Success Criteria
 ----------------
 - Mode 18 still launches normally and does not pay the full ReSTIR shader load
@@ -98,15 +115,21 @@ Success Criteria
 
 Spatial Follow-Up
 -----------------
-Mode 50 uses RTXDI's TemporalAndSpatial buffer-index layout: initial output 0,
+Modes 50-51 use RTXDI's TemporalAndSpatial buffer-index layout: initial output 0,
 temporal previous input 1, temporal current output 0, spatial input 0, spatial
 output 1, and final shading input 1. It first executes the same temporal
 reservoir generation used by mode 32, then calls RTXDI_PTSpatialResampling and
 stores the spatial result. The preview shades the spatial reservoir with the
 same rough NEE reconstruction fallback used by mode 32.
 
-The first mode 50 implementation intentionally avoids a new host descriptor for
-RTXDI neighbor offsets. It uses a 32-entry shader-local offset table and sets
+Mode 51 uses the same reservoir path as mode 50 but outputs source attribution
+instead of lighting: cyan/blue for Doom analytic lights, orange for emissive
+triangles, green for non-NEE/indirect reservoirs, and red for invalid/unknown
+light metadata. Use it to compare source stability against mode 33 and to look
+for spatial source bleeding across depth/object edges.
+
+The first mode 50/51 implementation intentionally avoids a new host descriptor
+for RTXDI neighbor offsets. It uses a 32-entry shader-local offset table and sets
 `neighborOffsetMask = 31`. Replace this with a real RTXDI neighbor-offset buffer
 when spatial reuse graduates out of debug-only preview work.
 

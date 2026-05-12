@@ -51,12 +51,13 @@ Current mode map:
 - 32: temporal reservoir shading preview.
 - 33: temporal light-source attribution.
 - 50: spatial reservoir shading preview.
+- 51: spatial source attribution.
 
 Next implementation target:
-Validate and harden the mode 50 spatial-reservoir shading preview against mode
-32. It should stay debug-only until the TemporalAndSpatial path is known to
-launch reliably, avoid full-screen diagnostic collapse, and avoid making
-movement flicker/ghosting worse than temporal-only mode 32.
+Validate and harden mode 51 spatial source attribution against mode 33 temporal
+source attribution and mode 50 spatial shading. It should stay debug-only until
+the TemporalAndSpatial path is known to preserve source identity without obvious
+light leaking across depth/object edges.
 
 Current rough-preview rule:
 Mode 32 is the visible temporal-lighting preview. Keep rejection/source debug
@@ -65,8 +66,21 @@ context for invalid reservoirs so movement does not become a full-screen
 diagnostic overlay. Use r_pathTracingRestirPTPreviewExposure for preview-only
 exposure adjustment.
 
-Mode 50 uses RTXDI TemporalAndSpatial buffer indices and the same rough preview
-shading path as mode 32. It currently uses a shader-local 32-entry neighbor
-offset table rather than a host-bound RTXDI neighbor-offset buffer. Tune
+Current temporal NEE safety rule:
+`r_pathTracingRestirPTTemporalReservoirReuse 1` with
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` is the validated safe rough
+preview state. The second CVar name is historical; it currently disables
+previous-frame NEE light reservoir reuse for both Doom analytic lights and
+emissive/strobe sources while preserving non-NEE temporal reuse. This fixed a
+robot-train/strobe case where current-frame sampling was clean
+(`r_pathTracingRestirPTTemporalReservoirReuse 0`) but previous NEE reservoirs
+polluted same-portal lighting after the strobe animation stopped offscreen.
+Do not re-enable NEE temporal reuse until stable light-domain IDs,
+current/previous remapping, and per-light radiance/state validation exist.
+
+Modes 50-51 use RTXDI TemporalAndSpatial buffer indices. Mode 50 shades the
+spatial reservoir; mode 51 colors the spatial reservoir source. They currently
+use a shader-local 32-entry neighbor offset table rather than a host-bound RTXDI
+neighbor-offset buffer. Tune
 `r_pathTracingRestirPTSpatialSamples` and `r_pathTracingRestirPTSpatialRadius`
 only at conservative output resolution.

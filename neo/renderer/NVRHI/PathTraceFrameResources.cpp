@@ -348,11 +348,13 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     smokeReservoirSceneSignature = 0;
     smokeReservoirDispatchSignature = 0;
     smokeReservoirNeedsClear = false;
+    restirPTReservoirNeedsClear = true;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(reasonFlags);
     primarySurfaceHistoryView.Reset();
     smokeReservoirResetCount = 0;
     smokeReservoirClearCount = 0;
+    restirPTReservoirClearCount = 0;
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
     ResetReadbackQueue();
@@ -366,11 +368,13 @@ void RtPathTraceFrameResources::ResetSceneDependentState()
     smokeReservoirSceneSignature = 0;
     smokeReservoirDispatchSignature = 0;
     smokeReservoirNeedsClear = false;
+    restirPTReservoirNeedsClear = true;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
     primarySurfaceHistoryView.Reset();
     smokeReservoirResetCount = 0;
     smokeReservoirClearCount = 0;
+    restirPTReservoirClearCount = 0;
     ResetReadbackQueue();
     MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
 }

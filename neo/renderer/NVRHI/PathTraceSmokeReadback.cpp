@@ -18,11 +18,114 @@ namespace {
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 int g_smokeLastReadbackTimingLogMs = -1000000;
 
+enum class RigidRouteOverlapBucket
+{
+    Match,
+    MaterialMismatch,
+    ClassMismatch,
+    RigidOnly,
+    RigidInFront,
+    FallbackInFront,
+    FallbackOnly,
+    Neither,
+    Unknown
+};
+
+struct RigidRouteOverlapCounts
+{
+    int match = 0;
+    int materialMismatch = 0;
+    int classMismatch = 0;
+    int rigidOnly = 0;
+    int rigidInFront = 0;
+    int fallbackInFront = 0;
+    int fallbackOnly = 0;
+    int neither = 0;
+    int unknown = 0;
+};
+
+RigidRouteOverlapBucket ClassifyRigidRouteOverlapColor(const float* rgba)
+{
+    const bool rHigh = rgba[0] > 0.75f;
+    const bool gHigh = rgba[1] > 0.75f;
+    const bool bHigh = rgba[2] > 0.75f;
+    const bool gMid = rgba[1] > 0.30f;
+    const bool bMid = rgba[2] > 0.35f;
+    const bool dimGray = rgba[0] > 0.08f && rgba[0] < 0.32f && rgba[1] > 0.08f && rgba[1] < 0.32f && rgba[2] > 0.08f && rgba[2] < 0.32f;
+    const bool black = rgba[0] < 0.04f && rgba[1] < 0.04f && rgba[2] < 0.04f;
+
+    if (!rHigh && gHigh && !bHigh)
+    {
+        return RigidRouteOverlapBucket::Match;
+    }
+    if (rHigh && gHigh && !bHigh)
+    {
+        return RigidRouteOverlapBucket::MaterialMismatch;
+    }
+    if (rHigh && !gHigh && bHigh)
+    {
+        return RigidRouteOverlapBucket::ClassMismatch;
+    }
+    if (!rHigh && gHigh && bHigh)
+    {
+        return RigidRouteOverlapBucket::RigidOnly;
+    }
+    if (!rHigh && !gHigh && bHigh)
+    {
+        return RigidRouteOverlapBucket::RigidInFront;
+    }
+    if (rHigh && gMid && !bMid)
+    {
+        return RigidRouteOverlapBucket::FallbackInFront;
+    }
+    if (dimGray)
+    {
+        return RigidRouteOverlapBucket::FallbackOnly;
+    }
+    if (black)
+    {
+        return RigidRouteOverlapBucket::Neither;
+    }
+    return RigidRouteOverlapBucket::Unknown;
+}
+
+const char* RigidRouteOverlapBucketName(RigidRouteOverlapBucket bucket)
+{
+    switch (bucket)
+    {
+        case RigidRouteOverlapBucket::Match: return "match/green";
+        case RigidRouteOverlapBucket::MaterialMismatch: return "materialMismatch/yellow";
+        case RigidRouteOverlapBucket::ClassMismatch: return "classMismatch/magenta";
+        case RigidRouteOverlapBucket::RigidOnly: return "rigidOnly/cyan";
+        case RigidRouteOverlapBucket::RigidInFront: return "rigidInFront/blue";
+        case RigidRouteOverlapBucket::FallbackInFront: return "fallbackInFront/orange";
+        case RigidRouteOverlapBucket::FallbackOnly: return "fallbackOnly/gray";
+        case RigidRouteOverlapBucket::Neither: return "neither/black";
+        default: return "unknown";
+    }
+}
+
+void AccumulateRigidRouteOverlapBucket(RigidRouteOverlapCounts& counts, RigidRouteOverlapBucket bucket)
+{
+    switch (bucket)
+    {
+        case RigidRouteOverlapBucket::Match: ++counts.match; break;
+        case RigidRouteOverlapBucket::MaterialMismatch: ++counts.materialMismatch; break;
+        case RigidRouteOverlapBucket::ClassMismatch: ++counts.classMismatch; break;
+        case RigidRouteOverlapBucket::RigidOnly: ++counts.rigidOnly; break;
+        case RigidRouteOverlapBucket::RigidInFront: ++counts.rigidInFront; break;
+        case RigidRouteOverlapBucket::FallbackInFront: ++counts.fallbackInFront; break;
+        case RigidRouteOverlapBucket::FallbackOnly: ++counts.fallbackOnly; break;
+        case RigidRouteOverlapBucket::Neither: ++counts.neither; break;
+        default: ++counts.unknown; break;
+    }
+}
+
 }
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
-    const int debugMode = idMath::ClampInt(0, 50, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 52, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested)
     {
@@ -75,13 +178,14 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     int greenHits = 0;
     int redMisses = 0;
-    int overlapMatch = 0;
-    int overlapRigidOnly = 0;
-    int overlapRigidInFront = 0;
-    int overlapFallbackInFront = 0;
-    int overlapFallbackOnly = 0;
-    int overlapNeither = 0;
-    int overlapUnknown = 0;
+    RigidRouteOverlapCounts fullFrameOverlap;
+    RigidRouteOverlapCounts centerRegionOverlap;
+    int centerRegionPixels = 0;
+    const int centerRegionRadius = 16;
+    const int centerRegionMinX = idMath::ClampInt(0, Max(0, m_frameResources.width - 1), sampleX - centerRegionRadius);
+    const int centerRegionMaxX = idMath::ClampInt(0, Max(0, m_frameResources.width - 1), sampleX + centerRegionRadius);
+    const int centerRegionMinY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), sampleY - centerRegionRadius);
+    const int centerRegionMaxY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), sampleY + centerRegionRadius);
     for (int y = 0; y < m_frameResources.height; ++y)
     {
         const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
@@ -99,42 +203,12 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
             if (debugMode == 24)
             {
-                const bool rHigh = rgba[0] > 0.75f;
-                const bool gHigh = rgba[1] > 0.75f;
-                const bool bHigh = rgba[2] > 0.75f;
-                const bool rMid = rgba[0] > 0.35f;
-                const bool gMid = rgba[1] > 0.30f;
-                const bool bMid = rgba[2] > 0.35f;
-                const bool dimGray = rgba[0] > 0.08f && rgba[0] < 0.32f && rgba[1] > 0.08f && rgba[1] < 0.32f && rgba[2] > 0.08f && rgba[2] < 0.32f;
-                const bool black = rgba[0] < 0.04f && rgba[1] < 0.04f && rgba[2] < 0.04f;
-
-                if (!rHigh && gHigh && !bHigh)
+                const RigidRouteOverlapBucket bucket = ClassifyRigidRouteOverlapColor(rgba);
+                AccumulateRigidRouteOverlapBucket(fullFrameOverlap, bucket);
+                if (x >= centerRegionMinX && x <= centerRegionMaxX && y >= centerRegionMinY && y <= centerRegionMaxY)
                 {
-                    ++overlapMatch;
-                }
-                else if (!rHigh && gHigh && bHigh)
-                {
-                    ++overlapRigidOnly;
-                }
-                else if (!rHigh && !gHigh && bHigh)
-                {
-                    ++overlapRigidInFront;
-                }
-                else if (rHigh && gMid && !bMid)
-                {
-                    ++overlapFallbackInFront;
-                }
-                else if (dimGray)
-                {
-                    ++overlapFallbackOnly;
-                }
-                else if (black)
-                {
-                    ++overlapNeither;
-                }
-                else
-                {
-                    ++overlapUnknown;
+                    AccumulateRigidRouteOverlapBucket(centerRegionOverlap, bucket);
+                    ++centerRegionPixels;
                 }
             }
         }
@@ -152,15 +226,33 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     if (debugMode == 24 && (overlapDumpRequested || r_pathTracingSmokeLog.GetInteger() != 0))
     {
         const int totalPixels = Max(1, m_frameResources.width * m_frameResources.height);
-        common->Printf("PathTracePrimaryPass: PT rigid route overlap pixels total=%d match=%d(%.2f%%) rigidOnly=%d(%.2f%%) rigidInFront=%d(%.2f%%) fallbackInFront=%d(%.2f%%) fallbackOnly=%d(%.2f%%) neither=%d(%.2f%%) unknown=%d(%.2f%%) colorCode green/cyan/blue/orange/gray/black tolerance=1.5pxRayT\n",
+        common->Printf("PathTracePrimaryPass: PT rigid route overlap pixels total=%d match=%d(%.2f%%) materialMismatch=%d(%.2f%%) classMismatch=%d(%.2f%%) rigidOnly=%d(%.2f%%) rigidInFront=%d(%.2f%%) fallbackInFront=%d(%.2f%%) fallbackOnly=%d(%.2f%%) neither=%d(%.2f%%) unknown=%d(%.2f%%) colorCode green/yellow/magenta/cyan/blue/orange/gray/black tolerance=1.5pxRayT\n",
             totalPixels,
-            overlapMatch, 100.0f * static_cast<float>(overlapMatch) / static_cast<float>(totalPixels),
-            overlapRigidOnly, 100.0f * static_cast<float>(overlapRigidOnly) / static_cast<float>(totalPixels),
-            overlapRigidInFront, 100.0f * static_cast<float>(overlapRigidInFront) / static_cast<float>(totalPixels),
-            overlapFallbackInFront, 100.0f * static_cast<float>(overlapFallbackInFront) / static_cast<float>(totalPixels),
-            overlapFallbackOnly, 100.0f * static_cast<float>(overlapFallbackOnly) / static_cast<float>(totalPixels),
-            overlapNeither, 100.0f * static_cast<float>(overlapNeither) / static_cast<float>(totalPixels),
-            overlapUnknown, 100.0f * static_cast<float>(overlapUnknown) / static_cast<float>(totalPixels));
+            fullFrameOverlap.match, 100.0f * static_cast<float>(fullFrameOverlap.match) / static_cast<float>(totalPixels),
+            fullFrameOverlap.materialMismatch, 100.0f * static_cast<float>(fullFrameOverlap.materialMismatch) / static_cast<float>(totalPixels),
+            fullFrameOverlap.classMismatch, 100.0f * static_cast<float>(fullFrameOverlap.classMismatch) / static_cast<float>(totalPixels),
+            fullFrameOverlap.rigidOnly, 100.0f * static_cast<float>(fullFrameOverlap.rigidOnly) / static_cast<float>(totalPixels),
+            fullFrameOverlap.rigidInFront, 100.0f * static_cast<float>(fullFrameOverlap.rigidInFront) / static_cast<float>(totalPixels),
+            fullFrameOverlap.fallbackInFront, 100.0f * static_cast<float>(fullFrameOverlap.fallbackInFront) / static_cast<float>(totalPixels),
+            fullFrameOverlap.fallbackOnly, 100.0f * static_cast<float>(fullFrameOverlap.fallbackOnly) / static_cast<float>(totalPixels),
+            fullFrameOverlap.neither, 100.0f * static_cast<float>(fullFrameOverlap.neither) / static_cast<float>(totalPixels),
+            fullFrameOverlap.unknown, 100.0f * static_cast<float>(fullFrameOverlap.unknown) / static_cast<float>(totalPixels));
+        const int regionPixels = Max(1, centerRegionPixels);
+        const RigidRouteOverlapBucket centerBucket = ClassifyRigidRouteOverlapColor(centerRgba);
+        common->Printf("PathTracePrimaryPass: PT rigid route center bucket=%s rgba=(%.3f, %.3f, %.3f, %.3f) roi=%dx%d match=%d(%.2f%%) materialMismatch=%d(%.2f%%) classMismatch=%d(%.2f%%) rigidOnly=%d(%.2f%%) rigidInFront=%d(%.2f%%) fallbackInFront=%d(%.2f%%) fallbackOnly=%d(%.2f%%) neither=%d(%.2f%%) unknown=%d(%.2f%%)\n",
+            RigidRouteOverlapBucketName(centerBucket),
+            centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
+            centerRegionMaxX - centerRegionMinX + 1,
+            centerRegionMaxY - centerRegionMinY + 1,
+            centerRegionOverlap.match, 100.0f * static_cast<float>(centerRegionOverlap.match) / static_cast<float>(regionPixels),
+            centerRegionOverlap.materialMismatch, 100.0f * static_cast<float>(centerRegionOverlap.materialMismatch) / static_cast<float>(regionPixels),
+            centerRegionOverlap.classMismatch, 100.0f * static_cast<float>(centerRegionOverlap.classMismatch) / static_cast<float>(regionPixels),
+            centerRegionOverlap.rigidOnly, 100.0f * static_cast<float>(centerRegionOverlap.rigidOnly) / static_cast<float>(regionPixels),
+            centerRegionOverlap.rigidInFront, 100.0f * static_cast<float>(centerRegionOverlap.rigidInFront) / static_cast<float>(regionPixels),
+            centerRegionOverlap.fallbackInFront, 100.0f * static_cast<float>(centerRegionOverlap.fallbackInFront) / static_cast<float>(regionPixels),
+            centerRegionOverlap.fallbackOnly, 100.0f * static_cast<float>(centerRegionOverlap.fallbackOnly) / static_cast<float>(regionPixels),
+            centerRegionOverlap.neither, 100.0f * static_cast<float>(centerRegionOverlap.neither) / static_cast<float>(regionPixels),
+            centerRegionOverlap.unknown, 100.0f * static_cast<float>(centerRegionOverlap.unknown) / static_cast<float>(regionPixels));
         r_pathTracingRigidRouteOverlapDump.SetInteger(0);
     }
 

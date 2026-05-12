@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceDoomLights.h"
 
 struct PathTraceSmokeReservoir
 {
@@ -59,5 +60,6 @@ uint64 ComputeSmokeReservoirSceneSignature(
     uint64 materialTableSignature,
     uint64 staticBlasSignature,
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    const std::vector<PathTraceSmokeLightCandidate>& lightCandidates);
+    const std::vector<PathTraceSmokeLightCandidate>& lightCandidates,
+    const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights);
 bool ClearSmokeReservoirBuffers(nvrhi::ICommandList* commandList, const RtSmokeReservoirBufferHandles& buffers);

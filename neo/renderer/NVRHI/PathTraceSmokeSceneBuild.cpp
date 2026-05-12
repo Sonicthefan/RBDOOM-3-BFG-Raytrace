@@ -987,7 +987,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBoundsOverlayLines.clear();
     m_smokeBoundsOverlayLineCount = 0;
     m_smokeBoundsOverlayViewValid = false;
-    const int requestedDebugMode = idMath::ClampInt(0, 50, r_pathTracingDebugMode.GetInteger());
+    const int requestedDebugMode = idMath::ClampInt(0, 52, r_pathTracingDebugMode.GetInteger());
     const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
@@ -1175,6 +1175,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             requestedDebugMode == 47 ||
             requestedDebugMode == 48 ||
             requestedDebugMode == 49 ||
+            requestedDebugMode == 52 ||
             requestedDebugMode == 42 ||
             requestedDebugMode == 43 ||
             restirPTDebugMode ||
@@ -2190,7 +2191,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         materialTableSignature,
         staticSignature.hash,
         emissiveTriangles,
-        lightCandidates);
+        lightCandidates,
+        doomAnalyticLights);
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
         m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
         !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;

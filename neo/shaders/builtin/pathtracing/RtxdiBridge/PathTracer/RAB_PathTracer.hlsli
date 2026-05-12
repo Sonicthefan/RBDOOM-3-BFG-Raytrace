@@ -171,6 +171,54 @@ void RAB_StreamSmokeNeeRisCandidate(
     }
 }
 
+uint RAB_GetRestirPTAnalyticTrialCount(uint analyticCount)
+{
+    const uint requestedTrialCount = clamp((uint)max(MotionVectorInfo.z, 1.0), 1u, 128u);
+    return min(analyticCount, requestedTrialCount);
+}
+
+bool RAB_SelectSmokeAnalyticNeeProposal(
+    uint analyticCount,
+    inout RTXDI_PathTracerRandomContext ptRandContext,
+    out uint analyticIndex,
+    out float proposalPdf)
+{
+    analyticIndex = 0u;
+    proposalPdf = 0.0;
+    if (analyticCount == 0u)
+    {
+        return false;
+    }
+
+    const uint localWindow = min(analyticCount, 32u);
+    if (analyticCount <= localWindow)
+    {
+        const float xi = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState);
+        analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
+        proposalPdf = 1.0 / (float)analyticCount;
+        return true;
+    }
+
+    const float localProposalMix = 0.75;
+    const bool useLocalWindow = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState) < localProposalMix;
+    const float xi = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState);
+    if (useLocalWindow)
+    {
+        analyticIndex = min((uint)(xi * (float)localWindow), localWindow - 1u);
+    }
+    else
+    {
+        analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
+    }
+
+    const bool insideLocalWindow = analyticIndex < localWindow;
+    proposalPdf =
+        (insideLocalWindow ? localProposalMix / (float)localWindow : 0.0) +
+        ((1.0 - localProposalMix) / (float)analyticCount);
+    proposalPdf = max(proposalPdf, 1.0e-6);
+    return true;
+}
+
 bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
 {
     const uint lightCount = RAB_GetCurrentLightCount();
@@ -207,14 +255,17 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
 
     if (analyticCount > 0u)
     {
-        const uint analyticTrialCount = min(analyticCount, 8u);
-        const float lightSelectionPdf = 1.0 / max((float)analyticCount, 1.0);
+        const uint analyticTrialCount = RAB_GetRestirPTAnalyticTrialCount(analyticCount);
         const float domainAverageScale = 1.0 / (float)analyticTrialCount;
         [loop]
         for (uint trialIndex = 0u; trialIndex < analyticTrialCount; ++trialIndex)
         {
-            const float xi = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState);
-            const uint analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
+            uint analyticIndex;
+            float lightSelectionPdf;
+            if (!RAB_SelectSmokeAnalyticNeeProposal(analyticCount, ptRandContext, analyticIndex, lightSelectionPdf))
+            {
+                continue;
+            }
             const uint trialLightIndex = emissiveTriangleCount + analyticIndex;
             const float2 sampleUv = float2(
                 RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState),

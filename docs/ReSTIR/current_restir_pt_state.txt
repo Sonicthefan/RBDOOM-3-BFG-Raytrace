@@ -28,8 +28,10 @@ Active ReSTIR shader libraries:
   Mode 33.
 - pathtrace_smoke_restir_spatial.rt.hlsl
   Mode 50.
+- pathtrace_smoke_restir_spatial_attribution.rt.hlsl
+  Mode 51.
 
-Modes 31, 32, 33, and 50 force-specialize the debug mode at compile time through
+Modes 31, 32, 33, 50, and 51 force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
 reported roughly 13 second first-load stalls for each specialized ReSTIR mode,
 down from roughly 197 seconds for the unspecialized ReSTIR library.
@@ -41,7 +43,7 @@ Functional Pieces Already Present
 - Initial reservoir generation diagnostics.
 - Temporal reservoir generation using RTXDI_PTTemporalResampling.
 - Debug-only spatial reservoir generation using RTXDI_PTSpatialResampling in
-  mode 50.
+  modes 50-51.
 - Primary-surface history and reprojection diagnostics.
 - Doom analytic-light candidates through the RAB bridge.
 - Emissive candidate data through the material/emissive inventory path.
@@ -75,7 +77,7 @@ now only computes motion/depth hints and lets RTXDI perform its own surface and
 reservoir validation.
 
 The RTXDI temporal/spatial neighbor thresholds are exposed for modes 31-33 and
-50:
+50-51:
 
   r_pathTracingRestirPTTemporalDepthThreshold
   r_pathTracingRestirPTTemporalNormalThreshold
@@ -89,8 +91,8 @@ Mode 50 adds the first spatial-reservoir shading preview. It uses RTXDI's
 TemporalAndSpatial buffer-index contract, builds the current initial reservoir,
 runs temporal reuse, then spatially resamples the temporal output before using
 the same rough lighting preview path as mode 32. The branch does not have a
-host-bound RTXDI neighbor-offset buffer yet, so mode 50 uses a shader-local
-32-entry offset table for this debug slice. Spatial samples and radius are
+host-bound RTXDI neighbor-offset buffer yet, so modes 50-51 use a shader-local
+32-entry offset table for these debug slices. Spatial samples and radius are
 controlled by:
 
   r_pathTracingRestirPTSpatialSamples
@@ -101,9 +103,16 @@ threshold CVars above. The disocclusion boost sample count is clamped to the
 same sample count as `r_pathTracingRestirPTSpatialSamples` to avoid a hidden
 8x work spike during early Vulkan/device-removal testing.
 
+Mode 51 is the spatial source-attribution diagnostic. It runs the same
+initial->temporal->spatial reservoir path as mode 50, then colors the selected
+spatial reservoir source using the mode 33 convention: cyan/blue for Doom
+analytic lights, orange for emissive triangles, green for non-NEE/indirect
+reservoirs, and red for invalid/unknown light data. It exists to catch source
+bleeding or unexpected source loss after spatial reuse before final integration.
+
 Main Gaps
 ---------
-- Spatial reuse is debug-only in mode 50; it is not split into a production
+- Spatial reuse is debug-only in modes 50-51; it is not split into a production
   pass or denoiser-facing output yet.
 - No production final ReSTIR PT pass outside the debug raygen path.
 - Light identity is still index-fragile across changing emissive/light order.
@@ -117,12 +126,13 @@ Main Gaps
 
 Recommended Next Milestone
 --------------------------
-Validate mode 50 at conservative resolution against mode 32. It should remain a
-rough debug preview: look for obvious crashes, full-screen diagnostic collapse,
-or spatial reuse causing worse flicker/ghosting than temporal-only mode 32.
-Denoiser-facing buffers, a real split spatial pass, and reflection/glass
-integration should follow only after the mode 50 data path is stable enough to
-compare against mode 18.
+Validate mode 51 against mode 33 and mode 50. Mode 51 should show the same
+general source mix as temporal attribution, with the spatial coherence expected
+from mode 50. Watch for source colors bleeding across hard depth/object edges or
+emissive/analytic sources disappearing after spatial reuse. Denoiser-facing
+buffers, a real split spatial pass, and reflection/glass integration should
+follow only after the mode 50/51 data path is stable enough to compare against
+mode 18.
 
 Rough Preview Control
 ---------------------
@@ -140,3 +150,23 @@ that reconstructs the selected Doom analytic or emissive light sample at the
 current surface. This is intentionally not final shading; it exists so the rough
 preview can show whether reservoir light selection is producing usable visible
 lighting before the final ReSTIR PT shading pass is split out.
+
+Confirmed temporal NEE issue:
+
+- `r_pathTracingRestirPTTemporalReservoirReuse 0` is clean everywhere in the
+  tested rooms, proving current-frame NEE sampling and analytic-light upload are
+  sound enough for rough testing.
+- With reservoir reuse enabled, a robot-train/strobe sequence in the same portal
+  could keep nearby lights correct while the strobe animation was active, then
+  make them break or flicker as soon as the source stopped in an offscreen hole.
+  `com_pause 1` froze the symptom and `r_skipUpdates 1` did not, which points at
+  shader/register time animation and light-domain state, not renderer update
+  churn.
+- The current safety path keeps NEE temporal reuse disabled by default through
+  `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0`. Despite the historical
+  CVar name, the guard now rejects prior-frame NEE reservoirs from both Doom
+  analytic lights and emissive/strobe sources before temporal combine. Non-NEE
+  temporal reuse remains enabled.
+- The proper future fix is stable light-domain identity, current/previous
+  remapping, and per-light radiance/state validation so NEE temporal reuse can
+  be restored without stale direct-light pollution.

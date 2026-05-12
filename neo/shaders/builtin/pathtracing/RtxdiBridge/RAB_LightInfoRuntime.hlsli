@@ -14,15 +14,30 @@ uint RAB_GetCurrentLightCount()
 
 int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
 {
-    return lightIndex < RAB_GetCurrentLightCount() ? (int)lightIndex : -1;
+    const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
+    const uint lightCount = RAB_GetCurrentLightCount();
+    if (lightIndex >= lightCount)
+    {
+        return -1;
+    }
+
+    if (!currentToPrevious &&
+        MotionVectorInfo.y < 0.5 &&
+        lightIndex >= emissiveTriangleCount)
+    {
+        return -1;
+    }
+
+    return (int)lightIndex;
 }
 
 RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
 {
-    if (previousFrame)
-    {
-        return RAB_EmptyLightInfo();
-    }
+    // This bridge does not own a previous-frame light table yet. RTXDI PT still
+    // calls previous-frame light lookups during inverse shift / bias correction;
+    // returning an empty light there makes valid NEE reservoirs collapse to
+    // black. Use the current light table until stable previous/current light
+    // remapping is implemented.
 
     const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
     if (index < emissiveTriangleCount)

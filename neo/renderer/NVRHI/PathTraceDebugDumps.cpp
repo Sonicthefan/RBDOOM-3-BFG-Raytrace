@@ -300,6 +300,8 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 48: info.name = "combined geometry reprojection match"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid previous primary-surface match"; info.owner = "primary-surface"; break;
     case 49: info.name = "combined geometry motion source"; info.category = "pass-output-visualizer"; info.output = "static, skinned, and routed rigid motion source coverage"; info.owner = "primary-surface"; break;
     case 50: info.name = "ReSTIR PT spatial reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "temporal plus spatial reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
+    case 51: info.name = "ReSTIR PT spatial source attribution"; info.category = "pass-output-visualizer"; info.output = "spatial reservoir source attribution"; info.owner = "restir-pt"; break;
+    case 52: info.name = "routed-rigid transform parity"; info.category = "scene-geometry-diagnostic"; info.output = "routed metadata transform vs TLAS hit transform error"; info.owner = "primary-surface"; break;
     default: break;
     }
 

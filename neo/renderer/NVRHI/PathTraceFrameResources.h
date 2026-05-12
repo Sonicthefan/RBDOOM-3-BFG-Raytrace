@@ -103,11 +103,13 @@ struct RtPathTraceFrameResources
     uint64 smokeReservoirSceneSignature = 0;
     uint64 smokeReservoirDispatchSignature = 0;
     bool smokeReservoirNeedsClear = false;
+    bool restirPTReservoirNeedsClear = true;
     bool primarySurfaceHistoryNeedsClear = true;
     RtPathTracePrimarySurfaceHistoryState primarySurfaceHistoryState;
     RtPathTraceFrameCameraState primarySurfaceHistoryView;
     int smokeReservoirResetCount = 0;
     int smokeReservoirClearCount = 0;
+    int restirPTReservoirClearCount = 0;
     uint64 smokeAccumulationSignature = 0;
     int smokeAccumulationFrameCount = 0;
 

@@ -80,6 +80,15 @@ bool UpdateRestirPTContextState(RtRestirPTContextState& state, const RtRestirPTC
     RTXDI_PTTemporalResamplingParameters temporalParams = state.context->GetTemporalResamplingParameters();
     temporalParams.depthThreshold = desc.temporalDepthThreshold;
     temporalParams.normalThreshold = desc.temporalNormalThreshold;
+    temporalParams.enableFallbackSampling = desc.temporalFallbackSampling;
+    if (!desc.temporalReservoirReuse)
+    {
+        temporalParams.maxReservoirAge = 0;
+    }
+    else
+    {
+        temporalParams.maxReservoirAge = rtxdi::GetDefaultReSTIRPTTemporalResamplingParams().maxReservoirAge;
+    }
     state.context->SetTemporalResamplingParameters(temporalParams);
     RTXDI_PTSpatialResamplingParameters spatialParams = state.context->GetSpatialResamplingParameters();
     spatialParams.depthThreshold = desc.temporalDepthThreshold;

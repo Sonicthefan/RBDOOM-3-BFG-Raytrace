@@ -56,9 +56,11 @@ The current RT/PT path is still an experimental "smoke" path:
   local-space BLAS/TLAS transforms without changing mode 18/20 shading.
 - r_pathTracing mode 24: routed rigid overlap validation. It keeps the old
   fallback scene intact, traces fallback-only and routed-rigid-only masks
-  separately, color-codes hit-distance agreement, and can dump per-color pixel
-  proportions with `r_pathTracingRigidRouteOverlapDump 1` before any dynamic
-  fallback rigid removal is attempted.
+  separately, color-codes hit-distance agreement, material/class mismatches,
+  and front-most ownership, and can dump per-color pixel proportions with
+  `r_pathTracingRigidRouteOverlapDump 1`. The dump includes full-frame counts,
+  a 33x33 center-region summary, and the center-pixel bucket so crosshair-aimed
+  problem objects can be separated from room-wide background coverage.
 - r_pathTracing mode 25: routed rigid lighting validation. It traces the
   combined fallback plus routed rigid TLAS scene with simple material/normal
   lighting, after optional routed-rigid removal from the dynamic fallback.
@@ -82,7 +84,7 @@ The current RT/PT path is still an experimental "smoke" path:
   r_pathTracingAnalyticLightReplaceSelected can suppress that legacy constant
   array so the analytic lights can be inspected visually on their own.
 - r_pathTracingRestirPTAnalyticLightCandidates: default-on ReSTIR PT debug
-  convenience gate. Modes 26-33 and 50 can build/use Doom analytic light
+  convenience gate. Modes 26-33 and 50-51 can build/use Doom analytic light
   candidates even when the global analytic-light CVar is off, but setting this
   to 0 restores emissive-only ReSTIR validation and profiling isolation.
 - r_pathTracingAnalyticLightMaxGpu: cap for analytic Doom light candidates
@@ -659,24 +661,37 @@ PathTraceReservoirs.h
 PathTraceReservoirs.cpp
     Creates/reuses reservoir buffers, clears reservoir history, and builds the
     scene-side reservoir reset signature from material-table, static-BLAS,
-    emissive-triangle, and light-candidate data. Dispatch adds output and
-    camera/FOV to form the full reset signature.
+    emissive-triangle, light-candidate, and Doom analytic-light topology/identity
+    data. Doom analytic color/intensity is intentionally not part of the global
+    signature so a flickering light does not wipe unrelated rooms every frame.
+    Dispatch adds output and camera/FOV to form the full legacy smoke-reservoir
+    reset signature.
 
 PathTraceRestirPT.h
     Host-side RTXDI ReSTIR PT context scaffold. Owns the pass-local
     rtxdi::ReSTIRPTContext state, cached RTXDI_PTParameters block, dimensions,
     checkerboard mode, resampling mode, and frame index used for RTXDI temporal
-    random state. Initial mode is ReSTIRPT_ResamplingMode::None.
+    random state. It also carries the diagnostic temporal-reservoir reuse gate
+    used to reject previous-frame PT reservoirs without disabling current
+    initial-reservoir generation, plus the branch-local temporal fallback gate.
+    Initial mode is ReSTIRPT_ResamplingMode::None.
 
 PathTraceRestirPT.cpp
     Creates/recreates the RTXDI PT context on output-size/checkerboard changes,
     calls SetFrameIndex and SetResamplingMode each dispatch, and fills
     RTXDI_PTParameters from the context's reservoir parameters, buffer indices,
     initial sampling, reconnection, temporal, hybrid-shift, boiling-filter, and
-    spatial parameters. It does not dispatch shader passes.
+    spatial parameters. `r_pathTracingRestirPTTemporalReservoirReuse 0` forces
+    the temporal max reservoir age to 0 as a diagnostic, making previous
+    reservoirs invalid after RTXDI ages them; turning it back on restores
+    RTXDI's default max age before uploading parameters.
+    `r_pathTracingRestirPTTemporalFallbackSampling 0` disables RTXDI's
+    zero-motion temporal fallback sample, which is too weak for same-material
+    Doom prop triangles until stronger previous-surface identity exists. It
+    does not dispatch shader passes.
 
 PathTraceRestirPasses.h
-    CPU-side ReSTIR PT pass-plan contract. It maps debug modes 26-33 and 50 to
+    CPU-side ReSTIR PT pass-plan contract. It maps debug modes 26-33 and 50-51 to
     named initial, temporal, spatial, shading, and debug-visualization stages, owns the
     RTXDI resampling-mode selection for the host context update, and resolves
     the current RTXDI reservoir buffer indices for diagnostics. This is a
@@ -698,7 +713,7 @@ PathTraceRestirPTReservoirs.cpp
     addressing. The buffer is allocated with the RT smoke output size and bound
     into the smoke ray tracing shader ABI at u29, but no ReSTIR pass writes or
     reads it yet. It also creates/reuses and clears the current/previous
-    primary-surface buffers used by modes 29-33 and 50.
+    primary-surface buffers used by modes 29-33 and 50-51.
 
 pathtrace_smoke.rt.hlsl
     Core smoke ray tracing shader. It keeps mode 18, mode 20, integrator
@@ -756,6 +771,14 @@ pathtrace_smoke_restir_spatial.rt.hlsl
     CMake builds `pathtrace_smoke_restir_spatial.rt.bin`, and dispatch selects
     it only for mode 50 spatial-reservoir shading preview. The wrapper defines
     `RB_PT_FORCE_DEBUG_MODE 50u`.
+
+pathtrace_smoke_restir_spatial_attribution.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
+    `RB_PT_ENABLE_RESTIR_SPATIAL`, and
+    `RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION`. CMake builds
+    `pathtrace_smoke_restir_spatial_attribution.rt.bin`, and dispatch selects
+    it only for mode 51 spatial source attribution. The wrapper defines
+    `RB_PT_FORCE_DEBUG_MODE 51u`.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
@@ -832,7 +855,7 @@ RtxdiBridge/*.hlsli
     layer instead of reading an ad hoc local history struct. Raygen writes the
     current primary hit, and the backend copies current to previous after
     dispatch for next-frame validation. When `r_pathTracingToyFakePBRSpecular 1`
-    is enabled, modes 26/27/28/29/30/31/32/33/50 sample Doom specular textures and
+    is enabled, modes 26/27/28/29/30/31/32/33/50/51 sample Doom specular textures and
     store the same converted fake-PBR roughness/F0 that mode 18 uses. Modes
     34/35/36/37 use the same fake-PBR material toggle for their path-tracer core
     visualizers.
@@ -1409,7 +1432,7 @@ builds stable identity/probe diagnostics and an opt-in analytic sphere-light
 candidate buffer from active Doom point lights in the selected current-area plus
 portal-neighbor set. The shader samples that separate buffer for visual
 inspection when r_pathTracingAnalyticLightCandidates is enabled. ReSTIR PT debug
-modes 26-33 and 50 also have the separate
+modes 26-33 and 50-51 also have the separate
 `r_pathTracingRestirPTAnalyticLightCandidates` convenience gate, default 1, so
 normal ReSTIR validation sees the authored-light list; set it to 0 with the
 global analytic-light CVar off for emissive-only ReSTIR isolation. The bridge is
@@ -1638,12 +1661,56 @@ previous-neighborhood search and validation; keeping an exact-pixel gate in
 front of it caused visible edge flashes during movement even when mode 49 showed
 stable static/skinned/routed-rigid motion-source coverage.
 
-Modes 31-33 and 50 expose RTXDI's temporal/spatial relative-depth and normal-dot
+Modes 31-33 and 50-51 expose RTXDI's temporal/spatial relative-depth and normal-dot
 thresholds as
 `r_pathTracingRestirPTTemporalDepthThreshold` and
 `r_pathTracingRestirPTTemporalNormalThreshold`. The normal threshold defaults to
 0.35 for Doom asset stability; RTXDI's stock 0.6 was too strict for some
 normal-mapped object sides during motion.
+`r_pathTracingRestirPTTemporalReservoirReuse` defaults to 1 and exists only as
+a diagnostic split: set it to 0 when mode 32/50 flickers in exact alternating
+frames while mode 52 stays stable. If the flash disappears, the current-frame
+geometry and initial reservoir are probably sound and the bug is previous
+reservoir reuse/history validation.
+`r_pathTracingRestirPTTemporalFallbackSampling` defaults to 0 on this branch so
+RTXDI's zero-motion fallback path cannot import a weakly validated same-material
+previous reservoir. Set it to 1 only to compare against stock fallback behavior.
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse` defaults to 0 and rejects
+previous-frame NEE light reservoirs during temporal replay while leaving
+current-frame NEE sampling enabled. The name is historical; the guard now covers
+both Doom analytic lights and emissive/strobe NEE sources, because a robot
+train/strobe sequence proved that same-portal light-domain changes can poison
+mode 32 through previous NEE reservoirs even when current-frame sampling is
+clean. Non-NEE temporal reuse remains enabled. Re-enable this only after the
+bridge has stable previous/current light-domain identity and remapping.
+Mode 32/50 temporal validation also passes RTXDI an expected previous depth
+computed from the projected previous world position's ray distance. Do not
+derive that value from the sampled previous surface at the projected pixel; if
+the pixel lands on a wrong same-material triangle, that would let the wrong
+triangle validate itself. Do not use previous-camera forward-Z here either,
+because `RAB_Surface.linearDepth` is the smoke ray `hitT`, and mixing the two
+depth metrics causes a centered circular temporal-validation region.
+The packed ReSTIR PT reservoir history is also cleared when the scene reservoir
+signature changes. That signature includes Doom analytic light topology and
+identity, but not analytic light color/intensity. Mode 32/50 debug preview
+therefore re-evaluates NEE reservoirs against current light data before display
+instead of trusting stale target energy packed in the reservoir. This avoids
+global history wipes from unrelated flickering lights while preserving the proof
+that stale bright-phase light reservoirs were the source of the earlier
+polygon-brightness bug. A production path still needs stable light remapping and
+per-light radiance-version rejection.
+Until that remapping exists, `RAB_LoadLightInfo(..., previousFrame=true)` reads
+the current light table. RTXDI PT invokes previous-frame light lookup during
+inverse shift/bias correction; returning an empty light made valid analytic NEE
+reservoirs randomly collapse to black.
+The current temporary safety rule is stronger than preview-side reconstruction:
+before temporal combine, the mode 32 wrapper scans the reprojected previous 3x3
+reservoir neighborhood. If NEE temporal reuse is disabled and any candidate
+previous reservoir connects to a sampled light, that pixel's temporal
+resampling is forced to current-frame behavior by zeroing the local temporal
+max reservoir age. This avoids stale direct-light reservoirs affecting RTXDI's
+combine/bias-correction normalization even when the stale NEE reservoir is not
+the final selected sample.
 
 Mode 32 has a validated high-resolution workload limit. It is stable enough for
 basic testing around 1280x720, but user validation reports that pushing much
@@ -1651,7 +1718,7 @@ beyond 720p can device-remove the GPU. This is expected for the current
 prototype shape: the monolithic raygen performs full-screen current initial PT
 sampling, RTXDI temporal resampling / hybrid-shift work, and optional visibility
 inside one heavy RT dispatch. `r_pathTracingRestirPTPreviewMaxPixels` is an
-experimental safety cap, but the reliable testing rule is to keep mode 32/33/50
+experimental safety cap, but the reliable testing rule is to keep mode 32/33/50/51
 at or below 720p until the pass is restructured.
 
 Mode 33 is the temporal light-source attribution diagnostic. It uses the same
@@ -1671,6 +1738,14 @@ uses a shader-local 32-entry neighbor-offset table instead of a host-bound RTXDI
 neighbor-offset buffer. `r_pathTracingRestirPTSpatialSamples` and
 `r_pathTracingRestirPTSpatialRadius` control the first test path, while spatial
 depth/normal validation reuses the temporal threshold CVars.
+
+Mode 51 is the spatial source-attribution diagnostic. It uses the same
+initial->temporal->spatial reservoir path as mode 50 but colors the selected
+spatial reservoir source instead of shading it. The colors match mode 33:
+cyan/blue for Doom analytic sphere lights, orange for emissive triangles, green
+for non-NEE/indirect reservoirs, and red for invalid/unknown light metadata.
+Use it to compare spatial source stability against mode 33 and to look for
+source bleeding across depth/object edges.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed
@@ -1779,7 +1854,9 @@ Other dynamic or invalid hits keep the existing object-motion rejection colors.
 Like mode 47, it removes routed-ready rigid candidates from the dynamic fallback
 path so the rigid portion validates the routed source rather than overlapping
 fallback geometry. It is diagnostic-only and does not consume previous geometry
-data for production motion or shading.
+data for production motion or shading. The shared current/previous
+surface-similarity helper compares geometric normals for temporal identity
+while leaving normal-mapped shading normals intact for lighting.
 
 Mode 49 is the combined geometry motion-source diagnostic. It uses the shared
 combined geometry motion helper that future production export code should call,
@@ -1788,6 +1865,15 @@ Invalid or unsupported hits keep the same rejection colors used by modes 47 and
 48. Like modes 47 and 48, it removes routed-ready rigid candidates from the
 dynamic fallback path. It is diagnostic-only and does not consume previous
 geometry data for production motion or shading.
+
+Mode 52 is the routed-rigid transform parity diagnostic. It traces routed rigid
+TLAS instances, removes their fallback dynamic copies, and compares the actual
+DXR hit position against both TLAS `ObjectToWorld3x4()` reconstruction and the
+CPU-uploaded `PathTraceRigidRouteInstance.currentObjectToWorld` reconstruction.
+Green means both reconstructions match; yellow/orange/red show increasing route
+error; purple means route metadata disagrees with TLAS transform; blue is
+non-routed/unsupported coverage. It exists to diagnose rotated rigid props whose
+flicker respects polygon boundaries.
 
 Optimization path: split initial sampling, temporal resampling, visibility, and
 preview/final shading into separate profiled passes; keep the visibility ray
