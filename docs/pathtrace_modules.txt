@@ -293,9 +293,14 @@ PathTraceSmokeResources.cpp
     `u40`; they are allocated, bound, and reported by frame-resource
     diagnostics. `r_pathTracingMotionVectorExport 1` lets raygen populate them
     with combined static/skinned/routed-rigid current-to-previous pixel motion
-    plus a non-zero valid/source mask. Invalid pixels keep mask zero, so zero
-    motion is not an invalid sentinel. No consumer reads them and normal PT
-    output is unchanged.
+    plus an explicit mask. Mask bit 0 is valid, bits 1-4 are source kind, and
+    bits 5-12 carry a compact invalid reason from the primary-surface debug
+    status when valid is zero. Invalid pixels therefore do not rely on zero
+    motion as a sentinel, and valid stationary pixels can write zero motion with
+    a non-zero mask. Exported vectors preserve sub-pixel previous projection;
+    integer previous pixels are only for history-buffer lookups. When export is
+    disabled, dispatch setup clears the mask texture to zero. No consumer reads
+    them and normal PT output is unchanged.
     Scene
     commits now retain the latest RtPathTraceSceneInputs package and can print
     it with `r_pathTracingSceneInputsDump 1`. `r_pathTracingPortalTransitionDump`
@@ -1237,6 +1242,9 @@ buffer, skinned dispatch records, and dynamic-triangle-to-dispatch-index map are
 bound explicitly at the smoke shader level so primary-surface records can
 reconstruct a previous world-space hit position for validated skinned dynamic
 triangles without a per-hit linear scan over dispatch records.
+The shader-visible constants carry the map count and closest-hit code bounds the
+lookup against that count, so future map compaction does not turn into an
+out-of-bounds read.
 Current/previous joint matrix buffers are filled with copied CPU-side joint rows when
 `r_pathTracingGpuSkinning 1` is enabled.
 In `r_pathTracingGpuSkinning 2`, those same dispatch records write the dynamic

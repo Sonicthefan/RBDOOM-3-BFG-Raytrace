@@ -197,9 +197,9 @@ RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame)
     return RAB_GetGBufferSurface(pixelPosition, previousFrame).material;
 }
 
-bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)
+bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat)
 {
-    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
     if (PrevCameraOriginAndValid.w < 0.5)
     {
         return false;
@@ -219,7 +219,20 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 d
         return false;
     }
 
-    const float2 previousPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    previousPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    return previousPixelFloat.x >= 0.0 && previousPixelFloat.y >= 0.0 &&
+        previousPixelFloat.x < (float)dimensions.x && previousPixelFloat.y < (float)dimensions.y;
+}
+
+bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)
+{
+    previousPixel = int2(-1, -1);
+    float2 previousPixelFloat;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloat(worldPosition, dimensions, previousPixelFloat))
+    {
+        return false;
+    }
+
     previousPixel = int2(floor(previousPixelFloat));
     return previousPixel.x >= 0 && previousPixel.y >= 0 &&
         (uint)previousPixel.x < dimensions.x && (uint)previousPixel.y < dimensions.y;
@@ -287,13 +300,15 @@ bool TryPathTracePrimarySurfacePackedObjectMotionPixels(RAB_Surface currentSurfa
         return false;
     }
 
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(currentRecord.previousPositionOrMotion.xyz, dimensions, previousPixel))
+    float2 previousPixelFloat;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloat(currentRecord.previousPositionOrMotion.xyz, dimensions, previousPixelFloat))
     {
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
         return false;
     }
 
-    motionPixels = float2(previousPixel) - float2(pixel);
+    previousPixel = int2(floor(previousPixelFloat));
+    motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     return true;
 }
 
@@ -414,13 +429,13 @@ float4 EvaluatePathTracePrimarySurfaceObjectMotionDebug(RAB_Surface currentSurfa
         return PathTracePrimarySurfaceDebugColor(objectMotionDebugStatus, currentSurface);
     }
 
-    int2 previousPixel;
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousObjectPosition, PathTraceFullOutputSize(), previousPixel))
+    float2 previousPixelFloat;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloat(previousObjectPosition, PathTraceFullOutputSize(), previousPixelFloat))
     {
         return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
     }
 
-    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
+    return PathTracePrimarySurfaceMotionVectorColor(previousPixelFloat - (float2(pixel) + 0.5));
 #else
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
 #endif
@@ -471,13 +486,13 @@ float4 EvaluatePathTracePrimarySurfaceRigidObjectMotionDebug(RAB_Surface current
         return PathTracePrimarySurfaceDebugColor(objectMotionDebugStatus, currentSurface);
     }
 
-    int2 previousPixel;
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousObjectPosition, PathTraceFullOutputSize(), previousPixel))
+    float2 previousPixelFloat;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloat(previousObjectPosition, PathTraceFullOutputSize(), previousPixelFloat))
     {
         return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
     }
 
-    return PathTracePrimarySurfaceMotionVectorColor(float2(previousPixel) - float2(pixel));
+    return PathTracePrimarySurfaceMotionVectorColor(previousPixelFloat - (float2(pixel) + 0.5));
 #else
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, currentSurface);
 #endif

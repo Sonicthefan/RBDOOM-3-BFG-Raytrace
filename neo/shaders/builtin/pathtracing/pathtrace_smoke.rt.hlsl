@@ -291,6 +291,15 @@ static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN = 5u;
+static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
+static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
+static const uint PT_MOTION_VECTOR_MASK_SOURCE_MASK = 0x0000001eu;
+static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
+static const uint PT_MOTION_VECTOR_SOURCE_UNKNOWN = 0u;
+static const uint PT_MOTION_VECTOR_SOURCE_STATIC = 1u;
+static const uint PT_MOTION_VECTOR_SOURCE_SKINNED = 2u;
+static const uint PT_MOTION_VECTOR_SOURCE_RIGID = 3u;
+static const uint PT_MOTION_VECTOR_SOURCE_OTHER_OBJECT = 4u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
@@ -339,6 +348,7 @@ uint PathTracePrimarySurfaceHistoryCount() { return (uint)max(GeometryInfo2.z, 0
 uint PathTraceSmokeReservoirCount() { return (uint)max(GeometryInfo2.w, 0.0); }
 uint PathTraceSkinnedPreviousPositionCount() { return (uint)max(GeometryInfo3.x, 0.0); }
 uint PathTraceSkinnedSurfaceDispatchCount() { return (uint)max(GeometryInfo3.y, 0.0); }
+uint PathTraceSkinnedTriangleDispatchIndexCount() { return (uint)max(GeometryInfo3.z, 0.0); }
 uint PathTracePreviousStaticVertexCount() { return (uint)max(GeometryInfo4.x, 0.0); }
 uint PathTracePreviousStaticIndexCount() { return (uint)max(GeometryInfo4.y, 0.0); }
 uint PathTracePreviousStaticTriangleCount() { return (uint)max(GeometryInfo4.z, 0.0); }
@@ -1405,12 +1415,13 @@ bool TryPathTracePrimarySurfaceSkinnedObjectMotion(RAB_Surface surface, out floa
 
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS;
     const uint dispatchCount = PathTraceSkinnedSurfaceDispatchCount();
-    if (dispatchCount == 0u || PathTraceSkinnedPreviousPositionCount() == 0u)
+    const uint dispatchIndexCount = PathTraceSkinnedTriangleDispatchIndexCount();
+    if (dispatchCount == 0u || dispatchIndexCount == 0u || PathTraceSkinnedPreviousPositionCount() == 0u)
     {
         return false;
     }
 
-    if (surface.primitiveIndex >= PathTraceDynamicTriangleCount())
+    if (surface.primitiveIndex >= dispatchIndexCount)
     {
         return false;
     }
@@ -1702,16 +1713,17 @@ float4 EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(RAB_Surface curr
     return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_OK, currentSurface);
 }
 
-bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus);
-bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus, out uint sourceKind);
+bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus);
+bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus, out uint sourceKind);
 
 float4 EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
 {
     int2 previousPixel;
+    float2 previousPixelFloat;
     float2 motionPixels;
     uint debugStatus;
     uint sourceKind;
-    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus, sourceKind))
     {
         return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
@@ -1724,9 +1736,10 @@ float4 EvaluatePathTracePreviousStaticSnapshotMotionVectorDebug(RAB_Surface curr
     return PathTracePrimarySurfaceMotionVectorColor(motionPixels);
 }
 
-bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus)
+bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus)
 {
     previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
     motionPixels = float2(0.0, 0.0);
     float3 previousPosition;
     if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
@@ -1734,32 +1747,66 @@ bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, 
         return false;
     }
 
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousPosition, PathTraceFullOutputSize(), previousPixel))
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloat(previousPosition, PathTraceFullOutputSize(), previousPixelFloat))
     {
         debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
         return false;
     }
 
-    motionPixels = float2(previousPixel) - float2(pixel);
+    previousPixel = int2(floor(previousPixelFloat));
+    motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
     return true;
 }
 
-bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 motionPixels, out uint debugStatus, out uint sourceKind)
+uint PathTraceMotionVectorSourceKind(RAB_Surface currentSurface)
 {
-    sourceKind = 0u;
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return PT_MOTION_VECTOR_SOURCE_UNKNOWN;
+    }
+    if (currentSurface.instanceId == 0u && currentSurface.surfaceClass == 0u)
+    {
+        return PT_MOTION_VECTOR_SOURCE_STATIC;
+    }
+    if (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    {
+        return PT_MOTION_VECTOR_SOURCE_SKINNED;
+    }
+    if (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return PT_MOTION_VECTOR_SOURCE_RIGID;
+    }
+    return PT_MOTION_VECTOR_SOURCE_OTHER_OBJECT;
+}
+
+uint PathTraceMotionVectorMaskFromStatus(bool valid, uint sourceKind, uint debugStatus)
+{
+    const uint sourceBits = (sourceKind & 0x0fu) << PT_MOTION_VECTOR_MASK_SOURCE_SHIFT;
+    if (valid)
+    {
+        return PT_MOTION_VECTOR_MASK_VALID | sourceBits;
+    }
+    return sourceBits | ((debugStatus & 0xffu) << PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
+}
+
+bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out uint debugStatus, out uint sourceKind)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    sourceKind = PathTraceMotionVectorSourceKind(currentSurface);
     if (RAB_IsSurfaceValid(currentSurface) &&
         currentSurface.instanceId == 0u &&
         currentSurface.surfaceClass == 0u)
     {
-        sourceKind = 1u;
-        return TryPathTracePreviousStaticSnapshotMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus);
+        return TryPathTracePreviousStaticSnapshotMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus);
     }
 
     if (TryPathTracePrimarySurfacePackedObjectMotionPixels(currentSurface, pixel, PathTraceFullOutputSize(), previousPixel, motionPixels, debugStatus))
     {
-        sourceKind = currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ? 2u :
-            (currentSurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY ? 3u : 4u);
+        previousPixelFloat = motionPixels + (float2(pixel) + 0.5);
         return true;
     }
 
@@ -1779,28 +1826,30 @@ void StorePathTraceMotionVectorExport(uint2 pixel, RAB_Surface currentSurface)
     }
 
     int2 previousPixel;
+    float2 previousPixelFloat;
     float2 motionPixels;
     uint debugStatus;
     uint sourceKind;
-    if (TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    if (TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus, sourceKind))
     {
         PathTraceMotionVectors[pixel] = motionPixels;
-        PathTraceMotionVectorMask[pixel] = 1u | (sourceKind << 1);
+        PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
     }
     else
     {
         PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
-        PathTraceMotionVectorMask[pixel] = 0u;
+        PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, debugStatus);
     }
 }
 
 float4 EvaluatePathTraceCombinedGeometryMotionVectorDebug(RAB_Surface currentSurface, uint2 pixel)
 {
     int2 previousPixel;
+    float2 previousPixelFloat;
     float2 motionPixels;
     uint debugStatus;
     uint sourceKind;
-    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus, sourceKind))
     {
         return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
@@ -1811,10 +1860,11 @@ float4 EvaluatePathTraceCombinedGeometryMotionVectorDebug(RAB_Surface currentSur
 float4 EvaluatePathTraceCombinedGeometryReprojectionDebug(RAB_Surface currentSurface, uint2 pixel)
 {
     int2 previousPixel;
+    float2 previousPixelFloat;
     float2 motionPixels;
     uint debugStatus;
     uint sourceKind;
-    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus, sourceKind))
     {
         return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
@@ -1831,23 +1881,24 @@ float4 EvaluatePathTraceCombinedGeometryReprojectionDebug(RAB_Surface currentSur
 float4 EvaluatePathTraceCombinedGeometryMotionSourceDebug(RAB_Surface currentSurface, uint2 pixel)
 {
     int2 previousPixel;
+    float2 previousPixelFloat;
     float2 motionPixels;
     uint debugStatus;
     uint sourceKind;
-    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
+    if (!TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus, sourceKind))
     {
         return PathTracePrimarySurfaceDebugColor(debugStatus, currentSurface);
     }
 
-    if (sourceKind == 1u)
+    if (sourceKind == PT_MOTION_VECTOR_SOURCE_STATIC)
     {
         return float4(0.03, 0.42, 0.16, 1.0);
     }
-    if (sourceKind == 2u)
+    if (sourceKind == PT_MOTION_VECTOR_SOURCE_SKINNED)
     {
         return float4(0.48, 0.10, 0.62, 1.0);
     }
-    if (sourceKind == 3u)
+    if (sourceKind == PT_MOTION_VECTOR_SOURCE_RIGID)
     {
         return float4(0.04, 0.36, 0.48, 1.0);
     }
