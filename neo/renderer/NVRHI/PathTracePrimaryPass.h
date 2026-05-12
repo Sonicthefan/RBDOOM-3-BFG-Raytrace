@@ -54,6 +54,7 @@ public:
 
 private:
     void InitRayTracingSmokeTest();
+    bool InitRayTracingSmokeRestirPipeline();
     bool ResizeRayTracingSmokeOutput(int width, int height);
     void ResetRayTracingSmokeSceneResources();
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
@@ -172,8 +173,11 @@ private:
     int m_smokeDoomAnalyticLightCount = 0;
     int m_smokeDoomAnalyticLightBytes = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeRestirShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
+    nvrhi::rt::PipelineHandle m_smokeRestirPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeRestirShaderTable;
 };

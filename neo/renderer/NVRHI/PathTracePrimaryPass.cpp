@@ -219,17 +219,20 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
     m_smokeTlas = nullptr;
+    m_smokeRestirShaderTable = nullptr;
     m_smokeShaderTable = nullptr;
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPipeline = nullptr;
     m_smokeSkinnedGpuSkinningShader = nullptr;
+    m_smokeRestirPipeline = nullptr;
     m_smokePipeline = nullptr;
     m_smokeTextureDescriptorTable = nullptr;
     m_smokeSkinnedGpuSkinningBindingLayout = nullptr;
     m_smokeBindingLayout = nullptr;
     m_smokeTextureBindlessLayout = nullptr;
+    m_smokeRestirShaderLibrary = nullptr;
     m_smokeShaderLibrary = nullptr;
     m_smokeTestInitialized = false;
 }

@@ -161,8 +161,17 @@ Current validated feature set:
   light-candidate contract. Spatial and temporal reuse are still off.
 - Host-side RTXDI ReSTIR PT scaffolding. A separate packed PT reservoir buffer
   and RTXDI_PTParameters constant buffer are allocated/updated from
-  rtxdi::ReSTIRPTContext. The smoke ray tracing shader now has the Step 3
-  RTXDI reservoir ABI binding (`RTXDI_PTParameters` at b28,
+  rtxdi::ReSTIRPTContext. The shader build now emits two RT smoke libraries:
+  `pathtrace_smoke.rt.bin` for the core mode 18/mode 20/integrator/debug path,
+  and `pathtrace_smoke_restir.rt.bin` for modes 26-33. The core library keeps
+  only the minimal RAB material/surface shims needed by shared primary-surface
+  helpers; defining `RB_PT_ENABLE_RESTIR` in the ReSTIR wrapper pulls in the
+  RTXDI PT headers and full RAB bridge. `PathTracePrimaryPass` creates the core
+  shader table at smoke-path init and lazily creates the separate ReSTIR shader
+  table only when modes 26-33 are selected, so normal mode 18 startup does not
+  force the driver to ingest the large experimental RTXDI/RAB blob. The smoke
+  ray tracing shader now has the Step 3 RTXDI reservoir ABI binding
+  (`RTXDI_PTParameters` at b28,
   `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29, and
   `RTXDI_PT_RESERVOIR_BUFFER` before including `Rtxdi/PT/Reservoir.hlsli`),
   and local Step 4 RAB type declarations under
@@ -2302,7 +2311,9 @@ Current Release testing should copy from the relevant preset folder, for example
 into a prepared Doom 3 BFG game folder. When shaders change, also copy:
 
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin
+    base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
+    base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir.rt.bin
 
 to the matching paths in the prepared game folder. The RT shader library is
 loaded from `base/renderprogs2` at runtime; copying only the exe can leave a

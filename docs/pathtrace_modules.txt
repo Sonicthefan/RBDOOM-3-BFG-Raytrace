@@ -701,15 +701,23 @@ PathTraceRestirPTReservoirs.cpp
     primary-surface buffers used by modes 29-33.
 
 pathtrace_smoke.rt.hlsl
-    Existing smoke ray tracing shader. It now includes the RTXDI ReSTIR PT
-    parameter and reservoir headers for ABI validation only. The ABI bridge binds
-    `ConstantBuffer<RTXDI_PTParameters>` at b28 and
-    `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29, defines
-    `RTXDI_PT_RESERVOIR_BUFFER`, and compiles NVIDIA's PT reservoir load/store
-    helpers. Mode 18 now calls the extracted native NEE/direct-lighting include
-    for selected-light and Doom analytic direct lighting; the rest of the smoke
-    shader still owns the monolithic raygen, debug modes, reservoir preview,
-    payloads, and hit/miss shaders.
+    Core smoke ray tracing shader. It keeps mode 18, mode 20, integrator
+    visualizers, primary-surface helpers, payloads, hit/miss shaders, and
+    non-ReSTIR debug paths in the smaller default RT library. The full RTXDI PT
+    headers and RAB bridge are behind `RB_PT_ENABLE_RESTIR`; without that define
+    the shader exposes only minimal RAB material/surface shims for shared helper
+    code and returns placeholder colors for ReSTIR-only modes.
+
+pathtrace_smoke_restir.rt.hlsl
+    Thin wrapper that defines `RB_PT_ENABLE_RESTIR` and includes
+    `pathtrace_smoke.rt.hlsl`. CMake builds it into the separate
+    `pathtrace_smoke_restir.rt.bin` RT library. PathTracePrimaryPass lazily
+    loads this library into a separate NVRHI ray tracing pipeline/shader table
+    the first time modes 26-33 are selected. PathTraceSmokeDispatch selects
+    that table only for modes 26-33. This keeps
+    normal mode 18 startup and driver shader-library ingestion away from the
+    large experimental RTXDI/RAB blob while preserving the current ReSTIR debug
+    mode entry points.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE

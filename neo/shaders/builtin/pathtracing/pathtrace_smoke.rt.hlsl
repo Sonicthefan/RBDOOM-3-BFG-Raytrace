@@ -4,7 +4,9 @@
 #define uint16_t uint
 #endif
 #endif
+#ifdef RB_PT_ENABLE_RESTIR
 #include "Rtxdi/PT/ReSTIRPTParameters.h"
+#endif
 
 struct PathTraceSmokePayload
 {
@@ -226,8 +228,10 @@ RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirPrevious : register(u19);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirSpatialScratch : register(u20);
 StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(t21);
+#ifdef RB_PT_ENABLE_RESTIR
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
+#endif
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
 StructuredBuffer<PathTraceSkinnedPreviousPosition> SmokeSkinnedPreviousPositions : register(t32);
@@ -241,8 +245,10 @@ StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
+#ifdef RB_PT_ENABLE_RESTIR
 #define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
 #include "Rtxdi/PT/Reservoir.hlsli"
+#endif
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -365,7 +371,45 @@ uint2 PathTraceFullOutputSize()
     return (size.x > 0u && size.y > 0u) ? size : DispatchRaysDimensions().xy;
 }
 
+#ifdef RB_PT_ENABLE_RESTIR
 #include "RtxdiBridge/PathTraceRtxdiBridge.hlsli"
+#else
+#include "RtxdiBridge/RAB_Material.hlsli"
+
+struct RAB_Surface
+{
+    uint valid;
+    float3 worldPos;
+    float linearDepth;
+    float3 geometryNormal;
+    uint materialId;
+    float3 shadingNormal;
+    uint materialIndex;
+    float3 viewDir;
+    uint instanceId;
+    uint primitiveIndex;
+    uint surfaceClass;
+    uint flags;
+    RAB_Material material;
+};
+
+RAB_Surface RAB_EmptySurface()
+{
+    RAB_Surface surface = (RAB_Surface)0;
+    surface.material = RAB_EmptyMaterial();
+    return surface;
+}
+
+bool RAB_IsSurfaceValid(RAB_Surface surface)
+{
+    return surface.valid != 0u;
+}
+
+float3 RAB_GetSurfaceNormal(RAB_Surface surface)
+{
+    return surface.shadingNormal;
+}
+#endif
 
 bool DoomAnalyticLightsEnabled()
 {
@@ -1910,6 +1954,7 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
 
+#ifdef RB_PT_ENABLE_RESTIR
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
 #include "Rtxdi/PT/InitialSampling.hlsli"
 #include "Rtxdi/PT/TemporalResampling.hlsli"
@@ -2417,6 +2462,32 @@ float4 EvaluateRestirPTInitialReservoirShading(float3 rayOrigin, float3 rayDirec
     const float3 preview = contribution / (1.0 + contribution);
     return float4(saturate(surface.material.diffuseAlbedo * 0.015 + preview), 1.0);
 }
+#else
+float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTInitialReservoirShading(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel, bool traceVisibility)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
 
 uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {

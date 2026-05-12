@@ -52,6 +52,7 @@ else()
 endif()
 
 set(PATH_TRACING_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_smoke.rt.hlsl)
+set(PATH_TRACING_RESTIR_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_smoke_restir.rt.hlsl)
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
 set(PATH_TRACING_SHADER_OUTPUT_BASE ${CMAKE_CURRENT_SOURCE_DIR}/../../base/renderprogs2)
@@ -63,26 +64,44 @@ endif()
 
 if(USE_DX12 AND USE_DXIL_ON_DX12)
     set(PATH_TRACING_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin)
+    set(PATH_TRACING_RESTIR_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke_restir.rt.bin)
     add_custom_command(
         OUTPUT ${PATH_TRACING_DXIL_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing
         COMMAND ${DXC_PATH} -T lib_6_6 ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_DXIL_OUTPUT} ${PATH_TRACING_SHADER_SOURCE}
         DEPENDS ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
-        COMMENT "Compiling path tracing smoke RT shader library (DXIL)"
+        COMMENT "Compiling path tracing smoke core RT shader library (DXIL)"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT ${PATH_TRACING_RESTIR_DXIL_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing
+        COMMAND ${DXC_PATH} -T lib_6_6 ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_RESTIR_DXIL_OUTPUT} ${PATH_TRACING_RESTIR_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_RESTIR_SHADER_SOURCE} ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
+        COMMENT "Compiling path tracing smoke ReSTIR RT shader library (DXIL)"
         VERBATIM)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_DXIL_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_DXIL_OUTPUT})
 endif()
 
 if(USE_VULKAN)
     set(PATH_TRACING_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin)
+    set(PATH_TRACING_RESTIR_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_smoke_restir.rt.bin)
     add_custom_command(
         OUTPUT ${PATH_TRACING_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
         COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_SPIRV_OUTPUT} ${PATH_TRACING_SHADER_SOURCE}
         DEPENDS ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
-        COMMENT "Compiling path tracing smoke RT shader library (SPIR-V)"
+        COMMENT "Compiling path tracing smoke core RT shader library (SPIR-V)"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT ${PATH_TRACING_RESTIR_SPIRV_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
+        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_RESTIR_SPIRV_OUTPUT} ${PATH_TRACING_RESTIR_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_RESTIR_SHADER_SOURCE} ${PATH_TRACING_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
+        COMMENT "Compiling path tracing smoke ReSTIR RT shader library (SPIR-V)"
         VERBATIM)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SPIRV_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_SPIRV_OUTPUT})
 endif()
 
 if(PATH_TRACING_SHADER_OUTPUTS)

@@ -284,9 +284,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
 
-    nvrhi::rt::State state;
-    state.shaderTable = m_smokeShaderTable;
-    state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
     int debugMode = idMath::ClampInt(0, 49, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
@@ -298,6 +295,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const bool restirPTDebugMode = debugMode >= 26 && debugMode <= 33;
     const bool integratorDebugMode = debugMode >= 34 && debugMode <= 37;
+    if (restirPTDebugMode && !m_smokeRestirShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline();
+    }
+    nvrhi::rt::State state;
+    state.shaderTable = (restirPTDebugMode && m_smokeRestirShaderTable) ? m_smokeRestirShaderTable : m_smokeShaderTable;
+    state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);

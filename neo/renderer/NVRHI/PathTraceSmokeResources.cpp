@@ -765,6 +765,118 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     return commitDesc;
 }
 
+static bool LoadPathTraceSmokeShaderLibrary(nvrhi::IDevice* device, const char* shaderPath, const char* label, nvrhi::ShaderLibraryHandle& shaderLibrary)
+{
+    shaderLibrary = nullptr;
+
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf("PathTracePrimaryPass: couldn't read %s RT smoke shader %s\n", label, shaderPath);
+        return false;
+    }
+
+    common->Printf("PathTracePrimaryPass: loaded %s RT smoke shader %s (%d bytes, timestamp %u)\n",
+        label, shaderPath, shaderSize, static_cast<unsigned int>(shaderTimestamp));
+
+    shaderLibrary = device->createShaderLibrary(shaderData, shaderSize);
+    Mem_Free(shaderData);
+
+    if (!shaderLibrary)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke shader library\n", label);
+        return false;
+    }
+
+    return true;
+}
+
+static bool CreatePathTraceSmokeRayTracingPipeline(
+    nvrhi::IDevice* device,
+    nvrhi::ShaderLibraryHandle shaderLibrary,
+    nvrhi::BindingLayoutHandle bindingLayout,
+    nvrhi::BindingLayoutHandle textureBindlessLayout,
+    const char* label,
+    nvrhi::rt::PipelineHandle& pipeline,
+    nvrhi::rt::ShaderTableHandle& shaderTable)
+{
+    pipeline = nullptr;
+    shaderTable = nullptr;
+
+    if (!shaderLibrary)
+    {
+        common->Printf("PathTracePrimaryPass: cannot create %s RT smoke pipeline without a shader library\n", label);
+        return false;
+    }
+
+    nvrhi::ShaderHandle rayGen = shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle miss = shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle shadowMiss = shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle closestHit = shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle anyHit = shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle shadowClosestHit = shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle shadowAnyHit = shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+
+    if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
+    {
+        common->Printf("PathTracePrimaryPass: %s RT smoke shader library is missing one or more required entry points\n", label);
+        return false;
+    }
+
+    nvrhi::rt::PipelineDesc pipelineDesc;
+    pipelineDesc.globalBindingLayouts = { bindingLayout, textureBindlessLayout };
+    pipelineDesc.shaders = {
+        { "", rayGen, nullptr },
+        { "", miss, nullptr },
+        { "", shadowMiss, nullptr }
+    };
+    pipelineDesc.hitGroups = {
+        {
+            "HitGroup",
+            closestHit,
+            anyHit,
+            nullptr,
+            nullptr,
+            false
+        },
+        {
+            "ShadowHitGroup",
+            shadowClosestHit,
+            shadowAnyHit,
+            nullptr,
+            nullptr,
+            false
+        }
+    };
+    pipelineDesc.maxPayloadSize = 64;
+    pipelineDesc.maxAttributeSize = 8;
+    pipelineDesc.maxRecursionDepth = 1;
+
+    pipeline = device->createRayTracingPipeline(pipelineDesc);
+    if (!pipeline)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke pipeline\n", label);
+        return false;
+    }
+
+    shaderTable = pipeline->createShaderTable();
+    if (!shaderTable)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create %s RT smoke shader table\n", label);
+        pipeline = nullptr;
+        return false;
+    }
+
+    shaderTable->setRayGenerationShader("RayGen");
+    shaderTable->addMissShader("Miss");
+    shaderTable->addMissShader("ShadowMiss");
+    shaderTable->addHitGroup("HitGroup");
+    shaderTable->addHitGroup("ShadowHitGroup");
+    return true;
+}
+
 void PathTracePrimaryPass::InitRayTracingSmokeTest()
 {
     if (m_smokeTestInitialized)
@@ -796,24 +908,8 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
-    void* shaderData = nullptr;
-    ID_TIME_T shaderTimestamp = 0;
-    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
-    if (shaderSize <= 0 || !shaderData)
+    if (!LoadPathTraceSmokeShaderLibrary(device, shaderPath, "core", m_smokeShaderLibrary))
     {
-        common->Printf("PathTracePrimaryPass: couldn't read %s\n", shaderPath);
-        return;
-    }
-
-    common->Printf("PathTracePrimaryPass: loaded RT smoke shader %s (%d bytes, timestamp %u)\n",
-        shaderPath, shaderSize, static_cast<unsigned int>(shaderTimestamp));
-
-    m_smokeShaderLibrary = device->createShaderLibrary(shaderData, shaderSize);
-    Mem_Free(shaderData);
-
-    if (!m_smokeShaderLibrary)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke shader library\n");
         return;
     }
 
@@ -984,56 +1080,77 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
-    nvrhi::rt::PipelineDesc pipelineDesc;
-    pipelineDesc.globalBindingLayouts = { m_smokeBindingLayout, m_smokeTextureBindlessLayout };
-    pipelineDesc.shaders = {
-        { "", m_smokeShaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration), nullptr },
-        { "", m_smokeShaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss), nullptr },
-        { "", m_smokeShaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss), nullptr }
-    };
-    pipelineDesc.hitGroups = {
-        {
-            "HitGroup",
-            m_smokeShaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit),
-            m_smokeShaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit),
-            nullptr,
-            nullptr,
-            false
-        },
-        {
-            "ShadowHitGroup",
-            m_smokeShaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit),
-            m_smokeShaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit),
-            nullptr,
-            nullptr,
-            false
-        }
-    };
-    pipelineDesc.maxPayloadSize = 64;
-    pipelineDesc.maxAttributeSize = 8;
-    pipelineDesc.maxRecursionDepth = 1;
-
-    m_smokePipeline = device->createRayTracingPipeline(pipelineDesc);
-    if (!m_smokePipeline)
+    if (!CreatePathTraceSmokeRayTracingPipeline(
+        device,
+        m_smokeShaderLibrary,
+        m_smokeBindingLayout,
+        m_smokeTextureBindlessLayout,
+        "core",
+        m_smokePipeline,
+        m_smokeShaderTable))
     {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke pipeline\n");
         return;
     }
-
-    m_smokeShaderTable = m_smokePipeline->createShaderTable();
-    if (!m_smokeShaderTable)
-    {
-        common->Printf("PathTracePrimaryPass: failed to create RT smoke shader table\n");
-        return;
-    }
-
-    m_smokeShaderTable->setRayGenerationShader("RayGen");
-    m_smokeShaderTable->addMissShader("Miss");
-    m_smokeShaderTable->addMissShader("ShadowMiss");
-    m_smokeShaderTable->addHitGroup("HitGroup");
-    m_smokeShaderTable->addHitGroup("ShadowHitGroup");
 
     common->Printf("PathTracePrimaryPass: RT smoke pipeline initialized\n");
+}
+
+bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline()
+{
+    if (m_smokeRestirShaderTable)
+    {
+        return true;
+    }
+
+    if (!m_smokeTestInitialized || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout)
+    {
+        return false;
+    }
+
+    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+    if (!device)
+    {
+        return false;
+    }
+
+    const char* restirShaderPath = nullptr;
+    if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+    {
+        restirShaderPath = "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir.rt.bin";
+    }
+    else if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+    {
+        restirShaderPath = "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir.rt.bin";
+    }
+    else
+    {
+        return false;
+    }
+
+    if (!m_smokeRestirShaderLibrary &&
+        !LoadPathTraceSmokeShaderLibrary(device, restirShaderPath, "ReSTIR", m_smokeRestirShaderLibrary))
+    {
+        common->Printf("PathTracePrimaryPass: ReSTIR RT smoke shader unavailable; modes 26-33 will use the core placeholder path\n");
+        return false;
+    }
+
+    if (!CreatePathTraceSmokeRayTracingPipeline(
+        device,
+        m_smokeRestirShaderLibrary,
+        m_smokeBindingLayout,
+        m_smokeTextureBindlessLayout,
+        "ReSTIR",
+        m_smokeRestirPipeline,
+        m_smokeRestirShaderTable))
+    {
+        common->Printf("PathTracePrimaryPass: ReSTIR RT smoke pipeline unavailable; modes 26-33 will use the core placeholder path\n");
+        m_smokeRestirPipeline = nullptr;
+        m_smokeRestirShaderTable = nullptr;
+        return false;
+    }
+
+    common->Printf("PathTracePrimaryPass: ReSTIR RT smoke pipeline initialized\n");
+    return true;
 }
 
 bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
