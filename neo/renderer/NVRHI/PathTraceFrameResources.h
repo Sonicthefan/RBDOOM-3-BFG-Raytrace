@@ -67,6 +67,7 @@ struct RtPathTraceFrameResourceDiagnostics
     int primarySurfaceHistoryBuffersReused = 0;
     int primarySurfaceHistoryBuffersRecreated = 0;
     int motionVectorTexturesCreated = 0;
+    int motionVectorMaskTexturesCreated = 0;
     int descriptorBindingSetRebuilds = 0;
     int blasTlasCommits = 0;
     int readbacksQueued = 0;
@@ -77,6 +78,7 @@ struct RtPathTraceFrameResourceDiagnostics
     uint64_t restirPTReservoirBytes = 0;
     uint64_t primarySurfaceHistoryBytes = 0;
     uint64_t motionVectorBytes = 0;
+    uint64_t motionVectorMaskBytes = 0;
     uint64_t sceneUploadBytes = 0;
 
     void ResetResizeStats();
@@ -87,6 +89,7 @@ struct RtPathTraceFrameResources
     nvrhi::TextureHandle outputTexture;
     nvrhi::TextureHandle accumulationTexture;
     nvrhi::TextureHandle motionVectorTexture;
+    nvrhi::TextureHandle motionVectorMaskTexture;
     nvrhi::StagingTextureHandle readbackTexture;
     int width = 0;
     int height = 0;

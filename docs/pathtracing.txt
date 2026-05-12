@@ -954,11 +954,13 @@ Denoise/upscale/Ray Reconstruction reservation:
 
 - r_pathTracingMotionVectorExport
   Off-by-default writer for the private PT RG16F motion-vector UAV. `0` leaves
-  the texture as an allocated/bound scaffold. `1` writes combined geometry
-  current-to-previous pixel motion into the private texture for static,
-  skinned, and routed-rigid hits that have valid previous geometry; unsupported
-  or invalid pixels write zero. No current consumer reads the texture, so
-  normal PT output is unchanged.
+  the vector and mask textures as allocated/bound scaffolds. `1` writes
+  combined geometry current-to-previous pixel motion into the private vector
+  texture for static, skinned, and routed-rigid hits that have valid previous
+  geometry. The paired private R32_UINT mask texture stores `0` for invalid
+  pixels and a non-zero valid/source flag for valid pixels, so zero motion is
+  never used as an invalid sentinel. No current consumer reads either texture,
+  so normal PT output is unchanged.
 
 - r_pathTracingPortalTransitionDump
   Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
@@ -2055,14 +2057,17 @@ Geometry universe status:
   slots for future consumers. Once the same previous static snapshot is already
   resident in the retained previous buffers, scene build skips the repeat upload
   and reports `prevGpuUpload=0` in `r_pathTracingSceneInputsDump`.
-- The smoke path now reserves a private output-sized RG16F motion-vector export
-  texture in PathTraceFrameResources and binds it as raygen UAV `u39`.
+- The smoke path now reserves private output-sized motion-vector export
+  resources in PathTraceFrameResources: RG16F vectors at raygen UAV `u39` and
+  an R32_UINT validity/source mask at UAV `u40`.
   `r_pathTracingMotionVectorExport 1` makes raygen write combined geometry
-  current-to-previous pixel motion into that private texture, using the same
+  current-to-previous pixel motion into those private textures, using the same
   shared static/skinned/routed-rigid helper as debug mode 49. Unsupported or
-  invalid pixels write zero. No external consumer reads it yet, and normal PT
-  shading/output is unchanged. The frame-resource diagnostics report its
-  allocation as `motion`.
+  invalid pixels write a zero vector and zero mask; valid stationary surfaces
+  also may write a zero vector, but only with a non-zero mask. No external
+  consumer reads them yet, and normal PT shading/output is unchanged. The
+  frame-resource diagnostics report their allocations as `motion` and
+  `motionMask`.
 - Existing diagnostics report static record lifecycle and validation through
   the static BLAS summary: seen/new/gone, history/previous-range, dirty, and
   validate=total/range/duplicate-key/history/key-vector. User testing in mode

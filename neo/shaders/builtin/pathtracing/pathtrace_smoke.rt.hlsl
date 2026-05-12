@@ -201,6 +201,7 @@ RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceMotionVectors : register(u39);
+VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -1778,10 +1779,12 @@ void StorePathTraceMotionVectorExport(uint2 pixel, RAB_Surface currentSurface)
     if (TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, motionPixels, debugStatus, sourceKind))
     {
         PathTraceMotionVectors[pixel] = motionPixels;
+        PathTraceMotionVectorMask[pixel] = 1u | (sourceKind << 1);
     }
     else
     {
         PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
+        PathTraceMotionVectorMask[pixel] = 0u;
     }
 }
 

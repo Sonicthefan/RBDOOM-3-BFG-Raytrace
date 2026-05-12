@@ -23,6 +23,15 @@ uint64_t EstimateRg16FloatTextureBytes(int width, int height)
     return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4ull;
 }
 
+uint64_t EstimateR32UintTextureBytes(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+    {
+        return 0;
+    }
+    return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4ull;
+}
+
 void AppendReason(idStr& out, const char* text)
 {
     if (out.Length() > 0)
@@ -60,11 +69,13 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     primarySurfaceHistoryBuffersReused = 0;
     primarySurfaceHistoryBuffersRecreated = 0;
     motionVectorTexturesCreated = 0;
+    motionVectorMaskTexturesCreated = 0;
     outputTextureBytes = 0;
     smokeReservoirBytes = 0;
     restirPTReservoirBytes = 0;
     primarySurfaceHistoryBytes = 0;
     motionVectorBytes = 0;
+    motionVectorMaskBytes = 0;
 }
 
 bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeight, rtxdi::CheckerboardMode checkerboardMode) const
@@ -73,6 +84,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         outputTexture &&
         accumulationTexture &&
         motionVectorTexture &&
+        motionVectorMaskTexture &&
         readbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
@@ -87,6 +99,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         outputTexture ||
         accumulationTexture ||
         motionVectorTexture ||
+        motionVectorMaskTexture ||
         readbackTexture ||
         smokeReservoirBuffers.current ||
         smokeReservoirBuffers.previous ||
@@ -164,6 +177,16 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    nvrhi::TextureDesc motionVectorMaskDesc = outputDesc;
+    motionVectorMaskDesc.format = nvrhi::Format::R32_UINT;
+    motionVectorMaskDesc.debugName = "PathTraceSmokeMotionVectorMask";
+    nvrhi::TextureHandle newMotionVectorMaskTexture = device->createTexture(motionVectorMaskDesc);
+    if (!newMotionVectorMaskTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT motion-vector mask UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     nvrhi::TextureDesc readbackDesc = outputDesc;
     readbackDesc.isShaderResource = false;
     readbackDesc.isUAV = false;
@@ -185,14 +208,17 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     outputTexture = newOutputTexture;
     accumulationTexture = newAccumulationTexture;
     motionVectorTexture = newMotionVectorTexture;
+    motionVectorMaskTexture = newMotionVectorMaskTexture;
     readbackTexture = newReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
     diagnostics.outputTexturesCreated += 2;
     diagnostics.motionVectorTexturesCreated++;
+    diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.diagnosticReadbackResourcesCreated++;
     diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 2ull;
     diagnostics.motionVectorBytes = EstimateRg16FloatTextureBytes(width, height);
+    diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     MarkResetReason(RT_FRAME_RESET_OUTPUT_RESIZE);
 
     RtSmokeReservoirBufferCreateDesc reservoirDesc;
@@ -296,10 +322,11 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(primarySurfaceHistoryBuffers.surfaceBytes),
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE);
 
-    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d format=RG16_FLOAT bytes=%llu shaderUav=u39 consumer=none\n",
+    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RG16_FLOAT vectorBytes=%llu vectorUav=u39 maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=none\n",
         requestedWidth,
         requestedHeight,
-        static_cast<unsigned long long>(diagnostics.motionVectorBytes));
+        static_cast<unsigned long long>(diagnostics.motionVectorBytes),
+        static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
     common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d)\n", requestedWidth, requestedHeight);
     return true;
@@ -310,6 +337,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     outputTexture = nullptr;
     accumulationTexture = nullptr;
     motionVectorTexture = nullptr;
+    motionVectorMaskTexture = nullptr;
     readbackTexture = nullptr;
     width = 0;
     height = 0;
@@ -455,7 +483,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
     idStr resetReasons;
     DescribeResetReasons(resetReasons);
 
-    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/motion/readback=%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/readback=%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
+    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/motion/motionMask/readback=%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/readback=%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
         prefix ? prefix : "PathTraceFrameResources",
         width,
         height,
@@ -466,6 +494,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         outputTexture ? 1 : 0,
         accumulationTexture ? 1 : 0,
         motionVectorTexture ? 1 : 0,
+        motionVectorMaskTexture ? 1 : 0,
         readbackTexture ? 1 : 0,
         smokeReservoirBuffers.IsValidFor(width, height) ? 1 : 0,
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(width), static_cast<uint32_t>(height), settings.checkerboardMode) ? 1 : 0,
@@ -477,12 +506,14 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         primarySurfaceHistoryState.objectMotionAvailable ? 1 : 0,
         static_cast<unsigned long long>(diagnostics.outputTextureBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
+        static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes),
         static_cast<unsigned long long>(diagnostics.smokeReservoirBytes),
         static_cast<unsigned long long>(diagnostics.restirPTReservoirBytes),
         static_cast<unsigned long long>(diagnostics.primarySurfaceHistoryBytes),
         static_cast<unsigned long long>(diagnostics.sceneUploadBytes),
         diagnostics.outputTexturesCreated,
         diagnostics.motionVectorTexturesCreated,
+        diagnostics.motionVectorMaskTexturesCreated,
         diagnostics.diagnosticReadbackResourcesCreated,
         diagnostics.smokeReservoirBuffersReused,
         diagnostics.smokeReservoirBuffersRecreated,

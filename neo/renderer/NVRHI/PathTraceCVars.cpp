@@ -967,7 +967,7 @@ idCVar r_pathTracingMotionVectorExport(
     "r_pathTracingMotionVectorExport",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Off-by-default PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion into the private PT motion-vector UAV; no consumer reads it yet" );
+    "Off-by-default PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion plus validity/source mask into private PT UAVs; no consumer reads them yet" );
 
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",
