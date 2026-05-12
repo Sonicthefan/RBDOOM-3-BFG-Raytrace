@@ -1,14 +1,12 @@
 #ifndef RB_PATH_TRACING_RTXDI_BRIDGE_HLSLI
 #define RB_PATH_TRACING_RTXDI_BRIDGE_HLSLI
 
-// Local RBDoom3 bridge types for future RTXDI/ReSTIR PT RAB callbacks.
-// This file intentionally declares only thin data wrappers. Surface loading,
-// material evaluation, visibility, and RAB_PathTrace are added in later steps.
+// Compatibility umbrella for RTXDI/ReSTIR PT RAB callbacks. New pass-local
+// shaders should prefer PathTraceRtxdiBridgeCore.hlsli plus the specific RAB
+// capability files they need, instead of pulling this whole callback surface.
 
-#include "RAB_Material.hlsli"
-#include "RAB_Surface.hlsli"
-#include "RAB_RayPayload.hlsli"
-#include "RAB_LightSample.hlsli"
+#include "PathTraceRtxdiBridgeCore.hlsli"
+#include "RAB_Brdf.hlsli"
 #include "RAB_LightInfo.hlsli"
 #include "RAB_RandomSamplerState.hlsli"
 #include "RAB_LightSampling.hlsli"

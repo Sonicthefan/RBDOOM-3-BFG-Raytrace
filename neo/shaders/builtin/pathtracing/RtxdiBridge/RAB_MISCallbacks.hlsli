@@ -2,7 +2,7 @@
 #define RB_PATH_TRACING_RAB_MIS_CALLBACKS_HLSLI
 
 #include "Rtxdi/Utils/BrdfRaySample.hlsli"
-#include "RAB_LightSampling.hlsli"
+#include "RAB_LightSamplingCore.hlsli"
 #include "RAB_RayPayload.hlsli"
 
 float RAB_GetMISWeightForNEE(

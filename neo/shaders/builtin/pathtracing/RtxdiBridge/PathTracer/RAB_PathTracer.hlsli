@@ -6,7 +6,11 @@
 #define RB_RESTIR_PT_PATH_TRACER_DEFINED_INITIAL_SAMPLING 1
 #endif
 
-#include "../PathTraceRtxdiBridge.hlsli"
+#include "../PathTraceRtxdiBridgeCore.hlsli"
+#include "../RAB_Brdf.hlsli"
+#include "../RAB_LightInfo.hlsli"
+#include "../RAB_LightSamplingCore.hlsli"
+#include "../RAB_Visibility.hlsli"
 #include "Rtxdi/PT/PathTracerContext.hlsli"
 #include "Rtxdi/PT/PathTracerRandomContext.hlsli"
 #include "RAB_PathTracerUserData.hlsli"

@@ -372,7 +372,7 @@ uint2 PathTraceFullOutputSize()
 }
 
 #ifdef RB_PT_ENABLE_RESTIR
-#include "RtxdiBridge/PathTraceRtxdiBridge.hlsli"
+#include "RtxdiBridge/PathTraceRtxdiBridgeCore.hlsli"
 #else
 #include "RtxdiBridge/RAB_Material.hlsli"
 
@@ -1956,14 +1956,21 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
 
 #ifdef RB_PT_ENABLE_RESTIR
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
-#include "Rtxdi/PT/InitialSampling.hlsli"
+#ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
+#include "RtxdiBridge/RAB_LightTarget.hlsli"
+#include "RtxdiBridge/RAB_DuplicationMap.hlsli"
+#include "RtxdiBridge/RAB_MISCallbacks.hlsli"
 #include "Rtxdi/PT/TemporalResampling.hlsli"
+#endif
+#include "RtxdiBridge/RAB_LightTarget.hlsli"
+#include "Rtxdi/PT/InitialSampling.hlsli"
 
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
 float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir);
 
+#ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, uint2 pixel, out float4 rejectionColor, out bool selectedPrevSample)
 {
     rejectionColor = float4(0.55, 0.05, 0.04, 1.0);
@@ -2076,6 +2083,7 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     return temporalReservoir;
 }
 
+#ifdef RB_PT_ENABLE_RESTIR_TEMPORAL_DEBUG
 float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
 {
     float4 rejectionColor;
@@ -2090,7 +2098,14 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
     const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
     return float4(0.02, saturate(0.36 + selectedBoost + historyTint * 0.28), 0.08 + historyTint * 0.10, 1.0);
 }
+#else
+float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
 
+#ifdef RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING
 float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
 {
     float4 rejectionColor;
@@ -2115,7 +2130,14 @@ float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint
     const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
     return float4(saturate(currentSurface.material.diffuseAlbedo * 0.015 + preview + float3(0.0, 0.025, 0.015) * historyTint), 1.0);
 }
+#else
+float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
 
+#ifdef RB_PT_ENABLE_RESTIR_ATTRIBUTION
 float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
     float4 rejectionColor;
@@ -2157,6 +2179,28 @@ float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface
 
     return float4(0.08, saturate(0.55 + heat * 0.4), 0.12, 1.0);
 }
+#else
+float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
+#else
+float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
 
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
 {
@@ -3270,7 +3314,11 @@ void RayGen()
     ray.TMin = 0.1;
     ray.TMax = CameraOriginAndTMax.w;
 
+#ifdef RB_PT_FORCE_DEBUG_MODE
+    const uint debugMode = RB_PT_FORCE_DEBUG_MODE;
+#else
     const uint debugMode = (uint)CameraUpAndDebugMode.w;
+#endif
     if (debugMode == 21u)
     {
         SmokeOutput[pixel] = RenderSmokeBoundsBoxes(ray.Origin, ray.Direction);

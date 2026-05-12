@@ -710,14 +710,42 @@ pathtrace_smoke.rt.hlsl
 
 pathtrace_smoke_restir.rt.hlsl
     Thin wrapper that defines `RB_PT_ENABLE_RESTIR` and includes
-    `pathtrace_smoke.rt.hlsl`. CMake builds it into the separate
-    `pathtrace_smoke_restir.rt.bin` RT library. PathTracePrimaryPass lazily
-    loads this library into a separate NVRHI ray tracing pipeline/shader table
-    the first time modes 26-33 are selected. PathTraceSmokeDispatch selects
-    that table only for modes 26-33. This keeps
-    normal mode 18 startup and driver shader-library ingestion away from the
-    large experimental RTXDI/RAB blob while preserving the current ReSTIR debug
-    mode entry points.
+    `RB_PT_ENABLE_RESTIR_TEMPORAL`, then includes `pathtrace_smoke.rt.hlsl`.
+    This wrapper is retained as a source-level compatibility alias; active
+    dispatch now uses the mode-specific temporal wrappers below instead of a
+    single modes-31-through-33 blob.
+
+pathtrace_smoke_restir_initial.rt.hlsl
+    Thin wrapper that defines `RB_PT_ENABLE_RESTIR` without
+    `RB_PT_ENABLE_RESTIR_TEMPORAL`, then includes `pathtrace_smoke.rt.hlsl`.
+    CMake builds it into `pathtrace_smoke_restir_initial.rt.bin`.
+    PathTraceSmokeDispatch selects this smaller library for modes 26-28, so the
+    first initial-reservoir validation path does not also force the driver to
+    ingest temporal resampling and HybridShift code. Modes 29-30 are
+    primary-surface history/reprojection diagnostics and can use the core smoke
+    shader table.
+
+pathtrace_smoke_restir_temporal.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`, and
+    `RB_PT_ENABLE_RESTIR_TEMPORAL_DEBUG`. CMake builds
+    `pathtrace_smoke_restir_temporal.rt.bin`, and PathTraceSmokeDispatch selects
+    it only for mode 31 temporal reservoir validation. The wrapper also defines
+    `RB_PT_FORCE_DEBUG_MODE 31u`, so the shader compiler can drop unrelated
+    raygen debug-mode branches from this library.
+
+pathtrace_smoke_restir_temporal_shading.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`, and
+    `RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING`. CMake builds
+    `pathtrace_smoke_restir_temporal_shading.rt.bin`, and dispatch selects it
+    only for mode 32 temporal reservoir shading. The wrapper defines
+    `RB_PT_FORCE_DEBUG_MODE 32u`.
+
+pathtrace_smoke_restir_attribution.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`, and
+    `RB_PT_ENABLE_RESTIR_ATTRIBUTION`. CMake builds
+    `pathtrace_smoke_restir_attribution.rt.bin`, and dispatch selects it only
+    for mode 33 temporal light-source attribution. The wrapper defines
+    `RB_PT_FORCE_DEBUG_MODE 33u`.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
@@ -805,11 +833,17 @@ RtxdiBridge/*.hlsli
     contract that ReSTIR PT reservoirs need for path replay, while keeping the
     application bridge name local and upgradeable.
 
-    Step 7 BRDF scaffolding lives in `RAB_Surface.hlsli`. It implements the
-    first conservative opaque-diffuse callbacks:
+    Step 7 surface/BRDF scaffolding is now split by include cost.
+    `RAB_SurfaceCore.hlsli` owns the RAB surface record, accessors, safe
+    normalization helpers, and opaque-diffuse support predicate.
+    `RAB_Brdf.hlsli` owns the first conservative opaque-diffuse callbacks:
     `RAB_GetSurfaceBrdfSample`, `RAB_GetSurfaceBrdfPdf`,
     `RAB_EvaluateSurfaceBrdf`, `RAB_EvaluateSurfaceBrdfOverPdf`, plus
     `RAB_SurfaceImportanceSampleBrdf` and `RAB_SurfaceEvaluateBrdfPdf` aliases.
+    `RAB_Surface.hlsli` remains a compatibility wrapper that includes the BRDF
+    file for older bridge code. New pass-local shaders should include
+    `RAB_SurfaceCore.hlsli` when they only need surface records or history
+    callbacks.
     The current model is cosine-hemisphere Lambert sampling over the RAB shading
     normal with geometry-normal hemisphere rejection. Unsupported translucent or
     invalid surfaces return no sample/zero contribution so they can keep using
@@ -832,8 +866,16 @@ RtxdiBridge/*.hlsli
     separation, exposure, and history reset reasons, with geometry-derived
     motion rather than camera-only reprojection.
 
-    Step 8 light scaffolding is split across `RAB_LightInfo.hlsli`,
-    `RAB_LightSampling.hlsli`, and `RAB_MISCallbacks.hlsli`. The current bridge
+    Step 8 light scaffolding is now split across capability files:
+    `RAB_LightInfoCore.hlsli` for light records/constants,
+    `RAB_LightInfoRuntime.hlsli` for current-frame smoke/Doom light loading,
+    `RAB_LightSamplingCore.hlsli` for sampling emissive and Doom analytic
+    proposals, `RAB_LightTarget.hlsli` for target/replayed radiance evaluation,
+    `RAB_Visibility.hlsli` for the conservative visibility callbacks,
+    `RAB_DuplicationMap.hlsli` for the placeholder duplication-map callback,
+    and `RAB_MISCallbacks.hlsli` for MIS/environment placeholders.
+    `RAB_LightInfo.hlsli` and `RAB_LightSampling.hlsli` remain compatibility
+    wrappers for the current smoke/ReSTIR library. The current bridge
     can load and sample current-frame smoke emissive triangles and Doom analytic
     sphere lights from the existing shader buffers, compute a simple reflected
     target weight for supported opaque-diffuse RAB surfaces, return direction

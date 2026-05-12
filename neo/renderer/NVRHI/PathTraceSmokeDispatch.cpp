@@ -295,12 +295,47 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const bool restirPTDebugMode = debugMode >= 26 && debugMode <= 33;
     const bool integratorDebugMode = debugMode >= 34 && debugMode <= 37;
-    if (restirPTDebugMode && !m_smokeRestirShaderTable)
+    const bool restirPTInitialOnlyMode = debugMode >= 26 && debugMode <= 28;
+    const bool restirPTTemporalMode = debugMode == 31;
+    const bool restirPTTemporalShadingMode = debugMode == 32;
+    const bool restirPTAttributionMode = debugMode == 33;
+    if (restirPTInitialOnlyMode && !m_smokeRestirInitialShaderTable)
     {
-        InitRayTracingSmokeRestirPipeline();
+        InitRayTracingSmokeRestirPipeline(0);
+    }
+    else if (restirPTTemporalMode && !m_smokeRestirShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(1);
+    }
+    else if (restirPTTemporalShadingMode && !m_smokeRestirTemporalShadingShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(2);
+    }
+    else if (restirPTAttributionMode && !m_smokeRestirAttributionShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(3);
     }
     nvrhi::rt::State state;
-    state.shaderTable = (restirPTDebugMode && m_smokeRestirShaderTable) ? m_smokeRestirShaderTable : m_smokeShaderTable;
+    if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
+    {
+        state.shaderTable = m_smokeRestirInitialShaderTable;
+    }
+    else if (restirPTTemporalMode && m_smokeRestirShaderTable)
+    {
+        state.shaderTable = m_smokeRestirShaderTable;
+    }
+    else if (restirPTTemporalShadingMode && m_smokeRestirTemporalShadingShaderTable)
+    {
+        state.shaderTable = m_smokeRestirTemporalShadingShaderTable;
+    }
+    else if (restirPTAttributionMode && m_smokeRestirAttributionShaderTable)
+    {
+        state.shaderTable = m_smokeRestirAttributionShaderTable;
+    }
+    else
+    {
+        state.shaderTable = m_smokeShaderTable;
+    }
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);

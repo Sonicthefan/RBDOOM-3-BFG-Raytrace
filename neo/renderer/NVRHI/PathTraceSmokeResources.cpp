@@ -1095,62 +1095,108 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     common->Printf("PathTracePrimaryPass: RT smoke pipeline initialized\n");
 }
 
-bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline()
+bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKind)
 {
-    if (m_smokeRestirShaderTable)
+    auto initLibrary = [&](nvrhi::ShaderLibraryHandle& shaderLibrary,
+        nvrhi::rt::PipelineHandle& pipeline,
+        nvrhi::rt::ShaderTableHandle& shaderTable,
+        const char* label,
+        const char* dxilShaderPath,
+        const char* spirvShaderPath) -> bool
     {
+        if (shaderTable)
+        {
+            return true;
+        }
+
+        if (!m_smokeTestInitialized || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout)
+        {
+            return false;
+        }
+
+        nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+        if (!device)
+        {
+            return false;
+        }
+
+        const char* restirShaderPath = nullptr;
+        if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
+        {
+            restirShaderPath = dxilShaderPath;
+        }
+        else if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
+        {
+            restirShaderPath = spirvShaderPath;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!shaderLibrary &&
+            !LoadPathTraceSmokeShaderLibrary(device, restirShaderPath, label, shaderLibrary))
+        {
+            common->Printf("PathTracePrimaryPass: %s RT smoke shader unavailable; matching modes will use the core placeholder path\n", label);
+            return false;
+        }
+
+        if (!CreatePathTraceSmokeRayTracingPipeline(
+            device,
+            shaderLibrary,
+            m_smokeBindingLayout,
+            m_smokeTextureBindlessLayout,
+            label,
+            pipeline,
+            shaderTable))
+        {
+            common->Printf("PathTracePrimaryPass: %s RT smoke pipeline unavailable; matching modes will use the core placeholder path\n", label);
+            pipeline = nullptr;
+            shaderTable = nullptr;
+            return false;
+        }
+
+        common->Printf("PathTracePrimaryPass: %s RT smoke pipeline initialized\n", label);
         return true;
-    }
+    };
 
-    if (!m_smokeTestInitialized || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout)
+    switch (restirLibraryKind)
     {
+    case 0:
+        return initLibrary(
+            m_smokeRestirInitialShaderLibrary,
+            m_smokeRestirInitialPipeline,
+            m_smokeRestirInitialShaderTable,
+            "ReSTIR initial",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_initial.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_initial.rt.bin");
+    case 1:
+        return initLibrary(
+            m_smokeRestirShaderLibrary,
+            m_smokeRestirPipeline,
+            m_smokeRestirShaderTable,
+            "ReSTIR temporal",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.bin");
+    case 2:
+        return initLibrary(
+            m_smokeRestirTemporalShadingShaderLibrary,
+            m_smokeRestirTemporalShadingPipeline,
+            m_smokeRestirTemporalShadingShaderTable,
+            "ReSTIR temporal shading",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_temporal_shading.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_temporal_shading.rt.bin");
+    case 3:
+        return initLibrary(
+            m_smokeRestirAttributionShaderLibrary,
+            m_smokeRestirAttributionPipeline,
+            m_smokeRestirAttributionShaderTable,
+            "ReSTIR attribution",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_attribution.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_attribution.rt.bin");
+    default:
         return false;
     }
-
-    nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!device)
-    {
-        return false;
-    }
-
-    const char* restirShaderPath = nullptr;
-    if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12)
-    {
-        restirShaderPath = "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir.rt.bin";
-    }
-    else if (deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
-    {
-        restirShaderPath = "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir.rt.bin";
-    }
-    else
-    {
-        return false;
-    }
-
-    if (!m_smokeRestirShaderLibrary &&
-        !LoadPathTraceSmokeShaderLibrary(device, restirShaderPath, "ReSTIR", m_smokeRestirShaderLibrary))
-    {
-        common->Printf("PathTracePrimaryPass: ReSTIR RT smoke shader unavailable; modes 26-33 will use the core placeholder path\n");
-        return false;
-    }
-
-    if (!CreatePathTraceSmokeRayTracingPipeline(
-        device,
-        m_smokeRestirShaderLibrary,
-        m_smokeBindingLayout,
-        m_smokeTextureBindlessLayout,
-        "ReSTIR",
-        m_smokeRestirPipeline,
-        m_smokeRestirShaderTable))
-    {
-        common->Printf("PathTracePrimaryPass: ReSTIR RT smoke pipeline unavailable; modes 26-33 will use the core placeholder path\n");
-        m_smokeRestirPipeline = nullptr;
-        m_smokeRestirShaderTable = nullptr;
-        return false;
-    }
-
-    common->Printf("PathTracePrimaryPass: ReSTIR RT smoke pipeline initialized\n");
-    return true;
 }
 
 bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)

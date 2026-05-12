@@ -54,7 +54,7 @@ public:
 
 private:
     void InitRayTracingSmokeTest();
-    bool InitRayTracingSmokeRestirPipeline();
+    bool InitRayTracingSmokeRestirPipeline(int restirLibraryKind);
     bool ResizeRayTracingSmokeOutput(int width, int height);
     void ResetRayTracingSmokeSceneResources();
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
@@ -174,10 +174,19 @@ private:
     int m_smokeDoomAnalyticLightBytes = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeRestirInitialShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeRestirTemporalShadingShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeRestirAttributionShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPipeline;
+    nvrhi::rt::PipelineHandle m_smokeRestirInitialPipeline;
+    nvrhi::rt::PipelineHandle m_smokeRestirTemporalShadingPipeline;
+    nvrhi::rt::PipelineHandle m_smokeRestirAttributionPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeRestirInitialShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeRestirTemporalShadingShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeRestirAttributionShaderTable;
 };
