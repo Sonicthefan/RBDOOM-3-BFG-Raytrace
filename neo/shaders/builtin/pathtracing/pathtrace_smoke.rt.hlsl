@@ -237,6 +237,7 @@ StructuredBuffer<uint> SmokePreviousStaticIndices : register(t35);
 StructuredBuffer<uint> SmokePreviousStaticTriangleClasses : register(t36);
 StructuredBuffer<uint> SmokePreviousStaticTriangleMaterials : register(t37);
 StructuredBuffer<uint> SmokePreviousStaticTriangleMaterialIndexes : register(t38);
+StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -1409,76 +1410,81 @@ bool TryPathTracePrimarySurfaceSkinnedObjectMotion(RAB_Surface surface, out floa
         return false;
     }
 
-    [loop]
-    for (uint dispatchIndex = 0u; dispatchIndex < dispatchCount; ++dispatchIndex)
+    if (surface.primitiveIndex >= PathTraceDynamicTriangleCount())
     {
-        const PathTraceSkinnedSurfaceDispatchRecord dispatch = SmokeSkinnedSurfaceDispatch[dispatchIndex];
-        if (surface.primitiveIndex < dispatch.dynamicTriangleOffset ||
-            surface.primitiveIndex >= dispatch.dynamicTriangleOffset + dispatch.triangleCount)
-        {
-            continue;
-        }
-
-        if ((dispatch.flags & (PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS | PT_SKINNED_DISPATCH_RT_CPU_SKINNED)) !=
-            (PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS | PT_SKINNED_DISPATCH_RT_CPU_SKINNED) ||
-            dispatch.previousPositionOffset == 0xffffffffu)
-        {
-            return false;
-        }
-
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH;
-        const uint localTriangleIndex = surface.primitiveIndex - dispatch.dynamicTriangleOffset;
-        const uint indexOffset = dispatch.dynamicIndexOffset + localTriangleIndex * 3u;
-        if (indexOffset + 2u >= PathTraceDynamicIndexCount() ||
-            dispatch.vertexCount == 0u ||
-            dispatch.triangleCount == 0u)
-        {
-            return false;
-        }
-
-        const uint i0 = SmokeDynamicIndices[indexOffset + 0u];
-        const uint i1 = SmokeDynamicIndices[indexOffset + 1u];
-        const uint i2 = SmokeDynamicIndices[indexOffset + 2u];
-        const uint vertexEnd = dispatch.dynamicVertexOffset + dispatch.vertexCount;
-        if (i0 < dispatch.dynamicVertexOffset || i0 >= vertexEnd ||
-            i1 < dispatch.dynamicVertexOffset || i1 >= vertexEnd ||
-            i2 < dispatch.dynamicVertexOffset || i2 >= vertexEnd ||
-            i0 >= PathTraceDynamicVertexCount() ||
-            i1 >= PathTraceDynamicVertexCount() ||
-            i2 >= PathTraceDynamicVertexCount())
-        {
-            return false;
-        }
-
-        const float3 p0 = SmokeDynamicVertices[i0].position.xyz;
-        const float3 p1 = SmokeDynamicVertices[i1].position.xyz;
-        const float3 p2 = SmokeDynamicVertices[i2].position.xyz;
-        float3 barycentrics;
-        if (!ComputeSmokeTriangleBarycentrics(surface.worldPos, p0, p1, p2, barycentrics))
-        {
-            return false;
-        }
-
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE;
-        const uint previous0 = dispatch.previousPositionOffset + (i0 - dispatch.dynamicVertexOffset);
-        const uint previous1 = dispatch.previousPositionOffset + (i1 - dispatch.dynamicVertexOffset);
-        const uint previous2 = dispatch.previousPositionOffset + (i2 - dispatch.dynamicVertexOffset);
-        if (previous0 >= PathTraceSkinnedPreviousPositionCount() ||
-            previous1 >= PathTraceSkinnedPreviousPositionCount() ||
-            previous2 >= PathTraceSkinnedPreviousPositionCount())
-        {
-            return false;
-        }
-
-        const float3 prev0 = SmokeSkinnedPreviousPositions[previous0].previousPosition.xyz;
-        const float3 prev1 = SmokeSkinnedPreviousPositions[previous1].previousPosition.xyz;
-        const float3 prev2 = SmokeSkinnedPreviousPositions[previous2].previousPosition.xyz;
-        previousWorldPosition = prev0 * barycentrics.x + prev1 * barycentrics.y + prev2 * barycentrics.z;
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
-        return all(previousWorldPosition == previousWorldPosition);
+        return false;
     }
 
-    return false;
+    const uint dispatchIndex = SmokeSkinnedTriangleDispatchIndexes[surface.primitiveIndex];
+    if (dispatchIndex == 0xffffffffu || dispatchIndex >= dispatchCount)
+    {
+        return false;
+    }
+
+    const PathTraceSkinnedSurfaceDispatchRecord dispatch = SmokeSkinnedSurfaceDispatch[dispatchIndex];
+    if (surface.primitiveIndex < dispatch.dynamicTriangleOffset ||
+        surface.primitiveIndex >= dispatch.dynamicTriangleOffset + dispatch.triangleCount)
+    {
+        return false;
+    }
+
+    if ((dispatch.flags & (PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS | PT_SKINNED_DISPATCH_RT_CPU_SKINNED)) !=
+        (PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS | PT_SKINNED_DISPATCH_RT_CPU_SKINNED) ||
+        dispatch.previousPositionOffset == 0xffffffffu)
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH;
+    const uint localTriangleIndex = surface.primitiveIndex - dispatch.dynamicTriangleOffset;
+    const uint indexOffset = dispatch.dynamicIndexOffset + localTriangleIndex * 3u;
+    if (indexOffset + 2u >= PathTraceDynamicIndexCount() ||
+        dispatch.vertexCount == 0u ||
+        dispatch.triangleCount == 0u)
+    {
+        return false;
+    }
+
+    const uint i0 = SmokeDynamicIndices[indexOffset + 0u];
+    const uint i1 = SmokeDynamicIndices[indexOffset + 1u];
+    const uint i2 = SmokeDynamicIndices[indexOffset + 2u];
+    const uint vertexEnd = dispatch.dynamicVertexOffset + dispatch.vertexCount;
+    if (i0 < dispatch.dynamicVertexOffset || i0 >= vertexEnd ||
+        i1 < dispatch.dynamicVertexOffset || i1 >= vertexEnd ||
+        i2 < dispatch.dynamicVertexOffset || i2 >= vertexEnd ||
+        i0 >= PathTraceDynamicVertexCount() ||
+        i1 >= PathTraceDynamicVertexCount() ||
+        i2 >= PathTraceDynamicVertexCount())
+    {
+        return false;
+    }
+
+    const float3 p0 = SmokeDynamicVertices[i0].position.xyz;
+    const float3 p1 = SmokeDynamicVertices[i1].position.xyz;
+    const float3 p2 = SmokeDynamicVertices[i2].position.xyz;
+    float3 barycentrics;
+    if (!ComputeSmokeTriangleBarycentrics(surface.worldPos, p0, p1, p2, barycentrics))
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE;
+    const uint previous0 = dispatch.previousPositionOffset + (i0 - dispatch.dynamicVertexOffset);
+    const uint previous1 = dispatch.previousPositionOffset + (i1 - dispatch.dynamicVertexOffset);
+    const uint previous2 = dispatch.previousPositionOffset + (i2 - dispatch.dynamicVertexOffset);
+    if (previous0 >= PathTraceSkinnedPreviousPositionCount() ||
+        previous1 >= PathTraceSkinnedPreviousPositionCount() ||
+        previous2 >= PathTraceSkinnedPreviousPositionCount())
+    {
+        return false;
+    }
+
+    const float3 prev0 = SmokeSkinnedPreviousPositions[previous0].previousPosition.xyz;
+    const float3 prev1 = SmokeSkinnedPreviousPositions[previous1].previousPosition.xyz;
+    const float3 prev2 = SmokeSkinnedPreviousPositions[previous2].previousPosition.xyz;
+    previousWorldPosition = prev0 * barycentrics.x + prev1 * barycentrics.y + prev2 * barycentrics.z;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return all(previousWorldPosition == previousWorldPosition);
 }
 
 bool TryPathTracePrimarySurfaceRigidObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)

@@ -100,6 +100,7 @@ struct RtPathTraceSceneInputGeometry
     nvrhi::BufferHandle skinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle skinnedPreviousPositionBuffer;
     nvrhi::BufferHandle skinnedSurfaceDispatchBuffer;
+    nvrhi::BufferHandle skinnedTriangleDispatchIndexBuffer;
     nvrhi::BufferHandle skinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle skinnedPreviousJointMatrixBuffer;
     int staticVertexCount = 0;
@@ -189,6 +190,8 @@ struct RtPathTraceSceneInputGeometry
     int skinnedCurrentOutputVertexCount = 0;
     int skinnedPreviousPositionCount = 0;
     int skinnedSurfaceDispatchCount = 0;
+    int skinnedTriangleDispatchIndexCount = 0;
+    int skinnedTriangleDispatchMappedCount = 0;
     int skinnedPreviousDispatchValidCount = 0;
     int skinnedPreviousDispatchOutOfRangeCount = 0;
     int skinnedPreviousDispatchMaxEnd = 0;

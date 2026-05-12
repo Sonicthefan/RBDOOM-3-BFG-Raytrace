@@ -126,6 +126,7 @@ private:
     nvrhi::BufferHandle m_smokeSkinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeSkinnedSurfaceDispatchBuffer;
+    nvrhi::BufferHandle m_smokeSkinnedTriangleDispatchIndexBuffer;
     nvrhi::BufferHandle m_smokeSkinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle m_smokeSkinnedPreviousJointMatrixBuffer;
     nvrhi::BufferHandle m_smokeConstantsBuffer;

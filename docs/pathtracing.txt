@@ -1696,13 +1696,19 @@ Current behavior:
   ranges, matches current records to the previous frame by key, retains a
   skinned-only CPU copy of the previous RT CPU-skinned vertex output, and reports
   conservative match/invalid reason counts through `r_pathTracingSceneInputsDump`.
+  This identity is still bridge-grade: it uses currently available renderer
+  entity/model/surface pointer fields plus material/class and relies on scene
+  reset/invalidation boundaries for safety. Do not treat it as the final
+  StableInstanceID/StableGeometryID contract for long-lived temporal consumers.
 - With `r_pathTracingGpuSkinning 1`, the retained previous copy is also uploaded
-  as a shader-visible previous-position buffer plus a dispatch/range map. The
-  compute scaffold now overwrites validated previous-position ranges from
-  previous joint rows when those rows exist; the CPU-retained upload remains the
-  fallback for ranges without previous joint data. The closest-hit output is
-  unchanged, but primary-surface packing can mark validated skinned hits with
-  `RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION` and
+  as a shader-visible previous-position buffer plus dispatch records and a
+  dynamic-triangle-to-dispatch-index map. The closest-hit path uses that map for
+  O(1) skinned previous-position lookup instead of scanning every skinned
+  dispatch record per hit. The compute scaffold now overwrites validated
+  previous-position ranges from previous joint rows when those rows exist; the
+  CPU-retained upload remains the fallback for ranges without previous joint
+  data. The closest-hit output is unchanged, but primary-surface packing can
+  mark validated skinned hits with `RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION` and
   `RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION` and store the previous world-space
   hit position in `previousPositionOrMotion.xyz`.
 - `r_pathTracingGpuSkinning` defaults to `0`. Value `1` builds diagnostic

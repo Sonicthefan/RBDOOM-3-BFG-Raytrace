@@ -161,6 +161,10 @@ enum RtSmokeSkinnedSurfaceTemporalStateFlags : uint32_t
 
 struct RtSmokeSkinnedSurfaceKey
 {
+    // Bridge-grade identity for the CPU-skinned previous-frame path. The scene
+    // reset/invalidation policy keeps these pointer fields conservative, but
+    // future PT-owned temporal consumers need explicit stable instance and
+    // geometry IDs instead of treating this as the final identity contract.
     int entityIndex = -1;
     uintptr_t entityDef = 0;
     uintptr_t model = 0;

@@ -45,6 +45,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle skinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle skinnedPreviousPositionBuffer;
     nvrhi::BufferHandle skinnedSurfaceDispatchBuffer;
+    nvrhi::BufferHandle skinnedTriangleDispatchIndexBuffer;
     nvrhi::BufferHandle skinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle skinnedPreviousJointMatrixBuffer;
 
@@ -83,6 +84,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t skinnedCurrentOutputVertexBytes = 0;
     size_t skinnedPreviousPositionBytes = 0;
     size_t skinnedSurfaceDispatchBytes = 0;
+    size_t skinnedTriangleDispatchIndexBytes = 0;
     size_t skinnedCurrentJointMatrixBytes = 0;
     size_t skinnedPreviousJointMatrixBytes = 0;
 };

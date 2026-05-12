@@ -157,9 +157,42 @@ struct RtSmokeSkinnedGpuScaffoldBuild
     std::vector<PathTraceSmokeVertex> currentOutputVertices;
     std::vector<PathTraceSkinnedPreviousPosition> previousPositions;
     std::vector<PathTraceSkinnedSurfaceDispatchRecord> dispatchRecords;
+    std::vector<uint32_t> dynamicTriangleDispatchIndexes;
+    int mappedDynamicTriangles = 0;
     std::vector<PathTraceSkinnedJointMatrix> currentJointMatrices;
     std::vector<PathTraceSkinnedJointMatrix> previousJointMatrices;
 };
+
+static void BuildSmokeSkinnedTriangleDispatchIndex(
+    RtSmokeSkinnedGpuScaffoldBuild& build,
+    int dynamicTriangleCount)
+{
+    build.dynamicTriangleDispatchIndexes.assign(Max(0, dynamicTriangleCount), UINT32_MAX);
+    build.mappedDynamicTriangles = 0;
+    for (int dispatchIndex = 0; dispatchIndex < static_cast<int>(build.dispatchRecords.size()); ++dispatchIndex)
+    {
+        const PathTraceSkinnedSurfaceDispatchRecord& dispatch = build.dispatchRecords[dispatchIndex];
+        if (dispatch.dynamicTriangleOffset == UINT32_MAX || dispatch.triangleCount == 0u)
+        {
+            continue;
+        }
+        const uint64 start = static_cast<uint64>(dispatch.dynamicTriangleOffset);
+        const uint64 end = start + static_cast<uint64>(dispatch.triangleCount);
+        if (start >= static_cast<uint64>(build.dynamicTriangleDispatchIndexes.size()))
+        {
+            continue;
+        }
+        const uint64 clampedEnd = Min<uint64>(end, static_cast<uint64>(build.dynamicTriangleDispatchIndexes.size()));
+        for (uint64 triangleIndex = start; triangleIndex < clampedEnd; ++triangleIndex)
+        {
+            if (build.dynamicTriangleDispatchIndexes[static_cast<size_t>(triangleIndex)] == UINT32_MAX)
+            {
+                ++build.mappedDynamicTriangles;
+            }
+            build.dynamicTriangleDispatchIndexes[static_cast<size_t>(triangleIndex)] = static_cast<uint32_t>(dispatchIndex);
+        }
+    }
+}
 
 bool SmokeSkinnedSurfaceKeysEqual(const RtSmokeSkinnedSurfaceKey& a, const RtSmokeSkinnedSurfaceKey& b)
 {
@@ -1029,6 +1062,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeSkinnedCurrentOutputVertexBuffer = nullptr;
             m_smokeSkinnedPreviousPositionBuffer = nullptr;
             m_smokeSkinnedSurfaceDispatchBuffer = nullptr;
+            m_smokeSkinnedTriangleDispatchIndexBuffer = nullptr;
             m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
             m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
             m_smokeActiveTextureTable.clear();
@@ -1379,6 +1413,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         dynamicVertexData,
         m_smokePreviousSkinnedVertexData,
         m_smokePreviousSkinnedJointMatrices);
+    BuildSmokeSkinnedTriangleDispatchIndex(skinnedGpuScaffold, static_cast<int>(dynamicIndexData.size() / 3));
     RetainSmokeSkinnedCurrentJointMatrices(
         currentSkinnedSurfaceRecords,
         nextPreviousSkinnedJointMatrices);
@@ -2010,6 +2045,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
     bufferCreateDesc.existingBuffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
     bufferCreateDesc.existingBuffers.skinnedSurfaceDispatchBuffer = m_smokeSkinnedSurfaceDispatchBuffer;
+    bufferCreateDesc.existingBuffers.skinnedTriangleDispatchIndexBuffer = m_smokeSkinnedTriangleDispatchIndexBuffer;
     bufferCreateDesc.existingBuffers.skinnedCurrentJointMatrixBuffer = m_smokeSkinnedCurrentJointMatrixBuffer;
     bufferCreateDesc.existingBuffers.skinnedPreviousJointMatrixBuffer = m_smokeSkinnedPreviousJointMatrixBuffer;
     bufferCreateDesc.staticVertexBytes = staticVertexCache.size() * sizeof(staticVertexCache[0]);
@@ -2040,6 +2076,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.skinnedCurrentOutputVertexBytes = skinnedGpuScaffold.currentOutputVertices.size() * sizeof(PathTraceSmokeVertex);
     bufferCreateDesc.skinnedPreviousPositionBytes = skinnedGpuScaffold.previousPositions.size() * sizeof(PathTraceSkinnedPreviousPosition);
     bufferCreateDesc.skinnedSurfaceDispatchBytes = skinnedGpuScaffold.dispatchRecords.size() * sizeof(PathTraceSkinnedSurfaceDispatchRecord);
+    bufferCreateDesc.skinnedTriangleDispatchIndexBytes = skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size() * sizeof(uint32_t);
     bufferCreateDesc.skinnedCurrentJointMatrixBytes = skinnedGpuScaffold.currentJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
     bufferCreateDesc.skinnedPreviousJointMatrixBytes = skinnedGpuScaffold.previousJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
     RtSmokeSceneBufferCreateResult bufferCreateResult;
@@ -2081,6 +2118,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeSkinnedCurrentOutputVertexBuffer = smokeBuffers.skinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle smokeSkinnedPreviousPositionBuffer = smokeBuffers.skinnedPreviousPositionBuffer;
     nvrhi::BufferHandle smokeSkinnedSurfaceDispatchBuffer = smokeBuffers.skinnedSurfaceDispatchBuffer;
+    nvrhi::BufferHandle smokeSkinnedTriangleDispatchIndexBuffer = smokeBuffers.skinnedTriangleDispatchIndexBuffer;
     nvrhi::BufferHandle smokeSkinnedCurrentJointMatrixBuffer = smokeBuffers.skinnedCurrentJointMatrixBuffer;
     nvrhi::BufferHandle smokeSkinnedPreviousJointMatrixBuffer = smokeBuffers.skinnedPreviousJointMatrixBuffer;
     const int bufferCreateMs = Sys_Milliseconds() - bufferCreateStartMs;
@@ -2340,6 +2378,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 : MakeSmokeVectorUploadItem(smokeSkinnedCurrentOutputVertexBuffer, skinnedGpuScaffold.currentOutputVertices, nvrhi::ResourceStates::ShaderResource, false)),
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousPositionBuffer, skinnedGpuScaffold.previousPositions, skinnedGpuComputeReady ? nvrhi::ResourceStates::UnorderedAccess : nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedSurfaceDispatchBuffer, skinnedGpuComputeDispatchRecords, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeSkinnedTriangleDispatchIndexBuffer, skinnedGpuScaffold.dynamicTriangleDispatchIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices, nvrhi::ResourceStates::ShaderResource, false)
     };
@@ -2607,6 +2646,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedCurrentOutputVertexBuffer = smokeSkinnedCurrentOutputVertexBuffer;
     sceneInputs.geometry.skinnedPreviousPositionBuffer = smokeSkinnedPreviousPositionBuffer;
     sceneInputs.geometry.skinnedSurfaceDispatchBuffer = smokeSkinnedSurfaceDispatchBuffer;
+    sceneInputs.geometry.skinnedTriangleDispatchIndexBuffer = smokeSkinnedTriangleDispatchIndexBuffer;
     sceneInputs.geometry.skinnedCurrentJointMatrixBuffer = smokeSkinnedCurrentJointMatrixBuffer;
     sceneInputs.geometry.skinnedPreviousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer;
     sceneInputs.geometry.staticVertexCount = staticVertexCacheCount;
@@ -2747,6 +2787,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedCurrentOutputVertexCount = static_cast<int>(skinnedGpuScaffold.currentOutputVertices.size());
     sceneInputs.geometry.skinnedPreviousPositionCount = static_cast<int>(skinnedGpuScaffold.previousPositions.size());
     sceneInputs.geometry.skinnedSurfaceDispatchCount = static_cast<int>(skinnedGpuScaffold.dispatchRecords.size());
+    sceneInputs.geometry.skinnedTriangleDispatchIndexCount = static_cast<int>(skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size());
+    sceneInputs.geometry.skinnedTriangleDispatchMappedCount = skinnedGpuScaffold.mappedDynamicTriangles;
     for (const PathTraceSkinnedSurfaceDispatchRecord& dispatch : skinnedGpuScaffold.dispatchRecords)
     {
         if ((dispatch.flags & PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS) == 0u || dispatch.previousPositionOffset == UINT32_MAX)
@@ -2777,9 +2819,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         smokeSkinnedSourceVertexBuffer &&
         smokeSkinnedCurrentOutputVertexBuffer &&
         smokeSkinnedSurfaceDispatchBuffer &&
+        smokeSkinnedTriangleDispatchIndexBuffer &&
         !skinnedGpuScaffold.sourceVertices.empty() &&
         !skinnedGpuScaffold.currentOutputVertices.empty() &&
-        !skinnedGpuScaffold.dispatchRecords.empty();
+        !skinnedGpuScaffold.dispatchRecords.empty() &&
+        !skinnedGpuScaffold.dynamicTriangleDispatchIndexes.empty();
     sceneInputs.geometry.skinnedPreviousPositionBufferAvailable =
         smokeSkinnedPreviousPositionBuffer &&
         !skinnedGpuScaffold.previousPositions.empty();
