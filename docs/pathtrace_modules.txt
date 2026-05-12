@@ -737,8 +737,11 @@ pathtrace_smoke_restir_temporal_shading.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`, and
     `RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING`. CMake builds
     `pathtrace_smoke_restir_temporal_shading.rt.bin`, and dispatch selects it
-    only for mode 32 temporal reservoir shading. The wrapper defines
-    `RB_PT_FORCE_DEBUG_MODE 32u`.
+    only for mode 32 rough temporal-reservoir lighting preview. The wrapper
+    defines `RB_PT_FORCE_DEBUG_MODE 32u`. Mode 32 keeps rejection/source debug
+    color out of the visible preview; invalid reservoirs fall back to near-black
+    material context, while mode 31 remains the rejection diagnostic and mode 33
+    remains source attribution.
 
 pathtrace_smoke_restir_attribution.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`, and
@@ -1599,10 +1602,40 @@ Mode 32 shades the temporal reservoir output from the same debug raygen path.
 It uses the mode 31 temporal context/indices and conservative previous-surface
 gates, stores the current initial reservoir before calling
 RTXDI_PTTemporalResampling, then previews `TargetFunction * WeightSum` from the
-temporal output reservoir. The mode 28-style conservative visibility ray is
-controlled by `r_pathTracingRestirPTPreviewVisibility` and defaults off because
-it adds another ray per pixel on top of temporal PT replay. It remains a debug
-preview; final shading and spatial reuse are still separate steps.
+temporal output reservoir. The visible preview uses
+`r_pathTracingRestirPTPreviewExposure` and suppresses the strong rejection
+colors used by mode 31; invalid reservoirs fall back to near-black material
+context so ordinary movement does not look like an edge-detection overlay. The
+preview also has a selected-NEE reconstruction fallback when
+`TargetFunction * WeightSum` is effectively black but the packed reservoir
+still identifies a Doom analytic or emissive light. That fallback is for rough
+visualization only and is not the final ReSTIR PT estimator. The
+mode 28-style conservative visibility ray is controlled by
+`r_pathTracingRestirPTPreviewVisibility` and defaults off because it adds
+another ray per pixel on top of temporal PT replay. It remains a rough preview;
+final shading and spatial reuse are still separate steps.
+
+The RAB path tracer accounts for RTXDI's primary-surface convention:
+`bounceDepth = 2` is the first NEE-capable vertex. Do not cap the bridge loop
+directly to the local secondary-bounce count, or initial reservoirs will be
+empty and modes 26/27/32 will fall back to flat material context.
+
+Temporal resampling now uses the combined geometry motion helper's sub-pixel
+motion vector rather than an integer previous-pixel delta. That keeps routed
+rigid objects on the same motion contract as the exported motion-vector path
+and should reduce rigid edge instability while moving.
+
+The mode 32 wrapper does not pre-reject temporal reuse on exact previous-pixel
+surface/reservoir validity anymore. RTXDI_PTTemporalResampling owns the
+previous-neighborhood search and validation; keeping an exact-pixel gate in
+front of it caused visible edge flashes during movement even when mode 49 showed
+stable static/skinned/routed-rigid motion-source coverage.
+
+Modes 31-33 expose RTXDI's temporal relative-depth and normal-dot thresholds as
+`r_pathTracingRestirPTTemporalDepthThreshold` and
+`r_pathTracingRestirPTTemporalNormalThreshold`. The normal threshold defaults to
+0.35 for Doom asset stability; RTXDI's stock 0.6 was too strict for some
+normal-mapped object sides during motion.
 
 Mode 32 has a validated high-resolution workload limit. It is stable enough for
 basic testing around 1280x720, but user validation reports that pushing much

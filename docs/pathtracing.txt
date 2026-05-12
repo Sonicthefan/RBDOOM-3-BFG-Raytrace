@@ -836,6 +836,23 @@ Ray dispatch safety diagnostics:
   Diagnostic kill switch for the ReSTIR PT preview visibility ray even when a
   mode or `r_pathTracingRestirPTPreviewVisibility` requests it.
 
+- r_pathTracingRestirPTPreviewExposure
+  Mode 32 rough ReSTIR PT lighting-preview exposure multiplier. Defaults to 1,
+  clamps to 0..16, and only changes the preview tonemap for
+  `TargetFunction * WeightSum`. It does not affect mode 18 or reservoir
+  selection.
+
+- r_pathTracingRestirPTTemporalDepthThreshold
+  RTXDI ReSTIR PT temporal neighbor relative-depth threshold for modes 31-33.
+  Defaults to 0.1. Lower values reject history more aggressively; higher values
+  tolerate more depth mismatch at the cost of more ghosting risk.
+
+- r_pathTracingRestirPTTemporalNormalThreshold
+  RTXDI ReSTIR PT temporal neighbor normal-dot threshold for modes 31-33.
+  Defaults to 0.35, softened from RTXDI's stock 0.6 for Doom 3 normal-map and
+  legacy tangent-basis stability. Raise it to reject more history; lower it if
+  stable motion-source objects still flicker on particular sides or distances.
+
 Glass/transmission reservation:
 
 - `r_pathTracingTransmissionBounceLimit` is reserved and currently clamps/fails
@@ -2813,18 +2830,53 @@ history catches up. That is expected because those pixels reproject offscreen or
 into disoccluded areas and therefore have no usable previous primary surface or
 reservoir yet.
 
-Mode 32 is the temporal-reservoir shading preview. It uses the same temporal
-context and conservative previous-surface gates as mode 31, but instead of only
-visualizing validity it shades the temporal output reservoir using the same
-`TargetFunction * WeightSum` preview style as mode 27. The extra conservative
-visibility ray used by mode 28 is now behind
+Mode 32 is the rough temporal-reservoir lighting preview. It uses the same
+temporal context and conservative previous-surface gates as mode 31, but instead
+of visualizing rejection state it shades the temporal output reservoir using
+`TargetFunction * WeightSum` and a preview-only exposure control,
+`r_pathTracingRestirPTPreviewExposure`. Invalid reservoirs now fall back to
+near-black material context instead of the strong mode 31 rejection colors, so
+normal camera motion does not turn the preview into a full-screen diagnostic
+overlay. When the RTXDI estimate is effectively black but the reservoir carries
+a packed NEE light, mode 32 reconstructs that selected light sample for preview
+only; this proves candidate/source selection and is not the final estimator.
+Use mode 31 for temporal rejection diagnosis and mode 33 for source
+attribution. The extra conservative visibility ray used by mode 28 is behind
 `r_pathTracingRestirPTPreviewVisibility`; keep it at 0 for normal mode 32
 testing and enable it only for A/B visibility checks. The current initial
 reservoir is generated and stored before temporal resampling, then the temporal
 output reservoir is written to `temporalResamplingOutputBufferIndex` and
-previewed. This is still a debug view: it does not feed production final
-shading, does not enable spatial reuse, and inherits mode 30/31
-edge/disocclusion limits until real vertex/object motion vectors exist.
+previewed. This is still a rough preview path: it does not feed production final
+shading, does not enable spatial reuse, and still inherits mode 30/31
+edge/disocclusion limits until stricter consumer-side rejection and full
+object/vertex motion are in place.
+
+Important bridge convention: NVIDIA's ReSTIR PT path context starts the primary
+surface at `bounceDepth = 2`. The local bridge must therefore keep at least that
+primary NEE vertex active even when the rbdoom PT integrator has zero or one
+secondary diffuse bounces configured. If this cap is wrong, modes 26/27/32 show
+only fallback albedo/ambient context because the initial-sampling path never
+records a reservoir sample.
+
+Mode 32 temporal resampling uses the combined geometry motion helper for its
+runtime motion vector, including sub-pixel static/skinned/routed-rigid
+current-to-previous pixel motion. The previous integer previous-pixel delta was
+adequate for coarse validation but can make routed-rigid edges flicker during
+camera movement.
+
+Mode 32 also avoids an earlier over-strict wrapper-side rejection. RTXDI's PT
+temporal pass searches a small previous-frame neighborhood around the projected
+pixel; requiring the exact previous pixel to contain a matching surface and
+valid reservoir before calling RTXDI caused edge flicker on static, skinned, and
+routed-rigid objects. The wrapper now provides motion/depth hints and lets
+RTXDI_PTTemporalResampling own previous-neighbor validation.
+
+The remaining mode 32 object/side-specific flicker is most likely temporal
+neighbor validation sensitivity rather than source coverage when mode 49 stays
+stable. Modes 31-33 expose the RTXDI temporal depth/normal thresholds through
+`r_pathTracingRestirPTTemporalDepthThreshold` and
+`r_pathTracingRestirPTTemporalNormalThreshold`; use
+`r_pathTracingRestirPTPassDump 1` to print the active values.
 
 Mode 32 is also currently very expensive. User validation reports it works at
 roughly 1280x720 but going much beyond that can device-remove the GPU. Treat

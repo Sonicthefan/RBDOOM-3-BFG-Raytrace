@@ -2003,59 +2003,44 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     StoreRestirPTInitialReservoir(pixel, currentReservoir);
 
     int2 previousPixel;
+    float2 previousPixelFloat;
+    float2 motionPixels;
     uint projectionDebugStatus;
-    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(
+    uint motionSourceKind;
+    bool projected = TryPathTraceCombinedGeometryMotionPixels(
         currentSurface,
-        PathTraceFullOutputSize(),
+        pixel,
         previousPixel,
-        projectionDebugStatus);
+        previousPixelFloat,
+        motionPixels,
+        projectionDebugStatus,
+        motionSourceKind);
     if (!projected)
     {
-        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
-        rejectionColor = PathTracePrimarySurfaceDebugColor(projectionDebugStatus, currentSurface);
-        return currentReservoir;
-    }
-
-    const RAB_Surface previousSurface = RAB_GetGBufferSurface(previousPixel, true);
-    if (!RAB_IsSurfaceValid(previousSurface))
-    {
-        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
-        rejectionColor = float4(0.05, 0.12, 0.55, 1.0);
-        return currentReservoir;
-    }
-
-    const float normalSimilarity = dot(RAB_GetSurfaceNormal(currentSurface), RAB_GetSurfaceNormal(previousSurface));
-    const float roughnessDelta = abs(GetRoughness(currentSurface.material) - GetRoughness(previousSurface.material));
-    const bool materialMatch = currentSurface.materialId == previousSurface.materialId &&
-        currentSurface.materialIndex == previousSurface.materialIndex &&
-        currentSurface.surfaceClass == previousSurface.surfaceClass;
-    if (!materialMatch || normalSimilarity < 0.85 || roughnessDelta > 0.20)
-    {
-        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
-        rejectionColor = EvaluateRestirPTPrimarySurfacePairDebug(currentSurface, previousSurface);
-        return currentReservoir;
+        projected = ProjectPathTracePrimarySurfaceToPreviousPixelFloat(
+            currentSurface.worldPos,
+            PathTraceFullOutputSize(),
+            previousPixelFloat);
+        previousPixel = int2(floor(previousPixelFloat));
+        motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
+        if (!projected)
+        {
+            StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
+            rejectionColor = PathTracePrimarySurfaceDebugColor(projectionDebugStatus, currentSurface);
+            return currentReservoir;
+        }
     }
 
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
-    const uint2 previousReservoirPosition = RTXDI_PixelPosToReservoirPos(uint2(previousPixel), 0u);
-    const RTXDI_PTReservoir previousReservoir = RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
-        previousReservoirPosition,
-        RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
-    if (!RTXDI_IsValidPTReservoir(previousReservoir))
-    {
-        StoreRestirPTTemporalOutputReservoir(pixel, currentReservoir);
-        rejectionColor = float4(0.05, 0.12, 0.55, 1.0);
-        return currentReservoir;
-    }
+    const RAB_Surface exactPreviousSurface = RAB_GetGBufferSurface(previousPixel, true);
+    const float expectedPrevDepth = RAB_IsSurfaceValid(exactPreviousSurface)
+        ? exactPreviousSurface.linearDepth
+        : currentSurface.linearDepth;
 
     RTXDI_PTTemporalResamplingRuntimeParameters runtimeParams = RTXDI_EmptyPTTemporalResamplingRuntimeParameters();
     runtimeParams.pixelPosition = pixel;
     runtimeParams.reservoirPosition = reservoirPosition;
-    runtimeParams.motionVector = float3(
-        (float)previousPixel.x - (float)pixel.x,
-        (float)previousPixel.y - (float)pixel.y,
-        previousSurface.linearDepth - currentSurface.linearDepth);
+    runtimeParams.motionVector = float3(motionPixels, expectedPrevDepth - currentSurface.linearDepth);
     runtimeParams.cameraPos = CameraOriginAndTMax.xyz;
     runtimeParams.prevCameraPos = PrevCameraOriginAndValid.xyz;
     runtimeParams.prevPrevCameraPos = PrevCameraOriginAndValid.xyz;
@@ -2106,6 +2091,78 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
 #endif
 
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING
+float3 RestirPTSanitizePreviewContribution(float3 contribution)
+{
+    contribution = max(contribution, float3(0.0, 0.0, 0.0));
+    if (!all(contribution == contribution) || any(abs(contribution) > 65504.0))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return contribution;
+}
+
+float3 RestirPTRoughPreviewFallback(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return saturate(max(surface.material.diffuseAlbedo, float3(0.0, 0.0, 0.0)) * 0.008);
+}
+
+float3 RestirPTToneMapPreview(float3 contribution)
+{
+    const float exposure = max(RestirPTInfo.w, 0.0);
+    contribution = RestirPTSanitizePreviewContribution(contribution * exposure);
+    return contribution / (1.0 + contribution);
+}
+
+bool RestirPTTryEvaluateNeeReservoirPreview(RAB_Surface surface, RTXDI_PTReservoir reservoir, out float3 contribution)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidPTReservoir(reservoir) || !RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        return false;
+    }
+
+    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+    {
+        return false;
+    }
+
+    const uint lightIndex = RTXDI_SampledLightData_GetLightIndex(sampledLightData);
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+        lightInfo,
+        surface,
+        RTXDI_SampledLightData_GetUVDataFloat2(sampledLightData));
+    if (lightSample.valid == 0u)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float ndotl = saturate(dot(normal, lightDir));
+    if (ndotl <= 0.0 || lightSample.solidAnglePdf <= 1.0e-6)
+    {
+        return false;
+    }
+
+    const float3 reflected = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface)) * lightSample.radiance * ndotl;
+    const float reservoirWeight = max(reservoir.WeightSum, 1.0 / max((float)reservoir.M, 1.0));
+    contribution = RestirPTSanitizePreviewContribution((reflected / max(lightSample.solidAnglePdf, 1.0e-6)) * reservoirWeight);
+    return RAB_Luminance(contribution) > 0.0;
+}
+
 float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
 {
     float4 rejectionColor;
@@ -2113,22 +2170,25 @@ float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint
     const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTTemporalReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample);
     if (!RTXDI_IsValidPTReservoir(temporalReservoir))
     {
-        return rejectionColor;
+        return float4(RestirPTRoughPreviewFallback(currentSurface), 1.0);
     }
 
-    float3 contribution = max(temporalReservoir.TargetFunction, float3(0.0, 0.0, 0.0)) * max(temporalReservoir.WeightSum, 0.0);
-    if (!all(contribution == contribution) || any(abs(contribution) > 65504.0))
+    float3 contribution = RestirPTSanitizePreviewContribution(temporalReservoir.TargetFunction * max(temporalReservoir.WeightSum, 0.0));
+    if (RAB_Luminance(contribution) <= 1.0e-6)
     {
-        contribution = float3(0.0, 0.0, 0.0);
+        float3 reconstructedContribution;
+        if (RestirPTTryEvaluateNeeReservoirPreview(currentSurface, temporalReservoir, reconstructedContribution))
+        {
+            contribution = reconstructedContribution;
+        }
     }
     if (traceVisibility)
     {
         contribution *= RestirPTTraceReservoirVisibility(currentSurface, temporalReservoir);
     }
 
-    const float3 preview = contribution / (1.0 + contribution);
-    const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
-    return float4(saturate(currentSurface.material.diffuseAlbedo * 0.015 + preview + float3(0.0, 0.025, 0.015) * historyTint), 1.0);
+    const float3 preview = RestirPTToneMapPreview(contribution);
+    return float4(saturate(RestirPTRoughPreviewFallback(currentSurface) + preview), 1.0);
 }
 #else
 float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)

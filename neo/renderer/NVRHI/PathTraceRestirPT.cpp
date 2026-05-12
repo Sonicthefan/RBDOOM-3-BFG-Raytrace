@@ -77,6 +77,10 @@ bool UpdateRestirPTContextState(RtRestirPTContextState& state, const RtRestirPTC
 
     state.context->SetFrameIndex(desc.frameIndex);
     state.context->SetResamplingMode(desc.resamplingMode);
+    RTXDI_PTTemporalResamplingParameters temporalParams = state.context->GetTemporalResamplingParameters();
+    temporalParams.depthThreshold = desc.temporalDepthThreshold;
+    temporalParams.normalThreshold = desc.temporalNormalThreshold;
+    state.context->SetTemporalResamplingParameters(temporalParams);
     FillRestirPTParameters(state.parameters, *state.context);
     state.frameIndex = desc.frameIndex;
     state.resamplingMode = desc.resamplingMode;

@@ -17,6 +17,8 @@ struct RtRestirPTContextUpdateDesc
     uint32_t frameIndex = 0;
     rtxdi::CheckerboardMode checkerboardMode = rtxdi::CheckerboardMode::Off;
     rtxdi::ReSTIRPT_ResamplingMode resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    float temporalDepthThreshold = 0.1f;
+    float temporalNormalThreshold = 0.35f;
 };
 
 struct RtRestirPTContextState

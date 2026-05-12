@@ -1,0 +1,119 @@
+Current ReSTIR PT State
+Date: 2026-05-12
+
+Repository Context
+------------------
+- Repo: E:\prog\rbdoom-3-bfg-rt
+- Prepared game folder: E:\prog\rbdoom-3-BFG-prebuilt
+- Preferred build lane from E:\prog\rbdoom-3-bfg-rt\neo:
+  cmake --build --preset win64-pt-dev-release
+- After shader changes, copy the built executable and base\renderprogs2 into the
+  prepared game folder.
+- Do not stage or commit docs\pathtracing_handoff.txt unless explicitly asked.
+
+Recent ReSTIR Shader-Load Work
+------------------------------
+The heavy ReSTIR path was separated from the core path tracing RT library.
+Current routing keeps core mode 18 away from RAB/ReSTIR includes unless a
+ReSTIR mode is selected.
+
+Active ReSTIR shader libraries:
+- pathtrace_smoke_restir_initial.rt.hlsl
+  Modes 26-28.
+- pathtrace_smoke_restir_temporal.rt.hlsl
+  Mode 31.
+- pathtrace_smoke_restir_temporal_shading.rt.hlsl
+  Mode 32.
+- pathtrace_smoke_restir_attribution.rt.hlsl
+  Mode 33.
+
+Modes 31, 32, and 33 force-specialize the debug mode at compile time through
+RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
+reported roughly 13 second first-load stalls for each specialized ReSTIR mode,
+down from roughly 197 seconds for the unspecialized ReSTIR library.
+
+Functional Pieces Already Present
+---------------------------------
+- RTXDI/ReSTIR PT host context scaffold.
+- Packed RTXDI PT reservoir buffers.
+- Initial reservoir generation diagnostics.
+- Temporal reservoir generation using RTXDI_PTTemporalResampling.
+- Primary-surface history and reprojection diagnostics.
+- Doom analytic-light candidates through the RAB bridge.
+- Emissive candidate data through the material/emissive inventory path.
+- Doom analytic radius/falloff alignment between native mode 18 NEE and RAB
+  analytic sampling.
+- Mode 18 material conversion data needed by rough ReSTIR preview shading:
+  albedo, tangent-space normals, fake-PBR roughness, and specular/F0 handling.
+
+Known Fixes In This Slice
+-------------------------
+The RAB path tracer must account for RTXDI's PT convention that the primary
+surface starts at `bounceDepth = 2`. A previous bridge cap reused the local
+secondary-bounce count directly, often producing `maxBridgeBounces = 1`, so the
+initial-sampling loop never executed and modes 26/27/32 could only show fallback
+material context. The bridge now keeps the primary NEE-capable vertex alive and
+only applies the local diffuse/path-depth limits to continuation bounces after
+that primary vertex.
+
+The temporal preview now feeds RTXDI the sub-pixel combined geometry motion
+computed by the existing static/skinned/routed-rigid motion helpers. This
+replaces the older integer previous-pixel delta in the temporal-resampling
+runtime parameters and is intended to reduce routed-rigid edge flicker during
+camera movement without changing candidate selection.
+
+Mode 32 no longer rejects temporal reuse before RTXDI gets a chance to search
+its previous-frame neighborhood. The earlier wrapper required the exact
+reprojected previous pixel to have a valid matching surface and reservoir before
+calling RTXDI_PTTemporalResampling. That defeated RTXDI's neighbor search and
+made static, skinned, and routed-rigid edges flash during movement. The wrapper
+now only computes motion/depth hints and lets RTXDI perform its own surface and
+reservoir validation.
+
+The RTXDI temporal neighbor thresholds are exposed for modes 31-33:
+
+  r_pathTracingRestirPTTemporalDepthThreshold
+  r_pathTracingRestirPTTemporalNormalThreshold
+
+The normal threshold defaults to 0.35 instead of RTXDI's stock 0.6 because Doom
+3 tangent-space normal maps and legacy bases can make shading-normal validation
+too twitchy on particular object sides. Tighten it when looking for ghosting;
+loosen it when stable motion sources still show small edge/object flashes.
+
+Main Gaps
+---------
+- No spatial reuse yet.
+- No production final ReSTIR PT pass outside the debug raygen path.
+- Light identity is still index-fragile across changing emissive/light order.
+- RAB visibility remains conservative/preview-oriented.
+- Environment lighting is not bridged.
+- Reflection/glass/transmission are not integrated into ReSTIR final history.
+- Motion vectors are good enough for rough experiments, but ReSTIR consumers
+  still need stricter rejection and disocclusion handling.
+- High resolution remains risky; temporal previews can device-remove above
+  roughly 720p-class output.
+
+Recommended Next Milestone
+--------------------------
+Convert the existing temporal-reservoir shading preview into a rough visible
+ReSTIR PT test mode before adding spatial reuse. The milestone should prove
+"temporal reservoir selected light -> material-aware lighting -> visible output"
+with Doom analytic and emissive candidates. Spatial reuse, denoiser-facing
+buffers, and reflection/glass integration should follow only after that preview
+is stable enough to compare against mode 18.
+
+Rough Preview Control
+---------------------
+Mode 32 is the rough temporal lighting preview. Its exposure is controlled by:
+
+  r_pathTracingRestirPTPreviewExposure
+
+Default is 1. The value is clamped to 0..16 and only affects the mode 32 preview
+mapping. It does not change mode 18 and does not change reservoir selection.
+
+When `TargetFunction * WeightSum` is effectively black but the temporal
+reservoir still contains a packed NEE light, mode 32 has a preview-only fallback
+that reconstructs the selected Doom analytic or emissive light sample at the
+current surface. This is intentionally not final shading; it exists so the rough
+preview can show whether reservoir light selection is producing usable visible
+lighting before the final ReSTIR PT shading pass is split out.

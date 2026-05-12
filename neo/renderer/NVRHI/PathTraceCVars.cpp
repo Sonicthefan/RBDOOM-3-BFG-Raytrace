@@ -741,6 +741,24 @@ idCVar r_pathTracingRestirPTPreviewMaxPixels(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 32 ReSTIR PT preview safety cap in pixels; default is 1280x720, 0 disables the cap" );
 
+idCVar r_pathTracingRestirPTPreviewExposure(
+    "r_pathTracingRestirPTPreviewExposure",
+    "1",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Mode 32 ReSTIR PT rough lighting preview exposure multiplier" );
+
+idCVar r_pathTracingRestirPTTemporalDepthThreshold(
+    "r_pathTracingRestirPTTemporalDepthThreshold",
+    "0.1",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "ReSTIR PT temporal neighbor relative depth threshold for modes 31-33" );
+
+idCVar r_pathTracingRestirPTTemporalNormalThreshold(
+    "r_pathTracingRestirPTTemporalNormalThreshold",
+    "0.35",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "ReSTIR PT temporal neighbor normal dot threshold for modes 31-33; softened from RTXDI default for Doom normal-map stability" );
+
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",
     "0",

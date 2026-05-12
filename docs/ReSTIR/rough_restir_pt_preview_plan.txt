@@ -1,0 +1,95 @@
+Rough ReSTIR PT Preview Plan
+Date: 2026-05-12
+
+Goal
+----
+Build a deliberately rough, developer-facing ReSTIR PT lighting preview before
+attempting production integration, spatial reuse, denoising, or reflection/
+glass recursion. The preview should prove that current ReSTIR reservoirs can
+select Doom analytic lights and emissive candidates, temporally reuse them, and
+produce a visible lighting estimate through the existing path tracing material
+contract.
+
+Current Baseline
+----------------
+- Mode 18 is the stable/playable path tracer. It owns the real material path:
+  fake-PBR conversion, roughness/F0 derivation, normal handling, samples per
+  pixel, path depth, analytic-light NEE, reflections, and the current output
+  integration behavior.
+- Modes 26-28 are ReSTIR PT initial-reservoir diagnostics.
+- Modes 29-30 are primary-surface history/reprojection diagnostics.
+- Mode 31 calls RTXDI_PTTemporalResampling and validates temporal reservoirs.
+- Mode 32 shades the temporal reservoir as a preview.
+- Mode 33 colors temporal source attribution.
+- ReSTIR shader libraries are now split and force-specialized per mode, which
+  makes iteration feasible again. Keep core mode 18 independent from ReSTIR
+  debug-mode shader cost.
+
+Rough Preview Definition
+------------------------
+The first rough test version is not "final ReSTIR PT." It is a constrained
+lighting preview:
+- Use the existing temporal reservoir generation path from mode 32.
+- Output lighting from the selected temporal reservoir, not diagnostic colors.
+- Keep modes 26, 31, and 33 available as diagnostics.
+- Use Doom analytic-light and emissive candidates through the RAB bridge.
+- Use the same material facts as mode 18 wherever practical: albedo, normal,
+  roughness/F0, and fake-PBR conversions.
+- Keep visibility optional and conservative until the visibility contract is
+  split out of the debug raygen.
+- Keep resolution conservative. Current device-remove behavior above roughly
+  720p-class output is a known limitation, not a reason to widen the scope.
+
+Immediate Implementation Steps
+------------------------------
+1. Inspect the mode 32 shader path and host routing.
+2. Separate diagnostic color output from temporal lighting-preview output.
+3. If needed, add a narrow CVar or mode label that makes "rough ReSTIR PT
+   preview" explicit without changing mode 18 behavior.
+4. Make mode 32 present a usable temporal-reservoir lighting estimate.
+5. Preserve mode 33 attribution as the source-mix debug view.
+6. Add or reuse low-noise console dumps for:
+   - pass label and selected ReSTIR shader library,
+   - temporal mode active/inactive,
+   - preview visibility active/inactive,
+   - output resolution and preview pixel cap.
+7. Build with the PT dev-release lane and copy updated artifacts to the prepared
+   game folder.
+
+Do Not Do Yet
+-------------
+- Do not add spatial reuse in the same slice.
+- Do not merge ReSTIR debug libraries back into the core path tracer.
+- Do not make the authored Doom light universe smaller to hide performance
+  issues. Bound proposals per shading point instead.
+- Do not treat debug color views as final lighting evidence.
+- Do not fold reflection/glass/transmission history into diffuse ReSTIR history.
+- Do not require high output resolution for this milestone.
+
+Implementation Note
+-------------------
+Mode 32 should behave as the rough visible lighting preview. It should not tint
+temporal rejection, missing previous surfaces, or invalid reservoirs with the
+strong debug colors used by mode 31. Those colors are useful diagnostics, but
+they make rough lighting tests look like edge-detection overlays when moving.
+Mode 32 should fall back to near-black material context when temporal reuse
+fails; use modes 31 and 33 to inspect rejection and source attribution.
+
+If the RTXDI PT estimate is effectively black while the selected reservoir still
+contains a packed NEE light, mode 32 may reconstruct that selected light sample
+for preview only. This is acceptable for the rough milestone because it proves
+candidate selection and material-aware direct lighting visibility, but it must
+not be mistaken for the final ReSTIR PT estimator.
+
+Success Criteria
+----------------
+- Mode 18 still launches normally and does not pay the full ReSTIR shader load
+  cost.
+- Mode 32, or the chosen rough-preview mode, shows actual temporal-reservoir
+  lighting rather than flat attribution/debug color.
+- Moving the camera does not immediately collapse to solid diagnostic color.
+- Doom analytic lights and emissives can both contribute when their candidate
+  gates are enabled.
+- Known limitations are documented instead of hidden: no spatial reuse, fragile
+  light identity remap, conservative visibility, limited resolution, and no
+  production final pass yet.

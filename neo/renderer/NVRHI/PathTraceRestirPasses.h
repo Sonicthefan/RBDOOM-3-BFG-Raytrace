@@ -137,7 +137,7 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         {
             plan.flags |= RT_RESTIR_PASS_TRACES_VISIBILITY;
         }
-        plan.label = "mode32TemporalReservoirShading";
+        plan.label = "mode32RoughTemporalLightingPreview";
         break;
     case 33:
         plan.producer = RtPathTraceRestirPassKind::TemporalReservoir;
@@ -158,7 +158,9 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     uint32_t width,
     uint32_t height,
     uint32_t frameIndex,
-    rtxdi::CheckerboardMode checkerboardMode)
+    rtxdi::CheckerboardMode checkerboardMode,
+    float temporalDepthThreshold,
+    float temporalNormalThreshold)
 {
     RtRestirPTContextUpdateDesc desc;
     desc.width = width;
@@ -166,6 +168,8 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     desc.frameIndex = frameIndex;
     desc.checkerboardMode = checkerboardMode;
     desc.resamplingMode = plan.resamplingMode;
+    desc.temporalDepthThreshold = temporalDepthThreshold;
+    desc.temporalNormalThreshold = temporalNormalThreshold;
     return desc;
 }
 
