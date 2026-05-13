@@ -1,0 +1,114 @@
+Q2RTX And RTXDI Reference Notes For Light Identity
+=================================================
+
+Purpose
+-------
+
+This note records the local-reference lessons relevant to the rbdoom lighting
+universe. It is not a request to copy reference code.
+
+Q2RTX Reference
+---------------
+
+Reference checkout:
+
+    E:\prog\references\Q2RTX-rayreconstruction-master
+
+Important files:
+
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\bsp_mesh.c
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\vertex_buffer.c
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\main.c
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\shader\vertex_buffer.h
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\shader\restir.h
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\shader\direct_lighting.rgen
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\shader\light_lists.h
+
+Useful observed pattern:
+
+1. Q2RTX builds light polygon records from BSP/model emissive surfaces.
+
+2. It builds per-cluster light lists from PVS/cluster visibility.
+
+3. The cluster lists contain light indices into the global light record table.
+   The list membership is a sampling/visibility structure, not the identity
+   domain itself.
+
+4. Static BSP light indices are stable below `num_static_lights`.
+
+5. Dynamic/model lights are remapped from previous to current with
+   `mlight_prev_to_current` before ReSTIR reuse.
+
+6. Animated light material/style state mutates existing light data. It does not
+   turn the light's identity into a different compact slot.
+
+7. For gradient/temporal stability, Q2RTX carries previous light style scale and
+   history of per-cluster light counts. That is evidence that old sampling
+   domains are treated deliberately, not accidentally.
+
+Important interpretation for rbdoom:
+
+    A portal/PVS/cluster list may be compact and view- or area-dependent, but
+    a temporal reservoir must reference a stable light table entry or a remapped
+    stable identity. The compact list is allowed to change. The selected
+    reservoir light identity must not.
+
+RTXDI Reference
+---------------
+
+Reference checkout:
+
+    E:\prog\references\RTXDI-main
+
+Important files:
+
+    E:\prog\references\RTXDI-main\Doc\RtxdiApplicationBridge.md
+    E:\prog\references\RTXDI-main\Doc\RestirPT.md
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\SpatioTemporalResampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Source\RenderPasses\PrepareLightsPass.cpp
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\PrepareLights.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Buffers.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+
+Useful observed pattern:
+
+1. RTXDI's application bridge defines `RAB_TranslateLightIndex`.
+
+2. DI temporal reuse calls `RAB_TranslateLightIndex` on the previous reservoir's
+   light index and kills the reservoir if mapping fails.
+
+3. PT hybrid shift remaps sampled NEE light data when the base path comes from
+   the previous frame and invalidates the sample if the mapping fails.
+
+4. FullSample tracks previous light-buffer offsets for emissive mesh instances
+   and primitive light objects, double-buffers light data, and writes a
+   bidirectional light-index mapping buffer.
+
+5. `RAB_LoadLightInfo(index, previousFrame)` and `RAB_TranslateLightIndex` are
+   the formal boundary between the RTXDI runtime and application scene/light
+   identity.
+
+Important interpretation for rbdoom:
+
+    RTXDI does not make unstable light indices safe internally. The application
+    must provide the stable identity/remap layer. If rbdoom cannot translate a
+    previous light into the current frame, it must reject that reservoir.
+
+Anti-Patterns To Avoid
+----------------------
+
+Do not use candidate array index as a reservoir light identity.
+
+Do not sort reservoir-visible light identity by distance, portal depth, or other
+view-dependent data.
+
+Do not remove a light from the identity domain simply because current radiance is
+zero.
+
+Do not use a global reservoir reset on every light color/intensity change as the
+long-term solution. It can mask corruption, but it destroys useful temporal
+reuse for blinking/strobed lights.
+
+Do not copy Q2RTX or RTXDI implementation code into rbdoom. Translate the
+architecture into local PathTrace module conventions.

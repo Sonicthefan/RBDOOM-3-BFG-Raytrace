@@ -1,0 +1,205 @@
+Task 02: Stable Light Upload And RAB Remap Contract
+==================================================
+
+Assignment
+----------
+
+Make the Doom analytic light universe shader-visible and implement a correct
+RAB current/previous light-index translation path.
+
+Task 02 starts only after Task 01 proves CPU-side universe identity and remap
+diagnostics are stable.
+
+Hard Acceptance Criteria
+------------------------
+
+Task 02 is accepted only if:
+
+    RAB_TranslateLightIndex never returns the same Doom analytic index by
+    default.
+
+    Invalid remap returns a negative/invalid index distinguishable from valid
+    light 0.
+
+    RAB_LoadLightInfo validates domain, range, finite radiance/radius, validity
+    token or generation, and sampleability.
+
+    Emissive, environment, and Doom analytic domains are tagged or
+    range-separated.
+
+    A failed Doom analytic remap produces an empty/rejected light, never a
+    different light.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_lighting_universe/README.txt
+    docs/pathtrace_lighting_universe/task_01_doom_light_universe_scaffold.txt
+    docs/pathtrace_lighting_universe/restir_light_identity_minimum_contract.txt
+    docs/pathtrace_lighting_universe/restir_light_identity_doom_mapping.txt
+
+Relevant code:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
+
+Step-By-Step Procedure
+----------------------
+
+1. Define the shader-visible universe record.
+
+   It must include enough data for `RAB_LoadLightInfo` and validation:
+
+       current light data
+       stable identity fields
+       generation or validity token where available
+       sampleable/radiance flags
+       current candidate/proposal index if needed
+
+2. Define a remap buffer.
+
+   Provide previous-to-current and current-to-previous mapping, or a single
+   mapping representation that can answer both directions.
+
+   Invalid mappings must be explicit.
+
+3. Upload the universe and remap buffers through the existing smoke scene
+   resource path.
+
+   Keep resource ownership consistent with existing PathTraceSmokeResources
+   patterns. Avoid one-off global shader resources.
+
+4. Update the RAB light-index layout.
+
+   Doom analytic RAB light indices should resolve through stable universe IDs,
+   not compact proposal slots.
+
+   If emissive triangles remain in their current domain, keep the domains
+   explicitly tagged or range-separated so translation cannot mix them.
+
+5. Implement `RAB_TranslateLightIndex`.
+
+   For Doom analytic lights:
+
+       previous -> current uses the remap buffer
+       current -> previous uses the remap buffer
+       invalid returns negative
+
+   For domains not yet remappable, reject previous-frame reuse or keep existing
+   behavior only when identity is demonstrably stable.
+
+   Do not use identity translation as a pass-through for Doom analytic lights
+   just because the current frame's compact table appears sorted or preserved.
+
+6. Validate `RAB_LoadLightInfo`.
+
+   Loading a remapped Doom analytic light must verify:
+
+       index in range
+       universe record valid
+       finite radius/radiance data
+       expected kind/domain
+
+   Invalid loads should become empty lights and lead to reservoir rejection, not
+   reinterpret another light.
+
+7. Keep previous-frame NEE reuse disabled by default.
+
+   Task 02 proves the bridge contract. Do not change the default of
+   `r_pathTracingRestirPTTemporalAnalyticNeeReuse`.
+
+8. Add diagnostics.
+
+   Extend Task 01 dumps with shader-visible counts:
+
+       uploaded universe count
+       uploaded remap count
+       invalid remap count
+       RAB rejected light count if available
+
+Validation
+----------
+
+Use PT dev Release or another documented non-Debug PT lane.
+
+Expected validation:
+
+    current-frame mode 26/27/28 NEE reservoir views remain stable
+    `RAB_TranslateLightIndex` rejects missing previous lights
+    universe/remap uploads match CPU diagnostics
+    shader code does not reinterpret a failed remap as index 0
+
+Implementation Status
+---------------------
+
+Task 02 now uploads separate shader-visible Doom analytic identity/remap
+buffers and previous light records:
+
+    current compact analytic candidate index -> universe index
+    previous compact analytic candidate index -> universe index
+    previous compact analytic candidate index -> previous light data
+    universe index -> previous/current compact candidate remap
+
+The packed ReSTIR light domain remains:
+
+    [ emissive triangles ][ Doom analytic lights ]
+
+The RAB translation path decodes previous analytic indices with the previous
+emissive-triangle count and returns current packed analytic indices only after
+the stable universe remap succeeds. `RAB_LoadLightInfo(..., previousFrame=true)`
+loads previous Doom analytic records for analytic inverse-shift target
+evaluation. Failed analytic remaps return invalid, not light 0. Emissive
+previous-frame light reuse remains conservative until an emissive identity map
+exists.
+
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse` still defaults to 0. Enable it
+manually only for validation runs; this status section records the bridge
+implementation, not completed visual validation.
+
+Validation Update
+-----------------
+
+The robot/strobe endpoint case was validated on 2026-05-14. Stable identity,
+previous analytic light records, inverse-shift loading, and light-state
+compatibility checks were required, but they did not visibly fix the flicker by
+themselves. The confirmed fix was pre-combine rejection in the mode 32/50
+temporal wrapper: scan the reprojected 3x3 previous-reservoir neighborhood and
+set local temporal max age to zero when a previous NEE reservoir fails Doom
+analytic remap or light-state validation. This prevents stale or invalid NEE
+history from affecting RTXDI temporal combine/bias-correction bookkeeping.
+
+The original symptom was stationary lights turning off or flickering while the
+camera/player were still, movement bringing them back, and a nearby robot/strobe
+point-light animation temporarily repairing the affected lights only while that
+animation was active.
+
+Stop Conditions
+---------------
+
+Stop and ask the user if:
+
+    adding buffers requires descriptor/register churn across unrelated paths
+    current ReSTIR modes lose current-frame initial reservoirs
+    emissive and analytic domains become ambiguous
+    remap failures cannot be distinguished from valid light 0
+
+Non-Goals
+---------
+
+Do not enable previous-frame NEE reuse by default.
+
+Do not merge emissive triangles into the universe unless required for domain
+tagging.
+
+Do not change final shading policy beyond what is needed to validate light
+identity.

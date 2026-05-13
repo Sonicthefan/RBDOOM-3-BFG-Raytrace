@@ -308,8 +308,15 @@ solid-angle PDF.
   maintains a stable static universe-ID list and reports whether current static
   proposals map into it. These static/proposal mappings are not uploaded in
   Task 01 and are not consumed by RAB/ReSTIR.
-  Previous-frame NEE reuse remains disabled by default; Task 01 does not add a
-  shader-visible remap path for A/B testing.
+  Task 02 extends this CPU universe to the GPU as a guarded first-pass bridge:
+  current-candidate identity, previous-candidate identity, previous analytic
+  light records, and universe remap buffers. The compact Doom analytic
+  candidate table is still the current-frame sampling table, but
+  `RAB_TranslateLightIndex` now decodes previous analytic light indices with
+  the previous emissive-triangle count, maps them through stable universe IDs,
+  and returns invalid on failed remaps instead of reusing compact slots. This is
+  infrastructure for validation, not a claim that temporal analytic NEE reuse is
+  production-ready; the default remains off.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -904,9 +911,20 @@ Ray dispatch safety diagnostics:
 - r_pathTracingRestirPTTemporalAnalyticNeeReuse
   Previous-frame NEE light-reservoir reuse gate for ReSTIR PT temporal and
   spatial modes. Defaults to 0. With the CVar off, previous-frame NEE
-  reservoirs reject while current-frame NEE sampling remains enabled. Keep it
-  off for Task 01 because this patch does not expose a shader-visible stable
-  light remap.
+  reservoirs reject while current-frame NEE sampling remains enabled. Task 02
+  adds shader-visible Doom analytic identity/remap buffers, previous analytic
+  light records, and the RAB translation/load path needed for manual reuse
+  testing. The robot/strobe endpoint case is validated with pre-combine bad-NEE
+  rejection, but the default remains off while analytic NEE temporal reuse is
+  still a manual ReSTIR PT test path rather than a production default.
+
+- r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance
+  Relative current/previous Doom analytic light color/intensity tolerance used
+  by the ReSTIR PT RAB remap. Defaults to 0.10. When temporal analytic NEE reuse
+  is manually enabled, matched light identity is not enough: the bridge also
+  rejects previous analytic reservoirs if the light's current/previous color,
+  intensity, position, or radius diverges beyond this guard. This targets
+  strobe/animated-light phases without globally clearing unrelated reservoirs.
 
 - r_pathTracingRestirPTSpatialSamples
   Mode 50/51 RTXDI_PTSpatialResampling neighbor samples per pixel. Defaults to 1
@@ -966,23 +984,24 @@ Denoise/upscale/Ray Reconstruction reservation:
   static triangle count, static seen/new/updated/missing this frame,
   semi-static dynamic count, dynamic seen/promoted/updated/missing/aged this
   frame, current frame-local dynamic triangle count, merged upload count,
-  area-membership diagnostics, and generation. The Doom analytic dump is
-  CPU-only in Task 01: it reports stable key/universe counts, current candidate
-  count, active/sampleable/zero-radiance counts, previous/current remap counts,
+  area-membership diagnostics, and generation. The Doom analytic dump reports
+  stable key/universe counts, current candidate count, uploaded current and
+  previous identity counts, uploaded remap count, shader invalid-remap count,
+  active/sampleable/zero-radiance counts, previous/current remap counts,
   duplicate keys, conservative continuity rejects, unknown entity sentinels,
   and common invalid reasons. A second Doom line reports the persistent authored
   light registry: static total/seen/new/updated/missing, static sampleable and
   zero-radiance counts, static-list count/seen/missing, dynamic/unproven/
   unknown-entity buckets, and a current proposal-to-universe mapping count.
-  The Doom analytic static list and proposal map are CPU-side diagnostics only
-  in Task 01; they are not uploaded and are not consumed by shaders. Static emissives are retained by stable-ish
+  Static emissives are retained by stable-ish
   identity across frames. The area diagnostics report current area, total
   areas, known/unknown static and dynamic candidate area membership, and how
   many merged candidates are in the current, selected, connected, disconnected,
   or unknown area sets. Selected areas are the current camera area plus open
   portals up to `r_pathTracingScenePortalSteps`. These dumps are diagnostic
-  only; Task 01 does not change shader-visible Doom analytic lighting or
-  re-enable previous-frame NEE reuse.
+  only; Task 02 makes Doom analytic identity/remap and previous analytic light
+  records shader-visible for RAB, but does not default-enable previous-frame
+  analytic NEE reuse.
 
 - r_pathTracingLightUniverseChurn
   Defaults to 0. When enabled, tracks frame-to-frame changes in the uploaded
@@ -2994,16 +3013,37 @@ mode 32/50 debug previews re-evaluate NEE reservoirs against current light data
 before display, so stale bright-phase target energy is not trusted for visible
 preview contribution. A later production path still needs per-light
 radiance-version validation/remapping rather than this preview-side mitigation.
-The RAB light loader also currently maps previous-frame light lookups to the
-current light table. RTXDI PT uses `previousFrame=true` during inverse shift and
-bias correction; returning an empty light there caused otherwise valid analytic
-NEE reservoirs to collapse to black or flicker even when the camera and surface
-were stationary. This is a bridge rule until real previous/current light
-identity remapping exists.
+The RAB light loader treats `previousFrame=true` as an inverse-shift request:
+RTXDI PT carries the current reservoir light index, so the bridge first remaps
+that current packed analytic index through the Doom analytic universe to the
+previous packed analytic index, then reads the previous analytic light table.
+Failed remaps return an empty light rather than falling through to compact-index
+reuse.
+The temporal wrapper also pre-scans the reprojected 3x3 previous-reservoir
+neighborhood. If a previous NEE reservoir cannot translate through the current
+Doom analytic remap, including the light-state compatibility guard, the wrapper
+sets temporal max age to zero before RTXDI combines the neighbor. This prevents
+zero-target failed NEE replays from still influencing temporal reservoir
+bookkeeping.
+
+Validated robot/strobe fix, 2026-05-14: the bug was not fixed by stable light
+identity/remap alone, nor by current/previous light color-state checks inside
+`RAB_LoadLightInfo` alone. The visible failure was stale or invalid previous NEE
+reservoir history surviving far enough into RTXDI temporal combine/bias
+correction to affect the selected reservoir or its normalization. The final
+effective mitigation was the pre-combine 3x3 previous-reservoir scan described
+above. With that scan active, the user-confirmed symptom was fixed: stationary
+lights no longer turn off or flicker until camera/player movement, and the
+robot/strobe animation no longer inexplicably "repairs" nearby lights only while
+active. Treat this as the first validated path for manual analytic NEE temporal
+reuse testing.
+
 Previous-frame NEE light reservoirs are rejected by default through
 `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0`. The CVar name is historical.
-Task 01 keeps this guard off because no shader-visible previous/current light
-identity remap exists yet. Current-frame NEE sampling remains visible, and
+Task 02 keeps this guard off by default even though shader-visible Doom analytic
+current/previous identity buffers, previous analytic light records, and universe
+remap are now uploaded.
+Current-frame NEE sampling remains visible, and
 non-NEE temporal reuse remains enabled. Current-frame Doom analytic NEE
 reservoirs still bypass RTXDI temporal combine/bias correction while this guard
 is off, so the inverse-shift path cannot reinterpret a current analytic light

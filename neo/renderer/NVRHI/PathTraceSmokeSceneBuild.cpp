@@ -1054,6 +1054,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeEmissiveTriangleBuffer = nullptr;
             m_smokeLightCandidateBuffer = nullptr;
             m_smokeDoomAnalyticLightBuffer = nullptr;
+            m_smokeDoomAnalyticPreviousLightBuffer = nullptr;
+            m_smokeDoomAnalyticCurrentIdentityBuffer = nullptr;
+            m_smokeDoomAnalyticPreviousIdentityBuffer = nullptr;
+            m_smokeDoomAnalyticRemapBuffer = nullptr;
             m_smokeRigidRouteVertexBuffer = nullptr;
             m_smokeRigidRouteIndexBuffer = nullptr;
             m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
@@ -1724,6 +1728,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
     std::vector<PathTraceSmokeLightCandidate> lightCandidates;
     std::vector<PathTraceDoomAnalyticLightCandidate> doomAnalyticLights;
+    PathTraceDoomAnalyticLightGpuRemap doomAnalyticRemap;
     const int maxEmissiveRecords = idMath::ClampInt(1, RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS, r_pathTracingEmissiveInventoryMaxTriangles.GetInteger());
     {
         OPTICK_EVENT("PT Emissive Inventory");
@@ -1805,6 +1810,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
     const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates;
     doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, restirPTAnalyticLightCandidates);
+    doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
     if (r_pathTracingSmokeLog.GetInteger() != 0 && enableDoomAnalyticLightCandidates && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
         common->Printf("PathTracePrimaryPass: Doom analytic lights gpu=%d bytes=%d intensityScale=%.3f\n",
@@ -2038,6 +2044,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
     bufferCreateDesc.existingBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
     bufferCreateDesc.existingBuffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
+    bufferCreateDesc.existingBuffers.doomAnalyticPreviousLightBuffer = m_smokeDoomAnalyticPreviousLightBuffer;
+    bufferCreateDesc.existingBuffers.doomAnalyticCurrentIdentityBuffer = m_smokeDoomAnalyticCurrentIdentityBuffer;
+    bufferCreateDesc.existingBuffers.doomAnalyticPreviousIdentityBuffer = m_smokeDoomAnalyticPreviousIdentityBuffer;
+    bufferCreateDesc.existingBuffers.doomAnalyticRemapBuffer = m_smokeDoomAnalyticRemapBuffer;
     bufferCreateDesc.existingBuffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
     bufferCreateDesc.existingBuffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
     bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
@@ -2069,6 +2079,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
     bufferCreateDesc.lightCandidateBytes = lightCandidates.size() * sizeof(lightCandidates[0]);
     bufferCreateDesc.doomAnalyticLightBytes = doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate);
+    bufferCreateDesc.doomAnalyticPreviousLightBytes = doomAnalyticRemap.previousCandidates.size() * sizeof(PathTraceDoomAnalyticLightCandidate);
+    bufferCreateDesc.doomAnalyticCurrentIdentityBytes = doomAnalyticRemap.currentCandidateIdentities.size() * sizeof(PathTraceDoomAnalyticLightCandidateIdentity);
+    bufferCreateDesc.doomAnalyticPreviousIdentityBytes = doomAnalyticRemap.previousCandidateIdentities.size() * sizeof(PathTraceDoomAnalyticLightCandidateIdentity);
+    bufferCreateDesc.doomAnalyticRemapBytes = doomAnalyticRemap.universeRemap.size() * sizeof(PathTraceDoomAnalyticLightRemap);
     bufferCreateDesc.rigidRouteVertexBytes = rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex);
     bufferCreateDesc.rigidRouteIndexBytes = rigidRouteBuild.indexes.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteTriangleMaterialBytes = rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t);
@@ -2111,6 +2125,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
     nvrhi::BufferHandle smokeLightCandidateBuffer = smokeBuffers.lightCandidateBuffer;
     nvrhi::BufferHandle smokeDoomAnalyticLightBuffer = smokeBuffers.doomAnalyticLightBuffer;
+    nvrhi::BufferHandle smokeDoomAnalyticPreviousLightBuffer = smokeBuffers.doomAnalyticPreviousLightBuffer;
+    nvrhi::BufferHandle smokeDoomAnalyticCurrentIdentityBuffer = smokeBuffers.doomAnalyticCurrentIdentityBuffer;
+    nvrhi::BufferHandle smokeDoomAnalyticPreviousIdentityBuffer = smokeBuffers.doomAnalyticPreviousIdentityBuffer;
+    nvrhi::BufferHandle smokeDoomAnalyticRemapBuffer = smokeBuffers.doomAnalyticRemapBuffer;
     nvrhi::BufferHandle smokeRigidRouteVertexBuffer = smokeBuffers.rigidRouteVertexBuffer;
     nvrhi::BufferHandle smokeRigidRouteIndexBuffer = smokeBuffers.rigidRouteIndexBuffer;
     nvrhi::BufferHandle smokeRigidRouteTriangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
@@ -2368,6 +2386,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeLightCandidateBuffer, lightCandidates, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDoomAnalyticLightBuffer, doomAnalyticLights, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDoomAnalyticPreviousLightBuffer, doomAnalyticRemap.previousCandidates, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDoomAnalyticCurrentIdentityBuffer, doomAnalyticRemap.currentCandidateIdentities, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDoomAnalyticPreviousIdentityBuffer, doomAnalyticRemap.previousCandidateIdentities, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDoomAnalyticRemapBuffer, doomAnalyticRemap.universeRemap, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteVertexBuffer, rigidRouteBuild.vertices, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteIndexBuffer, rigidRouteBuild.indexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials, nvrhi::ResourceStates::ShaderResource, false),
@@ -2564,14 +2586,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &emissiveInventoryStats.candidateMaterials, sizeof(emissiveInventoryStats.candidateMaterials));
     const int doomAnalyticLightCountForSignature = static_cast<int>(doomAnalyticLights.size());
     sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &doomAnalyticLightCountForSignature, sizeof(doomAnalyticLightCountForSignature));
+    const int doomAnalyticRemapCountForSignature = static_cast<int>(doomAnalyticRemap.universeRemap.size());
+    sceneInputLightSignature = HashSmokeBytes(sceneInputLightSignature, &doomAnalyticRemapCountForSignature, sizeof(doomAnalyticRemapCountForSignature));
 
     const uint64_t staticUploadBytes = SumSmokeUploadBytes(uploadItems, 0, 5);
     const uint64_t previousStaticUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 5);
     const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 3);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 19, 5);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 7);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 23, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -2851,12 +2875,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.emissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
     sceneInputs.lights.lightCandidateBuffer = smokeLightCandidateBuffer;
     sceneInputs.lights.doomAnalyticLightBuffer = smokeDoomAnalyticLightBuffer;
+    sceneInputs.lights.doomAnalyticPreviousLightBuffer = smokeDoomAnalyticPreviousLightBuffer;
+    sceneInputs.lights.doomAnalyticCurrentIdentityBuffer = smokeDoomAnalyticCurrentIdentityBuffer;
+    sceneInputs.lights.doomAnalyticPreviousIdentityBuffer = smokeDoomAnalyticPreviousIdentityBuffer;
+    sceneInputs.lights.doomAnalyticRemapBuffer = smokeDoomAnalyticRemapBuffer;
     sceneInputs.lights.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
     sceneInputs.lights.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
     sceneInputs.lights.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
     sceneInputs.lights.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
     sceneInputs.lights.texturedLightCandidateCount = emissiveInventoryStats.texturedCandidateMaterials;
     sceneInputs.lights.doomAnalyticLightCount = static_cast<int>(doomAnalyticLights.size());
+    sceneInputs.lights.doomAnalyticPreviousLightCount = static_cast<int>(doomAnalyticRemap.previousCandidates.size());
+    sceneInputs.lights.doomAnalyticCurrentIdentityCount = static_cast<int>(doomAnalyticRemap.currentCandidateIdentities.size());
+    sceneInputs.lights.doomAnalyticPreviousIdentityCount = static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size());
+    sceneInputs.lights.doomAnalyticRemapCount = static_cast<int>(doomAnalyticRemap.universeRemap.size());
+    sceneInputs.lights.doomAnalyticInvalidRemapCount = doomAnalyticRemap.invalidRemapCount;
+    sceneInputs.lights.previousEmissiveTriangleCount = m_sceneInputs.valid ? m_sceneInputs.lights.emissiveTriangleCount : 0;
     sceneInputs.lights.lightUniverseGeneration = lightUniverseStats.generation;
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
 
@@ -2900,6 +2934,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     resourceCommitBuildDesc.doomAnalyticLightCount = static_cast<int>(doomAnalyticLights.size());
     resourceCommitBuildDesc.doomAnalyticLightBytes = static_cast<int>(doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate));
+    resourceCommitBuildDesc.doomAnalyticPreviousLightCount = static_cast<int>(doomAnalyticRemap.previousCandidates.size());
+    resourceCommitBuildDesc.doomAnalyticCurrentIdentityCount = static_cast<int>(doomAnalyticRemap.currentCandidateIdentities.size());
+    resourceCommitBuildDesc.doomAnalyticPreviousIdentityCount = static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size());
+    resourceCommitBuildDesc.doomAnalyticRemapCount = static_cast<int>(doomAnalyticRemap.universeRemap.size());
+    resourceCommitBuildDesc.doomAnalyticInvalidRemapCount = doomAnalyticRemap.invalidRemapCount;
+    resourceCommitBuildDesc.previousEmissiveTriangleCount = sceneInputs.lights.previousEmissiveTriangleCount;
     resourceCommitBuildDesc.reservoirSceneSignature = reservoirSceneSignature;
     const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
     {

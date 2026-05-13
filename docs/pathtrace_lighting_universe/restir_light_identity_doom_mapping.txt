@@ -1,0 +1,203 @@
+Doom Mapping For ReSTIR Light Identity
+======================================
+
+Purpose
+-------
+
+This document maps the generic ReSTIR light-identity contract onto the current
+rbdoom path-tracing code. It is the branch-specific interpretation agents should
+use before making implementation changes.
+
+Current Local State
+-------------------
+
+Current Doom analytic light data is built in:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+
+The GPU-facing record is:
+
+    PathTraceDoomAnalyticLightCandidate
+
+The buffer is uploaded by the smoke scene-build/resource path and consumed in:
+
+    neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse` currently defaults to 0 because
+stable light-domain remapping does not exist yet.
+
+Identity Candidates
+-------------------
+
+For Doom analytic point lights, the first stable key should attempt to use:
+
+    renderLightIndex
+    entityNumber
+    light kind/type
+    render-world or map generation if available
+    conservative invalidation when generation is not available
+
+Possible secondary fields:
+
+    linked entity identity
+    spawn entity name/classname for diagnostics only
+    render light pointer as a temporary bridge only
+    material/light shader name for diagnostics only
+
+Do not key identity by:
+
+    current candidate array slot
+    current portal depth
+    current distance to camera
+    selected area
+    active/radiance bit
+    current sorted order
+
+Continuity rule:
+
+    Static map lights may use renderLightIndex + kind + map/world generation
+    when that identity is stable.
+
+    Dynamic, projectile, fireball, unlinked, or temporary lights must either
+    carry a generation/validity token or be rejected from previous-frame remap
+    whenever continuity cannot be proven.
+
+    Unknown entityNumber must stay an explicit invalid sentinel such as
+    UINT32_MAX in GPU/diagnostic records. Do not collapse unknown entityNumber
+    to 0, because entity 0 can be a valid identity and would hide aliasing.
+
+Universe Ownership
+------------------
+
+Prefer a new PT-owned module rather than expanding the current candidate builder
+into a mixed identity/sampling system.
+
+Suggested native module names:
+
+    PathTraceLightUniverse.h
+    PathTraceLightUniverse.cpp
+
+or, if narrower for Task 01:
+
+    PathTraceDoomLightUniverse.h
+    PathTraceDoomLightUniverse.cpp
+
+Task 01 may keep the universe CPU-only and feed the existing candidate upload
+unchanged. That lets agents prove identity and remap behavior without changing
+shader output.
+
+Suggested CPU records:
+
+    DoomLightUniverseKey
+    DoomLightUniverseEntry
+    DoomLightFrameState
+    DoomLightRemap
+
+Suggested fields:
+
+    stableUniverseIndex
+    renderLightIndex
+    entityNumber
+    generation
+    kind
+    active
+    sampleable
+    selectedArea
+    suppressed
+    color/intensity
+    origin/radius
+    sphereRadius
+    doomRadius
+    currentCandidateIndex or invalid
+    previousUniverseIndex or invalid
+    remapValid
+    invalidReasonFlags
+    temporalStateFlags
+
+Task 03 requires either a valid generation/continuity token or conservative
+remap invalidation. "Generation if cheaply available" is not enough for reuse-on
+validation.
+
+Invalid Reason Flags
+--------------------
+
+Use explicit low-noise flags instead of one anonymous false bit where practical:
+
+    MissingPrevious
+    MissingCurrent
+    IdentityChanged
+    GenerationChanged
+    KindChanged
+    CandidateCapDropped
+    ZeroRadiance
+    Suppressed
+    OutOfSelectedArea
+    PortalFiltered
+    NonPointOrParallel
+    RadiusInvalid
+    DataNonFinite
+    Overflow
+
+Not every flag must be shader-visible in Task 01, but diagnostics should count
+the common cases.
+
+Shader Mapping
+--------------
+
+Task 02 should move the RAB light index contract toward:
+
+    global light index == stable universe light index or a tagged stable domain
+
+The current bridge may still need a compact proposal list. If so:
+
+    proposal index -> universe index
+    universe index -> current record
+
+`RAB_TranslateLightIndex` should not return the same input blindly for Doom
+analytic lights unless the light domain is stable for both current and previous
+frames.
+
+Candidate Caps
+--------------
+
+Keep this distinction:
+
+    authored/uploaded universe count: stable identity domain
+    proposal count: bounded sampling work
+
+Do not cap away authored light identity just because
+`r_pathTracingAnalyticLightMaxGpu` or proposal-trial CVars are small. If a GPU
+capacity limit remains, the reservoir validation path must reject reservoirs
+whose universe entry cannot be loaded rather than reinterpret their index.
+
+Robot Endpoint Case
+-------------------
+
+The known repro is:
+
+    r_pathTracingRestirPTTemporalAnalyticNeeReuse 1
+    animated robot reaches endpoint/stops
+    lights flicker/turn off
+    keeping the robot on screen tends to hide or avoid the failure
+
+Interpretation:
+
+    Current-frame lighting can be correct while temporal NEE reservoirs are
+    wrong. The bug is likely an identity-domain mismatch, not a current light
+    evaluator failure.
+
+Validation should log/remap around that endpoint:
+
+    universe count
+    proposal count
+    persistent light remap count
+    remap failure count
+    zero-radiance count
+    out-of-area/suppressed count
+    reservoir rejects by reason
+
+Only after those diagnostics show stable identity should agents re-enable
+previous-frame NEE reuse for testing.

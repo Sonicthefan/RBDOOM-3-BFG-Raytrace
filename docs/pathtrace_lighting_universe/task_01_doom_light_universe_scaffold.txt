@@ -1,0 +1,238 @@
+Task 01: Doom Light Universe Scaffold And Diagnostics
+====================================================
+
+Assignment
+----------
+
+Add a CPU-side Doom analytic light universe scaffold with stable identity,
+current-frame state, previous/current remap bookkeeping, and diagnostics.
+
+Keep shader-visible lighting behavior unchanged. Do not re-enable previous-frame
+NEE reservoir reuse in this task.
+
+Hard Acceptance Criteria
+------------------------
+
+Task 01 is accepted only if:
+
+    Existing BuildPathTraceDoomAnalyticLightCandidates output is byte-for-byte
+    or behaviorally unchanged.
+
+    The universe contains structurally eligible lights even when inactive,
+    zero-radiance, suppressed, or out of selected portal area.
+
+    The universe reports sampleability separately from identity.
+
+    currentCandidateIndex may be recorded for diagnostics only.
+
+    currentCandidateIndex is not treated as identity.
+
+    Duplicate keys are counted and conservatively rejected from remap.
+
+    Unknown entityNumber remains an explicit invalid sentinel, not 0.
+
+    Dynamic/projectile/temporary lights without provable continuity are marked
+    remap-invalid rather than guessed.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_lighting_universe/README.txt
+    docs/pathtrace_lighting_universe/q2rtx_rtxdi_reference_notes.txt
+    docs/pathtrace_lighting_universe/restir_light_identity_minimum_contract.txt
+    docs/pathtrace_lighting_universe/restir_light_identity_doom_mapping.txt
+
+Relevant code:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceDoomLights.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceDebugDumps.cpp
+    neo/renderer/NVRHI/PathTraceDebugDumps.h
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Problem Statement
+-----------------
+
+The current analytic Doom light buffer is a compact per-frame candidate table.
+It is useful for current-frame direct lighting but unsafe as the identity domain
+for temporal/spatial ReSTIR reservoirs.
+
+The first implementation slice is:
+
+    identify Doom analytic lights with stable keys
+    build a CPU-side universe every frame
+    preserve current-frame state separately from identity
+    match current entries to previous entries
+    report remap/invalid reason diagnostics
+    leave current GPU buffer/shader behavior unchanged
+
+Step-By-Step Procedure
+----------------------
+
+1. Inventory the current Doom analytic builder.
+
+   Confirm how `DoomLightRecord` is populated, filtered, sorted, and converted
+   to `PathTraceDoomAnalyticLightCandidate`.
+
+   Do not change behavior in this step.
+
+2. Add a small light-universe key type.
+
+   Prefer a PT/NVRHI-local type. Suggested fields:
+
+       renderLightIndex
+       entityNumber
+       kind
+       generation or conservative invalidation policy
+
+   If generation is not available, document that Task 01 uses the best current
+   stable bridge and requires conservative remap invalidation for lights whose
+   continuity cannot be proven.
+
+3. Add a universe entry/state record.
+
+   Suggested fields:
+
+       key
+       universeIndex
+       previousUniverseIndex
+       currentCandidateIndex
+       hasPrevious
+       remapValid
+       active
+       sampleable
+       selectedArea
+       suppressed
+       pointLight
+       parallel
+       radiusMax
+       origin
+       color/intensity
+       entityNumber
+       renderLightIndex
+       invalidReasonFlags
+       temporalStateFlags
+
+4. Build current universe entries from the same source records used by
+   `BuildAnalyticDoomLightRecords`.
+
+   Structural lights should enter the universe even if current radiance is zero
+   or current sampling says they are not eligible. Use state flags to describe
+   why they are not sampleable.
+
+5. Match current entries to previous entries by key.
+
+   Required behavior:
+
+       stable key exists in previous frame -> remapValid true
+       no previous key -> MissingPrevious
+       duplicated key -> reject duplicates and count them
+       key changed or type changed -> remap invalid
+
+6. Preserve the existing candidate builder behavior for shader upload.
+
+   Task 01 is a no-visual-change scaffold. Do not change the GPU-facing list
+   layout or RAB light loading in this task unless the user explicitly expands
+   scope.
+
+7. Add diagnostics.
+
+   Add a one-shot or low-frequency dump controlled by a narrowly named CVar,
+   for example:
+
+       r_pathTracingLightUniverseDump
+
+   The dump should report:
+
+       universe count
+       current candidate count
+       active/radiant count
+       sampleable count
+       zero-radiance count
+       previous matched count
+       previous missing count
+       duplicate key count
+       remap invalid count
+       common invalid reason counts
+
+   Avoid per-light spam by default. If per-light logging exists, make it
+   one-shot and capped.
+
+8. Add robot-endpoint diagnostic notes.
+
+   Make the dump useful for the known repro:
+
+       r_pathTracingRestirPTTemporalAnalyticNeeReuse 1
+       robot reaches endpoint/stops
+
+   The dump should let a tester see whether universe identity stays stable even
+   if candidate count or sampleable count changes.
+
+9. Update docs only for behavior that exists.
+
+   If code changes land, update:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+
+   Mention that Task 01 is CPU-side diagnostics only and that previous-frame NEE
+   reuse remains off by default.
+
+Validation
+----------
+
+Use a non-Debug PT lane. For this ReSTIR/light-universe work, prefer:
+
+    cmake --preset win64-pt-dev
+    cmake --build --preset win64-pt-dev-release
+
+Run from:
+
+    E:\prog\rbdoom-3-bfg-rt\neo
+
+Copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+Expected validation:
+
+    existing current-frame PT lighting is visually unchanged
+    dump shows universe entries even when some lights are zero-radiance
+    previous remap count becomes stable after the first frame
+    candidate count may change without changing universe identity
+    no Debug build or Debug copy path is used
+
+Stop Conditions
+---------------
+
+Stop and ask the user if:
+
+    no stable enough render-light/entity identity can be found
+    duplicate keys are common and cannot be resolved conservatively
+    the scaffold requires broad renderWorld lifetime changes
+    current-frame lighting changes visually
+    enabling diagnostics floods the console
+    a proposed fix requires re-enabling NEE reuse before remap exists
+
+Non-Goals
+---------
+
+Do not implement shader-side remapping.
+
+Do not modify RTXDI reservoir packing.
+
+Do not change portal walking.
+
+Do not change current proposal sampling.
+
+Do not enable `r_pathTracingRestirPTTemporalAnalyticNeeReuse 1` as the new
+default.
+
+Do not use Debug builds.

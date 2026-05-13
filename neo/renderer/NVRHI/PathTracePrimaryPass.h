@@ -118,6 +118,10 @@ private:
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
     nvrhi::BufferHandle m_smokeLightCandidateBuffer;
     nvrhi::BufferHandle m_smokeDoomAnalyticLightBuffer;
+    nvrhi::BufferHandle m_smokeDoomAnalyticPreviousLightBuffer;
+    nvrhi::BufferHandle m_smokeDoomAnalyticCurrentIdentityBuffer;
+    nvrhi::BufferHandle m_smokeDoomAnalyticPreviousIdentityBuffer;
+    nvrhi::BufferHandle m_smokeDoomAnalyticRemapBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteVertexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
@@ -172,6 +176,12 @@ private:
     int m_smokeLightCandidateBytes = 0;
     int m_smokeDoomAnalyticLightCount = 0;
     int m_smokeDoomAnalyticLightBytes = 0;
+    int m_smokeDoomAnalyticPreviousLightCount = 0;
+    int m_smokeDoomAnalyticCurrentIdentityCount = 0;
+    int m_smokeDoomAnalyticPreviousIdentityCount = 0;
+    int m_smokeDoomAnalyticRemapCount = 0;
+    int m_smokeDoomAnalyticInvalidRemapCount = 0;
+    int m_smokePreviousEmissiveTriangleCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirInitialShaderLibrary;

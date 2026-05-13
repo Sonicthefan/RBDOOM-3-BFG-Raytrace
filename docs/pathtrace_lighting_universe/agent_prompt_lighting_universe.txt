@@ -1,0 +1,127 @@
+Paste-Ready Agent Prompt - Lighting Universe
+============================================
+
+Use this prompt to start a focused coding agent on the first Doom analytic
+light-universe task.
+
+Prompt
+------
+
+You are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Goal:
+
+    Build the first CPU-side Doom analytic light universe scaffold for the
+    path tracer. This is to fix the ReSTIR PT light-identity boundary that makes
+    previous-frame NEE reservoirs unsafe when
+    `r_pathTracingRestirPTTemporalAnalyticNeeReuse 1` is used. Task 01 must keep
+    shader-visible lighting behavior unchanged and must not re-enable previous
+    NEE reuse.
+
+Read these first, in order:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_lighting_universe/README.txt
+    docs/pathtrace_lighting_universe/q2rtx_rtxdi_reference_notes.txt
+    docs/pathtrace_lighting_universe/restir_light_identity_minimum_contract.txt
+    docs/pathtrace_lighting_universe/restir_light_identity_doom_mapping.txt
+    docs/pathtrace_lighting_universe/task_01_doom_light_universe_scaffold.txt
+
+Important local code:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceDoomLights.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceDebugDumps.cpp
+    neo/renderer/NVRHI/PathTraceDebugDumps.h
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Reference only:
+
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\bsp_mesh.c
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\vertex_buffer.c
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\main.c
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\shader\restir.h
+    E:\prog\references\Q2RTX-rayreconstruction-master\src\refresh\vkpt\shader\vertex_buffer.h
+    E:\prog\references\RTXDI-main\Doc\RtxdiApplicationBridge.md
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\SpatioTemporalResampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Source\RenderPasses\PrepareLightsPass.cpp
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\PrepareLights.hlsl
+
+License/copying rule:
+
+    Study Q2RTX and RTXDI as architecture checklists only. Do not copy source
+    code, comments, struct layouts, shader helper bodies, or packing choices.
+    Implement native RBDoom3/NVRHI code that follows this repository's existing
+    PathTrace module conventions.
+
+Hard build rule:
+
+    Do not use legacy Debug builds for this task. Do not suggest, run, or copy
+    from the old Debug build folder.
+
+    Use a documented non-Debug PT lane. For this task prefer PT dev Release:
+
+        cmake --preset win64-pt-dev
+        cmake --build --preset win64-pt-dev-release
+
+    Run those commands from:
+
+        E:\prog\rbdoom-3-bfg-rt\neo
+
+    Copy the executable from:
+
+        E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+
+    to:
+
+        E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Game testing working directory:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+Task constraints:
+
+    - Start with Task 01 only.
+    - Keep current-frame rendering behavior unchanged.
+    - Do not modify shader-visible RAB light layout in Task 01.
+    - Do not enable previous-frame NEE reuse.
+    - Leave `r_pathTracingRestirPTTemporalAnalyticNeeReuse` default at 0.
+    - Do not solve this by hashing light color/intensity into global reservoir
+      reset every frame.
+    - Do not cap the authored light universe to the sampled proposal count.
+    - Do not treat candidate sorting or zero-radiance slot preservation as the
+      fix.
+    - Do not collapse unknown entityNumber to 0; keep an explicit invalid
+      sentinel.
+    - Reject dynamic/projectile/temporary light remap when continuity cannot be
+      proven.
+    - Do not change portal walking.
+    - Do not change material classification.
+    - Do not stage, commit, or push unless explicitly asked.
+
+Expected first useful result:
+
+    The path tracer records a CPU-side Doom analytic light universe with stable
+    keys, current state, previous/current remap bookkeeping, invalid reason
+    counts, and a low-noise diagnostic dump. Existing PT visuals and shader
+    inputs should remain unchanged.
+
+Validation:
+
+    Use PT dev Release. Test with Doom analytic lights enabled and the robot
+    endpoint case if available. Confirm:
+
+        current-frame lighting is visually unchanged
+        universe count is reported
+        previous remap count becomes stable after the first frame
+        zero-radiance/sampleability changes do not destroy universe identity
+        candidate count can differ from universe count
+        no Debug build or Debug copy path is used

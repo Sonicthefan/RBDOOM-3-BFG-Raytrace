@@ -150,6 +150,22 @@ struct PathTraceDoomAnalyticLightCandidate
     uint padding0;
 };
 
+struct PathTraceDoomAnalyticLightCandidateIdentity
+{
+    uint universeIndex;
+    uint flags;
+    uint invalidReasonFlags;
+    uint padding0;
+};
+
+struct PathTraceDoomAnalyticLightRemap
+{
+    int previousToCurrentCandidateIndex;
+    int currentToPreviousCandidateIndex;
+    uint flags;
+    uint invalidReasonFlags;
+};
+
 struct PathTraceSmokeReservoir
 {
     float4 radianceAndTargetPdf;
@@ -223,6 +239,10 @@ StructuredBuffer<uint> SmokeRigidRouteTriangleMaterials : register(t24);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticCurrentIdentities : register(t42);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticPreviousIdentities : register(t43);
+StructuredBuffer<PathTraceDoomAnalyticLightRemap> DoomAnalyticRemap : register(t44);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights : register(t45);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
@@ -268,6 +288,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 EmissiveInfo;
     float4 BoundsOverlayInfo;
     float4 DoomAnalyticLightInfo;
+    float4 DoomAnalyticLightRemapInfo;
     float4 RestirPTInfo;
     float4 IntegratorInfo;
     float4 IntegratorInfo2;
@@ -2110,13 +2131,24 @@ bool RestirPTShouldRejectPreviousNeeReservoir(RTXDI_PTReservoir reservoir)
     return MotionVectorInfo.y < 0.5 && RestirPTReservoirConnectsToNeeLight(reservoir);
 }
 
-bool RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(int2 previousPixel)
+bool RestirPTPreviousNeeReservoirFailsLightRemap(RTXDI_PTReservoir reservoir)
 {
-    if (MotionVectorInfo.y >= 0.5)
+    if (!RestirPTReservoirConnectsToNeeLight(reservoir))
     {
         return false;
     }
 
+    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+    {
+        return true;
+    }
+
+    return RAB_TranslateLightIndex(RTXDI_SampledLightData_GetLightIndex(sampledLightData), false) < 0;
+}
+
+bool RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(int2 previousPixel)
+{
     const uint2 dimensions = PathTraceFullOutputSize();
     [unroll]
     for (int offsetY = -1; offsetY <= 1; ++offsetY)
@@ -2136,7 +2168,8 @@ bool RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(int2 previousPi
                 RestirPTParams.reservoirBuffer,
                 reservoirPosition,
                 RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
-            if (RestirPTShouldRejectPreviousNeeReservoir(previousReservoir))
+            if (RestirPTShouldRejectPreviousNeeReservoir(previousReservoir) ||
+                RestirPTPreviousNeeReservoirFailsLightRemap(previousReservoir))
             {
                 return true;
             }

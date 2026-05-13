@@ -226,6 +226,7 @@ struct DoomAnalyticLightUniverseState
 };
 
 DoomAnalyticLightUniverseState g_doomAnalyticLightUniverse;
+PathTraceDoomAnalyticLightGpuRemap g_doomAnalyticLightGpuRemap;
 
 struct DoomLightPortalSelection
 {
@@ -1149,6 +1150,20 @@ bool DoomAnalyticKeyIsDuplicate(const std::vector<DoomAnalyticLightUniverseEntry
     return false;
 }
 
+uint32_t BuildDoomAnalyticIdentityFlags(const DoomAnalyticLightUniverseEntry& entry)
+{
+    uint32_t flags = PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID;
+    if (entry.sampleable)
+    {
+        flags |= PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE;
+    }
+    if (entry.remapValid)
+    {
+        flags |= PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID;
+    }
+    return flags;
+}
+
 int FindDoomPersistentAuthoredLightEntry(const std::vector<DoomPersistentAuthoredLightEntry>& entries, const DoomAnalyticLightUniverseKey& key)
 {
     for (int i = 0; i < static_cast<int>(entries.size()); ++i)
@@ -1609,6 +1624,163 @@ void UpdateDoomAnalyticLightUniverse(
 
 }
 
+const DoomAnalyticLightUniverseEntry* FindDoomAnalyticEntryByUniverseIndex(
+    const std::vector<DoomAnalyticLightUniverseEntry>& entries,
+    uint32_t universeIndex)
+{
+    for (const DoomAnalyticLightUniverseEntry& entry : entries)
+    {
+        if (entry.universeIndex == universeIndex)
+        {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+PathTraceDoomAnalyticLightCandidateIdentity MakeInvalidDoomAnalyticCandidateIdentity()
+{
+    PathTraceDoomAnalyticLightCandidateIdentity identity;
+    identity.universeIndex = PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX;
+    return identity;
+}
+
+PathTraceDoomAnalyticLightCandidate MakeDoomAnalyticLightCandidateFromUniverseEntry(const DoomAnalyticLightUniverseEntry& entry)
+{
+    PathTraceDoomAnalyticLightCandidate gpuLight = {};
+    gpuLight.originAndRadius[0] = entry.origin.x;
+    gpuLight.originAndRadius[1] = entry.origin.y;
+    gpuLight.originAndRadius[2] = entry.origin.z;
+    gpuLight.originAndRadius[3] = Max(entry.sphereRadius, 0.01f);
+    gpuLight.colorAndIntensity[0] = Max(entry.color.x, 0.0f);
+    gpuLight.colorAndIntensity[1] = Max(entry.color.y, 0.0f);
+    gpuLight.colorAndIntensity[2] = Max(entry.color.z, 0.0f);
+    gpuLight.colorAndIntensity[3] = Max(entry.color.w, 0.0f);
+    gpuLight.doomRadiusAndArea[0] = Max(entry.doomRadius, 1.0f);
+    gpuLight.doomRadiusAndArea[1] = 12.56637061f * gpuLight.originAndRadius[3] * gpuLight.originAndRadius[3];
+    gpuLight.doomRadiusAndArea[2] = static_cast<float>(entry.portalDepth);
+    gpuLight.doomRadiusAndArea[3] = static_cast<float>(entry.selectionArea);
+    gpuLight.flags = entry.flags;
+    gpuLight.renderLightIndex = entry.key.renderLightIndex;
+    gpuLight.entityNumber = entry.key.entityNumber;
+    return gpuLight;
+}
+
+void BuildDoomAnalyticLightGpuRemap(DoomAnalyticLightUniverseState& state, int uploadedCandidateCount)
+{
+    PathTraceDoomAnalyticLightGpuRemap gpuRemap;
+    const int currentIdentityCount = Max(uploadedCandidateCount, 0);
+    gpuRemap.currentCandidateIdentities.assign(currentIdentityCount, MakeInvalidDoomAnalyticCandidateIdentity());
+
+    int previousIdentityCount = 0;
+    for (const DoomAnalyticLightUniverseEntry& previousEntry : state.previousEntries)
+    {
+        if (previousEntry.currentCandidateIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX)
+        {
+            previousIdentityCount = Max(previousIdentityCount, static_cast<int>(previousEntry.currentCandidateIndex) + 1);
+        }
+    }
+    gpuRemap.previousCandidates.assign(previousIdentityCount, PathTraceDoomAnalyticLightCandidate());
+    gpuRemap.previousCandidateIdentities.assign(previousIdentityCount, MakeInvalidDoomAnalyticCandidateIdentity());
+
+    uint32_t maxReferencedUniverseIndex = 0;
+    bool hasReferencedUniverseIndex = false;
+    for (const DoomAnalyticLightUniverseEntry& currentEntry : state.currentEntries)
+    {
+        if (currentEntry.universeIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX)
+        {
+            maxReferencedUniverseIndex = hasReferencedUniverseIndex ? Max(maxReferencedUniverseIndex, currentEntry.universeIndex) : currentEntry.universeIndex;
+            hasReferencedUniverseIndex = true;
+        }
+    }
+    for (const DoomAnalyticLightUniverseEntry& previousEntry : state.previousEntries)
+    {
+        if (previousEntry.currentCandidateIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+            previousEntry.universeIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX)
+        {
+            maxReferencedUniverseIndex = hasReferencedUniverseIndex ? Max(maxReferencedUniverseIndex, previousEntry.universeIndex) : previousEntry.universeIndex;
+            hasReferencedUniverseIndex = true;
+        }
+    }
+    const int remapCount = hasReferencedUniverseIndex ? static_cast<int>(maxReferencedUniverseIndex) + 1 : 0;
+    gpuRemap.universeRemap.assign(remapCount, PathTraceDoomAnalyticLightRemap());
+
+    for (const DoomPersistentAuthoredLightProposal& proposal : state.persistentAuthoredProposals)
+    {
+        if (proposal.candidateIndex >= static_cast<uint32_t>(currentIdentityCount))
+        {
+            continue;
+        }
+
+        const DoomAnalyticLightUniverseEntry* currentEntry = FindDoomAnalyticEntryByUniverseIndex(state.currentEntries, proposal.universeIndex);
+        PathTraceDoomAnalyticLightCandidateIdentity& identity = gpuRemap.currentCandidateIdentities[proposal.candidateIndex];
+        identity.universeIndex = proposal.universeIndex;
+        if (currentEntry)
+        {
+            identity.flags = BuildDoomAnalyticIdentityFlags(*currentEntry);
+            identity.invalidReasonFlags = currentEntry->invalidReasonFlags;
+        }
+        else
+        {
+            identity.invalidReasonFlags = DOOM_LIGHT_UNIVERSE_INVALID_MISSING_CURRENT;
+        }
+    }
+
+    for (const DoomAnalyticLightUniverseEntry& previousEntry : state.previousEntries)
+    {
+        if (previousEntry.currentCandidateIndex == RT_PT_DOOM_LIGHT_INVALID_INDEX ||
+            previousEntry.currentCandidateIndex >= static_cast<uint32_t>(previousIdentityCount))
+        {
+            continue;
+        }
+
+        PathTraceDoomAnalyticLightCandidateIdentity& identity = gpuRemap.previousCandidateIdentities[previousEntry.currentCandidateIndex];
+        identity.universeIndex = previousEntry.universeIndex;
+        identity.flags = BuildDoomAnalyticIdentityFlags(previousEntry);
+        identity.invalidReasonFlags = previousEntry.invalidReasonFlags;
+        gpuRemap.previousCandidates[previousEntry.currentCandidateIndex] = MakeDoomAnalyticLightCandidateFromUniverseEntry(previousEntry);
+    }
+
+    for (const DoomAnalyticLightUniverseEntry& currentEntry : state.currentEntries)
+    {
+        if (currentEntry.universeIndex >= gpuRemap.universeRemap.size())
+        {
+            ++gpuRemap.invalidRemapCount;
+            continue;
+        }
+
+        PathTraceDoomAnalyticLightRemap& remap = gpuRemap.universeRemap[currentEntry.universeIndex];
+        remap.flags = BuildDoomAnalyticIdentityFlags(currentEntry);
+        remap.invalidReasonFlags = currentEntry.invalidReasonFlags;
+
+        const DoomAnalyticLightUniverseEntry* previousEntry = currentEntry.hasPrevious
+            ? FindDoomAnalyticEntryByUniverseIndex(state.previousEntries, currentEntry.previousUniverseIndex)
+            : nullptr;
+        const bool currentCandidateValid =
+            currentEntry.currentCandidateIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+            currentEntry.currentCandidateIndex < static_cast<uint32_t>(currentIdentityCount);
+        const bool previousCandidateValid =
+            previousEntry &&
+            previousEntry->currentCandidateIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+            previousEntry->currentCandidateIndex < static_cast<uint32_t>(previousIdentityCount);
+
+        if (currentEntry.remapValid && currentCandidateValid)
+        {
+            remap.previousToCurrentCandidateIndex = static_cast<int32_t>(currentEntry.currentCandidateIndex);
+        }
+        if (currentEntry.remapValid && previousCandidateValid)
+        {
+            remap.currentToPreviousCandidateIndex = static_cast<int32_t>(previousEntry->currentCandidateIndex);
+        }
+        if (remap.previousToCurrentCandidateIndex < 0 || remap.currentToPreviousCandidateIndex < 0)
+        {
+            ++gpuRemap.invalidRemapCount;
+        }
+    }
+
+    g_doomAnalyticLightGpuRemap = gpuRemap;
+}
+
 void RunDoomAnalyticLightUniverseDump(const DoomLightPortalSelection& selection, int maxGpuCandidates)
 {
     if (r_pathTracingLightUniverseDump.GetInteger() == 0)
@@ -1620,11 +1792,15 @@ void RunDoomAnalyticLightUniverseDump(const DoomLightPortalSelection& selection,
     const DoomAnalyticLightUniverseStats& stats = state.stats;
     const DoomPersistentAuthoredLightStats& persistentStats = state.persistentStats;
     const bool previousNeeReuseEnabled = r_pathTracingRestirPTTemporalAnalyticNeeReuse.GetInteger() != 0;
-    common->Printf("PathTracePrimaryPass: Doom analytic light universe universe=%d stableKeys=%d candidates=%d uploadedCap=%d active=%d sampleable=%d zeroRadiance=%d prevMatched=%d prevMissing=%d prevMissingCurrent=%d duplicateKeys=%d remapInvalid=%d unknownEntity=%d unprovenContinuity=%d suppressed=%d outOfSelectedArea=%d nonPointOrParallel=%d invalidRadius=%d candidateCapDropped=%d currentArea=%d portalSteps=%d selectedAreas=%d previousNeeReuse=%d task=01 shaderBehavior=current-frame-candidates-preserved\n",
+    common->Printf("PathTracePrimaryPass: Doom analytic light universe universe=%d stableKeys=%d candidates=%d uploadedCap=%d uploadedCurrentIds=%d uploadedPreviousIds=%d uploadedRemap=%d shaderInvalidRemap=%d active=%d sampleable=%d zeroRadiance=%d prevMatched=%d prevMissing=%d prevMissingCurrent=%d duplicateKeys=%d remapInvalid=%d unknownEntity=%d unprovenContinuity=%d suppressed=%d outOfSelectedArea=%d nonPointOrParallel=%d invalidRadius=%d candidateCapDropped=%d currentArea=%d portalSteps=%d selectedAreas=%d previousNeeReuse=%d task=02 shaderBehavior=stable-analytic-remap\n",
         stats.universeCount,
         static_cast<int>(state.stableKeys.size()),
         stats.currentCandidateCount,
         maxGpuCandidates,
+        static_cast<int>(g_doomAnalyticLightGpuRemap.currentCandidateIdentities.size()),
+        static_cast<int>(g_doomAnalyticLightGpuRemap.previousCandidateIdentities.size()),
+        static_cast<int>(g_doomAnalyticLightGpuRemap.universeRemap.size()),
+        g_doomAnalyticLightGpuRemap.invalidRemapCount,
         stats.activeCount,
         stats.sampleableCount,
         stats.zeroRadianceCount,
@@ -1778,6 +1954,7 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
     const bool wantsUniverseDump = r_pathTracingLightUniverseDump.GetInteger() != 0;
     if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || (!forceEnable && r_pathTracingAnalyticLightCandidates.GetInteger() == 0 && !wantsUniverseDump))
     {
+        g_doomAnalyticLightGpuRemap = PathTraceDoomAnalyticLightGpuRemap();
         return gpuCandidates;
     }
 
@@ -1791,6 +1968,10 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
     const std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, preserveZeroRadianceSlots, stableReservoirOrder);
     const int maxGpuCandidates = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
     UpdateDoomAnalyticLightUniverse(viewDef, records, candidates, maxGpuCandidates);
+    const int uploadedCandidateCount = (forceEnable || r_pathTracingAnalyticLightCandidates.GetInteger() != 0)
+        ? Min(maxGpuCandidates, static_cast<int>(candidates.size()))
+        : 0;
+    BuildDoomAnalyticLightGpuRemap(g_doomAnalyticLightUniverse, uploadedCandidateCount);
     RunDoomAnalyticLightUniverseDump(selection, maxGpuCandidates);
     if (!forceEnable && r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
     {
@@ -1828,11 +2009,16 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
             gpuLight.flags |= RT_DOOM_ANALYTIC_LIGHT_BEHIND_CAMERA;
         }
         gpuLight.renderLightIndex = static_cast<uint32_t>(Max(light.index, 0));
-        gpuLight.entityNumber = static_cast<uint32_t>(Max(light.entityNumber, 0));
+        gpuLight.entityNumber = light.entityNumber >= 0 ? static_cast<uint32_t>(light.entityNumber) : RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER;
         gpuCandidates.push_back(gpuLight);
     }
 
     return gpuCandidates;
+}
+
+const PathTraceDoomAnalyticLightGpuRemap& GetPathTraceDoomAnalyticLightGpuRemap()
+{
+    return g_doomAnalyticLightGpuRemap;
 }
 
 void RunPathTraceDoomLightDiagnostics(const viewDef_t* viewDef)

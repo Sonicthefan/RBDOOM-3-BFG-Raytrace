@@ -777,6 +777,12 @@ idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse(
     CVAR_RENDERER | CVAR_INTEGER,
     "Allow previous-frame NEE light reservoirs to be reused by ReSTIR PT temporal/spatial modes; default 0 until stable light-domain identity/remapping exists" );
 
+idCVar r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance(
+    "r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance",
+    "0.10",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Relative current/previous Doom analytic light color tolerance for ReSTIR PT temporal NEE remap; lower rejects animated light phases more aggressively" );
+
 idCVar r_pathTracingRestirPTAnalyticLightTrials(
     "r_pathTracingRestirPTAnalyticLightTrials",
     "32",

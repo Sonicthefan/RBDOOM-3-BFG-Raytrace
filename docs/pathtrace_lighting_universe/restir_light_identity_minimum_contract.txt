@@ -1,0 +1,128 @@
+ReSTIR Light Identity Minimum Contract
+======================================
+
+Purpose
+-------
+
+This document defines the minimum light-domain contract needed before previous
+NEE reservoirs can be reused safely in rbdoom's ReSTIR PT path.
+
+This is deliberately narrower than a complete production lighting system. The
+goal is to remove identity corruption first.
+
+Minimum Requirements
+--------------------
+
+1. Stable light identity
+
+   Every reusable light must have a stable identity that survives compact
+   proposal-list changes.
+
+   For Doom analytic lights, the first identity should include:
+
+       renderLightIndex
+       entityNumber where available
+       entity/render-light generation or conservative invalidation
+       light kind
+
+   Pointer-only identity is acceptable only as a documented bridge if no better
+   current field exists. Do not present it as final.
+
+   Reuse-on rule:
+
+       If a light key cannot prove continuity from previous to current frame,
+       remap invalid. Do not guess continuity for dynamic, projectile, unlinked,
+       or temporary lights.
+
+2. Stable universe index
+
+   The PT light universe assigns each light a stable universe index for the
+   current map/session or until an explicit generation reset.
+
+   The universe index is not:
+
+       distance-sorted
+       portal-depth sorted
+       candidate-list local
+       capped by sampled proposal count
+       removed when radiance is zero
+
+3. Current-frame state
+
+   Each universe entry carries current state separately from identity:
+
+       active/radiant
+       sampleable
+       selected/suppressed
+       current area/portal metadata
+       current color/intensity
+       current origin/radius
+       current CVar/gate eligibility
+
+   A currently inactive light can stay in the universe as zero radiance.
+
+4. Previous/current remapping
+
+   The system must produce:
+
+       previous universe index -> current universe index or invalid
+       current universe index -> previous universe index or invalid
+
+   ReSTIR temporal/spatial reuse may only use a previous light after this map
+   succeeds.
+
+5. Shader-visible validation
+
+   The shader-visible RAB layer needs enough data to reject stale reservoirs:
+
+       light index in range
+       expected stable identity matches current record
+       generation matches where available
+       radiance/PDF data is finite
+       sample is currently usable for the requested operation
+
+6. Proposal-list separation
+
+   Current-frame proposal lists may stay compact and bounded. They must carry
+   or resolve to universe IDs.
+
+   A reservoir may cache a proposal index as a fast path only if it also stores
+   or can reconstruct the stable light identity and validates the fast path.
+
+7. Reset policy
+
+   Reservoir history should reset for structural universe changes that cannot be
+   remapped:
+
+       map/load transition
+       render world/light handle generation reset
+       incompatible light-kind change
+       identity-map overflow or corruption
+       dynamic light continuity cannot be proven
+
+   It should not globally reset merely because a stable light's radiance changed
+   to zero for a frame.
+
+8. Diagnostic proof
+
+   Before enabling NEE reuse, diagnostics must prove:
+
+       universe count stable across strobe zero frames
+       proposal count may change without changing universe IDs
+       previous-to-current remap succeeds for persistent lights
+       remap rejects removed/new/generated lights
+       `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` and `1` are A/B tested
+       with the robot endpoint case
+
+Reservoir Reuse Rule
+--------------------
+
+On previous-frame NEE reservoir reuse:
+
+    translate previous light ID to current light ID
+    validate identity/generation
+    validate current sampleability/radiance/PDF
+    reject reservoir if any validation fails
+    never reinterpret the old index as a different current light
+
+If the system cannot do the above, keep previous-frame NEE reuse disabled.
