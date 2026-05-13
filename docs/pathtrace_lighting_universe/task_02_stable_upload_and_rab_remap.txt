@@ -113,10 +113,11 @@ Step-By-Step Procedure
    Invalid loads should become empty lights and lead to reservoir rejection, not
    reinterpret another light.
 
-7. Keep previous-frame NEE reuse disabled by default.
+7. Keep previous-frame NEE reuse disabled by default during Task 02.
 
    Task 02 proves the bridge contract. Do not change the default of
-   `r_pathTracingRestirPTTemporalAnalyticNeeReuse`.
+   `r_pathTracingRestirPTTemporalAnalyticNeeReuse` in this task; Task 03 owns
+   promotion to a reuse-on default.
 
 8. Add diagnostics.
 
@@ -159,12 +160,12 @@ emissive-triangle count and returns current packed analytic indices only after
 the stable universe remap succeeds. `RAB_LoadLightInfo(..., previousFrame=true)`
 loads previous Doom analytic records for analytic inverse-shift target
 evaluation. Failed analytic remaps return invalid, not light 0. Emissive
-previous-frame light reuse remains conservative until an emissive identity map
-exists.
+previous-frame light reuse remained conservative until visual validation could
+exercise the full temporal path.
 
-`r_pathTracingRestirPTTemporalAnalyticNeeReuse` still defaults to 0. Enable it
-manually only for validation runs; this status section records the bridge
-implementation, not completed visual validation.
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse` now defaults to 1 after later
+robot/strobe validation and stale-NEE rejection work. This Task 02 status section
+records the bridge implementation that made that promotion possible.
 
 Validation Update
 -----------------
@@ -196,7 +197,8 @@ Stop and ask the user if:
 Non-Goals
 ---------
 
-Do not enable previous-frame NEE reuse by default.
+Do not enable previous-frame NEE reuse by default in Task 02. Later validation
+may promote the CVar after remap/rejection diagnostics prove the path.
 
 Do not merge emissive triangles into the universe unless required for domain
 tagging.

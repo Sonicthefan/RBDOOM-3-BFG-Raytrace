@@ -232,7 +232,8 @@ Do not change portal walking.
 
 Do not change current proposal sampling.
 
-Do not enable `r_pathTracingRestirPTTemporalAnalyticNeeReuse 1` as the new
-default.
+Historical Task 01 constraint: do not enable
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse 1` as the new default in the
+scaffold-only pass. Later validation promoted reuse-on to the current default.
 
 Do not use Debug builds.

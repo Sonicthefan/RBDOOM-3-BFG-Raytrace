@@ -16,9 +16,9 @@ Goal:
     Build the first CPU-side Doom analytic light universe scaffold for the
     path tracer. This is to fix the ReSTIR PT light-identity boundary that makes
     previous-frame NEE reservoirs unsafe when
-    `r_pathTracingRestirPTTemporalAnalyticNeeReuse 1` is used. Task 01 must keep
-    shader-visible lighting behavior unchanged and must not re-enable previous
-    NEE reuse.
+    `r_pathTracingRestirPTTemporalAnalyticNeeReuse 1` is used. Task 01 kept
+    shader-visible lighting behavior unchanged and did not re-enable previous
+    NEE reuse; later Task 03 validation promoted reuse-on to the default path.
 
 Read these first, in order:
 
@@ -92,8 +92,10 @@ Task constraints:
     - Start with Task 01 only.
     - Keep current-frame rendering behavior unchanged.
     - Do not modify shader-visible RAB light layout in Task 01.
-    - Do not enable previous-frame NEE reuse.
-    - Leave `r_pathTracingRestirPTTemporalAnalyticNeeReuse` default at 0.
+    - Historical Task 01 constraint: do not enable previous-frame NEE reuse in
+      the scaffold-only pass.
+    - Current branch state: `r_pathTracingRestirPTTemporalAnalyticNeeReuse`
+      defaults to 1 after validated remap/rejection work.
     - Do not solve this by hashing light color/intensity into global reservoir
       reset every frame.
     - Do not cap the authored light universe to the sampled proposal count.

@@ -111,8 +111,8 @@ Minimum Requirements
        proposal count may change without changing universe IDs
        previous-to-current remap succeeds for persistent lights
        remap rejects removed/new/generated lights
-       `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` and `1` are A/B tested
-       with the robot endpoint case
+       `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` and `1` have been A/B
+       tested with the robot endpoint case before reuse-on becomes the default
 
 Reservoir Reuse Rule
 --------------------

@@ -26,8 +26,10 @@ The buffer is uploaded by the smoke scene-build/resource path and consumed in:
     neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
     neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
 
-`r_pathTracingRestirPTTemporalAnalyticNeeReuse` currently defaults to 0 because
-stable light-domain remapping does not exist yet.
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse` now defaults to 1 because stable
+light-domain remapping, previous analytic light records, and pre-combine stale
+NEE rejection are present. Set it to 0 only to isolate current-frame NEE sampling
+from previous light history.
 
 Identity Candidates
 -------------------
@@ -199,5 +201,7 @@ Validation should log/remap around that endpoint:
     out-of-area/suppressed count
     reservoir rejects by reason
 
-Only after those diagnostics show stable identity should agents re-enable
-previous-frame NEE reuse for testing.
+Those diagnostics now showed stable enough identity/remap behavior for the
+validated robot/strobe endpoint case, so previous-frame NEE reuse is enabled by
+default. Keep the off CVar as the comparison path when investigating new light
+domain failures.

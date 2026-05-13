@@ -66,13 +66,14 @@ Step-By-Step Procedure
        validate light sampleability
        reject reservoir on failure
 
-2. Keep the CVar default conservative.
+2. Keep the CVar default conservative until explicit acceptance.
 
-   Leave:
+   Task work starts from:
 
        r_pathTracingRestirPTTemporalAnalyticNeeReuse 0
 
-   until the user explicitly accepts the reuse-on behavior after testing.
+   The default may move to 1 only after the user explicitly accepts the
+   reuse-on behavior after testing.
 
 3. Add a diagnostic mode or dump for rejection reasons.
 
@@ -111,7 +112,9 @@ Step-By-Step Procedure
        docs/pathtrace_modules.txt
 
    Document exactly which domains are remapped and which domains still reject
-   previous reuse.
+   previous reuse. After validation, the accepted default is
+   `r_pathTracingRestirPTTemporalAnalyticNeeReuse 1`; keep the off state as a
+   diagnostic split.
 
 Validation
 ----------
@@ -148,7 +151,9 @@ Stop and ask the user if:
 Non-Goals
 ---------
 
-Do not make reuse-on the default without explicit user approval.
+Do not make reuse-on the default without explicit user approval. Approval was
+given after the robot/strobe flicker fix was validated, so the current branch
+defaults to reuse-on.
 
 Do not treat a visually quieter output as proof unless diagnostics show remaps
 and rejects are correct.

@@ -78,7 +78,7 @@ The current RT/PT path is still an experimental "smoke" path:
   routed-rigid/static-preload/rigid-residency stack. The stack is already
   default-on; the preset remains a convenience/debug shortcut for mode 20 and
   optional light-area diagnostics.
-- r_pathTracingAnalyticLightCandidates: opt-in bridge from authored Doom
+- r_pathTracingAnalyticLightCandidates: default-on bridge from authored Doom
   renderer/game lights into a separate analytic sphere-light buffer. The first
   shader path keeps old selected point lights available for comparison, while
   r_pathTracingAnalyticLightReplaceSelected can suppress that legacy constant
@@ -1710,15 +1710,16 @@ a diagnostic split: set it to 0 when mode 32/50 flickers in exact alternating
 frames while mode 52 stays stable. If the flash disappears, the current-frame
 geometry and initial reservoir are probably sound and the bug is previous
 reservoir reuse/history validation.
-`r_pathTracingRestirPTTemporalFallbackSampling` defaults to 0 on this branch so
-RTXDI's zero-motion fallback path cannot import a weakly validated same-material
-previous reservoir. Set it to 1 only to compare against stock fallback behavior.
-`r_pathTracingRestirPTTemporalAnalyticNeeReuse` defaults to 0 and rejects
-previous-frame NEE light reservoirs during temporal replay while leaving
-current-frame NEE sampling enabled. The name is historical; keep it off by
-default after Task 02 because analytic NEE temporal reuse is still a manual
-ReSTIR PT test path, even though the robot/strobe endpoint case is validated
-with pre-combine bad-NEE rejection. Non-NEE temporal reuse remains enabled.
+`r_pathTracingRestirPTTemporalFallbackSampling` defaults to 1 now that the
+motion-vector path and pre-combine bad-NEE rejection guard the rough temporal
+preview. Set it to 0 only to isolate zero-motion fallback behavior from the
+motion-projected path.
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse` defaults to 1 and allows
+previous-frame NEE light reservoirs during temporal replay. The name is
+historical; set it to 0 only to isolate current-frame NEE sampling from previous
+light history. The robot/strobe endpoint case is validated by translating
+previous NEE reservoirs through the Doom analytic remap and rejecting stale light
+state before temporal combine. Non-NEE temporal reuse remains enabled.
 Mode 32/50 temporal validation also passes RTXDI an expected previous depth
 computed from the projected previous world position's ray distance. Do not
 derive that value from the sampled previous surface at the projected pixel; if

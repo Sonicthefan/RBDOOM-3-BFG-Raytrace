@@ -314,9 +314,9 @@ solid-angle PDF.
   candidate table is still the current-frame sampling table, but
   `RAB_TranslateLightIndex` now decodes previous analytic light indices with
   the previous emissive-triangle count, maps them through stable universe IDs,
-  and returns invalid on failed remaps instead of reusing compact slots. This is
-  infrastructure for validation, not a claim that temporal analytic NEE reuse is
-  production-ready; the default remains off.
+  and returns invalid on failed remaps instead of reusing compact slots. The
+  robot/strobe endpoint validation promoted temporal analytic NEE reuse from
+  opt-in testing to the default path; the off CVar remains for diagnosis.
 - GUI/SWF texture and surface diagnostics behind opt-in CVars.
 - Placeholder smoke particle dithering.
 
@@ -902,28 +902,25 @@ Ray dispatch safety diagnostics:
 
 - r_pathTracingRestirPTTemporalFallbackSampling
   RTXDI ReSTIR PT temporal zero-motion fallback sampling gate for modes 31-33
-  and 50-51. Defaults to 0 on this branch. RTXDI's fallback can accept a
-  same-material previous reservoir without the normal/depth neighbor validation
-  used for motion-projected temporal samples, which is too weak for Doom 3's
-  triangle-dense same-material props and can produce one-frame polygon flashes.
-  Set to 1 only for A/B comparison against stock RTXDI behavior.
+  and 50-51. Defaults to 1 now that motion-vector projection and the
+  pre-combine bad-NEE rejection path are in place. Set to 0 only to isolate
+  same-material wrong-surface history reuse against the stricter
+  motion-projected path.
 
 - r_pathTracingRestirPTTemporalAnalyticNeeReuse
   Previous-frame NEE light-reservoir reuse gate for ReSTIR PT temporal and
-  spatial modes. Defaults to 0. With the CVar off, previous-frame NEE
-  reservoirs reject while current-frame NEE sampling remains enabled. Task 02
-  adds shader-visible Doom analytic identity/remap buffers, previous analytic
-  light records, and the RAB translation/load path needed for manual reuse
-  testing. The robot/strobe endpoint case is validated with pre-combine bad-NEE
-  rejection, but the default remains off while analytic NEE temporal reuse is
-  still a manual ReSTIR PT test path rather than a production default.
+  spatial modes. Defaults to 1 now that shader-visible Doom analytic
+  identity/remap buffers, previous analytic light records, RAB translation/load,
+  and pre-combine bad-NEE rejection have been validated on the robot/strobe
+  endpoint case. Set to 0 to isolate current-frame NEE sampling from previous
+  light history without disabling non-NEE temporal reuse.
 
 - r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance
   Relative current/previous Doom analytic light color/intensity tolerance used
   by the ReSTIR PT RAB remap. Defaults to 0.10. When temporal analytic NEE reuse
-  is manually enabled, matched light identity is not enough: the bridge also
-  rejects previous analytic reservoirs if the light's current/previous color,
-  intensity, position, or radius diverges beyond this guard. This targets
+  is enabled, matched light identity is not enough: the bridge also rejects
+  previous analytic reservoirs if the light's current/previous color, intensity,
+  position, or radius diverges beyond this guard. This targets
   strobe/animated-light phases without globally clearing unrelated reservoirs.
 
 - r_pathTracingRestirPTSpatialSamples
@@ -1588,14 +1585,16 @@ term when r_pathTracingUseEmissiveMaps is 1.
   the current-area plus r_pathTracingLightAreaPortalSteps portal selection
   resolved over each light's renderer bounds/area membership. It does not
   require the light to be visible or in front of the camera, and it does not
-  add any sphere mesh to the BVH.
+  add any sphere mesh to the BVH. Defaults to 1 so the native PT and ReSTIR PT
+  paths see the same Doom analytic-light universe without requiring an opt-in
+  console setup.
 
 - r_pathTracingRestirPTAnalyticLightCandidates
   ReSTIR PT debug-mode convenience gate. Defaults to 1, so modes 26-33 and
-  50-51 build, upload, and shade Doom analytic light candidates even when
-  `r_pathTracingAnalyticLightCandidates` is 0. Set this to 0, with the global
-  analytic-light CVar also 0, for emissive-only ReSTIR validation, CPU
-  light-candidate profiling, or device-removal narrowing.
+  50-51 can still build, upload, and shade Doom analytic light candidates when
+  the global analytic-light CVar is off for A/B testing. The global analytic
+  light path also defaults to 1. Set both CVars to 0 for emissive-only ReSTIR
+  validation, CPU light-candidate profiling, or device-removal narrowing.
 
 - r_pathTracingAnalyticLightCandidateDump
   One-shot dump of the analytic Doom light candidates that would be uploaded.
@@ -2987,11 +2986,12 @@ stable but mode 32 or 50 shows exact one-frame alternating polygon flashes, set
 `r_pathTracingRestirPTTemporalReservoirReuse 0`. If the flicker disappears, the
 culprit is previous-reservoir ping-pong/reuse, not current-frame routed
 geometry or current initial reservoir generation. Restore it to 1 for normal
-ReSTIR testing. The first branch-local mitigation is
-`r_pathTracingRestirPTTemporalFallbackSampling 0`, which is now the default and
-prevents RTXDI's zero-motion fallback sample from importing a weakly validated
-same-material previous reservoir. If fallback sampling has no effect, the next
-critical validation detail is the temporal expected-depth hint: mode 32/50 now
+ReSTIR testing. To isolate the old branch-local mitigation, set
+`r_pathTracingRestirPTTemporalFallbackSampling 0`; the normal default is now 1.
+That off state prevents RTXDI's zero-motion fallback sample from importing a
+weakly validated same-material previous reservoir. If fallback sampling has no
+effect, the next critical validation detail is the temporal expected-depth hint:
+mode 32/50 now
 derives that depth from the projected previous world position's ray distance
 instead of reading the previous surface at the projected pixel. It must use ray
 distance, not previous-camera forward-Z, because the smoke primary surface
@@ -3038,22 +3038,19 @@ robot/strobe animation no longer inexplicably "repairs" nearby lights only while
 active. Treat this as the first validated path for manual analytic NEE temporal
 reuse testing.
 
-Previous-frame NEE light reservoirs are rejected by default through
-`r_pathTracingRestirPTTemporalAnalyticNeeReuse 0`. The CVar name is historical.
-Task 02 keeps this guard off by default even though shader-visible Doom analytic
-current/previous identity buffers, previous analytic light records, and universe
-remap are now uploaded.
-Current-frame NEE sampling remains visible, and
-non-NEE temporal reuse remains enabled. Current-frame Doom analytic NEE
-reservoirs still bypass RTXDI temporal combine/bias correction while this guard
-is off, so the inverse-shift path cannot reinterpret a current analytic light
-index through the previous-frame light table. This was validated after a robot-train/strobe
-sequence showed that
-lights in the same portal could work while the strobe animation was active, then
-break and flicker as soon as that source stopped in a small offscreen hole.
-`r_pathTracingRestirPTTemporalReservoirReuse 0` was clean everywhere, proving the
-current-frame light path was sound and the fault was previous NEE reservoir
-reuse. Set the NEE reuse CVar to 1 only to A/B the analytic remapping path.
+Previous-frame NEE light reservoirs are enabled by default through
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse 1`. The CVar name is historical.
+Task 02 now uploads shader-visible Doom analytic current/previous identity
+buffers, previous analytic light records, and the universe remap needed by RAB
+inverse-shift and previous-frame load callbacks. The robot-train/strobe sequence
+proved that the current-frame light path was sound and that stale previous NEE
+reservoirs were the failure source: lights in the same portal could work while
+the strobe animation was active, then break and flicker as soon as that source
+stopped in a small offscreen hole. The validated fix is to keep NEE reuse
+enabled while rejecting previous NEE reservoirs that cannot translate through the
+current Doom analytic remap or fail the light-state compatibility guard. Set
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` only to isolate current-frame
+NEE sampling from previous light history.
 
 Mode 32 is also currently very expensive. User validation reports it works at
 roughly 1280x720 but going much beyond that can device-remove the GPU. Treat
@@ -3073,9 +3070,9 @@ analytic sphere light, orange means an emissive triangle, green means a non-NEE
 or indirect reservoir sample, and red means an invalid/unknown packed light.
 The normal mode 30/31 rejection colors still apply before a valid temporal
 reservoir exists. Modes 26 through 33 and modes 50-51 use
-`r_pathTracingRestirPTAnalyticLightCandidates 1` as a default-on convenience
-path for Doom analytic light candidate collection and shader-side analytic-light
-enablement when the global analytic-light CVar is off. Set
+`r_pathTracingRestirPTAnalyticLightCandidates 1` as a debug convenience path,
+while `r_pathTracingAnalyticLightCandidates` itself now also defaults to 1 so
+native PT and ReSTIR PT share the Doom analytic-light universe by default. Set
 `r_pathTracingAnalyticLightCandidates 0` and
 `r_pathTracingRestirPTAnalyticLightCandidates 0` to test emissive-only ReSTIR
 behavior. The same ReSTIR mode range also uses the routed rigid scene path and

@@ -419,7 +419,7 @@ idCVar r_pathTracingDoomLightProbeMax(
 
 idCVar r_pathTracingAnalyticLightCandidates(
     "r_pathTracingAnalyticLightCandidates",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Build, upload, and shade analytic sphere-light candidates from active Doom lights" );
 
@@ -767,15 +767,15 @@ idCVar r_pathTracingRestirPTTemporalReservoirReuse(
 
 idCVar r_pathTracingRestirPTTemporalFallbackSampling(
     "r_pathTracingRestirPTTemporalFallbackSampling",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Allow RTXDI ReSTIR PT temporal zero-motion fallback sampling for modes 31-33 and 50-51; default 0 avoids same-material wrong-surface history reuse" );
+    "Allow RTXDI ReSTIR PT temporal zero-motion fallback sampling for modes 31-33 and 50-51; set 0 to isolate same-material wrong-surface history reuse" );
 
 idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse(
     "r_pathTracingRestirPTTemporalAnalyticNeeReuse",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Allow previous-frame NEE light reservoirs to be reused by ReSTIR PT temporal/spatial modes; default 0 until stable light-domain identity/remapping exists" );
+    "Allow previous-frame NEE light reservoirs to be reused by ReSTIR PT temporal/spatial modes; set 0 to isolate current-frame NEE from previous light history" );
 
 idCVar r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance(
     "r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance",

@@ -19,17 +19,18 @@ light index can refer to a different physical light. The symptom is lights
 flickering, turning off, or strobing globally even though current-frame direct
 lighting is still sound.
 
-Current Safe Mode
------------------
+Current Default
+---------------
 
-Default safe mode remains:
+The validated default is:
 
-    r_pathTracingRestirPTTemporalAnalyticNeeReuse 0
+    r_pathTracingRestirPTTemporalAnalyticNeeReuse 1
 
-That CVar disables previous-frame NEE light-reservoir reuse while preserving
-current-frame NEE sampling and non-NEE temporal reuse. Task 02 adds a
-shader-visible Doom analytic identity/remap path and previous analytic light
-records for manual A/B testing, but the default remains conservative.
+The off state still exists as a diagnostic split: it disables previous-frame NEE
+light-reservoir reuse while preserving current-frame NEE sampling and non-NEE
+temporal reuse. After the robot/strobe endpoint validation, the identity/remap
+path and pre-combine stale-NEE rejection are the default ReSTIR PT path rather
+than a manual opt-in.
 
 Validated Robot/Strobe Result
 -----------------------------
@@ -107,14 +108,14 @@ Forbidden fixes:
     Do not reinterpret failed remaps as light index 0.
 
     Do not default-enable previous-frame analytic NEE reuse until the remap is
-    validated.
+    validated. This validation is now complete for the robot/strobe endpoint
+    case.
 
 Allowed temporary safety:
 
-    Keep r_pathTracingRestirPTTemporalAnalyticNeeReuse 0 as the default until
-    analytic NEE temporal reuse graduates from manual ReSTIR PT validation to a
-    normal renderer path. The robot/strobe remap failure is validated fixed, but
-    this path is still experimental.
+    Keep r_pathTracingRestirPTTemporalAnalyticNeeReuse as a runtime diagnostic
+    switch. Set it to 0 only to isolate current-frame NEE sampling from previous
+    light history.
 
 Review Form
 -----------
@@ -202,7 +203,7 @@ Feedback agents must respond in this exact format:
         [ ] no candidate-sort-only fix
         [ ] no proposal-cap identity fix
         [ ] no failed-remap-to-zero fix
-        [ ] no premature reuse-on default
+        [ ] no reuse-on default before validated remap/rejection
 
     Next action:
         Exact task-local instruction for the builder.
@@ -408,7 +409,8 @@ Do not redesign the whole path tracer.
 
 Do not replace the current Doom analytic direct-lighting evaluator in Task 01.
 
-Do not enable previous-frame NEE reservoir reuse in Task 01.
+Task 01 did not enable previous-frame NEE reservoir reuse. Later validation
+promoted reuse-on to the default; keep the off CVar for diagnosis.
 
 Do not fix the bug by globally hashing light color/intensity into the reservoir
 scene reset signature. That would wipe useful history on every strobe frame
