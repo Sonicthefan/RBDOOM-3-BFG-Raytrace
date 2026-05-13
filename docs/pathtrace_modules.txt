@@ -816,6 +816,20 @@ pathtrace_smoke_restir_spatial_attribution.rt.hlsl
     completed temporal and spatial prepasses instead of rebuilding them. The
     wrapper defines `RB_PT_FORCE_DEBUG_MODE 51u`.
 
+pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, temporal/spatial ReSTIR support,
+    `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`, and
+    `RB_PT_ENABLE_RESTIR_MODE18_DIRECT`. CMake builds
+    `pathtrace_smoke_mode18_restir_hybrid.rt.bin`, and dispatch selects it only
+    for mode 18 when `r_pathTracingRestirPTDirectLighting 1`. It consumes the
+    completed spatial reservoir prepass and replaces the primary sample-0 direct
+    NEE term with the ReSTIR spatial contribution while leaving native mode 18
+    ambient, emissive, secondary bounce, reflection, and accumulation behavior
+    in place. `r_pathTracingRestirPTMode18DebugView` can isolate native direct,
+    ReSTIR direct, delta heat, or ratio heat. `r_pathTracingRestirPTMode18HeavyDirect`
+    suppresses native direct NEE on secondary diffuse/reflection hits for
+    heavy-handed isolation only.
+
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
     source category constants, small surface/light-sample/result records, the
@@ -1826,6 +1840,18 @@ read current-frame neighbor surfaces and neighbor temporal reservoirs; those
 inputs are not reliable if initial, temporal, spatial, and shading work are all
 attempted inside one raygen dispatch. This remains debug scaffolding and should
 become a real pass graph before production ReSTIR shading.
+
+`r_pathTracingRestirPTDirectLighting 1` applies the same temporal and spatial
+producer prepasses to mode 18 and selects the mode 18 ReSTIR hybrid consumer.
+The hybrid keeps mode 18's native ambient/emissive/base path-tracing behavior
+but replaces the primary direct NEE term for sample 0 with the completed spatial
+reservoir contribution. This is intentionally opt-in and should be tested at
+`r_pathTracingSamplesPerPixel 1` first; higher SPP currently mixes one ReSTIR
+primary sample with native NEE for additional jittered samples.
+`r_pathTracingRestirPTMode18DebugView` isolates native direct, ReSTIR direct,
+absolute delta heat, or luminance ratio heat. `r_pathTracingRestirPTMode18HeavyDirect 1`
+is a deliberate stress test that suppresses native direct NEE on secondary
+diffuse/reflection hits so the primary ReSTIR term is less masked.
 
 Mode 51 is the spatial source-attribution diagnostic. It uses the same
 initial->temporal->spatial reservoir path as mode 50 but colors the selected

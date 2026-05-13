@@ -32,8 +32,11 @@ Active ReSTIR shader libraries:
   Mode 50 spatial shading consumer.
 - pathtrace_smoke_restir_spatial_attribution.rt.hlsl
   Mode 51 spatial attribution/diagnostic consumer.
+- pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
+  Opt-in mode 18 primary direct-lighting hybrid consumer when
+  `r_pathTracingRestirPTDirectLighting 1`.
 
-Modes 31, 32, 33, 50, and 51 force-specialize the debug mode at compile time through
+Modes 31, 32, 33, 50, 51, and the mode 18 hybrid force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
 reported roughly 13 second first-load stalls for each specialized ReSTIR mode,
 down from roughly 197 seconds for the unspecialized ReSTIR library.
@@ -46,6 +49,14 @@ Functional Pieces Already Present
 - Temporal reservoir generation using RTXDI_PTTemporalResampling.
 - Debug-only spatial reservoir generation using RTXDI_PTSpatialResampling in
   modes 50-51.
+- An opt-in mode 18 ReSTIR direct-lighting hybrid. It runs the same temporal and
+  spatial producer prepasses, then the mode 18 shader keeps native ambient,
+  emissive, secondary diffuse/reflection, and accumulation behavior while
+  replacing the primary direct NEE term for sample 0 with the completed spatial
+  reservoir contribution. This is a first integration hook, not the final mode
+  18 replacement. It has isolation CVars for native direct, ReSTIR direct,
+  delta heat, ratio heat, and a heavy-handed mode that suppresses native
+  secondary/reflection direct NEE for testing.
 - Primary-surface history and reprojection diagnostics.
 - Doom analytic-light candidates through the RAB bridge.
 - Emissive candidate data through the material/emissive inventory path.
@@ -128,7 +139,8 @@ Main Gaps
 - Spatial reuse is debug-only in modes 50-51; it has temporal, spatial, and
   shading/diagnostic dispatches, but not a production pass graph or
   denoiser-facing output yet.
-- No production final ReSTIR PT pass outside the debug raygen path.
+- No production final ReSTIR PT pass yet; mode 18 has only an opt-in primary
+  direct-lighting hybrid hook.
 - Light identity is still index-fragile across changing emissive/light order.
 - RAB visibility remains conservative/preview-oriented.
 - Environment lighting is not bridged.

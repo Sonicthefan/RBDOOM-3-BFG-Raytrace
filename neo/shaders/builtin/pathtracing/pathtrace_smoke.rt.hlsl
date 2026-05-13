@@ -2430,6 +2430,37 @@ bool RestirPTTryEvaluateNeeReservoirPreview(RAB_Surface surface, RTXDI_PTReservo
     contribution = RestirPTSanitizePreviewContribution((reflected / max(lightSample.solidAnglePdf, 1.0e-6)) * reservoirWeight);
     return RAB_Luminance(contribution) > 0.0;
 }
+
+bool RestirPTTryEvaluateSpatialDirectLighting(RAB_Surface surface, uint2 pixel, bool traceVisibility, out float3 contribution)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(pixel);
+    if (!RestirPTTryEvaluateNeeReservoirPreview(surface, spatialReservoir, contribution))
+    {
+        return false;
+    }
+    if (traceVisibility)
+    {
+        contribution *= RestirPTTraceReservoirVisibility(surface, spatialReservoir);
+    }
+    return RAB_Luminance(contribution) > 0.0;
+}
+
+uint RestirPTMode18DebugView()
+{
+    return (uint)clamp(floor(SafetyInfo.w + 0.5), 0.0, 15.0) & 0x0fu;
+}
+
+bool RestirPTMode18HeavyDirectEnabled()
+{
+    return (((uint)clamp(floor(SafetyInfo.w + 0.5), 0.0, 255.0)) & 0x10u) != 0u;
+}
+
+float3 RestirPTMode18DebugToneMap(float3 value)
+{
+    value = RestirPTSanitizePreviewContribution(value);
+    return value / (1.0 + value);
+}
 #endif
 
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING
@@ -3752,7 +3783,56 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         sampleIndex * 374761393u ^
         ((uint)max(ToyPathInfo.w, 0.0)) * 104729u;
     const bool useFakePBRSpecular = SmokeToyFakePBRSpecularEnabled();
-    float3 radiance = EvaluateSmokeMode18NeeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, useFakePBRSpecular, true, bounceSeed, SMOKE_NEE_SELECTED_LIGHT_MODE_LEGACY_FULL, SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL);
+    const float3 nativePrimaryDirect = EvaluateSmokeMode18NeeDirectLighting(primaryPayload, rayOrigin, rayDirection, true, useFakePBRSpecular, true, bounceSeed, SMOKE_NEE_SELECTED_LIGHT_MODE_LEGACY_FULL, SMOKE_NEE_ANALYTIC_LIGHT_MODE_LEGACY_FULL);
+    float3 radiance = nativePrimaryDirect;
+#ifdef RB_PT_ENABLE_RESTIR_MODE18_DIRECT
+    const uint restirMode18DebugView = RestirPTMode18DebugView();
+    const bool restirMode18HeavyDirect = RestirPTMode18HeavyDirectEnabled();
+    float3 restirPrimaryDirect = float3(0.0, 0.0, 0.0);
+    bool restirPrimaryDirectValid = false;
+    if (sampleIndex == 0u)
+    {
+        const RAB_Surface primarySurface = RAB_BuildSurfaceFromSmokePayload(primaryPayload, rayOrigin, rayDirection, true);
+        restirPrimaryDirectValid = RestirPTTryEvaluateSpatialDirectLighting(primarySurface, pixel, RestirPTInfo.z >= 0.5, restirPrimaryDirect);
+        if (restirMode18DebugView != 0u)
+        {
+            if (restirMode18DebugView == 1u)
+            {
+                return float4(saturate(RestirPTMode18DebugToneMap(nativePrimaryDirect)), 1.0);
+            }
+            if (restirMode18DebugView == 2u)
+            {
+                return float4(saturate(RestirPTMode18DebugToneMap(restirPrimaryDirect)), 1.0);
+            }
+            if (restirMode18DebugView == 3u)
+            {
+                const float3 delta = abs(restirPrimaryDirect - nativePrimaryDirect);
+                return float4(saturate(RestirPTMode18DebugToneMap(delta)), 1.0);
+            }
+            if (restirMode18DebugView == 4u)
+            {
+                const float nativeLum = max(RAB_Luminance(nativePrimaryDirect), 1.0e-5);
+                const float restirLum = max(RAB_Luminance(restirPrimaryDirect), 0.0);
+                const float logRatio = clamp(log2((restirLum + 1.0e-5) / nativeLum), -2.0, 2.0);
+                const float ratioT = logRatio * 0.25 + 0.5;
+                return float4(saturate(float3(ratioT, 1.0 - abs(ratioT - 0.5) * 2.0, 1.0 - ratioT)), 1.0);
+            }
+        }
+        if (restirPrimaryDirectValid)
+        {
+            radiance = EvaluateSmokeMode18NeeDirectLighting(
+                primaryPayload,
+                rayOrigin,
+                rayDirection,
+                true,
+                useFakePBRSpecular,
+                true,
+                bounceSeed,
+                SMOKE_NEE_SELECTED_LIGHT_MODE_OFF,
+                SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF) + restirPrimaryDirect;
+        }
+    }
+#endif
 
     const bool allowSecondary = PathTraceIntegratorMaxPathDepth() > 1u;
     if (allowSecondary && PathTraceIntegratorDiffuseBounceLimit() > 0u)
@@ -3772,7 +3852,22 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
             pathFlags |= RT_PT_TOY_FLAG_DIFFUSE_HIT;
             const PathTraceSmokeMaterial bounceMaterial = LoadSmokeMaterial(bouncePayload.materialIndex);
             const float3 bounceAlbedo = SampleSmokeSurfaceAlbedo(bounceMaterial, bouncePayload.texCoord, bouncePayload.surfaceClass, bouncePayload.translucentSubtype, bouncePayload.vertexColor, bouncePayload.vertexColorAdd).rgb;
-            const float3 bounceDirect = EvaluateSmokeMode18NeeDirectLighting(bouncePayload, bounceRay.Origin, bounceRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x9e3779b9u, PathTraceIntegratorSecondaryNeeMode(), PathTraceIntegratorSecondaryAnalyticNeeMode());
+            const float3 bounceDirect = EvaluateSmokeMode18NeeDirectLighting(
+                bouncePayload,
+                bounceRay.Origin,
+                bounceRay.Direction,
+                true,
+                useFakePBRSpecular,
+                true,
+                bounceSeed ^ 0x9e3779b9u,
+#ifdef RB_PT_ENABLE_RESTIR_MODE18_DIRECT
+                restirMode18HeavyDirect ? SMOKE_NEE_SELECTED_LIGHT_MODE_OFF : PathTraceIntegratorSecondaryNeeMode(),
+                restirMode18HeavyDirect ? SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF : PathTraceIntegratorSecondaryAnalyticNeeMode()
+#else
+                PathTraceIntegratorSecondaryNeeMode(),
+                PathTraceIntegratorSecondaryAnalyticNeeMode()
+#endif
+            );
             radiance += primaryAlbedo * bounceDirect * (0.28 + 0.22 * max(max(bounceAlbedo.r, bounceAlbedo.g), bounceAlbedo.b));
         }
     }
@@ -3798,7 +3893,22 @@ float4 EvaluateSmokeToyPathTrace(float3 rayOrigin, float3 rayDirection, PathTrac
         {
             pathDepth = max(pathDepth, 2u);
             pathFlags |= RT_PT_TOY_FLAG_REFLECTION_HIT;
-            const float3 reflectionDirect = EvaluateSmokeMode18NeeDirectLighting(reflectionPayload, reflectionRay.Origin, reflectionRay.Direction, true, useFakePBRSpecular, true, bounceSeed ^ 0x7feb352du, PathTraceIntegratorSecondaryNeeMode(), PathTraceIntegratorSecondaryAnalyticNeeMode());
+            const float3 reflectionDirect = EvaluateSmokeMode18NeeDirectLighting(
+                reflectionPayload,
+                reflectionRay.Origin,
+                reflectionRay.Direction,
+                true,
+                useFakePBRSpecular,
+                true,
+                bounceSeed ^ 0x7feb352du,
+#ifdef RB_PT_ENABLE_RESTIR_MODE18_DIRECT
+                restirMode18HeavyDirect ? SMOKE_NEE_SELECTED_LIGHT_MODE_OFF : PathTraceIntegratorSecondaryNeeMode(),
+                restirMode18HeavyDirect ? SMOKE_NEE_ANALYTIC_LIGHT_MODE_OFF : PathTraceIntegratorSecondaryAnalyticNeeMode()
+#else
+                PathTraceIntegratorSecondaryNeeMode(),
+                PathTraceIntegratorSecondaryAnalyticNeeMode()
+#endif
+            );
             radiance += reflectionDirect * reflectionWeight;
         }
         else

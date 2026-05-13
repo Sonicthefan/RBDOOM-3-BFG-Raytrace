@@ -1035,6 +1035,24 @@ idCVar r_pathTracingMotionVectorExport(
     CVAR_RENDERER | CVAR_INTEGER,
     "Off-by-default PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion plus validity/source mask into private PT UAVs; no consumer reads them yet" );
 
+idCVar r_pathTracingRestirPTDirectLighting(
+    "r_pathTracingRestirPTDirectLighting",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opt-in mode 18 ReSTIR PT direct-lighting hybrid: 0 native mode 18 NEE, 1 replace primary direct NEE with completed spatial reservoir contribution; experimental and tuned for 1 spp" );
+
+idCVar r_pathTracingRestirPTMode18DebugView(
+    "r_pathTracingRestirPTMode18DebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 18 ReSTIR hybrid debug view: 0 normal hybrid render, 1 native primary direct, 2 ReSTIR primary direct, 3 absolute delta heat, 4 ratio heat" );
+
+idCVar r_pathTracingRestirPTMode18HeavyDirect(
+    "r_pathTracingRestirPTMode18HeavyDirect",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Heavy-handed mode 18 ReSTIR hybrid test: 0 only replace primary direct NEE, 1 also suppress native secondary/reflection direct NEE so ReSTIR primary direct is easier to isolate" );
+
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",
     "0",

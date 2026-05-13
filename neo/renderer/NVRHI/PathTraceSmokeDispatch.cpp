@@ -298,6 +298,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         debugMode = 7;
     }
     const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
+    const bool mode18RestirDirectMode = debugMode == 18 && r_pathTracingRestirPTDirectLighting.GetInteger() != 0;
+    const bool effectiveRestirPTMode = restirPTDebugMode || mode18RestirDirectMode;
     const bool integratorDebugMode = debugMode >= 34 && debugMode <= 37;
     const bool restirPTInitialOnlyMode = debugMode >= 26 && debugMode <= 28;
     const bool restirPTTemporalMode = debugMode == 31;
@@ -337,8 +339,27 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(1);
     }
+    if (mode18RestirDirectMode)
+    {
+        if (!m_smokeRestirShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(1);
+        }
+        if (!m_smokeRestirSpatialReservoirShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(4);
+        }
+        if (!m_smokeMode18RestirHybridShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(7);
+        }
+    }
     nvrhi::rt::State state;
-    if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
+    if (mode18RestirDirectMode && m_smokeMode18RestirHybridShaderTable)
+    {
+        state.shaderTable = m_smokeMode18RestirHybridShaderTable;
+    }
+    else if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
     {
         state.shaderTable = m_smokeRestirInitialShaderTable;
     }
@@ -375,7 +396,25 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool disableReservoirWrites = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES);
     const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0;
     const bool restirPTPreviewVisibility = r_pathTracingRestirPTPreviewVisibility.GetInteger() != 0 && !PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY);
-    const RtPathTraceRestirPassPlan restirPTPassPlan = BuildPathTraceRestirPassPlan(debugMode, restirPTPreviewVisibility);
+    RtPathTraceRestirPassPlan restirPTPassPlan = BuildPathTraceRestirPassPlan(debugMode, restirPTPreviewVisibility);
+    if (mode18RestirDirectMode)
+    {
+        restirPTPassPlan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
+        restirPTPassPlan.output = RtPathTraceRestirPassKind::ReservoirShading;
+        restirPTPassPlan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        restirPTPassPlan.flags =
+            RT_RESTIR_PASS_WRITES_INITIAL |
+            RT_RESTIR_PASS_WRITES_TEMPORAL |
+            RT_RESTIR_PASS_WRITES_SPATIAL |
+            RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE |
+            RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE |
+            RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR |
+            RT_RESTIR_PASS_SHADES_RESERVOIR |
+            RT_RESTIR_PASS_TRACES_VISIBILITY |
+            RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS |
+            RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS;
+        restirPTPassPlan.label = "mode18RestirDirectLightingHybrid";
+    }
     const PathTraceIntegratorSettings integratorSettings = ApplyPathTraceSafetyKillSwitches(BuildPathTraceIntegratorSettings(), safetyDisableMask);
     const RtPathTraceDebugModeInfo debugModeInfo = GetPathTraceDebugModeInfo(debugMode);
 
@@ -571,15 +610,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.textureInfo[1] = static_cast<float>(textureSampleMethod);
     constants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
     const bool integratorUsesSpecular = integratorSettings.reflectionMode > 0 || r_pathTracingToyFakePBRSpecular.GetInteger() != 0;
-    const bool toyFakePBRSpecularEnabled = r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || restirPTDebugMode || integratorDebugMode);
+    const bool toyFakePBRSpecularEnabled = r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode);
     const uint32_t textureFlags =
         (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
-        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || restirPTDebugMode || integratorDebugMode) ? 8u : 0u) |
-        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (integratorUsesSpecular && (debugMode == 18 || restirPTDebugMode || integratorDebugMode))) ? 16u : 0u) |
-        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || restirPTDebugMode || integratorDebugMode) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || restirPTDebugMode) ? 64u : 0u) |
+        (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode) ? 8u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (integratorUsesSpecular && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode))) ? 16u : 0u) |
+        (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode) ? 32u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || effectiveRestirPTMode) ? 64u : 0u) |
         (toyFakePBRSpecularEnabled ? 128u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     const bool previousHistoryViewValid =
@@ -605,7 +644,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.prevCameraUpAndTanY[2] = m_frameResources.primarySurfaceHistoryView.up.z;
     constants.prevCameraUpAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
     RtSmokeSelectedLight selectedLights[RT_SMOKE_MAX_DEBUG_LIGHTS];
-    const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
+    const bool restirPTAnalyticLightCandidates = effectiveRestirPTMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
     const bool enableDoomAnalyticLights = !disableAnalyticLightLoop && (r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates);
     const bool replaceSelectedLightsWithAnalytic = enableDoomAnalyticLights && r_pathTracingAnalyticLightReplaceSelected.GetInteger() != 0;
     const int selectedLightCount = !disableSelectedLightLoop && (debugMode == 14 || debugMode == 15 || debugMode == 18) && !replaceSelectedLightsWithAnalytic
@@ -676,7 +715,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));
-    constants.safetyInfo[3] = 0.0f;
+    constants.safetyInfo[3] =
+        static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTMode18DebugView.GetInteger())) +
+        (r_pathTracingRestirPTMode18HeavyDirect.GetInteger() != 0 ? 16.0f : 0.0f);
     constants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
     constants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
     constants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
@@ -980,7 +1021,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 reservoirClearCompleteUs = Sys_Microseconds();
-    const bool restirPTReservoirClearRequested = !disableReservoirWrites && requestedRestirPTDebugMode && m_frameResources.restirPTReservoirNeedsClear;
+    const bool restirPTReservoirClearRequested = !disableReservoirWrites && (requestedRestirPTDebugMode || mode18RestirDirectMode) && m_frameResources.restirPTReservoirNeedsClear;
     const uint64 restirPTReservoirClearStartUs = reservoirClearCompleteUs;
     if (restirPTReservoirClearRequested)
     {

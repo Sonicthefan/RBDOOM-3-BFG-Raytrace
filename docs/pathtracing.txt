@@ -163,6 +163,8 @@ solid-angle PDF.
   and RTXDI_PTParameters constant buffer are allocated/updated from
   rtxdi::ReSTIRPTContext. The shader build now emits two RT smoke libraries:
   `pathtrace_smoke.rt.bin` for the core mode 18/mode 20/integrator/debug path,
+  `pathtrace_smoke_mode18_restir_hybrid.rt.bin` for opt-in mode 18 primary
+  direct-lighting ReSTIR integration,
   `pathtrace_smoke_restir_initial.rt.bin` for modes 26-28, and
   separate temporal-family libraries:
   `pathtrace_smoke_restir_temporal.rt.bin` for mode 31,
@@ -945,6 +947,30 @@ Ray dispatch safety diagnostics:
   orange = spatial changed to emissive, magenta = spatial changed to non-NEE,
   yellow = spatial changed to an unknown/invalid source. Use this before tuning
   spatial radius or sample count.
+
+- r_pathTracingRestirPTDirectLighting
+  Defaults to 0. When set to 1 in mode 18, dispatch runs the temporal and
+  spatial ReSTIR producer prepasses, then selects
+  `pathtrace_smoke_mode18_restir_hybrid.rt.bin`. The hybrid keeps native mode 18
+  ambient, emissive, secondary diffuse/reflection, and accumulation behavior,
+  but replaces the primary direct NEE term for sample 0 with the completed
+  spatial reservoir contribution. This is the first base-render integration
+  hook, not the final ReSTIR renderer; test at `r_pathTracingSamplesPerPixel 1`
+  before raising SPP.
+
+- r_pathTracingRestirPTMode18DebugView
+  Mode 18 ReSTIR hybrid isolation view. Requires
+  `r_pathTracingRestirPTDirectLighting 1`. Defaults to 0 for the normal hybrid
+  render. `1` shows native primary direct, `2` shows ReSTIR primary direct,
+  `3` shows absolute delta heat, and `4` shows luminance ratio heat. Use this
+  before judging whether the hybrid is underweighted or merely similar to native
+  NEE in the current view.
+
+- r_pathTracingRestirPTMode18HeavyDirect
+  Defaults to 0. When set to 1 with `r_pathTracingRestirPTDirectLighting 1`,
+  suppresses native direct NEE on secondary diffuse/reflection hits so the
+  primary ReSTIR direct term is easier to isolate. This is a heavy-handed test
+  lever, not a desired final lighting policy.
 
 Glass/transmission reservation:
 
@@ -2450,6 +2476,7 @@ Current Release testing should copy from the relevant preset folder, for example
 into a prepared Doom 3 BFG game folder. When shaders change, also copy:
 
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin
+    base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_initial.rt.bin
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.bin
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_temporal_shading.rt.bin
@@ -2458,6 +2485,7 @@ into a prepared Doom 3 BFG game folder. When shaders change, also copy:
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.bin
     base/renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_spatial_attribution.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke.rt.bin
+    base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_initial.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.bin
     base/renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_temporal_shading.rt.bin
@@ -3122,6 +3150,18 @@ surfaces through RAB_GetGBufferSurface and reads neighbor temporal reservoirs; a
 one-dispatch initial->temporal->spatial debug path left the spatial acceptance
 diagnostic all blue because neighbor inputs were not globally available yet.
 This is a debug bridge, not the final multi-pass ReSTIR graph.
+
+Mode 18 can consume that same staged reservoir path behind
+`r_pathTracingRestirPTDirectLighting 1`. The opt-in hybrid dispatch runs the
+temporal and spatial producer prepasses, then uses a specialized mode 18 shader
+that replaces only the primary direct NEE term for sample 0 with the completed
+spatial reservoir contribution. Ambient, emissive, secondary diffuse/reflection,
+and accumulation remain mode 18-native. The first validation target is 1 SPP;
+with higher SPP, extra jittered samples still use native mode 18 direct NEE.
+Use `r_pathTracingRestirPTMode18DebugView` to inspect native direct, ReSTIR
+direct, delta heat, or ratio heat. Use `r_pathTracingRestirPTMode18HeavyDirect 1`
+only to isolate the primary ReSTIR term by suppressing native direct NEE on
+secondary diffuse/reflection hits.
 
 Mode 51 is the spatial light-source attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
