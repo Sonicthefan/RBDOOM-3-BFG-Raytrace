@@ -1555,12 +1555,16 @@ conservative NEE sample from the current RAB light list per visited path vertex
 before BRDF continuation so initial reservoirs are visible near valid light
 candidates; the first BRDF-only probe and the first single uniform light pick
 were too sparse to validate visually. The current NEE picker uses the existing
-weighted emissive-triangle distribution plus uniform analytic-light proposals,
-then streams valid candidates through a small local RIS selector. This replaced
-the earlier best-target heuristic, whose recorded raw light PDF was not valid
-after max-score selection. Doom analytic RAB samples also honor the same Doom
-influence radius and falloff used by mode 18 native analytic NEE, so ReSTIR-side
-proposals no longer reuse out-of-volume Doom lights. This is still a debug visibility aid, not final light sampling.
+weighted emissive-triangle distribution plus uniform full-domain analytic-light
+proposals, then streams valid candidates through a small local RIS selector.
+This replaced the earlier best-target heuristic, whose recorded raw light PDF
+was not valid after max-score selection. A later compact-list local-window
+proposal experiment was also rejected because the compact analytic list is
+sorted by portal depth/distance, not per-surface relevance; biasing toward its
+first 32 entries made mode 33 change abruptly across tiny portal-area movements.
+Doom analytic RAB samples also honor the same Doom influence radius and falloff
+used by mode 18 native analytic NEE, so ReSTIR-side proposals no longer reuse
+out-of-volume Doom lights. This is still a debug visibility aid, not final light sampling.
 It does not shade from the reservoir, does not enable temporal/spatial reuse,
 does not use previous-frame G-buffer history, does not trace final RAB
 visibility, and does not change modes 18/20. The RAB path-tracer skeleton now
@@ -1788,7 +1792,10 @@ cyan/blue for Doom analytic sphere lights, orange for emissive triangles, green
 for non-NEE or indirect samples, and red for invalid/unknown light data. The
 normal mode 30/31 rejection colors still appear before a valid temporal
 reservoir is available. Active mode 33 is not the rejected temporal resolved
-color prototype.
+color prototype. Analytic source attribution should not depend on compact-list
+portal-depth order; the active proposal path samples the full uploaded analytic
+candidate domain uniformly until a real spatial/local light proposal structure
+exists.
 
 Mode 50 is the first debug-only spatial reuse preview. It uses RTXDI's
 TemporalAndSpatial buffer-index contract, writes initial and temporal reservoirs
@@ -1800,13 +1807,25 @@ neighbor-offset buffer. `r_pathTracingRestirPTSpatialSamples` and
 `r_pathTracingRestirPTSpatialRadius` control the first test path, while spatial
 depth/normal validation reuses the temporal threshold CVars.
 
+Modes 50-51 dispatch the temporal ReSTIR shader first, insert UAV barriers, then
+dispatch the spatial shader. This prepass is necessary because RTXDI's spatial
+resampling callbacks read current-frame neighbor surfaces and neighbor temporal
+reservoirs; those inputs are not reliable if initial, temporal, and spatial work
+are all attempted inside one raygen dispatch. This remains debug scaffolding and
+should become a real pass graph before production ReSTIR shading.
+
 Mode 51 is the spatial source-attribution diagnostic. It uses the same
 initial->temporal->spatial reservoir path as mode 50 but colors the selected
 spatial reservoir source instead of shading it. The colors match mode 33:
 cyan/blue for Doom analytic sphere lights, orange for emissive triangles, green
 for non-NEE/indirect reservoirs, and red for invalid/unknown light metadata.
 Use it to compare spatial source stability against mode 33 and to look for
-source bleeding across depth/object edges.
+source bleeding across depth/object edges. `r_pathTracingRestirPTSpatialDiagnosticView 1`
+keeps mode 51 on the same path but switches the output to acceptance/change
+status: gray temporal invalid, red spatial invalid, blue kept temporal/no
+accepted spatial neighbor, green accepted spatial neighbor with the same packed
+source, cyan changed to Doom analytic, orange changed to emissive, magenta
+changed to non-NEE, and yellow changed to unknown/invalid source.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed

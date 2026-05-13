@@ -190,32 +190,14 @@ bool RAB_SelectSmokeAnalyticNeeProposal(
         return false;
     }
 
-    const uint localWindow = min(analyticCount, 32u);
-    if (analyticCount <= localWindow)
-    {
-        const float xi = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState);
-        analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
-        proposalPdf = 1.0 / (float)analyticCount;
-        return true;
-    }
-
-    const float localProposalMix = 0.75;
-    const bool useLocalWindow = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState) < localProposalMix;
+    // The compact analytic list is sorted by portal depth/distance for upload
+    // stability, not by per-surface light relevance. Biasing toward the first N
+    // entries causes hard doorway discontinuities when lights reclassify between
+    // portal depths. Use the full candidate domain until a real spatial light
+    // proposal structure exists.
     const float xi = RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState);
-    if (useLocalWindow)
-    {
-        analyticIndex = min((uint)(xi * (float)localWindow), localWindow - 1u);
-    }
-    else
-    {
-        analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
-    }
-
-    const bool insideLocalWindow = analyticIndex < localWindow;
-    proposalPdf =
-        (insideLocalWindow ? localProposalMix / (float)localWindow : 0.0) +
-        ((1.0 - localProposalMix) / (float)analyticCount);
-    proposalPdf = max(proposalPdf, 1.0e-6);
+    analyticIndex = min((uint)(xi * (float)analyticCount), analyticCount - 1u);
+    proposalPdf = 1.0 / (float)analyticCount;
     return true;
 }
 

@@ -20,6 +20,8 @@
 #include "../RenderCommon.h"
 #include "../../sys/DeviceManager.h"
 
+#include <nvrhi/utils.h>
+
 extern idCVar r_forceAmbient;
 extern DeviceManager* deviceManager;
 
@@ -326,6 +328,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (restirPTSpatialAttributionMode && !m_smokeRestirSpatialAttributionShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(5);
+    }
+    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode) && !m_smokeRestirShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(1);
     }
     nvrhi::rt::State state;
     if (restirPTInitialOnlyMode && m_smokeRestirInitialShaderTable)
@@ -665,7 +671,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
-    constants.safetyInfo[2] = 0.0f;
+    constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));
     constants.safetyInfo[3] = 0.0f;
     constants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
     constants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
@@ -1026,7 +1032,68 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 targetClearCompleteUs = Sys_Microseconds();
+    nvrhi::rt::DispatchRaysArguments args;
+    args.width = m_frameResources.width;
+    args.height = m_frameResources.height;
+    args.depth = 1;
+    int timingDispatchWidth = args.width;
+    int timingDispatchHeight = args.height;
+
+    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs)
+    {
+        if (dispatchTileSettings.enabled)
+        {
+            timingDispatchWidth = dispatchTileSettings.tileWidth;
+            timingDispatchHeight = dispatchTileSettings.tileHeight;
+            for (int tileY = 0; tileY < m_frameResources.height; tileY += dispatchTileSettings.tileHeight)
+            {
+                for (int tileX = 0; tileX < m_frameResources.width; tileX += dispatchTileSettings.tileWidth)
+                {
+                    PathTraceSmokeConstants tileConstants = constants;
+                    tileConstants.dispatchTileInfo[0] = static_cast<float>(tileX);
+                    tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
+                    commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
+
+                    nvrhi::rt::DispatchRaysArguments tileArgs;
+                    tileArgs.width = Min(dispatchTileSettings.tileWidth, m_frameResources.width - tileX);
+                    tileArgs.height = Min(dispatchTileSettings.tileHeight, m_frameResources.height - tileY);
+                    tileArgs.depth = 1;
+                    commandList->dispatchRays(tileArgs);
+                }
+            }
+        }
+        else
+        {
+            commandList->dispatchRays(dispatchArgs);
+        }
+    };
+
     const uint64 setStateStartUs = targetClearCompleteUs;
+    const bool spatialNeedsTemporalPrepass =
+        (restirPTSpatialShadingMode || restirPTSpatialAttributionMode) &&
+        m_smokeRestirShaderTable &&
+        state.shaderTable != m_smokeRestirShaderTable;
+    if (spatialNeedsTemporalPrepass)
+    {
+        nvrhi::rt::State temporalPrepassState = state;
+        temporalPrepassState.shaderTable = m_smokeRestirShaderTable;
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU ReSTIR Spatial Temporal Prepass");
+            commandList->setRayTracingState(temporalPrepassState);
+            dispatchSmokeRays(args);
+        }
+        else
+        {
+            commandList->setRayTracingState(temporalPrepassState);
+            dispatchSmokeRays(args);
+        }
+
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+    }
+
     if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Set Ray Tracing State");
@@ -1038,12 +1105,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const uint64 setStateCompleteUs = Sys_Microseconds();
 
-    nvrhi::rt::DispatchRaysArguments args;
-    args.width = m_frameResources.width;
-    args.height = m_frameResources.height;
-    args.depth = 1;
-    int timingDispatchWidth = args.width;
-    int timingDispatchHeight = args.height;
     const uint64 dispatchRaysStartUs = setStateCompleteUs;
     if (dispatchTileSettings.enabled)
     {
@@ -1051,35 +1112,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             OPTICK_GPU_EVENT("PT GPU Dispatch Ray Tiles");
         }
-        timingDispatchWidth = dispatchTileSettings.tileWidth;
-        timingDispatchHeight = dispatchTileSettings.tileHeight;
-        for (int tileY = 0; tileY < m_frameResources.height; tileY += dispatchTileSettings.tileHeight)
-        {
-            for (int tileX = 0; tileX < m_frameResources.width; tileX += dispatchTileSettings.tileWidth)
-            {
-                PathTraceSmokeConstants tileConstants = constants;
-                tileConstants.dispatchTileInfo[0] = static_cast<float>(tileX);
-                tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
-                commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
-
-                nvrhi::rt::DispatchRaysArguments tileArgs;
-                tileArgs.width = Min(dispatchTileSettings.tileWidth, m_frameResources.width - tileX);
-                tileArgs.height = Min(dispatchTileSettings.tileHeight, m_frameResources.height - tileY);
-                tileArgs.depth = 1;
-                commandList->dispatchRays(tileArgs);
-            }
-        }
+        dispatchSmokeRays(args);
     }
     else
     {
         if (optickGpuMarkers)
         {
             OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
-            commandList->dispatchRays(args);
+            dispatchSmokeRays(args);
         }
         else
         {
-            commandList->dispatchRays(args);
+            dispatchSmokeRays(args);
         }
     }
     const uint64 dispatchRaysCompleteUs = Sys_Microseconds();

@@ -140,6 +140,7 @@ extern idCVar r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance;
 extern idCVar r_pathTracingRestirPTAnalyticLightTrials;
 extern idCVar r_pathTracingRestirPTSpatialSamples;
 extern idCVar r_pathTracingRestirPTSpatialRadius;
+extern idCVar r_pathTracingRestirPTSpatialDiagnosticView;
 extern idCVar r_pathTracingRestirPTPassDump;
 extern idCVar r_pathTracingSafetyDump;
 extern idCVar r_pathTracingDispatchTileEnable;

@@ -933,6 +933,16 @@ Ray dispatch safety diagnostics:
   Mode 50/51 RTXDI_PTSpatialResampling neighbor sampling radius in pixels.
   Defaults to 16 and clamps to 1..128.
 
+- r_pathTracingRestirPTSpatialDiagnosticView
+  Mode 51 diagnostic selector. Defaults to 0 for normal spatial source
+  attribution. Set to 1 to show spatial acceptance/source-change status:
+  gray = temporal input invalid, red = spatial output invalid, blue = no
+  spatial neighbor selected / kept temporal reservoir, green = spatial neighbor
+  selected with the same packed source, cyan = spatial changed to Doom analytic,
+  orange = spatial changed to emissive, magenta = spatial changed to non-NEE,
+  yellow = spatial changed to an unknown/invalid source. Use this before tuning
+  spatial radius or sample count.
+
 Glass/transmission reservation:
 
 - `r_pathTracingTransmissionBounceLimit` is reserved and currently clamps/fails
@@ -3078,6 +3088,13 @@ native PT and ReSTIR PT share the Doom analytic-light universe by default. Set
 behavior. The same ReSTIR mode range also uses the routed rigid scene path and
 routed rigid emissive-card inventory, so temporal and spatial diagnostics see
 the same source3 membership baseline as the earlier initial-reservoir views.
+ReSTIR PT analytic NEE proposals now sample the full uploaded Doom analytic
+candidate domain uniformly. Do not reintroduce a compact-list "local first 32"
+proposal bias: the compact list is sorted by portal depth/distance for upload
+stability, so that shortcut causes hard doorway discontinuities where lights
+suddenly flood mode 33 after a tiny camera-area change. A future local proposal
+path needs a real surface/light spatial structure or portal-visible light set,
+not compact array order.
 
 Mode 50 is the first rough spatial-reservoir shading preview. It uses RTXDI's
 TemporalAndSpatial buffer-index layout, generates the current initial reservoir,
@@ -3090,13 +3107,26 @@ contract when spatial reuse moves out of debug-only preview work. Test mode 50
 at conservative output resolution first, using mode 32 as the temporal-only
 comparison.
 
+Modes 50-51 run the existing temporal ReSTIR shader once as a producer prepass
+before the spatial shader. This is required because RTXDI_PTSpatialResampling
+loads completed current-frame neighbor surfaces through RAB_GetGBufferSurface
+and reads neighbor temporal reservoirs; a one-dispatch initial->temporal->spatial
+debug path left the spatial acceptance diagnostic all blue because neighbor
+inputs were not globally available yet. This is a debug bridge, not the final
+multi-pass ReSTIR graph.
+
 Mode 51 is the spatial light-source attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
 spatial reservoir source with the same convention as mode 33: cyan/blue for
 Doom analytic sphere lights, orange for emissive triangles, green for non-NEE or
 indirect reservoir samples, and red for invalid/unknown packed light metadata.
 Use mode 51 to compare source stability against temporal-only mode 33 and to
-look for spatial source bleeding across hard depth/object edges.
+look for spatial source bleeding across hard depth/object edges. Set
+`r_pathTracingRestirPTSpatialDiagnosticView 1` while staying in mode 51 to
+replace source colors with spatial acceptance/source-change colors: blue means
+spatial reuse kept the temporal reservoir, green means an accepted spatial
+neighbor kept the same packed source, and cyan/orange/magenta/yellow identify
+accepted spatial neighbors that changed source type.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with
@@ -3262,7 +3292,9 @@ Clear optimization path for mode 32/33/50/51 / future final shading:
 - add half-resolution, checkerboard, or fixed internal-resolution execution for
   temporal PT, then upscale to the game output;
 - reduce per-pixel replay cost by tightening initial sample count, bounce depth,
-  and hybrid-shift/reconnection settings once correctness is established;
+  and hybrid-shift/reconnection settings once correctness is established; do not
+  reduce analytic proposals by biasing toward the first compact light slots
+  unless those slots come from a real spatially local light proposal structure;
 - replace the temporary camera-only reprojection with vertex/object motion
   vectors so fewer pixels churn through rejection/fallback paths;
 - profile GPU pass timing before raising resolution, because driver device

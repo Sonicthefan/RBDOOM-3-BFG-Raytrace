@@ -801,6 +801,12 @@ idCVar r_pathTracingRestirPTSpatialRadius(
     CVAR_RENDERER | CVAR_FLOAT,
     "Mode 50 ReSTIR PT spatial neighbor sampling radius in pixels" );
 
+idCVar r_pathTracingRestirPTSpatialDiagnosticView(
+    "r_pathTracingRestirPTSpatialDiagnosticView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 51 spatial diagnostic view: 0 = source attribution, 1 = spatial acceptance/source-change status" );
+
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",
     "0",

@@ -2118,6 +2118,7 @@ static const float2 RT_PT_RESTIR_SPATIAL_NEIGHBOR_OFFSETS[32] =
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
+RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel);
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
 float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir);
 
@@ -2529,6 +2530,106 @@ float4 RestirPTReservoirLightSourceAttributionColor(RTXDI_PTReservoir reservoir)
     return float4(0.08, saturate(0.55 + heat * 0.4), 0.12, 1.0);
 }
 
+uint RestirPTReservoirSourceKind(RTXDI_PTReservoir reservoir)
+{
+    if (!RTXDI_IsValidPTReservoir(reservoir))
+    {
+        return 0u;
+    }
+    if (!RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        return 3u;
+    }
+
+    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+    {
+        return 0u;
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(RTXDI_SampledLightData_GetLightIndex(sampledLightData), false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return 0u;
+    }
+    if (lightInfo.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        return 1u;
+    }
+    if (lightInfo.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return 2u;
+    }
+    return 0u;
+}
+
+bool RestirPTReservoirSamePackedSource(RTXDI_PTReservoir a, RTXDI_PTReservoir b)
+{
+    const uint kindA = RestirPTReservoirSourceKind(a);
+    const uint kindB = RestirPTReservoirSourceKind(b);
+    if (kindA != kindB)
+    {
+        return false;
+    }
+    if (kindA == 1u || kindA == 2u)
+    {
+        const RTXDI_SampledLightData lightA = RTXDI_GetSampledLightData(a);
+        const RTXDI_SampledLightData lightB = RTXDI_GetSampledLightData(b);
+        return RTXDI_SampledLightData_IsValidLightData(lightA) &&
+            RTXDI_SampledLightData_IsValidLightData(lightB) &&
+            RTXDI_SampledLightData_GetLightIndex(lightA) == RTXDI_SampledLightData_GetLightIndex(lightB);
+    }
+    return kindA != 0u;
+}
+
+#if defined(RB_PT_ENABLE_RESTIR_SPATIAL) && defined(RB_PT_ENABLE_RESTIR_TEMPORAL)
+float4 RestirPTSpatialAcceptanceDiagnosticColor(RAB_Surface currentSurface, uint2 pixel)
+{
+    float4 rejectionColor;
+    bool selectedPrevSample;
+    bool spatialResampled;
+    const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTSpatialReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample, spatialResampled);
+    const RTXDI_PTReservoir temporalReservoir = LoadRestirPTTemporalOutputReservoir(pixel);
+
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        return float4(0.18, 0.18, 0.18, 1.0);
+    }
+    if (!RTXDI_IsValidPTReservoir(spatialReservoir))
+    {
+        return float4(0.65, 0.04, 0.04, 1.0);
+    }
+    if (!spatialResampled)
+    {
+        return float4(0.05, 0.22, 0.95, 1.0);
+    }
+    if (RestirPTReservoirSamePackedSource(temporalReservoir, spatialReservoir))
+    {
+        return float4(0.05, 0.75, 0.12, 1.0);
+    }
+
+    const uint spatialKind = RestirPTReservoirSourceKind(spatialReservoir);
+    if (spatialKind == 1u)
+    {
+        return float4(0.0, 0.65, 1.0, 1.0);
+    }
+    if (spatialKind == 2u)
+    {
+        return float4(1.0, 0.62, 0.0, 1.0);
+    }
+    if (spatialKind == 3u)
+    {
+        return float4(0.78, 0.12, 0.95, 1.0);
+    }
+    return float4(0.95, 0.95, 0.08, 1.0);
+}
+#else
+float4 RestirPTSpatialAcceptanceDiagnosticColor(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
+
 #ifdef RB_PT_ENABLE_RESTIR_ATTRIBUTION
 float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
@@ -2552,6 +2653,11 @@ float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface
 #ifdef RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION
 float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
+    if (SafetyInfo.z >= 0.5)
+    {
+        return RestirPTSpatialAcceptanceDiagnosticColor(currentSurface, pixel);
+    }
+
     float4 rejectionColor;
     bool selectedPrevSample;
     bool spatialResampled;
@@ -2640,6 +2746,15 @@ void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoi
         RestirPTParams.reservoirBuffer,
         reservoirPosition,
         RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
+}
+
+RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel)
+{
+    const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
+    return RTXDI_LoadPTReservoir(
+        RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
 }
 
 float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel)
