@@ -3108,12 +3108,14 @@ at conservative output resolution first, using mode 32 as the temporal-only
 comparison.
 
 Modes 50-51 run the existing temporal ReSTIR shader once as a producer prepass
-before the spatial shader. This is required because RTXDI_PTSpatialResampling
-loads completed current-frame neighbor surfaces through RAB_GetGBufferSurface
-and reads neighbor temporal reservoirs; a one-dispatch initial->temporal->spatial
-debug path left the spatial acceptance diagnostic all blue because neighbor
-inputs were not globally available yet. This is a debug bridge, not the final
-multi-pass ReSTIR graph.
+before the spatial shader. The spatial wrappers consume that prepass instead of
+regenerating temporal reservoirs, and they do not rewrite primary-surface
+history while RTXDI spatial is reading neighbor surfaces. This is required
+because RTXDI_PTSpatialResampling loads completed current-frame neighbor
+surfaces through RAB_GetGBufferSurface and reads neighbor temporal reservoirs; a
+one-dispatch initial->temporal->spatial debug path left the spatial acceptance
+diagnostic all blue because neighbor inputs were not globally available yet.
+This is a debug bridge, not the final multi-pass ReSTIR graph.
 
 Mode 51 is the spatial light-source attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected

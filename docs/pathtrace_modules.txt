@@ -1808,11 +1808,14 @@ neighbor-offset buffer. `r_pathTracingRestirPTSpatialSamples` and
 depth/normal validation reuses the temporal threshold CVars.
 
 Modes 50-51 dispatch the temporal ReSTIR shader first, insert UAV barriers, then
-dispatch the spatial shader. This prepass is necessary because RTXDI's spatial
-resampling callbacks read current-frame neighbor surfaces and neighbor temporal
-reservoirs; those inputs are not reliable if initial, temporal, and spatial work
-are all attempted inside one raygen dispatch. This remains debug scaffolding and
-should become a real pass graph before production ReSTIR shading.
+dispatch the spatial shader. The spatial wrappers consume that temporal prepass
+instead of rebuilding temporal reservoirs, and they skip primary-surface-history
+writes so RTXDI spatial is not reading a neighbor buffer that the same dispatch
+is also rewriting. This prepass is necessary because RTXDI's spatial resampling
+callbacks read current-frame neighbor surfaces and neighbor temporal reservoirs;
+those inputs are not reliable if initial, temporal, and spatial work are all
+attempted inside one raygen dispatch. This remains debug scaffolding and should
+become a real pass graph before production ReSTIR shading.
 
 Mode 51 is the spatial source-attribution diagnostic. It uses the same
 initial->temporal->spatial reservoir path as mode 50 but colors the selected

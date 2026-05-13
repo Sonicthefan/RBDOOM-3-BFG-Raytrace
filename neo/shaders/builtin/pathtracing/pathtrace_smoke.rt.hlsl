@@ -2291,7 +2291,13 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
 RTXDI_PTReservoir GenerateRestirPTSpatialReservoir(RAB_Surface currentSurface, uint2 pixel, out float4 rejectionColor, out bool selectedPrevSample, out bool spatialResampled)
 {
     spatialResampled = false;
+    selectedPrevSample = false;
+#ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_TEMPORAL_PREPASS
+    rejectionColor = float4(0.18, 0.18, 0.18, 1.0);
+    const RTXDI_PTReservoir temporalReservoir = LoadRestirPTTemporalOutputReservoir(pixel);
+#else
     const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTTemporalReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample);
+#endif
     if (!RTXDI_IsValidPTReservoir(temporalReservoir))
     {
         StoreRestirPTSpatialOutputReservoir(pixel, temporalReservoir);
@@ -3935,8 +3941,10 @@ void RayGen()
     {
         primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
     }
+#ifndef RB_PT_RESTIR_SPATIAL_CONSUMES_TEMPORAL_PREPASS
     StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
     StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
+#endif
 
     if (payload.value == 0)
     {

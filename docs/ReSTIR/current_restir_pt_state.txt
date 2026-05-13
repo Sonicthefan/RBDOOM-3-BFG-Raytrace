@@ -103,13 +103,16 @@ threshold CVars above. The disocclusion boost sample count is clamped to the
 same sample count as `r_pathTracingRestirPTSpatialSamples` to avoid a hidden
 8x work spike during early Vulkan/device-removal testing.
 
-Modes 50-51 now run a temporal producer dispatch before the spatial/debug
-dispatch. RTXDI_PTSpatialResampling asks RAB_GetGBufferSurface for completed
-current-frame neighbor surfaces and reads neighbor temporal reservoirs; doing
-that inside a single raygen dispatch left the diagnostic 100% blue because the
-neighbor data was not globally produced yet. The prepass is still debug-only and
-intentionally reuses the existing temporal shader rather than introducing the
-full production pass graph.
+Modes 50-51 now have an explicit debug staging boundary. Dispatch first runs the
+temporal producer shader to write current primary surfaces and temporal
+reservoirs, inserts UAV barriers, then runs the spatial/debug shader. The
+spatial shader is marked as a consumer of that temporal prepass, so it no longer
+regenerates temporal reservoirs or rewrites primary-surface history while
+RTXDI_PTSpatialResampling is reading neighbor surfaces. RTXDI's spatial pass
+expects completed current-frame neighbor surfaces and temporal reservoirs; doing
+all stages in one raygen dispatch left the diagnostic 100% blue because neighbor
+inputs were not globally available yet. This is still debug-only staging, not
+the final production pass graph.
 
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
@@ -120,9 +123,9 @@ bleeding or unexpected source loss after spatial reuse before final integration.
 
 Main Gaps
 ---------
-- Spatial reuse is debug-only in modes 50-51; it has only a temporal prepass
-  plus spatial/debug dispatch, not a production pass graph or denoiser-facing
-  output yet.
+- Spatial reuse is debug-only in modes 50-51; it has a temporal producer prepass
+  plus a spatial/debug consumer dispatch, not a production pass graph or
+  denoiser-facing output yet.
 - No production final ReSTIR PT pass outside the debug raygen path.
 - Light identity is still index-fragile across changing emissive/light order.
 - RAB visibility remains conservative/preview-oriented.

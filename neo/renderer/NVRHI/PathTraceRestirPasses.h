@@ -36,7 +36,8 @@ enum RtPathTraceRestirPassFlags : uint32_t
     RT_RESTIR_PASS_DEBUG_VISUALIZE = 1u << 8,
     RT_RESTIR_PASS_SOURCE_ATTRIBUTION = 1u << 9,
     RT_RESTIR_PASS_PRIMARY_SURFACE_DEBUG = 1u << 10,
-    RT_RESTIR_PASS_PREVIEW_SAFETY_CAP = 1u << 11
+    RT_RESTIR_PASS_PREVIEW_SAFETY_CAP = 1u << 11,
+    RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS = 1u << 12
 };
 
 struct RtPathTraceRestirPassPlan
@@ -152,7 +153,7 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
         plan.output = RtPathTraceRestirPassKind::ReservoirShading;
         plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
-        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS;
         if (temporalPreviewVisibility)
         {
             plan.flags |= RT_RESTIR_PASS_TRACES_VISIBILITY;
@@ -163,7 +164,7 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
         plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
-        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS;
         plan.label = "mode51SpatialSourceAttribution";
         break;
     default:
@@ -171,6 +172,11 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
     }
 
     return plan;
+}
+
+inline bool PathTraceRestirPassRequiresTemporalPrepass(const RtPathTraceRestirPassPlan& plan)
+{
+    return (plan.flags & RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS) != 0;
 }
 
 inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(

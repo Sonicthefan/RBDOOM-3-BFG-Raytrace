@@ -1070,11 +1070,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
     const uint64 setStateStartUs = targetClearCompleteUs;
     const bool spatialNeedsTemporalPrepass =
-        (restirPTSpatialShadingMode || restirPTSpatialAttributionMode) &&
+        PathTraceRestirPassRequiresTemporalPrepass(restirPTPassPlan) &&
         m_smokeRestirShaderTable &&
         state.shaderTable != m_smokeRestirShaderTable;
     if (spatialNeedsTemporalPrepass)
     {
+        // RTXDI spatial resampling reads completed current-frame neighbor
+        // surfaces and temporal reservoirs. Produce those in a separate
+        // dispatch before the spatial shader consumes them.
         nvrhi::rt::State temporalPrepassState = state;
         temporalPrepassState.shaderTable = m_smokeRestirShaderTable;
         if (optickGpuMarkers)
