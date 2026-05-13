@@ -26,10 +26,12 @@ Active ReSTIR shader libraries:
   Mode 32.
 - pathtrace_smoke_restir_attribution.rt.hlsl
   Mode 33.
+- pathtrace_smoke_restir_spatial_reservoir.rt.hlsl
+  Modes 50-51 spatial reservoir producer prepass.
 - pathtrace_smoke_restir_spatial.rt.hlsl
-  Mode 50.
+  Mode 50 spatial shading consumer.
 - pathtrace_smoke_restir_spatial_attribution.rt.hlsl
-  Mode 51.
+  Mode 51 spatial attribution/diagnostic consumer.
 
 Modes 31, 32, 33, 50, and 51 force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
@@ -103,16 +105,16 @@ threshold CVars above. The disocclusion boost sample count is clamped to the
 same sample count as `r_pathTracingRestirPTSpatialSamples` to avoid a hidden
 8x work spike during early Vulkan/device-removal testing.
 
-Modes 50-51 now have an explicit debug staging boundary. Dispatch first runs the
+Modes 50-51 now have explicit debug staging boundaries. Dispatch first runs the
 temporal producer shader to write current primary surfaces and temporal
-reservoirs, inserts UAV barriers, then runs the spatial/debug shader. The
-spatial shader is marked as a consumer of that temporal prepass, so it no longer
-regenerates temporal reservoirs or rewrites primary-surface history while
-RTXDI_PTSpatialResampling is reading neighbor surfaces. RTXDI's spatial pass
-expects completed current-frame neighbor surfaces and temporal reservoirs; doing
-all stages in one raygen dispatch left the diagnostic 100% blue because neighbor
-inputs were not globally available yet. This is still debug-only staging, not
-the final production pass graph.
+reservoirs, inserts UAV barriers, then runs a spatial-reservoir producer shader,
+inserts another reservoir UAV barrier, and finally runs the mode 50/51 shading
+or attribution consumer. Spatial consumers read the completed spatial output
+reservoir instead of regenerating it. RTXDI's spatial pass expects completed
+current-frame neighbor surfaces and temporal reservoirs; doing all stages in one
+raygen dispatch left the diagnostic 100% blue because neighbor inputs were not
+globally available yet. This is still debug-only staging, not the final
+production pass graph.
 
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
@@ -123,8 +125,8 @@ bleeding or unexpected source loss after spatial reuse before final integration.
 
 Main Gaps
 ---------
-- Spatial reuse is debug-only in modes 50-51; it has a temporal producer prepass
-  plus a spatial/debug consumer dispatch, not a production pass graph or
+- Spatial reuse is debug-only in modes 50-51; it has temporal, spatial, and
+  shading/diagnostic dispatches, but not a production pass graph or
   denoiser-facing output yet.
 - No production final ReSTIR PT pass outside the debug raygen path.
 - Light identity is still index-fragile across changing emissive/light order.
@@ -160,10 +162,13 @@ Mode 51 spatial acceptance diagnostic:
 
 `r_pathTracingRestirPTSpatialDiagnosticView 1` changes mode 51 from source
 attribution to spatial acceptance/source-change status. Color key: gray temporal
-input invalid, red spatial output invalid, blue spatial kept the temporal
-reservoir/no accepted neighbor, green accepted neighbor with the same packed
-source, cyan changed to Doom analytic, orange changed to emissive, magenta
-changed to non-NEE, yellow changed to unknown/invalid source. Use this when
+input invalid, red spatial output invalid, blue no spatial neighbor contribution
+detected/kept temporal, green spatial neighbor contribution detected with the
+same packed source, cyan changed to Doom analytic, orange changed to emissive,
+magenta changed to non-NEE, yellow changed to unknown/invalid source. In the
+split producer/consumer path, contribution is inferred from the spatial
+reservoir `M` value growing beyond the temporal reservoir `M`; the consumer no
+longer sees RTXDI's internal `spatialResampled` bool. Use this when
 `r_pathTracingRestirPTSpatialSamples` or `r_pathTracingRestirPTSpatialRadius`
 appear visually inert in mode 50.
 

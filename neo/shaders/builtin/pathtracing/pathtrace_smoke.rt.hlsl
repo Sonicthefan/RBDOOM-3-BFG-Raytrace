@@ -2119,6 +2119,7 @@ void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel);
+RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel);
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
 float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir);
 
@@ -2466,10 +2467,15 @@ float4 EvaluateRestirPTTemporalReservoirShading(RAB_Surface currentSurface, uint
 #ifdef RB_PT_ENABLE_RESTIR_SPATIAL_SHADING
 float4 EvaluateRestirPTSpatialReservoirShading(RAB_Surface currentSurface, uint2 pixel, bool traceVisibility)
 {
+#ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS
+    const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(pixel);
+    const bool spatialResampled = true;
+#else
     float4 rejectionColor;
     bool selectedPrevSample;
     bool spatialResampled;
     const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTSpatialReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample, spatialResampled);
+#endif
     if (!RTXDI_IsValidPTReservoir(spatialReservoir))
     {
         return float4(RestirPTRoughPreviewFallback(currentSurface), 1.0);
@@ -2591,10 +2597,15 @@ bool RestirPTReservoirSamePackedSource(RTXDI_PTReservoir a, RTXDI_PTReservoir b)
 #if defined(RB_PT_ENABLE_RESTIR_SPATIAL) && defined(RB_PT_ENABLE_RESTIR_TEMPORAL)
 float4 RestirPTSpatialAcceptanceDiagnosticColor(RAB_Surface currentSurface, uint2 pixel)
 {
+#ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS
+    const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(pixel);
+    const bool spatialResampled = RTXDI_IsValidPTReservoir(spatialReservoir);
+#else
     float4 rejectionColor;
     bool selectedPrevSample;
     bool spatialResampled;
     const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTSpatialReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample, spatialResampled);
+#endif
     const RTXDI_PTReservoir temporalReservoir = LoadRestirPTTemporalOutputReservoir(pixel);
 
     if (!RTXDI_IsValidPTReservoir(temporalReservoir))
@@ -2605,6 +2616,13 @@ float4 RestirPTSpatialAcceptanceDiagnosticColor(RAB_Surface currentSurface, uint
     {
         return float4(0.65, 0.04, 0.04, 1.0);
     }
+#ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS
+    const bool spatialContributionDetected = spatialReservoir.M > temporalReservoir.M + 0.5;
+    if (!spatialContributionDetected)
+    {
+        return float4(0.05, 0.22, 0.95, 1.0);
+    }
+#endif
     if (!spatialResampled)
     {
         return float4(0.05, 0.22, 0.95, 1.0);
@@ -2664,13 +2682,22 @@ float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface,
         return RestirPTSpatialAcceptanceDiagnosticColor(currentSurface, pixel);
     }
 
+#ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS
+    const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(pixel);
+    const bool spatialResampled = true;
+#else
     float4 rejectionColor;
     bool selectedPrevSample;
     bool spatialResampled;
     const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTSpatialReservoir(currentSurface, pixel, rejectionColor, selectedPrevSample, spatialResampled);
+#endif
     if (!RTXDI_IsValidPTReservoir(spatialReservoir))
     {
+#ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS
+        return float4(0.55, 0.04, 0.04, 1.0);
+#else
         return rejectionColor;
+#endif
     }
 
     const float4 sourceColor = RestirPTReservoirLightSourceAttributionColor(spatialReservoir);
@@ -2761,6 +2788,15 @@ RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel)
         RestirPTParams.reservoirBuffer,
         reservoirPosition,
         RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
+}
+
+RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel)
+{
+    const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
+    return RTXDI_LoadPTReservoir(
+        RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
 }
 
 float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel)
@@ -3944,6 +3980,14 @@ void RayGen()
 #ifndef RB_PT_RESTIR_SPATIAL_CONSUMES_TEMPORAL_PREPASS
     StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
     StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
+#endif
+
+#ifdef RB_PT_RESTIR_SPATIAL_PRODUCER
+    float4 spatialRejectionColor;
+    bool spatialSelectedPrevSample;
+    bool spatialResampled;
+    GenerateRestirPTSpatialReservoir(primaryHistorySurface, pixel, spatialRejectionColor, spatialSelectedPrevSample, spatialResampled);
+    return;
 #endif
 
     if (payload.value == 0)

@@ -187,6 +187,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeRestirInitialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirTemporalShadingShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirAttributionShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeRestirSpatialReservoirShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirSpatialShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirSpatialAttributionShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
@@ -196,6 +197,7 @@ private:
     nvrhi::rt::PipelineHandle m_smokeRestirInitialPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirTemporalShadingPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirAttributionPipeline;
+    nvrhi::rt::PipelineHandle m_smokeRestirSpatialReservoirPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirSpatialPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirSpatialAttributionPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
@@ -203,6 +205,7 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeRestirInitialShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirTemporalShadingShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirAttributionShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeRestirSpatialReservoirShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirSpatialShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirSpatialAttributionShaderTable;
 };

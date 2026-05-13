@@ -321,13 +321,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(3);
     }
-    else if (restirPTSpatialShadingMode && !m_smokeRestirSpatialShaderTable)
+    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode) && !m_smokeRestirSpatialReservoirShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(4);
     }
-    else if (restirPTSpatialAttributionMode && !m_smokeRestirSpatialAttributionShaderTable)
+    if (restirPTSpatialShadingMode && !m_smokeRestirSpatialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(5);
+    }
+    if (restirPTSpatialAttributionMode && !m_smokeRestirSpatialAttributionShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(6);
     }
     if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode) && !m_smokeRestirShaderTable)
     {
@@ -1073,6 +1077,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         PathTraceRestirPassRequiresTemporalPrepass(restirPTPassPlan) &&
         m_smokeRestirShaderTable &&
         state.shaderTable != m_smokeRestirShaderTable;
+    const bool spatialNeedsSpatialPrepass =
+        PathTraceRestirPassRequiresSpatialPrepass(restirPTPassPlan) &&
+        m_smokeRestirSpatialReservoirShaderTable &&
+        state.shaderTable != m_smokeRestirSpatialReservoirShaderTable;
     if (spatialNeedsTemporalPrepass)
     {
         // RTXDI spatial resampling reads completed current-frame neighbor
@@ -1093,6 +1101,25 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+    }
+    if (spatialNeedsSpatialPrepass)
+    {
+        nvrhi::rt::State spatialPrepassState = state;
+        spatialPrepassState.shaderTable = m_smokeRestirSpatialReservoirShaderTable;
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU ReSTIR Spatial Reservoir Prepass");
+            commandList->setRayTracingState(spatialPrepassState);
+            dispatchSmokeRays(args);
+        }
+        else
+        {
+            commandList->setRayTracingState(spatialPrepassState);
+            dispatchSmokeRays(args);
+        }
+
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
     }

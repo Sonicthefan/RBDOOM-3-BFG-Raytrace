@@ -796,16 +796,25 @@ pathtrace_smoke_restir_spatial.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
     `RB_PT_ENABLE_RESTIR_SPATIAL`, and `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`.
     CMake builds `pathtrace_smoke_restir_spatial.rt.bin`, and dispatch selects
-    it only for mode 50 spatial-reservoir shading preview. The wrapper defines
-    `RB_PT_FORCE_DEBUG_MODE 50u`.
+    it only for mode 50 spatial-reservoir shading preview. The wrapper consumes
+    the completed temporal and spatial prepasses instead of rebuilding them. The
+    wrapper defines `RB_PT_FORCE_DEBUG_MODE 50u`.
+
+pathtrace_smoke_restir_spatial_reservoir.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
+    `RB_PT_ENABLE_RESTIR_SPATIAL`, and `RB_PT_RESTIR_SPATIAL_PRODUCER`. CMake
+    builds `pathtrace_smoke_restir_spatial_reservoir.rt.bin`, and dispatch uses
+    it as the modes 50-51 spatial reservoir producer after the temporal prepass.
+    It writes only the spatial output reservoir buffer.
 
 pathtrace_smoke_restir_spatial_attribution.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
     `RB_PT_ENABLE_RESTIR_SPATIAL`, and
     `RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION`. CMake builds
     `pathtrace_smoke_restir_spatial_attribution.rt.bin`, and dispatch selects
-    it only for mode 51 spatial source attribution. The wrapper defines
-    `RB_PT_FORCE_DEBUG_MODE 51u`.
+    it only for mode 51 spatial source attribution. The wrapper consumes the
+    completed temporal and spatial prepasses instead of rebuilding them. The
+    wrapper defines `RB_PT_FORCE_DEBUG_MODE 51u`.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
@@ -1807,13 +1816,14 @@ neighbor-offset buffer. `r_pathTracingRestirPTSpatialSamples` and
 `r_pathTracingRestirPTSpatialRadius` control the first test path, while spatial
 depth/normal validation reuses the temporal threshold CVars.
 
-Modes 50-51 dispatch the temporal ReSTIR shader first, insert UAV barriers, then
-dispatch the spatial shader. The spatial wrappers consume that temporal prepass
-instead of rebuilding temporal reservoirs, and they skip primary-surface-history
-writes so RTXDI spatial is not reading a neighbor buffer that the same dispatch
-is also rewriting. This prepass is necessary because RTXDI's spatial resampling
-callbacks read current-frame neighbor surfaces and neighbor temporal reservoirs;
-those inputs are not reliable if initial, temporal, and spatial work are all
+Modes 50-51 dispatch the temporal ReSTIR shader first, insert UAV barriers,
+dispatch the spatial reservoir producer, insert a reservoir UAV barrier, then
+dispatch the shading or attribution consumer. The spatial producer consumes the
+temporal prepass instead of rebuilding temporal reservoirs, and the consumers
+read completed spatial reservoirs instead of running RTXDI_PTSpatialResampling
+again. This staging is necessary because RTXDI's spatial resampling callbacks
+read current-frame neighbor surfaces and neighbor temporal reservoirs; those
+inputs are not reliable if initial, temporal, spatial, and shading work are all
 attempted inside one raygen dispatch. This remains debug scaffolding and should
 become a real pass graph before production ReSTIR shading.
 
@@ -1825,10 +1835,11 @@ for non-NEE/indirect reservoirs, and red for invalid/unknown light metadata.
 Use it to compare spatial source stability against mode 33 and to look for
 source bleeding across depth/object edges. `r_pathTracingRestirPTSpatialDiagnosticView 1`
 keeps mode 51 on the same path but switches the output to acceptance/change
-status: gray temporal invalid, red spatial invalid, blue kept temporal/no
-accepted spatial neighbor, green accepted spatial neighbor with the same packed
-source, cyan changed to Doom analytic, orange changed to emissive, magenta
-changed to non-NEE, and yellow changed to unknown/invalid source.
+status: gray temporal invalid, red spatial invalid, blue no spatial neighbor
+contribution detected/kept temporal, green spatial neighbor contribution
+detected with the same packed source, cyan changed to Doom analytic, orange
+changed to emissive, magenta changed to non-NEE, and yellow changed to
+unknown/invalid source.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed
