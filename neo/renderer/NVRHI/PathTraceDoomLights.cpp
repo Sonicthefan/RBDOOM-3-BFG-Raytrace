@@ -8,6 +8,7 @@
 #include "../../d3xp/Game_local.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <unordered_map>
 #include <vector>
 
@@ -20,6 +21,211 @@ const uint32_t RT_DOOM_ANALYTIC_LIGHT_BEHIND_CAMERA = 0x00000004u;
 namespace {
 
 const int RT_PT_DOOM_LIGHT_MAX_AREA_REFS = 32;
+const int RT_PT_DOOM_DYNAMIC_LIGHT_PRUNE_MISSING_FRAMES = 300;
+const uint32_t RT_PT_DOOM_LIGHT_INVALID_INDEX = 0xffffffffu;
+const uint32_t RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER = 0xffffffffu;
+
+enum DoomAnalyticLightUniverseInvalidReason : uint32_t
+{
+    DOOM_LIGHT_UNIVERSE_INVALID_MISSING_PREVIOUS = 0x00000001u,
+    DOOM_LIGHT_UNIVERSE_INVALID_MISSING_CURRENT = 0x00000002u,
+    DOOM_LIGHT_UNIVERSE_INVALID_DUPLICATE_KEY = 0x00000004u,
+    DOOM_LIGHT_UNIVERSE_INVALID_UNKNOWN_ENTITY = 0x00000008u,
+    DOOM_LIGHT_UNIVERSE_INVALID_UNPROVEN_CONTINUITY = 0x00000010u,
+    DOOM_LIGHT_UNIVERSE_INVALID_ZERO_RADIANCE = 0x00000020u,
+    DOOM_LIGHT_UNIVERSE_INVALID_SUPPRESSED = 0x00000040u,
+    DOOM_LIGHT_UNIVERSE_INVALID_OUT_OF_SELECTED_AREA = 0x00000080u,
+    DOOM_LIGHT_UNIVERSE_INVALID_NON_POINT_OR_PARALLEL = 0x00000100u,
+    DOOM_LIGHT_UNIVERSE_INVALID_RADIUS_INVALID = 0x00000200u,
+    DOOM_LIGHT_UNIVERSE_INVALID_CANDIDATE_CAP_DROPPED = 0x00000400u,
+};
+
+enum DoomAnalyticLightUniverseTemporalState : uint32_t
+{
+    DOOM_LIGHT_UNIVERSE_STATE_ACTIVE = 0x00000001u,
+    DOOM_LIGHT_UNIVERSE_STATE_SAMPLEABLE = 0x00000002u,
+    DOOM_LIGHT_UNIVERSE_STATE_SELECTED_AREA = 0x00000004u,
+    DOOM_LIGHT_UNIVERSE_STATE_SUPPRESSED = 0x00000008u,
+    DOOM_LIGHT_UNIVERSE_STATE_GAME_LINKED = 0x00000010u,
+    DOOM_LIGHT_UNIVERSE_STATE_CONTINUITY_PROVEN = 0x00000020u,
+};
+
+enum DoomAnalyticLightKind : uint32_t
+{
+    DOOM_ANALYTIC_LIGHT_KIND_POINT = 1u,
+};
+
+struct DoomAnalyticLightUniverseKey
+{
+    uint32_t renderLightIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    uint32_t entityNumber = RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER;
+    uint32_t kind = DOOM_ANALYTIC_LIGHT_KIND_POINT;
+
+    bool operator==(const DoomAnalyticLightUniverseKey& other) const
+    {
+        return renderLightIndex == other.renderLightIndex &&
+            entityNumber == other.entityNumber &&
+            kind == other.kind;
+    }
+};
+
+struct DoomAnalyticLightUniverseEntry
+{
+    DoomAnalyticLightUniverseKey key;
+    uint32_t universeIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    uint32_t previousUniverseIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    uint32_t currentCandidateIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    bool hasPrevious = false;
+    bool remapValid = false;
+    bool duplicateKey = false;
+    bool active = false;
+    bool sampleable = false;
+    bool continuityProven = false;
+    uint32_t flags = 0;
+    uint32_t invalidReasonFlags = 0;
+    uint32_t temporalStateFlags = 0;
+    idVec3 origin = vec3_zero;
+    idVec4 color = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    float doomRadius = 0.0f;
+    float sphereRadius = 0.0f;
+    int selectionArea = -1;
+    int portalDepth = -1;
+};
+
+struct DoomAnalyticLightUniverseStats
+{
+    int universeCount = 0;
+    int currentCandidateCount = 0;
+    int activeCount = 0;
+    int sampleableCount = 0;
+    int zeroRadianceCount = 0;
+    int previousMatchedCount = 0;
+    int previousMissingCount = 0;
+    int previousToCurrentMissingCount = 0;
+    int duplicateKeyCount = 0;
+    int remapInvalidCount = 0;
+    int unknownEntityCount = 0;
+    int unprovenContinuityCount = 0;
+    int suppressedCount = 0;
+    int outOfSelectedAreaCount = 0;
+    int nonPointOrParallelCount = 0;
+    int invalidRadiusCount = 0;
+    int candidateCapDroppedCount = 0;
+};
+
+struct DoomPersistentAuthoredLightEntry
+{
+    DoomAnalyticLightUniverseKey key;
+    uint32_t universeIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    int firstSeenFrame = 0;
+    int lastSeenFrame = 0;
+    int seenFrames = 0;
+    int missingFrames = 0;
+    int staticListIndex = -1;
+    bool staticAuthored = false;
+    bool currentSeen = false;
+    bool currentActive = false;
+    bool currentSampleable = false;
+    bool currentSelectedArea = false;
+    bool currentSuppressed = false;
+    bool currentContinuityProven = false;
+    bool currentTemporaryOrDynamic = false;
+    bool currentDuplicateKey = false;
+    bool currentPointLight = false;
+    bool currentParallel = false;
+    bool currentCastsShadows = false;
+    bool currentGameLinked = false;
+    bool currentCrosshairBehind = false;
+    uint32_t currentCandidateIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    uint32_t invalidReasonFlags = 0;
+    idVec3 currentOrigin = vec3_zero;
+    idVec4 currentColor = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    float currentDoomRadius = 0.0f;
+    float currentSphereRadius = 0.0f;
+    int currentSelectionArea = -1;
+    int currentPortalDepth = -1;
+    int renderLightIndex = -1;
+    int entityNumber = -1;
+    const char* entityName = "<unavailable>";
+    const char* entityClassname = "<unavailable>";
+    const char* shaderName = "<none>";
+};
+
+struct DoomPersistentAuthoredLightStats
+{
+    int staticTotal = 0;
+    int staticSeen = 0;
+    int staticNew = 0;
+    int staticUpdated = 0;
+    int staticMissing = 0;
+    int staticSampleable = 0;
+    int staticZeroRadiance = 0;
+    int staticListCount = 0;
+    int staticListSeen = 0;
+    int staticListMissing = 0;
+    int dynamicSeen = 0;
+    int dynamicNew = 0;
+    int dynamicUpdated = 0;
+    int dynamicUnproven = 0;
+    int dynamicUnknownEntity = 0;
+    int dynamicAgedOut = 0;
+    int proposalCount = 0;
+    int proposalMapped = 0;
+    int proposalMissingRegistry = 0;
+    int proposalStatic = 0;
+    int proposalDynamic = 0;
+    int proposalStaticListMapped = 0;
+    int proposalStaticListMissing = 0;
+    int proposalUploaded = 0;
+    int proposalDroppedByCap = 0;
+};
+
+struct DoomPersistentAuthoredLightProposal
+{
+    uint32_t universeIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    uint32_t candidateIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    uint32_t staticListIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    bool staticAuthored = false;
+    bool sampleable = false;
+};
+
+struct DoomAnalyticLightStableKey
+{
+    DoomAnalyticLightUniverseKey key;
+    uint32_t universeIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+};
+
+struct DoomAnalyticLightUniverseState
+{
+    const idRenderWorldLocal* renderWorld = nullptr;
+    uint32_t nextUniverseIndex = 0;
+    std::vector<DoomAnalyticLightStableKey> stableKeys;
+    std::vector<DoomAnalyticLightUniverseEntry> previousEntries;
+    std::vector<DoomAnalyticLightUniverseEntry> currentEntries;
+    std::vector<DoomPersistentAuthoredLightEntry> persistentAuthoredLights;
+    std::vector<DoomPersistentAuthoredLightProposal> persistentAuthoredProposals;
+    std::vector<uint32_t> persistentStaticUniverseList;
+    DoomAnalyticLightUniverseStats stats;
+    DoomPersistentAuthoredLightStats persistentStats;
+    int frameIndex = 0;
+
+    void Reset(const idRenderWorldLocal* newRenderWorld)
+    {
+        renderWorld = newRenderWorld;
+        nextUniverseIndex = 0;
+        stableKeys.clear();
+        previousEntries.clear();
+        currentEntries.clear();
+        persistentAuthoredLights.clear();
+        persistentAuthoredProposals.clear();
+        persistentStaticUniverseList.clear();
+        stats = DoomAnalyticLightUniverseStats();
+        persistentStats = DoomPersistentAuthoredLightStats();
+        frameIndex = 0;
+    }
+};
+
+DoomAnalyticLightUniverseState g_doomAnalyticLightUniverse;
 
 struct DoomLightPortalSelection
 {
@@ -823,6 +1029,651 @@ std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(const std::vector<Doo
     return candidates;
 }
 
+uint32_t DoomLightEntityNumberForUniverse(const DoomLightRecord& record)
+{
+    return record.entityNumber >= 0 ? static_cast<uint32_t>(record.entityNumber) : RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER;
+}
+
+DoomAnalyticLightUniverseKey MakeDoomAnalyticLightUniverseKey(const DoomLightRecord& record)
+{
+    DoomAnalyticLightUniverseKey key;
+    key.renderLightIndex = record.index >= 0 ? static_cast<uint32_t>(record.index) : RT_PT_DOOM_LIGHT_INVALID_INDEX;
+    key.entityNumber = DoomLightEntityNumberForUniverse(record);
+    key.kind = DOOM_ANALYTIC_LIGHT_KIND_POINT;
+    return key;
+}
+
+bool IsLikelyTemporaryDoomLightEntity(const DoomLightRecord& record)
+{
+    const char* text[] = {
+        record.entityName,
+        record.entityClassname,
+        record.entityDefName,
+        record.spawnModel,
+        record.spawnTexture,
+    };
+    const char* tokens[] = {
+        "projectile",
+        "fireball",
+        "rocket",
+        "grenade",
+        "muzzle",
+        "flash",
+        "explosion",
+        "particle",
+        "fx_",
+    };
+    for (const char* value : text)
+    {
+        if (!value)
+        {
+            continue;
+        }
+        for (const char* token : tokens)
+        {
+            if (idStr::FindText(value, token, false) >= 0)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool DoomLightContinuityProvenForTask01(const DoomLightRecord& record)
+{
+    if (!record.gameLinked || record.entityNumber < 0)
+    {
+        return false;
+    }
+    if (IsLikelyTemporaryDoomLightEntity(record))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool IsDoomAnalyticUniverseStructuralLight(const DoomLightRecord& record)
+{
+    return record.pointLight && !record.parallel && record.radiusMax > 1.0f;
+}
+
+bool IsDoomPersistentStaticAuthoredLight(const DoomLightRecord& record)
+{
+    return DoomLightContinuityProvenForTask01(record) && IsDoomAnalyticUniverseStructuralLight(record);
+}
+
+bool IsDoomAnalyticUniverseSampleableLight(const DoomLightRecord& record)
+{
+    return IsDoomAnalyticUniverseStructuralLight(record) && !record.suppressed && record.selectedArea && record.active;
+}
+
+int FindDoomAnalyticPreviousEntry(const std::vector<DoomAnalyticLightUniverseEntry>& entries, const DoomAnalyticLightUniverseKey& key)
+{
+    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
+    {
+        if (entries[i].key == key)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+uint32_t GetStableDoomAnalyticUniverseIndex(DoomAnalyticLightUniverseState& state, const DoomAnalyticLightUniverseKey& key)
+{
+    for (const DoomAnalyticLightStableKey& stableKey : state.stableKeys)
+    {
+        if (stableKey.key == key)
+        {
+            return stableKey.universeIndex;
+        }
+    }
+
+    DoomAnalyticLightStableKey stableKey;
+    stableKey.key = key;
+    stableKey.universeIndex = state.nextUniverseIndex++;
+    state.stableKeys.push_back(stableKey);
+    return stableKey.universeIndex;
+}
+
+bool DoomAnalyticKeyIsDuplicate(const std::vector<DoomAnalyticLightUniverseEntry>& entries, int entryIndex)
+{
+    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
+    {
+        if (i != entryIndex && entries[i].key == entries[entryIndex].key)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+int FindDoomPersistentAuthoredLightEntry(const std::vector<DoomPersistentAuthoredLightEntry>& entries, const DoomAnalyticLightUniverseKey& key)
+{
+    for (int i = 0; i < static_cast<int>(entries.size()); ++i)
+    {
+        if (entries[i].key == key)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool DoomRawFrameKeyIsDuplicate(const std::vector<DoomLightRecord>& records, const DoomAnalyticLightUniverseKey& key)
+{
+    int keyCount = 0;
+    for (const DoomLightRecord& record : records)
+    {
+        if (MakeDoomAnalyticLightUniverseKey(record) == key)
+        {
+            ++keyCount;
+            if (keyCount > 1)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool DoomPersistentAuthoredLightKeyReferenced(const std::vector<DoomPersistentAuthoredLightEntry>& entries, const DoomAnalyticLightUniverseKey& key)
+{
+    for (const DoomPersistentAuthoredLightEntry& entry : entries)
+    {
+        if (entry.key == key)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+int FindDoomPersistentStaticUniverseIndex(const std::vector<uint32_t>& staticUniverseList, uint32_t universeIndex)
+{
+    for (int i = 0; i < static_cast<int>(staticUniverseList.size()); ++i)
+    {
+        if (staticUniverseList[i] == universeIndex)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void PruneDoomPersistentDynamicAuthoredLights(DoomAnalyticLightUniverseState& state)
+{
+    int removedCount = 0;
+    state.persistentAuthoredLights.erase(
+        std::remove_if(
+            state.persistentAuthoredLights.begin(),
+            state.persistentAuthoredLights.end(),
+            [&](const DoomPersistentAuthoredLightEntry& entry) {
+                const bool shouldRemove =
+                    !entry.staticAuthored &&
+                    !entry.currentSeen &&
+                    entry.missingFrames > RT_PT_DOOM_DYNAMIC_LIGHT_PRUNE_MISSING_FRAMES;
+                removedCount += shouldRemove ? 1 : 0;
+                return shouldRemove;
+            }),
+        state.persistentAuthoredLights.end());
+
+    if (removedCount <= 0)
+    {
+        return;
+    }
+
+    state.persistentStats.dynamicAgedOut += removedCount;
+    state.stableKeys.erase(
+        std::remove_if(
+            state.stableKeys.begin(),
+            state.stableKeys.end(),
+            [&](const DoomAnalyticLightStableKey& stableKey) {
+                return !DoomPersistentAuthoredLightKeyReferenced(state.persistentAuthoredLights, stableKey.key);
+            }),
+        state.stableKeys.end());
+}
+
+void EnsureDoomPersistentStaticLightListEntry(DoomAnalyticLightUniverseState& state, DoomPersistentAuthoredLightEntry& entry)
+{
+    if (!entry.staticAuthored)
+    {
+        return;
+    }
+    const int existingIndex = FindDoomPersistentStaticUniverseIndex(state.persistentStaticUniverseList, entry.universeIndex);
+    if (existingIndex >= 0)
+    {
+        entry.staticListIndex = existingIndex;
+        return;
+    }
+    entry.staticListIndex = static_cast<int>(state.persistentStaticUniverseList.size());
+    state.persistentStaticUniverseList.push_back(entry.universeIndex);
+}
+
+void UpdateDoomPersistentAuthoredLightRegistry(
+    DoomAnalyticLightUniverseState& state,
+    const std::vector<DoomLightRecord>& records)
+{
+    ++state.frameIndex;
+    state.persistentStats = DoomPersistentAuthoredLightStats();
+
+    for (DoomPersistentAuthoredLightEntry& entry : state.persistentAuthoredLights)
+    {
+        entry.currentSeen = false;
+        entry.currentActive = false;
+        entry.currentSampleable = false;
+        entry.currentSelectedArea = false;
+        entry.currentSuppressed = false;
+        entry.currentContinuityProven = false;
+        entry.currentTemporaryOrDynamic = false;
+        entry.currentDuplicateKey = false;
+        entry.currentPointLight = false;
+        entry.currentParallel = false;
+        entry.currentCastsShadows = false;
+        entry.currentGameLinked = false;
+        entry.currentCrosshairBehind = false;
+        entry.currentCandidateIndex = RT_PT_DOOM_LIGHT_INVALID_INDEX;
+        entry.invalidReasonFlags = 0;
+    }
+
+    for (const DoomLightRecord& record : records)
+    {
+        const DoomAnalyticLightUniverseKey key = MakeDoomAnalyticLightUniverseKey(record);
+        const bool duplicateKeyInRawFrame = DoomRawFrameKeyIsDuplicate(records, key);
+        const bool staticAuthored = IsDoomPersistentStaticAuthoredLight(record);
+        int entryIndex = FindDoomPersistentAuthoredLightEntry(state.persistentAuthoredLights, key);
+        const bool isNewEntry = entryIndex < 0;
+        if (isNewEntry)
+        {
+            DoomPersistentAuthoredLightEntry entry;
+            entry.key = key;
+            entry.universeIndex = GetStableDoomAnalyticUniverseIndex(state, key);
+            entry.firstSeenFrame = state.frameIndex;
+            entry.staticAuthored = staticAuthored;
+            state.persistentAuthoredLights.push_back(entry);
+            entryIndex = static_cast<int>(state.persistentAuthoredLights.size()) - 1;
+        }
+
+        DoomPersistentAuthoredLightEntry& entry = state.persistentAuthoredLights[entryIndex];
+        entry.staticAuthored = entry.staticAuthored || staticAuthored;
+        EnsureDoomPersistentStaticLightListEntry(state, entry);
+        entry.currentSeen = true;
+        entry.currentActive = record.active;
+        entry.currentSampleable = IsDoomAnalyticUniverseSampleableLight(record);
+        entry.currentSelectedArea = record.selectedArea;
+        entry.currentSuppressed = record.suppressed;
+        entry.currentContinuityProven = DoomLightContinuityProvenForTask01(record);
+        entry.currentTemporaryOrDynamic = !entry.currentContinuityProven;
+        entry.currentDuplicateKey = entry.currentDuplicateKey || duplicateKeyInRawFrame;
+        entry.currentPointLight = record.pointLight;
+        entry.currentParallel = record.parallel;
+        entry.currentCastsShadows = record.castsShadows;
+        entry.currentGameLinked = record.gameLinked;
+        entry.currentCrosshairBehind = record.crosshairBehind;
+        entry.currentOrigin = record.origin;
+        entry.currentColor = record.color;
+        entry.currentDoomRadius = record.radiusMax;
+        entry.currentSphereRadius = record.sphereRadius;
+        entry.currentSelectionArea = record.selectionArea;
+        entry.currentPortalDepth = record.portalDepth;
+        entry.lastSeenFrame = state.frameIndex;
+        entry.seenFrames += 1;
+        entry.renderLightIndex = record.index;
+        entry.entityNumber = record.entityNumber;
+        entry.entityName = record.entityName;
+        entry.entityClassname = record.entityClassname;
+        entry.shaderName = record.shaderName;
+
+        if (!record.active || record.color.w <= 0.0f)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_ZERO_RADIANCE;
+        }
+        if (record.suppressed)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_SUPPRESSED;
+        }
+        if (!record.selectedArea)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_OUT_OF_SELECTED_AREA;
+        }
+        if (key.entityNumber == RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_UNKNOWN_ENTITY;
+        }
+        if (!entry.currentContinuityProven)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_UNPROVEN_CONTINUITY;
+        }
+        if (entry.currentDuplicateKey)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_DUPLICATE_KEY;
+        }
+        if (entry.staticAuthored)
+        {
+            state.persistentStats.staticSeen += 1;
+            state.persistentStats.staticNew += isNewEntry ? 1 : 0;
+            state.persistentStats.staticUpdated += isNewEntry ? 0 : 1;
+            state.persistentStats.staticSampleable += entry.currentSampleable ? 1 : 0;
+            state.persistentStats.staticZeroRadiance += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_ZERO_RADIANCE) != 0 ? 1 : 0;
+        }
+        else
+        {
+            state.persistentStats.dynamicSeen += 1;
+            state.persistentStats.dynamicNew += isNewEntry ? 1 : 0;
+            state.persistentStats.dynamicUpdated += isNewEntry ? 0 : 1;
+            state.persistentStats.dynamicUnproven += entry.currentContinuityProven ? 0 : 1;
+            state.persistentStats.dynamicUnknownEntity += key.entityNumber == RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER ? 1 : 0;
+        }
+    }
+
+    for (DoomPersistentAuthoredLightEntry& entry : state.persistentAuthoredLights)
+    {
+        if (entry.staticAuthored)
+        {
+            state.persistentStats.staticTotal += 1;
+            state.persistentStats.staticListSeen += entry.currentSeen ? 1 : 0;
+        }
+        if (!entry.currentSeen)
+        {
+            entry.missingFrames += 1;
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_MISSING_CURRENT;
+            if (entry.staticAuthored)
+            {
+                state.persistentStats.staticMissing += 1;
+                state.persistentStats.staticListMissing += 1;
+            }
+        }
+    }
+    PruneDoomPersistentDynamicAuthoredLights(state);
+    state.persistentStats.staticListCount = static_cast<int>(state.persistentStaticUniverseList.size());
+}
+
+void BuildDoomPersistentAuthoredProposalList(
+    DoomAnalyticLightUniverseState& state,
+    const std::vector<DoomLightRecord>& candidates,
+    int maxGpuCandidates)
+{
+    state.persistentAuthoredProposals.clear();
+    state.persistentStats.proposalCount = static_cast<int>(candidates.size());
+    state.persistentStats.proposalUploaded = Min(Max(maxGpuCandidates, 0), static_cast<int>(candidates.size()));
+    state.persistentStats.proposalDroppedByCap = static_cast<int>(candidates.size()) - state.persistentStats.proposalUploaded;
+    state.persistentAuthoredProposals.reserve(candidates.size());
+
+    for (int candidateIndex = 0; candidateIndex < static_cast<int>(candidates.size()); ++candidateIndex)
+    {
+        const DoomLightRecord& candidate = candidates[candidateIndex];
+        const DoomAnalyticLightUniverseKey key = MakeDoomAnalyticLightUniverseKey(candidate);
+        const int entryIndex = FindDoomPersistentAuthoredLightEntry(state.persistentAuthoredLights, key);
+        if (entryIndex < 0)
+        {
+            ++state.persistentStats.proposalMissingRegistry;
+            continue;
+        }
+
+        DoomPersistentAuthoredLightEntry& entry = state.persistentAuthoredLights[entryIndex];
+        entry.currentCandidateIndex = static_cast<uint32_t>(candidateIndex);
+
+        DoomPersistentAuthoredLightProposal proposal;
+        proposal.universeIndex = entry.universeIndex;
+        proposal.candidateIndex = static_cast<uint32_t>(candidateIndex);
+        proposal.staticListIndex = entry.staticListIndex >= 0 ? static_cast<uint32_t>(entry.staticListIndex) : RT_PT_DOOM_LIGHT_INVALID_INDEX;
+        proposal.staticAuthored = entry.staticAuthored;
+        proposal.sampleable = entry.currentSampleable;
+        state.persistentAuthoredProposals.push_back(proposal);
+
+        ++state.persistentStats.proposalMapped;
+        state.persistentStats.proposalStatic += proposal.staticAuthored ? 1 : 0;
+        state.persistentStats.proposalDynamic += proposal.staticAuthored ? 0 : 1;
+        if (proposal.staticAuthored)
+        {
+            if (entry.staticListIndex >= 0)
+            {
+                ++state.persistentStats.proposalStaticListMapped;
+            }
+            else
+            {
+                ++state.persistentStats.proposalStaticListMissing;
+            }
+        }
+    }
+}
+
+DoomAnalyticLightUniverseEntry MakeDoomAnalyticLightUniverseEntryFromPersistent(
+    const DoomPersistentAuthoredLightEntry& persistentEntry,
+    const std::vector<DoomAnalyticLightUniverseEntry>& previousEntries,
+    int maxGpuCandidates)
+{
+    DoomAnalyticLightUniverseEntry entry;
+    entry.key = persistentEntry.key;
+    entry.universeIndex = persistentEntry.universeIndex;
+    entry.currentCandidateIndex = persistentEntry.currentCandidateIndex;
+    entry.duplicateKey = persistentEntry.currentDuplicateKey;
+    entry.active = persistentEntry.currentSeen && persistentEntry.currentActive;
+    entry.sampleable = persistentEntry.currentSeen && persistentEntry.currentSampleable;
+    entry.continuityProven = persistentEntry.staticAuthored && persistentEntry.currentContinuityProven;
+    entry.flags = 0;
+    if (persistentEntry.currentCastsShadows)
+    {
+        entry.flags |= RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS;
+    }
+    if (persistentEntry.currentGameLinked)
+    {
+        entry.flags |= RT_DOOM_ANALYTIC_LIGHT_GAME_LINKED;
+    }
+    if (persistentEntry.currentCrosshairBehind)
+    {
+        entry.flags |= RT_DOOM_ANALYTIC_LIGHT_BEHIND_CAMERA;
+    }
+    entry.origin = persistentEntry.currentOrigin;
+    entry.color = persistentEntry.currentSeen ? persistentEntry.currentColor : idVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    entry.doomRadius = persistentEntry.currentDoomRadius;
+    entry.sphereRadius = persistentEntry.currentSphereRadius;
+    entry.selectionArea = persistentEntry.currentSelectionArea;
+    entry.portalDepth = persistentEntry.currentPortalDepth;
+
+    if (entry.active)
+    {
+        entry.temporalStateFlags |= DOOM_LIGHT_UNIVERSE_STATE_ACTIVE;
+    }
+    if (entry.sampleable)
+    {
+        entry.temporalStateFlags |= DOOM_LIGHT_UNIVERSE_STATE_SAMPLEABLE;
+    }
+    if (persistentEntry.currentSelectedArea)
+    {
+        entry.temporalStateFlags |= DOOM_LIGHT_UNIVERSE_STATE_SELECTED_AREA;
+    }
+    if (persistentEntry.currentSuppressed)
+    {
+        entry.temporalStateFlags |= DOOM_LIGHT_UNIVERSE_STATE_SUPPRESSED;
+    }
+    if (persistentEntry.currentGameLinked)
+    {
+        entry.temporalStateFlags |= DOOM_LIGHT_UNIVERSE_STATE_GAME_LINKED;
+    }
+    if (entry.continuityProven)
+    {
+        entry.temporalStateFlags |= DOOM_LIGHT_UNIVERSE_STATE_CONTINUITY_PROVEN;
+    }
+
+    if (persistentEntry.currentSeen && (!persistentEntry.currentPointLight || persistentEntry.currentParallel))
+    {
+        entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_NON_POINT_OR_PARALLEL;
+    }
+    if (persistentEntry.currentSeen && persistentEntry.currentDoomRadius <= 1.0f)
+    {
+        entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_RADIUS_INVALID;
+    }
+    entry.invalidReasonFlags |= persistentEntry.invalidReasonFlags;
+    if (entry.currentCandidateIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX && entry.currentCandidateIndex >= static_cast<uint32_t>(Max(maxGpuCandidates, 0)))
+    {
+        entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_CANDIDATE_CAP_DROPPED;
+    }
+
+    const int previousEntryIndex = FindDoomAnalyticPreviousEntry(previousEntries, entry.key);
+    if (previousEntryIndex >= 0)
+    {
+        entry.hasPrevious = true;
+        entry.previousUniverseIndex = previousEntries[previousEntryIndex].universeIndex;
+    }
+    else
+    {
+        entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_MISSING_PREVIOUS;
+    }
+    return entry;
+}
+
+void CountDoomAnalyticMissingCurrentPreviousEntries(
+    const std::vector<DoomAnalyticLightUniverseEntry>& previousEntries,
+    const std::vector<DoomAnalyticLightUniverseEntry>& currentEntries,
+    DoomAnalyticLightUniverseStats& stats)
+{
+    for (const DoomAnalyticLightUniverseEntry& previousEntry : previousEntries)
+    {
+        if (FindDoomAnalyticPreviousEntry(currentEntries, previousEntry.key) < 0)
+        {
+            ++stats.previousToCurrentMissingCount;
+        }
+    }
+}
+
+void UpdateDoomAnalyticLightUniverse(
+    const viewDef_t* viewDef,
+    const std::vector<DoomLightRecord>& records,
+    const std::vector<DoomLightRecord>& candidates,
+    int maxGpuCandidates)
+{
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (g_doomAnalyticLightUniverse.renderWorld != renderWorld)
+    {
+        g_doomAnalyticLightUniverse.Reset(renderWorld);
+    }
+
+    DoomAnalyticLightUniverseState& state = g_doomAnalyticLightUniverse;
+    std::vector<DoomAnalyticLightUniverseEntry> previousEntries = state.currentEntries;
+    state.previousEntries = previousEntries;
+    state.currentEntries.clear();
+    state.stats = DoomAnalyticLightUniverseStats();
+    state.stats.currentCandidateCount = static_cast<int>(candidates.size());
+    UpdateDoomPersistentAuthoredLightRegistry(state, records);
+    BuildDoomPersistentAuthoredProposalList(state, candidates, maxGpuCandidates);
+    state.currentEntries.reserve(state.persistentAuthoredLights.size());
+
+    for (const DoomPersistentAuthoredLightEntry& persistentEntry : state.persistentAuthoredLights)
+    {
+        if (!persistentEntry.currentSeen && !persistentEntry.staticAuthored)
+        {
+            continue;
+        }
+
+        state.currentEntries.push_back(MakeDoomAnalyticLightUniverseEntryFromPersistent(persistentEntry, previousEntries, maxGpuCandidates));
+    }
+
+    for (int i = 0; i < static_cast<int>(state.currentEntries.size()); ++i)
+    {
+        DoomAnalyticLightUniverseEntry& entry = state.currentEntries[i];
+        const int previousEntryIndex = entry.hasPrevious ? FindDoomAnalyticPreviousEntry(previousEntries, entry.key) : -1;
+        const bool previousDuplicateKey = previousEntryIndex >= 0 && previousEntries[previousEntryIndex].duplicateKey;
+        entry.duplicateKey = entry.duplicateKey ||
+            previousDuplicateKey ||
+            DoomAnalyticKeyIsDuplicate(state.currentEntries, i) ||
+            (previousEntryIndex >= 0 && DoomAnalyticKeyIsDuplicate(previousEntries, previousEntryIndex));
+        if (entry.duplicateKey)
+        {
+            entry.invalidReasonFlags |= DOOM_LIGHT_UNIVERSE_INVALID_DUPLICATE_KEY;
+        }
+        entry.remapValid = entry.hasPrevious && !entry.duplicateKey && entry.continuityProven;
+    }
+
+    DoomAnalyticLightUniverseStats& stats = state.stats;
+    stats.universeCount = static_cast<int>(state.currentEntries.size());
+    CountDoomAnalyticMissingCurrentPreviousEntries(previousEntries, state.currentEntries, stats);
+    for (const DoomAnalyticLightUniverseEntry& entry : state.currentEntries)
+    {
+        stats.activeCount += entry.active ? 1 : 0;
+        stats.sampleableCount += entry.sampleable ? 1 : 0;
+        stats.zeroRadianceCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_ZERO_RADIANCE) != 0 ? 1 : 0;
+        stats.previousMatchedCount += entry.hasPrevious ? 1 : 0;
+        stats.previousMissingCount += !entry.hasPrevious ? 1 : 0;
+        stats.duplicateKeyCount += entry.duplicateKey ? 1 : 0;
+        stats.remapInvalidCount += !entry.remapValid ? 1 : 0;
+        stats.unknownEntityCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_UNKNOWN_ENTITY) != 0 ? 1 : 0;
+        stats.unprovenContinuityCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_UNPROVEN_CONTINUITY) != 0 ? 1 : 0;
+        stats.suppressedCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_SUPPRESSED) != 0 ? 1 : 0;
+        stats.outOfSelectedAreaCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_OUT_OF_SELECTED_AREA) != 0 ? 1 : 0;
+        stats.nonPointOrParallelCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_NON_POINT_OR_PARALLEL) != 0 ? 1 : 0;
+        stats.invalidRadiusCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_RADIUS_INVALID) != 0 ? 1 : 0;
+        stats.candidateCapDroppedCount += (entry.invalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_CANDIDATE_CAP_DROPPED) != 0 ? 1 : 0;
+    }
+
+}
+
+void RunDoomAnalyticLightUniverseDump(const DoomLightPortalSelection& selection, int maxGpuCandidates)
+{
+    if (r_pathTracingLightUniverseDump.GetInteger() == 0)
+    {
+        return;
+    }
+
+    const DoomAnalyticLightUniverseState& state = g_doomAnalyticLightUniverse;
+    const DoomAnalyticLightUniverseStats& stats = state.stats;
+    const DoomPersistentAuthoredLightStats& persistentStats = state.persistentStats;
+    const bool previousNeeReuseEnabled = r_pathTracingRestirPTTemporalAnalyticNeeReuse.GetInteger() != 0;
+    common->Printf("PathTracePrimaryPass: Doom analytic light universe universe=%d stableKeys=%d candidates=%d uploadedCap=%d active=%d sampleable=%d zeroRadiance=%d prevMatched=%d prevMissing=%d prevMissingCurrent=%d duplicateKeys=%d remapInvalid=%d unknownEntity=%d unprovenContinuity=%d suppressed=%d outOfSelectedArea=%d nonPointOrParallel=%d invalidRadius=%d candidateCapDropped=%d currentArea=%d portalSteps=%d selectedAreas=%d previousNeeReuse=%d task=01 shaderBehavior=current-frame-candidates-preserved\n",
+        stats.universeCount,
+        static_cast<int>(state.stableKeys.size()),
+        stats.currentCandidateCount,
+        maxGpuCandidates,
+        stats.activeCount,
+        stats.sampleableCount,
+        stats.zeroRadianceCount,
+        stats.previousMatchedCount,
+        stats.previousMissingCount,
+        stats.previousToCurrentMissingCount,
+        stats.duplicateKeyCount,
+        stats.remapInvalidCount,
+        stats.unknownEntityCount,
+        stats.unprovenContinuityCount,
+        stats.suppressedCount,
+        stats.outOfSelectedAreaCount,
+        stats.nonPointOrParallelCount,
+        stats.invalidRadiusCount,
+        stats.candidateCapDroppedCount,
+        selection.currentArea,
+        selection.portalSteps,
+        selection.selectedAreaCount,
+        previousNeeReuseEnabled ? 1 : 0);
+    common->Printf("PathTracePrimaryPass: Doom persistent authored light list staticTotal=%d staticSeen=%d staticNew=%d staticUpdated=%d staticMissing=%d staticSampleable=%d staticZeroRadiance=%d staticList=%d staticListSeen=%d staticListMissing=%d dynamicSeen=%d dynamicNew=%d dynamicUpdated=%d dynamicUnproven=%d dynamicUnknownEntity=%d dynamicAgedOut=%d proposals=%d mapped=%d missingRegistry=%d staticProposals=%d dynamicProposals=%d staticListMapped=%d staticListMissingProposal=%d uploaded=%d droppedByCap=%d persistentEntries=%d frame=%d source=renderWorldLightDefs behavior=cpu-diagnostics-only\n",
+        persistentStats.staticTotal,
+        persistentStats.staticSeen,
+        persistentStats.staticNew,
+        persistentStats.staticUpdated,
+        persistentStats.staticMissing,
+        persistentStats.staticSampleable,
+        persistentStats.staticZeroRadiance,
+        persistentStats.staticListCount,
+        persistentStats.staticListSeen,
+        persistentStats.staticListMissing,
+        persistentStats.dynamicSeen,
+        persistentStats.dynamicNew,
+        persistentStats.dynamicUpdated,
+        persistentStats.dynamicUnproven,
+        persistentStats.dynamicUnknownEntity,
+        persistentStats.dynamicAgedOut,
+        persistentStats.proposalCount,
+        persistentStats.proposalMapped,
+        persistentStats.proposalMissingRegistry,
+        persistentStats.proposalStatic,
+        persistentStats.proposalDynamic,
+        persistentStats.proposalStaticListMapped,
+        persistentStats.proposalStaticListMissing,
+        persistentStats.proposalUploaded,
+        persistentStats.proposalDroppedByCap,
+        static_cast<int>(state.persistentAuthoredLights.size()),
+        state.frameIndex);
+}
+
 void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, const std::vector<DoomLightRecord>& records)
 {
     if (r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
@@ -924,7 +1775,8 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable)
 {
     std::vector<PathTraceDoomAnalyticLightCandidate> gpuCandidates;
-    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || (!forceEnable && r_pathTracingAnalyticLightCandidates.GetInteger() == 0))
+    const bool wantsUniverseDump = r_pathTracingLightUniverseDump.GetInteger() != 0;
+    if (!viewDef || !viewDef->renderWorld || !IsDoomLightGameStateActive() || (!forceEnable && r_pathTracingAnalyticLightCandidates.GetInteger() == 0 && !wantsUniverseDump))
     {
         return gpuCandidates;
     }
@@ -938,6 +1790,13 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
     const bool stableReservoirOrder = forceEnable;
     const std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, preserveZeroRadianceSlots, stableReservoirOrder);
     const int maxGpuCandidates = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
+    UpdateDoomAnalyticLightUniverse(viewDef, records, candidates, maxGpuCandidates);
+    RunDoomAnalyticLightUniverseDump(selection, maxGpuCandidates);
+    if (!forceEnable && r_pathTracingAnalyticLightCandidates.GetInteger() == 0)
+    {
+        return gpuCandidates;
+    }
+
     gpuCandidates.reserve(Min(maxGpuCandidates, static_cast<int>(candidates.size())));
 
     for (int i = 0; i < maxGpuCandidates && i < static_cast<int>(candidates.size()); ++i)

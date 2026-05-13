@@ -331,7 +331,7 @@ idCVar r_pathTracingLightUniverseDump(
     "r_pathTracingLightUniverseDump",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump persistent RT smoke emissive light-universe stats once" );
+    "Set to 1 to dump persistent RT smoke emissive and CPU Doom analytic light-universe stats once" );
 
 idCVar r_pathTracingLightUniversePersistDynamic(
     "r_pathTracingLightUniversePersistDynamic",
