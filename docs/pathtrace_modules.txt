@@ -1906,9 +1906,13 @@ path for staged ReSTIR direct lighting. Values 2-8 skip inactive producer pixels
 before ray tracing, snap spatial neighbor lookups to active representative
 direct-domain pixels, and make full-resolution consumers read representative
 spatial reservoirs. Previous-frame temporal lookup uses the previous sparse
-phase. This is scoped to modes 50-51 and mode 18 ReSTIR direct lighting; GI
-modes 53-55 remain full-update staged initial-reservoir diagnostics until a
-GI-specific representative lookup is added.
+phase. This is scoped to modes 50-51 and mode 18 ReSTIR direct lighting.
+
+`r_pathTracingRestirPTGiRaySparsity` is the matching default-off sparse-ray
+update path for staged GI initial reservoirs. Values 2-8 skip inactive mode
+53-55 producer pixels before ray tracing and make the visible GI modes read the
+nearest active full-resolution GI initial reservoir representative while keeping
+their current full-resolution surface context.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed

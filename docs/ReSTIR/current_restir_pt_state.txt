@@ -157,10 +157,16 @@ Values 2-8 update roughly one out of N direct-domain reservoir pixels per frame.
 Inactive sparse producer pixels return before tracing. Spatial neighbor lookup
 and full-resolution consumers snap to active representative reservoir pixels,
 and temporal previous-frame lookup snaps to the previous sparse phase so it does
-not deliberately read inactive previous slots. This is only wired for staged
-direct lighting in modes 50-51 and mode 18 ReSTIR direct; modes 53-55 now have
-a producer/consumer split but still remain full-update until a GI-specific
-sparse representative lookup is added.
+not deliberately read inactive previous slots.
+
+The staged GI initial path has a separate default-off sparse control:
+
+  r_pathTracingRestirPTGiRaySparsity
+
+Values 2-8 update roughly one out of N full-resolution GI initial reservoir
+pixels per frame. Inactive GI producer pixels return before tracing. Visible
+modes 53-55 keep their full-resolution primary material context, but load the
+nearest active GI initial reservoir representative.
 
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected

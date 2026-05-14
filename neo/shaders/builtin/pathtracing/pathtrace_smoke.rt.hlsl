@@ -510,6 +510,69 @@ bool PathTraceRestirPTIndirectConsumesInitialPrepass()
     return RestirPTIndirectInfo.y >= 0.5 && !PathTraceRestirPTIndirectProducerDispatch();
 }
 
+uint PathTraceRestirPTIndirectSparsityRate()
+{
+    return clamp((uint)max(RestirPTIndirectInfo.z, 1.0), 1u, 8u);
+}
+
+bool PathTraceRestirPTIndirectSparsityEnabled()
+{
+    return RestirPTIndirectInfo.y >= 0.5 && PathTraceRestirPTIndirectSparsityRate() > 1u;
+}
+
+bool PathTraceRestirPTIndirectSparseActivePixel(uint2 pixel)
+{
+    if (!PathTraceRestirPTIndirectSparsityEnabled())
+    {
+        return true;
+    }
+    const uint rate = PathTraceRestirPTIndirectSparsityRate();
+    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
+    return ((pixel.x + pixel.y * 3u + phase) % rate) == 0u;
+}
+
+uint2 PathTraceRestirPTIndirectRepresentativePixel(uint2 pixel)
+{
+    if (PathTraceRestirPTIndirectSparseActivePixel(pixel))
+    {
+        return pixel;
+    }
+
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const uint rate = PathTraceRestirPTIndirectSparsityRate();
+    uint2 bestPixel = min(pixel, dimensions - uint2(1u, 1u));
+    int bestDistance = 0x7fffffff;
+
+    [loop]
+    for (int offsetY = -8; offsetY <= 8; ++offsetY)
+    {
+        [loop]
+        for (int offsetX = -8; offsetX <= 8; ++offsetX)
+        {
+            if ((uint)abs(offsetX) > rate || (uint)abs(offsetY) > rate)
+            {
+                continue;
+            }
+
+            const int2 candidateInt = clamp(int2(pixel) + int2(offsetX, offsetY), int2(0, 0), int2(dimensions) - int2(1, 1));
+            const uint2 candidate = uint2(candidateInt);
+            if (!PathTraceRestirPTIndirectSparseActivePixel(candidate))
+            {
+                continue;
+            }
+
+            const int distance = offsetX * offsetX + offsetY * offsetY;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestPixel = candidate;
+            }
+        }
+    }
+
+    return bestPixel;
+}
+
 uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
 {
     const uint2 fullSize = max(PathTraceFullOutputSize(), uint2(1u, 1u));
@@ -3054,6 +3117,10 @@ void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoi
 
 RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel)
 {
+    if (PathTraceRestirPTIndirectConsumesInitialPrepass())
+    {
+        pixel = PathTraceRestirPTIndirectRepresentativePixel(pixel);
+    }
     return RTXDI_LoadPTReservoir(
         RestirPTParams.reservoirBuffer,
         pixel,
@@ -4595,6 +4662,10 @@ void RayGen()
 
     if (PathTraceRestirPTIndirectProducerDispatch())
     {
+        if (!PathTraceRestirPTIndirectSparseActivePixel(pixel))
+        {
+            return;
+        }
         ProduceRestirPTIndirectInitialReservoir(ray.Origin, ray.Direction, payload, pixel);
         return;
     }

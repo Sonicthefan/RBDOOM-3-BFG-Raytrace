@@ -143,6 +143,7 @@ extern idCVar r_pathTracingRestirPTSpatialRadius;
 extern idCVar r_pathTracingRestirPTSpatialDiagnosticView;
 extern idCVar r_pathTracingRestirPTDirectResolutionScale;
 extern idCVar r_pathTracingRestirPTRaySparsity;
+extern idCVar r_pathTracingRestirPTGiRaySparsity;
 extern idCVar r_pathTracingRestirPTDirectLighting;
 extern idCVar r_pathTracingRestirPTMode18DebugView;
 extern idCVar r_pathTracingRestirPTMode18HeavyDirect;

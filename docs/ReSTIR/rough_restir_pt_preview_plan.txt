@@ -188,5 +188,9 @@ Ray Sparsity Follow-Up
 diagnostic. Values 2-8 update an interleaved subset of the direct reservoir
 domain each frame, then reconstruct full-resolution consumers from active
 representative reservoir pixels. It is wired only for modes 50-51 and mode 18
-with `r_pathTracingRestirPTDirectLighting 1`; modes 53-55 stay full-update until
-GI-specific sparse representative lookup is added.
+with `r_pathTracingRestirPTDirectLighting 1`.
+
+`r_pathTracingRestirPTGiRaySparsity` is the matching default-off GI diagnostic
+for modes 53-55. Values 2-8 sparsely update the full-resolution staged GI
+initial producer, then modes 53-55 load the nearest active GI initial reservoir
+representative while keeping their current full-resolution surface context.

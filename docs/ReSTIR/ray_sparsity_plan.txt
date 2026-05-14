@@ -12,17 +12,20 @@ representatives.
 
 Current Scope
 -------------
-The first implementation is default-off and limited to the staged ReSTIR direct
-lighting path:
+The direct-lighting implementation is default-off and limited to the staged
+ReSTIR direct lighting path:
 
 - Mode 50 spatial reservoir shading.
 - Mode 51 spatial source attribution.
 - Mode 18 when `r_pathTracingRestirPTDirectLighting 1` is enabled.
 
-It does not apply to the standalone initial-reservoir modes 26-28 or GI modes
-53-55 yet. Modes 53-55 now have a producer/consumer split, but they still need a
-GI-specific representative lookup before sparse inactive pixels can safely
-reconstruct from active GI reservoirs.
+GI modes 53-55 now have a separate default-off sparse update path. They use the
+staged initial-GI producer/consumer split, keep the GI reservoir domain at full
+resolution, and reconstruct inactive visible pixels from active full-resolution
+GI representatives.
+
+Sparse updates do not apply to standalone initial-reservoir modes 26-28 yet
+because those modes still generate and consume their reservoirs in one dispatch.
 
 Control
 -------
@@ -31,6 +34,12 @@ Control
 - `1`: disabled.
 - `2..8`: update roughly one out of N reservoir pixels in the staged direct
   producer passes.
+
+`r_pathTracingRestirPTGiRaySparsity`
+
+- `1`: disabled.
+- `2..8`: update roughly one out of N full-resolution GI reservoir pixels in the
+  staged mode 53-55 producer pass.
 
 The active phase advances with the ReSTIR PT frame index. Current-frame producer
 lookups use the current phase; temporal previous-frame lookups snap to the
@@ -50,6 +59,13 @@ For staged direct-lighting producer dispatches:
    snap to the current active representative before loading the spatial
    reservoir.
 
+For staged GI initial producer dispatches:
+
+1. Inactive sparse GI reservoir pixels return before tracing rays.
+2. Active GI pixels generate initial indirect reservoirs normally.
+3. Visible modes 53-55 keep their full-resolution primary hit for material
+   context, but load the nearest active GI initial reservoir representative.
+
 This is intentionally different from downscaling:
 
 - Primary output dimensions stay full size.
@@ -63,8 +79,8 @@ Known Limits
   denoiser contract.
 - The representative search is local and deterministic, not a true
   reconstruction filter.
-- GI modes 53-55 remain full-update staged initial debug views until their
-  sparse representative lookup is added.
+- GI modes 53-55 use a full-resolution sparse representative lookup, not the
+  direct-lighting scaled-domain lookup.
 - Sparse temporal reuse still depends on the existing motion-vector and
   NEE-reuse safety rules. Keep
   `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` unless the light-domain
@@ -90,5 +106,17 @@ Then compare:
   analytic lights as cyan/blue and emissives as orange.
 - Mode 18 with `r_pathTracingRestirPTDirectLighting 1` at `samplesPerPixel 1`.
 
+Then test GI separately:
+
+```
+r_pathTracingDebugMode 54
+r_pathTracingRestirPTGiRaySparsity 2
+r_pathTracingRestirPTPassDump 1
+```
+
+- Mode 54 with GI sparsity 1 vs 2.
+- Mode 55 with GI sparsity 1 vs 2 to confirm source attribution still shows
+  Doom analytic lights as cyan/blue and emissives as orange.
+
 Do not combine high sparsity, low direct resolution scale, and large spatial
-sample counts until the low-cost cases are stable.
+sample counts until the low-cost direct and GI cases are stable.

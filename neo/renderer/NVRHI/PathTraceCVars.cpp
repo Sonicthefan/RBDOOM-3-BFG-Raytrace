@@ -819,6 +819,12 @@ idCVar r_pathTracingRestirPTRaySparsity(
     CVAR_RENDERER | CVAR_INTEGER,
     "Interleaved sparse update rate for staged ReSTIR direct-lighting producer rays; 1 disables, 2-8 updates roughly 1/N reservoir pixels per frame and reconstructs from active representatives" );
 
+idCVar r_pathTracingRestirPTGiRaySparsity(
+    "r_pathTracingRestirPTGiRaySparsity",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Interleaved sparse update rate for staged ReSTIR GI initial-reservoir producer rays in modes 53-55; 1 disables, 2-8 updates roughly 1/N full-resolution reservoir pixels per frame" );
+
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",
     "0",
