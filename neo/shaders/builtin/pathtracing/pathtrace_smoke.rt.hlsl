@@ -2358,7 +2358,7 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
 }
 #endif
 
-#if defined(RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING) || defined(RB_PT_ENABLE_RESTIR_SPATIAL_SHADING)
+#if defined(RB_PT_ENABLE_RESTIR_TEMPORAL_SHADING) || defined(RB_PT_ENABLE_RESTIR_SPATIAL_SHADING) || defined(RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION)
 float3 RestirPTSanitizePreviewContribution(float3 contribution)
 {
     contribution = max(contribution, float3(0.0, 0.0, 0.0));
@@ -2685,6 +2685,55 @@ float4 RestirPTSpatialAcceptanceDiagnosticColor(RAB_Surface currentSurface, uint
 }
 #endif
 
+#if defined(RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION) && defined(RB_PT_ENABLE_RESTIR_SPATIAL) && defined(RB_PT_ENABLE_RESTIR_TEMPORAL)
+float4 RestirPTSpatialSourceCompareDiagnosticColor(RAB_Surface currentSurface, uint2 pixel)
+{
+    const RTXDI_PTReservoir temporalReservoir = LoadRestirPTTemporalOutputReservoir(pixel);
+    const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(pixel);
+
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        return float4(0.18, 0.18, 0.18, 1.0);
+    }
+    if (!RTXDI_IsValidPTReservoir(spatialReservoir))
+    {
+        return float4(0.65, 0.04, 0.04, 1.0);
+    }
+
+    const bool spatialContributionDetected = spatialReservoir.M > temporalReservoir.M + 0.5;
+    if (!spatialContributionDetected)
+    {
+        return float4(0.05, 0.22, 0.95, 1.0);
+    }
+
+    if (RestirPTReservoirSamePackedSource(temporalReservoir, spatialReservoir))
+    {
+        return float4(0.05, 0.75, 0.12, 1.0);
+    }
+
+    const uint spatialKind = RestirPTReservoirSourceKind(spatialReservoir);
+    if (spatialKind == 1u || spatialKind == 2u)
+    {
+        float3 reconstructedContribution;
+        if (!RestirPTTryEvaluateNeeReservoirPreview(currentSurface, spatialReservoir, reconstructedContribution))
+        {
+            return float4(0.95, 0.95, 0.08, 1.0);
+        }
+        return spatialKind == 1u ? float4(0.0, 0.65, 1.0, 1.0) : float4(1.0, 0.62, 0.0, 1.0);
+    }
+    if (spatialKind == 3u)
+    {
+        return float4(0.78, 0.12, 0.95, 1.0);
+    }
+    return float4(0.95, 0.95, 0.08, 1.0);
+}
+#else
+float4 RestirPTSpatialSourceCompareDiagnosticColor(RAB_Surface currentSurface, uint2 pixel)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+#endif
+
 #ifdef RB_PT_ENABLE_RESTIR_ATTRIBUTION
 float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
@@ -2708,9 +2757,14 @@ float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface
 #ifdef RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION
 float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
-    if (SafetyInfo.z >= 0.5)
+    const uint spatialDiagnosticView = (uint)clamp(floor(SafetyInfo.z + 0.5), 0.0, 2.0);
+    if (spatialDiagnosticView == 1u)
     {
         return RestirPTSpatialAcceptanceDiagnosticColor(currentSurface, pixel);
+    }
+    if (spatialDiagnosticView == 2u)
+    {
+        return RestirPTSpatialSourceCompareDiagnosticColor(currentSurface, pixel);
     }
 
 #ifdef RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS

@@ -128,6 +128,12 @@ triangles, green for non-NEE/indirect reservoirs, and red for invalid/unknown
 light metadata. Use it to compare source stability against mode 33 and to look
 for spatial source bleeding across depth/object edges.
 
+For harder validation, set `r_pathTracingRestirPTSpatialDiagnosticView 2` in
+mode 51. That view compares temporal and spatial packed sources and marks
+changed Doom analytic/emissive NEE sources yellow when the selected spatial
+source cannot reconstruct usable local rough-preview lighting at the current
+surface, which catches attribution that does not agree with mode 50 shading.
+
 The first mode 50/51 implementation intentionally avoids a new host descriptor
 for RTXDI neighbor offsets. It uses a 32-entry shader-local offset table and sets
 `neighborOffsetMask = 31`. Replace this with a real RTXDI neighbor-offset buffer

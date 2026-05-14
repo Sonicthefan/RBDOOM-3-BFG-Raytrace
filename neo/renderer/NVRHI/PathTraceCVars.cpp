@@ -805,7 +805,7 @@ idCVar r_pathTracingRestirPTSpatialDiagnosticView(
     "r_pathTracingRestirPTSpatialDiagnosticView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 51 spatial diagnostic view: 0 = source attribution, 1 = spatial acceptance/source-change status" );
+    "Mode 51 spatial diagnostic view: 0 = source attribution, 1 = spatial acceptance/source-change status, 2 = temporal-vs-spatial source compare with local NEE replay check" );
 
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",

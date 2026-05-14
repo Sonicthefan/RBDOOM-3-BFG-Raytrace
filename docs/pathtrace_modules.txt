@@ -1865,7 +1865,11 @@ status: gray temporal invalid, red spatial invalid, blue no spatial neighbor
 contribution detected/kept temporal, green spatial neighbor contribution
 detected with the same packed source, cyan changed to Doom analytic, orange
 changed to emissive, magenta changed to non-NEE, and yellow changed to
-unknown/invalid source.
+unknown/invalid source. `r_pathTracingRestirPTSpatialDiagnosticView 2` keeps
+the same temporal-vs-spatial comparison but checks changed Doom analytic or
+emissive NEE reservoirs against the local rough-preview reconstruction used by
+mode 50; yellow marks a changed spatial NEE source that is valid metadata but
+does not reconstruct usable local direct lighting at the current surface.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed

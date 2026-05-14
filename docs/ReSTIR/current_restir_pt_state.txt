@@ -1,5 +1,5 @@
 Current ReSTIR PT State
-Date: 2026-05-12
+Date: 2026-05-14
 
 Repository Context
 ------------------
@@ -152,13 +152,21 @@ Main Gaps
 
 Recommended Next Milestone
 --------------------------
-Validate mode 51 against mode 33 and mode 50. Mode 51 should show the same
-general source mix as temporal attribution, with the spatial coherence expected
-from mode 50. Watch for source colors bleeding across hard depth/object edges or
-emissive/analytic sources disappearing after spatial reuse. Denoiser-facing
-buffers, a real split spatial pass, and reflection/glass integration should
-follow only after the mode 50/51 data path is stable enough to compare against
-mode 18.
+Repair/regression-check the current staged ReSTIR direct-lighting path before
+starting the resolution-scaling slice. Confirm mode 18 without
+`r_pathTracingRestirPTDirectLighting` still behaves like the stable path tracer,
+confirm mode 32 still works in the safe temporal NEE state, and confirm modes
+50-51 still consume completed spatial reservoirs rather than regenerating them.
+If the recent mode-51 `r_pathTracingRestirPTSpatialDiagnosticView 2` helper
+appears to interfere with mode 50/51 or the mode 18 ReSTIR direct-lighting
+hybrid, treat that view as optional and revert it before adding new features.
+
+After that regression pass, continue the plan in
+`docs/ReSTIR/resolution_scaling_and_reconstruction_plan.txt`: implement variable
+resolution for ReSTIR direct lighting only, keep primary visibility/history/
+motion/material anchors full resolution, and make every ReSTIR producer and
+consumer explicit about whether it is operating in full PT output coordinates or
+the scaled direct-lighting reservoir domain.
 
 Mode 33 analytic-source note:
 
@@ -183,6 +191,14 @@ reservoir `M` value growing beyond the temporal reservoir `M`; the consumer no
 longer sees RTXDI's internal `spatialResampled` bool. Use this when
 `r_pathTracingRestirPTSpatialSamples` or `r_pathTracingRestirPTSpatialRadius`
 appear visually inert in mode 50.
+
+`r_pathTracingRestirPTSpatialDiagnosticView 2` keeps mode 51 on a
+temporal-vs-spatial source comparison but adds a mode-50-style local replay
+check for changed Doom analytic or emissive NEE sources. Yellow means the
+spatial reservoir changed to a valid packed NEE source, but that source did not
+reconstruct usable local rough-preview lighting at the current surface. Use this
+view to separate expected spatial source changes from likely source leakage
+across depth/object edges before treating TemporalAndSpatial as integration-ready.
 
 Rough Preview Control
 ---------------------

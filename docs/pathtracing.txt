@@ -946,7 +946,11 @@ Ray dispatch safety diagnostics:
   spatial changed to Doom analytic,
   orange = spatial changed to emissive, magenta = spatial changed to non-NEE,
   yellow = spatial changed to an unknown/invalid source. Use this before tuning
-  spatial radius or sample count.
+  spatial radius or sample count. Set to 2 to compare temporal and spatial
+  packed sources while also checking that a changed spatial NEE source can be
+  replayed as a local mode-50-style preview contribution at the current surface;
+  yellow then means the spatial source changed to a Doom analytic/emissive NEE
+  light that did not reconstruct usable local direct lighting.
 
 - r_pathTracingRestirPTDirectLighting
   Defaults to 0. When set to 1 in mode 18, dispatch runs the temporal and
@@ -3174,7 +3178,13 @@ look for spatial source bleeding across hard depth/object edges. Set
 replace source colors with spatial acceptance/source-change colors: blue means
 no spatial neighbor contribution was detected, green means spatial neighbor
 contribution was detected but the selected packed source stayed the same, and
-cyan/orange/magenta/yellow identify spatial output that changed source type.
+cyan/orange/magenta/yellow identify spatial output that changed source type. Set
+`r_pathTracingRestirPTSpatialDiagnosticView 2` to keep the temporal-vs-spatial
+source comparison but mark changed Doom analytic/emissive NEE sources yellow
+when the selected spatial source cannot reconstruct a usable local rough-preview
+contribution at the current surface. That view is intended to catch source
+identity that looks plausible in attribution but does not agree with mode 50
+spatial shading near hard depth/object edges.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with

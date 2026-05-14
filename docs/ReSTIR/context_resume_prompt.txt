@@ -1,5 +1,5 @@
 ReSTIR PT Resume Prompt
-Date: 2026-05-12
+Date: 2026-05-14
 
 You are continuing the rbdoom-3-bfg-rt ReSTIR PT branch.
 
@@ -21,11 +21,13 @@ After building, copy:
   shader changes
 
 Read first:
+- docs\agents\AGENT_SOUL_RESTIR_PT_REVIEWER_v1.md
 - docs\pathtracing.txt
 - docs\pathtrace_modules.txt
 - docs\restir_pt_agent_bridge_plan.txt
 - docs\ReSTIR\current_restir_pt_state.txt
 - docs\ReSTIR\rough_restir_pt_preview_plan.txt
+- docs\ReSTIR\resolution_scaling_and_reconstruction_plan.txt
 
 Standing constraints:
 - Do not use Debug builds for real RT/PT validation.
@@ -36,9 +38,13 @@ Standing constraints:
 - Preserve the full future range: reflections, glass/transmission, denoising,
   environment lighting, and spatial reuse may be disabled or stubbed, but should
   not be architecturally boxed out.
+- Keep changes narrow. If the user reports that recent changes broke the new
+  ReSTIR work, isolate or revert the suspected slice before adding another
+  feature.
 
 Current mode map:
-- 18: stable/playable path tracer.
+- 18: stable/playable path tracer. It can optionally consume the staged ReSTIR
+  direct-lighting path with r_pathTracingRestirPTDirectLighting 1.
 - 19: emissive inventory/debug.
 - 20: single-frame reservoir direct emissive lighting; spatial/temporal reuse
   off.
@@ -51,13 +57,32 @@ Current mode map:
 - 32: temporal reservoir shading preview.
 - 33: temporal light-source attribution.
 - 50: spatial reservoir shading preview.
-- 51: spatial source attribution.
+- 51: spatial source attribution and spatial diagnostics.
 
-Next implementation target:
-Validate and harden mode 51 spatial source attribution against mode 33 temporal
-source attribution and mode 50 spatial shading. It should stay debug-only until
-the TemporalAndSpatial path is known to preserve source identity without obvious
-light leaking across depth/object edges.
+Current implementation state:
+- Modes 50-51 run a staged TemporalAndSpatial debug path: temporal producer,
+  UAV barriers, spatial reservoir producer, UAV barrier, then shading or
+  attribution consumer.
+- Mode 50 shades the completed spatial reservoir with the rough preview path.
+- Mode 51 colors the completed spatial reservoir source using the mode 33 source
+  convention.
+- r_pathTracingRestirPTSpatialDiagnosticView 1 switches mode 51 to spatial
+  acceptance/source-change colors.
+- A recent local slice added r_pathTracingRestirPTSpatialDiagnosticView 2 for a
+  temporal-vs-spatial source compare plus local NEE replay check. If current
+  mode 50/51 or mode 18 ReSTIR direct-lighting behavior appears broken, treat
+  this view-2 slice as a suspect and regression-test or revert it first.
+- The first mode 50/51 path still uses a shader-local 32-entry neighbor offset
+  table rather than a host-bound RTXDI neighbor-offset buffer.
+
+Current mode 18 ReSTIR direct-lighting hybrid:
+- Use r_pathTracingDebugMode 18 and r_pathTracingRestirPTDirectLighting 1.
+- Test first with r_pathTracingSamplesPerPixel 1.
+- The hybrid runs the same temporal and spatial producer prepasses, then
+  replaces only the sample-0 primary direct NEE contribution with the completed
+  spatial reservoir contribution.
+- Native mode 18 ambient, emissive, secondary diffuse/reflection, accumulation,
+  and general composition remain mode 18-native.
 
 Current rough-preview rule:
 Mode 32 is the visible temporal-lighting preview. Keep rejection/source debug
@@ -67,20 +92,34 @@ diagnostic overlay. Use r_pathTracingRestirPTPreviewExposure for preview-only
 exposure adjustment.
 
 Current temporal NEE safety rule:
-`r_pathTracingRestirPTTemporalReservoirReuse 1` with
-`r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` is the validated safe rough
+r_pathTracingRestirPTTemporalReservoirReuse 1 with
+r_pathTracingRestirPTTemporalAnalyticNeeReuse 0 is the validated safe rough
 preview state. The second CVar name is historical; it currently disables
 previous-frame NEE light reservoir reuse for both Doom analytic lights and
 emissive/strobe sources while preserving non-NEE temporal reuse. This fixed a
 robot-train/strobe case where current-frame sampling was clean
-(`r_pathTracingRestirPTTemporalReservoirReuse 0`) but previous NEE reservoirs
+(r_pathTracingRestirPTTemporalReservoirReuse 0) but previous NEE reservoirs
 polluted same-portal lighting after the strobe animation stopped offscreen.
 Do not re-enable NEE temporal reuse until stable light-domain IDs,
 current/previous remapping, and per-light radiance/state validation exist.
 
-Modes 50-51 use RTXDI TemporalAndSpatial buffer indices. Mode 50 shades the
-spatial reservoir; mode 51 colors the spatial reservoir source. They currently
-use a shader-local 32-entry neighbor offset table rather than a host-bound RTXDI
-neighbor-offset buffer. Tune
-`r_pathTracingRestirPTSpatialSamples` and `r_pathTracingRestirPTSpatialRadius`
-only at conservative output resolution.
+Next implementation target:
+First, repair/regression-check the current new ReSTIR path before starting the
+resolution-scaling slice:
+- Confirm mode 18 without r_pathTracingRestirPTDirectLighting still behaves like
+  the stable/playable path tracer.
+- Confirm mode 32 temporal rough preview still works in the safe temporal NEE
+  state above.
+- Confirm mode 50 spatial shading and mode 51 source attribution still consume
+  completed spatial reservoirs rather than regenerating them.
+- Confirm r_pathTracingRestirPTSpatialDiagnosticView 0 and 1 still work. Treat
+  view 2 as optional and disposable if it interferes with the newer path.
+
+Only after that, continue the plan in
+docs\ReSTIR\resolution_scaling_and_reconstruction_plan.txt:
+- Implement variable resolution for ReSTIR direct lighting only.
+- Keep primary visibility, primary-surface history, motion vectors, depth,
+  material identity, and reconstruction anchors full resolution.
+- Make every producer/consumer explicit about whether it operates in full PT
+  output coordinates or the ReSTIR direct-lighting reservoir domain.
+- Do not downscale mode 18 output or primary ray generation in the first slice.

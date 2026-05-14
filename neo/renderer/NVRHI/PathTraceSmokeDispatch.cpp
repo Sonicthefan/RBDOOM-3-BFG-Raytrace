@@ -714,7 +714,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
-    constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));
+    constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));
     constants.safetyInfo[3] =
         static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTMode18DebugView.GetInteger())) +
         (r_pathTracingRestirPTMode18HeavyDirect.GetInteger() != 0 ? 16.0f : 0.0f);
