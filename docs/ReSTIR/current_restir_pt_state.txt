@@ -158,8 +158,9 @@ Inactive sparse producer pixels return before tracing. Spatial neighbor lookup
 and full-resolution consumers snap to active representative reservoir pixels,
 and temporal previous-frame lookup snaps to the previous sparse phase so it does
 not deliberately read inactive previous slots. This is only wired for staged
-direct lighting in modes 50-51 and mode 18 ReSTIR direct; modes 53-55 remain
-full-update initial GI debug views until they have a producer/consumer split.
+direct lighting in modes 50-51 and mode 18 ReSTIR direct; modes 53-55 now have
+a producer/consumer split but still remain full-update until a GI-specific
+sparse representative lookup is added.
 
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
@@ -170,13 +171,15 @@ bleeding or unexpected source loss after spatial reuse before final integration.
 
 Modes 53-55 are the first indirect/GI reservoir diagnostics. They intentionally
 reuse the initial RTXDI PT reservoir buffer and initial ReSTIR shader library
-instead of adding a new resource family in this slice. In these modes the RAB
-path tracer skips primary-surface NEE, so the first usable candidates come from
-the secondary/indirect path domain: secondary NEE, emissive hits, or non-NEE path
-radiance. Mode 53 shows reservoir metadata/heat, mode 54 shades the rough
-indirect reservoir contribution, and mode 55 colors source/path attribution.
-These modes are debug-only and have no temporal reuse, spatial reuse,
-sparse-update mask, or mode 18 integration yet.
+instead of adding a new resource family in this slice. They now run as a staged
+initial-GI domain: an initial producer dispatch writes completed indirect
+reservoirs, then the visible mode 53/54/55 pass consumes those reservoirs. In
+these modes the RAB path tracer skips primary-surface NEE, so the first usable
+candidates come from the secondary/indirect path domain: secondary NEE,
+emissive hits, or non-NEE path radiance. Mode 53 shows reservoir metadata/heat,
+mode 54 shades the rough indirect reservoir contribution, and mode 55 colors
+source/path attribution. These modes are debug-only and have no temporal reuse,
+spatial reuse, sparse-update mask, or mode 18 integration yet.
 
 Modes 53-55 force the bridge path tracer to allow one secondary bounce and raise
 the RTXDI initial path-length budget to 4 inside the debug path. RTXDI starts the

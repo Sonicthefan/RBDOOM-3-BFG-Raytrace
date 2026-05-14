@@ -1884,13 +1884,15 @@ does not reconstruct usable local direct lighting at the current surface.
 
 Modes 53-55 are the first indirect/GI reservoir diagnostics. They reuse the
 initial RTXDI PT reservoir buffer and initial ReSTIR shader library rather than
-adding a separate GI resource family. In these modes the RAB path tracer skips
-primary-surface NEE, so selected candidates start in the secondary/indirect path
-domain: secondary NEE, emissive hits, or non-NEE path radiance. Mode 53 shows
-indirect reservoir metadata/heat, mode 54 shades the rough indirect reservoir
-estimate, and mode 55 colors source/path attribution. They are initial-only and
-debug-only; there is no temporal GI reuse, spatial GI reuse, sparse update mask,
-or mode 18 GI integration yet.
+adding a separate GI resource family. They run as staged initial-GI passes: a
+producer dispatch writes completed indirect reservoirs, then the visible mode
+53/54/55 pass consumes those reservoirs. In these modes the RAB path tracer
+skips primary-surface NEE, so selected candidates start in the
+secondary/indirect path domain: secondary NEE, emissive hits, or non-NEE path
+radiance. Mode 53 shows indirect reservoir metadata/heat, mode 54 shades the
+rough indirect reservoir estimate, and mode 55 colors source/path attribution.
+They are initial-only and debug-only; there is no temporal GI reuse, spatial GI
+reuse, sparse update mask, or mode 18 GI integration yet.
 
 The GI debug path explicitly allows one secondary bridge bounce and raises the
 RTXDI initial path-length budget to 4. RTXDI starts the primary surface at
@@ -1905,7 +1907,8 @@ before ray tracing, snap spatial neighbor lookups to active representative
 direct-domain pixels, and make full-resolution consumers read representative
 spatial reservoirs. Previous-frame temporal lookup uses the previous sparse
 phase. This is scoped to modes 50-51 and mode 18 ReSTIR direct lighting; GI
-modes 53-55 remain full-update initial-reservoir diagnostics.
+modes 53-55 remain full-update staged initial-reservoir diagnostics until a
+GI-specific representative lookup is added.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed

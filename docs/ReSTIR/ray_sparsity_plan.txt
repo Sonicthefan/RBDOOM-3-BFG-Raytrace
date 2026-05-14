@@ -20,9 +20,9 @@ lighting path:
 - Mode 18 when `r_pathTracingRestirPTDirectLighting 1` is enabled.
 
 It does not apply to the standalone initial-reservoir modes 26-28 or GI modes
-53-55 yet, because those modes still generate and consume their reservoir in one
-raygen dispatch. Sparse inactive pixels cannot safely read active neighbors from
-the same dispatch without a producer/consumer split.
+53-55 yet. Modes 53-55 now have a producer/consumer split, but they still need a
+GI-specific representative lookup before sparse inactive pixels can safely
+reconstruct from active GI reservoirs.
 
 Control
 -------
@@ -63,8 +63,8 @@ Known Limits
   denoiser contract.
 - The representative search is local and deterministic, not a true
   reconstruction filter.
-- GI modes 53-55 remain full-update initial debug views until they have a
-  producer/consumer split.
+- GI modes 53-55 remain full-update staged initial debug views until their
+  sparse representative lookup is added.
 - Sparse temporal reuse still depends on the existing motion-vector and
   NEE-reuse safety rules. Keep
   `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` unless the light-domain

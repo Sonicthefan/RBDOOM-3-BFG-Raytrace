@@ -310,6 +310,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 MotionVectorInfo;
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
+    float4 RestirPTIndirectInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -497,6 +498,16 @@ bool PathTraceRestirPTIndirectInitialMode()
 {
     const uint debugMode = PathTraceDebugMode();
     return debugMode >= 53u && debugMode <= 55u;
+}
+
+bool PathTraceRestirPTIndirectProducerDispatch()
+{
+    return RestirPTIndirectInfo.x >= 0.5;
+}
+
+bool PathTraceRestirPTIndirectConsumesInitialPrepass()
+{
+    return RestirPTIndirectInfo.y >= 0.5 && !PathTraceRestirPTIndirectProducerDispatch();
 }
 
 uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
@@ -2270,6 +2281,7 @@ static const float2 RT_PT_RESTIR_SPATIAL_NEIGHBOR_OFFSETS[32] =
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
 void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir);
+RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel);
 RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel);
 RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel);
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
@@ -3040,6 +3052,14 @@ void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoi
         RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
 }
 
+RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel)
+{
+    return RTXDI_LoadPTReservoir(
+        RestirPTParams.reservoirBuffer,
+        pixel,
+        RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+}
+
 RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
@@ -3161,6 +3181,27 @@ RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pi
         ptud);
 }
 
+void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+{
+    RTXDI_PTReservoir reservoir = RTXDI_EmptyPTReservoir();
+
+    if (payload.value == 0u || SmokePayloadIsGuiScreen(payload))
+    {
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+        return;
+    }
+
+    RAB_Surface surface = RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true);
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+        return;
+    }
+
+    reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
+    StoreRestirPTInitialReservoir(pixel, reservoir);
+}
+
 bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
 {
     const float targetLuminance = RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)));
@@ -3192,8 +3233,15 @@ float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirecti
         return float4(saturate(fallbackAlbedo * 0.03), 1.0);
     }
 
-    reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
-    StoreRestirPTInitialReservoir(pixel, reservoir);
+    if (PathTraceRestirPTIndirectConsumesInitialPrepass())
+    {
+        reservoir = LoadRestirPTInitialReservoir(pixel);
+    }
+    else
+    {
+        reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+    }
 
     if (!RestirPTReservoirHasUsefulSample(reservoir))
     {
@@ -3318,8 +3366,15 @@ float4 EvaluateRestirPTInitialReservoirShading(float3 rayOrigin, float3 rayDirec
         return float4(saturate(surface.material.diffuseAlbedo * 0.025), 1.0);
     }
 
-    reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
-    StoreRestirPTInitialReservoir(pixel, reservoir);
+    if (PathTraceRestirPTIndirectConsumesInitialPrepass())
+    {
+        reservoir = LoadRestirPTInitialReservoir(pixel);
+    }
+    else
+    {
+        reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+    }
 
     if (!RestirPTReservoirHasUsefulSample(reservoir))
     {
@@ -3431,8 +3486,15 @@ float4 EvaluateRestirPTIndirectReservoirDebug(float3 rayOrigin, float3 rayDirect
         return float4(saturate(surface.material.diffuseAlbedo * 0.025), 1.0);
     }
 
-    reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
-    StoreRestirPTInitialReservoir(pixel, reservoir);
+    if (PathTraceRestirPTIndirectConsumesInitialPrepass())
+    {
+        reservoir = LoadRestirPTInitialReservoir(pixel);
+    }
+    else
+    {
+        reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+    }
 
     if (!RTXDI_IsValidPTReservoir(reservoir))
     {
@@ -3468,8 +3530,15 @@ float4 EvaluateRestirPTIndirectReservoirShading(float3 rayOrigin, float3 rayDire
         return float4(saturate(surface.material.diffuseAlbedo * 0.025), 1.0);
     }
 
-    reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
-    StoreRestirPTInitialReservoir(pixel, reservoir);
+    if (PathTraceRestirPTIndirectConsumesInitialPrepass())
+    {
+        reservoir = LoadRestirPTInitialReservoir(pixel);
+    }
+    else
+    {
+        reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+    }
 
     if (!RTXDI_IsValidPTReservoir(reservoir))
     {
@@ -3503,8 +3572,15 @@ float4 EvaluateRestirPTIndirectPathAttribution(float3 rayOrigin, float3 rayDirec
         return float4(0.18, 0.18, 0.18, 1.0);
     }
 
-    reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
-    StoreRestirPTInitialReservoir(pixel, reservoir);
+    if (PathTraceRestirPTIndirectConsumesInitialPrepass())
+    {
+        reservoir = LoadRestirPTInitialReservoir(pixel);
+    }
+    else
+    {
+        reservoir = GenerateRestirPTInitialReservoir(surface, pixel);
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+    }
     return RestirPTGiReservoirSourceColor(reservoir);
 }
 #else
@@ -3516,6 +3592,10 @@ float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirecti
 float4 EvaluateRestirPTInitialReservoirShading(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel, bool traceVisibility)
 {
     return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+{
 }
 
 float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
@@ -4512,6 +4592,12 @@ void RayGen()
         StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
     }
 #endif
+
+    if (PathTraceRestirPTIndirectProducerDispatch())
+    {
+        ProduceRestirPTIndirectInitialReservoir(ray.Origin, ray.Direction, payload, pixel);
+        return;
+    }
 
 #if defined(RB_PT_ENABLE_RESTIR_TEMPORAL) && !defined(RB_PT_RESTIR_SPATIAL_PRODUCER)
     if (restirDirectDispatch && debugMode == 31u)

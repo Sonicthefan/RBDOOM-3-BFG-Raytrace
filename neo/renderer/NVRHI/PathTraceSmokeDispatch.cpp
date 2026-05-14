@@ -74,6 +74,7 @@ struct PathTraceSmokeConstants
     float motionVectorInfo[4];
     float restirPTDirectInfo[4];
     float restirPTSparsityInfo[4];
+    float restirPTIndirectInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -349,6 +350,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode) && !m_smokeRestirShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(1);
+    }
+    if ((debugMode >= 53 && debugMode <= 55) && !m_smokeRestirInitialShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(0);
     }
     if (mode18RestirDirectMode)
     {
@@ -763,6 +768,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTSparsityInfo[1] = static_cast<float>(restirPTRaySparsityPhase);
     constants.restirPTSparsityInfo[2] = stagedRestirDirectLightingMode ? 1.0f : 0.0f;
     constants.restirPTSparsityInfo[3] = static_cast<float>(restirPTRaySparsityPreviousPhase);
+    constants.restirPTIndirectInfo[0] = 0.0f;
+    constants.restirPTIndirectInfo[1] = PathTraceRestirPassRequiresInitialPrepass(restirPTPassPlan) ? 1.0f : 0.0f;
+    constants.restirPTIndirectInfo[2] = 0.0f;
+    constants.restirPTIndirectInfo[3] = 0.0f;
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));
@@ -1139,7 +1148,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     int timingDispatchWidth = args.width;
     int timingDispatchHeight = args.height;
 
-    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, bool restirDirectDispatch)
+    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, bool restirDirectDispatch, bool restirIndirectProducerDispatch = false)
     {
         if (dispatchTileSettings.enabled)
         {
@@ -1153,6 +1162,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     tileConstants.dispatchTileInfo[0] = static_cast<float>(tileX);
                     tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
                     tileConstants.restirPTDirectInfo[2] = restirDirectDispatch ? 1.0f : 0.0f;
+                    tileConstants.restirPTIndirectInfo[0] = restirIndirectProducerDispatch ? 1.0f : 0.0f;
                     commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
 
                     nvrhi::rt::DispatchRaysArguments tileArgs;
@@ -1169,6 +1179,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.dispatchTileInfo[0] = 0.0f;
             dispatchConstants.dispatchTileInfo[1] = 0.0f;
             dispatchConstants.restirPTDirectInfo[2] = restirDirectDispatch ? 1.0f : 0.0f;
+            dispatchConstants.restirPTIndirectInfo[0] = restirIndirectProducerDispatch ? 1.0f : 0.0f;
             commandList->writeBuffer(m_smokeConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
             commandList->dispatchRays(dispatchArgs);
         }
@@ -1179,10 +1190,33 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         PathTraceRestirPassRequiresTemporalPrepass(restirPTPassPlan) &&
         m_smokeRestirShaderTable &&
         state.shaderTable != m_smokeRestirShaderTable;
+    const bool indirectNeedsInitialPrepass =
+        PathTraceRestirPassRequiresInitialPrepass(restirPTPassPlan) &&
+        m_smokeRestirInitialShaderTable;
     const bool spatialNeedsSpatialPrepass =
         PathTraceRestirPassRequiresSpatialPrepass(restirPTPassPlan) &&
         m_smokeRestirSpatialReservoirShaderTable &&
         state.shaderTable != m_smokeRestirSpatialReservoirShaderTable;
+    if (indirectNeedsInitialPrepass)
+    {
+        nvrhi::rt::State indirectPrepassState = state;
+        indirectPrepassState.shaderTable = m_smokeRestirInitialShaderTable;
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU ReSTIR Indirect Initial Prepass");
+            commandList->setRayTracingState(indirectPrepassState);
+            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, false, true);
+        }
+        else
+        {
+            commandList->setRayTracingState(indirectPrepassState);
+            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, false, true);
+        }
+
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+    }
     if (spatialNeedsTemporalPrepass)
     {
         // RTXDI spatial resampling reads completed current-frame neighbor

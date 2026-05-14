@@ -79,8 +79,10 @@ Current implementation state:
 - Mode 51 colors the completed spatial reservoir source using the mode 33 source
   convention.
 - Modes 53-55 are the first debug-only indirect/GI reservoir domain. They reuse
-  the initial RTXDI PT reservoir buffer and shader library, but the RAB path
-  tracer skips primary-surface NEE in these modes so candidates begin at the
+  the initial RTXDI PT reservoir buffer and shader library. They now run as
+  staged initial-GI passes: an initial producer dispatch writes completed
+  indirect reservoirs, then the visible mode consumes them. The RAB path tracer
+  skips primary-surface NEE in these modes so candidates begin at the
   secondary/indirect path domain. They are diagnostics only; no temporal,
   spatial, sparse-update, or mode 18 integration exists for GI yet.
   They also force one secondary bridge bounce and raise the debug-only RTXDI
@@ -97,7 +99,8 @@ Current implementation state:
 - r_pathTracingRestirPTRaySparsity is default-off. Values 2-8 sparsely update
   staged ReSTIR direct producers and reconstruct full-resolution consumers from
   active representative direct-reservoir pixels. It is currently scoped to modes
-  50-51 and mode 18 ReSTIR direct lighting, not modes 53-55.
+  50-51 and mode 18 ReSTIR direct lighting; modes 53-55 need a GI-specific
+  representative lookup before sparse updates are enabled there.
 
 Current mode 18 ReSTIR direct-lighting hybrid:
 - Use r_pathTracingDebugMode 18 and r_pathTracingRestirPTDirectLighting 1.

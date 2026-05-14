@@ -3207,14 +3207,16 @@ identity that looks plausible in attribution but does not agree with mode 50
 spatial shading near hard depth/object edges.
 
 Modes 53-55 are the first indirect/GI reservoir diagnostics. They reuse the
-initial RTXDI PT reservoir buffer and initial ReSTIR shader library, but the RAB
-path tracer skips primary-surface NEE in these modes so the first visible
-candidate domain is secondary/indirect: secondary NEE, emissive hits, or non-NEE
-path radiance. Mode 53 shows indirect reservoir metadata/heat, mode 54 shades
-the rough indirect reservoir estimate, and mode 55 colors source/path
-attribution. These modes are debug-only and initial-reservoir-only; do not treat
-them as production GI, temporal GI reuse, spatial GI reuse, sparse updates, or
-mode 18 GI integration.
+initial RTXDI PT reservoir buffer and initial ReSTIR shader library, and now run
+as staged initial-GI passes: a producer dispatch writes completed indirect
+reservoirs, then the visible debug mode consumes those reservoirs. The RAB path
+tracer skips primary-surface NEE in these modes so the first visible candidate
+domain is secondary/indirect: secondary NEE, emissive hits, or non-NEE path
+radiance. Mode 53 shows indirect reservoir metadata/heat, mode 54 shades the
+rough indirect reservoir estimate, and mode 55 colors source/path attribution.
+These modes are debug-only and initial-reservoir-only; do not treat them as
+production GI, temporal GI reuse, spatial GI reuse, sparse updates, or mode 18
+GI integration.
 
 Modes 53-55 also force one secondary bridge bounce and raise the RTXDI initial
 path-length budget to 4 inside the debug path. RTXDI starts the primary surface
@@ -3227,8 +3229,9 @@ control for the staged ReSTIR direct path. Values 2-8 update roughly one out of
 N direct-domain reservoir pixels per frame, skip inactive producer pixels before
 ray tracing, and make full-resolution consumers read active representative
 reservoir pixels. Temporal previous-frame lookups use the previous sparse phase.
-This currently applies to modes 50-51 and mode 18 ReSTIR direct lighting, not to
-the single-dispatch GI modes 53-55.
+This currently applies to modes 50-51 and mode 18 ReSTIR direct lighting.
+Modes 53-55 need a GI-specific representative lookup before sparse updates are
+enabled there.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with

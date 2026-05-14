@@ -38,7 +38,8 @@ enum RtPathTraceRestirPassFlags : uint32_t
     RT_RESTIR_PASS_PRIMARY_SURFACE_DEBUG = 1u << 10,
     RT_RESTIR_PASS_PREVIEW_SAFETY_CAP = 1u << 11,
     RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS = 1u << 12,
-    RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS = 1u << 13
+    RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS = 1u << 13,
+    RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS = 1u << 14
 };
 
 struct RtPathTraceRestirPassPlan
@@ -171,19 +172,19 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
     case 53:
         plan.producer = RtPathTraceRestirPassKind::InitialReservoir;
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
-        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_DEBUG_VISUALIZE;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS;
         plan.label = "mode53IndirectReservoirDebug";
         break;
     case 54:
         plan.producer = RtPathTraceRestirPassKind::InitialReservoir;
         plan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS;
         plan.label = "mode54IndirectReservoirShading";
         break;
     case 55:
         plan.producer = RtPathTraceRestirPassKind::InitialReservoir;
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
-        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS;
         plan.label = "mode55IndirectPathAttribution";
         break;
     default:
@@ -196,6 +197,11 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
 inline bool PathTraceRestirPassRequiresTemporalPrepass(const RtPathTraceRestirPassPlan& plan)
 {
     return (plan.flags & RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS) != 0;
+}
+
+inline bool PathTraceRestirPassRequiresInitialPrepass(const RtPathTraceRestirPassPlan& plan)
+{
+    return (plan.flags & RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS) != 0;
 }
 
 inline bool PathTraceRestirPassRequiresSpatialPrepass(const RtPathTraceRestirPassPlan& plan)

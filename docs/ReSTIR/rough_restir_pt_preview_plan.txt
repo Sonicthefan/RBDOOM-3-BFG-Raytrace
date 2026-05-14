@@ -175,6 +175,9 @@ NEE, emissive hits, and non-NEE path radiance as the first GI candidate domain.
 The debug path must also allow one secondary bounce and an RTXDI initial
 path-length budget of at least 4, because RTXDI records secondary-surface NEE as
 pathLength 4 while the default initial max is 3.
+Modes 53-55 now run as staged initial-GI passes: a producer dispatch writes the
+completed indirect initial reservoirs, then the visible mode consumes those
+reservoirs instead of regenerating them in the same dispatch.
 Keep them full-resolution and initial-only until source/path attribution is
 stable. Do not add temporal GI reuse, spatial GI reuse, sparse updates, or mode
 18 GI integration in the same slice.
@@ -186,4 +189,4 @@ diagnostic. Values 2-8 update an interleaved subset of the direct reservoir
 domain each frame, then reconstruct full-resolution consumers from active
 representative reservoir pixels. It is wired only for modes 50-51 and mode 18
 with `r_pathTracingRestirPTDirectLighting 1`; modes 53-55 stay full-update until
-their GI reservoir path is split into separate producer and consumer dispatches.
+GI-specific sparse representative lookup is added.
