@@ -3246,12 +3246,22 @@ GI representative while keeping their current full-resolution surface context.
 
 User validation reported that mode 56 works visually, and sparsity visibly
 changes the image, but sparsity does not meaningfully improve performance. Treat
-the next performance pass as CPU-first profiling around ReSTIR supply/setup,
-dispatch submission, pass orchestration, and barriers before assuming raw
-shader/ray count is dominant. User validation also found dark base-game areas
-with apparently open roofs that raster lighting keeps hidden from skybox light;
-mode 56 GI can over-brighten those areas until the Doom sky/environment
-visibility or light-mask contract is mapped.
+the next performance pass as GPU shader/location profiling: in bad locations
+below 60 FPS, Nsight shows `vkCmdTraceRays` dominating frame time while RT core
+use is only roughly 5-10%. This points away from raw traversal ray count and
+toward shader work inside raygen: environment/sky paths, material/light
+sampling, memory/cache behavior, or branch divergence. User validation also
+found dark base-game areas with apparently open roofs that raster lighting keeps
+hidden from skybox light; mode 56 GI can over-brighten those areas until the
+Doom sky/environment visibility or light-mask contract is mapped.
+
+Mode 56 emits four `vkCmdTraceRays` events in pass order: GI initial producer,
+direct temporal producer, direct spatial producer, and final combined consumer.
+User Nsight validation reports the second and third events dominate frame time
+by far. In bad locations the first event also roughly doubles, but it remains
+lower than the second and third events. Prioritize the staged direct
+TemporalAndSpatial producer shaders, while using GI initial as a secondary check
+for shared location-sensitive material/light/environment paths.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with
@@ -3690,6 +3700,14 @@ Near term:
      dissolve overlays excluded.
    - Continue excluding game-logic/skinned dissolve emissive overlays from
      light candidates.
+   - Emissive proposal sampling now has a dedicated shader boundary in
+     `pathtrace_emissive_sampling.hlsli`. The public selector name is still
+     `SelectSmokeWeightedEmissiveTriangle`, but it can use a CPU-built CDF
+     distribution table (`PathTraceEmissiveDistribution`, SRV t46) when
+     `r_pathTracingEmissiveDistribution 1` and falls back to the legacy linear
+     scan otherwise. The CDF table only chooses an index; it does not shrink the
+     authored emissive triangle universe or replace the full triangle records
+     used for shading, attribution, visibility ignore, and RAB reconstruction.
    - Reservoir current/previous/spatial buffers now exist as owned resources.
      They have a reset signature covering camera/output, material table,
      emissive candidate records, light-candidate records, and static BLAS

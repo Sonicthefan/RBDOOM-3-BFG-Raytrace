@@ -63,6 +63,25 @@ struct PathTraceSmokeEmissiveTriangle
 };
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
+struct PathTraceEmissiveDistributionEntry
+{
+    uint32_t emissiveTriangleIndex = UINT32_MAX;
+    float cumulativePdf = 0.0f;
+    float weight = 0.0f;
+    float padding0 = 0.0f;
+};
+static_assert(sizeof(PathTraceEmissiveDistributionEntry) == 16, "PathTraceEmissiveDistributionEntry must match HLSL layout");
+
+struct RtSmokeEmissiveDistributionBuild
+{
+    std::vector<PathTraceEmissiveDistributionEntry> entries;
+    uint32_t fallbackIndex = UINT32_MAX;
+    float fallbackWeight = 0.0f;
+    float totalPdf = 0.0f;
+    int zeroPdfSkipped = 0;
+    bool valid = false;
+};
+
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_TEXTURED = 0x00000001u;
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_SAFE_TEXTURE = 0x00000002u;
 const uint32_t RT_SMOKE_LIGHT_CANDIDATE_HAS_STATIC_TRIANGLES = 0x00000004u;
@@ -162,6 +181,8 @@ RtSmokeEmissiveInventoryStats BuildSmokeEmissiveInventoryStatsForRecords(
 void FinalizeSmokeEmissiveTriangleSamplingFields(
     std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const RtSmokeEmissiveInventoryStats& stats);
+RtSmokeEmissiveDistributionBuild BuildSmokeEmissiveDistribution(
+    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles);
 void AppendSmokeRigidRouteEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

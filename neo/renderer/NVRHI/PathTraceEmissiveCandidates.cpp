@@ -231,6 +231,62 @@ void FinalizeSmokeEmissiveTriangleSamplingFields(std::vector<PathTraceSmokeEmiss
     }
 }
 
+RtSmokeEmissiveDistributionBuild BuildSmokeEmissiveDistribution(const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles)
+{
+    OPTICK_EVENT("PT Emissive Distribution");
+
+    RtSmokeEmissiveDistributionBuild build;
+    build.entries.reserve(emissiveTriangles.size());
+
+    float cumulativePdf = 0.0f;
+    float fallbackWeight = -1.0f;
+    uint32_t fallbackIndex = emissiveTriangles.empty() ? UINT32_MAX : 0u;
+    for (size_t triangleIndex = 0; triangleIndex < emissiveTriangles.size(); ++triangleIndex)
+    {
+        const PathTraceSmokeEmissiveTriangle& triangle = emissiveTriangles[triangleIndex];
+        const float weight = Max(triangle.sampleWeightAndPdf[0], 0.0f);
+        if (weight > fallbackWeight)
+        {
+            fallbackWeight = weight;
+            fallbackIndex = static_cast<uint32_t>(triangleIndex);
+        }
+
+        const float pdf = Max(triangle.sampleWeightAndPdf[1], 0.0f);
+        if (pdf <= 0.0f)
+        {
+            build.zeroPdfSkipped++;
+            continue;
+        }
+
+        cumulativePdf += pdf;
+        PathTraceEmissiveDistributionEntry entry;
+        entry.emissiveTriangleIndex = static_cast<uint32_t>(triangleIndex);
+        entry.cumulativePdf = cumulativePdf;
+        entry.weight = weight;
+        build.entries.push_back(entry);
+    }
+
+    build.fallbackIndex = fallbackIndex;
+    build.fallbackWeight = Max(fallbackWeight, 0.0f);
+    build.totalPdf = cumulativePdf;
+    build.valid = cumulativePdf > 1.0e-8f && !build.entries.empty();
+    if (build.valid)
+    {
+        const float inverseTotalPdf = 1.0f / cumulativePdf;
+        for (PathTraceEmissiveDistributionEntry& entry : build.entries)
+        {
+            entry.cumulativePdf *= inverseTotalPdf;
+        }
+        build.entries.back().cumulativePdf = 1.0f;
+    }
+    else
+    {
+        build.entries.clear();
+    }
+
+    return build;
+}
+
 void AppendSmokeRigidRouteEmissiveTriangleInventory(
     const std::vector<uint32_t>& materialIds,
     const std::vector<PathTraceSmokeMaterial>& materials,

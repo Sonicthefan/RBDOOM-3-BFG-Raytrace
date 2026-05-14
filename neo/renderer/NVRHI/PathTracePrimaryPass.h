@@ -116,6 +116,7 @@ private:
     nvrhi::BufferHandle m_smokeDynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeMaterialTableBuffer;
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
+    nvrhi::BufferHandle m_smokeEmissiveDistributionBuffer;
     nvrhi::BufferHandle m_smokeLightCandidateBuffer;
     nvrhi::BufferHandle m_smokeDoomAnalyticLightBuffer;
     nvrhi::BufferHandle m_smokeDoomAnalyticPreviousLightBuffer;

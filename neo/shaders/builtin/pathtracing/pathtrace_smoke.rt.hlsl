@@ -121,6 +121,14 @@ struct PathTraceSmokeEmissiveTriangle
     uint padding0;
 };
 
+struct PathTraceEmissiveDistributionEntry
+{
+    uint emissiveTriangleIndex;
+    float cumulativePdf;
+    float weight;
+    float padding0;
+};
+
 struct PathTraceSmokeLightCandidate
 {
     float4 emissiveColorAndLuminance;
@@ -248,6 +256,7 @@ StructuredBuffer<PathTraceDoomAnalyticLightRemap> DoomAnalyticRemap : register(t
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights : register(t45);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
+StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirPrevious : register(u19);
@@ -289,6 +298,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 LightSpriteInfo;
     float4 ToyPathInfo;
     float4 EmissiveInfo;
+    float4 EmissiveDistributionInfo;
     float4 BoundsOverlayInfo;
     float4 DoomAnalyticLightInfo;
     float4 DoomAnalyticLightRemapInfo;
@@ -2303,6 +2313,8 @@ bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
 
+#include "pathtrace_emissive_sampling.hlsli"
+
 #ifdef RB_PT_ENABLE_RESTIR
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
@@ -4187,39 +4199,6 @@ uint FindSmokeLightCandidateForTriangle(PathTraceSmokeEmissiveTriangle emissiveT
         }
     }
     return 0xffffffffu;
-}
-
-uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue)
-{
-    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) || emissiveTriangleCount == 0u)
-    {
-        return 0xffffffffu;
-    }
-
-    float cumulative = 0.0;
-    uint fallbackIndex = 0u;
-    float fallbackWeight = -1.0;
-    const float target = saturate(randomValue);
-
-    [loop]
-    for (uint triangleIndex = 0u; triangleIndex < emissiveTriangleCount; ++triangleIndex)
-    {
-        const PathTraceSmokeEmissiveTriangle candidate = SmokeEmissiveTriangles[triangleIndex];
-        const float pdf = max(candidate.sampleWeightAndPdf.y, 0.0);
-        const float weight = max(candidate.sampleWeightAndPdf.x, 0.0);
-        if (weight > fallbackWeight)
-        {
-            fallbackWeight = weight;
-            fallbackIndex = triangleIndex;
-        }
-        cumulative += pdf;
-        if (target <= cumulative && pdf > 0.0)
-        {
-            return triangleIndex;
-        }
-    }
-
-    return fallbackIndex;
 }
 
 void StoreSmokeReservoirCurrentSafe(uint reservoirIndex, PathTraceSmokeReservoir reservoir)

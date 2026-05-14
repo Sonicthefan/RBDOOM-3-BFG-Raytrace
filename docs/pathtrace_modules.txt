@@ -592,13 +592,17 @@ PathTraceEmissiveCandidates.h
     contract boundary: center/area, normal/luminance, UV bounds, centroid UV,
     emissive texture slot, material table row, persistent material universe
     index, stable-ish identity hash, and placeholder sampling weight/PDF fields.
+    It also defines `PathTraceEmissiveDistributionEntry`, a compact proposal
+    CDF record that points back into the full authored emissive triangle buffer.
 
 PathTraceEmissiveCandidates.cpp
     Builds compact emissive triangle metadata from static/dynamic triangle
     buckets after material table construction. Used by mode 19 diagnostics and
     as a boundary for future path tracing light sampling. It normalizes
     per-triangle inventory PDFs from area-weighted luminance and total emissive
-    area, but deliberately does not build a full sampler yet.
+    area, then builds the current CDF proposal table after light-universe merge.
+    The CDF is only an index picker; full triangle records remain the source for
+    shading, attribution, visibility ignore, and RAB light-info reconstruction.
 
 PathTraceDoomLights.h
     Doom renderer/game light diagnostic and analytic candidate declarations.
@@ -1494,6 +1498,15 @@ Mode 18 uses a toy path tracing/debug lighting path. Mode 19 builds and dumps an
 emissive inventory that can become a future sampling input. This is not yet the
 NVIDIA RTXPT/ReSTIR implementation.
 
+Emissive proposal selection now has a shader include boundary:
+`pathtrace_emissive_sampling.hlsli`. `SelectSmokeWeightedEmissiveTriangle`
+keeps its public name for existing mode 20/ReSTIR/RAB call sites, uses the
+CPU-built CDF distribution when `r_pathTracingEmissiveDistribution 1` and the
+table is valid, and falls back to the legacy linear scan when disabled or
+invalid. Do not optimize by capping or shrinking the authored emissive triangle
+inventory; optimize proposal sampling or add a later alias table behind the same
+selector.
+
 Doom renderer lights now have a separate authored-light path. PathTraceDoomLights
 builds stable identity/probe diagnostics, a CPU-only Doom analytic light
 universe scaffold, and an opt-in analytic sphere-light candidate buffer from
@@ -1933,12 +1946,22 @@ their current full-resolution surface context.
 
 User validation reported that mode 56 works visually, and sparsity visibly
 changes the image, but sparsity does not meaningfully improve performance. Treat
-the next performance step as CPU-first profiling around ReSTIR supply/setup,
-dispatch submission, pass orchestration, and barriers before assuming raw
-shader/ray count is dominant. User validation also found dark base-game areas
-with apparently open roofs that raster lighting keeps hidden from skybox light;
-mode 56 GI can over-brighten those spaces until the Doom sky/environment
-visibility or light-mask contract is mapped.
+the next performance step as GPU shader/location profiling: in bad locations
+below 60 FPS, Nsight shows `vkCmdTraceRays` dominating frame time while RT core
+use is only roughly 5-10%. This points away from raw traversal ray count and
+toward shader work inside raygen: environment/sky paths, material/light
+sampling, memory/cache behavior, or branch divergence. User validation also
+found dark base-game areas with apparently open roofs that raster lighting keeps
+hidden from skybox light; mode 56 GI can over-brighten those spaces until the
+Doom sky/environment visibility or light-mask contract is mapped.
+
+Mode 56 emits four `vkCmdTraceRays` events in pass order: GI initial producer,
+direct temporal producer, direct spatial producer, and final combined consumer.
+User Nsight validation reports the second and third events dominate frame time
+by far. In bad locations the first event also roughly doubles, but it remains
+lower than the second and third events. Prioritize the staged direct
+TemporalAndSpatial producer shaders, while using GI initial as a secondary check
+for shared location-sensitive material/light/environment paths.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed
@@ -2121,6 +2144,8 @@ capture/emissive-candidate records.
 Safer places to touch:
 
 - Add emissive inventory stats or dumps.
+- Add emissive distribution diagnostics or A/B controls behind
+  `SelectSmokeWeightedEmissiveTriangle`.
 - Add Doom light identity/candidate stats or dumps in PathTraceDoomLights.
 - Improve candidate weighting diagnostics.
 - Add dispatch constants for debug-only experiments if shader layout is updated

@@ -206,16 +206,42 @@ domains, GI has no temporal/spatial reuse, and mode 18 is unchanged.
 
 User validation reported that mode 56 launches and the combined preview is
 visibly working. Two issues are known:
-- Performance is low, and increasing direct/GI sparsity did not visibly reduce
-  the cost even though sparsity visibly changes the image. Treat the next
-  performance pass as a CPU-first profiling task; CPU-side ReSTIR supply/setup,
-  dispatch submission, pass orchestration, or barrier overhead is now the
-  leading suspect rather than raw producer ray count.
+- Performance is low in some locations, and increasing direct/GI sparsity did
+  not visibly reduce the cost even though sparsity visibly changes the image.
+  User Nsight validation reports the bad cases are GPU-bound below 60 FPS:
+  `vkCmdTraceRays` dominates frame time, while RT core utilization is only
+  roughly 5-10%. Treat the next performance pass as GPU shader/location
+  profiling, not CPU setup or raw traversal ray-count profiling.
+- Mode 56 emits four `vkCmdTraceRays` events in pass order: GI initial producer,
+  direct temporal producer, direct spatial producer, and final combined
+  consumer. User Nsight validation reports the second and third events dominate
+  frame time by far. This points at the staged direct TemporalAndSpatial
+  producer path, not final combined shading. In bad locations the first event
+  also roughly doubles, but it remains below events 2 and 3; treat location
+  sensitivity as shared across producer shaders while prioritizing the direct
+  temporal/spatial producers.
 - Some dark base-game areas appear to have open roofs that are hidden from
   skybox lighting by non-geometry/light-projection rules in the raster path.
   With GI enabled they can become much too bright. Do not solve this by
   globally disabling environment/GI; investigate the Doom visibility/light-mask
   contract for sky/environment contribution.
+
+Emissive proposal sampling now has an explicit selector boundary and CDF-backed
+proposal table. The public shader entry point remains
+`SelectSmokeWeightedEmissiveTriangle`; its legacy O(N) linear scan is preserved
+as a fallback/A-B path, while the default path uses the CPU-built
+`PathTraceEmissiveDistribution` SRV through
+`r_pathTracingEmissiveDistribution 1`. This preserves the full authored
+`SmokeEmissiveTriangles` universe for
+shading, source attribution, visibility self-ignore, and RAB light-info
+reconstruction. The CDF implementation built successfully in the
+win64-pt-dev-release lane and was deployed to the prepared game folder on
+2026-05-14. User runtime testing on 2026-05-14 reported the result looked fine
+in the target ReSTIR/PT modes, so the first visual smoke check is accepted. The
+same follow-up runtime testing reported roughly a 50% FPS boost in a previously
+laggy spot. Treat the CDF selector as a validated first optimization, while
+still using Nsight A/B timing with the distribution forced off versus on if a
+per-pass attribution is needed.
 
 Main Gaps
 ---------
@@ -238,18 +264,26 @@ Main Gaps
   roughly 720p-class output.
 - Mode 56 performance is not yet a trustworthy ray-count signal because
   sparsity visibly changes reconstruction but has not shown the expected cost
-  reduction.
+  reduction, and Nsight shows low RT core utilization during the expensive
+  `vkCmdTraceRays` work.
 - Environment/sky contribution does not yet honor all base-game dark-area
   occlusion or light-hiding rules.
 
 Recommended Next Milestone
 --------------------------
 Profile and isolate mode 56 before adding temporal GI reuse, spatial GI reuse,
-DLSS RR, reflection scaling, or mode 18 GI integration. Start with CPU-side
-ReSTIR supply/setup, dispatch submission, pass orchestration, and barrier
-timing, then verify GPU shader/ray cost only after CPU timing is understood. In
-parallel, investigate why sky/environment GI reaches base-game dark areas that
-the raster path keeps hidden from skybox light. Keep
+DLSS RR, reflection scaling, or mode 18 GI integration. Start with GPU profiling
+inside `vkCmdTraceRays` events 2 and 3: direct temporal producer and direct
+spatial producer shader execution, memory/cache behavior, branch divergence,
+reservoir loads/stores, and location-specific material/light sampling. Compare
+`r_pathTracingEmissiveDistribution 0` versus `1` first if exact pass
+attribution is needed; runtime testing already reported roughly a 50% FPS gain
+in a laggy spot with the CDF path. Also
+compare event 1 between good and bad locations because it scales up in the bad
+spots, just less than events 2 and 3. Do not assume ray traversal is the
+bottleneck when RT core utilization is only roughly 5-10%. In parallel,
+investigate why sky/environment GI reaches base-game dark areas that the raster
+path keeps hidden from skybox light. Keep
 `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` while testing.
 
 Mode 33 analytic-source note:

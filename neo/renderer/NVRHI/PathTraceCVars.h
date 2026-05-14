@@ -157,6 +157,7 @@ extern idCVar r_pathTracingDisableAnyHitAlpha;
 extern idCVar r_pathTracingDisableSelectedLightLoop;
 extern idCVar r_pathTracingDisableAnalyticLightLoop;
 extern idCVar r_pathTracingDisableEmissiveTriangleSampling;
+extern idCVar r_pathTracingEmissiveDistribution;
 extern idCVar r_pathTracingDisableDiffuseSecondaryRay;
 extern idCVar r_pathTracingDisableReflectionRay;
 extern idCVar r_pathTracingDisablePrimarySurfaceHistory;

@@ -53,6 +53,7 @@ struct PathTraceSmokeConstants
     float lightSpriteInfo[4];
     float toyPathInfo[4];
     float emissiveInfo[4];
+    float emissiveDistributionInfo[4];
     float boundsOverlayInfo[4];
     float doomAnalyticLightInfo[4];
     float doomAnalyticLightRemapInfo[4];
@@ -741,6 +742,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.emissiveInfo[1] = static_cast<float>(disableEmissiveTriangleSampling ? 0 : m_smokeEmissiveStaticTriangleCount);
     constants.emissiveInfo[2] = static_cast<float>(idMath::ClampInt(1, 16, r_pathTracingReservoirCandidateTrials.GetInteger()));
     constants.emissiveInfo[3] = static_cast<float>(disableEmissiveTriangleSampling ? 0 : m_smokeLightCandidateCount);
+    const int emissiveDistributionCount = !disableEmissiveTriangleSampling && r_pathTracingEmissiveDistribution.GetInteger() != 0 && m_sceneInputs.lights.emissiveDistributionValid
+        ? m_sceneInputs.lights.emissiveDistributionCount
+        : 0;
+    constants.emissiveDistributionInfo[0] = static_cast<float>(Max(0, emissiveDistributionCount));
+    constants.emissiveDistributionInfo[1] = emissiveDistributionCount > 0 ? 1.0f : 0.0f;
+    constants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
+    constants.emissiveDistributionInfo[3] = 0.0f;
     const bool enableGpuBoundsOverlay = r_pathTracingSceneBoundsOverlayGpu.GetInteger() != 0;
     const bool enableBoundsBoxDebugMode = debugMode == 21 || debugMode == 22;
     const int gpuBoundsOverlayLineCount = (enableGpuBoundsOverlay || enableBoundsBoxDebugMode) ? idMath::ClampInt(0, RT_PT_BOUNDS_OVERLAY_MAX_LINES, m_smokeBoundsOverlayLineCount) : 0;

@@ -24,7 +24,7 @@ bool RtSmokeSceneBufferHandles::IsValid() const
 {
     return staticVertexBuffer && staticIndexBuffer && staticTriangleClassBuffer && staticTriangleMaterialBuffer && staticTriangleMaterialIndexBuffer &&
         dynamicVertexBuffer && dynamicIndexBuffer && dynamicTriangleClassBuffer && dynamicTriangleMaterialBuffer && dynamicTriangleMaterialIndexBuffer &&
-        materialTableBuffer && emissiveTriangleBuffer && lightCandidateBuffer && doomAnalyticLightBuffer && doomAnalyticPreviousLightBuffer &&
+        materialTableBuffer && emissiveTriangleBuffer && emissiveDistributionBuffer && lightCandidateBuffer && doomAnalyticLightBuffer && doomAnalyticPreviousLightBuffer &&
         doomAnalyticCurrentIdentityBuffer && doomAnalyticPreviousIdentityBuffer && doomAnalyticRemapBuffer &&
         rigidRouteVertexBuffer && rigidRouteIndexBuffer && rigidRouteTriangleMaterialBuffer && rigidRouteTriangleMaterialIndexBuffer && rigidRouteInstanceBuffer &&
         skinnedPreviousPositionBuffer && skinnedSurfaceDispatchBuffer && skinnedTriangleDispatchIndexBuffer;
@@ -169,12 +169,18 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedSourceGeometryAvailable ? 1 : 0,
         geometry.skinnedGpuSkinningAvailable ? 1 : 0,
         geometry.skinnedPreviousPositionBufferAvailable ? 1 : 0);
-    common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d activeTextures=%d caps=0x%08x light emissive=%d static=%d dynamic=%d candidates=%d textured=%d doom current/previous=%d/%d doomIds current/previous/remap/invalid=%d/%d/%d/%d previousEmissive=%d generation=%llu caps=0x%08x\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d activeTextures=%d caps=0x%08x light emissive=%d distribution=%d valid=%d zeroPdf=%d fallback=%d weight=%.3f totalPdf=%.6f static=%d dynamic=%d candidates=%d textured=%d doom current/previous=%d/%d doomIds current/previous/remap/invalid=%d/%d/%d/%d previousEmissive=%d generation=%llu caps=0x%08x\n",
         materials.materialTablePath ? materials.materialTablePath : "unknown",
         materials.materialTableEntryCount,
         materials.activeTextureCount,
         materials.capabilityFlags,
         lights.emissiveTriangleCount,
+        lights.emissiveDistributionCount,
+        lights.emissiveDistributionValid ? 1 : 0,
+        lights.emissiveDistributionZeroPdfSkipped,
+        lights.emissiveDistributionFallbackIndex,
+        lights.emissiveDistributionFallbackWeight,
+        lights.emissiveDistributionTotalPdf,
         lights.emissiveStaticTriangleCount,
         lights.emissiveDynamicTriangleCount,
         lights.lightCandidateCount,
@@ -376,6 +382,7 @@ static void PrintPathTracePortalTransitionDump(
         HandleChanged(oldBuffers.skinnedTriangleDispatchIndexBuffer, next.buffers.skinnedTriangleDispatchIndexBuffer),
         HandleChanged(oldBuffers.materialTableBuffer, next.buffers.materialTableBuffer),
         HandleChanged(oldBuffers.emissiveTriangleBuffer, next.buffers.emissiveTriangleBuffer),
+        HandleChanged(oldBuffers.emissiveDistributionBuffer, next.buffers.emissiveDistributionBuffer),
         HandleChanged(oldBuffers.lightCandidateBuffer, next.buffers.lightCandidateBuffer),
         HandleChanged(oldBuffers.doomAnalyticLightBuffer, next.buffers.doomAnalyticLightBuffer),
         HandleChanged(oldBuffers.doomAnalyticPreviousLightBuffer, next.buffers.doomAnalyticPreviousLightBuffer),
@@ -437,6 +444,7 @@ static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers
         oldBuffers.dynamicTriangleMaterialIndexBuffer != newBuffers.dynamicTriangleMaterialIndexBuffer ||
         oldBuffers.materialTableBuffer != newBuffers.materialTableBuffer ||
         oldBuffers.emissiveTriangleBuffer != newBuffers.emissiveTriangleBuffer ||
+        oldBuffers.emissiveDistributionBuffer != newBuffers.emissiveDistributionBuffer ||
         oldBuffers.lightCandidateBuffer != newBuffers.lightCandidateBuffer ||
         oldBuffers.doomAnalyticLightBuffer != newBuffers.doomAnalyticLightBuffer ||
         oldBuffers.doomAnalyticPreviousLightBuffer != newBuffers.doomAnalyticPreviousLightBuffer ||
@@ -578,6 +586,7 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.dynamicTriangleMaterialIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.dynamicTriangleMaterialIndexBuffer, "PathTraceSmokeDynamicCandidateTriangleMaterialIndexes", desc.dynamicTriangleMaterialIndexBytes, sizeof(uint32_t), false, false, false);
     result.buffers.materialTableBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.materialTableBuffer, "PathTraceSmokeMaterialTable", desc.materialTableBytes, sizeof(PathTraceSmokeMaterial), false, false, false);
     result.buffers.emissiveTriangleBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveTriangleBuffer, "PathTraceSmokeEmissiveTriangles", desc.emissiveTriangleBytes, sizeof(PathTraceSmokeEmissiveTriangle), false, false, false);
+    result.buffers.emissiveDistributionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.emissiveDistributionBuffer, "PathTraceEmissiveDistribution", desc.emissiveDistributionBytes, sizeof(PathTraceEmissiveDistributionEntry), false, false, false);
     result.buffers.lightCandidateBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.lightCandidateBuffer, "PathTraceSmokeLightCandidates", desc.lightCandidateBytes, sizeof(PathTraceSmokeLightCandidate), false, false, false);
     result.buffers.doomAnalyticLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticLightBuffer, "PathTraceDoomAnalyticLights", desc.doomAnalyticLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false);
     result.buffers.doomAnalyticPreviousLightBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.doomAnalyticPreviousLightBuffer, "PathTraceDoomAnalyticPreviousLights", desc.doomAnalyticPreviousLightBytes, sizeof(PathTraceDoomAnalyticLightCandidate), false, false, false);
@@ -711,6 +720,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, desc.fallbackTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(15, desc.accumulationTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, desc.buffers.emissiveTriangleBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, desc.buffers.emissiveDistributionBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(17, desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(18, desc.reservoirBuffers.current));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(19, desc.reservoirBuffers.previous));
@@ -1018,6 +1028,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(15));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(17));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(18));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(19));
@@ -1321,6 +1332,7 @@ bool PathTracePrimaryPass::HasRetainableRayTracingSmokeScenePackage() const
     buffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     buffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     buffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    buffers.emissiveDistributionBuffer = m_smokeEmissiveDistributionBuffer;
     buffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
     buffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
     buffers.doomAnalyticPreviousLightBuffer = m_smokeDoomAnalyticPreviousLightBuffer;
@@ -1386,6 +1398,7 @@ RtRetiredSmokeScenePackage PathTracePrimaryPass::CaptureRetiredRayTracingSmokeSc
     package.buffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     package.buffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     package.buffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    package.buffers.emissiveDistributionBuffer = m_smokeEmissiveDistributionBuffer;
     package.buffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
     package.buffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
     package.buffers.doomAnalyticPreviousLightBuffer = m_smokeDoomAnalyticPreviousLightBuffer;
@@ -1523,6 +1536,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
     m_smokeMaterialTableBuffer = nullptr;
     m_smokeEmissiveTriangleBuffer = nullptr;
+    m_smokeEmissiveDistributionBuffer = nullptr;
     m_smokeLightCandidateBuffer = nullptr;
     m_smokeDoomAnalyticLightBuffer = nullptr;
     m_smokeDoomAnalyticPreviousLightBuffer = nullptr;
@@ -1663,6 +1677,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeDynamicTriangleMaterialIndexBuffer = desc.buffers.dynamicTriangleMaterialIndexBuffer;
     m_smokeMaterialTableBuffer = desc.buffers.materialTableBuffer;
     m_smokeEmissiveTriangleBuffer = desc.buffers.emissiveTriangleBuffer;
+    m_smokeEmissiveDistributionBuffer = desc.buffers.emissiveDistributionBuffer;
     m_smokeLightCandidateBuffer = desc.buffers.lightCandidateBuffer;
     m_smokeDoomAnalyticLightBuffer = desc.buffers.doomAnalyticLightBuffer;
     m_smokeDoomAnalyticPreviousLightBuffer = desc.buffers.doomAnalyticPreviousLightBuffer;

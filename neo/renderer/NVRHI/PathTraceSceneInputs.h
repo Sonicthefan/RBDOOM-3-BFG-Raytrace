@@ -228,6 +228,7 @@ struct RtPathTraceSceneInputMaterials
 struct RtPathTraceSceneInputLights
 {
     nvrhi::BufferHandle emissiveTriangleBuffer;
+    nvrhi::BufferHandle emissiveDistributionBuffer;
     nvrhi::BufferHandle lightCandidateBuffer;
     nvrhi::BufferHandle doomAnalyticLightBuffer;
     nvrhi::BufferHandle doomAnalyticPreviousLightBuffer;
@@ -235,6 +236,9 @@ struct RtPathTraceSceneInputLights
     nvrhi::BufferHandle doomAnalyticPreviousIdentityBuffer;
     nvrhi::BufferHandle doomAnalyticRemapBuffer;
     int emissiveTriangleCount = 0;
+    int emissiveDistributionCount = 0;
+    int emissiveDistributionZeroPdfSkipped = 0;
+    int emissiveDistributionFallbackIndex = -1;
     int emissiveStaticTriangleCount = 0;
     int emissiveDynamicTriangleCount = 0;
     int lightCandidateCount = 0;
@@ -246,6 +250,9 @@ struct RtPathTraceSceneInputLights
     int doomAnalyticRemapCount = 0;
     int doomAnalyticInvalidRemapCount = 0;
     int previousEmissiveTriangleCount = 0;
+    float emissiveDistributionTotalPdf = 0.0f;
+    float emissiveDistributionFallbackWeight = 0.0f;
+    bool emissiveDistributionValid = false;
     uint64 lightUniverseGeneration = 0;
     uint32_t capabilityFlags = 0;
 };

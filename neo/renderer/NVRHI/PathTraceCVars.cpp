@@ -885,6 +885,12 @@ idCVar r_pathTracingDisableEmissiveTriangleSampling(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic kill switch: disable emissive triangle sampling loops for mode 20 and ReSTIR PT validation paths" );
 
+idCVar r_pathTracingEmissiveDistribution(
+    "r_pathTracingEmissiveDistribution",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Use the CPU-built emissive CDF proposal table when available; 0 forces the legacy shader linear scan" );
+
 idCVar r_pathTracingDisableDiffuseSecondaryRay(
     "r_pathTracingDisableDiffuseSecondaryRay",
     "0",

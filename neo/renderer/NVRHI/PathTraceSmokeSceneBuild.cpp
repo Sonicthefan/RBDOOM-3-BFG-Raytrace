@@ -1052,6 +1052,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
             m_smokeMaterialTableBuffer = nullptr;
             m_smokeEmissiveTriangleBuffer = nullptr;
+            m_smokeEmissiveDistributionBuffer = nullptr;
             m_smokeLightCandidateBuffer = nullptr;
             m_smokeDoomAnalyticLightBuffer = nullptr;
             m_smokeDoomAnalyticPreviousLightBuffer = nullptr;
@@ -1726,6 +1727,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
     const int emissiveStartMs = Sys_Milliseconds();
     std::vector<PathTraceSmokeEmissiveTriangle> emissiveTriangles;
+    RtSmokeEmissiveDistributionBuild emissiveDistribution;
     std::vector<PathTraceSmokeLightCandidate> lightCandidates;
     std::vector<PathTraceDoomAnalyticLightCandidate> doomAnalyticLights;
     PathTraceDoomAnalyticLightGpuRemap doomAnalyticRemap;
@@ -1842,6 +1844,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()));
         emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+    }
+    emissiveDistribution = BuildSmokeEmissiveDistribution(emissiveTriangles);
+    if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke emissive distribution entries=%d valid=%d zeroPdf=%d fallback=%d fallbackWeight=%.3f totalPdf=%.6f cvar=%d\n",
+            static_cast<int>(emissiveDistribution.entries.size()),
+            emissiveDistribution.valid ? 1 : 0,
+            emissiveDistribution.zeroPdfSkipped,
+            emissiveDistribution.fallbackIndex == UINT32_MAX ? -1 : static_cast<int>(emissiveDistribution.fallbackIndex),
+            emissiveDistribution.fallbackWeight,
+            emissiveDistribution.totalPdf,
+            r_pathTracingEmissiveDistribution.GetInteger());
     }
     const RtSmokeLightUniverseStats lightUniverseStats = m_smokeLightUniverse.GetStats();
     if (r_pathTracingLightUniverseDump.GetInteger() != 0)
@@ -2042,6 +2056,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    bufferCreateDesc.existingBuffers.emissiveDistributionBuffer = m_smokeEmissiveDistributionBuffer;
     bufferCreateDesc.existingBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
     bufferCreateDesc.existingBuffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
     bufferCreateDesc.existingBuffers.doomAnalyticPreviousLightBuffer = m_smokeDoomAnalyticPreviousLightBuffer;
@@ -2077,6 +2092,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
     bufferCreateDesc.materialTableBytes = materialTable.materials.size() * sizeof(materialTable.materials[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
+    bufferCreateDesc.emissiveDistributionBytes = emissiveDistribution.entries.size() * sizeof(PathTraceEmissiveDistributionEntry);
     bufferCreateDesc.lightCandidateBytes = lightCandidates.size() * sizeof(lightCandidates[0]);
     bufferCreateDesc.doomAnalyticLightBytes = doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate);
     bufferCreateDesc.doomAnalyticPreviousLightBytes = doomAnalyticRemap.previousCandidates.size() * sizeof(PathTraceDoomAnalyticLightCandidate);
@@ -2123,6 +2139,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = smokeBuffers.dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeMaterialTableBuffer = smokeBuffers.materialTableBuffer;
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
+    nvrhi::BufferHandle smokeEmissiveDistributionBuffer = smokeBuffers.emissiveDistributionBuffer;
     nvrhi::BufferHandle smokeLightCandidateBuffer = smokeBuffers.lightCandidateBuffer;
     nvrhi::BufferHandle smokeDoomAnalyticLightBuffer = smokeBuffers.doomAnalyticLightBuffer;
     nvrhi::BufferHandle smokeDoomAnalyticPreviousLightBuffer = smokeBuffers.doomAnalyticPreviousLightBuffer;
@@ -2384,6 +2401,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeEmissiveDistributionBuffer, emissiveDistribution.entries, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeLightCandidateBuffer, lightCandidates, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDoomAnalyticLightBuffer, doomAnalyticLights, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDoomAnalyticPreviousLightBuffer, doomAnalyticRemap.previousCandidates, nvrhi::ResourceStates::ShaderResource, false),
@@ -2594,8 +2612,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 7);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 23, 5);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 8);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 24, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -2873,6 +2891,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.materials.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER | RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED | RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED;
 
     sceneInputs.lights.emissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
+    sceneInputs.lights.emissiveDistributionBuffer = smokeEmissiveDistributionBuffer;
     sceneInputs.lights.lightCandidateBuffer = smokeLightCandidateBuffer;
     sceneInputs.lights.doomAnalyticLightBuffer = smokeDoomAnalyticLightBuffer;
     sceneInputs.lights.doomAnalyticPreviousLightBuffer = smokeDoomAnalyticPreviousLightBuffer;
@@ -2880,6 +2899,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.doomAnalyticPreviousIdentityBuffer = smokeDoomAnalyticPreviousIdentityBuffer;
     sceneInputs.lights.doomAnalyticRemapBuffer = smokeDoomAnalyticRemapBuffer;
     sceneInputs.lights.emissiveTriangleCount = emissiveInventoryStats.capturedTriangles;
+    sceneInputs.lights.emissiveDistributionCount = static_cast<int>(emissiveDistribution.entries.size());
+    sceneInputs.lights.emissiveDistributionZeroPdfSkipped = emissiveDistribution.zeroPdfSkipped;
+    sceneInputs.lights.emissiveDistributionFallbackIndex = emissiveDistribution.fallbackIndex == UINT32_MAX ? -1 : static_cast<int>(emissiveDistribution.fallbackIndex);
     sceneInputs.lights.emissiveStaticTriangleCount = emissiveInventoryStats.staticTriangles;
     sceneInputs.lights.emissiveDynamicTriangleCount = emissiveInventoryStats.dynamicTriangles;
     sceneInputs.lights.lightCandidateCount = emissiveInventoryStats.candidateMaterials;
@@ -2891,6 +2913,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.doomAnalyticRemapCount = static_cast<int>(doomAnalyticRemap.universeRemap.size());
     sceneInputs.lights.doomAnalyticInvalidRemapCount = doomAnalyticRemap.invalidRemapCount;
     sceneInputs.lights.previousEmissiveTriangleCount = m_sceneInputs.valid ? m_sceneInputs.lights.emissiveTriangleCount : 0;
+    sceneInputs.lights.emissiveDistributionTotalPdf = emissiveDistribution.totalPdf;
+    sceneInputs.lights.emissiveDistributionFallbackWeight = emissiveDistribution.fallbackWeight;
+    sceneInputs.lights.emissiveDistributionValid = emissiveDistribution.valid;
     sceneInputs.lights.lightUniverseGeneration = lightUniverseStats.generation;
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
 
