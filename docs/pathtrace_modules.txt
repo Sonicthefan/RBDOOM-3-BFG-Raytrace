@@ -1899,6 +1899,14 @@ initial max of 3 accepts primary NEE but silently rejects the first indirect
 analytic NEE candidate. This override is scoped to modes 53-55 and does not
 change mode 18.
 
+`r_pathTracingRestirPTRaySparsity` is the first default-off sparse-ray update
+path for staged ReSTIR direct lighting. Values 2-8 skip inactive producer pixels
+before ray tracing, snap spatial neighbor lookups to active representative
+direct-domain pixels, and make full-resolution consumers read representative
+spatial reservoirs. Previous-frame temporal lookup uses the previous sparse
+phase. This is scoped to modes 50-51 and mode 18 ReSTIR direct lighting; GI
+modes 53-55 remain full-update initial-reservoir diagnostics.
+
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed
 rigid hits as no-object-motion until rigid coverage has a separate validation

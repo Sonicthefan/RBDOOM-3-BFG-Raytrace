@@ -84,6 +84,11 @@ Do not bind full-resolution surface history as if it were the same dimensions as
 
 Do not make direct lighting scale imply future indirect/reflection scaling. Add the pattern once, then replicate it per domain later.
 
+Do not conflate resolution scaling with ray sparsity. Scaling changes the
+reservoir domain dimensions; sparsity keeps the domain dimensions stable and
+updates only an interleaved subset of pixels. Track sparsity in
+`docs/ReSTIR/ray_sparsity_plan.txt`.
+
 Do not tie this to DLSS RR immediately. Keep the data contract compatible with DLSS RR, but first make the reservoir domain explicit and stable.
 
 Do not use Debug builds for validation. Use the PT development Release lane.

@@ -94,6 +94,10 @@ Current implementation state:
   this view-2 slice as a suspect and regression-test or revert it first.
 - The first mode 50/51 path still uses a shader-local 32-entry neighbor offset
   table rather than a host-bound RTXDI neighbor-offset buffer.
+- r_pathTracingRestirPTRaySparsity is default-off. Values 2-8 sparsely update
+  staged ReSTIR direct producers and reconstruct full-resolution consumers from
+  active representative direct-reservoir pixels. It is currently scoped to modes
+  50-51 and mode 18 ReSTIR direct lighting, not modes 53-55.
 
 Current mode 18 ReSTIR direct-lighting hybrid:
 - Use r_pathTracingDebugMode 18 and r_pathTracingRestirPTDirectLighting 1.

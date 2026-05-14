@@ -73,6 +73,7 @@ struct PathTraceSmokeConstants
     float neeInfo[4];
     float motionVectorInfo[4];
     float restirPTDirectInfo[4];
+    float restirPTSparsityInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -435,6 +436,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int restirPTDirectHeight = stagedRestirDirectLightingMode
         ? PathTraceScaledRestirDimension(m_frameResources.height, restirPTDirectResolutionScale)
         : m_frameResources.height;
+    const int restirPTRaySparsity = stagedRestirDirectLightingMode
+        ? idMath::ClampInt(1, 8, r_pathTracingRestirPTRaySparsity.GetInteger())
+        : 1;
+    const int restirPTRaySparsityPhase = restirPTRaySparsity > 1
+        ? static_cast<int>(m_frameResources.restirPTFrameIndex % static_cast<uint32_t>(restirPTRaySparsity))
+        : 0;
+    const int restirPTRaySparsityPreviousPhase = restirPTRaySparsity > 1
+        ? (restirPTRaySparsityPhase + restirPTRaySparsity - 1) % restirPTRaySparsity
+        : 0;
     const PathTraceIntegratorSettings integratorSettings = ApplyPathTraceSafetyKillSwitches(BuildPathTraceIntegratorSettings(), safetyDisableMask);
     const RtPathTraceDebugModeInfo debugModeInfo = GetPathTraceDebugModeInfo(debugMode);
 
@@ -586,7 +596,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.restirPTContextState.parameters);
     if (r_pathTracingRestirPTPassDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d scale=%.3f buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -598,6 +608,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTDirectWidth,
             restirPTDirectHeight,
             restirPTDirectResolutionScale,
+            restirPTRaySparsity,
+            restirPTRaySparsityPhase,
+            restirPTRaySparsityPreviousPhase,
             restirPTBufferSelection.initialOutput,
             restirPTBufferSelection.temporalInput,
             restirPTBufferSelection.temporalOutput,
@@ -746,6 +759,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTDirectInfo[1] = static_cast<float>(restirPTDirectHeight);
     constants.restirPTDirectInfo[2] = 0.0f;
     constants.restirPTDirectInfo[3] = restirPTDirectResolutionScale;
+    constants.restirPTSparsityInfo[0] = static_cast<float>(restirPTRaySparsity);
+    constants.restirPTSparsityInfo[1] = static_cast<float>(restirPTRaySparsityPhase);
+    constants.restirPTSparsityInfo[2] = stagedRestirDirectLightingMode ? 1.0f : 0.0f;
+    constants.restirPTSparsityInfo[3] = static_cast<float>(restirPTRaySparsityPreviousPhase);
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));

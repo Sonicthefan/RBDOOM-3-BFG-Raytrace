@@ -3222,6 +3222,14 @@ at bounceDepth 2 and records secondary-surface NEE as pathLength 4; keeping the
 default initial max of 3 makes indirect analytic NEE disappear while emissive
 secondary hits can still appear. The override is scoped to the GI debug modes.
 
+`r_pathTracingRestirPTRaySparsity` is a separate, default-off sparse update
+control for the staged ReSTIR direct path. Values 2-8 update roughly one out of
+N direct-domain reservoir pixels per frame, skip inactive producer pixels before
+ray tracing, and make full-resolution consumers read active representative
+reservoir pixels. Temporal previous-frame lookups use the previous sparse phase.
+This currently applies to modes 50-51 and mode 18 ReSTIR direct lighting, not to
+the single-dispatch GI modes 53-55.
+
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with
 validated retained previous positions. Valid skinned hits encode

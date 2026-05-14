@@ -813,6 +813,12 @@ idCVar r_pathTracingRestirPTDirectResolutionScale(
     CVAR_RENDERER | CVAR_FLOAT,
     "Scale for staged ReSTIR direct-lighting reservoir domain in modes 50-51 and mode 18 ReSTIR direct; clamps to 0.25..1.0" );
 
+idCVar r_pathTracingRestirPTRaySparsity(
+    "r_pathTracingRestirPTRaySparsity",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Interleaved sparse update rate for staged ReSTIR direct-lighting producer rays; 1 disables, 2-8 updates roughly 1/N reservoir pixels per frame and reconstructs from active representatives" );
+
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",
     "0",

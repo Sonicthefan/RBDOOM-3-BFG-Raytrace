@@ -149,6 +149,18 @@ still full-output capacity in this slice; RTXDI reservoir parameters and
 dispatch dimensions restrict active ReSTIR direct reads/writes to the scaled
 domain.
 
+The staged direct path also has default-off ray sparsity through:
+
+  r_pathTracingRestirPTRaySparsity
+
+Values 2-8 update roughly one out of N direct-domain reservoir pixels per frame.
+Inactive sparse producer pixels return before tracing. Spatial neighbor lookup
+and full-resolution consumers snap to active representative reservoir pixels,
+and temporal previous-frame lookup snaps to the previous sparse phase so it does
+not deliberately read inactive previous slots. This is only wired for staged
+direct lighting in modes 50-51 and mode 18 ReSTIR direct; modes 53-55 remain
+full-update initial GI debug views until they have a producer/consumer split.
+
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
 spatial reservoir source using the mode 33 convention: cyan/blue for Doom

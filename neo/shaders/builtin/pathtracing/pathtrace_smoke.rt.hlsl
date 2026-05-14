@@ -209,7 +209,7 @@ struct PathTraceSkinnedSurfaceDispatchRecord
 };
 
 uint2 PathTracePrimarySurfaceStorePixel(uint2 pixel);
-int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition);
+int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame);
 
 #include "PathTracePrimarySurface.hlsli"
 
@@ -309,6 +309,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 NeeInfo;
     float4 MotionVectorInfo;
     float4 RestirPTDirectInfo;
+    float4 RestirPTSparsityInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -413,6 +414,76 @@ bool PathTraceRestirDirectDispatchActive()
 #endif
 }
 
+uint PathTraceRestirSparsityRate()
+{
+    return clamp((uint)max(RestirPTSparsityInfo.x, 1.0), 1u, 8u);
+}
+
+bool PathTraceRestirSparsityEnabled()
+{
+    return RestirPTSparsityInfo.z >= 0.5 && PathTraceRestirSparsityRate() > 1u;
+}
+
+uint PathTraceRestirSparsityPhase(bool previousFrame)
+{
+    const uint rate = PathTraceRestirSparsityRate();
+    const float phaseValue = previousFrame ? RestirPTSparsityInfo.w : RestirPTSparsityInfo.y;
+    return rate > 1u ? (uint)max(phaseValue, 0.0) % rate : 0u;
+}
+
+bool PathTraceRestirSparseActivePixel(uint2 pixel, bool previousFrame)
+{
+    if (!PathTraceRestirSparsityEnabled())
+    {
+        return true;
+    }
+    const uint rate = PathTraceRestirSparsityRate();
+    const uint phase = PathTraceRestirSparsityPhase(previousFrame);
+    return ((pixel.x + pixel.y * 3u + phase) % rate) == 0u;
+}
+
+uint2 PathTraceRestirSparseRepresentativePixel(uint2 pixel, bool previousFrame)
+{
+    if (PathTraceRestirSparseActivePixel(pixel, previousFrame))
+    {
+        return pixel;
+    }
+
+    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
+    const uint rate = PathTraceRestirSparsityRate();
+    uint2 bestPixel = min(pixel, dimensions - uint2(1u, 1u));
+    int bestDistance = 0x7fffffff;
+
+    [loop]
+    for (int offsetY = -8; offsetY <= 8; ++offsetY)
+    {
+        [loop]
+        for (int offsetX = -8; offsetX <= 8; ++offsetX)
+        {
+            if ((uint)abs(offsetX) > rate || (uint)abs(offsetY) > rate)
+            {
+                continue;
+            }
+
+            const int2 candidateInt = clamp(int2(pixel) + int2(offsetX, offsetY), int2(0, 0), int2(dimensions) - int2(1, 1));
+            const uint2 candidate = uint2(candidateInt);
+            if (!PathTraceRestirSparseActivePixel(candidate, previousFrame))
+            {
+                continue;
+            }
+
+            const int distance = offsetX * offsetX + offsetY * offsetY;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestPixel = candidate;
+            }
+        }
+    }
+
+    return bestPixel;
+}
+
 uint PathTraceDebugMode()
 {
 #ifdef RB_PT_FORCE_DEBUG_MODE
@@ -433,7 +504,7 @@ uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
     const uint2 fullSize = max(PathTraceFullOutputSize(), uint2(1u, 1u));
     const uint2 directSize = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
     const float2 directPixel = floor(((float2(fullPixel) + 0.5) * float2(directSize)) / float2(fullSize));
-    return min(uint2(directPixel), directSize - uint2(1u, 1u));
+    return PathTraceRestirSparseRepresentativePixel(min(uint2(directPixel), directSize - uint2(1u, 1u)), false);
 }
 
 float2 PathTraceFullPixelFloatToRestirDirectPixelFloat(float2 fullPixelFloat)
@@ -456,7 +527,7 @@ uint2 PathTracePrimarySurfaceStorePixel(uint2 pixel)
     return PathTraceRestirDirectDispatchActive() ? PathTraceRestirDirectPixelToRepresentativeFullPixel(pixel) : pixel;
 }
 
-int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition)
+int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 {
     if (!PathTraceRestirDirectDispatchActive())
     {
@@ -466,7 +537,8 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition)
     {
         return pixelPosition;
     }
-    return int2(PathTraceRestirDirectPixelToRepresentativeFullPixel(uint2(pixelPosition)));
+    const uint2 directPixel = PathTraceRestirSparseRepresentativePixel(uint2(pixelPosition), previousFrame);
+    return int2(PathTraceRestirDirectPixelToRepresentativeFullPixel(directPixel));
 }
 
 #ifdef RB_PT_ENABLE_RESTIR
@@ -2169,7 +2241,12 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
 int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 {
     const uint2 dimensions = max(PathTraceRestirDirectDispatchActive() ? PathTraceRestirDirectSize() : PathTraceFullOutputSize(), uint2(1u, 1u));
-    return clamp(pixelPosition, int2(0, 0), int2(dimensions) - int2(1, 1));
+    const int2 clamped = clamp(pixelPosition, int2(0, 0), int2(dimensions) - int2(1, 1));
+    if (PathTraceRestirDirectDispatchActive())
+    {
+        return int2(PathTraceRestirSparseRepresentativePixel(uint2(clamped), previousFrame));
+    }
+    return clamped;
 }
 
 static const float2 RT_PT_RESTIR_SPATIAL_NEIGHBOR_OFFSETS[32] =
@@ -2240,7 +2317,12 @@ bool RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(int2 previousPi
                 continue;
             }
 
-            const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos((uint2)samplePixel, 0u);
+            uint2 previousReservoirPixel = (uint2)samplePixel;
+            if (PathTraceRestirDirectDispatchActive() && PathTraceRestirSparsityEnabled())
+            {
+                previousReservoirPixel = PathTraceRestirSparseRepresentativePixel(previousReservoirPixel, true);
+            }
+            const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(previousReservoirPixel, 0u);
             const RTXDI_PTReservoir previousReservoir = RTXDI_LoadPTReservoir(
                 RestirPTParams.reservoirBuffer,
                 reservoirPosition,
@@ -2324,6 +2406,10 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     {
         const float2 previousReservoirPixelFloat = PathTraceFullPixelFloatToRestirDirectPixelFloat(previousPixelFloat);
         previousPixel = int2(floor(previousReservoirPixelFloat));
+        if (PathTraceRestirSparsityEnabled() && previousPixel.x >= 0 && previousPixel.y >= 0)
+        {
+            previousPixel = int2(PathTraceRestirSparseRepresentativePixel(uint2(previousPixel), true));
+        }
         motionPixels = previousReservoirPixelFloat - (float2(pixel) + 0.5);
     }
 
@@ -4341,6 +4427,10 @@ void RayGen()
 #else
     const uint debugMode = (uint)CameraUpAndDebugMode.w;
 #endif
+    if (restirDirectDispatch && !PathTraceRestirSparseActivePixel(pixel, false))
+    {
+        return;
+    }
     if (debugMode == 21u)
     {
         SmokeOutput[pixel] = RenderSmokeBoundsBoxes(ray.Origin, ray.Direction);

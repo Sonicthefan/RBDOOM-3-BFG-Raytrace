@@ -1,0 +1,94 @@
+ReSTIR PT Ray Sparsity Plan
+Date: 2026-05-14
+Project: rbdoom-3-bfg-rt path tracing
+
+Purpose
+-------
+Ray sparsity is a separate pressure-release path from resolution scaling.
+Resolution scaling lowers the reservoir domain size. Ray sparsity keeps the
+reservoir domain dimensions stable, but updates only an interleaved subset of
+reservoir pixels each frame and reconstructs consumers from active
+representatives.
+
+Current Scope
+-------------
+The first implementation is default-off and limited to the staged ReSTIR direct
+lighting path:
+
+- Mode 50 spatial reservoir shading.
+- Mode 51 spatial source attribution.
+- Mode 18 when `r_pathTracingRestirPTDirectLighting 1` is enabled.
+
+It does not apply to the standalone initial-reservoir modes 26-28 or GI modes
+53-55 yet, because those modes still generate and consume their reservoir in one
+raygen dispatch. Sparse inactive pixels cannot safely read active neighbors from
+the same dispatch without a producer/consumer split.
+
+Control
+-------
+`r_pathTracingRestirPTRaySparsity`
+
+- `1`: disabled.
+- `2..8`: update roughly one out of N reservoir pixels in the staged direct
+  producer passes.
+
+The active phase advances with the ReSTIR PT frame index. Current-frame producer
+lookups use the current phase; temporal previous-frame lookups snap to the
+previous phase so temporal reuse does not accidentally read inactive/stale
+reservoir slots from the last frame.
+
+Implementation Contract
+-----------------------
+For staged direct-lighting producer dispatches:
+
+1. Inactive sparse reservoir pixels return before tracing rays.
+2. Active reservoir pixels generate initial, temporal, and spatial reservoirs as
+   usual.
+3. Spatial neighbor positions snap to active representative pixels before
+   loading current surfaces and neighbor reservoirs.
+4. Full-resolution consumers map their pixel to the direct reservoir domain, then
+   snap to the current active representative before loading the spatial
+   reservoir.
+
+This is intentionally different from downscaling:
+
+- Primary output dimensions stay full size.
+- The ReSTIR direct reservoir dimensions stay whatever
+  `r_pathTracingRestirPTDirectResolutionScale` selected.
+- Sparse reconstruction happens by representative lookup inside that domain.
+
+Known Limits
+------------
+- Sparse direct lighting is a diagnostic/rough-preview feature, not a final
+  denoiser contract.
+- The representative search is local and deterministic, not a true
+  reconstruction filter.
+- GI modes 53-55 remain full-update initial debug views until they have a
+  producer/consumer split.
+- Sparse temporal reuse still depends on the existing motion-vector and
+  NEE-reuse safety rules. Keep
+  `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` unless the light-domain
+  remap/state validation work is explicitly resumed.
+
+Suggested Validation
+--------------------
+Start conservative:
+
+```
+r_pathTracingDebugMode 50
+r_pathTracingRestirPTDirectResolutionScale 1
+r_pathTracingRestirPTRaySparsity 2
+r_pathTracingRestirPTSpatialSamples 1
+r_pathTracingRestirPTSpatialRadius 16
+r_pathTracingRestirPTPassDump 1
+```
+
+Then compare:
+
+- Mode 50 with sparsity 1 vs 2.
+- Mode 51 with sparsity 1 vs 2 to confirm source colors still identify Doom
+  analytic lights as cyan/blue and emissives as orange.
+- Mode 18 with `r_pathTracingRestirPTDirectLighting 1` at `samplesPerPixel 1`.
+
+Do not combine high sparsity, low direct resolution scale, and large spatial
+sample counts until the low-cost cases are stable.
