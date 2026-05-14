@@ -110,11 +110,25 @@ Current implementation state:
 - r_pathTracingRestirPTGiRaySparsity is default-off. Values 2-8 sparsely update
   the staged GI initial producer for modes 53-56, while the visible pass loads
   nearest active GI initial reservoir representatives.
+- r_pathTracingRestirPTPrimarySurfacePrepass is default-off. When enabled,
+  staged direct temporal/spatial producers consume current full-resolution
+  primary-surface history instead of tracing primary rays. Mode 56 reuses the
+  GI initial producer's history; modes 50-51 and mode 18 ReSTIR direct insert a
+  standalone primary-surface producer. Keep this opt-in until runtime testing
+  confirms it avoids the previous light-blue clear-color failure.
 - User validation reported that mode 56 works visually, but performance is low
   and sparsity visibly changes the image without meaningful performance gains.
-  Treat the next performance step as CPU-first profiling/isolation. CPU-side
-  ReSTIR supply/setup, dispatch submission, pass orchestration, and barriers are
-  leading suspects, not raw producer ray count.
+  Nsight validation reports bad cases are GPU-bound below 60 FPS:
+  `vkCmdTraceRays` dominates frame time, while RT core utilization is only
+  roughly 5-10%. Treat the next performance step as GPU shader/location
+  profiling inside the raygen path, not CPU setup or raw traversal ray-count
+  profiling.
+- Mode 56 has four `vkCmdTraceRays` events in order: GI initial producer,
+  direct temporal producer, direct spatial producer, final combined consumer.
+  User Nsight validation reports events 2 and 3 dominate frame time by far.
+  In bad locations event 1 also roughly doubles, but remains lower than events
+  2 and 3. Target the staged direct TemporalAndSpatial producer path first, and
+  use event 1 as a secondary check for shared location-sensitive paths.
 - User validation also found dark base-game areas with apparently open roofs
   that raster lighting keeps hidden from skybox light through some setting or
   light/visibility rule. Mode 56 GI can over-brighten these spaces. Investigate
@@ -158,9 +172,12 @@ GI integration:
   lighting at conservative output resolution.
 - Use mode 55 to confirm the GI source/path side still distinguishes packed NEE
   sources from non-NEE indirect/path samples.
-- Isolate CPU-side ReSTIR supply/setup, dispatch submission, pass orchestration,
-  and barrier timing before assuming shader/ray cost. Sparsity visibly changes
-  the image but does not meaningfully improve performance.
+- Isolate shader work inside `vkCmdTraceRays` events 2 and 3: direct temporal
+  producer and direct spatial producer material/light sampling, reservoir
+  loads/stores, memory/cache behavior, and branch divergence. Sparsity visibly
+  changes the image but does not meaningfully improve performance, and RT core
+  utilization is low in the expensive cases. Compare event 1 across good/bad
+  locations to catch shared producer-side material/light/environment costs.
 - Investigate the skybox/open-roof over-brightening case as an environment
   visibility/light-mask contract issue, not as a reason to remove GI broadly.
 - Keep temporal NEE reuse disabled as documented. Do not add temporal/spatial

@@ -67,6 +67,20 @@ For staged GI initial producer dispatches:
 3. Visible modes 53-56 keep their full-resolution primary hit for material
    context, but load the nearest active GI initial reservoir representative.
 
+Representative lookup is now constant-time for both sparse direct and sparse
+GI. Earlier shader code searched a local `[-8, 8]` x/y window to find an active
+representative, which could cost up to 289 active-pixel tests per consumer
+pixel. Because mode 56 is still a full-resolution visible consumer, that
+consumer-side search could eat much or all of the producer savings. The current
+mapping solves the existing active-pixel pattern directly along the same row:
+
+```
+((pixel.x + pixel.y * 3u + phase) % rate) == 0u
+```
+
+This keeps sparsity deterministic while avoiding a per-pixel loop in the
+consumer/reconstruction path.
+
 This is intentionally different from downscaling:
 
 - Primary output dimensions stay full size.
@@ -88,9 +102,21 @@ Known Limits
   remap/state validation work is explicitly resumed.
 - User validation of mode 56 reported visible image changes from sparsity but
   no meaningful performance improvement. Treat sparsity as a
-  visual/reconstruction control for now. The leading suspect is CPU-side ReSTIR
-  supply/setup, dispatch submission, pass orchestration, or barrier overhead
-  rather than raw producer ray count.
+  visual/reconstruction control for now. User Nsight validation reports the
+  bad cases are GPU-bound below 60 FPS, with `vkCmdTraceRays` dominating frame
+  time but RT core utilization only around 5-10%. The likely bottleneck is
+  shader/location-sensitive work inside the raygen path rather than raw
+  traversal ray count.
+- The first sparsity tests were run before constant-time representative lookup.
+  Retest direct and GI sparsity after that change before concluding that
+  producer-ray reduction has no possible performance value.
+- Mode 56 emits four `vkCmdTraceRays` events in pass order. User Nsight
+  validation reports events 2 and 3, the direct temporal and direct spatial
+  producers, dominate frame time by far. That explains why sparsity can visibly
+  change reconstruction without providing meaningful performance relief. Event
+  1, the GI initial producer, also roughly doubles in bad locations but remains
+  lower than events 2 and 3, so location sensitivity is shared but the direct
+  producer passes remain the primary target.
 
 Suggested Validation
 --------------------

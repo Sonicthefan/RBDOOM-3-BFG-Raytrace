@@ -221,9 +221,36 @@ Validated Issues
 ----------------
 Mode 56 is visibly working. Sparsity visibly changes the image, but it does not
 meaningfully improve performance, so do not assume the first bottleneck is raw
-producer ray count. The next performance step should start with CPU-side ReSTIR
-supply/setup, dispatch submission, pass orchestration, and barrier timing, then
-separate shader/GPU time after CPU timing is understood.
+producer ray count. User Nsight validation reports the bad cases are GPU-bound
+below 60 FPS: `vkCmdTraceRays` dominates frame time, while RT core utilization
+is only roughly 5-10%. The next performance step should profile shader work
+inside `vkCmdTraceRays`, especially location-sensitive environment/sky,
+material, light sampling, memory/cache, and branch-divergence paths.
+
+`r_pathTracingRestirPTPrimarySurfacePrepass` is a default-off experiment for
+the repeated-primary-ray cost in staged direct ReSTIR producers. With it off,
+the current working path is unchanged. With it on, direct temporal/spatial
+producer prepasses load current primary-surface history instead of tracing a
+primary ray. In mode 56 the GI initial producer supplies that history; in modes
+50-51 and the mode 18 ReSTIR direct hybrid a standalone full-resolution primary
+surface prepass is inserted first. Keep this opt-in until mode 18 baseline,
+mode 50/51, and mode 56 have been checked for the light-blue clear-color
+regression.
+
+Runtime validation on 2026-05-15 reported that this path works but does not
+improve performance. Do not spend more time on primary-ray reuse as the main
+mode 56 optimization. The direct producer passes remain the target, but the
+cost is likely after the primary hit is available: reservoir generation,
+RTXDI/RAB sampling, direct/indirect NEE trial loops, visibility/continuation
+rays, memory traffic, or shader divergence.
+
+In mode 56 there are four `vkCmdTraceRays` events, matching the staged pass
+order: GI initial producer, direct temporal producer, direct spatial producer,
+and final combined consumer. User Nsight validation reports events 2 and 3 are
+the majority of frame time by far. In bad locations event 1 also roughly
+doubles, but remains lower than events 2 and 3. Prioritize the staged direct
+temporal and spatial producer shaders, while using event 1 as a secondary check
+for shared location-sensitive material/light/environment paths.
 
 Some nominally dark base-game spaces appear to have open roofs. The raster path
 apparently hides those spaces from skybox light through rules outside simple

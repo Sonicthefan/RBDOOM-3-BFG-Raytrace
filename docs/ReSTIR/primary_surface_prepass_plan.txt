@@ -1,0 +1,183 @@
+ReSTIR PT Primary Surface Prepass Plan
+Date: 2026-05-15
+Project: rbdoom-3-bfg-rt path tracing
+
+Purpose
+-------
+Mode 56 currently runs several raygen passes that each trace their own primary
+camera ray before doing ReSTIR work. User Nsight captures showed mode 56 emits
+four `vkCmdTraceRays` events:
+
+1. GI initial producer.
+2. Direct temporal producer.
+3. Direct spatial producer.
+4. Final combined consumer.
+
+Events 2 and 3 dominate the bad locations. Ray sparsity changes the image but
+does not materially reduce frame time, which points at shader work and repeated
+primary-surface setup inside those producer passes rather than raw RT traversal
+count alone.
+
+The next optimization target is to make the staged direct ReSTIR producer
+passes consume a previously generated full-resolution primary-surface buffer
+instead of tracing primary rays again.
+
+Recent Failed Shortcut
+----------------------
+An earlier uncommitted experiment tried to add a mode 56 primary-surface
+producer and let later dispatches consume it directly inside the monolithic
+shared raygen path. It produced a light-blue output, meaning the PT output clear
+color survived because the final pass did not write valid output.
+
+Do not revive that exact shortcut. The corrected version must keep pass identity
+explicit, default off, and keep mode 18 untouched unless the user opts into the
+experimental ReSTIR path.
+
+Current Useful Contracts
+------------------------
+The branch already has the key pieces:
+
+- Full-resolution `PrimarySurfaceHistoryCurrent` and
+  `PrimarySurfaceHistoryPrevious` buffers.
+- `PathTracePrimarySurface.hlsli` packing/unpacking helpers.
+- Direct-domain to full-resolution mapping helpers:
+  `PathTraceFullPixelToRestirDirectPixel`,
+  `PathTraceRestirDirectPixelToRepresentativeFullPixel`, and
+  `PathTracePrimarySurfaceLoadPixel`.
+- Staged direct TemporalAndSpatial prepasses for modes 50-51, mode 56, and
+  mode 18 when `r_pathTracingRestirPTDirectLighting 1` is enabled.
+- A staged GI initial producer for modes 53-56 that already traces full
+  resolution before the direct temporal/spatial prepasses in mode 56.
+
+Implementation Rule
+-------------------
+Keep this path default off:
+
+```
+r_pathTracingRestirPTPrimarySurfacePrepass 0
+```
+
+When enabled, only staged direct ReSTIR producer dispatches may consume the
+prepass. Stable mode 18 with `r_pathTracingRestirPTDirectLighting 0` must not
+change.
+
+The shader dispatch identity should be explicit:
+
+- `0`: normal full-output dispatch.
+- `1`: direct-domain producer that traces its own primary ray.
+- `2`: full-resolution primary-surface producer only.
+- `3`: direct-domain producer that consumes full-resolution primary-surface
+  history instead of tracing primary.
+
+Do not add a new constant-buffer field for this first slice. Reuse the existing
+`RestirPTDirectInfo.z` dispatch-mode lane so CPU and shader layout stays
+unchanged.
+
+Pass Graph
+----------
+Modes 50-51 and mode 18 ReSTIR direct hybrid:
+
+1. Optional full-resolution primary-surface producer dispatch.
+2. Direct temporal producer dispatch, consuming primary history.
+3. Direct spatial producer dispatch, consuming primary history.
+4. Full-resolution visible consumer.
+
+Mode 56:
+
+1. GI initial producer dispatch. This already traces full resolution and writes
+   current primary-surface history before producing the GI reservoir.
+2. Direct temporal producer dispatch, consuming that primary history.
+3. Direct spatial producer dispatch, consuming that primary history.
+4. Full-resolution combined consumer.
+
+This avoids adding a fifth trace event to mode 56 just to generate the same
+full-resolution primary surface that the GI initial pass already wrote.
+
+Shader Rules
+------------
+Direct producer dispatches that consume history must:
+
+- Keep their dispatch dimensions in the direct reservoir domain.
+- Map direct-domain pixels to representative full-resolution pixels through the
+  existing helpers.
+- Load `PrimarySurfaceHistoryCurrent` through the same domain-aware RAB surface
+  path used by spatial neighbor lookups.
+- Skip primary `TraceRay` and skip primary-surface writes.
+- Only run producer logic that is valid from a `RAB_Surface`; they must not use
+  an uninitialized `PathTraceSmokePayload`.
+
+Full-output visible consumers may keep tracing primary rays in this first
+slice. That keeps mode 50/51/56 visible output behavior conservative while
+testing whether the expensive direct temporal/spatial producer passes improve.
+
+Validation
+----------
+Build from:
+
+```
+E:\prog\rbdoom-3-bfg-rt\neo
+cmake --build --preset win64-pt-dev-release
+```
+
+Deploy:
+
+```
+E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+  -> E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+  -> E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+```
+
+Start with:
+
+```
+r_pathTracingDebugMode 56
+r_pathTracingRestirPTPrimarySurfacePrepass 0
+r_pathTracingRestirPTPassDump 1
+```
+
+Then enable:
+
+```
+r_pathTracingRestirPTPrimarySurfacePrepass 1
+r_pathTracingRestirPTPassDump 1
+```
+
+Expected behavior:
+
+- With the CVar off, pass dumps and visuals match the current working baseline.
+- With the CVar on, mode 56 still writes a full image, not the blue clear color.
+- The pass dump reports primary prepass use and direct producers consuming
+  primary history.
+- Mode 18 without `r_pathTracingRestirPTDirectLighting` is unchanged.
+- If a perf gain exists, it should show first in events 2 and 3.
+
+Validation result, 2026-05-15:
+
+- The path works visually.
+- It did not produce a meaningful performance improvement.
+- Keep the CVar as a diagnostic switch, but do not treat primary-ray reuse as
+  the main mode 56 bottleneck anymore.
+
+Failure signals:
+
+- Light-blue output: final visible pass did not write the output texture.
+- All-invalid mode 50/51/56: direct-domain producer consumed the wrong surface
+  coordinate domain or stale history.
+- Mode 18 baseline changes with the CVar on but ReSTIR direct lighting off:
+  guard scope leaked into the stable path.
+
+Follow-up
+---------
+If this works, the next step is not to keep adding hidden modes to the shared
+raygen. Move toward explicit pass libraries or compile-time pass entry points:
+
+- primary-surface producer,
+- direct temporal producer,
+- direct spatial producer,
+- GI initial producer,
+- final visible consumer.
+
+Only after this prepass is stable should final consumers be converted to load
+primary surfaces instead of retracing them.

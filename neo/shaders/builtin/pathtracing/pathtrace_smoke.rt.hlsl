@@ -421,8 +421,19 @@ bool PathTraceRestirDirectDispatchActive()
 #if defined(RB_PT_RESTIR_SPATIAL_CONSUMES_SPATIAL_PREPASS) && !defined(RB_PT_RESTIR_SPATIAL_PRODUCER)
     return false;
 #else
-    return RestirPTDirectInfo.z >= 0.5;
+    const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
+    return dispatchMode == 1u || dispatchMode == 3u;
 #endif
+}
+
+bool PathTraceRestirPTPrimarySurfaceProducerDispatch()
+{
+    return (uint)max(RestirPTDirectInfo.z, 0.0) == 2u;
+}
+
+bool PathTraceRestirPTConsumePrimarySurfaceHistory()
+{
+    return (uint)max(RestirPTDirectInfo.z, 0.0) == 3u;
 }
 
 uint PathTraceRestirSparsityRate()
@@ -455,44 +466,37 @@ bool PathTraceRestirSparseActivePixel(uint2 pixel, bool previousFrame)
 
 uint2 PathTraceRestirSparseRepresentativePixel(uint2 pixel, bool previousFrame)
 {
-    if (PathTraceRestirSparseActivePixel(pixel, previousFrame))
+    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
+    pixel = min(pixel, dimensions - uint2(1u, 1u));
+    if (!PathTraceRestirSparsityEnabled())
     {
         return pixel;
     }
 
-    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
     const uint rate = PathTraceRestirSparsityRate();
-    uint2 bestPixel = min(pixel, dimensions - uint2(1u, 1u));
-    int bestDistance = 0x7fffffff;
-
-    [loop]
-    for (int offsetY = -8; offsetY <= 8; ++offsetY)
+    const uint phase = PathTraceRestirSparsityPhase(previousFrame);
+    const uint residue = (pixel.x + pixel.y * 3u + phase) % rate;
+    const int dxBack = -int(residue);
+    const int dxForward = int((rate - residue) % rate);
+    const int xBack = int(pixel.x) + dxBack;
+    const int xForward = int(pixel.x) + dxForward;
+    const bool backValid = xBack >= 0;
+    const bool forwardValid = xForward < int(dimensions.x);
+    int chosenX = int(pixel.x);
+    if (backValid && forwardValid)
     {
-        [loop]
-        for (int offsetX = -8; offsetX <= 8; ++offsetX)
-        {
-            if ((uint)abs(offsetX) > rate || (uint)abs(offsetY) > rate)
-            {
-                continue;
-            }
-
-            const int2 candidateInt = clamp(int2(pixel) + int2(offsetX, offsetY), int2(0, 0), int2(dimensions) - int2(1, 1));
-            const uint2 candidate = uint2(candidateInt);
-            if (!PathTraceRestirSparseActivePixel(candidate, previousFrame))
-            {
-                continue;
-            }
-
-            const int distance = offsetX * offsetX + offsetY * offsetY;
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestPixel = candidate;
-            }
-        }
+        chosenX = abs(dxBack) <= abs(dxForward) ? xBack : xForward;
+    }
+    else if (backValid)
+    {
+        chosenX = xBack;
+    }
+    else if (forwardValid)
+    {
+        chosenX = xForward;
     }
 
-    return bestPixel;
+    return uint2(uint(clamp(chosenX, 0, int(dimensions.x) - 1)), pixel.y);
 }
 
 uint PathTraceDebugMode()
@@ -543,44 +547,37 @@ bool PathTraceRestirPTIndirectSparseActivePixel(uint2 pixel)
 
 uint2 PathTraceRestirPTIndirectRepresentativePixel(uint2 pixel)
 {
-    if (PathTraceRestirPTIndirectSparseActivePixel(pixel))
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    pixel = min(pixel, dimensions - uint2(1u, 1u));
+    if (!PathTraceRestirPTIndirectSparsityEnabled())
     {
         return pixel;
     }
 
-    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
     const uint rate = PathTraceRestirPTIndirectSparsityRate();
-    uint2 bestPixel = min(pixel, dimensions - uint2(1u, 1u));
-    int bestDistance = 0x7fffffff;
-
-    [loop]
-    for (int offsetY = -8; offsetY <= 8; ++offsetY)
+    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
+    const uint residue = (pixel.x + pixel.y * 3u + phase) % rate;
+    const int dxBack = -int(residue);
+    const int dxForward = int((rate - residue) % rate);
+    const int xBack = int(pixel.x) + dxBack;
+    const int xForward = int(pixel.x) + dxForward;
+    const bool backValid = xBack >= 0;
+    const bool forwardValid = xForward < int(dimensions.x);
+    int chosenX = int(pixel.x);
+    if (backValid && forwardValid)
     {
-        [loop]
-        for (int offsetX = -8; offsetX <= 8; ++offsetX)
-        {
-            if ((uint)abs(offsetX) > rate || (uint)abs(offsetY) > rate)
-            {
-                continue;
-            }
-
-            const int2 candidateInt = clamp(int2(pixel) + int2(offsetX, offsetY), int2(0, 0), int2(dimensions) - int2(1, 1));
-            const uint2 candidate = uint2(candidateInt);
-            if (!PathTraceRestirPTIndirectSparseActivePixel(candidate))
-            {
-                continue;
-            }
-
-            const int distance = offsetX * offsetX + offsetY * offsetY;
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestPixel = candidate;
-            }
-        }
+        chosenX = abs(dxBack) <= abs(dxForward) ? xBack : xForward;
+    }
+    else if (backValid)
+    {
+        chosenX = xBack;
+    }
+    else if (forwardValid)
+    {
+        chosenX = xForward;
     }
 
-    return bestPixel;
+    return uint2(uint(clamp(chosenX, 0, int(dimensions.x) - 1)), pixel.y);
 }
 
 uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
@@ -4573,6 +4570,8 @@ void RayGen()
     const uint2 localPixel = DispatchRaysIndex().xy;
     const uint2 pixel = localPixel + PathTraceDispatchTileOffset();
     const bool restirDirectDispatch = PathTraceRestirDirectDispatchActive();
+    const bool primarySurfaceProducerDispatch = PathTraceRestirPTPrimarySurfaceProducerDispatch();
+    const bool consumePrimarySurfaceHistory = PathTraceRestirPTConsumePrimarySurfaceHistory();
     const uint2 dimensions = restirDirectDispatch ? PathTraceRestirDirectSize() : PathTraceFullOutputSize();
     const uint2 fullDimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
@@ -4670,18 +4669,32 @@ void RayGen()
     }
 
     const uint traceMask = debugMode == 23u ? 0x02u : 0xffu;
-    TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, ray, payload);
 
     RAB_Surface primaryHistorySurface = RAB_EmptySurface();
-    if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
+    if (consumePrimarySurfaceHistory)
     {
-        primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
+        primaryHistorySurface = RAB_GetGBufferSurface(int2(pixel), false);
+    }
+    else
+    {
+        TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, ray, payload);
+        if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
+        {
+            primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
+        }
     }
 #ifndef RB_PT_RESTIR_SPATIAL_PRODUCER
-    StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
-    if (!restirDirectDispatch)
+    if (!consumePrimarySurfaceHistory)
     {
-        StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
+        StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
+        if (!restirDirectDispatch)
+        {
+            StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
+        }
+        if (primarySurfaceProducerDispatch)
+        {
+            return;
+        }
     }
 #endif
 

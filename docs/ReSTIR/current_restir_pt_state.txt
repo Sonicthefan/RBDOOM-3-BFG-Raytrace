@@ -204,6 +204,30 @@ direct spatial reservoir and the completed indirect/GI initial reservoir
 together. It remains debug-only: direct and GI still have separate reservoir
 domains, GI has no temporal/spatial reuse, and mode 18 is unchanged.
 
+An experimental default-off primary-surface reuse path is available through:
+
+  r_pathTracingRestirPTPrimarySurfacePrepass
+
+Default 0 preserves the current working behavior. When set to 1, staged direct
+temporal/spatial producer dispatches consume current full-resolution
+primary-surface history instead of tracing their own primary rays. Modes 50-51
+and the mode 18 ReSTIR direct hybrid insert a standalone full-resolution
+primary-surface producer prepass before direct temporal/spatial producers. Mode
+56 reuses the full-resolution primary-surface history already written by the GI
+initial producer, so it does not add an extra primary-surface-only trace event.
+The visible/full-output consumer still traces primary rays in this first slice.
+This path is documented in `docs/ReSTIR/primary_surface_prepass_plan.txt` and
+should stay opt-in until runtime testing confirms it does not produce the prior
+light-blue clear-color failure.
+
+Runtime validation on 2026-05-15 reported that the primary-surface prepass path
+works visually but has no meaningful performance impact. Treat this as evidence
+that repeated primary camera ray traversal is not the dominant cost in mode 56's
+direct temporal/spatial producer passes. The next optimization pass should
+profile/isolate the producer shader work after primary-surface construction:
+RTXDI initial/temporal/spatial reservoir work, RAB path/NEE sampling, visibility
+or continuation rays, reservoir memory traffic, and branch divergence.
+
 User validation reported that mode 56 launches and the combined preview is
 visibly working. Two issues are known:
 - Performance is low in some locations, and increasing direct/GI sparsity did

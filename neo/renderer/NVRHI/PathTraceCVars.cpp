@@ -825,6 +825,12 @@ idCVar r_pathTracingRestirPTGiRaySparsity(
     CVAR_RENDERER | CVAR_INTEGER,
     "Interleaved sparse update rate for staged ReSTIR GI initial-reservoir producer rays in modes 53-56; 1 disables, 2-8 updates roughly 1/N full-resolution reservoir pixels per frame" );
 
+idCVar r_pathTracingRestirPTPrimarySurfacePrepass(
+    "r_pathTracingRestirPTPrimarySurfacePrepass",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental default-off ReSTIR PT path: direct temporal/spatial producers consume current primary-surface history instead of tracing primary rays again" );
+
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",
     "0",
