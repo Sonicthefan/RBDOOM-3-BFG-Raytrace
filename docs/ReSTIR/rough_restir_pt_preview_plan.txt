@@ -26,6 +26,8 @@ Current Baseline
 - Modes 53-55 are the first debug-only indirect/GI initial-reservoir views.
   They skip primary NEE in the RAB path tracer so the visible reservoir domain
   starts at secondary/indirect path candidates.
+- Mode 56 combines the completed direct spatial reservoir from the mode 50 path
+  with the completed indirect/GI initial reservoir from the mode 54 path.
 - ReSTIR shader libraries are now split and force-specialized per mode, which
   makes iteration feasible again. Keep core mode 18 independent from ReSTIR
   debug-mode shader cost.
@@ -191,6 +193,41 @@ representative reservoir pixels. It is wired only for modes 50-51 and mode 18
 with `r_pathTracingRestirPTDirectLighting 1`.
 
 `r_pathTracingRestirPTGiRaySparsity` is the matching default-off GI diagnostic
-for modes 53-55. Values 2-8 sparsely update the full-resolution staged GI
-initial producer, then modes 53-55 load the nearest active GI initial reservoir
+for modes 53-56. Values 2-8 sparsely update the full-resolution staged GI
+initial producer, then visible GI modes load the nearest active GI initial reservoir
 representative while keeping their current full-resolution surface context.
+
+Combined DI + GI Follow-Up
+--------------------------
+Mode 56 is the first debug-only combined direct + GI preview. It runs the same
+staged direct temporal/spatial producer path as mode 50 and the same staged GI
+initial producer as modes 53-55, then shades the completed direct spatial
+reservoir and completed GI initial reservoir together in a specialized consumer.
+It is a validation view only; it does not add temporal/spatial GI reuse and does
+not change mode 18.
+
+Validate mode 56 by comparing it against:
+
+- Mode 50 for direct spatial-reservoir lighting.
+- Mode 54 for indirect/GI initial-reservoir lighting.
+- Mode 55 for indirect source/path attribution.
+
+Both sparsity controls can be tested in mode 56:
+
+  r_pathTracingRestirPTRaySparsity
+  r_pathTracingRestirPTGiRaySparsity
+
+Validated Issues
+----------------
+Mode 56 is visibly working. Sparsity visibly changes the image, but it does not
+meaningfully improve performance, so do not assume the first bottleneck is raw
+producer ray count. The next performance step should start with CPU-side ReSTIR
+supply/setup, dispatch submission, pass orchestration, and barrier timing, then
+separate shader/GPU time after CPU timing is understood.
+
+Some nominally dark base-game spaces appear to have open roofs. The raster path
+apparently hides those spaces from skybox light through rules outside simple
+closed geometry. The GI preview can therefore over-brighten them. Preserve
+environment-lighting headroom, but add a future investigation for Doom
+sky/environment visibility or light-mask rules before treating mode 56 exposure
+as a pure GI-quality problem.

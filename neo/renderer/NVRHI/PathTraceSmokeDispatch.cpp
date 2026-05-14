@@ -300,7 +300,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
     }
 
-    int debugMode = idMath::ClampInt(0, 55, r_pathTracingDebugMode.GetInteger());
+    int debugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
@@ -319,6 +319,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTAttributionMode = debugMode == 33;
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
+    const bool restirPTCombinedMode = debugMode == 56;
     if (restirPTInitialOnlyMode && !m_smokeRestirInitialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(0);
@@ -335,7 +336,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(3);
     }
-    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode) && !m_smokeRestirSpatialReservoirShaderTable)
+    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode || restirPTCombinedMode) && !m_smokeRestirSpatialReservoirShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(4);
     }
@@ -347,13 +348,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         InitRayTracingSmokeRestirPipeline(6);
     }
-    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode) && !m_smokeRestirShaderTable)
+    if ((restirPTSpatialShadingMode || restirPTSpatialAttributionMode || restirPTCombinedMode) && !m_smokeRestirShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(1);
     }
-    if ((debugMode >= 53 && debugMode <= 55) && !m_smokeRestirInitialShaderTable)
+    if ((debugMode >= 53 && debugMode <= 56) && !m_smokeRestirInitialShaderTable)
     {
         InitRayTracingSmokeRestirPipeline(0);
+    }
+    if (restirPTCombinedMode && !m_smokeRestirCombinedShaderTable)
+    {
+        InitRayTracingSmokeRestirPipeline(8);
     }
     if (mode18RestirDirectMode)
     {
@@ -398,6 +403,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else if (restirPTSpatialAttributionMode && m_smokeRestirSpatialAttributionShaderTable)
     {
         state.shaderTable = m_smokeRestirSpatialAttributionShaderTable;
+    }
+    else if (restirPTCombinedMode && m_smokeRestirCombinedShaderTable)
+    {
+        state.shaderTable = m_smokeRestirCombinedShaderTable;
     }
     else
     {

@@ -17,9 +17,10 @@ ReSTIR direct lighting path:
 
 - Mode 50 spatial reservoir shading.
 - Mode 51 spatial source attribution.
+- Mode 56 combined direct + GI preview.
 - Mode 18 when `r_pathTracingRestirPTDirectLighting 1` is enabled.
 
-GI modes 53-55 now have a separate default-off sparse update path. They use the
+GI modes 53-56 now have a separate default-off sparse update path. They use the
 staged initial-GI producer/consumer split, keep the GI reservoir domain at full
 resolution, and reconstruct inactive visible pixels from active full-resolution
 GI representatives.
@@ -39,7 +40,7 @@ Control
 
 - `1`: disabled.
 - `2..8`: update roughly one out of N full-resolution GI reservoir pixels in the
-  staged mode 53-55 producer pass.
+  staged mode 53-56 producer pass.
 
 The active phase advances with the ReSTIR PT frame index. Current-frame producer
 lookups use the current phase; temporal previous-frame lookups snap to the
@@ -63,7 +64,7 @@ For staged GI initial producer dispatches:
 
 1. Inactive sparse GI reservoir pixels return before tracing rays.
 2. Active GI pixels generate initial indirect reservoirs normally.
-3. Visible modes 53-55 keep their full-resolution primary hit for material
+3. Visible modes 53-56 keep their full-resolution primary hit for material
    context, but load the nearest active GI initial reservoir representative.
 
 This is intentionally different from downscaling:
@@ -79,12 +80,17 @@ Known Limits
   denoiser contract.
 - The representative search is local and deterministic, not a true
   reconstruction filter.
-- GI modes 53-55 use a full-resolution sparse representative lookup, not the
+- GI modes 53-56 use a full-resolution sparse representative lookup, not the
   direct-lighting scaled-domain lookup.
 - Sparse temporal reuse still depends on the existing motion-vector and
   NEE-reuse safety rules. Keep
   `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` unless the light-domain
   remap/state validation work is explicitly resumed.
+- User validation of mode 56 reported visible image changes from sparsity but
+  no meaningful performance improvement. Treat sparsity as a
+  visual/reconstruction control for now. The leading suspect is CPU-side ReSTIR
+  supply/setup, dispatch submission, pass orchestration, or barrier overhead
+  rather than raw producer ray count.
 
 Suggested Validation
 --------------------
@@ -117,6 +123,9 @@ r_pathTracingRestirPTPassDump 1
 - Mode 54 with GI sparsity 1 vs 2.
 - Mode 55 with GI sparsity 1 vs 2 to confirm source attribution still shows
   Doom analytic lights as cyan/blue and emissives as orange.
+- Mode 56 with direct and GI sparsity tested independently, then together, to
+  confirm the combined preview still tracks mode 50 direct lighting and mode 54
+  indirect/GI lighting.
 
 Do not combine high sparsity, low direct resolution scale, and large spatial
 sample counts until the low-cost direct and GI cases are stable.

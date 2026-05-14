@@ -116,7 +116,7 @@ The first usable target is:
 Implementation status, 2026-05-14:
 
 - `r_pathTracingRestirPTDirectResolutionScale` is wired for the staged
-  TemporalAndSpatial direct-lighting path used by modes 50-51 and by mode 18
+  TemporalAndSpatial direct-lighting path used by modes 50-51, mode 56, and by mode 18
   when `r_pathTracingRestirPTDirectLighting 1`.
 - The ReSTIR PT context and temporal/spatial producer dispatches use the scaled
   direct-lighting dimensions.

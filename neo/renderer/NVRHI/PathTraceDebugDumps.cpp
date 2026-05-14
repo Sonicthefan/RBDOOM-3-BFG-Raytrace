@@ -305,6 +305,7 @@ RtPathTraceDebugModeInfo GetPathTraceDebugModeInfo(int debugMode)
     case 53: info.name = "ReSTIR PT indirect reservoir diagnostics"; info.category = "pass-output-visualizer"; info.output = "indirect/GI initial reservoir metadata"; info.owner = "restir-pt"; break;
     case 54: info.name = "ReSTIR PT indirect reservoir shading"; info.category = "temporary-behavior-experiment"; info.output = "indirect/GI initial reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
     case 55: info.name = "ReSTIR PT indirect path attribution"; info.category = "pass-output-visualizer"; info.output = "indirect/GI source and path attribution"; info.owner = "restir-pt"; break;
+    case 56: info.name = "ReSTIR PT combined direct+GI preview"; info.category = "temporary-behavior-experiment"; info.output = "combined direct spatial reservoir and indirect/GI initial reservoir shading"; info.owner = "restir-pt"; info.temporary = true; break;
     default: break;
     }
 

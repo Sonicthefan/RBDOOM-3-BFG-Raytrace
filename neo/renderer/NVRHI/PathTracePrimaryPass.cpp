@@ -219,6 +219,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
     m_smokeTlas = nullptr;
+    m_smokeRestirCombinedShaderTable = nullptr;
     m_smokeRestirAttributionShaderTable = nullptr;
     m_smokeRestirSpatialShaderTable = nullptr;
     m_smokeRestirSpatialAttributionShaderTable = nullptr;
@@ -231,6 +232,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPipeline = nullptr;
     m_smokeSkinnedGpuSkinningShader = nullptr;
+    m_smokeRestirCombinedPipeline = nullptr;
     m_smokeRestirAttributionPipeline = nullptr;
     m_smokeRestirSpatialPipeline = nullptr;
     m_smokeRestirSpatialAttributionPipeline = nullptr;
@@ -242,6 +244,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeSkinnedGpuSkinningBindingLayout = nullptr;
     m_smokeBindingLayout = nullptr;
     m_smokeTextureBindlessLayout = nullptr;
+    m_smokeRestirCombinedShaderLibrary = nullptr;
     m_smokeRestirAttributionShaderLibrary = nullptr;
     m_smokeRestirSpatialShaderLibrary = nullptr;
     m_smokeRestirSpatialAttributionShaderLibrary = nullptr;
@@ -279,7 +282,7 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     InitRayTracingSmokeTest();
     int outputWidth = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_WIDTH, RT_SMOKE_MAX_OUTPUT_WIDTH, r_pathTracingDebugWidth.GetInteger());
     int outputHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, r_pathTracingDebugHeight.GetInteger());
-    const int debugMode = idMath::ClampInt(0, 55, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     ApplyRestirPTPreviewResolutionCap(debugMode, outputWidth, outputHeight);
     m_frameResources.ClearResetReasons();
     m_frameResources.settings.debugMode = debugMode;

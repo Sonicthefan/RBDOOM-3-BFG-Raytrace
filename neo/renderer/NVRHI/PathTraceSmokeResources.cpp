@@ -1259,6 +1259,14 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "mode18 ReSTIR direct-lighting hybrid",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin");
+    case 8:
+        return initLibrary(
+            m_smokeRestirCombinedShaderLibrary,
+            m_smokeRestirCombinedPipeline,
+            m_smokeRestirCombinedShaderTable,
+            "ReSTIR combined direct+GI",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_combined.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_combined.rt.bin");
     default:
         return false;
     }

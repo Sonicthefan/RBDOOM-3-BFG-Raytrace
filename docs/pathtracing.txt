@@ -3215,8 +3215,7 @@ domain is secondary/indirect: secondary NEE, emissive hits, or non-NEE path
 radiance. Mode 53 shows indirect reservoir metadata/heat, mode 54 shades the
 rough indirect reservoir estimate, and mode 55 colors source/path attribution.
 These modes are debug-only and initial-reservoir-only; do not treat them as
-production GI, temporal GI reuse, spatial GI reuse, sparse updates, or mode 18
-GI integration.
+production GI, temporal GI reuse, spatial GI reuse, or mode 18 GI integration.
 
 Modes 53-55 also force one secondary bridge bounce and raise the RTXDI initial
 path-length budget to 4 inside the debug path. RTXDI starts the primary surface
@@ -3224,18 +3223,35 @@ at bounceDepth 2 and records secondary-surface NEE as pathLength 4; keeping the
 default initial max of 3 makes indirect analytic NEE disappear while emissive
 secondary hits can still appear. The override is scoped to the GI debug modes.
 
+Mode 56 is the first combined direct + GI debug preview. It runs the staged
+TemporalAndSpatial direct producer path used by mode 50 and the staged GI
+initial producer path used by modes 53-55, then a specialized consumer shades
+the completed direct spatial reservoir and completed indirect/GI initial
+reservoir together. It is a validation view only; GI remains initial-only and
+mode 18 is unchanged.
+
 `r_pathTracingRestirPTRaySparsity` is a separate, default-off sparse update
 control for the staged ReSTIR direct path. Values 2-8 update roughly one out of
 N direct-domain reservoir pixels per frame, skip inactive producer pixels before
 ray tracing, and make full-resolution consumers read active representative
 reservoir pixels. Temporal previous-frame lookups use the previous sparse phase.
-This currently applies to modes 50-51 and mode 18 ReSTIR direct lighting.
+This currently applies to modes 50-51, mode 56, and mode 18 ReSTIR direct
+lighting.
 
 `r_pathTracingRestirPTGiRaySparsity` is the default-off sparse update control
 for staged GI initial reservoirs. Values 2-8 update roughly one out of N
-full-resolution GI reservoir pixels in modes 53-55, skip inactive producer
+full-resolution GI reservoir pixels in modes 53-56, skip inactive producer
 pixels before ray tracing, and make the visible GI modes read the nearest active
 GI representative while keeping their current full-resolution surface context.
+
+User validation reported that mode 56 works visually, and sparsity visibly
+changes the image, but sparsity does not meaningfully improve performance. Treat
+the next performance pass as CPU-first profiling around ReSTIR supply/setup,
+dispatch submission, pass orchestration, and barriers before assuming raw
+shader/ray count is dominant. User validation also found dark base-game areas
+with apparently open roofs that raster lighting keeps hidden from skybox light;
+mode 56 GI can over-brighten those areas until the Doom sky/environment
+visibility or light-mask contract is mapped.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with

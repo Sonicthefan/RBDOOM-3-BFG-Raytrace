@@ -61,6 +61,8 @@ Current mode map:
 - 53: indirect/GI initial reservoir diagnostics.
 - 54: indirect/GI initial reservoir shading preview.
 - 55: indirect/GI path/source attribution.
+- 56: combined direct spatial-reservoir plus indirect/GI initial-reservoir
+  preview.
 
 Current implementation state:
 - Modes 50-51 run a staged TemporalAndSpatial debug path: temporal producer,
@@ -84,10 +86,15 @@ Current implementation state:
   indirect reservoirs, then the visible mode consumes them. The RAB path tracer
   skips primary-surface NEE in these modes so candidates begin at the
   secondary/indirect path domain. They are diagnostics only; no temporal,
-  spatial, sparse-update, or mode 18 integration exists for GI yet.
+  spatial, or mode 18 integration exists for GI yet.
   They also force one secondary bridge bounce and raise the debug-only RTXDI
   initial path-length budget to 4 so secondary-surface analytic NEE is not
   rejected by the default initial max of 3.
+- Mode 56 is debug-only combined direct + GI preview. It runs the staged direct
+  temporal/spatial producers, the staged GI initial producer, then a specialized
+  consumer shades the completed direct spatial reservoir and completed GI
+  initial reservoir together. It does not add temporal/spatial GI reuse or
+  change mode 18.
 - r_pathTracingRestirPTSpatialDiagnosticView 1 switches mode 51 to spatial
   acceptance/source-change colors.
 - A recent local slice added r_pathTracingRestirPTSpatialDiagnosticView 2 for a
@@ -99,10 +106,20 @@ Current implementation state:
 - r_pathTracingRestirPTRaySparsity is default-off. Values 2-8 sparsely update
   staged ReSTIR direct producers and reconstruct full-resolution consumers from
   active representative direct-reservoir pixels. It is currently scoped to modes
-  50-51 and mode 18 ReSTIR direct lighting.
+  50-51, mode 56, and mode 18 ReSTIR direct lighting.
 - r_pathTracingRestirPTGiRaySparsity is default-off. Values 2-8 sparsely update
-  the staged GI initial producer for modes 53-55, while the visible pass loads
+  the staged GI initial producer for modes 53-56, while the visible pass loads
   nearest active GI initial reservoir representatives.
+- User validation reported that mode 56 works visually, but performance is low
+  and sparsity visibly changes the image without meaningful performance gains.
+  Treat the next performance step as CPU-first profiling/isolation. CPU-side
+  ReSTIR supply/setup, dispatch submission, pass orchestration, and barriers are
+  leading suspects, not raw producer ray count.
+- User validation also found dark base-game areas with apparently open roofs
+  that raster lighting keeps hidden from skybox light through some setting or
+  light/visibility rule. Mode 56 GI can over-brighten these spaces. Investigate
+  Doom sky/environment visibility or light-mask rules before globally disabling
+  environment/GI.
 
 Current mode 18 ReSTIR direct-lighting hybrid:
 - Use r_pathTracingDebugMode 18 and r_pathTracingRestirPTDirectLighting 1.
@@ -133,14 +150,19 @@ Do not re-enable NEE temporal reuse until stable light-domain IDs,
 current/previous remapping, and per-light radiance/state validation exist.
 
 Next implementation target:
-Validate the new indirect/GI debug modes before adding temporal/spatial GI reuse
-or sparsity:
+Profile and harden mode 56 before adding temporal/spatial GI reuse or mode 18
+GI integration:
 - Confirm mode 18 without r_pathTracingRestirPTDirectLighting still behaves like
   the stable/playable path tracer.
-- Confirm modes 53, 54, and 55 launch at conservative resolution and show
-  non-primary-direct reservoir behavior.
-- Compare mode 55 against modes 33 and 51: cyan/blue and orange still mean
-  packed NEE sources, while magenta/green indicate non-NEE indirect/path
-  samples.
+- Compare mode 56 against mode 50 direct lighting and mode 54 indirect/GI
+  lighting at conservative output resolution.
+- Use mode 55 to confirm the GI source/path side still distinguishes packed NEE
+  sources from non-NEE indirect/path samples.
+- Isolate CPU-side ReSTIR supply/setup, dispatch submission, pass orchestration,
+  and barrier timing before assuming shader/ray cost. Sparsity visibly changes
+  the image but does not meaningfully improve performance.
+- Investigate the skybox/open-roof over-brightening case as an environment
+  visibility/light-mask contract issue, not as a reason to remove GI broadly.
 - Keep temporal NEE reuse disabled as documented. Do not add temporal/spatial
-  reuse for GI until mode 55 can identify source/path failures clearly.
+  reuse for GI until mode 56 is stable and mode 55 can identify source/path
+  failures clearly.

@@ -36,10 +36,13 @@ Active ReSTIR shader libraries:
   Opt-in mode 18 primary direct-lighting hybrid consumer when
   `r_pathTracingRestirPTDirectLighting 1`.
 - pathtrace_smoke_restir_initial.rt.hlsl
-  Also carries modes 53-55 for the first indirect/GI initial-reservoir
+  Also carries modes 53-56 for the first indirect/GI initial-reservoir
   diagnostics.
+- pathtrace_smoke_restir_combined.rt.hlsl
+  Mode 56 combined direct spatial-reservoir plus indirect/GI initial-reservoir
+  preview.
 
-Modes 31, 32, 33, 50, 51, and the mode 18 hybrid force-specialize the debug mode at compile time through
+Modes 31, 32, 33, 50, 51, 56, and the mode 18 hybrid force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
 reported roughly 13 second first-load stalls for each specialized ReSTIR mode,
 down from roughly 197 seconds for the unspecialized ReSTIR library.
@@ -165,7 +168,7 @@ The staged GI initial path has a separate default-off sparse control:
 
 Values 2-8 update roughly one out of N full-resolution GI initial reservoir
 pixels per frame. Inactive GI producer pixels return before tracing. Visible
-modes 53-55 keep their full-resolution primary material context, but load the
+modes 53-56 keep their full-resolution primary material context, but load the
 nearest active GI initial reservoir representative.
 
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
@@ -185,7 +188,7 @@ candidates come from the secondary/indirect path domain: secondary NEE,
 emissive hits, or non-NEE path radiance. Mode 53 shows reservoir metadata/heat,
 mode 54 shades the rough indirect reservoir contribution, and mode 55 colors
 source/path attribution. These modes are debug-only and have no temporal reuse,
-spatial reuse, sparse-update mask, or mode 18 integration yet.
+spatial reuse, or mode 18 integration yet.
 
 Modes 53-55 force the bridge path tracer to allow one secondary bounce and raise
 the RTXDI initial path-length budget to 4 inside the debug path. RTXDI starts the
@@ -194,14 +197,35 @@ primary surface at bounceDepth 2 and records secondary-surface NEE as pathLength
 secondary analytic NEE, making the GI views look like emissive-only/non-NEE
 reservoirs. This override is debug-only and does not change mode 18.
 
+Mode 56 is the first combined direct + GI rough preview. It keeps the staged
+TemporalAndSpatial direct path from mode 50, also runs the staged GI initial
+producer used by modes 53-55, then a specialized consumer reads the completed
+direct spatial reservoir and the completed indirect/GI initial reservoir
+together. It remains debug-only: direct and GI still have separate reservoir
+domains, GI has no temporal/spatial reuse, and mode 18 is unchanged.
+
+User validation reported that mode 56 launches and the combined preview is
+visibly working. Two issues are known:
+- Performance is low, and increasing direct/GI sparsity did not visibly reduce
+  the cost even though sparsity visibly changes the image. Treat the next
+  performance pass as a CPU-first profiling task; CPU-side ReSTIR supply/setup,
+  dispatch submission, pass orchestration, or barrier overhead is now the
+  leading suspect rather than raw producer ray count.
+- Some dark base-game areas appear to have open roofs that are hidden from
+  skybox lighting by non-geometry/light-projection rules in the raster path.
+  With GI enabled they can become much too bright. Do not solve this by
+  globally disabling environment/GI; investigate the Doom visibility/light-mask
+  contract for sky/environment contribution.
+
 Main Gaps
 ---------
 - Spatial reuse is debug-only in modes 50-51; it has temporal, spatial, and
   shading/diagnostic dispatches, but not a production pass graph or
   denoiser-facing output yet.
-- Indirect/GI is diagnostic-only in modes 53-55; it is initial-reservoir only
+- Indirect/GI is diagnostic-only in modes 53-56; it is initial-reservoir only
   and deliberately avoids temporal/spatial reuse until source/path identity is
-  easier to inspect.
+  easier to inspect. Mode 56 only combines the completed GI initial reservoir
+  with the completed direct spatial reservoir for a rough preview.
 - No production final ReSTIR PT pass yet; mode 18 has only an opt-in primary
   direct-lighting hybrid hook.
 - Light identity is still index-fragile across changing emissive/light order.
@@ -212,16 +236,21 @@ Main Gaps
   still need stricter rejection and disocclusion handling.
 - High resolution remains risky; temporal previews can device-remove above
   roughly 720p-class output.
+- Mode 56 performance is not yet a trustworthy ray-count signal because
+  sparsity visibly changes reconstruction but has not shown the expected cost
+  reduction.
+- Environment/sky contribution does not yet honor all base-game dark-area
+  occlusion or light-hiding rules.
 
 Recommended Next Milestone
 --------------------------
-Validate the indirect/GI debug modes before adding temporal/spatial GI reuse or
-sparsity. Test modes 53, 54, and 55 at conservative output resolution and compare
-mode 55 against modes 33 and 51 so packed NEE source colors remain familiar
-while magenta/green identifies non-NEE indirect/path samples. Do not add GI
-temporal reuse, spatial reuse, sparse updates, DLSS RR, reflection scaling, or
-mode 18 GI integration until the initial indirect reservoir source/path
-diagnostics are boring.
+Profile and isolate mode 56 before adding temporal GI reuse, spatial GI reuse,
+DLSS RR, reflection scaling, or mode 18 GI integration. Start with CPU-side
+ReSTIR supply/setup, dispatch submission, pass orchestration, and barrier
+timing, then verify GPU shader/ray cost only after CPU timing is understood. In
+parallel, investigate why sky/environment GI reaches base-game dark areas that
+the raster path keeps hidden from skybox light. Keep
+`r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` while testing.
 
 Mode 33 analytic-source note:
 

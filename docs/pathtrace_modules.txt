@@ -816,6 +816,16 @@ pathtrace_smoke_restir_spatial_attribution.rt.hlsl
     completed temporal and spatial prepasses instead of rebuilding them. The
     wrapper defines `RB_PT_FORCE_DEBUG_MODE 51u`.
 
+pathtrace_smoke_restir_combined.rt.hlsl
+    Defines `RB_PT_ENABLE_RESTIR`, temporal/spatial ReSTIR support,
+    `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`, and
+    `RB_PT_RESTIR_COMBINED_SHADING`. CMake builds
+    `pathtrace_smoke_restir_combined.rt.bin`, and dispatch selects it only for
+    mode 56 combined direct + GI preview. The wrapper consumes the completed
+    direct temporal/spatial prepasses and the completed staged GI initial
+    prepass, then shades both reservoirs together. The wrapper defines
+    `RB_PT_FORCE_DEBUG_MODE 56u`.
+
 pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, temporal/spatial ReSTIR support,
     `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`, and
@@ -1892,27 +1902,43 @@ secondary/indirect path domain: secondary NEE, emissive hits, or non-NEE path
 radiance. Mode 53 shows indirect reservoir metadata/heat, mode 54 shades the
 rough indirect reservoir estimate, and mode 55 colors source/path attribution.
 They are initial-only and debug-only; there is no temporal GI reuse, spatial GI
-reuse, sparse update mask, or mode 18 GI integration yet.
+reuse, or mode 18 GI integration yet.
 
 The GI debug path explicitly allows one secondary bridge bounce and raises the
 RTXDI initial path-length budget to 4. RTXDI starts the primary surface at
 bounceDepth 2; secondary-surface NEE is recorded as pathLength 4, so the default
 initial max of 3 accepts primary NEE but silently rejects the first indirect
-analytic NEE candidate. This override is scoped to modes 53-55 and does not
+analytic NEE candidate. This override is scoped to modes 53-56 and does not
 change mode 18.
+
+Mode 56 is the first combined direct + GI debug preview. It runs the staged
+direct temporal/spatial producer path used by mode 50 and the staged GI initial
+producer path used by modes 53-55, then a specialized consumer shades the
+completed direct spatial reservoir and completed GI initial reservoir together.
+It is a validation view, not production integration; GI remains initial-only.
 
 `r_pathTracingRestirPTRaySparsity` is the first default-off sparse-ray update
 path for staged ReSTIR direct lighting. Values 2-8 skip inactive producer pixels
 before ray tracing, snap spatial neighbor lookups to active representative
 direct-domain pixels, and make full-resolution consumers read representative
 spatial reservoirs. Previous-frame temporal lookup uses the previous sparse
-phase. This is scoped to modes 50-51 and mode 18 ReSTIR direct lighting.
+phase. This is scoped to modes 50-51, mode 56, and mode 18 ReSTIR direct
+lighting.
 
 `r_pathTracingRestirPTGiRaySparsity` is the matching default-off sparse-ray
 update path for staged GI initial reservoirs. Values 2-8 skip inactive mode
-53-55 producer pixels before ray tracing and make the visible GI modes read the
+53-56 producer pixels before ray tracing and make the visible GI modes read the
 nearest active full-resolution GI initial reservoir representative while keeping
 their current full-resolution surface context.
+
+User validation reported that mode 56 works visually, and sparsity visibly
+changes the image, but sparsity does not meaningfully improve performance. Treat
+the next performance step as CPU-first profiling around ReSTIR supply/setup,
+dispatch submission, pass orchestration, and barriers before assuming raw
+shader/ray count is dominant. User validation also found dark base-game areas
+with apparently open roofs that raster lighting keeps hidden from skybox light;
+mode 56 GI can over-brighten those spaces until the Doom sky/environment
+visibility or light-mask contract is mapped.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed
