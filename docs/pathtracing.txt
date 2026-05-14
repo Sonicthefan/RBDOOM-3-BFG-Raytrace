@@ -952,6 +952,15 @@ Ray dispatch safety diagnostics:
   yellow then means the spatial source changed to a Doom analytic/emissive NEE
   light that did not reconstruct usable local direct lighting.
 
+- r_pathTracingRestirPTDirectResolutionScale
+  Scale for the staged ReSTIR direct-lighting reservoir domain used by modes
+  50-51 and by mode 18 when `r_pathTracingRestirPTDirectLighting 1`. Defaults
+  to 1.0 and clamps to 0.25..1.0. The temporal and spatial producer prepasses
+  dispatch at the scaled direct-lighting size; mode 18, mode 50, and mode 51
+  final consumers stay full-resolution and map each full pixel to the nearest
+  direct reservoir pixel. Mode 32 remains a full-resolution single-dispatch
+  temporal preview until it gets a split producer/consumer path.
+
 - r_pathTracingRestirPTDirectLighting
   Defaults to 0. When set to 1 in mode 18, dispatch runs the temporal and
   spatial ReSTIR producer prepasses, then selects
@@ -3155,6 +3164,17 @@ one-dispatch initial->temporal->spatial debug path left the spatial acceptance
 diagnostic all blue because neighbor inputs were not globally available yet.
 This is a debug bridge, not the final multi-pass ReSTIR graph.
 
+The staged direct-lighting path now has an explicit reservoir pixel domain via
+`r_pathTracingRestirPTDirectResolutionScale`. The ReSTIR PT context and producer
+dispatches use the scaled direct size; producer raygen maps each direct pixel to
+a representative full-resolution primary pixel, and RAB surface callbacks map
+direct-domain neighbor pixels back to the full-resolution primary-surface
+history. Full-resolution consumers map their output pixel to the nearest direct
+reservoir pixel for the first reconstruction pass. The packed reservoir buffer
+binding is still allocated with full-output capacity in this slice to avoid
+mid-frame binding-set churn; RTXDI addressing parameters restrict active
+reservoir reads/writes to the scaled direct domain.
+
 Mode 18 can consume that same staged reservoir path behind
 `r_pathTracingRestirPTDirectLighting 1`. The opt-in hybrid dispatch runs the
 temporal and spatial producer prepasses, then uses a specialized mode 18 shader
@@ -3185,6 +3205,22 @@ when the selected spatial source cannot reconstruct a usable local rough-preview
 contribution at the current surface. That view is intended to catch source
 identity that looks plausible in attribution but does not agree with mode 50
 spatial shading near hard depth/object edges.
+
+Modes 53-55 are the first indirect/GI reservoir diagnostics. They reuse the
+initial RTXDI PT reservoir buffer and initial ReSTIR shader library, but the RAB
+path tracer skips primary-surface NEE in these modes so the first visible
+candidate domain is secondary/indirect: secondary NEE, emissive hits, or non-NEE
+path radiance. Mode 53 shows indirect reservoir metadata/heat, mode 54 shades
+the rough indirect reservoir estimate, and mode 55 colors source/path
+attribution. These modes are debug-only and initial-reservoir-only; do not treat
+them as production GI, temporal GI reuse, spatial GI reuse, sparse updates, or
+mode 18 GI integration.
+
+Modes 53-55 also force one secondary bridge bounce and raise the RTXDI initial
+path-length budget to 4 inside the debug path. RTXDI starts the primary surface
+at bounceDepth 2 and records secondary-surface NEE as pathLength 4; keeping the
+default initial max of 3 makes indirect analytic NEE disappear while emissive
+secondary hits can still appear. The override is scoped to the GI debug modes.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It uses the
 same primary hit data as mode 30, but only visualizes skinned surfaces with

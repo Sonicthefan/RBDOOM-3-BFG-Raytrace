@@ -145,6 +145,7 @@ void StorePathTracePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
         return;
     }
 
+    pixel = PathTracePrimarySurfaceStorePixel(pixel);
     const uint2 dimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
@@ -167,6 +168,7 @@ RAB_Surface LoadPathTracePrimarySurfaceRecord(int2 pixelPosition, bool previousF
         return RAB_EmptySurface();
     }
 
+    pixelPosition = PathTracePrimarySurfaceLoadPixel(pixelPosition);
     const uint2 dimensions = PathTraceFullOutputSize();
     if (pixelPosition.x < 0 || pixelPosition.y < 0 ||
         (uint)pixelPosition.x >= dimensions.x || (uint)pixelPosition.y >= dimensions.y)

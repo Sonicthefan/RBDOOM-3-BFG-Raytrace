@@ -35,6 +35,9 @@ Active ReSTIR shader libraries:
 - pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
   Opt-in mode 18 primary direct-lighting hybrid consumer when
   `r_pathTracingRestirPTDirectLighting 1`.
+- pathtrace_smoke_restir_initial.rt.hlsl
+  Also carries modes 53-55 for the first indirect/GI initial-reservoir
+  diagnostics.
 
 Modes 31, 32, 33, 50, 51, and the mode 18 hybrid force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
@@ -127,6 +130,25 @@ raygen dispatch left the diagnostic 100% blue because neighbor inputs were not
 globally available yet. This is still debug-only staging, not the final
 production pass graph.
 
+Modes 50-51 and the mode 18 ReSTIR direct-lighting hybrid now have a first
+explicit direct-lighting reservoir resolution domain through:
+
+  r_pathTracingRestirPTDirectResolutionScale
+
+The CVar defaults to 1.0 and clamps to 0.25..1.0. Temporal/spatial producer
+prepasses dispatch at the scaled direct size and map each direct pixel to a
+representative full-resolution primary pixel. RAB surface callbacks map
+direct-domain neighbor pixels back to the full-resolution primary-surface
+history. Mode 18, mode 50, and mode 51 final consumers still dispatch at full PT
+output size and map each full pixel to the nearest completed direct reservoir
+pixel. Visible consumers must never treat the scaled direct-domain flag as their
+output dispatch domain; they stay full-resolution and only use explicit
+full-to-direct reservoir lookup. Mode 32 remains a full-resolution
+single-dispatch temporal preview for now. The packed reservoir UAV binding is
+still full-output capacity in this slice; RTXDI reservoir parameters and
+dispatch dimensions restrict active ReSTIR direct reads/writes to the scaled
+domain.
+
 Mode 51 is the spatial source-attribution diagnostic. It runs the same
 initial->temporal->spatial reservoir path as mode 50, then colors the selected
 spatial reservoir source using the mode 33 convention: cyan/blue for Doom
@@ -134,11 +156,31 @@ analytic lights, orange for emissive triangles, green for non-NEE/indirect
 reservoirs, and red for invalid/unknown light data. It exists to catch source
 bleeding or unexpected source loss after spatial reuse before final integration.
 
+Modes 53-55 are the first indirect/GI reservoir diagnostics. They intentionally
+reuse the initial RTXDI PT reservoir buffer and initial ReSTIR shader library
+instead of adding a new resource family in this slice. In these modes the RAB
+path tracer skips primary-surface NEE, so the first usable candidates come from
+the secondary/indirect path domain: secondary NEE, emissive hits, or non-NEE path
+radiance. Mode 53 shows reservoir metadata/heat, mode 54 shades the rough
+indirect reservoir contribution, and mode 55 colors source/path attribution.
+These modes are debug-only and have no temporal reuse, spatial reuse,
+sparse-update mask, or mode 18 integration yet.
+
+Modes 53-55 force the bridge path tracer to allow one secondary bounce and raise
+the RTXDI initial path-length budget to 4 inside the debug path. RTXDI starts the
+primary surface at bounceDepth 2 and records secondary-surface NEE as pathLength
+4; leaving the default initial max at 3 accepts primary NEE but rejects all
+secondary analytic NEE, making the GI views look like emissive-only/non-NEE
+reservoirs. This override is debug-only and does not change mode 18.
+
 Main Gaps
 ---------
 - Spatial reuse is debug-only in modes 50-51; it has temporal, spatial, and
   shading/diagnostic dispatches, but not a production pass graph or
   denoiser-facing output yet.
+- Indirect/GI is diagnostic-only in modes 53-55; it is initial-reservoir only
+  and deliberately avoids temporal/spatial reuse until source/path identity is
+  easier to inspect.
 - No production final ReSTIR PT pass yet; mode 18 has only an opt-in primary
   direct-lighting hybrid hook.
 - Light identity is still index-fragile across changing emissive/light order.
@@ -152,21 +194,13 @@ Main Gaps
 
 Recommended Next Milestone
 --------------------------
-Repair/regression-check the current staged ReSTIR direct-lighting path before
-starting the resolution-scaling slice. Confirm mode 18 without
-`r_pathTracingRestirPTDirectLighting` still behaves like the stable path tracer,
-confirm mode 32 still works in the safe temporal NEE state, and confirm modes
-50-51 still consume completed spatial reservoirs rather than regenerating them.
-If the recent mode-51 `r_pathTracingRestirPTSpatialDiagnosticView 2` helper
-appears to interfere with mode 50/51 or the mode 18 ReSTIR direct-lighting
-hybrid, treat that view as optional and revert it before adding new features.
-
-After that regression pass, continue the plan in
-`docs/ReSTIR/resolution_scaling_and_reconstruction_plan.txt`: implement variable
-resolution for ReSTIR direct lighting only, keep primary visibility/history/
-motion/material anchors full resolution, and make every ReSTIR producer and
-consumer explicit about whether it is operating in full PT output coordinates or
-the scaled direct-lighting reservoir domain.
+Validate the indirect/GI debug modes before adding temporal/spatial GI reuse or
+sparsity. Test modes 53, 54, and 55 at conservative output resolution and compare
+mode 55 against modes 33 and 51 so packed NEE source colors remain familiar
+while magenta/green identifies non-NEE indirect/path samples. Do not add GI
+temporal reuse, spatial reuse, sparse updates, DLSS RR, reflection scaling, or
+mode 18 GI integration until the initial indirect reservoir source/path
+diagnostics are boring.
 
 Mode 33 analytic-source note:
 

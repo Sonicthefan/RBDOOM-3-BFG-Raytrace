@@ -65,7 +65,7 @@ struct RtPathTraceRestirPassBufferSelection
 
 inline bool IsPathTraceRestirPTDebugMode(int debugMode)
 {
-    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50 || debugMode == 51;
+    return (debugMode >= 26 && debugMode <= 33) || debugMode == 50 || debugMode == 51 || (debugMode >= 53 && debugMode <= 55);
 }
 
 inline const char* PathTraceRestirPassKindName(RtPathTraceRestirPassKind pass)
@@ -167,6 +167,24 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
         plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS | RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS;
         plan.label = "mode51SpatialSourceAttribution";
+        break;
+    case 53:
+        plan.producer = RtPathTraceRestirPassKind::InitialReservoir;
+        plan.output = RtPathTraceRestirPassKind::DebugVisualize;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_DEBUG_VISUALIZE;
+        plan.label = "mode53IndirectReservoirDebug";
+        break;
+    case 54:
+        plan.producer = RtPathTraceRestirPassKind::InitialReservoir;
+        plan.output = RtPathTraceRestirPassKind::ReservoirShading;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE;
+        plan.label = "mode54IndirectReservoirShading";
+        break;
+    case 55:
+        plan.producer = RtPathTraceRestirPassKind::InitialReservoir;
+        plan.output = RtPathTraceRestirPassKind::DebugVisualize;
+        plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE;
+        plan.label = "mode55IndirectPathAttribution";
         break;
     default:
         break;

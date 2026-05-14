@@ -23,6 +23,9 @@ Current Baseline
 - Mode 33 colors temporal source attribution.
 - Mode 50 runs the first debug-only TemporalAndSpatial ReSTIR PT preview.
 - Mode 51 colors spatial source attribution after TemporalAndSpatial reuse.
+- Modes 53-55 are the first debug-only indirect/GI initial-reservoir views.
+  They skip primary NEE in the RAB path tracer so the visible reservoir domain
+  starts at secondary/indirect path candidates.
 - ReSTIR shader libraries are now split and force-specialized per mode, which
   makes iteration feasible again. Keep core mode 18 independent from ReSTIR
   debug-mode shader cost.
@@ -128,6 +131,13 @@ triangles, green for non-NEE/indirect reservoirs, and red for invalid/unknown
 light metadata. Use it to compare source stability against mode 33 and to look
 for spatial source bleeding across depth/object edges.
 
+Modes 50-51 now use `r_pathTracingRestirPTDirectResolutionScale` for the staged
+direct-lighting reservoir domain. Producer prepasses run at the scaled direct
+size, while the visible mode 50/51 outputs remain full-resolution and use a
+nearest full-pixel to direct-reservoir lookup. Scale 1.0 should match the
+pre-scaling path; lower scales are expected to look rougher until a real
+reconstruction filter is added.
+
 For harder validation, set `r_pathTracingRestirPTSpatialDiagnosticView 2` in
 mode 51. That view compares temporal and spatial packed sources and marks
 changed Doom analytic/emissive NEE sources yellow when the selected spatial
@@ -149,3 +159,22 @@ The spatial pass reuses `r_pathTracingRestirPTTemporalDepthThreshold` and
 disocclusion boost sample count is deliberately tied to the normal spatial
 sample count for now, avoiding a hidden multi-sample workload jump while
 device-removal limits are still being characterized.
+
+Indirect/GI Follow-Up
+---------------------
+Modes 53-55 establish the first indirect/GI reservoir surface without adding a
+new pass graph yet:
+
+- Mode 53: indirect/GI initial reservoir diagnostics.
+- Mode 54: indirect/GI initial reservoir shading preview.
+- Mode 55: indirect/GI path/source attribution.
+
+These modes reuse the initial RTXDI PT reservoir buffer and shader library. The
+RAB path tracer skips primary-surface NEE only in modes 53-55, leaving secondary
+NEE, emissive hits, and non-NEE path radiance as the first GI candidate domain.
+The debug path must also allow one secondary bounce and an RTXDI initial
+path-length budget of at least 4, because RTXDI records secondary-surface NEE as
+pathLength 4 while the default initial max is 3.
+Keep them full-resolution and initial-only until source/path attribution is
+stable. Do not add temporal GI reuse, spatial GI reuse, sparse updates, or mode
+18 GI integration in the same slice.

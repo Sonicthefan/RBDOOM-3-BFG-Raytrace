@@ -1,0 +1,422 @@
+ReSTIR PT Resolution Scaling and Reconstruction Plan
+Date: 2026-05-14
+Project: rbdoom-3-bfg-rt path tracing
+
+Purpose
+-------
+This note is a new-session outline for moving the current rough ReSTIR direct-lighting work toward the resolution hierarchy used by practical path-traced renderers.
+
+The important direction is:
+
+1. Keep the primary visibility and reconstruction anchors full resolution.
+2. Let expensive lighting domains run at variable resolution.
+3. Reconstruct/composite those lower-resolution lighting results back into the full-resolution path-traced image.
+4. Keep the design compatible with later DLSS Ray Reconstruction or a dedicated denoiser.
+
+Current Baseline
+----------------
+Current ReSTIR state is a rough ReSTIR DI/direct-lighting path, not full ReSTIR PT/GI.
+
+Relevant modes and controls:
+
+- Mode 18 is the stable base path-traced renderer.
+- Mode 50 is the current rough ReSTIR spatial direct-lighting preview.
+- Mode 51 is the ReSTIR spatial source-attribution diagnostic.
+- Mode 18 can opt into ReSTIR direct lighting with:
+  - r_pathTracingDebugMode 18
+  - r_pathTracingRestirPTDirectLighting 1
+  - r_pathTracingSamplesPerPixel 1
+
+The current staged ReSTIR flow is:
+
+1. Temporal reservoir producer.
+2. Spatial reservoir producer.
+3. Spatial shading/attribution consumer.
+4. Optional mode 18 hybrid direct-lighting consumer.
+
+The mode 18 hybrid keeps native mode 18 ambient, emissive, secondary diffuse/reflection, accumulation, and general composition behavior. It only replaces the sample-0 primary direct NEE contribution with the completed spatial reservoir direct contribution.
+
+Observed behavior:
+
+- It works.
+- Image difference versus native mode 18 is currently small.
+- It is slower than native mode 18.
+- ReSTIR DI alone is expected to be only modestly useful until indirect, reflections, reconstruction, and denoising are involved.
+- Sample count and full-resolution reservoir passes are expensive.
+- Device removal has historically appeared when raising PT resolution too far, especially above roughly 720p-class testing on this branch.
+
+Resolution Hierarchy
+--------------------
+Use this hierarchy as the guiding contract:
+
+Full resolution:
+
+- Primary hit/visibility.
+- Depth.
+- Geometric normal.
+- Shading normal.
+- Material id / material index.
+- Albedo, specular, roughness, and fake-PBR converted material terms.
+- Motion vectors.
+- Surface identity, instance identity, primitive identity.
+- Validity/source masks.
+
+Variable resolution:
+
+- ReSTIR direct-light reservoirs.
+- Future multi-bounce / indirect reservoirs.
+- Future reflection reservoirs/rays.
+- Future volumetric or particle lighting domains.
+
+Full-resolution resolve:
+
+- Final image composition stays full resolution.
+- Lower-resolution lighting domains are sampled through explicit mapping/reconstruction.
+- Final resolve must not pretend that scaled lighting reservoirs are full-resolution buffers.
+
+Non-Negotiable Rules
+--------------------
+Do not downscale the primary reconstruction anchor in the first pass. Primary surfaces, motion vectors, depth, material identity, and roughness stay full resolution until the renderer has a deliberate alternate reconstruction path.
+
+Do not let scaled reservoir dimensions leak into full-resolution output dimensions. Every producer and consumer must know which pixel domain it is operating in.
+
+Do not bind full-resolution surface history as if it were the same dimensions as scaled reservoirs. If a shader reads full-resolution primary history from a scaled reservoir dispatch, it must map coordinates explicitly.
+
+Do not make direct lighting scale imply future indirect/reflection scaling. Add the pattern once, then replicate it per domain later.
+
+Do not tie this to DLSS RR immediately. Keep the data contract compatible with DLSS RR, but first make the reservoir domain explicit and stable.
+
+Do not use Debug builds for validation. Use the PT development Release lane.
+
+First Implementation Scope
+--------------------------
+Implement variable resolution for ReSTIR direct lighting only.
+
+Reserved but not implemented yet:
+
+- Indirect / multi-bounce reservoir scaling.
+- Reflection scaling.
+- Volumetric scaling.
+- DLSS Ray Reconstruction integration.
+- Half-resolution reflection resolve.
+- Checkerboard or interleaved sampling.
+
+The first usable target is:
+
+- Full-resolution mode 18 primary path remains intact.
+- ReSTIR direct reservoir producers can run at a smaller direct-lighting resolution.
+- Mode 18 hybrid samples the direct-light reservoir through an explicit full-res-to-ReSTIR coordinate mapping.
+- Mode 50/51 diagnostics continue to work in the ReSTIR direct-lighting domain.
+
+Implementation status, 2026-05-14:
+
+- `r_pathTracingRestirPTDirectResolutionScale` is wired for the staged
+  TemporalAndSpatial direct-lighting path used by modes 50-51 and by mode 18
+  when `r_pathTracingRestirPTDirectLighting 1`.
+- The ReSTIR PT context and temporal/spatial producer dispatches use the scaled
+  direct-lighting dimensions.
+- Producer raygen maps each direct reservoir pixel to a representative
+  full-resolution primary pixel for tracing and surface packing.
+- RAB G-buffer callbacks map direct-domain neighbor pixels back to
+  full-resolution primary-surface history.
+- Mode 18, mode 50, and mode 51 final/visible consumers stay full-resolution and
+  use nearest full-pixel to direct-reservoir lookup.
+- Consumer shaders must not treat the scaled direct domain as their visible
+  dispatch domain. The scaled-domain runtime flag is only allowed to affect
+  producer-style dispatches; final consumers use full-resolution raygen/output
+  and explicit full-to-direct reservoir lookup.
+- Mode 32 remains full-resolution because it is still a single dispatch that
+  both generates and shades temporal reservoirs.
+- The packed reservoir UAV binding still has full-output capacity in this first
+  slice to avoid binding-set churn; RTXDI reservoir parameters and dispatch
+  dimensions restrict active reads/writes to the scaled direct domain.
+
+Suggested CVars
+---------------
+Add direct-lighting scale first:
+
+- r_pathTracingRestirPTDirectResolutionScale
+
+Suggested range:
+
+- 1.0 = full resolution.
+- 0.75 = moderate reduction.
+- 0.5 = half resolution.
+- 0.25 = quarter resolution, useful for stress testing but likely visibly rough.
+
+Reserve names for future domains, but do not allocate or wire them unless the slice explicitly expands:
+
+- r_pathTracingRestirPTIndirectResolutionScale
+- r_pathTracingRestirPTReflectionResolutionScale
+- r_pathTracingRestirPTVolumetricResolutionScale
+
+Clamp all scales to a sane minimum. Avoid zero-sized dispatches:
+
+- Minimum dimension should be at least 1x1.
+- Practical minimum scale should probably be 0.25 for interactive testing.
+
+CPU Resource Model
+------------------
+Add a small helper for lighting-domain dimensions.
+
+Possible helper names:
+
+- PathTraceLightingResolution
+- PathTraceReservoirResolution
+- PathTraceRestirResolution
+
+Responsibilities:
+
+- Read full path-trace output size.
+- Apply the direct-lighting scale.
+- Round up carefully so small view sizes do not collapse.
+- Store both full-resolution size and direct reservoir size.
+- Detect changes in either full size or direct scale.
+
+The RTXDI/ReSTIR context width and height must be the reservoir domain size, not the full output size, for scaled direct-light passes.
+
+Reservoir buffers used by the direct ReSTIR pass must be allocated at direct reservoir size.
+
+Current/previous validity for the ReSTIR context must include direct reservoir dimensions. A scale change is a context resize and must invalidate or recreate ReSTIR reservoir resources just like a full output resize.
+
+Likely CPU files to inspect/edit:
+
+- neo/renderer/NVRHI/PathTraceCVars.*
+- neo/renderer/NVRHI/PathTraceFrameResources.*
+- neo/renderer/NVRHI/PathTraceRestirPT.*
+- neo/renderer/NVRHI/PathTraceRestirPTReservoirs.*
+- neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+- Any existing path-trace output-size helper currently feeding ReSTIR dispatch dimensions.
+
+Shader Domain Model
+-------------------
+Add shader-visible sizes for at least:
+
+- Full PT output size.
+- ReSTIR direct reservoir size.
+- Direct-resolution scale or reciprocal mapping terms if useful.
+
+Add explicit mapping helpers:
+
+- uint2 FullPixelToRestirDirectPixel(uint2 fullPixel)
+- uint2 RestirDirectPixelToRepresentativeFullPixel(uint2 restirPixel)
+- float2 FullPixelToRestirDirectUv(uint2 fullPixel) if filtering/reconstruction is added.
+- bool IsValidRestirDirectPixel(uint2 restirPixel)
+
+The first pass can use nearest-neighbor mapping. Bilinear or neighborhood reconstruction should be a later quality step.
+
+Mapping rules:
+
+- Always clamp mapped pixels to valid bounds.
+- Use pixel centers, not integer truncation without thinking about center alignment.
+- Avoid frame-varying jitter in the mapping until history rules are explicit.
+
+Likely shader files to inspect/edit:
+
+- neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+- neo/shaders/builtin/pathtracing/pathtrace_smoke_restir_temporal.rt.hlsl
+- neo/shaders/builtin/pathtracing/pathtrace_smoke_restir_spatial_reservoir.rt.hlsl
+- neo/shaders/builtin/pathtracing/pathtrace_smoke_restir_spatial.rt.hlsl
+- neo/shaders/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
+- neo/shaders/builtin/pathtracing/RtxdiBridge/*.hlsli
+
+Primary Surface History Policy
+------------------------------
+This is the main architectural hazard.
+
+The existing ReSTIR bridge was originally built around a single output-size assumption. Once direct reservoirs become scaled, a shader cannot blindly use full-resolution primary-surface buffers as if they were reservoir-sized buffers.
+
+Preferred eventual model:
+
+- Full-resolution primary surface history remains the renderer's reconstruction anchor.
+- ReSTIR direct producers also have a direct-resolution surface domain or a clean coordinate-mapped access path.
+- RAB_GetGBufferSurface and related callbacks are explicit about whether their pixel coordinate is full-resolution or direct-reservoir-resolution.
+
+Acceptable first bridge:
+
+- Scaled ReSTIR producer dispatches operate in direct reservoir dimensions.
+- For each direct reservoir pixel, pick a representative full-resolution pixel using RestirDirectPixelToRepresentativeFullPixel.
+- Use that mapped full-resolution pixel to read primary surface data and trace/evaluate the direct-light sample.
+- Spatial neighbor queries in the scaled domain map each neighbor reservoir pixel back to its representative full-resolution surface before evaluating compatibility.
+
+This is not final high-quality reconstruction, but it establishes the correct domain separation without shrinking the full-resolution primary anchor.
+
+Avoid:
+
+- Allocating scaled reservoirs but indexing full-resolution surface buffers with scaled coordinates by accident.
+- Reusing full-resolution dispatch dimensions while pretending the result is scaled.
+- Scaling mode 18 output or primary ray generation as part of this slice.
+
+Dispatch Model
+--------------
+Direct ReSTIR dispatch dimensions should become:
+
+- dispatchWidth = restirDirectWidth
+- dispatchHeight = restirDirectHeight
+
+Mode 18 hybrid final render stays:
+
+- dispatchWidth = fullOutputWidth
+- dispatchHeight = fullOutputHeight
+
+Mode 18 hybrid then maps:
+
+- full pixel -> direct reservoir pixel -> completed spatial direct sample.
+
+Mode 50 and 51 can either:
+
+1. Display the direct-reservoir domain stretched/mapped to full output, or
+2. Continue as direct-domain diagnostics with clear console/docs wording.
+
+For developer sanity, prefer showing diagnostics in the full output window with explicit mapping so the user does not need to reason about a smaller viewport.
+
+Reconstruction Plan
+-------------------
+First pass:
+
+- Nearest direct reservoir lookup.
+- No cross-bilateral filtering.
+- No disocclusion-aware upsampling.
+- No DLSS RR.
+
+Second pass:
+
+- Add optional 2x2 or small-radius reconstruction from direct reservoir pixels.
+- Weight by depth, normal, material id, roughness, and motion validity from the full-resolution anchor.
+- Use material/surface identity to reject obviously wrong neighbors.
+
+Later:
+
+- Feed the full-resolution anchor and lower-resolution lighting signal into DLSS Ray Reconstruction or another denoiser.
+- Consider half-resolution or checkerboard reflection pass.
+- Consider different reconstruction filters per lighting domain.
+
+DLSS Ray Reconstruction Contract
+--------------------------------
+DLSS RR should eventually receive or derive stable full-resolution guide inputs:
+
+- Full-resolution depth.
+- Full-resolution motion vectors.
+- Full-resolution normals.
+- Full-resolution roughness.
+- Full-resolution material/surface identity where available.
+- Noisy lighting/radiance input.
+- Exposure information.
+
+Because DLSS RR expects strong guide buffers, do not sacrifice full-resolution primary data to make ReSTIR cheaper. Make lighting cheaper, then reconstruct/denoise against stable full-resolution data.
+
+Future Domain Expansion
+-----------------------
+After direct lighting scale is stable:
+
+1. Indirect / multi-bounce reservoirs.
+   - Separate scale CVar.
+   - Separate reservoir dimensions.
+   - Explicit mapping from full-res primary hit to indirect reservoir pixel.
+   - Different history validity rules from direct lighting.
+
+2. Reflections.
+   - Likely half-resolution by default.
+   - Needs roughness-aware reconstruction.
+   - Glass and mirror-like materials need special treatment.
+   - Avoid destroying sharp reflections by forcing all reflection rays into one low-res bucket.
+
+3. Volumetrics.
+   - Can be much lower resolution.
+   - Temporal accumulation and reprojection are mandatory before judging quality.
+
+4. Final denoiser / DLSS RR integration.
+   - Should happen before chasing perfect raw reservoir quality at high resolution.
+
+Validation Checklist
+--------------------
+Build from:
+
+- E:\prog\rbdoom-3-bfg-rt\neo
+
+Build command:
+
+- cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+- Copy built RBDoom3BFG.exe to E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+- Copy E:\prog\rbdoom-3-bfg-rt\base\renderprogs2 to E:\prog\rbdoom-3-BFG-prebuilt\base when shaders change.
+
+Initial runtime test:
+
+- Use conservative PT resolution first, such as 1280x720 or lower.
+- r_pathTracingDebugMode 18
+- r_pathTracingSamplesPerPixel 1
+- r_pathTracingRestirPTDirectLighting 1
+- r_pathTracingRestirPTDirectResolutionScale 1.0
+
+Then test:
+
+- r_pathTracingRestirPTDirectResolutionScale 0.5
+- Mode 50
+- Mode 51
+- Mode 18 hybrid
+
+Expected first-pass result:
+
+- 1.0 scale should match current behavior.
+- 0.5 scale should reduce direct ReSTIR cost.
+- 0.5 scale may look blockier or less stable until reconstruction is improved.
+- Exposure should still affect final mode 18 image normally.
+- No green/blue blank diagnostic regression.
+- No device removal on simple 720p-class smoke tests.
+
+Failure Signals
+---------------
+Treat these as likely domain mismatch bugs:
+
+- Mode 50/51 suddenly all blue/green with no scene variation.
+- Mode 18 hybrid becomes flat/unlit or exposure-insensitive.
+- ReSTIR direct appears shifted relative to geometry edges.
+- Lighting swims when camera is stationary.
+- Reservoir reuse breaks only at scaled resolutions.
+- Crashes occur only after changing the direct resolution scale CVar.
+- Device removal happens immediately on scale changes.
+
+Treat these as expected quality limitations of the first pass:
+
+- Lower-resolution direct lighting looks blocky.
+- Fine emissives are less stable at 0.5 or 0.25.
+- Small lights may need better candidate/reconstruction rules.
+- ReSTIR DI still looks similar to native direct lighting in many areas.
+
+Documentation To Read First In A New Session
+--------------------------------------------
+Read these before coding:
+
+- docs/pathtracing.txt
+- docs/pathtrace_modules.txt
+- docs/ReSTIR/current_restir_pt_state.txt
+- docs/ReSTIR/rough_restir_pt_preview_plan.txt
+- docs/ReSTIR/resolution_scaling_and_reconstruction_plan.txt
+
+New Session First Slice
+-----------------------
+First coding slice status: implemented as the initial direct-domain bridge above.
+Remaining follow-up work:
+
+1. Validate 1.0 scale first, then 0.5.
+2. If 0.5 is stable, add the first small reconstruction filter over nearby
+   direct reservoir pixels.
+3. Weight or reject reconstruction taps with full-resolution depth, normal,
+   material/surface identity, and roughness.
+4. Split mode 32 into producer/consumer form if temporal-only preview also needs
+   scaled-domain testing.
+5. Move packed reservoir allocation to direct-size capacity only when the
+   binding-set/resource lifetime churn is handled deliberately.
+
+Do not start with:
+
+- DLSS RR integration.
+- Reflection scaling.
+- Indirect reservoir scaling.
+- A large reconstruction filter.
+- A broad rewrite of the RAB bridge.
+
+The first goal is only to make ReSTIR direct lighting live in an explicit, independently sized pixel domain.

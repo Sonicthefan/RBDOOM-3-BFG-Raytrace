@@ -1841,6 +1841,17 @@ inputs are not reliable if initial, temporal, spatial, and shading work are all
 attempted inside one raygen dispatch. This remains debug scaffolding and should
 become a real pass graph before production ReSTIR shading.
 
+`r_pathTracingRestirPTDirectResolutionScale` gives this staged direct-lighting
+path an explicit reservoir pixel domain. The ReSTIR PT context and the temporal
+and spatial producer dispatches use the scaled direct size, while mode 18, mode
+50, and mode 51 final consumers keep the full PT output size and map full output
+pixels to direct reservoir pixels. During direct-domain producer dispatches, the
+raygen maps each direct pixel to a representative full-resolution pixel before
+tracing, and RAB G-buffer callbacks map direct-domain neighbor pixels back to
+the full-resolution primary-surface history. The packed reservoir UAV binding
+still has full-output capacity in this first slice; RTXDI reservoir addressing
+uses the scaled direct-domain parameters.
+
 `r_pathTracingRestirPTDirectLighting 1` applies the same temporal and spatial
 producer prepasses to mode 18 and selects the mode 18 ReSTIR hybrid consumer.
 The hybrid keeps mode 18's native ambient/emissive/base path-tracing behavior
@@ -1870,6 +1881,23 @@ the same temporal-vs-spatial comparison but checks changed Doom analytic or
 emissive NEE reservoirs against the local rough-preview reconstruction used by
 mode 50; yellow marks a changed spatial NEE source that is valid metadata but
 does not reconstruct usable local direct lighting at the current surface.
+
+Modes 53-55 are the first indirect/GI reservoir diagnostics. They reuse the
+initial RTXDI PT reservoir buffer and initial ReSTIR shader library rather than
+adding a separate GI resource family. In these modes the RAB path tracer skips
+primary-surface NEE, so selected candidates start in the secondary/indirect path
+domain: secondary NEE, emissive hits, or non-NEE path radiance. Mode 53 shows
+indirect reservoir metadata/heat, mode 54 shades the rough indirect reservoir
+estimate, and mode 55 colors source/path attribution. They are initial-only and
+debug-only; there is no temporal GI reuse, spatial GI reuse, sparse update mask,
+or mode 18 GI integration yet.
+
+The GI debug path explicitly allows one secondary bridge bounce and raises the
+RTXDI initial path-length budget to 4. RTXDI starts the primary surface at
+bounceDepth 2; secondary-surface NEE is recorded as pathLength 4, so the default
+initial max of 3 accepts primary NEE but silently rejects the first indirect
+analytic NEE candidate. This override is scoped to modes 53-55 and does not
+change mode 18.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed

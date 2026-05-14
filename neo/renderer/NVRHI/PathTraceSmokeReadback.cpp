@@ -125,7 +125,7 @@ void AccumulateRigidRouteOverlapBucket(RigidRouteOverlapCounts& counts, RigidRou
 
 void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
-    const int debugMode = idMath::ClampInt(0, 52, r_pathTracingDebugMode.GetInteger());
+    const int debugMode = idMath::ClampInt(0, 55, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested)
     {

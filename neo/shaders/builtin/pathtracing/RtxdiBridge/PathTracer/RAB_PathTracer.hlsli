@@ -288,9 +288,19 @@ void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRand
     // RTXDI's PT context starts at bounceDepth 2 for the primary surface.
     // Keep that first NEE-capable vertex alive even when the local integrator
     // has zero or one secondary diffuse bounces configured.
-    const uint maxSecondaryBounces = min(
+    const bool indirectInitialMode = PathTraceRestirPTIndirectInitialMode();
+    if (indirectInitialMode && ctx.GetMaxPathBounce() < 4u)
+    {
+        // Secondary-surface NEE is recorded as pathLength 4 by RTXDI. The
+        // default initial context max is 3, which accepts primary NEE but
+        // rejects the first indirect NEE candidate before source attribution.
+        ctx.SetMaxPathBounce(4u);
+    }
+
+    const uint configuredSecondaryBounces = min(
         PathTraceIntegratorDiffuseBounceLimit(),
         PathTraceIntegratorMaxPathDepth() > 0u ? PathTraceIntegratorMaxPathDepth() - 1u : 0u);
+    const uint maxSecondaryBounces = indirectInitialMode ? max(configuredSecondaryBounces, 1u) : configuredSecondaryBounces;
     const uint maxBridgeBounces = min(min(ctx.GetMaxPathBounce(), 3u), 2u + maxSecondaryBounces);
 
     [loop]
@@ -304,7 +314,8 @@ void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRand
             break;
         }
 
-        if (PathTraceIntegratorNextEventEstimationEnabled() && ctx.ShouldSampleNee())
+        const bool skipPrimaryNeeForIndirectDebug = indirectInitialMode && ctx.GetBounceDepth() <= 2u;
+        if (!skipPrimaryNeeForIndirectDebug && PathTraceIntegratorNextEventEstimationEnabled() && ctx.ShouldSampleNee())
         {
             RAB_RecordSmokeNeeSample(ctx, currentSurface, ptRandContext);
         }

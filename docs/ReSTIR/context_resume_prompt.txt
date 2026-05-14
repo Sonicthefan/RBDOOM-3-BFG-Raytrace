@@ -17,8 +17,8 @@ cmake --build --preset win64-pt-dev-release
 
 After building, copy:
 - the built RBDoom3BFG.exe to E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
-- E:\prog\rbdoom-3-bfg-rt\base\renderprogs2 to the prepared game folder after
-  shader changes
+- E:\prog\rbdoom-3-bfg-rt\base\renderprogs2 contents to
+  E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2 after shader changes
 
 Read first:
 - docs\agents\AGENT_SOUL_RESTIR_PT_REVIEWER_v1.md
@@ -58,14 +58,34 @@ Current mode map:
 - 33: temporal light-source attribution.
 - 50: spatial reservoir shading preview.
 - 51: spatial source attribution and spatial diagnostics.
+- 53: indirect/GI initial reservoir diagnostics.
+- 54: indirect/GI initial reservoir shading preview.
+- 55: indirect/GI path/source attribution.
 
 Current implementation state:
 - Modes 50-51 run a staged TemporalAndSpatial debug path: temporal producer,
   UAV barriers, spatial reservoir producer, UAV barrier, then shading or
   attribution consumer.
+- r_pathTracingRestirPTDirectResolutionScale controls the staged ReSTIR
+  direct-lighting reservoir domain for modes 50-51 and mode 18
+  r_pathTracingRestirPTDirectLighting. It defaults to 1.0 and clamps to
+  0.25..1.0.
+- Producer prepasses dispatch at the scaled direct size. Mode 18, mode 50, and
+  mode 51 visible/final consumers remain full-resolution and map full pixels to
+  the nearest direct reservoir pixel.
+- Mode 32 remains a full-resolution single-dispatch temporal preview; do not
+  assume it has been moved to the scaled direct domain.
 - Mode 50 shades the completed spatial reservoir with the rough preview path.
 - Mode 51 colors the completed spatial reservoir source using the mode 33 source
   convention.
+- Modes 53-55 are the first debug-only indirect/GI reservoir domain. They reuse
+  the initial RTXDI PT reservoir buffer and shader library, but the RAB path
+  tracer skips primary-surface NEE in these modes so candidates begin at the
+  secondary/indirect path domain. They are diagnostics only; no temporal,
+  spatial, sparse-update, or mode 18 integration exists for GI yet.
+  They also force one secondary bridge bounce and raise the debug-only RTXDI
+  initial path-length budget to 4 so secondary-surface analytic NEE is not
+  rejected by the default initial max of 3.
 - r_pathTracingRestirPTSpatialDiagnosticView 1 switches mode 51 to spatial
   acceptance/source-change colors.
 - A recent local slice added r_pathTracingRestirPTSpatialDiagnosticView 2 for a
@@ -104,22 +124,14 @@ Do not re-enable NEE temporal reuse until stable light-domain IDs,
 current/previous remapping, and per-light radiance/state validation exist.
 
 Next implementation target:
-First, repair/regression-check the current new ReSTIR path before starting the
-resolution-scaling slice:
+Validate the new indirect/GI debug modes before adding temporal/spatial GI reuse
+or sparsity:
 - Confirm mode 18 without r_pathTracingRestirPTDirectLighting still behaves like
   the stable/playable path tracer.
-- Confirm mode 32 temporal rough preview still works in the safe temporal NEE
-  state above.
-- Confirm mode 50 spatial shading and mode 51 source attribution still consume
-  completed spatial reservoirs rather than regenerating them.
-- Confirm r_pathTracingRestirPTSpatialDiagnosticView 0 and 1 still work. Treat
-  view 2 as optional and disposable if it interferes with the newer path.
-
-Only after that, continue the plan in
-docs\ReSTIR\resolution_scaling_and_reconstruction_plan.txt:
-- Implement variable resolution for ReSTIR direct lighting only.
-- Keep primary visibility, primary-surface history, motion vectors, depth,
-  material identity, and reconstruction anchors full resolution.
-- Make every producer/consumer explicit about whether it operates in full PT
-  output coordinates or the ReSTIR direct-lighting reservoir domain.
-- Do not downscale mode 18 output or primary ray generation in the first slice.
+- Confirm modes 53, 54, and 55 launch at conservative resolution and show
+  non-primary-direct reservoir behavior.
+- Compare mode 55 against modes 33 and 51: cyan/blue and orange still mean
+  packed NEE sources, while magenta/green indicate non-NEE indirect/path
+  samples.
+- Keep temporal NEE reuse disabled as documented. Do not add temporal/spatial
+  reuse for GI until mode 55 can identify source/path failures clearly.
