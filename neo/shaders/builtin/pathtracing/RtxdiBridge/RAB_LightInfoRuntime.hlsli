@@ -22,7 +22,7 @@ uint RAB_GetCurrentDoomAnalyticLightCount()
 {
     const uint uploadedAnalyticCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
     const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    return DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
+    return (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
 }
 
 bool RAB_DoomAnalyticIdentityValid(PathTraceDoomAnalyticLightCandidateIdentity identity)

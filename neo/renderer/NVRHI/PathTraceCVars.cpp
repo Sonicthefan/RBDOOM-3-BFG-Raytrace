@@ -607,13 +607,13 @@ idCVar r_pathTracingToyLightScale(
     "r_pathTracingToyLightScale",
     "0.3",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Scale selected point-light contribution in mode 18 toy path tracing" );
+    "Scale selected point-light contribution in mode 18 toy path tracing and ReSTIR PT analytic-light preview intensity" );
 
 idCVar r_pathTracingToyEmissiveScale(
     "r_pathTracingToyEmissiveScale",
     "4.0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Scale emissive material contribution in mode 18 toy path tracing" );
+    "Scale emissive material contribution in mode 18 toy path tracing and ReSTIR PT emissive preview intensity" );
 
 idCVar r_pathTracingToyLightTraceCap(
     "r_pathTracingToyLightTraceCap",
@@ -788,6 +788,12 @@ idCVar r_pathTracingRestirPTAnalyticLightTrials(
     "32",
     CVAR_RENDERER | CVAR_INTEGER,
     "Current-frame analytic Doom light proposal trials for ReSTIR PT NEE; higher values reduce sparse-light flicker at additional GPU cost" );
+
+idCVar r_pathTracingRestirPTVisibilityPolicy(
+    "r_pathTracingRestirPTVisibilityPolicy",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "ReSTIR PT NEE visibility policy: 0 = final/preview visibility only, 1 = selected NEE sample producer visibility, 2 = strict proposal-stream visibility" );
 
 idCVar r_pathTracingRestirPTSpatialSamples(
     "r_pathTracingRestirPTSpatialSamples",

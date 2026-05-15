@@ -3,19 +3,36 @@
 
 #include "RAB_LightSamplingCore.hlsli"
 
-bool RAB_GetConservativeVisibility(RAB_Surface surface, RAB_LightSample lightSample)
+uint RAB_RestirPTVisibilityPolicy()
 {
+    return ((uint)clamp(floor(SafetyInfo.z + 0.5), 0.0, 255.0) >> 4u) & 0x0fu;
+}
+
+bool RAB_GetConservativeLightSampleGeometry(RAB_Surface surface, RAB_LightSample lightSample, out float3 lightDir, out float lightDistance)
+{
+    lightDir = float3(0.0, 0.0, 1.0);
+    lightDistance = 0.0;
     if (!RAB_IsSurfaceValid(surface) || !RAB_IsReplayableLightSample(lightSample))
     {
         return false;
     }
 
-    float3 lightDir;
-    float lightDistance;
     RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
 
     const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     if (dot(normal, lightDir) <= 0.0 || dot(RAB_GetSurfaceGeoNormal(surface), lightDir) <= 0.0)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool RAB_GetStrictLightSampleVisibility(RAB_Surface surface, RAB_LightSample lightSample)
+{
+    float3 lightDir;
+    float lightDistance;
+    if (!RAB_GetConservativeLightSampleGeometry(surface, lightSample, lightDir, lightDistance))
     {
         return false;
     }
@@ -31,10 +48,40 @@ bool RAB_GetConservativeVisibility(RAB_Surface surface, RAB_LightSample lightSam
         ignoreMaterialId = emissiveTriangle.materialId;
     }
 
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
     const float3 shadowOrigin = surface.worldPos + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
     const float shadowTMax = max(lightDistance - 0.5, 0.01);
     return TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, ignoreInstanceId, ignorePrimitiveIndex, ignoreMaterialId) > 0.0;
+}
+
+bool RAB_GetCandidateNeeVisibility(RAB_Surface surface, RAB_LightSample lightSample)
+{
+    if (RAB_RestirPTVisibilityPolicy() >= 2u)
+    {
+        return RAB_GetStrictLightSampleVisibility(surface, lightSample);
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    return RAB_GetConservativeLightSampleGeometry(surface, lightSample, lightDir, lightDistance);
+}
+
+bool RAB_GetSelectedNeeVisibility(RAB_Surface surface, RAB_LightSample lightSample)
+{
+    if (RAB_RestirPTVisibilityPolicy() >= 1u)
+    {
+        return RAB_GetStrictLightSampleVisibility(surface, lightSample);
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    return RAB_GetConservativeLightSampleGeometry(surface, lightSample, lightDir, lightDistance);
+}
+
+bool RAB_GetConservativeVisibility(RAB_Surface surface, RAB_LightSample lightSample)
+{
+    return RAB_GetStrictLightSampleVisibility(surface, lightSample);
 }
 
 float RAB_GetConservativeVisibility(RAB_Surface surface, float3 samplePosition)

@@ -708,12 +708,12 @@ float3 RAB_GetSurfaceNormal(RAB_Surface surface)
 
 bool DoomAnalyticLightsEnabled()
 {
-    return DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
+    return (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
 }
 
 bool DoomAnalyticLightsReplaceSelected()
 {
-    return DoomAnalyticLightInfo.w >= 1.5;
+    return (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 2u) != 0u;
 }
 
 bool SmokeToyFakePBRSpecularEnabled()
@@ -3058,7 +3058,8 @@ float4 EvaluateRestirPTTemporalLightSourceAttribution(RAB_Surface currentSurface
 #ifdef RB_PT_ENABLE_RESTIR_SPATIAL_ATTRIBUTION
 float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface, uint2 pixel)
 {
-    const uint spatialDiagnosticView = (uint)clamp(floor(SafetyInfo.z + 0.5), 0.0, 2.0);
+    const uint spatialDiagnosticPacked = (uint)clamp(floor(SafetyInfo.z + 0.5), 0.0, 255.0);
+    const uint spatialDiagnosticView = spatialDiagnosticPacked & 0x0fu;
     if (spatialDiagnosticView == 1u)
     {
         return RestirPTSpatialAcceptanceDiagnosticColor(currentSurface, pixel);
@@ -3204,7 +3205,7 @@ float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel
     const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
     const uint uploadedAnalyticCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
     const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
+    const uint analyticCount = DoomAnalyticLightsEnabled() ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
     const uint lightCount = emissiveTriangleCount + analyticCount;
     if (lightCount == 0u)
     {

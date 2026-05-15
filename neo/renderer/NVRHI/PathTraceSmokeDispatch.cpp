@@ -552,6 +552,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int toyLightTraceCap = idMath::ClampInt(0, RT_SMOKE_MAX_DEBUG_LIGHTS, r_pathTracingToyLightTraceCap.GetInteger());
     const int selectedLightRequestCount = debugMode == 18 ? Min(requestedLightCount, toyLightTraceCap) : requestedLightCount;
     const int lightSelectionMode = idMath::ClampInt(0, 1, r_pathTracingLightSelection.GetInteger());
+    const float toyLightScale = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingToyLightScale.GetFloat());
+    const float toyEmissiveScale = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
+    const float analyticLightIntensityScale = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat());
+    const float effectiveAnalyticLightIntensityScale = effectiveRestirPTMode
+        ? idMath::ClampFloat(0.0f, 16.0f, analyticLightIntensityScale * toyLightScale)
+        : analyticLightIntensityScale;
     float toyMaxRayDistance = idMath::ClampFloat(64.0f, 100000.0f, r_pathTracingToyMaxRayDistance.GetFloat());
     if (r_pathTracingSceneSource.GetInteger() == 2)
     {
@@ -577,9 +583,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, viewDef->renderView.fov_x, 100.0f);
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, viewDef->renderView.fov_y, 100.0f);
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_forceAmbient.GetFloat(), 1000.0f);
-    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyLightScale.GetFloat(), 1000.0f);
-    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingToyEmissiveScale.GetFloat(), 1000.0f);
-    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, r_pathTracingAnalyticLightIntensityScale.GetFloat(), 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, toyLightScale, 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, toyEmissiveScale, 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, analyticLightIntensityScale, 1000.0f);
+    accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, effectiveAnalyticLightIntensityScale, 1000.0f);
     accumulationSignature = HashSmokeFloatQuantized(accumulationSignature, toyMaxRayDistance, 10.0f);
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(m_smokeDoomAnalyticLightCount));
     accumulationSignature = HashSmokeDispatchValue(accumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger())));
@@ -623,7 +630,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, cameraUp.z, 10000.0f);
     reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, viewDef->renderView.fov_x, 100.0f);
     reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, viewDef->renderView.fov_y, 100.0f);
-    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, r_pathTracingAnalyticLightIntensityScale.GetFloat(), 1000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, toyLightScale, 1000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, toyEmissiveScale, 1000.0f);
+    reservoirDispatchSignature = HashSmokeFloatQuantized(reservoirDispatchSignature, effectiveAnalyticLightIntensityScale, 1000.0f);
     reservoirDispatchSignature = HashSmokeDispatchValue(reservoirDispatchSignature, static_cast<uint64>(m_smokeDoomAnalyticLightCount));
     reservoirDispatchSignature = HashSmokeDispatchValue(reservoirDispatchSignature, static_cast<uint64>(idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger())));
     if (reservoirDispatchSignature != m_frameResources.smokeReservoirDispatchSignature)
@@ -694,7 +703,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool directSpatialStandalone = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectSpatialReservoirProducerShaderTable;
         const bool finalUsesStandaloneResolve = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && state.shaderTable == m_smokeRestirCombinedResolveShaderTable;
         const bool finalConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode;
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
+        const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -732,6 +742,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTBufferSelection.finalShadingInput,
             restirPTBufferSelection.debugInput,
             (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1 : 0,
+            restirPTVisibilityPolicy,
+            toyLightScale,
+            toyEmissiveScale,
+            effectiveAnalyticLightIntensityScale,
             r_pathTracingRestirPTPreviewMaxPixels.GetInteger(),
             restirPTContextDesc.temporalDepthThreshold,
             restirPTContextDesc.temporalNormalThreshold,
@@ -824,8 +838,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.lightSpriteInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingLightSpriteIntensity.GetFloat());
     constants.lightSpriteInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_forceAmbient.GetFloat());
     constants.toyPathInfo[0] = toyMaxRayDistance;
-    constants.toyPathInfo[1] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingToyLightScale.GetFloat());
-    constants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
+    constants.toyPathInfo[1] = toyLightScale;
+    constants.toyPathInfo[2] = toyEmissiveScale;
     constants.toyPathInfo[3] = static_cast<float>(accumulationFrameCount);
     constants.emissiveInfo[0] = static_cast<float>(disableEmissiveTriangleSampling ? 0 : m_smokeEmissiveTriangleCount);
     constants.emissiveInfo[1] = static_cast<float>(disableEmissiveTriangleSampling ? 0 : m_smokeEmissiveStaticTriangleCount);
@@ -847,7 +861,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.boundsOverlayInfo[3] = 0.0f;
     constants.doomAnalyticLightInfo[0] = static_cast<float>(disableAnalyticLightLoop ? 0 : m_smokeDoomAnalyticLightCount);
     constants.doomAnalyticLightInfo[1] = static_cast<float>(idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger()));
-    constants.doomAnalyticLightInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat());
+    constants.doomAnalyticLightInfo[2] = effectiveAnalyticLightIntensityScale;
     constants.doomAnalyticLightInfo[3] =
         (enableDoomAnalyticLights ? 1.0f : 0.0f) +
         (replaceSelectedLightsWithAnalytic ? 2.0f : 0.0f);
@@ -889,7 +903,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTIndirectInfo[3] = static_cast<float>(restirPTGiRaySparsityPhase);
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
-    constants.safetyInfo[2] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger()));
+    constants.safetyInfo[2] =
+        static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTSpatialDiagnosticView.GetInteger())) +
+        static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger()) * 16);
     constants.safetyInfo[3] =
         static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTMode18DebugView.GetInteger())) +
         (r_pathTracingRestirPTMode18HeavyDirect.GetInteger() != 0 ? 16.0f : 0.0f);

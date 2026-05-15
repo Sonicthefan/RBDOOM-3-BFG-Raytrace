@@ -274,6 +274,31 @@ Task 06: Monolithic ReSTIR shader retirement
   load or build ReSTIR RAB libraries unless the explicit mode-18 ReSTIR hybrid
   experiment is enabled and the legacy diagnostics build option is on.
 
+Task 07: ReSTIR NEE visibility cost control
+
+- The light-leak fix made RAB visibility trace real shadow rays. That is
+  correct for selected reservoir samples, but tracing during proposal streaming
+  multiplies shadow rays by emissive and analytic trial counts.
+- `r_pathTracingRestirPTVisibilityPolicy` controls this:
+  - `0`: proposal and selected NEE recording use geometric/front-facing tests
+    only; final/preview visibility remains the visible shadow gate.
+  - `1`: diagnostic; proposal streaming uses geometric tests, then the selected
+    NEE sample traces one shadow ray before reservoir recording. This can
+    darken the preview because a single occluded selected sample rejects the
+    reservoir after RIS instead of resampling from the visible candidates.
+  - `2`: strict diagnostic mode; proposal streaming traces shadow visibility
+    for every candidate, matching the expensive light-leak proof path.
+- Keep policy 0 as the default validation target. The standalone combined
+  resolve traces final visibility for the selected direct and GI preview
+  reservoirs when preview visibility is enabled, preserving brightness while
+  still blocking obvious selected-sample leaks. Use policies 1/2 only for
+  targeted debugging until a visibility-aware resampling strategy exists.
+- ReSTIR PT analytic evaluation must not use authored Doom radius as a hard
+  emitted-light cutoff. Treat radius as a proposal/source-size hint and evaluate
+  sampled analytic lights with physically shaped falloff. A hard game-radius
+  boundary should only exist in proposal selection or culling, not in the final
+  selected light contribution.
+
 Validation
 ----------
 Use the PT dev Release lane:

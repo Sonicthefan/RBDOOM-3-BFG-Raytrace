@@ -100,6 +100,38 @@ by the primary-prepass mode-56 path. Re-enable those old diagnostic rebuilds
 with `PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS=ON` when deliberately
 working on modes such as 26-33 or 50-51 attribution/shading consumers.
 
+ReSTIR PT NEE visibility is now policy controlled:
+
+  r_pathTracingRestirPTVisibilityPolicy
+
+Policy 0 keeps proposal and selected NEE reservoir recording unshadowed and
+relies on final/preview visibility only. This is the default. The standalone
+combined resolve now traces selected direct and GI preview reservoir visibility
+when preview visibility is enabled, so obvious selected-sample leaks can be
+blocked without rejecting energy during producer RIS. Policy 1 skips
+per-proposal shadow rays but traces the selected NEE sample before recording it
+into the reservoir; keep it diagnostic-only for now because rejecting one
+occluded selected sample after RIS can darken the whole preview. Policy 2
+restores the strict diagnostic behavior that traces visibility during proposal
+streaming.
+
+Mode 56 scale calibration:
+
+- `r_pathTracingToyEmissiveScale` is the emissive source scale used by the
+  RAB emissive light loader and primary-surface material emissive.
+- ReSTIR PT analytic-light preview intensity now uses
+  `r_pathTracingAnalyticLightIntensityScale * r_pathTracingToyLightScale`,
+  clamped to 0..16, so the mode-18 toy light scale also affects ReSTIR PT
+  analytic source brightness. The pass dump prints `toyLight`, `toyEmissive`,
+  and the effective `analyticScale`.
+- Changing either toy scale invalidates the ReSTIR reservoir dispatch signature,
+  so stale direct/GI reservoirs should not mask the adjustment.
+- RAB Doom analytic samples no longer hard-cut lighting at the authored Doom
+  radius. The radius remains a source-size/proposal-domain hint, while sampled
+  analytic sphere radiance is evaluated as a light sample without a game-radius
+  emission boundary. This is necessary because compensating a hard cutoff with
+  high intensity made shadows and falloff read as harsh stencils.
+
 Skybox/wobblesky cube materials are forced to black fallback albedo and rejected
 from the material emissive path. Doom 3 sometimes represents sky as large
 geometry boxes, and earlier path-tracing material fallback made those boxes act

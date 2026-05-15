@@ -16,6 +16,10 @@ struct PathTraceSmokePayload
 struct PathTraceSmokeShadowPayload
 {
     uint hit;
+    uint rayMode;
+    uint ignoreInstanceId;
+    uint ignorePrimitiveIndex;
+    uint ignoreMaterialId;
 };
 
 struct PathTraceSmokeEmissiveTriangle
@@ -135,9 +139,11 @@ static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN = 5u;
 static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
+static const uint RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP = 0x00000002u;
 static const uint RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP = 0x00000004u;
 static const uint RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING = 0x00000008u;
+static const uint RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY = 0x00000020u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 
 bool PathTraceSafetyDisabled(uint bit)
@@ -376,6 +382,10 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, ui
 {
     PathTraceSmokeShadowPayload shadowPayload;
     shadowPayload.hit = 0u;
+    shadowPayload.rayMode = ignoreInstanceId != 0xffffffffu ? 2u : 1u;
+    shadowPayload.ignoreInstanceId = ignoreInstanceId;
+    shadowPayload.ignorePrimitiveIndex = ignorePrimitiveIndex;
+    shadowPayload.ignoreMaterialId = ignoreMaterialId;
 
     RayDesc shadowRay;
     shadowRay.Origin = origin;
@@ -394,6 +404,93 @@ float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, ui
         shadowPayload);
 
     return shadowPayload.hit == 0u ? 1.0 : 0.0;
+}
+
+float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir)
+{
+    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY))
+    {
+        return 1.0;
+    }
+    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidPTReservoir(reservoir))
+    {
+        return 0.0;
+    }
+
+    float3 targetPosition = reservoir.TranslatedWorldPosition;
+    uint ignoreInstanceId = 0xffffffffu;
+    uint ignorePrimitiveIndex = 0xffffffffu;
+    uint ignoreMaterialId = 0xffffffffu;
+
+    if (RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+        if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+        {
+            return 0.0;
+        }
+
+        const uint lightIndex = RTXDI_SampledLightData_GetLightIndex(sampledLightData);
+        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+        if (!RAB_IsLightInfoValid(lightInfo))
+        {
+            return 0.0;
+        }
+
+        const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+            lightInfo,
+            surface,
+            RTXDI_SampledLightData_GetUVDataFloat2(sampledLightData));
+        if (lightSample.valid == 0u)
+        {
+            return 0.0;
+        }
+
+        targetPosition = lightSample.position;
+        if (lightSample.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE &&
+            (lightSample.flags & RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS) == 0u)
+        {
+            return 1.0;
+        }
+
+        if (lightSample.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+        {
+            const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
+            if (lightSample.lightIndex < emissiveTriangleCount)
+            {
+                const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[lightSample.lightIndex];
+                const bool historicalDynamicEmissive = (emissiveTriangle.padding0 & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+                ignoreInstanceId = historicalDynamicEmissive ? 0xffffffffu : emissiveTriangle.instanceId;
+                ignorePrimitiveIndex = historicalDynamicEmissive ? 0xffffffffu : emissiveTriangle.primitiveIndex;
+                ignoreMaterialId = emissiveTriangle.materialId;
+            }
+        }
+    }
+
+    if (!all(targetPosition == targetPosition))
+    {
+        return 0.0;
+    }
+
+    const float3 toTarget = targetPosition - surface.worldPos;
+    const float distanceSquared = dot(toTarget, toTarget);
+    if (distanceSquared <= 1.0e-6)
+    {
+        return 0.0;
+    }
+
+    const float distance = sqrt(distanceSquared);
+    const float3 lightDir = toTarget / distance;
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    if (dot(normal, lightDir) <= 0.0 || dot(RAB_GetSurfaceGeoNormal(surface), lightDir) <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+    const float3 shadowOrigin = surface.worldPos + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+    const float shadowTMax = max(distance - 0.5, 0.01);
+    return TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, ignoreInstanceId, ignorePrimitiveIndex, ignoreMaterialId);
 }
 
 bool RestirPTTryEvaluateNeeReservoirPreview(RAB_Surface surface, RTXDI_PTReservoir reservoir, bool traceVisibility, out float3 contribution)
@@ -476,8 +573,10 @@ float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
     const bool directValid = RestirPTTryEvaluateSpatialDirectLighting(surface, pixel, directContribution);
     const RTXDI_PTReservoir giReservoir = LoadRestirPTInitialReservoir(pixel);
     const bool giValid = RestirPTReservoirHasUsefulSample(giReservoir);
-    const float3 giContribution = giValid ? RestirPTReservoirPreviewContribution(giReservoir) : float3(0.0, 0.0, 0.0);
-    if (!directValid && !giValid)
+    const float giVisibility = (RestirPTInfo.z >= 0.5 && giValid) ? RestirPTTraceReservoirVisibility(surface, giReservoir) : 1.0;
+    const bool giVisible = giValid && giVisibility > 0.0;
+    const float3 giContribution = giVisible ? RestirPTReservoirPreviewContribution(giReservoir) * giVisibility : float3(0.0, 0.0, 0.0);
+    if (!directValid && !giVisible)
     {
         return float4(surfaceBase, 1.0);
     }
@@ -519,6 +618,14 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
 [shader("anyhit")]
 void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
+    if (payload.rayMode == 2u &&
+        InstanceID() == payload.ignoreInstanceId &&
+        PrimitiveIndex() == payload.ignorePrimitiveIndex)
+    {
+        payload.hit = 0u;
+        IgnoreHit();
+        return;
+    }
     payload.hit = 1u;
 }
 

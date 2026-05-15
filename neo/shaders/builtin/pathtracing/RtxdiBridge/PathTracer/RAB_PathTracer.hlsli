@@ -126,7 +126,7 @@ void RAB_StreamSmokeNeeRisCandidate(
 {
     const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, lightUv);
-    if (lightSelectionPdf <= 1.0e-6 || domainAverageScale <= 0.0 || !RAB_GetConservativeVisibility(surface, lightSample))
+    if (lightSelectionPdf <= 1.0e-6 || domainAverageScale <= 0.0 || !RAB_GetCandidateNeeVisibility(surface, lightSample))
     {
         return;
     }
@@ -212,7 +212,7 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
     const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
     const uint uploadedAnalyticCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
     const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
-    const uint analyticCount = DoomAnalyticLightInfo.w >= 0.5 && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
+    const uint analyticCount = (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u && !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? min(uploadedAnalyticCount, analyticTraceCap) : 0u;
 
     RAB_SmokeNeeRisSelection selection = RAB_EmptySmokeNeeRisSelection();
 
@@ -263,6 +263,10 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
 
     const float3 radianceOverPdf = selection.radianceOverPdf * (selection.risWeightSum / selection.risWeight);
     if (RAB_Luminance(radianceOverPdf) <= 0.0)
+    {
+        return false;
+    }
+    if (!RAB_GetSelectedNeeVisibility(surface, selection.lightSample))
     {
         return false;
     }
