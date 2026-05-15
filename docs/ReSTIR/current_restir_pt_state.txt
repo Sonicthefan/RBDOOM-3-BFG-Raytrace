@@ -36,16 +36,104 @@ Active ReSTIR shader libraries:
   Opt-in mode 18 primary direct-lighting hybrid consumer when
   `r_pathTracingRestirPTDirectLighting 1`.
 - pathtrace_smoke_restir_initial.rt.hlsl
-  Also carries modes 53-56 for the first indirect/GI initial-reservoir
-  diagnostics.
+  Also carries modes 53-55 for the first indirect/GI initial-reservoir
+  diagnostics and remains the legacy fallback for mode 56 when the standalone
+  primary-prepass path is disabled.
 - pathtrace_smoke_restir_combined.rt.hlsl
-  Mode 56 combined direct spatial-reservoir plus indirect/GI initial-reservoir
-  preview.
+  Legacy fallback for mode 56 combined direct spatial-reservoir plus
+  indirect/GI initial-reservoir preview.
+- pathtrace_primary_surface_producer.rt.hlsl
+  Standalone primary-surface producer used when
+  `r_pathTracingRestirPTPrimarySurfacePrepass 1` is enabled. This is now the
+  default mode-56 testing path so normal iteration avoids loading the combined
+  monolithic shader. It writes
+  `PrimarySurfaceHistoryCurrent` without carrying ReSTIR direct/GI preview
+  code, establishing the first Pass A scaffold for the real pass graph.
+- pathtrace_restir_combined_resolve.rt.hlsl
+  Standalone mode 56 resolve shader used when
+  `r_pathTracingRestirPTPrimarySurfacePrepass 1` is enabled and the resolve
+  library loads successfully. It consumes primary history, spatial direct
+  reservoirs, and GI initial reservoirs, then writes the combined rough preview
+  without entering the monolithic combined shader.
+- pathtrace_restir_indirect_initial_producer.rt.hlsl
+  Standalone-ish mode 56 GI initial producer used when the primary prepass is
+  active. It still includes `pathtrace_smoke.rt.hlsl` for hit/material plumbing,
+  but compiles a producer-only raygen and avoids loading the much larger
+  `pathtrace_smoke_restir_initial.rt.bin` library for the mode-56 GI prepass.
+  Pass dumps report this route with `giInitialStandalone=1`.
+- pathtrace_restir_direct_temporal_producer.rt.hlsl
+  Standalone-ish mode 56 direct temporal producer used when the primary prepass
+  is active. It still includes `pathtrace_smoke.rt.hlsl`, but compiles a
+  producer-only temporal raygen and avoids loading the larger
+  `pathtrace_smoke_restir_temporal.rt.bin` library for the mode-56 temporal
+  prepass. Pass dumps report this route with `directTemporalStandalone=1`.
+- pathtrace_restir_direct_spatial_reservoir_producer.rt.hlsl
+  Standalone-ish mode 56 direct spatial-reservoir producer used when the
+  primary prepass is active. It still includes `pathtrace_smoke.rt.hlsl`, but
+  uses the spatial producer specialization under a mode-56-specific library
+  name so the default build and runtime path no longer need the legacy
+  `pathtrace_smoke_restir_spatial_reservoir.rt.bin` output. Pass dumps report
+  this route with `directSpatialStandalone=1`.
 
 Modes 31, 32, 33, 50, 51, 56, and the mode 18 hybrid force-specialize the debug mode at compile time through
 RB_PT_FORCE_DEBUG_MODE so the compiler can drop unrelated paths. User testing
 reported roughly 13 second first-load stalls for each specialized ReSTIR mode,
 down from roughly 197 seconds for the unspecialized ReSTIR library.
+
+The primary-surface producer is deliberately not a macro wrapper over
+`pathtrace_smoke.rt.hlsl`. It has its own raygen/hit/miss shader library so
+future production passes can grow outside the mode-56 monolithic preview path.
+When `r_pathTracingRestirPTPrimarySurfacePrepass 1` is enabled, the GI initial
+producer, direct temporal/spatial producers, and mode 56 final combined
+consumer can all consume `PrimarySurfaceHistoryCurrent`. Pass dumps report this
+with `giConsumesPrimary`, `directConsumesPrimary`, and `finalConsumesPrimary`.
+
+Direct and GI sparsity now use real sparse producer dispatch widths instead of
+only full-domain dispatch plus inactive-pixel early return. Pass dumps report
+the reservoir domain and producer dispatch domain separately through
+`directDomain`, `directDispatch`, and `giDispatch`. The active pattern is still
+the existing diagonal `1/rate` pattern, not a `1/rate^2` block pattern.
+
+The default CMake path-tracing shader target now builds the mode-56-required
+set and skips legacy monolithic ReSTIR diagnostic libraries that are not needed
+by the primary-prepass mode-56 path. Re-enable those old diagnostic rebuilds
+with `PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS=ON` when deliberately
+working on modes such as 26-33 or 50-51 attribution/shading consumers.
+
+Skybox/wobblesky cube materials are forced to black fallback albedo and rejected
+from the material emissive path. Doom 3 sometimes represents sky as large
+geometry boxes, and earlier path-tracing material fallback made those boxes act
+like unintended GI/light sources in dark areas.
+The specific Doom material `textures/sfx/black` is also forced to an absorbing
+black material: no diffuse/normal/specular/emissive texture binding, no alpha or
+decal behavior, black fallback albedo, and forced fallback shading. It must not
+inherit the material-id debug color or the `textures/sfx/black_2` stage.
+
+Mode 56 with `r_pathTracingRestirPTPrimarySurfacePrepass 1` now uses the
+standalone combined resolve library when available. Pass dumps report this with
+`finalResolve=1`. If the standalone resolve or primary-surface producer cannot
+load, mode 56 falls back to the older monolithic combined shader.
+Set `r_pathTracingRestirPTPrimarySurfacePrepass 0` only when deliberately
+testing that legacy fallback path.
+
+Primary-surface records now pack real material flags in
+`materialAndSurface.z`. Earlier prepass records accidentally wrote
+`surface.flags` there, which is triangle/class flag data. That can break
+material-dependent behavior when mode 56 consumes primary history.
+The triangle/class flags are preserved separately in `header.w` so standalone
+resolve passes can still identify translucent subtypes such as GUI screens,
+glass, smoke particles, and portal windows.
+The standalone primary-surface producer now uses the same emissive sampling
+contract as the monolithic shader, and the standalone mode 56 resolve adds the
+packed visible emissive radiance to fallback/preview output so visible emissive
+materials do not disappear when `primaryPrepass=1`.
+The standalone producer also ports the monolithic any-hit transparency rejection
+rules for GUI alpha, smoke-particle dithering, glass/portal fallback dithering,
+additive decals, and filter decals. These stochastic rejects are required for
+visible translucent surfaces when mode 56 consumes the standalone primary
+history. This is still primary-hit parity, not full layered translucent
+composition; if a scene depends on repeated GUI/glass layer compositing, that
+needs a separate translucent resolve/fallback plan.
 
 Functional Pieces Already Present
 ---------------------------------
@@ -215,10 +303,12 @@ and the mode 18 ReSTIR direct hybrid insert a standalone full-resolution
 primary-surface producer prepass before direct temporal/spatial producers. Mode
 56 reuses the full-resolution primary-surface history already written by the GI
 initial producer, so it does not add an extra primary-surface-only trace event.
-The visible/full-output consumer still traces primary rays in this first slice.
-This path is documented in `docs/ReSTIR/primary_surface_prepass_plan.txt` and
-should stay opt-in until runtime testing confirms it does not produce the prior
-light-blue clear-color failure.
+The mode 56 final/full-output consumer now has a surface-based combine path and
+can load current primary-surface history instead of rebuilding a surface from a
+fresh primary payload when this CVar is enabled and GI sparsity is 1. This path
+is documented in `docs/ReSTIR/primary_surface_prepass_plan.txt` and should stay
+opt-in until runtime testing confirms it does not produce the prior light-blue
+clear-color failure.
 
 Runtime validation on 2026-05-15 reported that the primary-surface prepass path
 works visually but has no meaningful performance impact. Treat this as evidence
@@ -290,24 +380,30 @@ Main Gaps
   sparsity visibly changes reconstruction but has not shown the expected cost
   reduction, and Nsight shows low RT core utilization during the expensive
   `vkCmdTraceRays` work.
-- Environment/sky contribution does not yet honor all base-game dark-area
-  occlusion or light-hiding rules.
+- Environment/sky visibility still does not model all base-game dark-area
+  occlusion or light-hiding rules. The current mitigation is to keep sky/cube
+  material fallback black and non-emissive, and to force `textures/sfx/black`
+  to an absorbing black material.
+- The current mode 56 pass graph is still a debug preview, not a production
+  sparse-GI renderer. It has full-resolution consumer/resolve work, and
+  sparsity only reduces selected producer work. The next architectural target is
+  documented in `docs/ReSTIR/real_pass_structure_plan.txt`: full-resolution
+  primary surface, explicit direct/GI lighting domains, and full-resolution
+  reconstruction/resolve before reflections.
 
 Recommended Next Milestone
 --------------------------
-Profile and isolate mode 56 before adding temporal GI reuse, spatial GI reuse,
-DLSS RR, reflection scaling, or mode 18 GI integration. Start with GPU profiling
-inside `vkCmdTraceRays` events 2 and 3: direct temporal producer and direct
-spatial producer shader execution, memory/cache behavior, branch divergence,
-reservoir loads/stores, and location-specific material/light sampling. Compare
-`r_pathTracingEmissiveDistribution 0` versus `1` first if exact pass
-attribution is needed; runtime testing already reported roughly a 50% FPS gain
-in a laggy spot with the CDF path. Also
-compare event 1 between good and bad locations because it scales up in the bad
-spots, just less than events 2 and 3. Do not assume ray traversal is the
-bottleneck when RT core utilization is only roughly 5-10%. In parallel,
-investigate why sky/environment GI reaches base-game dark areas that the raster
-path keeps hidden from skybox light. Keep
+Stop treating mode 56 as the production performance path. Use it as the
+validation preview while moving toward the real pass structure:
+
+1. Full-resolution primary surface / G-buffer anchor.
+2. Direct lighting producer in its own scaled/sparse domain.
+3. GI/indirect producer in its own scaled/sparse domain.
+4. Full-resolution resolve/composite that reconstructs from those domains.
+
+Do this before adding reflections, temporal GI reuse, spatial GI reuse, DLSS RR,
+or mode 18 GI integration. Continue using mode 50, 51, 54, 55, and 56 as
+regression checks during the split. Keep
 `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` while testing.
 
 Mode 33 analytic-source note:

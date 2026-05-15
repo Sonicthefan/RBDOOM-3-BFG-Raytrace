@@ -1,0 +1,218 @@
+Task 02: PT Skinned Source/Output Contract And GPU Skinning Scaffold
+====================================================================
+
+Assignment
+----------
+
+Design and add the data contracts needed for PT-owned GPU skinning, without
+making GPU skinning the default path.
+
+This task should create narrow types, buffers, and shader/compute entry points
+that can coexist with the existing CPU-skinned bridge.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_skinned_motion_vectors/README.txt
+    docs/pathtrace_skinned_motion_vectors/q2rtx_reference_notes.txt
+    docs/pathtrace_skinned_motion_vectors/task_01_identity_and_previous_cpu_bridge.txt
+
+Relevant code:
+
+    neo/renderer/NVRHI/PathTraceGeometry.h
+    neo/renderer/NVRHI/PathTraceSceneInputs.h
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.h
+    neo/renderer/NVRHI/PathTraceSkinning.cpp
+    neo/renderer/NVRHI/PathTraceSceneCapture.cpp
+    neo/renderer/tr_frontend_addmodels.cpp
+    neo/renderer/Model_md5.cpp
+    neo/renderer/Model_gltf.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+Problem Statement
+-----------------
+
+The current `PathTraceSmokeVertex` is an output vertex:
+
+    world position
+    world normal
+    uv
+    color
+    color2
+
+It should not become the source format for GPU skinning. A durable GPU
+skinning path needs separate source and output contracts.
+
+Step-By-Step Procedure
+----------------------
+
+1. Define a CPU/GPU-visible source vertex contract.
+
+   The source contract must preserve the data needed to skin from base pose:
+
+       local position
+       local normal
+       local tangent if available or reserved
+       uv
+       vertex color if needed
+       uint4 joint indices
+       float4 or normalized uint4 joint weights
+
+   Do not pack joint indices into normalized color fields. If packing is used,
+   document exact decode semantics.
+
+2. Define a skinned output contract.
+
+   The output contract must support:
+
+       current world position
+       current world normal
+       previous world position or previous-current delta
+       uv/material lookup continuity
+       source surface identity or range lookup
+
+   Early implementation may use:
+
+       PathTraceSmokeVertex currentOutput
+       float4 previousPositionBuffer
+
+   This avoids changing every shader load of `PathTraceSmokeVertex` at once.
+
+3. Define a skinned surface dispatch record.
+
+   Suggested fields:
+
+       sourceVertexOffset
+       outputVertexOffset
+       previousOutputVertexOffset
+       vertexCount
+       currentJointOffset
+       previousJointOffset
+       currentObjectToWorld
+       previousObjectToWorld
+       flags
+       surfaceRecordIndex
+
+   Keep the record small and layout-conscious.
+
+4. Add resource ownership without changing the default path.
+
+   Add handles/placeholders for:
+
+       skinned source vertex buffer
+       skinned current output vertex buffer
+       skinned previous position buffer
+       skinned surface dispatch buffer
+       current/previous joint matrix buffer
+
+   If the buffers are not filled yet, they must remain null/invalid and the
+   existing CPU-skinned path must continue to work.
+
+5. Add capability flags and scene-input fields.
+
+   Extend `RtPathTraceSceneInputGeometry` only as needed. Prefer explicit
+   names such as:
+
+       skinnedSourceGeometryAvailable
+       skinnedGpuSkinningAvailable
+       skinnedPreviousPositionBufferAvailable
+
+   Do not overload existing previous flags with aspirational true values.
+
+6. Add an off-by-default CVar gate.
+
+   Suggested intent:
+
+       r_pathTracingGpuSkinning 0
+
+   Values:
+
+       0 = use existing CPU-skinned bridge
+       1 = build GPU skinning resources/dispatch for diagnostics only
+       2 = allow selected skinned surfaces to use GPU output after validation
+
+   Exact naming may differ, but the default must preserve current behavior.
+
+7. Add a shader/compute file stub only if needed.
+
+   If adding shader code, keep it minimal:
+
+       decode source vertex
+       decode joint indices/weights
+       compute current position
+       compute previous position
+       write output
+
+   Do not copy Q2RTX shader code. Use Doom `idJointMat` semantics and local
+   path-tracing shader conventions.
+
+8. Keep BLAS changes deferred unless unavoidable.
+
+   This task may allocate output buffers, but it should not force the main BLAS
+   path to consume GPU-skinned output unless explicitly assigned.
+
+9. Add comments only at contract boundaries.
+
+   Comments should explain why source and output are separate and how previous
+   positions are intended to be consumed. Avoid narrating obvious assignments.
+
+10. Update docs.
+
+   If code changes land, update:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+
+   Document which pieces are active and which are scaffold/reserved.
+
+Validation
+----------
+
+Use PT retail only:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-retail\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+If shader files changed, copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\dxil\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\dxil\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+
+Expected validation:
+
+    default CVar path renders identically to before
+    new resources are absent or inactive when disabled
+    diagnostic mode can report source/output counts
+    no Debug build or Debug copy path is used
+
+Stop Conditions
+---------------
+
+Stop and ask the user if:
+
+    Doom joint matrix layout is unclear
+    idTech4 tangent basis requirements conflict with the proposed source format
+    generated/deform surfaces need a separate source contract
+    CMake/shader pipeline changes become broad enough to affect unrelated builtins
+
+Non-Goals
+---------
+
+Do not switch mode 18 to GPU-skinned BLAS output by default.
+
+Do not implement DLSS/RR.
+
+Do not redesign material classification.
+
+Do not remove the CPU bridge.
+
+Do not use Debug builds.

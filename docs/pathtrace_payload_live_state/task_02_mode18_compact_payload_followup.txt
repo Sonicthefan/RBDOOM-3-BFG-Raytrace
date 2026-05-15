@@ -1,0 +1,97 @@
+Task 02: Mode 18 Compact Primary Payload Follow-Up
+==================================================
+
+Do not start this task until Task 01 is complete and committed or otherwise
+accepted by the user.
+
+Assignment
+----------
+
+Move mode 18 and modes 34-37 toward a compact primary/integrator payload while
+leaving legacy debug modes on PathTraceSmokePayload.
+
+This is a follow-up task, not the first payload task.
+
+Goal
+----
+
+The current full payload carries fully interpolated shading data:
+
+- normals
+- geometric normals
+- tangent/bitangent
+- UVs
+- vertex colors
+- surface class/subtype
+- material identity
+- shadow ignore fields
+
+Mode 18 does not need closest-hit to carry all of this as payload state. The
+compact integrator payload should carry hit identity and enough compact data to
+reconstruct shading after TraceRay.
+
+Target Concept
+--------------
+
+Possible compact primary payload:
+
+    struct PathTraceIntegratorPayload
+    {
+        uint hit;
+        float hitT;
+        uint instanceId;
+        uint primitiveIndex;
+        float2 barycentrics;
+        uint materialIndex;
+        uint materialId;
+        uint triangleClassAndFlags;
+    };
+
+The exact shape can differ, but every field must have a documented consumer.
+
+Required Approach
+-----------------
+
+1. Keep old debug modes working on PathTraceSmokePayload.
+2. Add a compact payload only for mode 18 and modes 34-37 if practical.
+3. Move shading reconstruction into helpers that can load:
+
+       vertex positions
+       normals
+       UVs
+       vertex colors
+       material records
+       rigid route offsets
+
+   from instanceId + primitiveIndex + barycentrics.
+
+4. Do not remove old debug payload fields in this task.
+5. Do not split the shader library in this task unless the user explicitly
+   requests it.
+
+Why This Comes After Shadow Payload
+-----------------------------------
+
+The compact primary payload touches more paths than the shadow payload:
+
+- primary ray
+- extra SPP primary rays
+- diffuse secondary rays
+- reflection rays
+- GUI/translucent compositing
+- mode 18 accumulation
+- modes 34-37 debug visualizers
+
+It is higher risk and should only happen after the shadow payload proves the
+toolchain and shader table can support multiple payload shapes safely.
+
+Acceptance Criteria
+-------------------
+
+- Mode 18 no longer requires the full debug payload for its primary/secondary
+  integrator traces.
+- Modes 34-37 still visualize the mode 18 integrator state.
+- Legacy debug modes still work.
+- Behavior is visually comparable to the pre-change mode 18 output.
+- Nsight live-state is measured before/after if possible.
+

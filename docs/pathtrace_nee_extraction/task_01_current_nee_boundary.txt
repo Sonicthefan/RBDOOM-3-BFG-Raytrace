@@ -1,0 +1,165 @@
+Task 01: Map And Isolate The Current Mode 18 NEE Boundary
+========================================================
+
+Assignment
+----------
+
+Create a small, reviewable first pass that identifies and isolates the current
+mode 18 NEE logic without changing visible behavior.
+
+This task is intentionally conservative. It prepares for bounded sampled NEE by
+making the current direct-lighting path easier to reason about.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_payload_live_state/mode18_nee_timing_findings.txt
+    docs/pathtrace_nee_extraction/README.txt
+
+Reference only, do not copy:
+
+    E:\prog\references\RTXDI-main\Doc\RestirPT.md
+    E:\prog\references\RTXDI-main\Doc\ShaderAPI.md
+    E:\prog\references\RTXDI-main\Doc\NoiseAndBias.md
+
+Scope
+-----
+
+Work primarily in:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+Only touch C++ if needed for a diagnostic constant or comment-level binding
+clarity. Do not add new rendering resources in this task.
+
+Step-By-Step Procedure
+----------------------
+
+1. Locate the current mode 18 integrator.
+
+   Find:
+
+       EvaluateSmokeToyPathTrace
+       EvaluateSmokeDirectLighting
+       EvaluateDoomAnalyticSphereLights
+       TraceSmokeShadowVisibility
+
+   Record how mode 18 calls direct lighting on primary and secondary path
+   vertices.
+
+2. Identify all NEE source categories currently mixed into direct lighting.
+
+   At minimum, distinguish:
+
+       selected point lights
+       Doom analytic lights
+       emissive triangle/source hits
+       environment/miss behavior if present
+
+   If a category is absent or only partially implemented, note that explicitly.
+
+3. Identify where visibility is coupled to selection.
+
+   Mark every path where `TraceSmokeShadowVisibility` is called from direct
+   lighting. Separate:
+
+       primary surface direct lighting
+       secondary diffuse hit direct lighting
+       debug-mode direct lighting
+       analytic-light direct lighting
+
+4. Identify all current gating CVars/constants.
+
+   Confirm shader-side behavior for:
+
+       r_pathTracingNextEventEstimation
+       r_pathTracingDisableSelectedLightLoop
+       r_pathTracingDisableDiffuseSecondaryRay
+       r_pathTracingAnalyticLightCandidates
+       r_pathTracingDisableAnalyticLightLoop
+       r_pathTracingAnalyticLightMaxGpu
+
+   Do not change defaults in this task.
+
+5. Extract small helper boundaries if the patch remains low risk.
+
+   Acceptable examples:
+
+       helper that evaluates legacy selected-light full-loop NEE
+       helper that evaluates legacy analytic-light NEE
+       helper that builds common direct-light surface inputs
+
+   Do not change math intentionally. This is a readability and boundary task,
+   not the replacement implementation.
+
+6. Add comments only where they prevent future confusion.
+
+   Comments should explain boundaries and future extension points, not narrate
+   obvious assignments.
+
+7. Build shaders and executable.
+
+   Compile/link sanity if shader changed:
+
+       cmake --build build --config Debug --target PathTracingShaders
+       cmake --build build --config Debug --target RBDoom3BFG
+
+   For prepared-folder PT validation, use and copy the preset Release/PT exe
+   instead of `build\Debug\RBDoom3BFG.exe`.
+
+8. Validate behavior did not intentionally change.
+
+   Compare mode 18 with:
+
+       r_pathTracingNextEventEstimation 0
+       r_pathTracingNextEventEstimation 1
+       r_pathTracingDisableSelectedLightLoop 0
+       r_pathTracingDisableSelectedLightLoop 1
+       r_pathTracingDisableDiffuseSecondaryRay 0
+       r_pathTracingDisableDiffuseSecondaryRay 1
+
+Expected Output
+---------------
+
+The final agent report should include:
+
+- files changed
+- the exact current NEE entry points found
+- the source categories identified
+- whether selected-light and analytic-light visibility are separable
+- build commands run
+- any visual/performance validation done
+
+Acceptance Criteria
+-------------------
+
+- Mode 18 visual behavior is intentionally unchanged.
+- Current selected-light full-loop NEE has a clearer helper boundary.
+- Current Doom analytic-light NEE has a clearer helper boundary or documented
+  reason it was not separated.
+- Future bounded sampled NEE can be added without rediscovering the current
+  call graph.
+
+Hard Stops
+----------
+
+Stop and report instead of continuing if:
+
+- extracting a helper changes shader behavior in a way that is hard to reason
+  about
+- the shader compiler changes semantics or rejects the low-risk refactor
+- C++ binding changes appear necessary for anything beyond comments/constants
+
+Do Not Do
+---------
+
+- Do not implement sampled NEE in this task.
+- Do not copy NVIDIA sample code.
+- Do not remove the legacy selected-light loop.
+- Do not compact the primary payload.
+- Do not add temporal/spatial reservoirs.
+- Do not change material, geometry, or portal logic.

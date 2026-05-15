@@ -1,0 +1,314 @@
+ReSTIR PT Real Pass Structure Plan
+Date: 2026-05-15
+Project: rbdoom-3-bfg-rt path tracing
+
+Purpose
+-------
+Mode 56 proved that direct spatial ReSTIR and initial GI reservoirs can be
+combined into one rough preview, but it is not shaped like a production
+renderer. It still has full-resolution consumer/composite work and several
+debug-oriented raygen paths. Sparsity and primary-surface reuse helped validate
+cost boundaries, but they are not enough to make the current mode 56 pass graph
+scale cleanly with resolution.
+
+The next architecture target is a real pass graph:
+
+1. Full-resolution primary surface / G-buffer anchor.
+2. Lower-resolution or sparse direct-lighting domain.
+3. Lower-resolution or sparse GI/indirect domain.
+4. Full-resolution reconstruction/resolve/composite.
+5. Later reflection, transmission/glass, volumetric, and denoiser domains built
+   as additional explicit lighting domains, not folded into mode 56.
+
+This plan supersedes further attempts to optimize mode 56 as if it were the
+final renderer. Mode 56 remains useful as a debug preview and regression check.
+
+Current Evidence
+----------------
+Recent validation showed:
+
+- Mode 56 is visually working.
+- Direct/GI sparsity visibly changes the image.
+- Replacing the sparse representative window search with constant-time lookup
+  produced a small gain.
+- Moving GI sparse rejection before primary work is required so inactive sparse
+  producer pixels do not still pay primary `TraceRay` or primary-history load.
+- The primary-surface prepass experiment works visually, but sharing primary
+  hits did not materially improve performance.
+- Nsight showed low RT-core utilization while `vkCmdTraceRays` still dominates
+  frame time in bad locations, so much of the cost is likely SM/memory/register
+  pressure: reservoir loads/stores, RAB/RTXDI sampling, material evaluation,
+  light proposal work, branch divergence, and optional visibility/replay.
+- Current sparsity uses a `1/rate` pattern, not `1/rate^2`. For example,
+  sparsity 4 updates roughly one quarter of producer pixels, not one sixteenth.
+
+This means the sparse-able producer slice is only part of the frame. The
+full-resolution consumer/resolve work remains a large fixed cost.
+
+Non-Negotiable Structure
+------------------------
+Keep full-resolution reconstruction anchors:
+
+- Primary hit validity.
+- World position and view depth.
+- Geometric and shading normals.
+- Material id/index and material flags.
+- Albedo, roughness, F0/specular, emissive material context.
+- Motion/object-motion fields.
+- Instance/primitive/source identity where available.
+
+Run expensive lighting domains independently:
+
+- Direct ReSTIR reservoir domain.
+- GI/indirect reservoir domain.
+- Later reflection reservoir/ray domain.
+- Later volumetric/particle domain.
+
+Resolve/composite at full resolution:
+
+- Full-resolution pixels sample or reconstruct from lower-resolution lighting
+  domains.
+- The final resolve must know the source domain of every lighting signal.
+- No pass may pretend a sparse or scaled lighting buffer is full resolution.
+
+Do not add reflections before this structure exists. Reflections need their own
+domain and reconstruction policy; adding them to the current mode 56-style
+preview would add more shader pressure to the wrong shape.
+
+Target Pass Graph
+-----------------
+Pass A: Primary surface producer
+
+- Full-resolution dispatch.
+- Traces primary camera rays once.
+- Writes `PrimarySurfaceHistoryCurrent`.
+- Writes future guide buffers or exports needed by denoising/reconstruction.
+- Does not run ReSTIR direct, GI, reflection, or preview shading.
+
+Pass B: Direct lighting producer
+
+- Dispatches in direct-lighting domain, not necessarily full resolution.
+- Maps direct-domain pixels to representative full-resolution primary pixels.
+- Loads full-resolution primary surface records.
+- Generates initial/temporal/spatial direct reservoirs.
+- Writes direct reservoir outputs only.
+
+Pass C: GI/indirect producer
+
+- Dispatches in GI domain, not necessarily full resolution.
+- Maps GI-domain pixels to representative full-resolution primary pixels.
+- Loads full-resolution primary surface records.
+- Generates GI/indirect initial reservoirs first.
+- Later grows temporal/spatial GI reuse only after source/path attribution is
+  stable.
+
+Pass D: Full-resolution resolve/composite
+
+- Full-resolution dispatch.
+- Loads the current full-resolution primary surface.
+- Reconstructs direct and GI lighting from their own domains.
+- Applies simple first reconstruction initially, then better
+  depth/normal/material/roughness-aware filtering.
+- Writes final preview or future production PT radiance.
+
+Future Pass E: Reflections
+
+- Add after Pass A-D are stable.
+- Likely half-resolution or sparse by default.
+- Must use roughness-aware reconstruction.
+- Mirror-like and glass/transmission cases need separate policy; do not force
+  all reflections into one low-resolution bucket.
+
+Sparse Dispatch Requirements
+----------------------------
+The current sparse path uses full-resolution or direct-domain dispatches with
+early returns. That still launches inactive raygen threads and pays branch,
+bounds, and wave overhead.
+
+The real structure should add actual sparse dispatch domains:
+
+```
+sparseWidth  = ceil(domainWidth  / rate)
+sparseHeight = ceil(domainHeight / rate)
+```
+
+Then map sparse dispatch pixels to representative domain pixels:
+
+```
+uint2 SparseProducerPixelToDomainPixel(uint2 sparsePixel)
+{
+    return sparsePixel * rate + phase;
+}
+```
+
+For the current diagonal `1/rate` pattern, this can be a row/phase mapping. For
+a future block/checkerboard pattern, it may become `1/rate^2`, but that must
+come with reconstruction filtering because quality will drop much faster.
+
+The first sparse-dispatch goal is not perfect reconstruction; it is to remove
+inactive producer invocation overhead and make Nsight pass costs easier to
+interpret.
+
+Reconstruction Order
+--------------------
+First resolve:
+
+- Nearest representative lookup.
+- No filtering beyond existing representative mapping.
+- Compare against mode 50 direct, mode 54 GI, and mode 56 combined preview.
+
+Second resolve:
+
+- Small 2x2 or radius-limited reconstruction over direct/GI reservoirs.
+- Reject or downweight taps using full-resolution depth, geometric normal,
+  material identity, roughness, and motion validity.
+- Keep direct and GI reconstruction controls separate.
+
+Later resolve:
+
+- Domain-specific filters for direct, GI, reflections, and volumetrics.
+- DLSS Ray Reconstruction or another denoiser only after guide buffers and
+  domain ownership are stable.
+
+Implementation Slices
+---------------------
+Task 01: Primary surface producer pass
+
+- Add an explicit primary-surface producer dispatch path that is not tied to
+  mode 56.
+- Keep mode 18 stable/playable behavior unchanged by default.
+- Make diagnostics report when direct/GI/final passes consume primary history.
+- Current first slice: `pathtrace_primary_surface_producer.rt.hlsl` is a
+  standalone RT shader library wired behind
+  `r_pathTracingRestirPTPrimarySurfacePrepass`. It writes
+  `PrimarySurfaceHistoryCurrent` and keeps ReSTIR work out of this pass.
+- Current limitation: the standalone producer packs material/normal/albedo/
+  specular/emissive context but not object-motion previous positions. Treat it
+  as Pass A scaffolding until the guide-buffer/object-motion export contract is
+  moved into the real pass graph.
+- Current translucent status: the standalone producer now matches the
+  monolithic stochastic any-hit discard rules for GUI alpha, smoke particles,
+  glass/portal fallback, additive decals, and filter decals. This preserves
+  first-hit stochastic transparency for the new pass graph, but it does not
+  solve layered translucent composition in the final resolve.
+
+Task 02: Direct domain producer cleanup
+
+- Convert direct temporal/spatial producers to consume primary history from
+  Pass A.
+- Keep direct reservoir domain explicit.
+- Preserve source attribution modes 50-51.
+
+Task 03: GI sparse-domain producer
+
+- Current first slice: when `r_pathTracingRestirPTPrimarySurfacePrepass 1` is
+  active, the GI initial producer consumes `PrimarySurfaceHistoryCurrent`
+  instead of tracing another primary payload for active GI pixels.
+- Current shader-load slice: mode 56 primary-prepass builds can route GI initial
+  production through `pathtrace_restir_indirect_initial_producer.rt.hlsl`
+  instead of the old `pathtrace_smoke_restir_initial.rt.hlsl` monolithic
+  library. This is still a wrapper over the smoke source for hit/material
+  plumbing, but its raygen is producer-only and the emitted Vulkan library is
+  much smaller. Pass dumps report `giInitialStandalone=1` when this route is
+  active.
+- Current direct-temporal slice: mode 56 primary-prepass builds can route the
+  direct temporal prepass through
+  `pathtrace_restir_direct_temporal_producer.rt.hlsl` instead of
+  `pathtrace_smoke_restir_temporal.rt.hlsl`. This is also still
+  monolithic-derived for now, but it compiles a producer-only raygen and avoids
+  loading the larger temporal debug/consumer library. Pass dumps report
+  `directTemporalStandalone=1` when this route is active.
+- Current direct-spatial slice: mode 56 primary-prepass builds can route the
+  spatial-reservoir prepass through
+  `pathtrace_restir_direct_spatial_reservoir_producer.rt.hlsl` instead of
+  `pathtrace_smoke_restir_spatial_reservoir.rt.hlsl`. This keeps the same
+  compile-time spatial producer specialization, but gives mode 56 its own
+  library and lets the default shader build skip the legacy diagnostic spatial
+  reservoir output. Pass dumps report `directSpatialStandalone=1` when this
+  route is active.
+- Current sparse-dispatch slice: direct temporal/spatial producers and GI
+  initial producers dispatch only `ceil(domainWidth / rate)` producer columns
+  when sparsity is active. Shader mapping sends those sparse lanes back to the
+  same diagonal `1/rate` active reservoir pixels used by the previous
+  early-return implementation.
+- Next add an explicit GI-domain metadata path instead of overloading the
+  full-resolution output domain.
+- Preserve modes 53-55 source/path diagnostics.
+
+Task 04: Full-resolution resolve pass
+
+- Current first slice: mode 56 can route its final pass through the standalone
+  `pathtrace_restir_combined_resolve.rt.hlsl` shader library when
+  `r_pathTracingRestirPTPrimarySurfacePrepass 1` is active.
+- The resolve shader loads `PrimarySurfaceHistoryCurrent`, maps full-resolution
+  pixels to the active direct/GI representative reservoirs, evaluates the same
+  rough direct+GI preview, and writes final output without carrying producer
+  code.
+- Reconstruct direct and GI from explicit domains.
+- Keep nearest lookup first, then add a small reconstruction filter.
+
+Task 05: Reflection domain planning
+
+- Only start after Tasks 01-04 are stable.
+- Define reflection domain resolution, roughness gating, mirror/glass policy,
+  and reconstruction inputs before adding new reflection rays.
+
+Task 06: Monolithic ReSTIR shader retirement
+
+- The active development problem is no longer just runtime performance. Any
+  RAB/RTXDI edit that touches the old monolithic ReSTIR include path can force
+  several multi-megabyte RT libraries through DXC and Vulkan pipeline creation,
+  making one validation loop take many minutes.
+- The PT dev default should build only the mode-56-required shader set:
+  core smoke, temporal producer, spatial-reservoir producer, standalone primary
+  surface, standalone GI initial producer, and standalone combined resolve.
+  Legacy diagnostic libraries can be rebuilt by setting
+  `PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS=ON` during CMake configure.
+- Next extraction targets, in order:
+  1. Replace the monolithic-derived direct temporal, direct spatial, and GI
+     initial wrappers with true standalone source files if they still dominate
+     load time.
+  2. Old debug-only initial/temporal/spatial attribution views, only after the
+     mode-56 path no longer depends on monolithic ReSTIR libraries.
+- Keep mode 18 independent of this work. The normal mode 18 path should not
+  load or build ReSTIR RAB libraries unless the explicit mode-18 ReSTIR hybrid
+  experiment is enabled and the legacy diagnostics build option is on.
+
+Validation
+----------
+Use the PT dev Release lane:
+
+```
+cd E:\prog\rbdoom-3-bfg-rt\neo
+cmake --build --preset win64-pt-dev-release
+```
+
+Deploy:
+
+```
+E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+  -> E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+  -> E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+```
+
+Validation sequence:
+
+1. Confirm mode 18 stable baseline with ReSTIR direct off.
+2. Confirm mode 50 direct spatial shading and mode 51 source attribution.
+3. Confirm modes 53-55 GI diagnostics and source/path attribution.
+4. Confirm mode 56 combined preview matches direct mode 50 plus GI mode 54
+   behavior.
+5. Test at conservative resolution first, then scale up.
+6. Use pass dumps and Nsight to distinguish producer cost from full-resolution
+   resolve cost.
+
+Do Not Do Next
+--------------
+- Do not add reflections to the current mode 56 monolithic preview.
+- Do not switch to a `1/rate^2` sparse block pattern without adding
+  reconstruction.
+- Do not treat low RT-core utilization as proof that ray tracing is broken; it
+  likely indicates shader/memory pressure in the current RAB/RTXDI path.
+- Do not let the debug preview become the production architecture by accident.

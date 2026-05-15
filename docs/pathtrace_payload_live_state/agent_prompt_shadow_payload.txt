@@ -1,0 +1,65 @@
+Paste-Ready Agent Prompt: Shadow Payload First
+==============================================
+
+Use this prompt for a fresh coding agent.
+
+Prompt
+------
+
+We are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Current branch:
+
+    codex/pathtrace-core-refactor-plan
+
+The current priority is not shader splitting yet. Nsight showed very high
+RayGen live state in the path tracing shader, with hot callsites around
+447/398/371/317 bytes. Tiled dispatch did not resolve device removal, and
+texture sampling disabled did not resolve it. The next narrow task is to reduce
+payload/live-state pressure, starting with shadow rays.
+
+Read these first, in this order:
+
+1. E:\prog\rbdoom-3-bfg-rt\docs\pathtracing.txt
+2. E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_modules.txt
+3. E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_core_refactor_plan.txt
+4. E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_payload_live_state\README.txt
+5. E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_payload_live_state\task_01_shadow_payload_first.txt
+
+Your task:
+
+    Implement Task 01: Shadow Payload First.
+
+Hard boundaries:
+
+- Do not split pathtrace_smoke.rt.hlsl into multiple shader libraries.
+- Do not move mode 18 to a new C++ pass.
+- Do not shrink the main PathTraceSmokePayload yet.
+- Do not convert mode 18 to a compact primary payload yet.
+- Do not add SER.
+- Do not add quality features.
+- Do not change material classification.
+- Do not change scene/BVH/portal selection.
+- Preserve current visual behavior.
+
+Target:
+
+- Add a minimal shadow-ray payload.
+- Update TraceSmokeShadowVisibility and the shadow any-hit/miss path so shadow
+  rays no longer carry the full PathTraceSmokePayload.
+- Keep primary/debug rays on the old payload.
+- Keep the patch small and reviewable.
+
+Validation:
+
+- Rebuild PathTracingShaders if shader code changes.
+- Rebuild RBDoom3BFG.
+- If possible, compare Nsight RayGen live-state before/after.
+- State exactly what shader entry points and TraceRay paths changed.
+
+If the current shader table/pipeline shape makes a separate shadow payload a
+large C++ rewrite, stop and report the smallest required change instead of
+expanding the task.
+

@@ -1,0 +1,324 @@
+Task 02: Build And Use An Emissive Distribution Table
+=====================================================
+
+Assignment
+----------
+
+Replace the hot shader-side linear emissive triangle scan with a GPU-readable
+emissive distribution table, while preserving the full authored emissive
+triangle universe.
+
+Task 02 depends on Task 01. Do not combine extraction and distribution changes
+unless the user explicitly asks for a single larger patch.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/ReSTIR/current_restir_pt_state.txt
+    docs/pathtrace_emissive_sampling/README.txt
+    docs/pathtrace_emissive_sampling/task_01_extract_emissive_sampling.txt
+
+Relevant code:
+
+    neo/renderer/NVRHI/PathTraceLightSelection.cpp
+    neo/renderer/NVRHI/PathTraceSceneCapture.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSceneInputs.h
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_emissive_sampling.hlsli
+
+Problem Statement
+-----------------
+
+The current selector is O(N) over `SmokeEmissiveTriangles` for each emissive
+proposal. In ReSTIR PT producer passes this repeatedly loads full emissive
+triangle records just to select an index. Nsight points at that load as a major
+stall, especially in mode 56 events 2 and 3.
+
+The fix is not to reduce authored emissives. The fix is to upload a compact
+sampling distribution derived from the current emissive inventory.
+
+Design Choice
+-------------
+
+Start with a CDF unless an alias table is clearly needed immediately.
+
+CDF advantages:
+
+    simpler CPU build
+    easier validation
+    smaller first change
+    deterministic binary-search behavior
+    natural fallback to linear scan if invalid
+
+Alias-table advantages:
+
+    O(1) shader lookup
+    better final target for very large emissive inventories
+
+Recommended sequence:
+
+    Task 02A: CDF lookup
+    Task 02B: alias table if CDF lookup remains hot
+
+Data Contract
+-------------
+
+Add a compact GPU record separate from `PathTraceSmokeEmissiveTriangle`.
+
+Suggested CDF record:
+
+    struct PathTraceEmissiveDistributionEntry
+    {
+        uint emissiveTriangleIndex;
+        float cumulativePdf;
+        float weight;
+        float padding;
+    };
+
+Rules:
+
+1. `emissiveTriangleIndex` points into the existing full
+   `SmokeEmissiveTriangles` buffer.
+2. `cumulativePdf` is normalized to end at 1.0 when the table is valid.
+3. `weight` preserves the current fallback/largest-weight behavior and can be
+   useful for diagnostics.
+4. The full emissive triangle buffer remains the source of shading, light-info,
+   visibility-ignore, and attribution data.
+5. The distribution is a proposal table only.
+
+Suggested shader constants:
+
+    emissiveDistributionCount
+    emissiveDistributionValid
+    emissiveDistributionFallbackIndex
+
+Step-By-Step Procedure
+----------------------
+
+1. Add CPU-side distribution storage.
+
+   Place the record type near existing path tracing light/emissive GPU-facing
+   structs. Keep names explicit:
+
+       PathTraceEmissiveDistributionEntry
+
+   Add vectors/counts to the existing scene input or smoke scene buffer
+   ownership path. Prefer following the existing emissive triangle buffer
+   plumbing rather than creating a new owner pattern.
+
+2. Build the distribution from the existing emissive inventory.
+
+   Use the same source weights that the shader currently reads:
+
+       sampleWeightAndPdf.x
+       sampleWeightAndPdf.y
+
+   Build only sampleable entries:
+
+       pdf > 0
+       valid emissive triangle index
+
+   Normalize cumulative PDF to 1.0. Track:
+
+       totalWeight
+       valid entry count
+       fallback index with largest weight
+       invalid/zero-pdf count
+
+   Preserve all original emissive triangles in `SmokeEmissiveTriangles`; the
+   distribution may contain fewer entries only because zero-pdf entries are not
+   sampleable proposals.
+
+3. Upload the distribution buffer.
+
+   Add a structured SRV buffer beside existing smoke buffers. Suggested debug
+   name:
+
+       PathTraceEmissiveDistribution
+
+   Keep empty-buffer handling consistent with other optional PT buffers. If the
+   table is empty or invalid, bind a safe fallback buffer and make the shader
+   use the old linear scan.
+
+4. Bind the distribution to the smoke ray tracing binding set.
+
+   Add a new reserved SRV slot. Update:
+
+       binding layout
+       binding set creation
+       shader register declaration
+       resource validity checks
+
+   Keep the binding stable for all RT smoke libraries, not only mode 56, because
+   the shared shader include will compile into multiple specialized libraries.
+
+5. Add shader lookup.
+
+   In `pathtrace_emissive_sampling.hlsli`, implement:
+
+       SelectSmokeDistributionEmissiveTriangle(...)
+
+   For CDF:
+
+       binary search `cumulativePdf`
+       return `emissiveTriangleIndex`
+       return fallback if table invalid or search fails
+
+   Keep `SelectSmokeWeightedEmissiveTriangle` as the public wrapper. Its logic:
+
+       if distribution valid:
+           use distribution lookup
+       else:
+           use legacy linear scan
+
+   Do not change call sites yet.
+
+6. Preserve PDF semantics.
+
+   Any caller that uses:
+
+       emissiveTriangle.sampleWeightAndPdf.y
+
+   should still see the same per-triangle selection PDF after loading the
+   selected full emissive triangle. The distribution lookup chooses an index;
+   the full record still carries the PDF used by existing RAB code.
+
+7. Add A/B controls.
+
+   Add a CVar only if useful for validation:
+
+       r_pathTracingEmissiveDistribution
+
+   Suggested values:
+
+       0 = force legacy linear scan
+       1 = use distribution when valid
+
+   Default should be 1 only after the fallback is confirmed safe. During early
+   testing, defaulting to 0 is acceptable if the user wants a staged rollout.
+
+8. Add low-noise diagnostics.
+
+   Add a one-shot dump or extend an existing reservoir/light dump with:
+
+       emissiveTriangleCount
+       emissiveDistributionCount
+       distributionValid
+       zeroPdfSkipped
+       totalPdf before normalization
+       fallbackIndex
+       fallbackWeight
+
+   Avoid per-emissive logging.
+
+9. Build and deploy.
+
+   From:
+
+       E:\prog\rbdoom-3-bfg-rt\neo
+
+   Run:
+
+       cmake --build --preset win64-pt-dev-release
+
+   Copy the built exe and `base\renderprogs2` contents to the prepared game
+   folder.
+
+10. Validate visuals.
+
+   Required modes:
+
+       50 spatial direct shading
+       51 spatial source attribution
+       54 GI initial shading
+       55 GI source/path attribution
+       56 combined direct + GI
+       18 with r_pathTracingRestirPTDirectLighting 1
+
+   Compare:
+
+       distribution off vs on
+       same location, same resolution
+       source attribution colors
+       known analytic and emissive areas
+       bad locations where events 2 and 3 dominate
+
+11. Validate performance.
+
+   In Nsight, compare mode 56:
+
+       distribution off
+       distribution on
+
+   Focus on the four `vkCmdTraceRays` events:
+
+       event 1: GI initial producer
+       event 2: direct temporal producer
+       event 3: direct spatial producer
+       event 4: final combined consumer
+
+   Expected result:
+
+       event 2 and event 3 should improve if the linear emissive scan was the
+       dominant stall.
+
+   If event 2/3 do not improve, inspect whether the compiler still emits a
+   fallback linear scan in the hot path, or whether another `SmokeEmissiveTriangles`
+   load dominates after selection.
+
+12. Document completion.
+
+   Update:
+
+       docs/pathtrace_emissive_sampling/README.txt
+       docs/ReSTIR/current_restir_pt_state.txt
+       docs/ReSTIR/ray_sparsity_plan.txt
+       docs/pathtrace_modules.txt
+       docs/pathtracing.txt
+
+   Include:
+
+       whether CDF or alias was implemented
+       default CVar state
+       validation modes
+       Nsight event impact
+       remaining limitations
+
+Rollback Plan
+-------------
+
+The public shader selector should remain:
+
+    SelectSmokeWeightedEmissiveTriangle
+
+Rollback options:
+
+1. Set the CVar to force legacy linear scan.
+2. Keep the distribution buffer bound but ignored.
+3. Remove distribution lookup from the include and rebuild.
+4. Remove CPU buffer plumbing only after the shader fallback is confirmed.
+
+Potential Follow-Up: Alias Table
+--------------------------------
+
+If CDF binary search improves performance but remains visible in Nsight, replace
+or augment the CDF with an alias table:
+
+    struct PathTraceEmissiveAliasEntry
+    {
+        uint primaryIndex;
+        uint aliasIndex;
+        float probability;
+        float primaryPdf;
+    };
+
+The shader then does one table lookup and one selected full emissive triangle
+load. Keep the CDF task's diagnostics and fallback path until alias validation
+is complete.

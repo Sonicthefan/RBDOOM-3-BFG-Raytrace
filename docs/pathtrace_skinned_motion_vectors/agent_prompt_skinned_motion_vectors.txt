@@ -1,0 +1,130 @@
+Paste-Ready Agent Prompt - Skinned Motion Vectors
+=================================================
+
+Use this prompt to start a focused coding agent on the first skinned motion
+vector task.
+
+Prompt
+------
+
+You are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Goal:
+
+    Prepare Doom 3 skinned/deforming path-traced geometry for motion vectors by
+    adding stable skinned surface identity/range tracking and previous
+    CPU-skinned output retention. This is a bridge toward PT-owned GPU skinning,
+    not the GPU skinning rewrite itself.
+
+Read these first, in order:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_skinned_motion_vectors/README.txt
+    docs/pathtrace_skinned_motion_vectors/q2rtx_reference_notes.txt
+    docs/pathtrace_skinned_motion_vectors/restir_temporal_geometry_motion_minimum_features.txt
+    docs/pathtrace_skinned_motion_vectors/restir_temporal_geometry_doom_mapping.txt
+    docs/pathtrace_skinned_motion_vectors/task_01_identity_and_previous_cpu_bridge.txt
+
+Important local code:
+
+    neo/renderer/NVRHI/PathTraceSkinning.cpp
+    neo/renderer/NVRHI/PathTraceSkinning.h
+    neo/renderer/NVRHI/PathTraceSceneCapture.cpp
+    neo/renderer/NVRHI/PathTraceSceneCapture.h
+    neo/renderer/NVRHI/PathTraceGeometry.h
+    neo/renderer/NVRHI/PathTraceSceneInputs.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+    neo/renderer/NVRHI/PathTraceSurfaceClassification.cpp
+
+Reference only:
+
+    E:\prog\references\Q2RTX-master\src\refresh\vkpt\shader\global_ubo.h
+    E:\prog\references\Q2RTX-master\src\refresh\vkpt\main.c
+    E:\prog\references\Q2RTX-master\src\refresh\vkpt\shader\instance_geometry.comp
+    E:\prog\references\Q2RTX-master\src\refresh\vkpt\shader\vertex_buffer.h
+    E:\prog\references\Q2RTX-master\src\refresh\vkpt\shader\asvgf_gradient_reproject.comp
+    E:\prog\references\Q2RTX-rayreconstruction-master
+
+License/copying rule:
+
+    Study Q2RTX as an architecture checklist only. Do not copy Q2RTX source
+    code, comments, struct layouts, shader helper bodies, or packing choices.
+    Implement native RBDoom3/NVRHI code that follows this repository's existing
+    PathTrace module conventions.
+
+Hard build rule:
+
+    Do not use legacy Debug builds for this task. Do not suggest, run, or copy
+    from the old Debug build folder.
+
+    Use PT retail:
+
+        cmake --preset win64-pt-retail
+        cmake --build --preset win64-pt-retail-release
+
+    Run those commands from:
+
+        E:\prog\rbdoom-3-bfg-rt\neo
+
+    Copy the executable from:
+
+        E:\prog\rbdoom-3-bfg-rt\build-win64-pt-retail\Release\RBDoom3BFG.exe
+
+    to:
+
+        E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+    If shader files are touched, also copy the updated generated shader blobs:
+
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\dxil\builtin\pathtracing\pathtrace_smoke.rt.bin
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin
+
+    to the matching paths under:
+
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Game testing working directory:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+When launching or manually testing the game, use that prepared game directory
+as the working directory. Do not run the executable from the build output
+folder as the game working directory.
+
+Task constraints:
+
+    - Start with Task 01 only.
+    - Keep rendering behavior unchanged.
+    - Do not implement GPU compute skinning yet.
+    - Do not modify raster GPU skinning.
+    - Do not change portal walking.
+    - Do not change material classification.
+    - Do not implement alternate/dual motion vectors or forward-motion
+      splatting in this task.
+    - Do not implement full ReSTIR temporal/spatial reuse changes.
+    - Do record invalid reasons and temporal state flags where practical.
+    - Do not use same dynamic-buffer offset as a previous-frame contract unless
+      it is proven and recorded through explicit skinned range matching.
+    - Do not stage, commit, or push unless explicitly asked.
+
+Expected first useful result:
+
+    The path tracer records skinned/deforming surface identities and current
+    ranges, matches them against previous-frame records, retains previous
+    CPU-skinned output as a bridge, and reports conservative validity through
+    scene inputs and diagnostics. Existing PT visuals should remain unchanged.
+
+Validation:
+
+    Use PT retail. Test a scene with visible animated/skinned entities. Confirm:
+
+        current skinned visuals are unchanged
+        skinned surface counts are logged or dumpable
+        previous matches become valid after the first frame
+        previous matches reset when counts or identity do not match
+        no Debug build or Debug copy path is used

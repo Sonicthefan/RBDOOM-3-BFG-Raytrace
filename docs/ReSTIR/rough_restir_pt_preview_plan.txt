@@ -237,6 +237,12 @@ surface prepass is inserted first. Keep this opt-in until mode 18 baseline,
 mode 50/51, and mode 56 have been checked for the light-blue clear-color
 regression.
 
+Mode 56's final combined consumer also has a surface-based preview path when
+the primary-surface prepass experiment is enabled and GI sparsity is 1. With GI
+sparsity active, mode 56 falls back to tracing primary in the direct/final
+passes so the sparse GI producer does not leave missing current primary-surface
+records.
+
 Runtime validation on 2026-05-15 reported that this path works but does not
 improve performance. Do not spend more time on primary-ray reuse as the main
 mode 56 optimization. The direct producer passes remain the target, but the

@@ -51,15 +51,15 @@ The branch already has the key pieces:
 
 Implementation Rule
 -------------------
-Keep this path default off:
+This path is now default on for mode-56 testing because its main current value
+is avoiding the large combined monolithic shader load:
 
 ```
-r_pathTracingRestirPTPrimarySurfacePrepass 0
+r_pathTracingRestirPTPrimarySurfacePrepass 1
 ```
 
-When enabled, only staged direct ReSTIR producer dispatches may consume the
-prepass. Stable mode 18 with `r_pathTracingRestirPTDirectLighting 0` must not
-change.
+Set it to `0` only to test the older legacy fallback. Stable mode 18 with
+`r_pathTracingRestirPTDirectLighting 0` must not change.
 
 The shader dispatch identity should be explicit:
 
@@ -84,14 +84,18 @@ Modes 50-51 and mode 18 ReSTIR direct hybrid:
 
 Mode 56:
 
-1. GI initial producer dispatch. This already traces full resolution and writes
-   current primary-surface history before producing the GI reservoir.
-2. Direct temporal producer dispatch, consuming that primary history.
-3. Direct spatial producer dispatch, consuming that primary history.
-4. Full-resolution combined consumer.
+1. Optional full-resolution primary-surface producer dispatch through the
+   standalone `pathtrace_primary_surface_producer.rt.hlsl` library.
+2. GI initial producer dispatch. Active sparse GI pixels may still trace their
+   own primary payload for this first slice; inactive sparse GI pixels reject
+   before primary work.
+3. Direct temporal producer dispatch, consuming primary history.
+4. Direct spatial producer dispatch, consuming primary history.
+5. Full-resolution combined consumer, consuming primary history through
+   `EvaluateRestirPTCombinedDirectGiPreviewFromSurface`.
 
-This avoids adding a fifth trace event to mode 56 just to generate the same
-full-resolution primary surface that the GI initial pass already wrote.
+This intentionally adds an explicit Pass A when the CVar is enabled. It is the
+first step toward the real pass graph, not a final performance win by itself.
 
 Shader Rules
 ------------
@@ -106,9 +110,12 @@ Direct producer dispatches that consume history must:
 - Only run producer logic that is valid from a `RAB_Surface`; they must not use
   an uninitialized `PathTraceSmokePayload`.
 
-Full-output visible consumers may keep tracing primary rays in this first
-slice. That keeps mode 50/51/56 visible output behavior conservative while
-testing whether the expensive direct temporal/spatial producer passes improve.
+Full-output visible consumers may keep tracing primary rays in this first slice
+except mode 56, which has an explicit surface-based combined preview path. Mode
+56 only consumes GI-produced current primary history when GI sparsity is 1; if
+GI sparsity is active, direct producers and the final consumer fall back to
+their normal primary traces so sparse GI does not leave holes in the primary
+surface history they read.
 
 Validation
 ----------
@@ -159,6 +166,25 @@ Validation result, 2026-05-15:
 - It did not produce a meaningful performance improvement.
 - Keep the CVar as a diagnostic switch, but do not treat primary-ray reuse as
   the main mode 56 bottleneck anymore.
+- A standalone primary-surface producer shader library now exists:
+  `pathtrace_primary_surface_producer.rt.hlsl`.
+- When the CVar is enabled, the prepass uses that standalone library instead of
+  re-entering the temporal ReSTIR shader.
+- The GI initial producer can now consume `PrimarySurfaceHistoryCurrent` from
+  the standalone prepass instead of tracing a fresh primary payload for active
+  GI pixels. Pass dumps report this as `giConsumesPrimary=1`.
+- Mode 56 can now use `pathtrace_restir_combined_resolve.rt.hlsl` as a
+  standalone final resolve when the prepass is active. Pass dumps report this
+  as `finalResolve=1`.
+- The standalone producer records current material/normal/albedo/specular/
+  emissive surface context, but does not yet pack object-motion previous
+  positions. Preserve this limitation until the real Pass A owns guide-buffer
+  and motion-vector exports explicitly.
+- The standalone producer now mirrors the monolithic stochastic any-hit
+  rejection rules for GUI alpha, smoke particles, glass/portal fallback,
+  additive decals, and filter decals. This fixes the first-order
+  translucent/discard behavior needed by `primaryPrepass=1`, but it is not a
+  replacement for full layered translucent composition.
 
 Failure signals:
 

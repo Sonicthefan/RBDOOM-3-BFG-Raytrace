@@ -1,0 +1,127 @@
+Paste-Ready Agent Prompt: PT Scene Resource Retirement
+=====================================================
+
+Use this prompt to start a focused coding agent.
+
+Prompt
+------
+
+We are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Current branch:
+
+    codex/pathtrace-core-refactor-plan
+
+This is the experimental RBDoom3 BFG Vulkan/NVRHI RT/PT branch. A crash/device
+removal issue around portal crossings has been narrowed down: under high GPU
+load, crossing portal boundaries causes texture-like corruption and then device
+removal. A diagnostic `device->waitForIdle()` inserted immediately before
+replacing committed PT scene resources prevents the crash.
+
+That confirms a CPU/GPU lifetime bug: old PT scene resources can still be in
+use by the GPU when the CPU commits a new portal/scene resource package.
+
+Read these docs first:
+
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtracing.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_modules.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_scene_resource_retirement\README.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_scene_resource_retirement\task_01_frame_lagged_scene_retirement.txt
+
+Your assigned task:
+
+    Implement Task 01: frame-lagged retirement for committed PT scene resource
+    packages. Keep old scene packages alive for a configurable number of frames
+    instead of relying on `device->waitForIdle()` during portal/scene
+    transitions.
+
+Hard boundaries:
+
+    - Do not change portal walking or scene selection.
+    - Do not change shader code.
+    - Do not change NEE/path tracing quality settings.
+    - Do not implement event-query/timeline retirement yet.
+    - Do not remove `r_pathTracingWaitForIdleOnPortalChange`; keep it as a
+      diagnostic override.
+    - Do not use `waitForIdle()` as the normal solution.
+
+Likely files:
+
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTracePrimaryPass.h
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceSmokeResources.h
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceSmokeResources.cpp
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceCVars.cpp
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceCVars.h
+
+Required implementation shape:
+
+    - Add `r_pathTracingSceneRetireFrames`, default 6.
+    - Add `r_pathTracingSceneRetireDump`, default 0.
+    - Add a retired PT scene package struct that holds strong NVRHI handles.
+    - Add a retirement queue to `PathTracePrimaryPass`.
+    - Before `CommitRayTracingSmokeSceneResources` overwrites committed
+      `m_smoke*` members, capture the previous committed package.
+    - If the previous package has resources and retirement frames > 0, push it
+      into the queue with `retireFrame = currentFrame + retireFrames`.
+    - Periodically release expired packages by removing them from the queue.
+    - Retain all dispatch-visible handles:
+        static/dynamic scene buffers
+        material/emissive/light/analytic-light buffers
+        rigid route buffers
+        static/dynamic BLAS
+        TLAS
+        binding set
+        texture descriptor table
+        active texture table handles
+    - Do not retain raw pointers; retain NVRHI handle types.
+    - Retain old packages when handles change, not only when portal area changes.
+
+Build:
+
+    cmake --build build --config Debug --target RBDoom3BFG
+
+Treat this as compile/link sanity only. For prepared-folder PT validation,
+build and copy the preset Release/PT lane:
+
+    cd neo
+    cmake --build --preset win64-pt-dev-release
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+Do not copy `build\Debug\RBDoom3BFG.exe` for normal PT testing.
+
+Validation:
+
+    First verify the diagnostic path still works:
+
+        r_pathTracingWaitForIdleOnPortalChange 1
+
+    Then test the real fix:
+
+        r_pathTracingWaitForIdleOnPortalChange 0
+        r_pathTracingSceneRetireFrames 6
+        r_pathTracingSceneRetireDump 2
+
+    Force enough GPU load to drop below 60 FPS and repeatedly cross portal
+    boundaries. Expected result: no texture-like corruption and no device
+    removal.
+
+    A/B test:
+
+        r_pathTracingSceneRetireFrames 0
+
+    Under the same load, this should behave like the old immediate-replacement
+    path and may reproduce the crash/glitch. Report whether it does.
+
+Final report must include:
+
+    - files changed
+    - exact retired package fields
+    - CVar names/defaults
+    - where packages are captured
+    - where packages are released
+    - build command and result
+    - validation performed
+    - whether waitForIdle was still needed
+    - any follow-up needed for event-query/fence retirement

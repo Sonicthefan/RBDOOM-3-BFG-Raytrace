@@ -6,6 +6,15 @@ Purpose
 -------
 This note is a new-session outline for moving the current rough ReSTIR direct-lighting work toward the resolution hierarchy used by practical path-traced renderers.
 
+For the next architecture slice, see:
+
+    docs/ReSTIR/real_pass_structure_plan.txt
+
+That plan makes the current direction explicit: keep mode 56 as a debug
+preview, then build a real full-resolution primary-surface pass, lower/sparse
+lighting-domain producer passes, and a full-resolution resolve before adding
+reflections.
+
 The important direction is:
 
 1. Keep the primary visibility and reconstruction anchors full resolution.
@@ -312,7 +321,7 @@ Because DLSS RR expects strong guide buffers, do not sacrifice full-resolution p
 
 Future Domain Expansion
 -----------------------
-After direct lighting scale is stable:
+After the real pass structure is stable:
 
 1. Indirect / multi-bounce reservoirs.
    - Separate scale CVar.
@@ -321,6 +330,8 @@ After direct lighting scale is stable:
    - Different history validity rules from direct lighting.
 
 2. Reflections.
+   - Do not add before the full-resolution primary surface, lighting-domain
+     producers, and resolve/composite pass are explicit.
    - Likely half-resolution by default.
    - Needs roughness-aware reconstruction.
    - Glass and mirror-like materials need special treatment.

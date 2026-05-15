@@ -1,0 +1,205 @@
+STRICT MINIMUM FEATURE LIST
+Scope: Vertex buffers, motion vectors, and adjacent temporal-geometry features required to support base ReSTIR PT now and ReSTIR PT Enhanced later.
+Out of scope: reservoir algorithms, reciprocal neighbor selection, duplication maps, spatial reuse implementation, shading implementation, and denoiser implementation.
+
+DESIGN TARGET
+The temporal geometry/motion layer must let the renderer answer this question for any current primary hit:
+"Where was this same surface point in the previous frame, and is the previous-frame history trustworthy enough to reuse?"
+
+MUST-01: Stable temporal identity
+- Every renderable instance must have a StableInstanceID that survives buffer relocation, draw-list changes, compaction, and frame-to-frame reordering.
+- Every geometry asset or geometry allocation must have a StableGeometryID.
+- The current primary-hit record must expose at least: StableInstanceID, StableGeometryID, PrimitiveID, barycentrics, MaterialID or ShadingSurfaceID.
+- Buffer offsets, BLAS indices, draw indices, and transient allocation handles must not be used as temporal identity.
+
+MUST-02: Primitive and topology identity
+- For any mesh that can use previous-frame geometry, current PrimitiveID + barycentrics must identify the same logical surface point in the previous frame.
+- The index buffer layout used for motion-vector reconstruction must remain compatible across current and previous frames.
+- If topology, index order, vertex identity, or primitive identity changes, temporal geometry for that object must be marked invalid for that frame.
+
+MUST-03: GPU-resident current/previous deformed position buffers
+- For skinned, morphed, cloth, procedurally deformed, or GPU-displaced geometry, maintain at least two GPU-readable deformed position buffers:
+  - CurrentDeformedPositions
+  - PreviousDeformedPositions
+- The two buffers must use the same vertex indexing convention and coordinate space.
+- These buffers must be readable by the motion-vector/reprojection pass and by path-tracing or compute passes that need hit-based reprojection.
+- Do not require CPU-side storage of previous skinned vertices unless CPU skinning is the actual source of truth.
+
+MUST-04: Rigid/static geometry temporal path
+- Static and rigid meshes must not require duplicated vertex buffers just to produce motion vectors.
+- Store CurrentObjectToWorld and PreviousObjectToWorld for every renderable instance.
+- For rigid objects, previous position reconstruction must use the same rest vertex positions plus PreviousObjectToWorld.
+
+MUST-05: Frame update ordering for temporal buffers
+- At the start of frame N, frame N-1 deformed positions must remain readable as PreviousDeformedPositions.
+- Skinning/deformation for frame N must write into CurrentDeformedPositions without overwriting PreviousDeformedPositions before all temporal consumers have finished.
+- Use ping-pong buffers, ring buffers, or explicit frame-graph lifetime tracking.
+- The system must handle multiple frames in flight and async compute/ray-tracing queues without overwriting buffers still in use.
+
+MUST-06: Offscreen and newly-visible dynamic geometry handling
+- Dynamic geometry that can become visible, contribute through reflection/refraction, or be hit by path-traced rays must either keep its previous temporal state updated while offscreen or be explicitly marked as having invalid previous state.
+- Newly-created, newly-streamed, or newly-visible geometry with no valid previous state must output invalid history rather than fake motion.
+
+MUST-07: LOD, streaming, remeshing, and compaction invalidation
+- Detect LOD changes, mesh streaming changes, remeshing, cloth topology changes, primitive reordering, and geometry-buffer compaction.
+- Preserve previous allocations long enough for all temporal consumers, or maintain stable remapping metadata.
+- If current and previous surfaces cannot be mapped reliably, set HistoryValid = false for affected pixels/objects.
+
+MUST-08: Primary-hit motion-vector generation
+- Motion vectors must be generated from the current primary hit, not only from rasterized draw calls.
+- Given current hit {StableInstanceID, StableGeometryID, PrimitiveID, barycentrics}, compute:
+  - CurrentWorldPosition
+  - PreviousWorldPosition
+- For deforming geometry, interpolate both current and previous deformed position buffers using the same PrimitiveID and barycentrics.
+- For rigid geometry, reconstruct previous position using rest positions plus PreviousObjectToWorld.
+- Project CurrentWorldPosition with the current unjittered ViewProjection matrix.
+- Project PreviousWorldPosition with the previous unjittered ViewProjection matrix.
+
+MUST-09: Motion-vector convention lock-down
+- Define one engine-wide convention and use it everywhere.
+- Required convention fields:
+  - Direction: current pixel -> previous pixel, or previous pixel -> current pixel.
+  - Units: pixels, UVs, or normalized device coordinates.
+  - Resolution basis: render resolution or display/output resolution.
+  - Jitter policy: motion vectors must be generated from unjittered camera matrices unless a consumer explicitly requires otherwise.
+  - Sign convention: must be documented and tested.
+- ReSTIR PT temporal reuse should receive the convention it expects, or a conversion shim must exist.
+
+MUST-10: Reprojection result data
+- For each current pixel or primary hit, the temporal layer must output:
+  - PreviousPixelCoord or PreviousUV
+  - MotionVector
+  - HistoryValid flag
+  - HistoryConfidence value, even if initially binary 0/1
+  - InvalidReason flags
+- InvalidReason must distinguish at least: no previous frame, offscreen previous position, depth mismatch, normal mismatch, material mismatch, topology/LOD invalid, teleport/camera cut, and disocclusion.
+
+MUST-11: Surface-similarity validation inputs
+- The temporal layer must provide enough data to decide whether a reprojected previous surface is similar to the current surface.
+- Minimum current-frame data:
+  - depth or linear view depth
+  - world position or reconstructable position
+  - geometric/shading normal
+  - MaterialID or ShadingSurfaceID
+  - roughness or material class
+  - StableInstanceID and StableGeometryID where available
+- Minimum previous-frame data at the reprojected pixel:
+  - depth
+  - normal
+  - MaterialID or ShadingSurfaceID
+  - StableInstanceID and StableGeometryID where available
+- Temporal reuse must be rejected or heavily downweighted when surfaces are not sufficiently similar.
+
+MUST-12: Previous-frame primary-hit/history buffer
+- Keep a previous-frame primary-hit or G-buffer history that is readable during temporal reprojection.
+- Minimum previous-frame fields:
+  - depth
+  - normal
+  - MaterialID or ShadingSurfaceID
+  - StableInstanceID and StableGeometryID where available
+  - previous motion vector, if needed for dual/forward motion construction
+  - previous HistoryConfidence or reservoir-valid flag, if available
+
+MUST-13: Disocclusion detection
+- Detect pixels where the current surface has no trustworthy previous-frame correspondence.
+- Disocclusion must be represented explicitly, not hidden as zero motion.
+- ReSTIR temporal reuse must be disabled or reduced for disoccluded pixels unless an alternate/dual motion-vector path supplies a valid fallback.
+
+MUST-14: Dual/alternate motion-vector support for disocclusion handling
+- Provide a second motion-vector channel or equivalent structure for alternate temporal correspondence.
+- Minimum fields:
+  - PrimaryMotionVector
+  - AlternateMotionVector
+  - AlternateMotionValid
+  - AlternateMotionConfidence
+  - AlternateMotionSource enum
+- The alternate vector is for disocclusion/occlusion-aware reuse where the visible surface's primary motion vector has no valid history.
+- It may be implemented through cause tracking, occluder tracking, forward-motion splatting, or another documented method.
+- If no valid alternate correspondence exists, AlternateMotionValid must be false.
+
+MUST-15: Forward-motion or splatted-motion support
+- To support dual/alternate motion vectors, implement one of:
+  - a direct forward-motion pass, previous pixel -> current pixel; or
+  - a splat/dilate pass that derives usable forward/coverage information from current -> previous motion vectors.
+- The output must identify newly exposed regions and support alternate history lookup or confidence reduction.
+
+MUST-16: Camera and object reset handling
+- Camera cuts, large camera jumps, object teleports, skeleton resets, animation time jumps, transform discontinuities, and material/shading-model swaps must explicitly invalidate temporal reuse.
+- Invalidated objects/pixels must not sample stale previous reservoirs or stale previous geometry.
+
+MUST-17: Jitter-separated camera state
+- Store both jittered and unjittered current/previous camera matrices if the renderer uses TAA/upscaling jitter.
+- Motion-vector and ReSTIR temporal-reprojection calculations must use unjittered matrices by default.
+- Jitter offsets must be passed separately to consumers that need them.
+
+MUST-18: Per-object temporal state flags
+- Each renderable instance must expose:
+  - HasValidPrevious
+  - TopologyStable
+  - LODStable
+  - TransformContinuous
+  - DeformationContinuous
+  - MaterialTemporalStable
+  - PreviousBufferValid
+- These flags must be accessible to the motion-vector and reprojection passes.
+
+MUST-19: Previous/current normal availability
+- The system must provide normals sufficient for temporal validation.
+- Acceptable minimum implementations:
+  - current normal from current primary hit plus previous normal from previous G-buffer/history; or
+  - current and previous deformed normal buffers; or
+  - reconstructed normals from current/previous geometry when reliable.
+- If previous normals are unavailable or unreliable, history confidence must be reduced or invalidated.
+
+MUST-20: Ray/path-hit compatibility
+- The motion-vector system must work for path-traced primary hits using ray payload data, not only for raster G-buffer pixels.
+- Required ray payload or hit data:
+  - InstanceID
+  - GeometryID
+  - PrimitiveID
+  - barycentrics
+  - object-to-world or instance transform reference
+  - material/shading surface reference
+- This data must be sufficient to reconstruct current and previous positions without rerunning full animation on the CPU.
+
+MUST-21: Resource lifetime and synchronization
+- PreviousDeformedPositions, previous transforms, and previous hit/history buffers must remain alive and readable until all of the following have completed:
+  - motion-vector generation
+  - temporal reprojection
+  - ReSTIR temporal reuse
+  - denoising/upscaling passes that consume motion/history
+- The frame graph must make these dependencies explicit.
+
+MUST-22: Minimal debug views and validation outputs
+- Implement debug output for:
+  - motion-vector direction and magnitude
+  - reprojected previous-pixel coordinate
+  - HistoryValid / HistoryConfidence
+  - InvalidReason flags
+  - current vs previous object/geometry IDs
+  - topology/LOD invalidation
+  - disocclusion mask
+  - primary vs alternate motion-vector selection
+  - previous/current deformed buffer index for selected object
+- These debug views are required for acceptance because temporal reuse bugs are otherwise hard to diagnose.
+
+MUST-23: Acceptance tests
+- Animated skinned character moving only an arm: nonzero per-pixel motion on the arm even when object transform is static.
+- Rigid moving object: correct motion using previous/current transforms without duplicated vertex buffers.
+- Camera-only motion: correct full-screen reprojection with unjittered matrices.
+- Offscreen-to-onscreen animated object: valid previous state if updated offscreen, otherwise explicit invalid history.
+- LOD switch: history invalidated or remapped; no stale vertex-ID reuse.
+- Teleport/camera cut: history invalidated.
+- Disocclusion: primary history rejected; alternate vector used only if AlternateMotionValid is true.
+- Path-traced primary hit: motion generated from hit PrimitiveID + barycentrics, not from raster draw data.
+
+MUST-NOT-01: Do not make CPU previous skinned vertices a required path
+- CPU previous-skinned-vertex storage is not required if the engine already has GPU-resident current/previous deformed geometry.
+- CPU-side previous vertices may exist only as a fallback, debug tool, or CPU-skinning path.
+
+MUST-NOT-02: Do not tie temporal identity to transient memory
+- Do not use transient GPU virtual addresses, compacted offsets, BLAS instance indices, draw order, or descriptor-table slots as the only temporal identity.
+
+MUST-NOT-03: Do not hide invalid history as zero velocity
+- Zero motion is a valid motion vector for a stationary surface.
+- Invalid history, disocclusion, topology mismatch, or missing previous data must be represented with explicit validity/confidence flags.

@@ -51,21 +51,33 @@ Implementation Contract
 -----------------------
 For staged direct-lighting producer dispatches:
 
-1. Inactive sparse reservoir pixels return before tracing rays.
-2. Active reservoir pixels generate initial, temporal, and spatial reservoirs as
+1. Sparse producer dispatches now launch only `ceil(directDomainWidth / rate)`
+   columns by `directDomainHeight` rows.
+2. Sparse dispatch pixels map back to the same active direct-domain pixels used
+   by the original diagonal `1/rate` pattern.
+3. Active reservoir pixels generate initial, temporal, and spatial reservoirs as
    usual.
-3. Spatial neighbor positions snap to active representative pixels before
+4. Spatial neighbor positions snap to active representative pixels before
    loading current surfaces and neighbor reservoirs.
-4. Full-resolution consumers map their pixel to the direct reservoir domain, then
+5. Full-resolution consumers map their pixel to the direct reservoir domain, then
    snap to the current active representative before loading the spatial
    reservoir.
 
 For staged GI initial producer dispatches:
 
-1. Inactive sparse GI reservoir pixels return before tracing rays.
-2. Active GI pixels generate initial indirect reservoirs normally.
-3. Visible modes 53-56 keep their full-resolution primary hit for material
+1. Sparse producer dispatches now launch only `ceil(outputWidth / rate)` columns
+   by `outputHeight` rows.
+2. Sparse dispatch pixels map back to the same active full-resolution GI pixels
+   used by the original diagonal `1/rate` pattern.
+3. Active GI pixels generate initial indirect reservoirs normally.
+4. Visible modes 53-56 keep their full-resolution primary hit for material
    context, but load the nearest active GI initial reservoir representative.
+
+The old inactive-pixel early returns remain as safety checks, but real sparse
+producer dispatch should avoid launching those inactive lanes in the first
+place. In mode 56, `r_pathTracingRestirPTPrimarySurfacePrepass 1` now supplies a
+full-resolution primary surface pass, so GI, direct, and final mode-56 passes
+can all consume primary history even when GI sparsity is active.
 
 Representative lookup is now constant-time for both sparse direct and sparse
 GI. Earlier shader code searched a local `[-8, 8]` x/y window to find an active
@@ -96,6 +108,8 @@ Known Limits
   reconstruction filter.
 - GI modes 53-56 use a full-resolution sparse representative lookup, not the
   direct-lighting scaled-domain lookup.
+- Sparse dispatch is still a `1/rate` row pattern. It does not yet provide a
+  `1/rate^2` block/checkerboard producer domain.
 - Sparse temporal reuse still depends on the existing motion-vector and
   NEE-reuse safety rules. Keep
   `r_pathTracingRestirPTTemporalAnalyticNeeReuse 0` unless the light-domain

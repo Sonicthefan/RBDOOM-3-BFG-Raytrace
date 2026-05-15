@@ -1,0 +1,534 @@
+#include "../../vulkan.hlsli"
+#ifndef __cplusplus
+#ifndef uint16_t
+#define uint16_t uint
+#endif
+#endif
+
+#define RB_PT_ENABLE_RESTIR 1
+#include "Rtxdi/PT/ReSTIRPTParameters.h"
+
+struct PathTraceSmokePayload
+{
+    uint value;
+};
+
+struct PathTraceSmokeShadowPayload
+{
+    uint hit;
+};
+
+struct PathTraceSmokeEmissiveTriangle
+{
+    float4 centerAndArea;
+    float4 normalAndLuminance;
+    float4 uvBounds;
+    float4 centroidUvAndWeight;
+    float4 estimatedRadianceAndLuminance;
+    float4 sampleWeightAndPdf;
+    uint materialIndex;
+    uint instanceId;
+    uint primitiveIndex;
+    uint flags;
+    uint emissiveTextureIndex;
+    uint emissiveTextureWidth;
+    uint emissiveTextureHeight;
+    uint materialId;
+    uint universeMaterialIndex;
+    uint identityHashLo;
+    uint identityHashHi;
+    uint padding0;
+};
+
+struct PathTraceDoomAnalyticLightCandidate
+{
+    float4 originAndRadius;
+    float4 colorAndIntensity;
+    float4 doomRadiusAndArea;
+    uint flags;
+    uint renderLightIndex;
+    uint entityNumber;
+    uint padding0;
+};
+
+struct PathTraceDoomAnalyticLightCandidateIdentity
+{
+    uint universeIndex;
+    uint flags;
+    uint invalidReasonFlags;
+    uint padding0;
+};
+
+struct PathTraceDoomAnalyticLightRemap
+{
+    int previousToCurrentCandidateIndex;
+    int currentToPreviousCandidateIndex;
+    uint flags;
+    uint invalidReasonFlags;
+};
+
+#include "PathTracePrimarySurface.hlsli"
+
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+RaytracingAccelerationStructure SmokeScene : register(t0);
+StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticCurrentIdentities : register(t42);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticPreviousIdentities : register(t43);
+StructuredBuffer<PathTraceDoomAnalyticLightRemap> DoomAnalyticRemap : register(t44);
+StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights : register(t45);
+ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
+RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
+RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
+RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
+
+#define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
+#include "Rtxdi/PT/Reservoir.hlsli"
+
+cbuffer PathTraceSmokeConstants : register(b2)
+{
+    float4 CameraOriginAndTMax;
+    float4 CameraForwardAndTanX;
+    float4 CameraLeftAndTanY;
+    float4 CameraUpAndDebugMode;
+    float4 TextureInfo;
+    float4 LightOriginAndRadius[32];
+    float4 LightColorAndIntensity[32];
+    float4 LightInfo;
+    float4 PortalWindowInfo;
+    float4 LightSpriteInfo;
+    float4 ToyPathInfo;
+    float4 EmissiveInfo;
+    float4 EmissiveDistributionInfo;
+    float4 BoundsOverlayInfo;
+    float4 DoomAnalyticLightInfo;
+    float4 DoomAnalyticLightRemapInfo;
+    float4 RestirPTInfo;
+    float4 IntegratorInfo;
+    float4 IntegratorInfo2;
+    float4 PrevCameraOriginAndValid;
+    float4 PrevCameraForwardAndTanX;
+    float4 PrevCameraLeftAndTanY;
+    float4 PrevCameraUpAndTanY;
+    float4 SafetyInfo;
+    float4 GeometryInfo0;
+    float4 GeometryInfo1;
+    float4 GeometryInfo2;
+    float4 GeometryInfo3;
+    float4 GeometryInfo4;
+    float4 DispatchTileInfo;
+    float4 NeeInfo;
+    float4 MotionVectorInfo;
+    float4 RestirPTDirectInfo;
+    float4 RestirPTSparsityInfo;
+    float4 RestirPTIndirectInfo;
+};
+
+static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
+static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
+static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN = 5u;
+static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
+static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
+static const uint RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP = 0x00000002u;
+static const uint RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP = 0x00000004u;
+static const uint RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING = 0x00000008u;
+static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
+
+bool PathTraceSafetyDisabled(uint bit)
+{
+    return (((uint)SafetyInfo.x) & bit) != 0u;
+}
+
+uint PathTracePrimarySurfaceHistoryCount()
+{
+    return (uint)max(GeometryInfo2.z, 0.0);
+}
+
+uint2 PathTraceDispatchTileOffset()
+{
+    return uint2((uint)max(DispatchTileInfo.x, 0.0), (uint)max(DispatchTileInfo.y, 0.0));
+}
+
+uint2 PathTraceFullOutputSize()
+{
+    const uint2 size = uint2((uint)max(DispatchTileInfo.z, 0.0), (uint)max(DispatchTileInfo.w, 0.0));
+    return (size.x > 0u && size.y > 0u) ? size : DispatchRaysDimensions().xy;
+}
+
+uint2 PathTraceRestirDirectSize()
+{
+    const uint2 size = uint2((uint)max(RestirPTDirectInfo.x, 0.0), (uint)max(RestirPTDirectInfo.y, 0.0));
+    return (size.x > 0u && size.y > 0u) ? size : PathTraceFullOutputSize();
+}
+
+uint PathTraceRestirSparsityRate()
+{
+    return clamp((uint)max(RestirPTSparsityInfo.x, 1.0), 1u, 8u);
+}
+
+bool PathTraceRestirSparsityEnabled()
+{
+    return RestirPTSparsityInfo.z >= 0.5 && PathTraceRestirSparsityRate() > 1u;
+}
+
+uint PathTraceRestirSparsityPhase(bool previousFrame)
+{
+    const uint rate = PathTraceRestirSparsityRate();
+    const float phaseValue = previousFrame ? RestirPTSparsityInfo.w : RestirPTSparsityInfo.y;
+    return rate > 1u ? (uint)max(phaseValue, 0.0) % rate : 0u;
+}
+
+uint2 PathTraceRestirSparseRepresentativePixel(uint2 pixel, bool previousFrame)
+{
+    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
+    pixel = min(pixel, dimensions - uint2(1u, 1u));
+    if (!PathTraceRestirSparsityEnabled())
+    {
+        return pixel;
+    }
+
+    const uint rate = PathTraceRestirSparsityRate();
+    const uint phase = PathTraceRestirSparsityPhase(previousFrame);
+    const uint residue = (pixel.x + pixel.y * 3u + phase) % rate;
+    const int dxBack = -int(residue);
+    const int dxForward = int((rate - residue) % rate);
+    const int xBack = int(pixel.x) + dxBack;
+    const int xForward = int(pixel.x) + dxForward;
+    const bool backValid = xBack >= 0;
+    const bool forwardValid = xForward < int(dimensions.x);
+    int chosenX = int(pixel.x);
+    if (backValid && forwardValid)
+    {
+        chosenX = abs(dxBack) <= abs(dxForward) ? xBack : xForward;
+    }
+    else if (backValid)
+    {
+        chosenX = xBack;
+    }
+    else if (forwardValid)
+    {
+        chosenX = xForward;
+    }
+    return uint2(uint(clamp(chosenX, 0, int(dimensions.x) - 1)), pixel.y);
+}
+
+uint PathTraceRestirPTIndirectSparsityRate()
+{
+    return clamp((uint)max(RestirPTIndirectInfo.z, 1.0), 1u, 8u);
+}
+
+bool PathTraceRestirPTIndirectSparsityEnabled()
+{
+    return RestirPTIndirectInfo.y >= 0.5 && PathTraceRestirPTIndirectSparsityRate() > 1u;
+}
+
+uint2 PathTraceRestirPTIndirectRepresentativePixel(uint2 pixel)
+{
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    pixel = min(pixel, dimensions - uint2(1u, 1u));
+    if (!PathTraceRestirPTIndirectSparsityEnabled())
+    {
+        return pixel;
+    }
+
+    const uint rate = PathTraceRestirPTIndirectSparsityRate();
+    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
+    const uint residue = (pixel.x + pixel.y * 3u + phase) % rate;
+    const int dxBack = -int(residue);
+    const int dxForward = int((rate - residue) % rate);
+    const int xBack = int(pixel.x) + dxBack;
+    const int xForward = int(pixel.x) + dxForward;
+    const bool backValid = xBack >= 0;
+    const bool forwardValid = xForward < int(dimensions.x);
+    int chosenX = int(pixel.x);
+    if (backValid && forwardValid)
+    {
+        chosenX = abs(dxBack) <= abs(dxForward) ? xBack : xForward;
+    }
+    else if (backValid)
+    {
+        chosenX = xBack;
+    }
+    else if (forwardValid)
+    {
+        chosenX = xForward;
+    }
+    return uint2(uint(clamp(chosenX, 0, int(dimensions.x) - 1)), pixel.y);
+}
+
+uint2 PathTraceFullPixelToRestirDirectPixel(uint2 fullPixel)
+{
+    const uint2 fullSize = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const uint2 directSize = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
+    const float2 directPixel = floor(((float2(fullPixel) + 0.5) * float2(directSize)) / float2(fullSize));
+    return PathTraceRestirSparseRepresentativePixel(min(uint2(directPixel), directSize - uint2(1u, 1u)), false);
+}
+
+uint2 PathTracePrimarySurfaceStorePixel(uint2 pixel)
+{
+    return pixel;
+}
+
+int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
+{
+    return pixelPosition;
+}
+
+float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId);
+#include "RtxdiBridge/PathTraceRtxdiBridge.hlsli"
+
+float3 SafeNormalize(float3 value, float3 fallback)
+{
+    return RAB_SafeNormalize(value, fallback);
+}
+
+float3 ConstrainSmokeShadingNormal(float3 shadingNormal, float3 geometryNormal)
+{
+    const float minGeometryDot = 0.02;
+    geometryNormal = RAB_SafeNormalize(geometryNormal, float3(0.0, 0.0, 1.0));
+    shadingNormal = RAB_SafeNormalize(shadingNormal, geometryNormal);
+    const float geometryDot = dot(shadingNormal, geometryNormal);
+    if (geometryDot >= minGeometryDot)
+    {
+        return shadingNormal;
+    }
+    float3 tangentComponent = shadingNormal - geometryNormal * geometryDot;
+    const float tangentLengthSquared = dot(tangentComponent, tangentComponent);
+    if (tangentLengthSquared <= 1e-8)
+    {
+        return geometryNormal;
+    }
+    tangentComponent *= rsqrt(tangentLengthSquared);
+    const float tangentScale = sqrt(max(1.0 - minGeometryDot * minGeometryDot, 0.0));
+    return RAB_SafeNormalize(tangentComponent * tangentScale + geometryNormal * minGeometryDot, geometryNormal);
+}
+
+#define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_HELPERS
+#include "PathTracePrimarySurface.hlsli"
+
+RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel)
+{
+    const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
+    return RTXDI_LoadPTReservoir(
+        RestirPTParams.reservoirBuffer,
+        reservoirPosition,
+        RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
+}
+
+RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel)
+{
+    pixel = PathTraceRestirPTIndirectRepresentativePixel(pixel);
+    return RTXDI_LoadPTReservoir(
+        RestirPTParams.reservoirBuffer,
+        pixel,
+        RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+}
+
+float3 RestirPTSanitizePreviewContribution(float3 contribution)
+{
+    if (!all(contribution == contribution) || any(abs(contribution) > 65504.0))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return max(contribution, float3(0.0, 0.0, 0.0));
+}
+
+float3 RestirPTToneMapPreview(float3 contribution)
+{
+    contribution = RestirPTSanitizePreviewContribution(contribution * max(RestirPTInfo.w, 0.0));
+    return contribution / (float3(1.0, 1.0, 1.0) + contribution);
+}
+
+float3 RestirPTVisibleSurfaceBase(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 visibleEmissive = RestirPTToneMapPreview(surface.material.emissiveRadiance);
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        ((surface.flags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT) == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN)
+    {
+        const float3 albedo = saturate(max(surface.material.diffuseAlbedo, float3(0.0, 0.0, 0.0)));
+        return saturate(albedo + visibleEmissive);
+    }
+    return visibleEmissive;
+}
+
+float3 RestirPTReservoirPreviewContribution(RTXDI_PTReservoir reservoir)
+{
+    return RestirPTSanitizePreviewContribution(reservoir.TargetFunction * max(reservoir.WeightSum, 0.0));
+}
+
+bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
+{
+    const float targetLuminance = RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)));
+    return RTXDI_IsValidPTReservoir(reservoir) && reservoir.WeightSum > 0.0 && targetLuminance > 0.0;
+}
+
+float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
+{
+    PathTraceSmokeShadowPayload shadowPayload;
+    shadowPayload.hit = 0u;
+
+    RayDesc shadowRay;
+    shadowRay.Origin = origin;
+    shadowRay.Direction = direction;
+    shadowRay.TMin = 0.01;
+    shadowRay.TMax = tMax;
+
+    TraceRay(
+        SmokeScene,
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,
+        0xff,
+        1,
+        1,
+        1,
+        shadowRay,
+        shadowPayload);
+
+    return shadowPayload.hit == 0u ? 1.0 : 0.0;
+}
+
+bool RestirPTTryEvaluateNeeReservoirPreview(RAB_Surface surface, RTXDI_PTReservoir reservoir, bool traceVisibility, out float3 contribution)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidPTReservoir(reservoir) || !RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        return false;
+    }
+
+    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+    {
+        return false;
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(RTXDI_SampledLightData_GetLightIndex(sampledLightData), false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+        lightInfo,
+        surface,
+        RTXDI_SampledLightData_GetUVDataFloat2(sampledLightData));
+    if (lightSample.valid == 0u)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float ndotl = saturate(dot(normal, lightDir));
+    if (ndotl <= 0.0 || lightSample.solidAnglePdf <= 1.0e-6)
+    {
+        return false;
+    }
+
+    if (traceVisibility)
+    {
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = surface.worldPos + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = max(lightDistance - 0.5, 0.01);
+        if (TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu) <= 0.0)
+        {
+            return false;
+        }
+    }
+
+    const float3 reflected = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface)) * lightSample.radiance * ndotl;
+    const float reservoirWeight = max(reservoir.WeightSum, 1.0 / max((float)reservoir.M, 1.0));
+    contribution = RestirPTSanitizePreviewContribution((reflected / max(lightSample.solidAnglePdf, 1.0e-6)) * reservoirWeight);
+    return RAB_Luminance(contribution) > 0.0;
+}
+
+bool RestirPTTryEvaluateSpatialDirectLighting(RAB_Surface surface, uint2 pixel, out float3 contribution)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(reservoirPixel);
+    return RestirPTTryEvaluateNeeReservoirPreview(surface, spatialReservoir, RestirPTInfo.z >= 0.5, contribution);
+}
+
+float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return float4(RestirPTVisibleSurfaceBase(surface), 1.0);
+    }
+
+    const float3 surfaceBase = RestirPTVisibleSurfaceBase(surface);
+    float3 directContribution = float3(0.0, 0.0, 0.0);
+    const bool directValid = RestirPTTryEvaluateSpatialDirectLighting(surface, pixel, directContribution);
+    const RTXDI_PTReservoir giReservoir = LoadRestirPTInitialReservoir(pixel);
+    const bool giValid = RestirPTReservoirHasUsefulSample(giReservoir);
+    const float3 giContribution = giValid ? RestirPTReservoirPreviewContribution(giReservoir) : float3(0.0, 0.0, 0.0);
+    if (!directValid && !giValid)
+    {
+        return float4(surfaceBase, 1.0);
+    }
+
+    return float4(saturate(surfaceBase + RestirPTToneMapPreview(directContribution + giContribution)), 1.0);
+}
+
+[shader("raygeneration")]
+void RayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy + PathTraceDispatchTileOffset();
+    const uint2 dimensions = PathTraceFullOutputSize();
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
+    SmokeOutput[pixel] = EvaluateCombinedResolve(surface, pixel);
+}
+
+[shader("miss")]
+void Miss(inout PathTraceSmokePayload payload)
+{
+    payload.value = 0u;
+}
+
+[shader("miss")]
+void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
+{
+    payload.hit = 0u;
+}
+
+[shader("anyhit")]
+void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+}
+
+[shader("anyhit")]
+void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    payload.hit = 1u;
+}
+
+[shader("closesthit")]
+void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+}
+
+[shader("closesthit")]
+void ShadowClosestHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    payload.hit = 1u;
+}

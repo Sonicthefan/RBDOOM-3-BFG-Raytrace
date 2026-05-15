@@ -1,0 +1,214 @@
+ReSTIR Temporal Geometry Research Mapping For Doom PT
+====================================================
+
+Purpose
+-------
+
+This note maps `restir_temporal_geometry_motion_minimum_features.txt` onto the
+current RBDoom3 BFG path-tracing branch.
+
+The research document is a useful production target, but it was written without
+project-specific context. Do not treat every MUST item as Task 01 scope.
+
+Main Conclusion
+---------------
+
+The research document strongly supports the current direction:
+
+    stable identity first
+    explicit current/previous ranges
+    invalid history instead of fake zero motion
+    current/previous deformed positions for skinned geometry
+    primary-hit motion from PrimitiveID + barycentrics
+
+It also shows two things the first-pass docs should keep separate:
+
+1. The CPU previous-skinned bridge is only a bridge because this branch's
+   current PT skinning source of truth is CPU-side scene capture.
+
+2. The final architecture should be GPU-resident current/previous deformed
+   position data, not permanent CPU previous-vertex storage.
+
+Direct Overlap With Existing Plan
+---------------------------------
+
+These research requirements are already represented in the skinned motion
+vector plan:
+
+    MUST-01 stable temporal identity
+    MUST-02 primitive/topology identity
+    MUST-07 LOD/topology/compaction invalidation
+    MUST-08 primary-hit motion-vector generation
+    MUST-10 explicit HistoryValid/InvalidReason data
+    MUST-16 camera/object/skeleton reset invalidation
+    MUST-20 ray/path-hit compatibility
+    MUST-NOT-02 no transient memory as identity
+    MUST-NOT-03 no invalid history hidden as zero velocity
+
+The Doom-specific phrasing is:
+
+    do not use dynamic buffer offset, BLAS instance index, draw order, or
+    descriptor slot as temporal identity
+
+    use explicit skinned surface identity and range records
+
+    only allow previous matching when identity and counts match
+
+    otherwise mark previous invalid and let ReSTIR/denoisers reject history
+
+Promote Into Near-Term Requirements
+-----------------------------------
+
+The following should be strengthened in the Doom task docs because they matter
+for ReSTIR/PT temporal reuse and are cheap to design for now.
+
+1. Motion-vector convention lock-down.
+
+   Before shader consumers rely on object motion, define:
+
+       current-to-previous or previous-to-current direction
+       pixel/UV/NDC units
+       internal render resolution basis
+       jitter policy
+       sign convention
+
+   The current likely best fit is current pixel to previous pixel at internal
+   PT resolution, using unjittered current/previous camera matrices.
+
+2. Invalid reason flags.
+
+   Task 01 diagnostics should keep enough information to distinguish:
+
+       no previous frame
+       no previous surface record
+       count mismatch
+       topology/LOD invalid
+       generated/transient surface
+       teleport/transform discontinuity
+       skeleton/joint mismatch
+       previous buffer unavailable
+
+   These do not all need to be shader-visible in Task 01, but the data model
+   should not collapse everything into one generic invalid bit.
+
+3. Per-object temporal flags.
+
+   The Doom equivalent should start as CPU-side bookkeeping fields:
+
+       HasValidPrevious
+       TopologyStable
+       LODStable
+       TransformContinuous
+       DeformationContinuous
+       MaterialTemporalStable
+       PreviousBufferValid
+
+   They can later be packed into shader-visible metadata when the primary
+   surface pass consumes object motion.
+
+4. Previous/current normal policy.
+
+   Task 03 can use current normal from the current hit and previous normal from
+   previous primary-surface history as the first minimum. Previous deformed
+   normal buffers are useful later, but not required for the first valid object
+   motion path.
+
+Defer For Later
+---------------
+
+The following research items are valid production targets but should not expand
+Task 01.
+
+1. Full GPU-resident deformed positions as a hard requirement.
+
+   Research MUST-03 is the final target. In this branch, CPU-side previous
+   skinned storage is acceptable as a transitional bridge because the existing
+   PT source of truth is CPU-skinned scene capture.
+
+   It must remain documented as temporary and should not become the long-term
+   design.
+
+2. Dual/alternate motion vectors and forward/splatted motion.
+
+   MUST-14 and MUST-15 are ReSTIR Enhanced / denoiser-quality features. They
+   should be architecturally reserved, but not implemented before the primary
+   current-to-previous object motion path exists.
+
+3. Updating all offscreen dynamic geometry every frame.
+
+   MUST-06 is ideal. Doom's portal-driven scene selection makes this expensive
+   if applied blindly. Early policy should be:
+
+       if previous state is updated and valid, allow reuse
+       if an object was offscreen/not captured and lacks valid previous state,
+       mark history invalid
+
+   Later portal/area residency work can improve offscreen update coverage for
+   reflective/ReSTIR-important dynamic objects.
+
+4. Rigid/static object motion.
+
+   MUST-04 is correct and should become its own task. The current folder is
+   focused on skinned/deforming geometry because that is where CPU skinning is
+   blocking progress.
+
+   Rigid transforms should use previous/current object-to-world and rest
+   vertices, not duplicated vertex buffers.
+
+5. Frame graph / async queue formalization.
+
+   MUST-21 is correct. For this branch, reuse the frame-lagged resource
+   retirement lesson: previous geometry resources must remain alive until all
+   PT temporal consumers finish. Full frame-graph design belongs in a broader
+   PT resource-owner task.
+
+Immediate Impact On Task Order
+------------------------------
+
+Task 01 remains correct:
+
+    add skinned identity/range tracking
+    retain previous CPU-skinned bridge data
+    expose conservative validity
+    add diagnostics
+    do not switch to GPU skinning
+
+Task 01 should also record invalid reasons and enough temporal flags to support
+later ReSTIR decisions.
+
+Task 02 remains correct:
+
+    define source/output GPU contracts
+    add current/previous joint and deformed-position resource ownership
+    keep the path off by default
+
+Task 03 should explicitly include motion-vector convention lock-down before
+writing `previousPositionOrMotion`.
+
+Recommended Future Task 04
+--------------------------
+
+Add a separate future task for rigid/static object motion:
+
+    stable rigid instance identity
+    CurrentObjectToWorld
+    PreviousObjectToWorld
+    previous transform continuity flag
+    rest-vertex previous position reconstruction
+    no duplicated rigid vertex buffers
+
+This is important for ReSTIR/PT and denoisers, but it should not distract from
+the current skinned/deforming CPU-skinning problem.
+
+Recommended Future Task 05
+--------------------------
+
+Add a separate future task for disocclusion and alternate motion:
+
+    disocclusion mask
+    alternate motion vector placeholder
+    alternate motion valid/confidence
+    optional forward/splatted motion experiment
+
+This is not needed to prove basic skinned object motion, but the primary
+surface record and debug views should leave room for it.

@@ -827,9 +827,9 @@ idCVar r_pathTracingRestirPTGiRaySparsity(
 
 idCVar r_pathTracingRestirPTPrimarySurfacePrepass(
     "r_pathTracingRestirPTPrimarySurfacePrepass",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental default-off ReSTIR PT path: direct temporal/spatial producers consume current primary-surface history instead of tracing primary rays again" );
+    "ReSTIR PT path: use the standalone primary-surface producer/resolve path so mode 56 avoids the combined monolithic shader; set 0 for legacy fallback testing" );
 
 idCVar r_pathTracingRestirPTPassDump(
     "r_pathTracingRestirPTPassDump",

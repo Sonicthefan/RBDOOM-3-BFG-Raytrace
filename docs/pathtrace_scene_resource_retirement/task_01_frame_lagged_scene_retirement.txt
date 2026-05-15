@@ -1,0 +1,278 @@
+Task 01: Frame-Lagged PT Scene Resource Retirement
+=================================================
+
+Assignment
+----------
+
+Implement frame-lagged retirement for committed PT scene resources so portal
+transitions can replace the active scene package without waiting for the whole
+GPU to become idle.
+
+This is a focused lifetime fix. Do not change scene selection, portal walk,
+shader behavior, or lighting behavior.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_scene_resource_retirement/README.txt
+
+Relevant code:
+
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceSmokeResources.h
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Problem Statement
+-----------------
+
+The diagnostic CVar `r_pathTracingWaitForIdleOnPortalChange 1` prevents
+high-load portal-boundary device removal. That means the previous committed PT
+scene package can still be in use by the GPU when the CPU commits a new package.
+
+The fix is to keep old packages alive for several frames after replacement.
+
+Step-By-Step Procedure
+----------------------
+
+1. Add CVars.
+
+   In `PathTraceCVars.cpp/.h`, add:
+
+       r_pathTracingSceneRetireFrames
+       default: 6
+       clamp intent: 0..32
+
+       r_pathTracingSceneRetireDump
+       default: 0
+       values: 0 off, 1 dump next retire/release event, 2 dump every event
+
+   Keep:
+
+       r_pathTracingWaitForIdleOnPortalChange
+
+   as a diagnostic override.
+
+2. Add a retired package type.
+
+   Add the type in a local private area where it can hold NVRHI handles without
+   expanding public API more than needed. A private struct in
+   `PathTracePrimaryPass.h` is acceptable if needed for member storage.
+
+   Suggested shape:
+
+       struct RtRetiredSmokeScenePackage
+       {
+           uint64 retireFrame = 0;
+           uint64 sceneSignature = 0;
+           int currentArea = -1;
+           int selectedAreaCount = 0;
+
+           RtPathTraceSceneInputs sceneInputs;
+           RtSmokeSceneBufferHandles buffers;
+
+           nvrhi::rt::AccelStructHandle staticBlas;
+           nvrhi::rt::AccelStructHandle dynamicBlas;
+           nvrhi::rt::AccelStructHandle tlas;
+           nvrhi::BindingSetHandle bindingSet;
+           nvrhi::DescriptorTableHandle textureDescriptorTable;
+           std::vector<nvrhi::TextureHandle> activeTextureTable;
+       };
+
+   If the exact fields differ, the agent must document why.
+
+3. Add a retirement queue member.
+
+   In `PathTracePrimaryPass`, add:
+
+       std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
+
+   or a vector if the implementation prefers periodic erase.
+
+   Include `<deque>` if using `std::deque`.
+
+4. Add helper to test whether the current package has resources to retain.
+
+   It should return true if any of these are non-null/non-empty:
+
+       buffers.IsValid()
+       staticBlas
+       dynamicBlas
+       tlas
+       bindingSet
+       textureDescriptorTable
+       activeTextureTable not empty
+
+   Do not push empty packages.
+
+5. Add helper to capture the current committed package.
+
+   Capture before overwriting `m_smoke*` members in
+   `CommitRayTracingSmokeSceneResources`.
+
+   The helper must retain:
+
+       m_sceneInputs
+       all `m_smoke*Buffer` scene buffers
+       m_smokeStaticBlas
+       m_smokeDynamicBlas
+       m_smokeTlas
+       m_smokeBindingSet
+       m_smokeTextureDescriptorTable
+       m_smokeActiveTextureTable
+
+   Use strong handle assignment. Do not use raw pointers.
+
+6. Add helper to push a retired package.
+
+   Compute:
+
+       retireFrames = clamp(r_pathTracingSceneRetireFrames, 0, 32)
+       retireFrame = currentFrame + retireFrames
+
+   Use a stable frame counter already available in the project. Prefer
+   `idLib::frameNumber` if no PT-specific completed-frame counter is available.
+
+   If `retireFrames == 0`, do not retain the package. This is useful for
+   A/B testing and should behave like old immediate replacement.
+
+7. Add helper to release expired retired packages.
+
+   Call it once per commit, and also from reset/invalidating paths if needed.
+
+   Release means removing the package from the queue and letting handles drop.
+
+   For a deque sorted by retire frame:
+
+       while queue not empty and queue.front().retireFrame <= currentFrame:
+           pop_front()
+
+   For a vector, erase all expired entries.
+
+8. Integrate into `CommitRayTracingSmokeSceneResources`.
+
+   Required ordering:
+
+       previousSceneInputs = m_sceneInputs
+       capture current committed package
+       compute sceneTransitionChanged / portalTransitionChanged
+       if diagnostic wait CVar enabled:
+           optionally waitForIdle, exactly as today
+       retire expired packages
+       if sceneTransitionChanged or package handles changed:
+           push captured previous package with retire frame
+       assign new `m_smoke*` members from desc
+
+   Do not call `waitForIdle()` in the normal retirement path.
+
+   Be careful: even if `sceneTransitionChanged` is false, handles may still be
+   replaced by a rebuild. If the current package has different handles than the
+   incoming desc, retain the old package. Do not key retention only on portal
+   area changes.
+
+9. Reset handling.
+
+   In `ResetRayTracingSmokeSceneResources`, clear the retirement queue after
+   the existing explicit reset behavior.
+
+   If reset can happen while GPU work is in flight, preserve the diagnostic
+   wait behavior or document why reset is already synchronized. Do not silently
+   drop all retired handles during normal portal transitions.
+
+10. Add diagnostics.
+
+    `r_pathTracingSceneRetireDump 1` should print once and then reset to 0.
+    `2` should print every retire/release event.
+
+    Include:
+
+        currentFrame
+        retireFrames
+        retired queue size
+        released count
+        old currentArea / selectedAreaCount
+        new currentArea / selectedAreaCount
+        sceneTransitionChanged
+        portalTransitionChanged
+        whether diagnostic wait was used
+        whether old package had TLAS/BLAS/binding/descriptor/table handles
+
+11. Build.
+
+    Compile/link sanity:
+
+        cmake --build build --config Debug --target RBDoom3BFG
+
+    If only C++ changed, `PathTracingShaders` is not required.
+    For prepared-folder PT validation, build and copy the preset Release/PT
+    lane instead:
+
+        cd neo
+        cmake --build --preset win64-pt-dev-release
+
+        Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+    Do not copy `build\Debug\RBDoom3BFG.exe` for normal PT testing.
+
+12. Validate.
+
+    First confirm old diagnostic still works:
+
+        r_pathTracingWaitForIdleOnPortalChange 1
+
+    Then test normal fix:
+
+        r_pathTracingWaitForIdleOnPortalChange 0
+        r_pathTracingSceneRetireFrames 6
+        r_pathTracingSceneRetireDump 2
+
+    Force enough GPU load to drop below 60 FPS, then cross portal boundaries
+    repeatedly. The expected result is no texture corruption and no device
+    removal.
+
+13. A/B test.
+
+    Set:
+
+        r_pathTracingSceneRetireFrames 0
+
+    If the old crash/glitch behavior returns under the same load, the retirement
+    fix is strongly validated.
+
+Acceptance Criteria
+-------------------
+
+- Old committed PT scene handles are retained for the configured frame count.
+- The default retirement frame count is nonzero.
+- No normal portal transition requires `waitForIdle()`.
+- The diagnostic wait CVar remains available.
+- Build succeeds.
+- Logs show packages being retired and released.
+- User can test high-load portal crossing with wait disabled.
+
+Common Mistakes
+---------------
+
+- Retaining only buffers but not TLAS/BLAS.
+- Retaining only TLAS/BLAS but not binding set or descriptor table.
+- Forgetting `m_smokeActiveTextureTable`; texture corruption can come from
+  descriptor/table or texture handle lifetime.
+- Retiring only when `portalTransitionChanged` is true. Any handle replacement
+  can be dangerous.
+- Clearing the retirement queue during normal portal transitions.
+- Rewriting a descriptor table in place and assuming old binding sets are safe.
+
+Do Not Do
+---------
+
+- Do not add event-query retirement in this task.
+- Do not redesign scene resource creation.
+- Do not change portal selection.
+- Do not alter shaders.
+- Do not remove `r_pathTracingWaitForIdleOnPortalChange`.
+- Do not use global `waitForIdle()` as the default solution.

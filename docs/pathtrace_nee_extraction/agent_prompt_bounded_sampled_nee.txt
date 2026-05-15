@@ -1,0 +1,144 @@
+Paste-Ready Agent Prompt: Mode 18 Bounded Sampled NEE
+====================================================
+
+Use this prompt to start a focused coding agent on the next NEE task.
+
+Prompt
+------
+
+We are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Current branch:
+
+    codex/pathtrace-core-refactor-plan
+
+This is the experimental RBDoom3 BFG Vulkan/NVRHI RT/PT branch. The current
+mode 18 path tracer still uses old debug-era monolithic code in
+`pathtrace_smoke.rt.hlsl`. Recent Nsight/timing work shows that the immediate
+runtime cliff is secondary-bounce NEE fan-out, especially the legacy selected
+light loop and its shadow visibility rays.
+
+The purpose of this task is not only to replace the old NEE loop, but to make
+NEE the first path-tracing subsystem extracted from the monolithic shader into
+a dedicated native shader module/include. The monolithic raygen may still call
+that module in this task, but new NEE logic must live behind the module
+boundary.
+
+Read these docs before editing:
+
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtracing.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_modules.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_payload_live_state\mode18_nee_timing_findings.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_nee_extraction\README.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_nee_extraction\task_01_current_nee_boundary.txt
+    E:\prog\rbdoom-3-bfg-rt\docs\pathtrace_nee_extraction\task_02_bounded_sampled_nee.txt
+
+Reference only, do not copy code:
+
+    E:\prog\references\RTXDI-main\Doc\RestirPT.md
+    E:\prog\references\RTXDI-main\Doc\ShaderAPI.md
+    E:\prog\references\RTXDI-main\Doc\NoiseAndBias.md
+    E:\prog\references\RTXDI-main\Samples\FullSample
+
+Important licensing rule:
+
+    Do not copy, paste, translate, or lightly rewrite NVIDIA RTXDI sample or
+    runtime implementation code into this repo. Use it only to understand
+    architecture, pass layout, data contracts, and extension points. Implement
+    native RBDoom3 code.
+
+Your assigned task:
+
+    Implement Task 02: extract mode 18 NEE/direct-light logic into a dedicated
+    native shader module/include, then replace secondary full-loop NEE with
+    native bounded sampled NEE inside that module. Keep the legacy full
+    selected-light loop available for comparison.
+
+Hard boundaries:
+
+    - Do not implement full RTXDI/ReSTIR PT.
+    - Do not add temporal/spatial resampling.
+    - Do not implement ReGIR.
+    - Do not redesign material classification.
+    - Do not change geometry, BVH, or portal walking.
+    - Do not compact the primary payload unless strictly necessary.
+    - Do not remove legacy debug modes.
+    - Do not remove the legacy full selected-light loop.
+    - Do not treat disabling secondary NEE as the final solution.
+    - Do not scatter new sampled NEE code through `pathtrace_smoke.rt.hlsl`.
+    - Do not create a separate C++ pass/pipeline unless the user explicitly
+      widens the task.
+
+Expected implementation shape:
+
+    - Create a native shader include/module such as
+      `neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli`.
+    - Move behavior-preserving NEE/direct-light helper boundaries there first
+      where practical.
+    - `pathtrace_smoke.rt.hlsl` should call a narrow module entry point for
+      mode 18 NEE/direct lighting.
+    - Add a CVar like `r_pathTracingSecondaryNeeMode`.
+    - Suggested values:
+        0 = off / diagnostic throttle
+        1 = bounded sampled NEE
+        2 = legacy full selected-light loop
+    - Preserve `r_pathTracingNextEventEstimation 0` as the global NEE off switch.
+    - Pass the new mode through `PathTraceSmokeDispatch.cpp` constants.
+    - Add native shader-side source categories and small NEE sample/result
+      helpers.
+    - Start with selected point lights using existing `LightOriginAndRadius`,
+      `LightColorAndIntensity`, and `LightInfo`.
+    - Select one light per secondary path vertex at first.
+    - Use a correct PDF or clearly documented equivalent weighting.
+    - Trace visibility only for selected samples.
+    - Keep analytic-light fan-out separable under existing analytic-light CVars.
+    - Keep legacy full-loop mode available for direct timing/image comparison.
+
+Likely files:
+
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceCVars.cpp
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceCVars.h
+    E:\prog\rbdoom-3-bfg-rt\neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+    E:\prog\rbdoom-3-bfg-rt\neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+    E:\prog\rbdoom-3-bfg-rt\neo\shaders\builtin\pathtracing\pathtrace_nee.hlsli
+
+Build requirements:
+
+    cmake --build build --config Debug --target PathTracingShaders
+    cmake --build build --config Debug --target RBDoom3BFG
+
+Treat Debug as compile/link sanity only. If you test in the prepared game
+directory, build and copy the preset Release/PT exe. If shaders are changed,
+also copy the updated `base/renderprogs2` output as described in the repo docs.
+
+Validation matrix:
+
+    r_pathTracingAnalyticLightCandidates 0
+    r_pathTracingDisableAnalyticLightLoop 1
+    r_pathTracingSamplesPerPixel 3
+    r_pathTracingMaxPathDepth 2
+
+Compare:
+
+    r_pathTracingNextEventEstimation 0
+    r_pathTracingNextEventEstimation 1
+    r_pathTracingSecondaryNeeMode 0
+    r_pathTracingSecondaryNeeMode 1
+    r_pathTracingSecondaryNeeMode 2
+    r_pathTracingDisableDiffuseSecondaryRay 1
+    r_pathTracingDisableSelectedLightLoop 1
+
+Final report must include:
+
+    - files changed
+    - the new NEE shader module/include path
+    - exact CVar name and values
+    - how the sampled light is selected
+    - how the PDF/weighting is handled
+    - what remains legacy
+    - build commands run and results
+    - validation performed
+    - any follow-up needed for analytic lights, emissive triangles, or RTXDI
+      extension points

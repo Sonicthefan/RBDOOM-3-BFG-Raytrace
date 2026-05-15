@@ -421,6 +421,77 @@ bool IsSmokeReflectiveEyewearMaterial(const idMaterial* material)
     return false;
 }
 
+bool IsSmokeAbsorbingBlackMaterial(const idMaterial* material)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    idStr materialName = material->GetName();
+    materialName.BackSlashesToSlashes();
+    return materialName.Icmp("textures/sfx/black") == 0;
+}
+
+void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
+{
+    info.diffuseImage = nullptr;
+    info.alphaImage = nullptr;
+    info.normalImage = nullptr;
+    info.specularImage = nullptr;
+    info.emissiveImage = nullptr;
+    info.hasDiffuseImage = false;
+    info.hasAlphaImage = false;
+    info.hasNormalImage = false;
+    info.hasSpecularImage = false;
+    info.hasEmissiveImage = false;
+    info.hasTextureHandle = false;
+    info.hasAlphaTextureHandle = false;
+    info.hasNormalTextureHandle = false;
+    info.hasSpecularTextureHandle = false;
+    info.hasEmissiveTextureHandle = false;
+    info.hasSafeTexture = false;
+    info.hasSafeAlphaTexture = false;
+    info.hasSafeNormalTexture = false;
+    info.hasSafeSpecularTexture = false;
+    info.hasSafeEmissiveTexture = false;
+    info.hasAlphaTest = false;
+    info.additiveDecal = false;
+    info.additiveDecalWhiteKey = false;
+    info.filterDecal = false;
+    info.filterDecalBlackKey = false;
+    info.alphaFromDiffuseLuma = false;
+    info.forceFallbackAlbedo = true;
+    info.alphaFromDiffuseDarkKey = false;
+    info.portalWindowFallback = false;
+    info.objectGlassFallback = false;
+    info.emissive = false;
+    info.alphaCutoff = 0.0f;
+    info.emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    info.fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    info.hasFallbackAlbedo = true;
+    info.diffuseUsage = TD_DEFAULT;
+    info.alphaUsage = TD_DEFAULT;
+    info.normalUsage = TD_DEFAULT;
+    info.specularUsage = TD_DEFAULT;
+    info.emissiveUsage = TD_DEFAULT;
+    info.diffuseColorFormat = CFM_DEFAULT;
+    info.alphaColorFormat = CFM_DEFAULT;
+    info.normalColorFormat = CFM_DEFAULT;
+    info.specularColorFormat = CFM_DEFAULT;
+    info.emissiveColorFormat = CFM_DEFAULT;
+    info.diffuseImageName = "<none>";
+    info.alphaImageName = "<none>";
+    info.normalImageName = "<none>";
+    info.specularImageName = "<none>";
+    info.emissiveImageName = "<none>";
+    info.fallbackReason = "absorbing black material";
+    info.alphaReason = "absorbing black material";
+    info.normalReason = "absorbing black material";
+    info.specularReason = "absorbing black material";
+    info.emissiveReason = "absorbing black material";
+}
+
 bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material)
 {
     if (!material || material->Coverage() != MC_TRANSLUCENT)
@@ -489,7 +560,7 @@ bool FindSmokeMaterialFallbackAlbedo(const idMaterial* material, idVec4& albedo)
 
         if (stage->texture.texgen == TG_SKYBOX_CUBE || stage->texture.texgen == TG_WOBBLESKY_CUBE)
         {
-            albedo = idVec4(0.18f, 0.26f, 0.36f, 1.0f);
+            albedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
             return true;
         }
     }
@@ -533,6 +604,27 @@ idImage* FindSmokeEmissiveImage(const idMaterial* material, idStr& reason, idVec
     {
         reason = "null material";
         return nullptr;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+
+        const bool skyOrCubeTexgen =
+            stage->texture.texgen == TG_DIFFUSE_CUBE ||
+            stage->texture.texgen == TG_REFLECT_CUBE ||
+            stage->texture.texgen == TG_REFLECT_CUBE2 ||
+            stage->texture.texgen == TG_SKYBOX_CUBE ||
+            stage->texture.texgen == TG_WOBBLESKY_CUBE;
+        if (skyOrCubeTexgen)
+        {
+            reason = va("stage %d rejected sky/cube material emissive texgen", stageIndex);
+            return nullptr;
+        }
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
@@ -703,11 +795,12 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     if (info && r_pathTracingMaterialMetadataCache.GetInteger() != 0)
     {
         const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+        const bool forceRediscoverAbsorbingBlack = IsSmokeAbsorbingBlackMaterial(material);
         const bool rediscoverGuiDiffuse =
             r_pathTracingAllowGuiTextures.GetInteger() != 0 &&
             (material && (material->HasGui() || classifier.nameLooksGui || classifier.sortIsGuiOrSubview)) &&
             !info->hasDiffuseImage;
-        if (!rediscoverGuiDiffuse)
+        if (!rediscoverGuiDiffuse && !forceRediscoverAbsorbingBlack)
         {
             ++g_smokeMaterialMetadataFrameStats.cacheRefreshes;
             RefreshSmokeMaterialTextureHandleState(*info);
@@ -837,6 +930,10 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     }
     info->fallbackAlbedo = fallbackAlbedo;
     info->hasFallbackAlbedo = hasFallbackAlbedo;
+    if (IsSmokeAbsorbingBlackMaterial(material))
+    {
+        ForceSmokeAbsorbingBlackMaterialInfo(*info);
+    }
     RefreshSmokeMaterialTextureHandleState(*info);
     if (info->hasDiffuseImage && !info->hasSafeTexture)
     {

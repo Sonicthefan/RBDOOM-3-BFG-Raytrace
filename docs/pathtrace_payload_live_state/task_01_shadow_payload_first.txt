@@ -1,0 +1,214 @@
+Task 01: Shadow Payload First
+=============================
+
+Assignment
+----------
+
+Reduce RT shader payload pressure by moving shadow rays off the full
+PathTraceSmokePayload.
+
+This task is intentionally narrow. Do not split shader libraries, do not move
+mode 18 to a new pass, and do not change lighting features. Preserve current
+visual behavior.
+
+Read First
+----------
+
+1. docs/pathtracing.txt
+2. docs/pathtrace_modules.txt
+3. docs/pathtrace_core_refactor_plan.txt
+4. docs/pathtrace_payload_live_state/README.txt
+5. this file
+
+Primary Files
+-------------
+
+Expected main file:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+Only touch C++ if the task requires a diagnostic CVar or documentation update.
+The first implementation should ideally be shader-only plus docs.
+
+Step-By-Step Procedure
+----------------------
+
+1. Locate the full payload.
+
+   In pathtrace_smoke.rt.hlsl, find:
+
+       struct PathTraceSmokePayload
+
+   Record its fields in your notes. Do not delete or shrink this payload in the
+   first shadow-payload pass.
+
+2. Locate all shadow ray entry points.
+
+   Find:
+
+       TraceSmokeShadowVisibility
+       AnyHit
+       Miss
+       TraceRay calls using shadow/visibility rays
+
+   Current shadow rays are expected to use the full PathTraceSmokePayload and
+   set ignore fields before calling TraceRay.
+
+3. Add a small shadow payload struct near the existing payload.
+
+   Suggested shape:
+
+       struct PathTraceSmokeShadowPayload
+       {
+           uint hit;
+           uint rayMode;
+           uint ignoreInstanceId;
+           uint ignorePrimitiveIndex;
+           uint ignoreMaterialId;
+       };
+
+   Keep it simple. If a field is added, explain why in a short code comment or
+   in the final response.
+
+4. Add a shadow payload initializer.
+
+   Example intent:
+
+       PathTraceSmokeShadowPayload InitSmokeShadowPayload(...)
+
+   It should initialize:
+
+       hit = 0
+       rayMode = shadow mode used by any-hit alpha/translucent logic
+       ignoreInstanceId
+       ignorePrimitiveIndex
+       ignoreMaterialId
+
+5. Add shadow-specific miss shader.
+
+   The miss shader for the shadow ray should leave/set hit as 0. It must not
+   require the full PathTraceSmokePayload.
+
+6. Add shadow-specific any-hit shader or preserve alpha behavior safely.
+
+   The shadow any-hit path must:
+
+       read InstanceID and PrimitiveIndex
+       apply the existing ignore-instance/ignore-primitive/ignore-material rule
+       call the same alpha/translucent rejection behavior used by shadow rays
+       call IgnoreHit when the hit should not occlude
+
+   It must not read normal, tangent, texCoord, vertex colors, or other full
+   payload fields.
+
+   If the current shader table cannot address separate any-hit/miss groups
+   without C++ shader-table changes, stop and document the smallest required
+   C++ change before implementing it. Do not improvise a large shader-table
+   rewrite.
+
+7. Update TraceSmokeShadowVisibility.
+
+   Replace:
+
+       PathTraceSmokePayload shadowPayload = InitSmokePayload();
+
+   with the small shadow payload.
+
+   Preserve:
+
+       return 1.0 when no occluder is found
+       return 0.0 when an occluder is found
+       source ignore behavior
+       alpha/translucent behavior
+
+8. Keep primary/secondary/debug rays on the old payload.
+
+   Do not convert the main primary payload in this task. The point is to get a
+   small, reviewable improvement first.
+
+9. Build shaders.
+
+   Run:
+
+       cmake --build build --config Debug --target PathTracingShaders
+
+   If CMake has not been regenerated after new shader exports or shader-table
+   changes, run:
+
+       cmake -S neo -B build
+
+10. Build the executable.
+
+   Run for compile/link sanity:
+
+       cmake --build build --config Debug --target RBDoom3BFG
+
+   For prepared-folder PT validation, build and copy the preset Release/PT
+   lane:
+
+       cd neo
+       cmake --build --preset win64-pt-dev-release
+
+       Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+   Do not copy `build\Debug\RBDoom3BFG.exe` for normal PT testing.
+
+11. Test behavior.
+
+   Use the user's prepared game directory. If shaders changed, copy the updated
+   renderprogs2 files.
+
+   Minimum CVar checks:
+
+       r_pathTracingDebugMode 18
+       r_pathTracingSamplesPerPixel 1
+       r_pathTracingMaxPathDepth 2
+       r_pathTracingNextEventEstimation 1
+       r_pathTracingAnalyticLightCandidates 0
+       r_pathTracingLightCount 1
+
+   Then test:
+
+       r_pathTracingAnalyticLightCandidates 1
+       r_pathTracingTextureSampleEnable 0
+       r_pathTracingTextureSampleEnable 1
+
+12. Nsight check if possible.
+
+   Compare RayGen live-state bytes before/after at the same scene, mode, and
+   CVar settings. Also record vkCmdTraceRaysKHR duration.
+
+Acceptance Criteria
+-------------------
+
+- Shadow rays no longer use the full PathTraceSmokePayload.
+- Primary/debug rays still use the legacy payload and behave as before.
+- Mode 18 direct lighting and shadowing remain visually consistent.
+- PathTracingShaders builds.
+- RBDoom3BFG builds.
+- The final response lists the exact shader entry points changed.
+- If Nsight was used, the final response records live-state before/after.
+
+Hard Stop Conditions
+--------------------
+
+Stop and ask the user before continuing if:
+
+- a separate shadow payload requires a large shader-table/pipeline rewrite
+- behavior changes in mode 18 are required to make the build pass
+- the implementation needs broad C++ dispatch restructuring
+- the task starts turning into a mode 18 shader-family split
+- the shader compiler rejects multiple payload types in the current pipeline
+  shape and the workaround is not small
+
+Do Not Do
+---------
+
+- Do not shrink PathTraceSmokePayload yet.
+- Do not convert mode 18 to a compact primary payload yet.
+- Do not split pathtrace_smoke.rt.hlsl yet.
+- Do not add SER.
+- Do not add new ReSTIR behavior.
+- Do not change material classification.
+- Do not change scene/BVH/portal selection.
+- Do not tune quality defaults.

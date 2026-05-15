@@ -1,0 +1,67 @@
+Emissive Sampling Resume Prompt
+Date: 2026-05-14
+
+You are continuing the rbdoom-3-bfg-rt path tracing / ReSTIR PT branch.
+
+Repository:
+E:\prog\rbdoom-3-bfg-rt
+
+Prepared game folder:
+E:\prog\rbdoom-3-BFG-prebuilt
+
+Build from:
+E:\prog\rbdoom-3-bfg-rt\neo
+
+Build command:
+cmake --build --preset win64-pt-dev-release
+
+After shader changes, copy:
+- E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe to
+  E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+- E:\prog\rbdoom-3-bfg-rt\base\renderprogs2 contents to the prepared game
+  folder shader directories used by this branch
+
+Read first:
+- docs\pathtracing.txt
+- docs\pathtrace_modules.txt
+- docs\ReSTIR\current_restir_pt_state.txt
+- docs\pathtrace_emissive_sampling\README.txt
+- docs\pathtrace_emissive_sampling\task_01_extract_emissive_sampling.txt
+- docs\pathtrace_emissive_sampling\task_02_build_emissive_distribution.txt
+
+Standing constraints:
+- Do not use Debug builds for real RT/PT validation.
+- Do not stage or commit docs\pathtracing_handoff.txt unless explicitly asked.
+- Keep mode 18 separated from ReSTIR debug shader cost.
+- Do not shrink the authored Doom emissive or analytic light universe. Optimize
+  proposal sampling instead.
+- Keep changes narrow. Complete extraction before changing the algorithm unless
+  the user explicitly widens scope.
+
+Current evidence:
+- Mode 56 works visually.
+- Mode 56 emits four vkCmdTraceRays events:
+  1. GI initial producer.
+  2. Direct temporal producer.
+  3. Direct spatial producer.
+  4. Final combined consumer.
+- Events 2 and 3 dominate frame time by far in bad locations.
+- Event 1 also roughly doubles in bad locations, but remains lower than events
+  2 and 3.
+- RT core utilization is only about 5-10%.
+- Sparsity visibly changes the image but does not meaningfully improve
+  performance.
+- Nsight points at an OpLoad of PathTraceSmokeEmissiveTriangle inside the loop
+  in SelectSmokeWeightedEmissiveTriangle.
+
+First implementation slice:
+Extract emissive proposal sampling into
+neo\shaders\builtin\pathtracing\pathtrace_emissive_sampling.hlsli with no
+behavior change. Keep SelectSmokeWeightedEmissiveTriangle's name, parameters,
+fallback behavior, safety behavior, and linear scan. Build/deploy and validate
+modes 50, 51, 54, 55, 56, plus mode 18 with
+r_pathTracingRestirPTDirectLighting 1.
+
+Second implementation slice:
+Build a CPU-side emissive distribution table and shader CDF lookup behind the
+same selector boundary. Keep the old linear scan as fallback/A-B validation.

@@ -1,0 +1,174 @@
+Task 03: Primary Surface Object Motion From Skinned Previous Positions
+=====================================================================
+
+Assignment
+----------
+
+Consume validated previous skinned position data in the primary-surface record
+so skinned/deforming hits can produce real object motion instead of camera-only
+reprojection.
+
+This task should only start after Task 01 has a reliable previous CPU-skinned
+bridge or Task 02 has a reliable GPU-skinned previous-position output.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_skinned_motion_vectors/README.txt
+    docs/pathtrace_skinned_motion_vectors/restir_temporal_geometry_motion_minimum_features.txt
+    docs/pathtrace_skinned_motion_vectors/restir_temporal_geometry_doom_mapping.txt
+    docs/pathtrace_skinned_motion_vectors/task_01_identity_and_previous_cpu_bridge.txt
+    docs/pathtrace_skinned_motion_vectors/task_02_source_output_contract_and_gpu_skinning_scaffold.txt
+
+Relevant code:
+
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/renderer/NVRHI/PathTracePrimarySurface.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSceneInputs.h
+
+Problem Statement
+-----------------
+
+`PathTracePrimarySurfaceRecord` already has:
+
+    previousPositionOrMotion
+
+but current packing writes zero and reports no object motion. Skinned hits need
+previous world position at the same surface/barycentric coordinates.
+
+Step-By-Step Procedure
+----------------------
+
+1. Lock the motion-vector convention.
+
+   Define and document one engine convention before writing shader-consumed
+   object motion:
+
+       direction
+       units
+       internal PT resolution basis
+       jitter policy
+       sign convention
+
+   Preferred starting convention:
+
+       current pixel to previous pixel
+       internal PT render-resolution pixels
+       unjittered current/previous camera matrices
+       explicit conversion shim for any consumer that expects another format
+
+2. Confirm previous skinned data is valid.
+
+   Do not start shader consumption if:
+
+       skinnedPreviousVertexDataAvailable is false
+       skinned surface previous range matching is not implemented
+       previous buffer offsets are not stable
+
+3. Add shader access to previous skinned positions.
+
+   Bind the previous-position buffer or previous skinned vertex buffer using a
+   new explicit binding. Do not reuse unrelated dynamic vertex bindings with
+   hidden assumptions.
+
+4. Add a helper to reconstruct previous hit position.
+
+   Inputs:
+
+       instance id
+       primitive id
+       barycentrics
+       current surface class/flags
+
+   Output:
+
+       previous world position
+       valid bit
+       rejection reason if useful for debug
+
+5. Keep static and rigid behavior conservative.
+
+   Static geometry can continue using camera reprojection or identity previous
+   position until a separate rigid previous-transform path is assigned.
+
+   This task is specifically about skinned/deforming previous positions.
+
+6. Pack primary-surface object motion.
+
+   When previous skinned position is valid:
+
+       record.previousPositionOrMotion.xyz = previousWorldPosition
+       record.previousPositionOrMotion.w = valid selector
+       set object-motion valid flag
+       clear or replace no-object-motion debug status
+
+7. Add a debug mode or reuse existing primary-surface validation.
+
+   The visualizer should distinguish:
+
+       camera-only reprojection
+       valid skinned object motion
+       missing previous skinned range
+       mismatched previous skinned counts
+       out-of-range previous buffer lookup
+       topology/LOD invalidation
+       generated/transient invalidation
+       motion-vector direction/magnitude
+       reprojected previous pixel
+
+8. Validate with moving animated characters.
+
+   The user should test a level or scene with visible skinned models moving
+   while the camera is still and while the camera is moving.
+
+9. Update docs.
+
+   If code changes land, update:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+
+Validation
+----------
+
+Use PT retail only:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-retail\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+If shader files changed, copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\dxil\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\dxil\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Destination E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\spirv\builtin\pathtracing\pathtrace_smoke.rt.bin -Force
+
+Stop Conditions
+---------------
+
+Stop and ask the user if:
+
+    primary hit instance/primitive IDs cannot be mapped to skinned records
+    previous position lookup requires broad shader binding changes
+    skinned and non-skinned dynamic geometry cannot be separated safely
+    validation shows incorrect vectors on animated models
+
+Non-Goals
+---------
+
+Do not implement full DLSS/RR.
+
+Do not implement temporal ReSTIR changes.
+
+Do not replace all motion vector paths.
+
+Do not use Debug builds.

@@ -1,0 +1,190 @@
+Task 03: Preserve RTXDI/ReSTIR PT Extension Points
+=================================================
+
+Assignment
+----------
+
+After bounded sampled NEE exists, review and adjust the native NEE data
+contract so it can evolve toward RTXDI/ReSTIR PT without forcing another major
+rewrite.
+
+This task is about data shape, module ownership, and extension points, not full
+RTXDI integration.
+
+Required Reading
+----------------
+
+Read:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_nee_extraction/README.txt
+    docs/pathtrace_nee_extraction/task_02_bounded_sampled_nee.txt
+
+Reference only, do not copy:
+
+    E:\prog\references\RTXDI-main\Doc\RestirPT.md
+    E:\prog\references\RTXDI-main\Doc\ShaderAPI.md
+    E:\prog\references\RTXDI-main\Doc\NoiseAndBias.md
+
+Important Principle
+-------------------
+
+The native RBDoom3 data structures do not need to match NVIDIA names or layouts.
+They only need to preserve the same kinds of information so later bridge code
+can call RTXDI-style callbacks consistently.
+
+Required Extension Points
+-------------------------
+
+Ensure the native NEE path can represent these concepts, even if some are not
+implemented yet:
+
+1. Light source kind.
+
+   Required categories:
+
+       none / invalid
+       selected point light
+       Doom analytic light
+       emissive triangle
+       environment
+       BRDF-discovered light sample
+
+2. Stable source identity.
+
+   The selected sample must carry enough identity to be debugged and later
+   replayed:
+
+       source type
+       source index
+       material ID when emissive
+       instance/primitive identity when available
+       selected UV or sample parameter where relevant
+
+3. Surface target information.
+
+   The target/PDF function needs:
+
+       world position
+       geometric normal
+       shading normal
+       view direction
+       albedo
+       roughness
+       F0/specular
+       material ID/index
+       surface class/flags
+
+4. Sampling probability.
+
+   The sample must carry enough PDF data to shade correctly:
+
+       light-selection PDF
+       position/solid-angle PDF if applicable
+       target weight or target PDF
+       MIS placeholder fields for later BRDF/emissive/environment mixing
+
+5. Visibility state.
+
+   Visibility must be separate from sample selection and shading so later passes
+   can:
+
+       reuse visibility
+       skip visibility under controlled conditions
+       trace final visibility separately
+       debug selected-but-occluded samples
+
+6. Path event classification.
+
+   The integrator should be able to record whether a light contribution came
+   from:
+
+       NEE
+       emissive surface hit
+       environment miss
+       BRDF/MIS path
+
+   This is needed for ReSTIR PT path replay and source-attribution debug modes.
+
+Step-By-Step Procedure
+----------------------
+
+1. Inspect the sampled NEE structs/helpers added by Task 02.
+
+   List every field and its current consumer. Remove fields with no plausible
+   consumer, or document why they are reserved.
+
+   Confirm the structs/helpers live behind the NEE module boundary, for example
+   in `pathtrace_nee.hlsli`, and are not scattered through
+   `pathtrace_smoke.rt.hlsl`.
+
+2. Add source-kind constants if missing.
+
+   Use native names, not RTXDI names copied from headers.
+
+3. Add source identity fields if missing.
+
+   For selected point lights, preserve index.
+   For Doom analytic candidates, preserve candidate index.
+   For emissive triangles, preserve material/source identity where currently
+   available.
+
+4. Add PDF/target placeholders only where they are used or will be needed soon.
+
+   Do not create large unused structs. Keep the record compact, but leave a
+   documented path for:
+
+       lightSelectionPdf
+       samplePdf
+       targetPdf
+       misWeight
+
+   Do not fill placeholder fields with lookalike values. In particular,
+   `targetPdf` should remain zero/invalid until a real target-function
+   evaluator exists, and point-like selected lights should not claim a finite
+   `solidAnglePdf`. Use `targetWeight` for the current native heuristic if a
+   later target PDF cannot be evaluated yet.
+
+5. Add debug output hooks only if already consistent with local debug patterns.
+
+   Good future debug views:
+
+       selected source type
+       selected source index
+       sample PDF
+       target weight
+       visibility
+       contribution luminance
+
+   Do not add a large debug-rendering branch in this task.
+
+6. Update docs.
+
+   If the sampled NEE path adds durable concepts, update:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+
+   Keep the update short and factual.
+
+Acceptance Criteria
+-------------------
+
+- The sampled NEE implementation has a documented native data contract.
+- The sampled NEE implementation is owned by a dedicated shader module/include
+  that can later move to a separate shader family or pass.
+- Future RTXDI/ReSTIR PT bridge work can reuse the same source categories and
+  surface/light sample concepts.
+- No NVIDIA implementation code or exact struct bodies are copied.
+- The sampled NEE path remains compact enough for mode 18.
+- Existing mode 18 validation still passes.
+
+Do Not Do
+---------
+
+- Do not implement full RTXDI/ReSTIR PT.
+- Do not add temporal/spatial reservoirs unless explicitly assigned.
+- Do not add broad light-universe rewrites.
+- Do not copy NVIDIA structs or code.
+- Do not expand the task into denoising, DLSS/RR, or material classification.

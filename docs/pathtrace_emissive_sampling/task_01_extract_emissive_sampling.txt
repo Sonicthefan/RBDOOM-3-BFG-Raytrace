@@ -1,0 +1,183 @@
+Task 01: Extract Emissive Sampling Without Behavior Changes
+===========================================================
+
+Assignment
+----------
+
+Move emissive proposal selection code out of the monolithic path tracing shader
+and into a small include, while preserving current behavior exactly.
+
+This task creates the boundary needed for the later CDF/alias-table
+implementation. It must not optimize, cap, reorder, or remove emissive
+candidates yet.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/ReSTIR/current_restir_pt_state.txt
+    docs/pathtrace_emissive_sampling/README.txt
+
+Relevant code:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoRuntime.hlsli
+
+Problem Statement
+-----------------
+
+`SelectSmokeWeightedEmissiveTriangle` currently lives in
+`pathtrace_smoke.rt.hlsl` and scans the whole `SmokeEmissiveTriangles` buffer.
+Nsight identified the structured-buffer load in this loop as a major stall in
+mode 56 direct producer passes.
+
+Before changing the algorithm, isolate the selector and any tightly related PDF
+helpers so future changes are reviewable and can keep a clear fallback path.
+
+Step-By-Step Procedure
+----------------------
+
+1. Inventory current emissive sampling call sites.
+
+   Search for:
+
+       SelectSmokeWeightedEmissiveTriangle
+       SmokeEmissiveTriangles[
+       sampleWeightAndPdf
+
+   Classify each use:
+
+       proposal selection
+       selected-light reconstruction
+       source attribution / visibility ignore
+       diagnostics
+
+   Do not change behavior in this step.
+
+2. Create a new shader include.
+
+   Suggested path:
+
+       neo/shaders/builtin/pathtracing/pathtrace_emissive_sampling.hlsli
+
+   Keep it narrow. The include should depend on declarations already available
+   from `pathtrace_smoke.rt.hlsl`, not become a general lighting include.
+
+3. Move the current selector into the include.
+
+   Move:
+
+       SelectSmokeWeightedEmissiveTriangle
+
+   Preserve:
+
+       same function name
+       same parameters
+       same return values
+       same fallback behavior
+       same safety-mask behavior
+       same `[loop]` annotation
+
+   Do not add a CDF, alias table, or debug CVar yet.
+
+4. Add small helper wrappers only if they reduce duplication.
+
+   Acceptable helpers:
+
+       PathTraceEmissiveSelectionPdfFromTriangle(...)
+       PathTraceEmissiveSelectionWeightFromTriangle(...)
+
+   Only add these if call sites already duplicate the same max/fallback logic.
+   Do not move unrelated material or RAB light-info logic in this task.
+
+5. Include the new file from `pathtrace_smoke.rt.hlsl`.
+
+   Place the include after the `PathTraceSmokeEmissiveTriangle` struct and
+   `SmokeEmissiveTriangles` buffer declarations are visible, but before call
+   sites that need the selector.
+
+   If include placement is awkward because declarations and functions are
+   interleaved, move only the minimum declarations needed to make the include
+   compile. Avoid broad reordering.
+
+6. Build and deploy.
+
+   From:
+
+       E:\prog\rbdoom-3-bfg-rt\neo
+
+   Run:
+
+       cmake --build --preset win64-pt-dev-release
+
+   After shader changes, copy:
+
+       E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+       to E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+       E:\prog\rbdoom-3-bfg-rt\base\renderprogs2 contents
+       to the prepared game folder renderprogs2 locations used by the branch.
+
+7. Validate behavior preservation.
+
+   Minimum checks:
+
+       r_pathTracingDebugMode 50
+       r_pathTracingDebugMode 51
+       r_pathTracingDebugMode 54
+       r_pathTracingDebugMode 55
+       r_pathTracingDebugMode 56
+
+   Also check mode 18 with:
+
+       r_pathTracingDebugMode 18
+       r_pathTracingRestirPTDirectLighting 1
+
+   Expected result:
+
+       no intentional visual change
+       no missing shader library
+       no purple fallback screen
+       source attribution colors remain familiar
+
+8. Document completion.
+
+   Update:
+
+       docs/pathtrace_emissive_sampling/README.txt
+       docs/ReSTIR/current_restir_pt_state.txt
+       docs/pathtrace_modules.txt
+       docs/pathtracing.txt
+
+   Note that Task 01 is extraction-only and still uses the O(N) linear scan.
+
+Validation Notes
+----------------
+
+Use `r_pathTracingRestirPTPassDump 1` in mode 56 to confirm the same staged pass
+plan:
+
+    GI initial producer
+    direct temporal producer
+    direct spatial producer
+    final combined consumer
+
+If performance changes substantially in Task 01, treat it as a regression or a
+compiler side-effect to understand before proceeding. This task should mainly
+change file organization.
+
+Rollback Plan
+-------------
+
+Because this task preserves the function name and call sites, rollback should
+be simple:
+
+1. Move the selector back into `pathtrace_smoke.rt.hlsl`.
+2. Remove the include.
+3. Rebuild shaders.
+
+Do not proceed to Task 02 until Task 01 is boring.

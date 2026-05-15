@@ -1,0 +1,276 @@
+Task 01: Skinned Surface Identity And Previous CPU-Skinned Bridge
+=================================================================
+
+Assignment
+----------
+
+Add skinned/deforming surface identity and previous-frame range tracking while
+keeping the existing CPU-skinned path visually unchanged.
+
+This task prepares motion-vector infrastructure. It must not switch the main
+path to GPU compute skinning.
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_skinned_motion_vectors/README.txt
+    docs/pathtrace_skinned_motion_vectors/q2rtx_reference_notes.txt
+    docs/pathtrace_skinned_motion_vectors/restir_temporal_geometry_motion_minimum_features.txt
+    docs/pathtrace_skinned_motion_vectors/restir_temporal_geometry_doom_mapping.txt
+
+Relevant code:
+
+    neo/renderer/NVRHI/PathTraceSkinning.cpp
+    neo/renderer/NVRHI/PathTraceSkinning.h
+    neo/renderer/NVRHI/PathTraceSceneCapture.cpp
+    neo/renderer/NVRHI/PathTraceSceneCapture.h
+    neo/renderer/NVRHI/PathTraceGeometry.h
+    neo/renderer/NVRHI/PathTraceSceneInputs.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceDrawSurfCapture.cpp
+    neo/renderer/NVRHI/PathTraceSurfaceClassification.cpp
+
+Problem Statement
+-----------------
+
+The path tracer currently emits CPU-skinned, world-space vertices into the
+dynamic PT buffer each frame. This does not provide a stable previous-frame
+contract for motion vectors.
+
+The first bridge is:
+
+    identify skinned surfaces
+    remember their current ranges
+    match them to previous ranges
+    retain previous CPU-skinned output
+    expose whether previous skinned data is valid
+
+Step-By-Step Procedure
+----------------------
+
+1. Inventory the current skinned capture path.
+
+   Confirm all current call sites of:
+
+       GetSmokeRtCpuSkinningJoints
+       TransformSmokeSkinnedVertexPosition
+       TransformSmokeSkinnedVertexNormal
+       SmokeSkinnedSurfaceLikelyBasePose
+
+   Do not change behavior in this step.
+
+2. Add a small skinned surface key type.
+
+   Place it near existing scene-capture or geometry bookkeeping code. Prefer a
+   local PT/NVRHI type rather than changing Doom renderer public types.
+
+   The key should include the best currently available stable fields:
+
+       entity index or render entity pointer/index
+       srfTriangles_t pointer or static model/surface identifier
+       material id
+       surface class
+
+   If a field is not stable enough, document it in the comments and in the task
+   completion notes. Do not pretend pointer-only identity is permanent if it is
+   only a bridge.
+
+3. Add a skinned surface range record.
+
+   Suggested fields:
+
+       key
+       currentVertexOffset
+       currentIndexOffset
+       currentTriangleOffset
+       vertexCount
+       indexCount
+       triangleCount
+       previousVertexOffset
+       previousIndexOffset
+       previousTriangleOffset
+       previousValid
+       rtCpuSkinned
+       basePoseLikely
+       entityIndex
+       materialId
+       invalidReasonFlags
+       temporalStateFlags
+
+   Use repo naming conventions. Exact field names may differ, but the record
+   must distinguish current ranges from previous ranges.
+
+   Suggested temporal flags:
+
+       HasValidPrevious
+       TopologyStable
+       LODStable
+       TransformContinuous
+       DeformationContinuous
+       MaterialTemporalStable
+       PreviousBufferValid
+
+4. Populate current skinned records during scene capture.
+
+   When a `RtSmokeSurfaceClass::SkinnedDeformed` surface emits geometry, record
+   the dynamic vertex/index/triangle ranges that were emitted.
+
+   Do not rely on final merged buffer order unless the recorded offsets are
+   adjusted to the final merged buffer offsets.
+
+5. Add previous-record storage.
+
+   Keep the previous frame's skinned records in a member owned by the PT scene
+   build/capture path.
+
+   On a new frame:
+
+       clear current records
+       build current records
+       match current records to previous records by key
+       fill previous offsets/validity where counts match
+       publish current records
+       save current records as previous for next frame
+
+   Count mismatches must invalidate previous data for that surface.
+
+   Required invalidation cases:
+
+       no previous record for the key
+       previous record exists but vertex count differs
+       previous record exists but index count differs
+       previous record exists but triangle count differs
+       material id/material index changed in a way that changes the logical surface
+       surface class changed
+       source was generated/deformed/particle/transient instead of skinned MD5/GLTF
+       entity was newly created or absent last frame
+       entity appears to have teleported
+       skeleton/joint count or joint source changed
+       material LOD made the surface appear/disappear
+
+   For all of these, the safe Task 01 behavior is to mark previous invalid.
+   Object-level velocity can be considered later, but do not invent it in this
+   task.
+
+   Preserve the reason where practical. Do not collapse all failures into an
+   anonymous false bit if the caller can cheaply know why matching failed.
+
+6. Retain previous CPU-skinned vertex output.
+
+   For Task 01, the simplest acceptable bridge is to keep a copy of the
+   previous frame's CPU-skinned dynamic/skinned vertex data on CPU and/or GPU.
+
+   Preferred early shape:
+
+       separate previous skinned vertex vector/buffer
+       or separate skinned-only current/previous ranges
+
+   Avoid using the full dynamic buffer blindly if non-skinned dynamic surfaces
+   can change order around skinned surfaces.
+
+   Explicitly document whether retained previous data is:
+
+       skinned-only
+       full dynamic buffer plus skinned range map
+       CPU-only diagnostic storage
+       GPU-visible previous buffer
+
+   If retained data is not GPU-visible yet, do not claim shader previous-vertex
+   capability is available.
+
+7. Expose validity through scene inputs.
+
+   Update `RtPathTraceSceneInputGeometry` population so:
+
+       previousVertexDataAvailable
+       skinnedPreviousVertexDataAvailable
+
+   reflect actual retained previous skinned data, not just reserved intent.
+
+   If no shader-visible previous buffer exists yet, use a conservative false
+   for shader-consumed capability and add a separate diagnostic count if needed.
+
+8. Add diagnostics.
+
+   Add a low-noise dump that can report:
+
+       skinned surface count
+       skinned triangle count
+       previous matched count
+       previous invalid count
+       count mismatch count
+       CPU-skinned append time if already available
+       invalid reason counts
+       temporal state flag counts
+
+   Reuse existing path-tracing dump conventions. Do not spam every frame unless
+   controlled by an existing dump CVar or a new narrowly named diagnostic CVar.
+
+9. Preserve rendering behavior.
+
+   Mode 18 and existing debug modes should render the same current-frame
+   skinned geometry as before. This task is successful even if shaders do not
+   consume previous skinned positions yet.
+
+10. Update docs only for behavior that exists.
+
+   If code changes land, update:
+
+       docs/pathtracing.txt
+       docs/pathtrace_modules.txt
+
+   Mention that this is a CPU-skinned previous-data bridge, not final GPU
+   skinning.
+
+Validation
+----------
+
+Use PT retail only:
+
+    cmake --preset win64-pt-retail
+    cmake --build --preset win64-pt-retail-release
+
+Copy:
+
+    Copy-Item -LiteralPath E:\prog\rbdoom-3-bfg-rt\build-win64-pt-retail\Release\RBDoom3BFG.exe -Destination E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe -Force
+
+Expected validation:
+
+    existing PT modes still show skinned/deforming surfaces
+    logs show skinned records being created
+    previous matches become valid after the first frame
+    previous validity resets on map/load/large scene reset
+
+Stop Conditions
+---------------
+
+Stop and ask the user if:
+
+    no stable enough Doom entity/surface identity can be found
+    skinned surfaces are emitted only through transient generated geometry
+    retaining previous data requires broad changes to scene-resource lifetime
+    current rendering changes visibly before any shader consumer is added
+    material LOD or generated topology prevents a stable current/previous match
+    same-offset matching is the only proposed previous-frame mapping
+
+Non-Goals
+---------
+
+Do not implement GPU compute skinning.
+
+Do not modify raster GPU skinning.
+
+Do not change BLAS build policy except where required to retain previous data.
+
+Do not change portal walking.
+
+Do not introduce DLSS/RR integration.
+
+Do not implement alternate/dual motion vectors or forward-motion splatting.
+
+Do not use Debug builds.

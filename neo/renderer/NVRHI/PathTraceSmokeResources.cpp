@@ -1278,6 +1278,46 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "ReSTIR combined direct+GI",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_smoke_restir_combined.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_smoke_restir_combined.rt.bin");
+    case 9:
+        return initLibrary(
+            m_smokePrimarySurfaceProducerShaderLibrary,
+            m_smokePrimarySurfaceProducerPipeline,
+            m_smokePrimarySurfaceProducerShaderTable,
+            "primary-surface producer",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_primary_surface_producer.rt.bin");
+    case 10:
+        return initLibrary(
+            m_smokeRestirCombinedResolveShaderLibrary,
+            m_smokeRestirCombinedResolvePipeline,
+            m_smokeRestirCombinedResolveShaderTable,
+            "ReSTIR combined resolve",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.bin");
+    case 11:
+        return initLibrary(
+            m_smokeRestirIndirectInitialProducerShaderLibrary,
+            m_smokeRestirIndirectInitialProducerPipeline,
+            m_smokeRestirIndirectInitialProducerShaderTable,
+            "ReSTIR indirect initial producer",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_indirect_initial_producer.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_indirect_initial_producer.rt.bin");
+    case 12:
+        return initLibrary(
+            m_smokeRestirDirectTemporalProducerShaderLibrary,
+            m_smokeRestirDirectTemporalProducerPipeline,
+            m_smokeRestirDirectTemporalProducerShaderTable,
+            "ReSTIR direct temporal producer",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_direct_temporal_producer.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_direct_temporal_producer.rt.bin");
+    case 13:
+        return initLibrary(
+            m_smokeRestirDirectSpatialReservoirProducerShaderLibrary,
+            m_smokeRestirDirectSpatialReservoirProducerPipeline,
+            m_smokeRestirDirectSpatialReservoirProducerShaderTable,
+            "ReSTIR direct spatial-reservoir producer",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.bin");
     default:
         return false;
     }

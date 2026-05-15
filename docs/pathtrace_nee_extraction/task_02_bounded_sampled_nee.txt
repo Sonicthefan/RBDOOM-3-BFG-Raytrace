@@ -1,0 +1,341 @@
+Task 02: Extract NEE Module And Add Native Bounded Sampled NEE
+=============================================================
+
+Assignment
+----------
+
+Extract mode 18 NEE/direct-lighting code out of the body of
+`pathtrace_smoke.rt.hlsl` into a dedicated native shader module/include, then
+add a native bounded sampled NEE path inside that module. Keep the legacy full
+selected-light loop available behind a debug/development mode for comparison.
+
+This is the first functional extraction/replacement task. It should reduce the
+runtime fan-out from:
+
+    SPP * path vertices * selected light count * shadow rays
+
+to:
+
+    SPP * path vertices * bounded light samples * shadow rays
+
+Required Reading
+----------------
+
+Read these first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/pathtrace_payload_live_state/mode18_nee_timing_findings.txt
+    docs/pathtrace_nee_extraction/README.txt
+    docs/pathtrace_nee_extraction/task_01_current_nee_boundary.txt
+
+Reference only, do not copy:
+
+    E:\prog\references\RTXDI-main\Doc\ShaderAPI.md
+    E:\prog\references\RTXDI-main\Doc\NoiseAndBias.md
+    E:\prog\references\RTXDI-main\Doc\RestirPT.md
+
+Scope
+-----
+
+Expected files:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli
+
+Do not add new GPU resources unless the user explicitly approves widening the
+task. Use existing selected-light and analytic-light buffers first.
+
+Extraction Boundary
+-------------------
+
+Create a new native shader include such as:
+
+    neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli
+
+The exact filename may differ if the local shader build conventions require a
+different name, but the boundary must be dedicated to mode 18 NEE/direct-light
+selection and shading.
+
+Move or add these concepts in the NEE module:
+
+- NEE source-type constants
+- NEE surface/light/result structs
+- legacy selected-light full-loop evaluator
+- bounded selected-light sampled evaluator
+- helpers that compute light direction, attenuation, visibility, PDF, and
+  contribution for selected-light samples
+- a narrow entry point called by mode 18 from `pathtrace_smoke.rt.hlsl`
+
+The monolithic raygen may still call the module in this task. That is
+acceptable. The required change is that new NEE logic has a module boundary and
+is not scattered through `pathtrace_smoke.rt.hlsl`.
+
+Do not move NEE to a separate C++ pass, separate shader library, or separate
+SBT/pipeline in this task unless the user explicitly widens the scope. The
+module should be designed so that later move is possible.
+
+Required CVar Shape
+-------------------
+
+Add a mode CVar similar to:
+
+    r_pathTracingSecondaryNeeMode
+
+Suggested values:
+
+    0 = off / diagnostic throttle
+    1 = bounded sampled NEE
+    2 = legacy full selected-light loop
+
+If a different name is used, document it in the final report. The CVar should
+be passed into shader constants rather than inferred from unrelated safety
+flags.
+
+Recommended development default:
+
+    2 during comparison work, or 1 if the user wants sampled NEE as the active
+    test path.
+
+Long-term intended default:
+
+    1 = bounded sampled NEE
+
+Native Data Shapes
+------------------
+
+Do not copy RTXDI structs. Create small native structs with similar extension
+points.
+
+Suggested shader-side concept:
+
+    struct SmokeNeeSurface
+    {
+        float3 position;
+        float3 normal;
+        float3 geometricNormal;
+        float3 viewDir;
+        float3 albedo;
+        float3 specularColor;
+        float roughness;
+        uint materialId;
+        uint materialIndex;
+        uint surfaceClass;
+        uint flags;
+    };
+
+    struct SmokeNeeLightSample
+    {
+        uint sourceType;
+        uint sourceIndex;
+        float3 direction;
+        float distance;
+        float3 radiance;
+        float pdf;
+        float solidAnglePdf;
+        float2 uv;
+        uint flags;
+    };
+
+    struct SmokeNeeResult
+    {
+        float3 contribution;
+        float visibility;
+        float targetPdf;
+        float samplePdf;
+        uint sourceType;
+        uint sourceIndex;
+        uint flags;
+    };
+
+The exact shape can differ, but preserve room for:
+
+- selected point lights
+- Doom analytic sphere/disk/spot candidates
+- emissive triangles
+- environment light samples
+- BRDF/MIS samples
+- selected sample UV
+- visibility reuse or replay
+- material/surface compatibility checks
+
+Step-By-Step Procedure
+----------------------
+
+1. Create the NEE shader module/include.
+
+   Add a dedicated HLSL include such as:
+
+       neo/shaders/builtin/pathtracing/pathtrace_nee.hlsli
+
+   Include it from `pathtrace_smoke.rt.hlsl` using the local shader include
+   style. If the shader build requires CMake or build-system changes for new
+   include dependencies, make the smallest required change and document it.
+
+2. Move current NEE helper boundaries into the module.
+
+   Move behavior-preserving NEE/direct-light helper code first where practical.
+   At minimum, the module should own the legacy selected-light full-loop
+   evaluator and the sampled selected-light evaluator added in this task.
+
+   `pathtrace_smoke.rt.hlsl` should keep only the mode 18 integrator call site
+   and generic data/helpers that are still shared by many debug modes.
+
+3. Add the CVar and constant plumbing.
+
+   Add the CVar in `PathTraceCVars.cpp/.h`.
+   Pass the integer mode through `PathTraceSmokeDispatch.cpp` into an existing
+   or new shader constant slot. Use a clearly named constant or bitfield.
+
+4. Preserve existing global NEE switch.
+
+   `r_pathTracingNextEventEstimation 0` must still disable NEE globally.
+   The new secondary mode should only matter when global NEE is enabled.
+
+5. Implement source classification constants in the NEE module.
+
+   Add native constants such as:
+
+       SMOKE_NEE_SOURCE_NONE
+       SMOKE_NEE_SOURCE_SELECTED_LIGHT
+       SMOKE_NEE_SOURCE_DOOM_ANALYTIC
+       SMOKE_NEE_SOURCE_EMISSIVE_TRIANGLE
+       SMOKE_NEE_SOURCE_ENVIRONMENT
+       SMOKE_NEE_SOURCE_BRDF
+
+   They do not need every source implemented immediately. They must reserve
+   stable meanings for future work.
+
+6. Build a `SmokeNeeSurface` from the existing payload/shading inputs.
+
+   Keep this local to mode 18. Do not convert all debug modes.
+
+7. Implement bounded selected-light sampling.
+
+   Use existing selected-light arrays:
+
+       LightOriginAndRadius
+       LightColorAndIntensity
+       LightInfo
+
+   Pick one selected light, or a small fixed count if the CVar also exposes a
+   sample count. Start with one sample per path vertex.
+
+   Initial selection can be uniform across the selected-light count if no
+   better importance data is available. If uniform selection is used, the PDF
+   must be:
+
+       1 / selectedLightCount
+
+   Shade contribution must compensate by the inverse PDF or an equivalent
+   unbiased estimator.
+
+8. Keep visibility separate from selection.
+
+   Select the light first. Compute its PDF/target weight. Then trace:
+
+       TraceSmokeShadowVisibility
+
+   only for the selected sample when the sample is otherwise valid.
+
+9. Add bounded mode routing.
+
+   For secondary path vertices:
+
+       mode 0: no selected-light secondary NEE
+       mode 1: sampled selected-light secondary NEE
+       mode 2: legacy full selected-light secondary NEE
+
+   Primary direct lighting may temporarily stay legacy if needed for visual
+   comparison. If primary sampled NEE is implemented too, document that it was
+   intentionally included.
+
+10. Keep analytic-light fan-out separable.
+
+   Do not silently fold Doom analytic lights into the selected-light sampled
+   path unless the data and PDF are correct. It is acceptable for this task to:
+
+       keep analytic-light evaluation under its existing CVars
+       make sampled selected-light NEE work first
+       document analytic-light sampled NEE as a follow-up
+
+11. Preserve legacy comparison.
+
+   Mode 2 must continue to exercise the old full selected-light loop so the
+   user can compare image quality and timing directly.
+
+12. Build shaders and executable.
+
+    Compile/link sanity:
+
+        cmake --build build --config Debug --target PathTracingShaders
+        cmake --build build --config Debug --target RBDoom3BFG
+
+    For prepared-folder PT validation, use and copy the preset Release/PT exe
+    instead of `build\Debug\RBDoom3BFG.exe`.
+
+13. Validate the timing matrix.
+
+    Start with analytic lights off:
+
+        r_pathTracingAnalyticLightCandidates 0
+        r_pathTracingDisableAnalyticLightLoop 1
+        r_pathTracingSamplesPerPixel 3
+        r_pathTracingMaxPathDepth 2
+
+    Compare:
+
+        r_pathTracingNextEventEstimation 0
+        r_pathTracingNextEventEstimation 1
+        r_pathTracingSecondaryNeeMode 0
+        r_pathTracingSecondaryNeeMode 1
+        r_pathTracingSecondaryNeeMode 2
+        r_pathTracingDisableDiffuseSecondaryRay 1
+        r_pathTracingDisableSelectedLightLoop 1
+
+14. Validate high-resolution scaling.
+
+    Compare sampled mode at 1280x720 and a higher internal/output resolution.
+    The expected result is not identical cost to NEE-off, but it should avoid
+    the legacy full-loop cliff.
+
+Acceptance Criteria
+-------------------
+
+- Global `r_pathTracingNextEventEstimation 0` still disables NEE.
+- New NEE/direct-light implementation code lives in a dedicated native shader
+  include/module, not scattered through `pathtrace_smoke.rt.hlsl`.
+- `pathtrace_smoke.rt.hlsl` calls the module through a narrow mode 18 entry
+  point.
+- Legacy full selected-light NEE remains available.
+- Sampled secondary NEE traces a bounded number of visibility rays per path
+  vertex.
+- Sampled NEE applies PDF compensation or clearly documented equivalent
+  weighting.
+- Mode 18 remains visually plausible.
+- The validation matrix shows sampled secondary NEE is much closer to NEE-off
+  timing than to legacy full-loop NEE timing.
+- No NVIDIA source code is copied.
+
+Quality Expectations
+--------------------
+
+The sampled mode may be noisier than the legacy full-loop mode. That is
+acceptable. The goal is to replace brute-force direct lighting with a scalable
+estimator that can later be improved by temporal/spatial reuse.
+
+Do Not Do
+---------
+
+- Do not implement temporal or spatial ReSTIR in this task.
+- Do not implement ReGIR.
+- Do not rewrite material classification.
+- Do not remove the legacy full-loop path.
+- Do not copy RTXDI sample code.
+- Do not hide performance by simply disabling all secondary direct lighting.
+- Do not scatter new sampled NEE logic through `pathtrace_smoke.rt.hlsl`.
+- Do not create a separate C++ pass/pipeline in this task unless explicitly
+  asked.

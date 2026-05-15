@@ -422,8 +422,14 @@ bool PathTraceRestirDirectDispatchActive()
     return false;
 #else
     const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
-    return dispatchMode == 1u || dispatchMode == 3u;
+    return dispatchMode == 1u || dispatchMode == 3u || dispatchMode == 5u || dispatchMode == 6u;
 #endif
+}
+
+bool PathTraceRestirDirectSparseProducerDispatch()
+{
+    const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
+    return dispatchMode == 5u || dispatchMode == 6u;
 }
 
 bool PathTraceRestirPTPrimarySurfaceProducerDispatch()
@@ -433,7 +439,8 @@ bool PathTraceRestirPTPrimarySurfaceProducerDispatch()
 
 bool PathTraceRestirPTConsumePrimarySurfaceHistory()
 {
-    return (uint)max(RestirPTDirectInfo.z, 0.0) == 3u;
+    const uint dispatchMode = (uint)max(RestirPTDirectInfo.z, 0.0);
+    return dispatchMode == 3u || dispatchMode == 4u || dispatchMode == 6u;
 }
 
 uint PathTraceRestirSparsityRate()
@@ -462,6 +469,22 @@ bool PathTraceRestirSparseActivePixel(uint2 pixel, bool previousFrame)
     const uint rate = PathTraceRestirSparsityRate();
     const uint phase = PathTraceRestirSparsityPhase(previousFrame);
     return ((pixel.x + pixel.y * 3u + phase) % rate) == 0u;
+}
+
+uint2 PathTraceRestirSparseDispatchSize()
+{
+    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
+    const uint rate = PathTraceRestirSparsityRate();
+    return uint2((dimensions.x + rate - 1u) / rate, dimensions.y);
+}
+
+uint2 PathTraceRestirSparseProducerPixelToDirectPixel(uint2 sparsePixel)
+{
+    const uint2 dimensions = max(PathTraceRestirDirectSize(), uint2(1u, 1u));
+    const uint rate = PathTraceRestirSparsityRate();
+    const uint phase = PathTraceRestirSparsityPhase(false);
+    const uint firstX = (rate - ((sparsePixel.y * 3u + phase) % rate)) % rate;
+    return uint2(firstX + sparsePixel.x * rate, sparsePixel.y);
 }
 
 uint2 PathTraceRestirSparseRepresentativePixel(uint2 pixel, bool previousFrame)
@@ -519,6 +542,11 @@ bool PathTraceRestirPTIndirectProducerDispatch()
     return RestirPTIndirectInfo.x >= 0.5;
 }
 
+bool PathTraceRestirPTIndirectSparseProducerDispatch()
+{
+    return RestirPTIndirectInfo.x >= 1.5;
+}
+
 bool PathTraceRestirPTIndirectConsumesInitialPrepass()
 {
     return RestirPTIndirectInfo.y >= 0.5 && !PathTraceRestirPTIndirectProducerDispatch();
@@ -543,6 +571,22 @@ bool PathTraceRestirPTIndirectSparseActivePixel(uint2 pixel)
     const uint rate = PathTraceRestirPTIndirectSparsityRate();
     const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
     return ((pixel.x + pixel.y * 3u + phase) % rate) == 0u;
+}
+
+uint2 PathTraceRestirPTIndirectSparseDispatchSize()
+{
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const uint rate = PathTraceRestirPTIndirectSparsityRate();
+    return uint2((dimensions.x + rate - 1u) / rate, dimensions.y);
+}
+
+uint2 PathTraceRestirPTIndirectSparseProducerPixelToFullPixel(uint2 sparsePixel)
+{
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const uint rate = PathTraceRestirPTIndirectSparsityRate();
+    const uint phase = (uint)max(RestirPTIndirectInfo.w, 0.0) % rate;
+    const uint firstX = (rate - ((sparsePixel.y * 3u + phase) % rate)) % rate;
+    return uint2(firstX + sparsePixel.x * rate, sparsePixel.y);
 }
 
 uint2 PathTraceRestirPTIndirectRepresentativePixel(uint2 pixel)
@@ -2313,6 +2357,7 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
 #include "pathtrace_emissive_sampling.hlsli"
 
 #ifdef RB_PT_ENABLE_RESTIR
+float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId);
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 #include "RtxdiBridge/RAB_LightTarget.hlsli"
@@ -3257,17 +3302,10 @@ RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pi
         ptud);
 }
 
-void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+void ProduceRestirPTIndirectInitialReservoirFromSurface(RAB_Surface surface, uint2 pixel)
 {
     RTXDI_PTReservoir reservoir = RTXDI_EmptyPTReservoir();
 
-    if (payload.value == 0u || SmokePayloadIsGuiScreen(payload))
-    {
-        StoreRestirPTInitialReservoir(pixel, reservoir);
-        return;
-    }
-
-    RAB_Surface surface = RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true);
     if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         StoreRestirPTInitialReservoir(pixel, reservoir);
@@ -3278,11 +3316,25 @@ void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirecti
     StoreRestirPTInitialReservoir(pixel, reservoir);
 }
 
+void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+{
+    RTXDI_PTReservoir reservoir = RTXDI_EmptyPTReservoir();
+
+    if (payload.value == 0u || SmokePayloadIsGuiScreen(payload))
+    {
+        StoreRestirPTInitialReservoir(pixel, reservoir);
+        return;
+    }
+
+    ProduceRestirPTIndirectInitialReservoirFromSurface(
+        RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true),
+        pixel);
+}
+
 bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
 {
     const float targetLuminance = RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)));
-    const float radianceLuminance = RTXDI_Luminance(max(reservoir.Radiance, float3(0.0, 0.0, 0.0)));
-    return RTXDI_IsValidPTReservoir(reservoir) && reservoir.WeightSum > 0.0 && (targetLuminance > 0.0 || radianceLuminance > 0.0);
+    return RTXDI_IsValidPTReservoir(reservoir) && reservoir.WeightSum > 0.0 && targetLuminance > 0.0;
 }
 
 float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
@@ -3329,8 +3381,6 @@ float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirecti
     const float samplePulse = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
     return float4(saturate(heat + float3(0.02, 0.12, 0.04) * samplePulse), 1.0);
 }
-
-float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId);
 
 float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir)
 {
@@ -3492,17 +3542,12 @@ float3 RestirPTGiFallback(RAB_Surface surface)
     {
         return float3(0.0, 0.0, 0.0);
     }
-    return saturate(max(surface.material.diffuseAlbedo, float3(0.02, 0.02, 0.02)) * 0.018);
+    return RestirPTGiToneMapPreview(surface.material.emissiveRadiance);
 }
 
 float3 RestirPTReservoirPreviewContribution(RTXDI_PTReservoir reservoir)
 {
-    float3 contribution = RestirPTGiSanitizeContribution(reservoir.TargetFunction * max(reservoir.WeightSum, 0.0));
-    if (RAB_Luminance(contribution) <= 0.0)
-    {
-        contribution = RestirPTGiSanitizeContribution(reservoir.Radiance * max(reservoir.WeightSum, 0.0));
-    }
-    return contribution;
+    return RestirPTGiSanitizeContribution(reservoir.TargetFunction * max(reservoir.WeightSum, 0.0));
 }
 
 float4 RestirPTGiReservoirSourceColor(RTXDI_PTReservoir reservoir)
@@ -3661,19 +3706,13 @@ float4 EvaluateRestirPTIndirectPathAttribution(float3 rayOrigin, float3 rayDirec
 }
 
 #ifdef RB_PT_RESTIR_COMBINED_SHADING
-float4 EvaluateRestirPTCombinedDirectGiPreview(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel, bool traceDirectVisibility)
+float4 EvaluateRestirPTCombinedDirectGiPreviewFromSurface(RAB_Surface surface, uint2 pixel, bool traceDirectVisibility)
 {
-    if (payload.value == 0u)
+    if (!RAB_IsSurfaceValid(surface))
     {
         return float4(0.0, 0.0, 0.0, 1.0);
     }
 
-    if (SmokePayloadIsGuiScreen(payload))
-    {
-        return CompositeSmokeGuiLayers(rayOrigin, rayDirection, payload);
-    }
-
-    const RAB_Surface surface = RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true);
     if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         return float4(RestirPTGiFallback(surface), 1.0);
@@ -3694,7 +3733,28 @@ float4 EvaluateRestirPTCombinedDirectGiPreview(float3 rayOrigin, float3 rayDirec
     const float3 combinedPreview = RestirPTGiToneMapPreview(directContribution + giContribution);
     return float4(saturate(RestirPTGiFallback(surface) + combinedPreview), 1.0);
 }
+
+float4 EvaluateRestirPTCombinedDirectGiPreview(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel, bool traceDirectVisibility)
+{
+    if (payload.value == 0u)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    if (SmokePayloadIsGuiScreen(payload))
+    {
+        return CompositeSmokeGuiLayers(rayOrigin, rayDirection, payload);
+    }
+
+    const RAB_Surface surface = RAB_BuildSurfaceFromSmokePayload(payload, rayOrigin, rayDirection, true);
+    return EvaluateRestirPTCombinedDirectGiPreviewFromSurface(surface, pixel, traceDirectVisibility);
+}
 #else
+float4 EvaluateRestirPTCombinedDirectGiPreviewFromSurface(RAB_Surface surface, uint2 pixel, bool traceDirectVisibility)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
 float4 EvaluateRestirPTCombinedDirectGiPreview(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel, bool traceDirectVisibility)
 {
     return float4(0.16, 0.04, 0.20, 1.0);
@@ -3712,6 +3772,10 @@ float4 EvaluateRestirPTInitialReservoirShading(float3 rayOrigin, float3 rayDirec
 }
 
 void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
+{
+}
+
+void ProduceRestirPTIndirectInitialReservoirFromSurface(RAB_Surface surface, uint2 pixel)
 {
 }
 
@@ -3756,6 +3820,11 @@ float4 EvaluateRestirPTIndirectPathAttribution(float3 rayOrigin, float3 rayDirec
 }
 
 float4 EvaluateRestirPTCombinedDirectGiPreview(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel, bool traceDirectVisibility)
+{
+    return float4(0.16, 0.04, 0.20, 1.0);
+}
+
+float4 EvaluateRestirPTCombinedDirectGiPreviewFromSurface(RAB_Surface surface, uint2 pixel, bool traceDirectVisibility)
 {
     return float4(0.16, 0.04, 0.20, 1.0);
 }
@@ -4568,15 +4637,38 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
 void RayGen()
 {
     const uint2 localPixel = DispatchRaysIndex().xy;
-    const uint2 pixel = localPixel + PathTraceDispatchTileOffset();
+    uint2 pixel = localPixel + PathTraceDispatchTileOffset();
     const bool restirDirectDispatch = PathTraceRestirDirectDispatchActive();
+    const bool restirDirectSparseProducerDispatch = PathTraceRestirDirectSparseProducerDispatch();
     const bool primarySurfaceProducerDispatch = PathTraceRestirPTPrimarySurfaceProducerDispatch();
     const bool consumePrimarySurfaceHistory = PathTraceRestirPTConsumePrimarySurfaceHistory();
-    const uint2 dimensions = restirDirectDispatch ? PathTraceRestirDirectSize() : PathTraceFullOutputSize();
+    const bool restirIndirectProducerDispatch = PathTraceRestirPTIndirectProducerDispatch();
+    const bool restirIndirectSparseProducerDispatch = PathTraceRestirPTIndirectSparseProducerDispatch();
+    const uint2 dimensions = restirDirectSparseProducerDispatch
+        ? PathTraceRestirSparseDispatchSize()
+        : (restirIndirectSparseProducerDispatch
+            ? PathTraceRestirPTIndirectSparseDispatchSize()
+            : (restirDirectDispatch ? PathTraceRestirDirectSize() : PathTraceFullOutputSize()));
     const uint2 fullDimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
         return;
+    }
+    if (restirDirectSparseProducerDispatch)
+    {
+        pixel = PathTraceRestirSparseProducerPixelToDirectPixel(pixel);
+        if (pixel.x >= PathTraceRestirDirectSize().x || pixel.y >= PathTraceRestirDirectSize().y)
+        {
+            return;
+        }
+    }
+    if (restirIndirectSparseProducerDispatch)
+    {
+        pixel = PathTraceRestirPTIndirectSparseProducerPixelToFullPixel(pixel);
+        if (pixel.x >= fullDimensions.x || pixel.y >= fullDimensions.y)
+        {
+            return;
+        }
     }
     const uint2 surfacePixel = restirDirectDispatch ? PathTraceRestirDirectPixelToRepresentativeFullPixel(pixel) : pixel;
     const float2 uv = (float2(surfacePixel) + 0.5) / float2(fullDimensions);
@@ -4598,7 +4690,11 @@ void RayGen()
 #else
     const uint debugMode = (uint)CameraUpAndDebugMode.w;
 #endif
-    if (restirDirectDispatch && !PathTraceRestirSparseActivePixel(pixel, false))
+    if (restirDirectDispatch && !restirDirectSparseProducerDispatch && !PathTraceRestirSparseActivePixel(pixel, false))
+    {
+        return;
+    }
+    if (restirIndirectProducerDispatch && !restirIndirectSparseProducerDispatch && !PathTraceRestirPTIndirectSparseActivePixel(pixel))
     {
         return;
     }
@@ -4698,17 +4794,33 @@ void RayGen()
     }
 #endif
 
-    if (PathTraceRestirPTIndirectProducerDispatch())
+#ifdef RB_PT_RESTIR_INDIRECT_INITIAL_PRODUCER_ONLY
+    ProduceRestirPTIndirectInitialReservoirFromSurface(primaryHistorySurface, pixel);
+    return;
+#endif
+
+    if (restirIndirectProducerDispatch)
     {
-        if (!PathTraceRestirPTIndirectSparseActivePixel(pixel))
+        if (consumePrimarySurfaceHistory)
         {
-            return;
+            ProduceRestirPTIndirectInitialReservoirFromSurface(primaryHistorySurface, pixel);
         }
-        ProduceRestirPTIndirectInitialReservoir(ray.Origin, ray.Direction, payload, pixel);
+        else
+        {
+            ProduceRestirPTIndirectInitialReservoir(ray.Origin, ray.Direction, payload, pixel);
+        }
         return;
     }
 
 #if defined(RB_PT_ENABLE_RESTIR_TEMPORAL) && !defined(RB_PT_RESTIR_SPATIAL_PRODUCER)
+#ifdef RB_PT_RESTIR_DIRECT_TEMPORAL_PRODUCER_ONLY
+    {
+        float4 temporalRejectionColor;
+        bool temporalSelectedPrevSample;
+        GenerateRestirPTTemporalReservoir(primaryHistorySurface, pixel, temporalRejectionColor, temporalSelectedPrevSample);
+        return;
+    }
+#endif
     if (restirDirectDispatch && debugMode == 31u)
     {
         float4 temporalRejectionColor;
@@ -4790,7 +4902,9 @@ void RayGen()
         }
         else if (debugMode == 56)
         {
-            SmokeOutput[pixel] = EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
+            SmokeOutput[pixel] = consumePrimarySurfaceHistory
+                ? EvaluateRestirPTCombinedDirectGiPreviewFromSurface(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5)
+                : EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
         }
         else
         {
@@ -4923,7 +5037,9 @@ void RayGen()
     }
     else if (debugMode == 56)
     {
-        SmokeOutput[pixel] = EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
+        SmokeOutput[pixel] = consumePrimarySurfaceHistory
+            ? EvaluateRestirPTCombinedDirectGiPreviewFromSurface(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5)
+            : EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
     }
     else if (debugMode == 38)
     {

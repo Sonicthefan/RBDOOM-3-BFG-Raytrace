@@ -28,6 +28,7 @@ Read first:
 - docs\ReSTIR\current_restir_pt_state.txt
 - docs\ReSTIR\rough_restir_pt_preview_plan.txt
 - docs\ReSTIR\resolution_scaling_and_reconstruction_plan.txt
+- docs\ReSTIR\real_pass_structure_plan.txt
 
 Standing constraints:
 - Do not use Debug builds for real RT/PT validation.
@@ -134,6 +135,11 @@ Current implementation state:
   light/visibility rule. Mode 56 GI can over-brighten these spaces. Investigate
   Doom sky/environment visibility or light-mask rules before globally disabling
   environment/GI.
+- Mode 56 is a debug preview, not the production sparse-GI architecture. The
+  next architecture target is in docs\ReSTIR\real_pass_structure_plan.txt:
+  full-resolution primary surface, explicit lower/sparse direct and GI lighting
+  domains, then full-resolution reconstruction/resolve. Do this before adding
+  reflections.
 
 Current mode 18 ReSTIR direct-lighting hybrid:
 - Use r_pathTracingDebugMode 18 and r_pathTracingRestirPTDirectLighting 1.
@@ -164,20 +170,20 @@ Do not re-enable NEE temporal reuse until stable light-domain IDs,
 current/previous remapping, and per-light radiance/state validation exist.
 
 Next implementation target:
-Profile and harden mode 56 before adding temporal/spatial GI reuse or mode 18
-GI integration:
+Build the real pass structure before adding reflections, temporal/spatial GI
+reuse, DLSS RR, or mode 18 GI integration:
 - Confirm mode 18 without r_pathTracingRestirPTDirectLighting still behaves like
   the stable/playable path tracer.
 - Compare mode 56 against mode 50 direct lighting and mode 54 indirect/GI
   lighting at conservative output resolution.
 - Use mode 55 to confirm the GI source/path side still distinguishes packed NEE
   sources from non-NEE indirect/path samples.
-- Isolate shader work inside `vkCmdTraceRays` events 2 and 3: direct temporal
-  producer and direct spatial producer material/light sampling, reservoir
-  loads/stores, memory/cache behavior, and branch divergence. Sparsity visibly
-  changes the image but does not meaningfully improve performance, and RT core
-  utilization is low in the expensive cases. Compare event 1 across good/bad
-  locations to catch shared producer-side material/light/environment costs.
+- Add an explicit full-resolution primary-surface producer pass.
+- Move direct and GI producers to explicit lower/sparse domains that consume the
+  full-resolution primary surface.
+- Add a full-resolution resolve/composite that reconstructs from those domains.
+- Keep mode 56 as the debug comparison view during the split, not as the final
+  production shape.
 - Investigate the skybox/open-roof over-brightening case as an environment
   visibility/light-mask contract issue, not as a reason to remove GI broadly.
 - Keep temporal NEE reuse disabled as documented. Do not add temporal/spatial

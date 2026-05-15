@@ -25,7 +25,7 @@ static const uint RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH = 12u;
 
 struct PathTracePrimarySurfaceRecord
 {
-    uint4 header;                       // version, valid flags, debug/status flags, reserved
+    uint4 header;                       // version, valid flags, debug/status flags, triangle/class flags
     float4 worldPositionAndViewDepth;   // xyz = world position, w = view depth
     float4 geometricNormalAndRoughness; // xyz = geometric normal, w = roughness
     float4 shadingNormalAndOpacity;     // xyz = shading normal, w = opacity
@@ -75,7 +75,7 @@ PathTracePrimarySurfaceRecord PackPathTracePrimarySurfaceRecord(RAB_Surface surf
     }
 #endif
 
-    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, validFlags, debugStatus, 0u);
+    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, validFlags, debugStatus, surface.flags);
     record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
     record.geometricNormalAndRoughness = float4(surface.geometryNormal, surface.material.roughness);
     record.shadingNormalAndOpacity = float4(surface.shadingNormal, surface.material.opacity);
@@ -86,7 +86,7 @@ PathTracePrimarySurfaceRecord PackPathTracePrimarySurfaceRecord(RAB_Surface surf
     record.previousPositionOrMotion = (validFlags & RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION) != 0u
         ? float4(previousWorldPosition, 1.0)
         : float4(0.0, 0.0, 0.0, 0.0);
-    record.materialAndSurface = uint4(surface.materialId, surface.materialIndex, surface.flags, surface.surfaceClass);
+    record.materialAndSurface = uint4(surface.materialId, surface.materialIndex, surface.material.flags, surface.surfaceClass);
     // TODO: replace the object/entity placeholder with the chosen Doom renderer/game identity
     // once the long-lived ID source is confirmed for map transitions, entity updates, and save/load.
     record.instancePrimitiveObject = uint4(surface.instanceId, surface.primitiveIndex, 0u, surface.material.emissiveTextureIndex);
@@ -118,7 +118,7 @@ RAB_Surface UnpackPathTracePrimarySurfaceRecord(PathTracePrimarySurfaceRecord re
     surface.viewDir = SafeNormalize(record.viewDirectionAndReserved.xyz, -surface.shadingNormal);
     surface.materialId = record.materialAndSurface.x;
     surface.materialIndex = record.materialAndSurface.y;
-    surface.flags = record.materialAndSurface.z;
+    surface.flags = record.header.w;
     surface.surfaceClass = record.materialAndSurface.w;
     surface.instanceId = record.instancePrimitiveObject.x;
     surface.primitiveIndex = record.instancePrimitiveObject.y;
@@ -126,7 +126,7 @@ RAB_Surface UnpackPathTracePrimarySurfaceRecord(PathTracePrimarySurfaceRecord re
     RAB_Material material = RAB_EmptyMaterial();
     material.materialId = surface.materialId;
     material.materialIndex = surface.materialIndex;
-    material.flags = surface.flags;
+    material.flags = record.materialAndSurface.z;
     material.alphaCutoff = record.albedoAndAlphaCutoff.w;
     material.diffuseAlbedo = record.albedoAndAlphaCutoff.xyz;
     material.roughness = saturate(record.geometricNormalAndRoughness.w);

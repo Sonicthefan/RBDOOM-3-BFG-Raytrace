@@ -1,0 +1,183 @@
+Q2RTX Reference Notes For Skinned Motion Vectors
+================================================
+
+Purpose
+-------
+
+These notes summarize the useful motion-vector architecture visible in the
+local Q2RTX reference trees. They are a research aid for Doom PT work, not a
+source to copy.
+
+Reference Paths
+---------------
+
+Main reference checkout:
+
+    E:\prog\references\Q2RTX-master
+
+Ray Reconstruction fork/reference checkout:
+
+    E:\prog\references\Q2RTX-rayreconstruction-master
+
+The exact branch history between these two folders is not the key point for
+this task. Both are useful as local examples of a mature Vulkan path-tracing
+renderer with dynamic instance remapping and previous geometry state.
+
+Key Files
+---------
+
+    src/refresh/vkpt/shader/global_ubo.h
+    src/refresh/vkpt/main.c
+    src/refresh/vkpt/shader/instance_geometry.comp
+    src/refresh/vkpt/shader/vertex_buffer.h
+    src/refresh/vkpt/shader/asvgf_gradient_reproject.comp
+
+Observed Pattern
+----------------
+
+1. The instance record carries both current and previous state.
+
+   In `shader/global_ubo.h`, `ModelInstance` carries fields equivalent to:
+
+       transform
+       transform_prev
+       current pose offsets
+       previous pose offsets
+       current pose lerp
+       previous pose lerp
+       current skeletal matrix offset
+       previous skeletal matrix offset
+       render buffer and primitive offsets
+
+   Doom equivalent:
+
+       current object-to-world matrix
+       previous object-to-world matrix
+       current joint matrix range
+       previous joint matrix range
+       current source surface range
+       previous source surface range
+       current output range
+       previous output range
+
+2. The CPU builds explicit instance remap tables.
+
+   In `main.c`, Q2RTX builds:
+
+       model_current_to_prev
+       model_prev_to_current
+
+   by comparing stable model/entity IDs across current and previous frame
+   arrays.
+
+   Doom equivalent:
+
+       skinnedCurrentToPreviousSurface
+       skinnedPreviousToCurrentSurface
+
+   keyed by a stable Doom render-entity/surface identity, not by append order.
+
+3. Previous skeletal matrices are kept and uploaded intentionally.
+
+   Q2RTX stores current IQM matrices for the next frame. On the next frame, it
+   appends previous matrices after current matrices and patches previous matrix
+   offsets so shaders can address both current and previous state from one
+   frame's GPU-visible buffers.
+
+   Doom equivalent:
+
+       current joint matrix buffer
+       previous joint matrix buffer or appended previous joint range
+       per-surface currentJointOffset
+       per-surface previousJointOffset
+
+4. The geometry shader/compute stage produces current and previous positions
+   together.
+
+   In `instance_geometry.comp`, skinned instances evaluate current and previous
+   poses separately. For non-skinned vertex animation, the shader blends current
+   and previous animation frames separately.
+
+   Doom equivalent:
+
+       compute current skinned world position from current joints
+       compute previous skinned world position from previous joints
+       write current output for BLAS/hit shading
+       write previous position or previous-current delta for motion vectors
+
+5. Previous positions are stored near the rendered primitive.
+
+   In `shader/vertex_buffer.h`, previous position is represented as a delta
+   from current position in custom primitive fields for animated output.
+
+   Doom can choose either:
+
+       previous position buffer
+       previous-current delta buffer
+       expanded skinned output struct with previous position
+
+   A separate previous position buffer is likely simplest for early Doom work
+   because `PathTraceSmokeVertex` is already shader-visible and widely used.
+
+6. Reprojection maps previous dynamic IDs back to current dynamic IDs.
+
+   In `asvgf_gradient_reproject.comp`, previous visibility-buffer instance IDs
+   are translated through `model_prev_to_current` before current geometry is
+   loaded and reconstructed.
+
+   Doom equivalent:
+
+       previous primary-surface object/entity/surface id
+       previous primitive id
+       previous-to-current skinned surface map
+       current geometry range lookup
+
+Why This Matters For Doom
+-------------------------
+
+The current Doom PT path creates skinned world-space vertices during scene
+capture. That output is useful, but it is too late in the pipeline to recover a
+clean source contract.
+
+The Q2RTX lesson is that motion vectors need:
+
+    identity
+    previous transform
+    previous pose/joint data
+    current-to-previous remap
+    previous-to-current remap
+    current and previous positions at the same hit surface
+
+This can be introduced in Doom incrementally. The first bridge can retain
+previous CPU-skinned outputs, then a later compute path can replace CPU skinning
+while preserving the same contracts.
+
+Doom-Specific Differences
+-------------------------
+
+The Doom codebase has material-surface LOD flags in `idMaterial` and drawSurf
+filtering in `tr_frontend_addmodels.cpp`. This is not the same as a clean
+whole-model LOD system with explicit current/previous LOD remap data, but it
+can still change surface membership between frames.
+
+MD5 and GLTF skinned models are the best first target because their source
+surface topology is expected to remain stable while joints change. MD3,
+particles, beams, liquids, sprites, and material-deformed surfaces need separate
+handling or conservative invalidation.
+
+For Doom Task 01, the safe policy is:
+
+    stable skinned MD5/GLTF identity + matching counts -> previous may be valid
+    anything generated/transient/topology-changing -> previous invalid
+    material LOD membership change -> previous invalid
+    dynamic buffer same offset only -> invalid assumption
+
+License/Copying Rule
+--------------------
+
+Do not copy Q2RTX source code, comments, struct layouts, shader helper bodies,
+or packing choices directly into this repository.
+
+Use Q2RTX as a checklist for required concepts and failure cases. Implement the
+Doom version using Doom/NVRHI types, existing PathTrace module conventions, and
+native naming.
