@@ -131,6 +131,12 @@ struct RAB_Surface
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceMotionVectors : register(u39);
+VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness : register(u49);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -190,6 +196,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;
+    float4 RayReconstructionInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -215,6 +222,14 @@ static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
 static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
+static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
+static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
+static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
+static const uint PT_MOTION_VECTOR_SOURCE_UNKNOWN = 0u;
+static const uint PT_MOTION_VECTOR_SOURCE_STATIC = 1u;
+static const uint PT_MOTION_VECTOR_SOURCE_SKINNED = 2u;
+static const uint PT_MOTION_VECTOR_SOURCE_RIGID = 3u;
+static const uint PT_MOTION_VECTOR_SOURCE_OTHER_OBJECT = 4u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
@@ -693,6 +708,117 @@ void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
     }
 }
 
+void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
+{
+    pixel = PathTracePrimarySurfaceStorePixel(pixel);
+    const uint2 dimensions = PathTraceFullOutputSize();
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        PathTraceRRGuideAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
+        PathTraceRRGuideNormalRoughness[pixel] = float4(0.5, 0.5, 1.0, 1.0);
+        PathTraceRRGuideDepth[pixel] = 0.0;
+        PathTraceRRGuideHitDistance[pixel] = 0.0;
+        return;
+    }
+
+    const float3 normal = SafeNormalize(surface.shadingNormal, surface.geometryNormal);
+    PathTraceRRGuideAlbedo[pixel] = float4(saturate(surface.material.diffuseAlbedo), saturate(surface.material.opacity));
+    PathTraceRRGuideNormalRoughness[pixel] = float4(normal * 0.5 + 0.5, saturate(surface.material.roughness));
+    PathTraceRRGuideDepth[pixel] = max(surface.linearDepth, 0.0);
+    PathTraceRRGuideHitDistance[pixel] = max(surface.linearDepth, 0.0);
+}
+
+uint PathTraceMotionVectorSourceKind(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return PT_MOTION_VECTOR_SOURCE_UNKNOWN;
+    }
+    if (surface.instanceId == 0u && surface.surfaceClass == 0u)
+    {
+        return PT_MOTION_VECTOR_SOURCE_STATIC;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    {
+        return PT_MOTION_VECTOR_SOURCE_SKINNED;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return PT_MOTION_VECTOR_SOURCE_RIGID;
+    }
+    return PT_MOTION_VECTOR_SOURCE_OTHER_OBJECT;
+}
+
+uint PathTraceMotionVectorMaskFromStatus(bool valid, uint sourceKind, uint debugStatus)
+{
+    const uint sourceBits = (sourceKind & 0x0fu) << PT_MOTION_VECTOR_MASK_SOURCE_SHIFT;
+    if (valid)
+    {
+        return PT_MOTION_VECTOR_MASK_VALID | sourceBits;
+    }
+    return sourceBits | ((debugStatus & 0xffu) << PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
+}
+
+bool ProjectPrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out float2 previousPixel)
+{
+    previousPixel = float2(-1.0, -1.0);
+    if (PrevCameraOriginAndValid.w < 0.5)
+    {
+        return false;
+    }
+
+    const float3 delta = worldPosition - PrevCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, PrevCameraForwardAndTanX.xyz);
+    if (forwardDistance <= 0.05)
+    {
+        return false;
+    }
+
+    const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
+    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
+    {
+        return false;
+    }
+
+    previousPixel = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    return previousPixel.x >= 0.0 && previousPixel.y >= 0.0 &&
+        previousPixel.x < (float)dimensions.x && previousPixel.y < (float)dimensions.y;
+}
+
+void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
+{
+    if (MotionVectorInfo.x < 0.5)
+    {
+        return;
+    }
+
+    pixel = PathTracePrimarySurfaceStorePixel(pixel);
+    const uint2 dimensions = PathTraceFullOutputSize();
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint sourceKind = PathTraceMotionVectorSourceKind(surface);
+    float2 previousPixel;
+    if (RAB_IsSurfaceValid(surface) && ProjectPrimarySurfaceToPreviousPixel(surface.worldPos, dimensions, previousPixel))
+    {
+        PathTraceMotionVectors[pixel] = previousPixel - (float2(pixel) + 0.5);
+        PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, RT_PRIMARY_SURFACE_DEBUG_OK);
+    }
+    else
+    {
+        PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
+        PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS);
+    }
+}
+
 PathTraceSmokePayload InitSmokePayload()
 {
     PathTraceSmokePayload payload = (PathTraceSmokePayload)0;
@@ -1014,7 +1140,10 @@ void RayGen()
 
     PathTraceSmokePayload payload = InitSmokePayload();
     TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
-    StorePrimarySurfaceRecord(pixel, BuildSurfaceFromPayload(payload, ray.Origin, ray.Direction));
+    const RAB_Surface surface = BuildSurfaceFromPayload(payload, ray.Origin, ray.Direction);
+    StorePrimarySurfaceRecord(pixel, surface);
+    StoreRayReconstructionGuides(pixel, surface);
+    StoreRayReconstructionMotionGuides(pixel, surface);
 }
 
 [shader("miss")]

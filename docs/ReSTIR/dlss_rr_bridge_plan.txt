@@ -1,0 +1,177 @@
+DLSS Ray Reconstruction Bridge Plan
+Date: 2026-05-16
+
+Purpose
+-------
+ReSTIR PT mode 56 is now useful enough that raw noisy previews are the main
+visual blocker. The next renderer milestone is not to tune raw reservoir output
+forever, but to make the mode-56 pass graph DLSS Ray Reconstruction-ready.
+
+This document tracks the bridge between the current ReSTIR/PT renderer and a
+future DLSS RR SDK integration.
+
+Local References
+----------------
+Use both local references, but for different reasons:
+
+- `E:\prog\references\dxvk-remix-git`
+  - Treat this as the modern DLSS RR shape reference.
+  - Relevant concepts: explicit primary depth, primary world/shading normal,
+    screen-space motion vector, roughness, hit distance, disocclusion/mask, and
+    ReSTIR GI compatibility handling before the RR dispatch.
+
+- `E:\prog\references\Q2RTX-rayreconstruction-master`
+  - Treat this as the smaller Vulkan/NGX guide-buffer reference.
+  - Relevant concepts: noisy color plus depth, motion, normal, roughness,
+    albedo/specular/emissive/material ID, and ray-length/hit-distance inputs.
+
+Do not infer that rbdoom should copy either renderer directly. The current Doom
+branch already has a full-resolution primary surface record and a mode-56 pass
+graph; the bridge should expose those facts as stable guide buffers first.
+
+Current rbdoom Anchor
+--------------------
+The primary-surface prepass is the full-resolution reconstruction anchor. Its
+`PathTracePrimarySurfaceRecord` already carries:
+
+- world position and view depth,
+- geometric normal and roughness,
+- shading normal and opacity,
+- albedo,
+- specular F0,
+- emissive radiance,
+- previous-position or motion placeholder,
+- material/surface identifiers,
+- instance/primitive identifiers.
+
+Mode 56 should remain a renderer-debug preview until the guide buffers and
+history policy are reliable. The production-like path is:
+
+1. Full-resolution primary surface / guide export.
+2. Sparse or lower-rate lighting producers.
+3. Full-resolution resolve/composite.
+4. DLSS RR or another temporal reconstruction stage.
+
+Task 01: Guide Buffer Scaffold
+------------------------------
+Status: implemented as the first bridge step.
+
+Frame resources now allocate full-resolution DLSS RR guide UAVs:
+
+- `PathTraceRRGuideAlbedo` at `u48`, `RGBA16_FLOAT`.
+- `PathTraceRRGuideNormalRoughness` at `u49`, `RGBA16_FLOAT`.
+- `PathTraceRRGuideDepth` at `u50`, `R32_FLOAT`.
+- `PathTraceRRGuideHitDistance` at `u51`, `R32_FLOAT`.
+
+The standalone primary-surface producer writes these guide buffers from the
+same surface that it stores into `PrimarySurfaceHistoryCurrent`:
+
+- albedo rgb plus opacity in alpha,
+- encoded shading normal rgb plus roughness in alpha,
+- current primary linear depth,
+- current primary hit distance, currently the same value as linear depth.
+
+Existing motion-vector outputs remain:
+
+- `PathTraceMotionVectors` at `u39`, `RG16_FLOAT`.
+- `PathTraceMotionVectorMask` at `u40`, `R32_UINT`.
+
+When `r_pathTracingMotionVectorExport 1` is enabled, the standalone
+primary-surface producer writes a bridge-grade current-to-previous pixel motion
+vector and mask. This is currently a scaffold export from the primary surface;
+the final RR gate still needs stricter object/skinned motion validation.
+
+This is intentionally an export scaffold, not an SDK call.
+
+Known Placeholders
+------------------
+- Hit distance currently equals primary hit depth. This is enough to reserve the
+  RR input and debug the resource path, but diffuse/specular lobe hit distances
+  must be split later if the RR integration needs per-lobe data.
+- Material/surface identity exists in primary-surface history, but there is not
+  yet a dedicated material-id texture.
+- Motion vectors exist, but DLSS RR must not ship against camera-only motion.
+  Object/skinned previous-position coverage must stay part of the validation
+  gate.
+- Diffuse/specular radiance separation is not final. Mode 56 still composites a
+  preview color; future RR integration should keep noisy diffuse/specular
+  channels separable where possible.
+- Transparent/translucent handling is not final. Stochastic primary hits are
+  represented, but layered glass/transmission needs its own policy.
+
+Task 02: Guide Debug Views
+--------------------------
+Status: implemented for the first bridge views.
+
+Use:
+
+  r_pathTracingDLSSRRGuideDebugView
+
+Values:
+
+- 0: off.
+- 1: albedo.
+- 2: encoded normal.
+- 3: roughness.
+- 4: depth.
+- 5: hit distance.
+- 6: motion-vector mask.
+
+These views use the standalone mode-56 combined resolve, not the old monolithic
+ReSTIR shader. They require the primary-surface prepass path because that pass
+is the current guide producer.
+
+Further debug views may still be useful for:
+
+- future material-id texture,
+- future disocclusion/reset mask,
+- future diffuse/specular separated noisy radiance.
+
+Task 03: History And Reset Contract
+-----------------------------------
+Before calling DLSS RR, define how resets and invalid history map into RR
+inputs:
+
+- output resize,
+- scene-resource replacement,
+- reservoir dispatch signature changes,
+- primary-history invalidation,
+- camera cuts,
+- object/skinned motion unavailable,
+- material/object identity mismatch,
+- translucent/stochastic-primary mismatch.
+
+The mask/disocclusion policy should be conservative. Bad history is worse than
+underusing history while the renderer is still changing.
+
+Task 04: SDK Integration
+------------------------
+No Streamline/NGX SDK is currently wired into the rbdoom repo. Do not bury the
+SDK dependency inside the mode-56 shader work.
+
+When the SDK location is known, add a narrow host-side integration layer that
+consumes:
+
+- noisy mode-56 color,
+- RR guide albedo,
+- RR guide normal/roughness,
+- RR guide depth,
+- RR guide hit distance,
+- motion vectors and mask,
+- exposure/reset data.
+
+The SDK integration should be replaceable. Keep the guide-export contract useful
+for a non-DLSS denoiser or an internal debug reconstruction path.
+
+Validation
+----------
+For the current scaffold:
+
+1. Build the PT release/dev lane.
+2. Copy `RBDoom3BFG.exe` to the prepared game folder.
+3. Copy `base\renderprogs2` after shader changes.
+4. Run mode 56 with `r_pathTracingRestirPTPrimarySurfacePrepass 1`.
+5. Confirm the frame-resource log reports:
+   `RT DLSS RR guide scaffold ... u48 ... u51`.
+6. Confirm mode 56 visuals remain unchanged apart from expected compile/load
+   churn from the touched primary-surface producer shader.

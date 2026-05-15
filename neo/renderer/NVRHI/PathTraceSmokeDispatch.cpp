@@ -30,6 +30,38 @@ namespace {
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 
+enum PathTraceGpuTimingStage
+{
+    PT_GPU_TIMING_PRIMARY_SURFACE = 0,
+    PT_GPU_TIMING_GI_INITIAL,
+    PT_GPU_TIMING_DIRECT_TEMPORAL,
+    PT_GPU_TIMING_DIRECT_SPATIAL,
+    PT_GPU_TIMING_REFLECTION,
+    PT_GPU_TIMING_FINAL_RESOLVE,
+    PT_GPU_TIMING_COUNT
+};
+
+struct PathTraceGpuTimingFrame
+{
+    bool pending = false;
+    uint64 serial = 0;
+    int debugMode = 0;
+    int width = 0;
+    int height = 0;
+    char restirPassLabel[64] = {};
+    bool stageUsed[PT_GPU_TIMING_COUNT] = {};
+    nvrhi::TimerQueryHandle queries[PT_GPU_TIMING_COUNT];
+};
+
+struct PathTraceGpuTimingCapture
+{
+    PathTraceGpuTimingFrame* frame = nullptr;
+};
+
+PathTraceGpuTimingFrame g_pathTraceGpuTimingFrames[4];
+int g_pathTraceGpuTimingWriteIndex = 0;
+uint64 g_pathTraceGpuTimingSerial = 0;
+
 nvrhi::ObjectType GetPathTraceCommandObjectType()
 {
     if (deviceManager && deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN)
@@ -38,6 +70,200 @@ nvrhi::ObjectType GetPathTraceCommandObjectType()
     }
     return nvrhi::ObjectTypes::D3D12_GraphicsCommandList;
 }
+
+void PollPathTraceGpuTimingResults()
+{
+    if (!deviceManager || !deviceManager->GetDevice())
+    {
+        return;
+    }
+
+    for (PathTraceGpuTimingFrame& frame : g_pathTraceGpuTimingFrames)
+    {
+        if (!frame.pending)
+        {
+            continue;
+        }
+
+        bool ready = true;
+        for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
+        {
+            if (frame.stageUsed[stage] && (!frame.queries[stage] || !deviceManager->GetDevice()->pollTimerQuery(frame.queries[stage])))
+            {
+                ready = false;
+                break;
+            }
+        }
+        if (!ready)
+        {
+            continue;
+        }
+
+        float stageMs[PT_GPU_TIMING_COUNT] = {};
+        float measuredTotalMs = 0.0f;
+        for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
+        {
+            if (!frame.stageUsed[stage])
+            {
+                continue;
+            }
+            stageMs[stage] = deviceManager->GetDevice()->getTimerQueryTime(frame.queries[stage]) * 1000.0f;
+            measuredTotalMs += stageMs[stage];
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: ReSTIR PT GPU timing serial=%llu mode=%d pass=%s output=%dx%d measuredTotal=%.3fms primarySurface=%.3f giInitial=%.3f directTemporal=%.3f directSpatial=%.3f reflection=%.3f finalResolve=%.3f usedMask=0x%02x\n",
+            static_cast<unsigned long long>(frame.serial),
+            frame.debugMode,
+            frame.restirPassLabel[0] ? frame.restirPassLabel : "unknown",
+            frame.width,
+            frame.height,
+            measuredTotalMs,
+            stageMs[PT_GPU_TIMING_PRIMARY_SURFACE],
+            stageMs[PT_GPU_TIMING_GI_INITIAL],
+            stageMs[PT_GPU_TIMING_DIRECT_TEMPORAL],
+            stageMs[PT_GPU_TIMING_DIRECT_SPATIAL],
+            stageMs[PT_GPU_TIMING_REFLECTION],
+            stageMs[PT_GPU_TIMING_FINAL_RESOLVE],
+            (frame.stageUsed[PT_GPU_TIMING_PRIMARY_SURFACE] ? (1u << PT_GPU_TIMING_PRIMARY_SURFACE) : 0u) |
+            (frame.stageUsed[PT_GPU_TIMING_GI_INITIAL] ? (1u << PT_GPU_TIMING_GI_INITIAL) : 0u) |
+            (frame.stageUsed[PT_GPU_TIMING_DIRECT_TEMPORAL] ? (1u << PT_GPU_TIMING_DIRECT_TEMPORAL) : 0u) |
+            (frame.stageUsed[PT_GPU_TIMING_DIRECT_SPATIAL] ? (1u << PT_GPU_TIMING_DIRECT_SPATIAL) : 0u) |
+            (frame.stageUsed[PT_GPU_TIMING_REFLECTION] ? (1u << PT_GPU_TIMING_REFLECTION) : 0u) |
+            (frame.stageUsed[PT_GPU_TIMING_FINAL_RESOLVE] ? (1u << PT_GPU_TIMING_FINAL_RESOLVE) : 0u));
+
+        frame.pending = false;
+        for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
+        {
+            frame.stageUsed[stage] = false;
+        }
+    }
+}
+
+bool EnsurePathTraceGpuTimingQueries(PathTraceGpuTimingFrame& frame)
+{
+    if (!deviceManager || !deviceManager->GetDevice())
+    {
+        return false;
+    }
+    for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
+    {
+        if (!frame.queries[stage])
+        {
+            frame.queries[stage] = deviceManager->GetDevice()->createTimerQuery();
+            if (!frame.queries[stage])
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+PathTraceGpuTimingCapture BeginPathTraceGpuTimingCapture(int debugMode, int width, int height, const char* restirPassLabel)
+{
+    PathTraceGpuTimingCapture capture;
+    if (r_pathTracingRestirPTGpuTimingDump.GetInteger() == 0)
+    {
+        return capture;
+    }
+    r_pathTracingRestirPTGpuTimingDump.SetInteger(0);
+
+    if (!glConfig.timerQueryAvailable)
+    {
+        common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing unavailable because timer queries are disabled\n");
+        return capture;
+    }
+
+    PathTraceGpuTimingFrame& frame = g_pathTraceGpuTimingFrames[g_pathTraceGpuTimingWriteIndex];
+    g_pathTraceGpuTimingWriteIndex = (g_pathTraceGpuTimingWriteIndex + 1) % static_cast<int>(sizeof(g_pathTraceGpuTimingFrames) / sizeof(g_pathTraceGpuTimingFrames[0]));
+    if (frame.pending)
+    {
+        common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing skipped because the query ring still has pending results\n");
+        return capture;
+    }
+    if (!EnsurePathTraceGpuTimingQueries(frame))
+    {
+        common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing skipped because timer query allocation failed\n");
+        return capture;
+    }
+
+    frame.pending = true;
+    frame.serial = ++g_pathTraceGpuTimingSerial;
+    frame.debugMode = debugMode;
+    frame.width = width;
+    frame.height = height;
+    idStr::Copynz(frame.restirPassLabel, restirPassLabel ? restirPassLabel : "unknown", sizeof(frame.restirPassLabel));
+    for (int stage = 0; stage < PT_GPU_TIMING_COUNT; ++stage)
+    {
+        frame.stageUsed[stage] = false;
+    }
+
+    common->Printf("PathTracePrimaryPass: ReSTIR PT GPU timing capture queued serial=%llu mode=%d pass=%s output=%dx%d\n",
+        static_cast<unsigned long long>(frame.serial),
+        frame.debugMode,
+        frame.restirPassLabel,
+        frame.width,
+        frame.height);
+
+    capture.frame = &frame;
+    return capture;
+}
+
+class PathTraceGpuMarkerScope
+{
+public:
+    PathTraceGpuMarkerScope(nvrhi::ICommandList* commandList, const char* name, bool enabled)
+        : m_commandList(enabled ? commandList : nullptr)
+    {
+        if (m_commandList && name && name[0])
+        {
+            m_commandList->beginMarker(name);
+        }
+    }
+
+    ~PathTraceGpuMarkerScope()
+    {
+        if (m_commandList)
+        {
+            m_commandList->endMarker();
+        }
+    }
+
+private:
+    nvrhi::ICommandList* m_commandList = nullptr;
+};
+
+class PathTraceGpuTimingStageScope
+{
+public:
+    PathTraceGpuTimingStageScope(const PathTraceGpuTimingCapture& capture, nvrhi::ICommandList* commandList, PathTraceGpuTimingStage stage)
+        : m_frame(capture.frame)
+        , m_commandList(commandList)
+        , m_stage(stage)
+    {
+        if (!m_frame || !m_commandList || m_stage < 0 || m_stage >= PT_GPU_TIMING_COUNT)
+        {
+            m_frame = nullptr;
+            return;
+        }
+        m_frame->stageUsed[m_stage] = true;
+        m_commandList->beginTimerQuery(m_frame->queries[m_stage]);
+    }
+
+    ~PathTraceGpuTimingStageScope()
+    {
+        if (m_frame && m_commandList)
+        {
+            m_commandList->endTimerQuery(m_frame->queries[m_stage]);
+        }
+    }
+
+private:
+    PathTraceGpuTimingFrame* m_frame = nullptr;
+    nvrhi::ICommandList* m_commandList = nullptr;
+    PathTraceGpuTimingStage m_stage = PT_GPU_TIMING_COUNT;
+};
 
 struct PathTraceSmokeConstants
 {
@@ -76,6 +302,7 @@ struct PathTraceSmokeConstants
     float restirPTDirectInfo[4];
     float restirPTSparsityInfo[4];
     float restirPTIndirectInfo[4];
+    float rayReconstructionInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -280,7 +507,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     OPTICK_EVENT("PT Dispatch");
 
     const uint64 executeStartUs = Sys_Microseconds();
-    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.restirPTReflectionTexture || !m_frameResources.readbackTexture || !m_smokeConstantsBuffer || !m_restirPTConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
+    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.restirPTReflectionTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.readbackTexture || !m_smokeConstantsBuffer || !m_restirPTConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
         !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokeEmissiveDistributionBuffer || !m_smokeLightCandidateBuffer || !m_smokeDoomAnalyticLightBuffer || !m_smokeDoomAnalyticPreviousLightBuffer ||
         !m_smokeDoomAnalyticCurrentIdentityBuffer || !m_smokeDoomAnalyticPreviousIdentityBuffer || !m_smokeDoomAnalyticRemapBuffer ||
@@ -306,7 +533,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         return;
     }
+    PollPathTraceGpuTimingResults();
     const bool optickGpuMarkers = r_pathTracingOptickGpuMarkers.GetInteger() != 0;
+    const bool nsightGpuMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
     if (optickGpuMarkers)
     {
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
@@ -479,6 +708,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         state.shaderTable = m_smokeShaderTable;
     }
     state.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
+    const bool restirPTCombinedResolveActive =
+        restirPTCombinedMode &&
+        restirPTCombinedResolveRequested &&
+        state.shaderTable == m_smokeRestirCombinedResolveShaderTable;
     const bool restirPTPreviewVisibility = r_pathTracingRestirPTPreviewVisibility.GetInteger() != 0 && !PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY);
     RtPathTraceRestirPassPlan restirPTPassPlan = BuildPathTraceRestirPassPlan(debugMode, restirPTPreviewVisibility);
     if (mode18RestirDirectMode)
@@ -682,6 +915,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         m_frameResources.restirPTReservoirNeedsClear = true;
     }
+    const float restirPTSpatialRadius = idMath::ClampFloat(1.0f, 128.0f,
+        restirPTCombinedMode
+            ? r_pathTracingRestirPTCombinedSpatialRadius.GetFloat()
+            : r_pathTracingRestirPTSpatialRadius.GetFloat());
     const RtRestirPTContextUpdateDesc restirPTContextDesc = BuildRestirPTContextUpdateDesc(
         restirPTPassPlan,
         static_cast<uint32_t>(restirPTDirectWidth),
@@ -693,7 +930,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingRestirPTTemporalReservoirReuse.GetInteger() != 0,
         r_pathTracingRestirPTTemporalFallbackSampling.GetInteger() != 0,
         static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingRestirPTSpatialSamples.GetInteger())),
-        idMath::ClampFloat(1.0f, 128.0f, r_pathTracingRestirPTSpatialRadius.GetFloat()));
+        restirPTSpatialRadius);
     if (!UpdateRestirPTContextState(m_frameResources.restirPTContextState, restirPTContextDesc))
     {
         return;
@@ -708,11 +945,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool giInitialStandalone = giConsumesPrimary && restirPTCombinedMode && m_smokeRestirIndirectInitialProducerShaderTable;
         const bool directTemporalStandalone = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectTemporalProducerShaderTable;
         const bool directSpatialStandalone = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && m_smokeRestirDirectSpatialReservoirProducerShaderTable;
-        const bool finalUsesStandaloneResolve = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && state.shaderTable == m_smokeRestirCombinedResolveShaderTable;
+        const bool finalUsesStandaloneResolve = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedResolveActive;
         const bool reflectionProducer = finalUsesStandaloneResolve && restirPTReflectionMode > 0 && m_smokeRestirReflectionProducerShaderTable;
         const bool finalConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode;
         const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -743,6 +980,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             finalConsumesPrimary ? 1 : 0,
             finalUsesStandaloneResolve ? 1 : 0,
             reflectionProducer ? 1 : 0,
+            idMath::ClampInt(0, 6, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
+            nsightGpuMarkers ? 1 : 0,
             restirPTBufferSelection.initialOutput,
             restirPTBufferSelection.temporalInput,
             restirPTBufferSelection.temporalOutput,
@@ -765,6 +1004,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTContextDesc.spatialRadius);
         r_pathTracingRestirPTPassDump.SetInteger(0);
     }
+
+    PathTraceGpuTimingCapture gpuTimingCapture = BeginPathTraceGpuTimingCapture(
+        debugMode,
+        m_frameResources.width,
+        m_frameResources.height,
+        restirPTPassPlan.label);
 
     PathTraceSmokeConstants constants = {};
     constants.cameraOriginAndTMax[0] = cameraOrigin.x;
@@ -911,6 +1156,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTIndirectInfo[1] = stagedRestirGiInitialMode ? 1.0f : 0.0f;
     constants.restirPTIndirectInfo[2] = static_cast<float>(restirPTGiRaySparsity);
     constants.restirPTIndirectInfo[3] = static_cast<float>(restirPTGiRaySparsityPhase);
+    constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 6, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
+    constants.rayReconstructionInfo[1] = 0.0f;
+    constants.rayReconstructionInfo[2] = 0.0f;
+    constants.rayReconstructionInfo[3] = 0.0f;
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] =
@@ -1148,6 +1397,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
     }
     else
@@ -1195,6 +1448,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
     }
     const uint64 barrierCompleteUs = Sys_Microseconds();
@@ -1261,6 +1518,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         OPTICK_GPU_EVENT("PT GPU Clear Dispatch Targets");
         commandList->clearTextureFloat(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
         commandList->clearTextureFloat(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.5f, 0.5f, 1.0f, 1.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         if (accumulationFrameCount == 0)
         {
             commandList->clearTextureFloat(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
@@ -1274,6 +1535,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         commandList->clearTextureFloat(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
         commandList->clearTextureFloat(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.5f, 0.5f, 1.0f, 1.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+        commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         if (accumulationFrameCount == 0)
         {
             commandList->clearTextureFloat(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
@@ -1375,34 +1640,48 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         nvrhi::rt::State primarySurfacePrepassState = state;
         primarySurfacePrepassState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
-        if (optickGpuMarkers)
         {
-            OPTICK_GPU_EVENT("PT GPU ReSTIR Primary Surface Prepass");
-            commandList->setRayTracingState(primarySurfacePrepassState);
-            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
-        }
-        else
-        {
-            commandList->setRayTracingState(primarySurfacePrepassState);
-            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
+            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.0 PrimarySurfacePrepass DispatchRays", nsightGpuMarkers);
+            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_PRIMARY_SURFACE);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU ReSTIR Primary Surface Prepass");
+                commandList->setRayTracingState(primarySurfacePrepassState);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
+            }
+            else
+            {
+                commandList->setRayTracingState(primarySurfacePrepassState);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_PRIMARY_SURFACE_ONLY);
+            }
         }
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
     }
     if (indirectNeedsInitialPrepass)
     {
         nvrhi::rt::State indirectPrepassState = state;
         indirectPrepassState.shaderTable = indirectInitialShaderTable;
-        if (optickGpuMarkers)
         {
-            OPTICK_GPU_EVENT("PT GPU ReSTIR Indirect Initial Prepass");
-            commandList->setRayTracingState(indirectPrepassState);
-            dispatchSmokeRays(restirGiProducerArgs, restirPTGiProducerWidth, m_frameResources.height, restirIndirectProducerDispatchMode, true, restirPTGiRaySparsity > 1);
-        }
-        else
-        {
-            commandList->setRayTracingState(indirectPrepassState);
-            dispatchSmokeRays(restirGiProducerArgs, restirPTGiProducerWidth, m_frameResources.height, restirIndirectProducerDispatchMode, true, restirPTGiRaySparsity > 1);
+            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.1 GIInitialProducer DispatchRays", nsightGpuMarkers);
+            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_GI_INITIAL);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU ReSTIR Indirect Initial Prepass");
+                commandList->setRayTracingState(indirectPrepassState);
+                dispatchSmokeRays(restirGiProducerArgs, restirPTGiProducerWidth, m_frameResources.height, restirIndirectProducerDispatchMode, true, restirPTGiRaySparsity > 1);
+            }
+            else
+            {
+                commandList->setRayTracingState(indirectPrepassState);
+                dispatchSmokeRays(restirGiProducerArgs, restirPTGiProducerWidth, m_frameResources.height, restirIndirectProducerDispatchMode, true, restirPTGiRaySparsity > 1);
+            }
         }
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
@@ -1416,16 +1695,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         // dispatch before the spatial shader consumes them.
         nvrhi::rt::State temporalPrepassState = state;
         temporalPrepassState.shaderTable = temporalPrepassShaderTable;
-        if (optickGpuMarkers)
         {
-            OPTICK_GPU_EVENT("PT GPU ReSTIR Spatial Temporal Prepass");
-            commandList->setRayTracingState(temporalPrepassState);
-            dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
-        }
-        else
-        {
-            commandList->setRayTracingState(temporalPrepassState);
-            dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
+            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.2 DirectTemporalProducer DispatchRays", nsightGpuMarkers);
+            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_DIRECT_TEMPORAL);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU ReSTIR Spatial Temporal Prepass");
+                commandList->setRayTracingState(temporalPrepassState);
+                dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
+            }
+            else
+            {
+                commandList->setRayTracingState(temporalPrepassState);
+                dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
+            }
         }
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
@@ -1436,16 +1719,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         nvrhi::rt::State spatialPrepassState = state;
         spatialPrepassState.shaderTable = spatialPrepassShaderTable;
-        if (optickGpuMarkers)
         {
-            OPTICK_GPU_EVENT("PT GPU ReSTIR Spatial Reservoir Prepass");
-            commandList->setRayTracingState(spatialPrepassState);
-            dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
-        }
-        else
-        {
-            commandList->setRayTracingState(spatialPrepassState);
-            dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
+            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.3 DirectSpatialReservoirProducer DispatchRays", nsightGpuMarkers);
+            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_DIRECT_SPATIAL);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU ReSTIR Spatial Reservoir Prepass");
+                commandList->setRayTracingState(spatialPrepassState);
+                dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
+            }
+            else
+            {
+                commandList->setRayTracingState(spatialPrepassState);
+                dispatchSmokeRays(restirDirectProducerArgs, restirPTDirectProducerWidth, restirPTDirectHeight, stagedRestirDirectLightingMode ? restirDirectProducerDispatchMode : RT_RESTIR_PT_SHADER_DISPATCH_FULL);
+            }
         }
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
@@ -1460,16 +1747,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         nvrhi::rt::State reflectionProducerState = state;
         reflectionProducerState.shaderTable = m_smokeRestirReflectionProducerShaderTable;
-        if (optickGpuMarkers)
         {
-            OPTICK_GPU_EVENT("PT GPU ReSTIR Reflection Producer");
-            commandList->setRayTracingState(reflectionProducerState);
-            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY);
-        }
-        else
-        {
-            commandList->setRayTracingState(reflectionProducerState);
-            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY);
+            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.4 ReflectionProducer DispatchRays", nsightGpuMarkers);
+            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_REFLECTION);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU ReSTIR Reflection Producer");
+                commandList->setRayTracingState(reflectionProducerState);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY);
+            }
+            else
+            {
+                commandList->setRayTracingState(reflectionProducerState);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, RT_RESTIR_PT_SHADER_DISPATCH_FULL_CONSUME_PRIMARY);
+            }
         }
 
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.restirPTReflectionTexture);
@@ -1487,24 +1778,31 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 setStateCompleteUs = Sys_Microseconds();
 
     const uint64 dispatchRaysStartUs = setStateCompleteUs;
-    if (dispatchTileSettings.enabled)
     {
-        if (optickGpuMarkers)
+        PathTraceGpuMarkerScope finalDispatchNsightMarker(
+            commandList,
+            restirPTCombinedResolveActive ? "PT56.5 CombinedResolve DispatchRays" : "PT Final DispatchRays",
+            nsightGpuMarkers);
+        PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_FINAL_RESOLVE);
+        if (dispatchTileSettings.enabled)
         {
-            OPTICK_GPU_EVENT("PT GPU Dispatch Ray Tiles");
-        }
-        dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
-    }
-    else
-    {
-        if (optickGpuMarkers)
-        {
-            OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU Dispatch Ray Tiles");
+            }
             dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
         }
         else
         {
-            dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU Dispatch Rays");
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
+            }
+            else
+            {
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode);
+            }
         }
     }
     const uint64 dispatchRaysCompleteUs = Sys_Microseconds();
@@ -1611,6 +1909,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.primaryHistoryClearRequested = primaryHistoryClearRequested;
         timingDesc.readbackQueued = readbackQueuedThisFrame;
         timingDesc.optickGpuMarkers = optickGpuMarkers;
+        timingDesc.nsightGpuMarkers = nsightGpuMarkers;
         timingDesc.debugModeInfo = &debugModeInfo;
         timingDesc.restirPassLabel = restirPTPassPlan.label;
         LogPathTraceDispatchTiming(timingDesc);

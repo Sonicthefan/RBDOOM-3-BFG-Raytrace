@@ -319,6 +319,11 @@ DLSS RR should eventually receive or derive stable full-resolution guide inputs:
 
 Because DLSS RR expects strong guide buffers, do not sacrifice full-resolution primary data to make ReSTIR cheaper. Make lighting cheaper, then reconstruct/denoise against stable full-resolution data.
 
+The first guide-buffer scaffold is now tracked in
+`docs/ReSTIR/dlss_rr_bridge_plan.txt`. The standalone primary-surface producer
+exports albedo, normal+roughness, depth, and hit-distance UAVs at full output
+resolution while reusing the existing motion-vector textures.
+
 Future Domain Expansion
 -----------------------
 After the real pass structure is stable:

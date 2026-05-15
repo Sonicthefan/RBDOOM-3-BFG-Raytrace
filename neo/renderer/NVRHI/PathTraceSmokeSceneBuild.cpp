@@ -993,7 +993,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 
-    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.motionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
+    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.motionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
         return;
     }
@@ -2558,6 +2558,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.restirPTReflectionTexture = m_frameResources.restirPTReflectionTexture;
     bindingBuildDesc.motionVectorTexture = m_frameResources.motionVectorTexture;
     bindingBuildDesc.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
+    bindingBuildDesc.rrGuideAlbedoTexture = m_frameResources.rrGuideAlbedoTexture;
+    bindingBuildDesc.rrGuideNormalRoughnessTexture = m_frameResources.rrGuideNormalRoughnessTexture;
+    bindingBuildDesc.rrGuideDepthTexture = m_frameResources.rrGuideDepthTexture;
+    bindingBuildDesc.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
     bindingBuildDesc.fallbackTexture = fallbackTexture;
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
     bindingBuildDesc.restirPTConstantsBuffer = m_restirPTConstantsBuffer;

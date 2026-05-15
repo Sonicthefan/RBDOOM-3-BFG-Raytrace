@@ -342,15 +342,25 @@ PathTraceSmokeDispatch.cpp
     setup, ReSTIR context update, constants upload, barriers, clears, RT
     dispatch submission, primary-history copy, and optional readback. These are
     command-submission timings around the monolithic raygen, not GPU duration
-    measurements for separated shader passes. The dispatch constants also carry
+    measurements for separated shader passes. `r_pathTracingNsightGpuMarkers 1`
+    adds NVRHI command-list markers around each PT/ReSTIR `DispatchRays` call so
+    Nsight can attribute mode-56 cost to primary surface, GI initial, direct
+    temporal, direct spatial, reflection, or combined resolve stages. If Nsight
+    does not show those labels, `r_pathTracingRestirPTGpuTimingDump 1` captures
+    one frame of NVRHI GPU timestamp timings for the same dispatch stages and
+    prints the result once the query data is ready. Mode 56 uses the separate
+    `r_pathTracingRestirPTCombinedSpatialRadius` CVar for its direct spatial
+    producer so the combined preview can default to radius 1 without changing
+    the wider mode 50/51 diagnostic radius. The dispatch constants also carry
     shader-side safety metadata: a diagnostic kill-mask plus static/dynamic/
     rigid-route geometry capacities and primary-history/smoke-reservoir
-    capacities. `r_pathTracingSafetyDump 1` prints the pre-dispatch safety state
-    once, and the `r_pathTracingDisable*` kill switches can independently
-    disable any-hit alpha rejection, selected light loops, analytic light loops,
-    emissive triangle sampling, diffuse secondary rays, reflection rays,
-    primary-surface history writes/copies, reservoir writes, and ReSTIR preview
-    visibility rays. `r_pathTracingDispatchTileEnable` can split the same
+    capacities. `r_pathTracingSafetyDump 1`
+    prints the pre-dispatch safety state once, and the `r_pathTracingDisable*`
+    kill switches can independently disable any-hit alpha rejection, selected
+    light loops, analytic light loops, emissive triangle sampling, diffuse
+    secondary rays, reflection rays, primary-surface history writes/copies,
+    reservoir writes, and ReSTIR preview visibility rays.
+    `r_pathTracingDispatchTileEnable` can split the same
     full-screen raygen work into sequential screen-space `DispatchRays` tiles
     for device-removal diagnosis; clears remain outside the tile loop and the
     shader uses absolute full-frame pixels for output/history/reservoir indexing.
@@ -1252,6 +1262,23 @@ Q2RTX Ray Reconstruction reference fork in
 E:\prog\references\Q2RTX-rayreconstruction-master stores previous triangle
 positions and previous instance transforms, then projects current and previous
 hit positions in shader to write motion.
+
+ReSTIR PT mode 56 now has the first DLSS RR guide-buffer bridge. The
+full-resolution primary-surface producer writes:
+
+- `u48` `PathTraceRRGuideAlbedo`, `RGBA16_FLOAT`.
+- `u49` `PathTraceRRGuideNormalRoughness`, `RGBA16_FLOAT`.
+- `u50` `PathTraceRRGuideDepth`, `R32_FLOAT`.
+- `u51` `PathTraceRRGuideHitDistance`, `R32_FLOAT`.
+
+The existing motion-vector scaffold remains `u39/u40`. This is not a DLSS RR
+SDK integration; it is the explicit guide export needed before one. The task
+plan is `docs/ReSTIR/dlss_rr_bridge_plan.txt`. Use
+`r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect albedo, normal,
+roughness, depth, hit distance, and motion-mask guide output without loading the
+old monolithic ReSTIR shader. With `r_pathTracingMotionVectorExport 1`, the
+standalone primary-surface producer writes `u39/u40` directly for this bridge
+path.
 
 Implications for PathTraceGeometryUniverse:
 

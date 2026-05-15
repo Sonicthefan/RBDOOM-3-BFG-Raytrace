@@ -98,6 +98,18 @@ When `r_pathTracingRestirPTPrimarySurfacePrepass 1` is enabled, the GI initial
 producer, direct temporal/spatial producers, and mode 56 final combined
 consumer can all consume `PrimarySurfaceHistoryCurrent`. Pass dumps report this
 with `giConsumesPrimary`, `directConsumesPrimary`, and `finalConsumesPrimary`.
+The same standalone primary-surface producer now exports the first DLSS Ray
+Reconstruction guide scaffold: albedo `u48`, normal+roughness `u49`, depth
+`u50`, and hit distance `u51`. Existing motion-vector outputs remain `u39/u40`.
+This is a guide-buffer bridge only; no DLSS RR SDK call is wired yet. The bridge
+plan lives in `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
+Use `r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect those guide
+outputs through the standalone resolve: 1 albedo, 2 normal, 3 roughness, 4
+depth, 5 hit distance, 6 motion-vector mask.
+When `r_pathTracingMotionVectorExport 1` is enabled, the standalone
+primary-surface producer writes the bridge motion-vector/mask UAVs too, so the
+primary-prepass mode-56 path no longer depends on the monolithic shader for
+`u39/u40`.
 
 Direct and GI sparsity now use real sparse producer dispatch widths instead of
 only full-domain dispatch plus inactive-pixel early return. Pass dumps report
@@ -271,6 +283,12 @@ controlled by:
 
   r_pathTracingRestirPTSpatialSamples
   r_pathTracingRestirPTSpatialRadius
+
+Mode 56 uses `r_pathTracingRestirPTCombinedSpatialRadius` instead of the shared
+mode 50/51 radius. Its default is 1 because GPU timing isolated
+`DirectSpatialReservoirProducer` as the dominant frame-time cost and runtime
+testing showed radius 1 recovering roughly 20-40% FPS, while radius 4 and wider
+had similar cost.
 
 The spatial depth/normal validation thresholds currently reuse the temporal
 threshold CVars above. The disocclusion boost sample count is clamped to the
@@ -457,6 +475,20 @@ Main Gaps
   documented in `docs/ReSTIR/real_pass_structure_plan.txt`: full-resolution
   primary surface, explicit direct/GI lighting domains, and full-resolution
   reconstruction/resolve before reflections.
+- For Nsight Graphics profiling, use `r_pathTracingNsightGpuMarkers 1` to label
+  the mode-56 `DispatchRays` sequence in the command stream. Expected labels are
+  `PT56.0 PrimarySurfacePrepass DispatchRays`, `PT56.1 GIInitialProducer
+  DispatchRays`, `PT56.2 DirectTemporalProducer DispatchRays`, `PT56.3
+  DirectSpatialReservoirProducer DispatchRays`, `PT56.4 ReflectionProducer
+  DispatchRays`, and `PT56.5 CombinedResolve DispatchRays`.
+  `r_pathTracingRestirPTPassDump 1` prints `nsightMarkers=1`, and
+  `r_pathTracingPassTimingDump 1` prints `nsightGpuMarkers=1` when the marker
+  CVar is active.
+- If Nsight does not display command-list labels, use
+  `r_pathTracingRestirPTGpuTimingDump 1`. It captures one frame of NVRHI GPU
+  timestamp timings and prints primary-surface, GI-initial, direct-temporal,
+  direct-spatial, reflection, and final-resolve GPU milliseconds when the query
+  results are ready.
 
 Recommended Next Milestone
 --------------------------

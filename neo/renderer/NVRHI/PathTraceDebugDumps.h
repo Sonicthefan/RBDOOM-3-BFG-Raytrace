@@ -60,6 +60,7 @@ struct RtPathTraceDispatchTimingLogDesc
     bool primaryHistoryClearRequested = false;
     bool readbackQueued = false;
     bool optickGpuMarkers = false;
+    bool nsightGpuMarkers = false;
     const RtPathTraceDebugModeInfo* debugModeInfo = nullptr;
     const char* restirPassLabel = "disabled";
 };

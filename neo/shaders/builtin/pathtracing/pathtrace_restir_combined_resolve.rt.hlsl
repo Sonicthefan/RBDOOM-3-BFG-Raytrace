@@ -74,7 +74,12 @@ struct PathTraceDoomAnalyticLightRemap
 #include "PathTracePrimarySurface.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness : register(u49);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -127,6 +132,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;
+    float4 RayReconstructionInfo;
 };
 
 static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
@@ -721,6 +727,62 @@ float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
     return float4(saturate(lighting + RestirPTReflectionOutput[pixel].rgb), 1.0);
 }
 
+uint RayReconstructionGuideDebugView()
+{
+    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 6u);
+}
+
+float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
+{
+    const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
+    if (view == 1u)
+    {
+        const float3 guideAlbedo = PathTraceRRGuideAlbedo[pixel].rgb;
+        const float3 historyAlbedo = RAB_IsSurfaceValid(surface) ? surface.material.diffuseAlbedo : float3(0.0, 0.0, 0.0);
+        const float3 albedo = RAB_Luminance(guideAlbedo) > 0.0 ? guideAlbedo : historyAlbedo;
+        return float4(saturate(albedo), 1.0);
+    }
+    if (view == 2u)
+    {
+        const float3 guideNormal = PathTraceRRGuideNormalRoughness[pixel].rgb;
+        const float3 historyNormal = RAB_IsSurfaceValid(surface) ? surface.shadingNormal * 0.5 + 0.5 : float3(0.5, 0.5, 1.0);
+        const float normalHasGuide = any(abs(guideNormal - float3(0.5, 0.5, 1.0)) > float3(0.001, 0.001, 0.001)) ? 1.0 : 0.0;
+        return float4(saturate(lerp(historyNormal, guideNormal, normalHasGuide)), 1.0);
+    }
+    if (view == 3u)
+    {
+        float roughness = saturate(PathTraceRRGuideNormalRoughness[pixel].a);
+        if (roughness >= 0.999 && RAB_IsSurfaceValid(surface))
+        {
+            roughness = saturate(surface.material.roughness);
+        }
+        return float4(roughness, roughness, roughness, 1.0);
+    }
+    if (view == 4u)
+    {
+        float depth = PathTraceRRGuideDepth[pixel];
+        if (depth <= 0.0 && RAB_IsSurfaceValid(surface))
+        {
+            depth = surface.linearDepth;
+        }
+        const float normalizedDepth = saturate(depth / 4096.0);
+        return float4(normalizedDepth, normalizedDepth, normalizedDepth, 1.0);
+    }
+    if (view == 5u)
+    {
+        float hitDistance = PathTraceRRGuideHitDistance[pixel];
+        if (hitDistance <= 0.0 && RAB_IsSurfaceValid(surface))
+        {
+            hitDistance = surface.linearDepth;
+        }
+        const float normalizedHitDistance = saturate(hitDistance / 4096.0);
+        return float4(normalizedHitDistance, normalizedHitDistance, normalizedHitDistance, 1.0);
+    }
+
+    const uint motionMask = PathTraceMotionVectorMask[pixel];
+    return motionMask != 0u ? float4(0.1, 0.85, 0.2, 1.0) : float4(0.02, 0.02, 0.02, 1.0);
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -728,6 +790,13 @@ void RayGen()
     const uint2 dimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
+        return;
+    }
+
+    const uint guideDebugView = RayReconstructionGuideDebugView();
+    if (guideDebugView != 0u)
+    {
+        SmokeOutput[pixel] = EvaluateRayReconstructionGuideDebug(pixel, guideDebugView);
         return;
     }
 

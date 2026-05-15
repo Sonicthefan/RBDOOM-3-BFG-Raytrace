@@ -813,6 +813,12 @@ idCVar r_pathTracingRestirPTSpatialRadius(
     CVAR_RENDERER | CVAR_FLOAT,
     "Mode 50 ReSTIR PT spatial neighbor sampling radius in pixels" );
 
+idCVar r_pathTracingRestirPTCombinedSpatialRadius(
+    "r_pathTracingRestirPTCombinedSpatialRadius",
+    "1",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Mode 56 ReSTIR PT direct spatial neighbor radius in pixels; kept separate from diagnostic modes 50/51" );
+
 idCVar r_pathTracingRestirPTSpatialDiagnosticView(
     "r_pathTracingRestirPTSpatialDiagnosticView",
     "0",
@@ -1053,6 +1059,18 @@ idCVar r_pathTracingOptickGpuMarkers(
     CVAR_RENDERER | CVAR_INTEGER,
     "Enable experimental Optick GPU markers inside the RT smoke/path tracing build and dispatch passes" );
 
+idCVar r_pathTracingNsightGpuMarkers(
+    "r_pathTracingNsightGpuMarkers",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable NVRHI GPU debug markers around RT smoke/path tracing dispatches for Nsight captures" );
+
+idCVar r_pathTracingRestirPTGpuTimingDump(
+    "r_pathTracingRestirPTGpuTimingDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to capture and print one frame of ReSTIR PT per-dispatch GPU timestamp timings" );
+
 idCVar r_pathTracingReservoirDump(
     "r_pathTracingReservoirDump",
     "0",
@@ -1094,6 +1112,12 @@ idCVar r_pathTracingRestirPTMode18HeavyDirect(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Heavy-handed mode 18 ReSTIR hybrid test: 0 only replace primary direct NEE, 1 also suppress native secondary/reflection direct NEE so ReSTIR primary direct is easier to isolate" );
+
+idCVar r_pathTracingDLSSRRGuideDebugView(
+    "r_pathTracingDLSSRRGuideDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask" );
 
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",

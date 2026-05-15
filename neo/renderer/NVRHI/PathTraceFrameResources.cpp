@@ -23,6 +23,24 @@ uint64_t EstimateRg16FloatTextureBytes(int width, int height)
     return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4ull;
 }
 
+uint64_t EstimateRgba16FloatTextureBytes(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+    {
+        return 0;
+    }
+    return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 8ull;
+}
+
+uint64_t EstimateR32FloatTextureBytes(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+    {
+        return 0;
+    }
+    return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4ull;
+}
+
 uint64_t EstimateR32UintTextureBytes(int width, int height)
 {
     if (width <= 0 || height <= 0)
@@ -70,12 +88,14 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     primarySurfaceHistoryBuffersRecreated = 0;
     motionVectorTexturesCreated = 0;
     motionVectorMaskTexturesCreated = 0;
+    rrGuideTexturesCreated = 0;
     outputTextureBytes = 0;
     smokeReservoirBytes = 0;
     restirPTReservoirBytes = 0;
     primarySurfaceHistoryBytes = 0;
     motionVectorBytes = 0;
     motionVectorMaskBytes = 0;
+    rrGuideBytes = 0;
 }
 
 bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeight, rtxdi::CheckerboardMode checkerboardMode) const
@@ -86,6 +106,10 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         restirPTReflectionTexture &&
         motionVectorTexture &&
         motionVectorMaskTexture &&
+        rrGuideAlbedoTexture &&
+        rrGuideNormalRoughnessTexture &&
+        rrGuideDepthTexture &&
+        rrGuideHitDistanceTexture &&
         readbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
@@ -102,6 +126,10 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         restirPTReflectionTexture ||
         motionVectorTexture ||
         motionVectorMaskTexture ||
+        rrGuideAlbedoTexture ||
+        rrGuideNormalRoughnessTexture ||
+        rrGuideDepthTexture ||
+        rrGuideHitDistanceTexture ||
         readbackTexture ||
         smokeReservoirBuffers.current ||
         smokeReservoirBuffers.previous ||
@@ -197,6 +225,42 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    nvrhi::TextureDesc rrGuideRgba16Desc = outputDesc;
+    rrGuideRgba16Desc.format = nvrhi::Format::RGBA16_FLOAT;
+    rrGuideRgba16Desc.debugName = "PathTraceRRGuideAlbedo";
+    nvrhi::TextureHandle newRrGuideAlbedoTexture = device->createTexture(rrGuideRgba16Desc);
+    if (!newRrGuideAlbedoTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR albedo guide UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    rrGuideRgba16Desc.debugName = "PathTraceRRGuideNormalRoughness";
+    nvrhi::TextureHandle newRrGuideNormalRoughnessTexture = device->createTexture(rrGuideRgba16Desc);
+    if (!newRrGuideNormalRoughnessTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR normal/roughness guide UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    nvrhi::TextureDesc rrGuideR32Desc = outputDesc;
+    rrGuideR32Desc.format = nvrhi::Format::R32_FLOAT;
+    rrGuideR32Desc.debugName = "PathTraceRRGuideDepth";
+    nvrhi::TextureHandle newRrGuideDepthTexture = device->createTexture(rrGuideR32Desc);
+    if (!newRrGuideDepthTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR depth guide UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    rrGuideR32Desc.debugName = "PathTraceRRGuideHitDistance";
+    nvrhi::TextureHandle newRrGuideHitDistanceTexture = device->createTexture(rrGuideR32Desc);
+    if (!newRrGuideHitDistanceTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR hit-distance guide UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     nvrhi::TextureDesc readbackDesc = outputDesc;
     readbackDesc.isShaderResource = false;
     readbackDesc.isUAV = false;
@@ -220,16 +284,24 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     restirPTReflectionTexture = newRestirPTReflectionTexture;
     motionVectorTexture = newMotionVectorTexture;
     motionVectorMaskTexture = newMotionVectorMaskTexture;
+    rrGuideAlbedoTexture = newRrGuideAlbedoTexture;
+    rrGuideNormalRoughnessTexture = newRrGuideNormalRoughnessTexture;
+    rrGuideDepthTexture = newRrGuideDepthTexture;
+    rrGuideHitDistanceTexture = newRrGuideHitDistanceTexture;
     readbackTexture = newReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
     diagnostics.outputTexturesCreated += 3;
     diagnostics.motionVectorTexturesCreated++;
     diagnostics.motionVectorMaskTexturesCreated++;
+    diagnostics.rrGuideTexturesCreated += 4;
     diagnostics.diagnosticReadbackResourcesCreated++;
     diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 3ull;
     diagnostics.motionVectorBytes = EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
+    diagnostics.rrGuideBytes =
+        EstimateRgba16FloatTextureBytes(width, height) * 2ull +
+        EstimateR32FloatTextureBytes(width, height) * 2ull;
     MarkResetReason(RT_FRAME_RESET_OUTPUT_RESIZE);
 
     RtSmokeReservoirBufferCreateDesc reservoirDesc;
@@ -339,6 +411,11 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
+    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 bytes=%llu producer=primary-surface-prepass\n",
+        requestedWidth,
+        requestedHeight,
+        static_cast<unsigned long long>(diagnostics.rrGuideBytes));
+
     common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47\n", requestedWidth, requestedHeight);
     return true;
 }
@@ -350,6 +427,10 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     restirPTReflectionTexture = nullptr;
     motionVectorTexture = nullptr;
     motionVectorMaskTexture = nullptr;
+    rrGuideAlbedoTexture = nullptr;
+    rrGuideNormalRoughnessTexture = nullptr;
+    rrGuideDepthTexture = nullptr;
+    rrGuideHitDistanceTexture = nullptr;
     readbackTexture = nullptr;
     width = 0;
     height = 0;
@@ -499,7 +580,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
     idStr resetReasons;
     DescribeResetReasons(resetReasons);
 
-    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/motion/motionMask/readback=%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/readback=%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
+    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
         prefix ? prefix : "PathTraceFrameResources",
         width,
         height,
@@ -511,6 +592,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         accumulationTexture ? 1 : 0,
         motionVectorTexture ? 1 : 0,
         motionVectorMaskTexture ? 1 : 0,
+        (rrGuideAlbedoTexture && rrGuideNormalRoughnessTexture && rrGuideDepthTexture && rrGuideHitDistanceTexture) ? 1 : 0,
         readbackTexture ? 1 : 0,
         smokeReservoirBuffers.IsValidFor(width, height) ? 1 : 0,
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(width), static_cast<uint32_t>(height), settings.checkerboardMode) ? 1 : 0,
@@ -523,6 +605,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         static_cast<unsigned long long>(diagnostics.outputTextureBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes),
+        static_cast<unsigned long long>(diagnostics.rrGuideBytes),
         static_cast<unsigned long long>(diagnostics.smokeReservoirBytes),
         static_cast<unsigned long long>(diagnostics.restirPTReservoirBytes),
         static_cast<unsigned long long>(diagnostics.primarySurfaceHistoryBytes),
@@ -530,6 +613,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         diagnostics.outputTexturesCreated,
         diagnostics.motionVectorTexturesCreated,
         diagnostics.motionVectorMaskTexturesCreated,
+        diagnostics.rrGuideTexturesCreated,
         diagnostics.diagnosticReadbackResourcesCreated,
         diagnostics.smokeReservoirBuffersReused,
         diagnostics.smokeReservoirBuffersRecreated,

@@ -350,7 +350,7 @@ void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc)
 {
     const RtPathTraceDebugModeInfo fallbackInfo = GetPathTraceDebugModeInfo(desc.debugMode);
     const RtPathTraceDebugModeInfo& info = desc.debugModeInfo ? *desc.debugModeInfo : fallbackInfo;
-    common->Printf("PathTracePrimaryPass: PT pass timing total=%.3fms setup=%.3f restirContext=%.3f constants=%.3f barriers=%.3f clear(reservoir=%.3f primaryHistory=%.3f targets=%.3f) setState=%.3f dispatchSubmit=%.3f historyCopy=%.3f readback=%.3f output=%dx%d dispatch=%dx%d mode=%d '%s' category=%s output='%s' owner=%s restirPass=%s resampling=%d spp=%d maxDepth=%d estimatedRaysPerPixel=%d lights selected/analytic=%d/%d restirVisibility=%d previewMaxPixels=%d requestedClears reservoir/primaryHistory=%d/%d readbackQueued=%d optickGpuMarkers=%d\n",
+    common->Printf("PathTracePrimaryPass: PT pass timing total=%.3fms setup=%.3f restirContext=%.3f constants=%.3f barriers=%.3f clear(reservoir=%.3f primaryHistory=%.3f targets=%.3f) setState=%.3f dispatchSubmit=%.3f historyCopy=%.3f readback=%.3f output=%dx%d dispatch=%dx%d mode=%d '%s' category=%s output='%s' owner=%s restirPass=%s resampling=%d spp=%d maxDepth=%d estimatedRaysPerPixel=%d lights selected/analytic=%d/%d restirVisibility=%d previewMaxPixels=%d requestedClears reservoir/primaryHistory=%d/%d readbackQueued=%d optickGpuMarkers=%d nsightGpuMarkers=%d\n",
         desc.totalSubmitMs,
         desc.setupMs,
         desc.restirContextMs,
@@ -384,7 +384,8 @@ void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc)
         desc.reservoirClearRequested ? 1 : 0,
         desc.primaryHistoryClearRequested ? 1 : 0,
         desc.readbackQueued ? 1 : 0,
-        desc.optickGpuMarkers ? 1 : 0);
+        desc.optickGpuMarkers ? 1 : 0,
+        desc.nsightGpuMarkers ? 1 : 0);
 }
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)

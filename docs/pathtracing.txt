@@ -937,6 +937,13 @@ Ray dispatch safety diagnostics:
   Mode 50/51 RTXDI_PTSpatialResampling neighbor sampling radius in pixels.
   Defaults to 16 and clamps to 1..128.
 
+- r_pathTracingRestirPTCombinedSpatialRadius
+  Mode 56 direct spatial-reservoir neighbor sampling radius in pixels. Defaults
+  to 1 and clamps to 1..128. This is separate from the mode 50/51 diagnostic
+  radius because profiling showed the direct spatial producer dominates mode 56
+  frame time and radius 1 can recover roughly 20-40% FPS versus the wider
+  diagnostic radius.
+
 - r_pathTracingRestirPTSpatialDiagnosticView
   Mode 51 diagnostic selector. Defaults to 0 for normal spatial source
   attribution. Set to 1 to show spatial acceptance/source-change status:
@@ -1001,6 +1008,18 @@ Denoise/upscale/Ray Reconstruction reservation:
   depth, motion vectors, hit distance, diffuse/specular separation, exposure,
   and history reset reasons. Primary-surface history already reserves several
   material/motion fields, but camera-only reprojection is not enough for DLSS/RR.
+- The first DLSS RR bridge scaffold is now explicit: the standalone
+  primary-surface producer exports full-resolution guide UAVs for albedo
+  (`u48`), normal+roughness (`u49`), depth (`u50`), and hit distance (`u51`).
+  Motion vectors and the validity mask remain `u39/u40`. See
+  `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
+- With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
+  producer also writes the bridge motion-vector/mask outputs, so the
+  primary-prepass mode-56 path does not depend on the monolithic shader for
+  `u39/u40`.
+- `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
+  mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
+  roughness, 4 depth, 5 hit distance, 6 motion-vector mask.
 - Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
   geometry universe must provide current/previous transforms or vertex data for
   surfaces whose history is reused.
@@ -1710,7 +1729,7 @@ term when r_pathTracingUseEmissiveMaps is 1.
   mode classification, output family, owner, output resolution, dispatch
   dimensions, SPP/max-depth settings, rough estimated rays per pixel,
   ReSTIR pass label/resampling mode, preview-visibility flag, clear requests,
-  readback activity, and whether Optick GPU markers are enabled.
+  readback activity, and whether Optick or Nsight GPU markers are enabled.
 
 - r_pathTracingOptickGpuMarkers
   Enables experimental Optick GPU markers inside the RT smoke/path tracing
@@ -1719,6 +1738,27 @@ term when r_pathTracingUseEmissiveMaps is 1.
   desktop on level entry in the Release PT build, while the same build was
   stable when the marker calls were gated off. Keep this off unless actively
   capturing a targeted Optick GPU profile.
+
+- r_pathTracingNsightGpuMarkers
+  Enables NVRHI command-list debug markers around RT smoke/path tracing
+  `DispatchRays` calls for Nsight Graphics captures. Defaults to 0. In mode 56
+  the marker labels are:
+  `PT56.0 PrimarySurfacePrepass DispatchRays`,
+  `PT56.1 GIInitialProducer DispatchRays`,
+  `PT56.2 DirectTemporalProducer DispatchRays`,
+  `PT56.3 DirectSpatialReservoirProducer DispatchRays`,
+  `PT56.4 ReflectionProducer DispatchRays`, and
+  `PT56.5 CombinedResolve DispatchRays`. Use this instead of
+  `r_pathTracingOptickGpuMarkers` when the goal is to identify which
+  `vkCmdTraceRaysKHR` event owns a slowdown in Nsight.
+
+- r_pathTracingRestirPTGpuTimingDump
+  One-shot ReSTIR PT GPU timestamp capture. Set to 1 while running mode 56 to
+  print one completed frame of per-dispatch GPU time once the query results are
+  ready. The output reports primary-surface prepass, GI initial producer,
+  direct temporal producer, direct spatial reservoir producer, reflection
+  producer, and final resolve. This is the fallback when Nsight does not display
+  command-list marker labels.
 
 Level-load safety:
 
