@@ -84,6 +84,9 @@ vectors and masks from static previous snapshots, retained skinned previous
 positions, and continuous rigid previous transforms. The reset mask is written
 even when the motion-vector export CVar is disabled, so mode 56 can inspect
 history validity without feeding `u39/u40` consumers.
+When `r_pathTracingDLSSRR 1` is enabled in mode 56, motion-vector export is
+forced for that frame even if the debug CVar is 0, because RR evaluation needs
+the motion-vector texture as an actual input.
 
 Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
 scaffold when needed, even if `r_pathTracingGpuSkinning` is `0`. That CVar still
@@ -113,9 +116,10 @@ Task 02: Guide Debug Views
 --------------------------
 Status: implemented for the first bridge views.
 
-Use:
+Runtime CVars:
 
-  r_pathTracingDLSSRRGuideDebugView
+- `r_pathTracingDLSSRRGuideDebugView`
+  Selects the mode-56 guide/debug output:
 
 Values:
 
@@ -127,6 +131,17 @@ Values:
 - 5: hit distance.
 - 6: motion-vector mask and source category.
 - 7: reset/disocclusion mask.
+
+- `r_pathTracingDLSSRRProbe`
+  Default 1 and `CVAR_INIT`. Initializes the experimental Streamline DLSS/RR
+  bridge at renderer startup and prints DLSS/RR support. Set 0 before startup
+  to disable the probe.
+- `r_pathTracingDLSSRR`
+  Experimental DLSS Ray Reconstruction evaluation gate. Use with mode 56,
+  `r_pathTracingRestirPTPrimarySurfacePrepass 1`, and
+  `r_pathTracingDLSSRRGuideDebugView 0`.
+- `r_pathTracingDLSSRRVerbose`
+  Extra Streamline/DLSS/RR requirement, resource-tag, and evaluate logging.
 
 These views use the standalone mode-56 combined resolve, not the old monolithic
 ReSTIR shader. They require the primary-surface prepass path because that pass
@@ -147,8 +162,10 @@ Further debug views may still be useful for:
 
 Task 03: History And Reset Contract
 -----------------------------------
-Before calling DLSS RR, define how resets and invalid history map into RR
-inputs:
+Status: partially implemented.
+
+The current frame-level reset maps into the Streamline constants reset flag.
+Reset sources include:
 
 - output resize,
 - scene-resource replacement,
@@ -162,13 +179,17 @@ inputs:
 The mask/disocclusion policy should be conservative. Bad history is worse than
 underusing history while the renderer is still changing.
 
+Do not add new guide UAV writes to the primary-surface producer casually. A
+previous u53 float disocclusion-guide experiment coincided with a raw mode-56
+geometry-disappearing regression even with RR evaluation disabled, so the guide
+set is back to u48-u52 until that material/geometry bug is isolated.
+
 Task 04: SDK Integration
 ------------------------
 No Streamline/NGX SDK is currently wired into the rbdoom repo. Do not bury the
 SDK dependency inside the mode-56 shader work.
 
-When the SDK location is known, add a narrow host-side integration layer that
-consumes:
+The first experimental Streamline evaluation layer now consumes:
 
 - noisy mode-56 color,
 - RR guide albedo,
@@ -176,7 +197,11 @@ consumes:
 - RR guide depth,
 - RR guide hit distance,
 - motion vectors and mask,
-- exposure/reset data.
+- frame reset data.
+
+The bridge now also sends the mode-56 world-to-camera and camera-to-world
+matrices in DLSS RR options so the specular-hit-distance input is not evaluated
+against identity transforms.
 
 The SDK integration should be replaceable. Keep the guide-export contract useful
 for a non-DLSS denoiser or an internal debug reconstruction path.

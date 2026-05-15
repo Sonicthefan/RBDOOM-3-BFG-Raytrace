@@ -1129,7 +1129,7 @@ idCVar r_pathTracingDLSSRR(
     "r_pathTracingDLSSRR",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental DLSS Ray Reconstruction evaluation gate; currently only the SDK/device probe is wired" );
+    "Experimental DLSS Ray Reconstruction evaluation gate for mode 56 primary-prepass output" );
 
 idCVar r_pathTracingDLSSRRVerbose(
     "r_pathTracingDLSSRRVerbose",

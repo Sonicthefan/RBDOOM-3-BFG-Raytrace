@@ -1,5 +1,5 @@
 Current ReSTIR PT State
-Date: 2026-05-14
+Date: 2026-05-16
 
 Repository Context
 ------------------
@@ -10,6 +10,83 @@ Repository Context
 - After shader changes, copy the built executable and base\renderprogs2 into the
   prepared game folder.
 - Do not stage or commit docs\pathtracing_handoff.txt unless explicitly asked.
+
+Recent Mode 56 / DLSS RR CVar Quick Reference
+---------------------------------------------
+Core mode-56 route:
+
+- `r_pathTracingRestirPTPrimarySurfacePrepass`
+  Default 1. Uses the standalone primary-surface producer and standalone
+  combined resolve path so mode 56 avoids the old combined monolithic shader.
+  Set 0 only when deliberately testing the legacy fallback.
+- `r_pathTracingRestirPTPassDump`
+  Set 1 to print the current ReSTIR PT pass plan once. This is the easiest way
+  to confirm `primaryPrepass`, standalone producer/resolve flags, sparse
+  dispatch sizes, reflection producer state, RR guide debug state, and buffer
+  indices.
+- `r_pathTracingRestirPTGpuTimingDump`
+  Set 1 to print one frame of per-dispatch ReSTIR PT GPU timestamp timings.
+- `r_pathTracingNsightGpuMarkers`
+  Set 1 before an Nsight capture to add GPU debug markers around RT/PT
+  dispatches.
+- `r_pathTracingRestirPTCombinedSpatialRadius`
+  Mode-56 direct spatial neighbor radius. This is separate from the mode 50/51
+  diagnostic radius. Radius 1 is the current fast validation default; larger
+  radii can cost significantly more in the direct spatial producer.
+
+Sparsity:
+
+- `r_pathTracingRestirPTRaySparsity`
+  Interleaved sparse update rate for staged ReSTIR direct-lighting producer
+  rays. 1 disables sparsity; 2-8 update roughly 1/N reservoir pixels per frame
+  and reconstruct from active representatives.
+- `r_pathTracingRestirPTGiRaySparsity`
+  Interleaved sparse update rate for staged ReSTIR GI initial-reservoir producer
+  rays in modes 53-56. 1 disables sparsity; 2-8 are roughly 1/N, not 1/N^2.
+
+Lighting and visibility:
+
+- `r_pathTracingRestirPTVisibilityPolicy`
+  0 final/preview visibility only, 1 selected NEE sample visibility in the
+  producer, 2 strict proposal-stream visibility. Policy 0 is the default
+  validation path.
+- `r_pathTracingRestirPTAnalyticLightTrials`
+  Current-frame analytic Doom light proposal trials for ReSTIR PT NEE.
+- `r_pathTracingToyLightScale`
+  Now affects ReSTIR PT analytic-light preview through
+  `r_pathTracingAnalyticLightIntensityScale * r_pathTracingToyLightScale`.
+- `r_pathTracingToyEmissiveScale`
+  Emissive source scale used by the RAB emissive light loader and primary
+  material emissive.
+
+Reflections:
+
+- `r_pathTracingRestirPTReflectionMode`
+  0 off, 1 sharp traced reflection preview for low-roughness/specular primary
+  surfaces, 2 rough diagnostic preview. The current primary-prepass route uses
+  the separate traced reflection producer and composites `RestirPTReflectionOutput`.
+- `pathTraceToggleCrosshairZeroRoughness`
+  Console command, not a CVar. Arms a one-shot crosshair pick on the next RT
+  smoke frame and toggles a material override to roughness 0 / high F0 for
+  reflection validation. Lowercase `pathtracetogglecrosshairzeroroughness` is
+  also registered.
+
+DLSS Ray Reconstruction bridge:
+
+- `r_pathTracingDLSSRRGuideDebugView`
+  0 off, 1 albedo, 2 encoded normal, 3 roughness, 4 depth, 5 hit distance,
+  6 motion-vector mask/source category, 7 reset/disocclusion mask.
+- `r_pathTracingDLSSRRProbe`
+  Default 1 and `CVAR_INIT`. Initializes the experimental Streamline DLSS/RR
+  bridge at renderer startup and prints support. Change before startup or
+  restart the renderer.
+- `r_pathTracingDLSSRR`
+  Experimental DLSS Ray Reconstruction evaluation gate. Use with mode 56,
+  `r_pathTracingRestirPTPrimarySurfacePrepass 1`, and guide debug view 0. This
+  now forces RR motion-vector export for the evaluated frame even when the
+  standalone motion-vector debug CVar is 0.
+- `r_pathTracingDLSSRRVerbose`
+  Extra Streamline/DLSS/RR requirement, tag, and evaluate logging.
 
 Recent ReSTIR Shader-Load Work
 ------------------------------
@@ -100,10 +177,11 @@ consumer can all consume `PrimarySurfaceHistoryCurrent`. Pass dumps report this
 with `giConsumesPrimary`, `directConsumesPrimary`, and `finalConsumesPrimary`.
 The same standalone primary-surface producer now exports the first DLSS Ray
 Reconstruction guide scaffold: albedo `u48`, normal+roughness `u49`, depth
-`u50`, hit distance `u51`, and reset/disocclusion mask `u52`. Existing
-motion-vector outputs remain `u39/u40`.
-This is a guide-buffer bridge only; no DLSS RR SDK call is wired yet. The bridge
-plan lives in `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
+`u50`, hit distance `u51`, and reset/debug mask `u52`. Existing motion-vector
+outputs remain `u39/u40`.
+The experimental Streamline DLSS RR bridge can now evaluate mode 56 when the
+SDK reports support, but the guide data is still provisional. The bridge plan
+lives in `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 Use `r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect those guide
 outputs through the standalone resolve: 1 albedo, 2 normal, 3 roughness, 4
 depth, 5 hit distance, 6 motion-vector mask/source category, 7
@@ -117,6 +195,11 @@ export is disabled, so history validity can be inspected without feeding
 this guide export even when `r_pathTracingGpuSkinning` is `0`; that CVar still
 only gates the diagnostic GPU skinning compute path. The primary-prepass mode-56
 path no longer depends on the monolithic shader for these guide outputs.
+When `r_pathTracingDLSSRR 1` evaluates RR, motion-vector export is enabled for
+that frame. The bitfield u52 texture remains the human-readable reset/debug
+mask. A previous u53 float disocclusion-guide experiment was backed out because
+the raw mode-56 primary-prepass path showed a geometry-disappearing regression
+even with RR evaluation disabled.
 Mode 56 also removes routed-ready rigid candidates from the legacy dynamic
 fallback path, matching the routed-rigid object-motion diagnostics, so RR guide
 motion is sourced from routed TLAS instances instead of overlapping fallback

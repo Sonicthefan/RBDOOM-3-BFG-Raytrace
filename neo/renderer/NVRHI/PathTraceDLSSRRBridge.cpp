@@ -11,6 +11,7 @@
 
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
+#include "../GLMatrix.h"
 #include "../RenderCommon.h"
 
 #if RB_PT_STREAMLINE_DLSS_RR
@@ -161,6 +162,21 @@ void CopyIdTechMatrixToStreamline( const float* source, sl::float4x4& target )
 				source[row * 4 + 2],
 				source[row * 4 + 3] ) );
 	}
+}
+
+void CopyIdTechWorldCameraMatricesToStreamline( const viewDef_t* viewDef, sl::float4x4& worldToCameraView, sl::float4x4& cameraViewToWorld )
+{
+	if( !viewDef )
+	{
+		worldToCameraView = StreamlineIdentityMatrix();
+		cameraViewToWorld = StreamlineIdentityMatrix();
+		return;
+	}
+
+	CopyIdTechMatrixToStreamline( viewDef->worldSpace.modelViewMatrix, worldToCameraView );
+	float inverseModelView[16];
+	R_MatrixFullInverse( viewDef->worldSpace.modelViewMatrix, inverseModelView );
+	CopyIdTechMatrixToStreamline( inverseModelView, cameraViewToWorld );
 }
 
 sl::CommandBuffer* GetStreamlineCommandBuffer( nvrhi::ICommandList* commandList )
@@ -527,8 +543,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	options.outputHeight = static_cast<uint32_t>( height );
 	options.colorBuffersHDR = sl::Boolean::eTrue;
 	options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
-	options.worldToCameraView = StreamlineIdentityMatrix();
-	options.cameraViewToWorld = StreamlineIdentityMatrix();
+	CopyIdTechWorldCameraMatricesToStreamline( viewDef, options.worldToCameraView, options.cameraViewToWorld );
 	options.alphaUpscalingEnabled = sl::Boolean::eFalse;
 
 	result = slDLSSDSetOptions( viewport, options );

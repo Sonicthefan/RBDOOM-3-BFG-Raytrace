@@ -419,7 +419,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(primarySurfaceHistoryBuffers.surfaceBytes),
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE);
 
-    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RG16_FLOAT vectorBytes=%llu vectorUav=u39 maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=none\n",
+    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RG16_FLOAT vectorBytes=%llu vectorUav=u39 maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-or-dlssrr\n",
         requestedWidth,
         requestedHeight,
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),

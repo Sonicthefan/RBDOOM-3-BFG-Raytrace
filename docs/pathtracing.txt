@@ -38,6 +38,12 @@ surface, ReSTIR, debug, and future denoise/reflection contracts, see:
     docs/pathtrace_core_refactor_plan.txt
     docs/pathtrace_core_refactor_tasks/00_agent_readme.txt
 
+For the current mode-56/ReSTIR PT quick CVar reference, including primary
+prepass, sparse producer dispatch, reflection preview, Nsight/timing dumps, and
+DLSS Ray Reconstruction bridge controls, see:
+
+    docs/ReSTIR/current_restir_pt_state.txt
+
 The early refactor sequence must include a real path-tracer core settings pass
 before deeper ReSTIR work: samples per pixel, max path depth, diffuse/specular
 bounce limits, first reflection mode, and accumulation reset policy belong to
@@ -1011,8 +1017,8 @@ Denoise/upscale/Ray Reconstruction reservation:
 - The first DLSS RR bridge scaffold is now explicit: the standalone
   primary-surface producer exports full-resolution guide UAVs for albedo
   (`u48`), normal+roughness (`u49`), depth (`u50`), and hit distance (`u51`).
-  It also exports a conservative reset/disocclusion mask (`u52`). Motion
-  vectors and the validity mask remain `u39/u40`. See
+  It also exports a conservative reset/debug mask (`u52`). Motion vectors and
+  the validity mask remain `u39/u40`. See
   `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 - With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
   producer also writes the bridge motion-vector/mask outputs from static
@@ -1020,6 +1026,10 @@ Denoise/upscale/Ray Reconstruction reservation:
   previous transforms, so the primary-prepass mode-56 path does not depend on
   the monolithic shader for `u39/u40`. The reset mask is written regardless of
   that CVar so history validity can be debugged independently.
+- With `r_pathTracingDLSSRR 1`, mode 56 forces motion-vector export for the RR
+  evaluation frame. Do not add extra primary-surface guide UAVs until the known
+  geometry-disappearing case is isolated; a u53 disocclusion-guide experiment
+  was backed out after the raw mode-56 path regressed.
 - Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
   scaffold when needed even if `r_pathTracingGpuSkinning` is `0`; that CVar
   still controls the diagnostic GPU skinning compute path.

@@ -568,7 +568,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool disableEmissiveTriangleSampling = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING);
     const bool disablePrimarySurfaceHistory = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY);
     const bool disableReservoirWrites = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES);
-    const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0;
+    const bool dlssRrRuntimeRequested =
+        restirPTCombinedMode &&
+        r_pathTracingDLSSRR.GetInteger() != 0 &&
+        r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
+    const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0 || dlssRrRuntimeRequested;
     const int restirPTReflectionMode = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_REFLECTION_RAY)
         ? 0
         : idMath::ClampInt(0, 2, r_pathTracingRestirPTReflectionMode.GetInteger());
@@ -1815,8 +1819,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool dlssRrEvaluateRequested =
         restirPTCombinedMode &&
         restirPTPrimarySurfacePrepassEnabled &&
-        r_pathTracingDLSSRR.GetInteger() != 0 &&
-        r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
+        dlssRrRuntimeRequested;
     const uint64 dlssRrStartUs = dispatchRaysCompleteUs;
     if (dlssRrEvaluateRequested)
     {
