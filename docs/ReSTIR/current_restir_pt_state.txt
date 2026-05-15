@@ -54,12 +54,18 @@ Active ReSTIR shader libraries:
   `r_pathTracingRestirPTPrimarySurfacePrepass 1` is enabled and the resolve
   library loads successfully. It consumes primary history, spatial direct
   reservoirs, and GI initial reservoirs, then writes the combined rough preview
-  without entering the monolithic combined shader. It also carries the first
-  developer-only ReSTIR reflection scaffold:
-  `r_pathTracingRestirPTReflectionMode 1` adds a sharp screen-space reflection
-  lookup from `PrimarySurfaceHistoryCurrent`, and mode 2 widens the roughness
-  threshold for diagnostic rough-reflection testing. This is an SSR-style
-  primary-history consumer, not the final traced reflection reservoir/pass.
+  without entering the monolithic combined shader. When traced reflection
+  production is enabled, it composites `RestirPTReflectionOutput` instead of
+  doing the earlier screen-space primary-history march.
+- pathtrace_restir_reflection_producer.rt.hlsl
+  Mode-56 traced reflection producer. It consumes `PrimarySurfaceHistoryCurrent`,
+  traces a real reflection ray through the RT scene for eligible opaque
+  specular/low-roughness primary surfaces, shades the reflected hit with the
+  existing mode-18 NEE/emissive material path, and writes
+  `RestirPTReflectionOutput` (`u47`) for the standalone combined resolve. Pass
+  dumps report this route with `reflectionProducer=1`. This is a real traced
+  reflection preview, but not yet a temporal/spatial reflection reservoir or
+  rough-reflection reconstruction path.
 - pathtrace_restir_indirect_initial_producer.rt.hlsl
   Standalone-ish mode 56 GI initial producer used when the primary prepass is
   active. It still includes `pathtrace_smoke.rt.hlsl` for hit/material plumbing,
@@ -104,6 +110,9 @@ set and skips legacy monolithic ReSTIR diagnostic libraries that are not needed
 by the primary-prepass mode-56 path. Re-enable those old diagnostic rebuilds
 with `PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS=ON` when deliberately
 working on modes such as 26-33 or 50-51 attribution/shading consumers.
+The default mode-56 set now includes the traced reflection producer because it
+is part of the current primary-prepass resolve graph when
+`r_pathTracingRestirPTReflectionMode` is enabled.
 
 ReSTIR PT NEE visibility is now policy controlled:
 
@@ -160,10 +169,12 @@ Mode 56 reflection preview is controlled by:
 Mode 0 disables it. Mode 1 only targets low-roughness/specular primary surfaces
 and is the default validation shape for sharp reflections. Mode 2 is a rough
 diagnostic mode that broadens the roughness threshold but should not be treated
-as the final rough-reflection reconstruction path. The current implementation
-marches in screen space through the full-resolution primary-surface records and
-reuses the existing direct+GI resolve at the hit pixel without recursive
-reflection, so it cannot reflect off-screen objects and may miss thin geometry.
+as the final rough-reflection reconstruction path. With primary prepass and the
+standalone resolve active, mode 56 now uses a separate traced reflection
+producer and composites its `RestirPTReflectionOutput` texture. This can reflect
+off-screen scene geometry because it traces the RT acceleration structure, but
+it is still a single-bounce debug/preview pass and does not yet have
+temporal/spatial reflection reservoirs.
 
 For validation in Doom materials that are not naturally glossy, the console
 command `pathTraceToggleCrosshairZeroRoughness` arms a one-shot crosshair pick

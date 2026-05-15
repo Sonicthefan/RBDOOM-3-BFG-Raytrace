@@ -2467,7 +2467,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
         return;
     }
 
-    std::unordered_set<uint64> visibleRigidEntityKeys;
+    std::unordered_set<uint64> visibleRigidInstanceIds;
     const std::vector<RtPathTraceInstanceObservation>& visibleInstances = instanceUniverse.FrameInstances();
     for (const RtPathTraceInstanceObservation& instance : visibleInstances)
     {
@@ -2475,7 +2475,10 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
         {
             continue;
         }
-        visibleRigidEntityKeys.insert(RigidResidencyEntityKey(instance.entityIndex, instance.renderEntityNum));
+        if (instance.instanceId != 0)
+        {
+            visibleRigidInstanceIds.insert(instance.instanceId);
+        }
     }
 
     std::unordered_set<uint64> observedInstanceIds;
@@ -2501,10 +2504,6 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
 
             const renderEntity_t& renderEntity = entity->parms;
             const uint64 entityKey = RigidResidencyEntityKey(entity->index, renderEntity.entityNum);
-            if (visibleRigidEntityKeys.find(entityKey) != visibleRigidEntityKeys.end())
-            {
-                continue;
-            }
             const std::unordered_map<uint64, int>::const_iterator visibleFrameIt = m_rigidVisibleEntityModifiedFrames.find(entityKey);
             if (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
                 visibleFrameIt->second != entity->lastModifiedFrameNum)
@@ -2536,6 +2535,10 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 const uint64 meshHash = RigidResidencyMeshKeyHash(meshKey);
                 const uint64 instanceId = RigidResidencyInstanceIdHash(meshHash, entity->index, renderEntity.entityNum, materialId, tri);
+                if (visibleRigidInstanceIds.find(instanceId) != visibleRigidInstanceIds.end())
+                {
+                    continue;
+                }
                 if (observedInstanceIds.find(instanceId) != observedInstanceIds.end())
                 {
                     continue;

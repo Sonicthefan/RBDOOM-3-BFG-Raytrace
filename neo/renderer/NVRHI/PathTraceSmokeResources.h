@@ -113,6 +113,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::rt::AccelStructHandle tlas;
     nvrhi::TextureHandle outputTexture;
     nvrhi::TextureHandle accumulationTexture;
+    nvrhi::TextureHandle restirPTReflectionTexture;
     nvrhi::TextureHandle motionVectorTexture;
     nvrhi::TextureHandle motionVectorMaskTexture;
     nvrhi::TextureHandle fallbackTexture;

@@ -74,6 +74,7 @@ struct PathTraceDoomAnalyticLightRemap
 #include "PathTracePrimarySurface.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -717,7 +718,7 @@ float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
         return float4(lighting, 1.0);
     }
 
-    return float4(saturate(lighting + RestirPTScreenSpaceReflectionPreview(surface, pixel)), 1.0);
+    return float4(saturate(lighting + RestirPTReflectionOutput[pixel].rgb), 1.0);
 }
 
 [shader("raygeneration")]

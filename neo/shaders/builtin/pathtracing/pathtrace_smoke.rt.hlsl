@@ -233,6 +233,7 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -4263,6 +4264,91 @@ float3 SmokeSampleSphereSolidAngle(float3 axis, float cosThetaMax, uint seed)
 
 #include "pathtrace_nee.hlsli"
 
+#ifdef RB_PT_ENABLE_RESTIR
+uint RestirPTReflectionProducerMode()
+{
+    if (PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_REFLECTION_RAY))
+    {
+        return 0u;
+    }
+    return (uint)clamp(floor(GeometryInfo3.w + 0.5), 0.0, 2.0);
+}
+
+bool RestirPTSurfaceSupportsTracedReflection(RAB_Surface surface, uint reflectionMode)
+{
+    if (reflectionMode == 0u || !RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    const float roughnessLimit = reflectionMode == 1u ? 0.36 : 0.72;
+    const float roughness = saturate(RAB_GetSurfaceRoughness(surface));
+    const float specularMax = max(max(surface.material.specularF0.x, surface.material.specularF0.y), surface.material.specularF0.z);
+    return roughness <= roughnessLimit && specularMax >= 0.035;
+}
+
+float4 EvaluateRestirPTTracedReflectionFromSurface(RAB_Surface surface, uint2 pixel)
+{
+    const uint reflectionMode = RestirPTReflectionProducerMode();
+    if (!RestirPTSurfaceSupportsTracedReflection(surface, reflectionMode))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 viewDir = RAB_SafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    const float3 reflectionDir = RAB_SafeNormalize(reflect(-viewDir, normal), normal);
+    if (dot(reflectionDir, normal) <= 0.0 || dot(reflectionDir, RAB_GetSurfaceGeoNormal(surface)) <= -0.05)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const float roughness = saturate(RAB_GetSurfaceRoughness(surface));
+    const float3 reflectionWeight = saturate(surface.material.specularF0) * (1.0 - saturate(roughness * 0.85));
+    if (max(max(reflectionWeight.r, reflectionWeight.g), reflectionWeight.b) <= 0.0)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    PathTraceSmokePayload reflectionPayload = InitSmokePayload();
+    RayDesc reflectionRay;
+    reflectionRay.Origin = surface.worldPos + normal * 0.75 + reflectionDir * 0.25;
+    reflectionRay.Direction = reflectionDir;
+    reflectionRay.TMin = 0.01;
+    reflectionRay.TMax = min(CameraOriginAndTMax.w, max(ToyPathInfo.x, 64.0));
+    TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, reflectionRay, reflectionPayload);
+    if (reflectionPayload.value == 0u || SmokePayloadIsGuiScreen(reflectionPayload))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const RAB_Surface hitSurface = RAB_BuildSurfaceFromSmokePayload(reflectionPayload, reflectionRay.Origin, reflectionRay.Direction, true);
+    if (!RAB_IsSurfaceValid(hitSurface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const uint bounceSeed =
+        pixel.x * 1973u ^
+        pixel.y * 9277u ^
+        surface.materialId * 26699u ^
+        hitSurface.materialId * 7919u ^
+        ((uint)max(ToyPathInfo.w, 0.0)) * 104729u;
+    const float3 direct = EvaluateSmokeMode18NeeDirectLighting(
+        reflectionPayload,
+        reflectionRay.Origin,
+        reflectionRay.Direction,
+        true,
+        SmokeToyFakePBRSpecularEnabled(),
+        true,
+        bounceSeed ^ 0x7feb352du,
+        PathTraceIntegratorSecondaryNeeMode(),
+        PathTraceIntegratorSecondaryAnalyticNeeMode());
+    const float3 hitPreview = RestirPTGiFallback(hitSurface) + RestirPTGiToneMapPreview(direct + hitSurface.material.emissiveRadiance);
+    return float4(saturate(hitPreview * reflectionWeight), 1.0);
+}
+#endif
+
 uint FindSmokeLightCandidateForTriangle(PathTraceSmokeEmissiveTriangle emissiveTriangle, uint candidateCount)
 {
     const uint searchCount = min(candidateCount, 64u);
@@ -4804,6 +4890,11 @@ void RayGen()
             return;
         }
     }
+#endif
+
+#ifdef RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY
+    RestirPTReflectionOutput[pixel] = EvaluateRestirPTTracedReflectionFromSurface(primaryHistorySurface, pixel);
+    return;
 #endif
 
 #ifdef RB_PT_RESTIR_INDIRECT_INITIAL_PRODUCER_ONLY

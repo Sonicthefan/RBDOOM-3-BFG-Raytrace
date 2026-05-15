@@ -2555,6 +2555,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.tlas = m_smokeTlas;
     bindingBuildDesc.outputTexture = m_frameResources.outputTexture;
     bindingBuildDesc.accumulationTexture = m_frameResources.accumulationTexture;
+    bindingBuildDesc.restirPTReflectionTexture = m_frameResources.restirPTReflectionTexture;
     bindingBuildDesc.motionVectorTexture = m_frameResources.motionVectorTexture;
     bindingBuildDesc.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
     bindingBuildDesc.fallbackTexture = fallbackTexture;

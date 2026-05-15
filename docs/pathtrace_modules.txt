@@ -493,7 +493,10 @@ PathTraceGeometryUniverse.cpp
     frame are pruned, and the selected-area portal walk only supplements
     conservative emissive/signage/glow rigid surfaces after the entity has been
     previously validated by visible drawSurfs without a later render-entity
-    modification. Rigid residency was one visible symptom of the portal seed
+    modification. The area-walk supplement suppresses exact visible rigid
+    surface instances, not whole entities, so a visible non-emissive sibling
+    surface cannot disable an offscreen emissive sibling on the same model.
+    Rigid residency was one visible symptom of the portal seed
     bug: a valid-but-bad current area could make cached rigid objects in the
     next visually adjacent portal fall outside the selected set despite
     sufficient nominal portal depth. The residency walk now multi-seeds from
@@ -1160,7 +1163,9 @@ Typical flow:
    supplements previously visible emissive/signage/glow rigids, but does not
    discover or preserve arbitrary opaque rigid props from raw area refs because
    destructible gameplay objects can remain render-side while no longer being
-   valid PT geometry.
+   valid PT geometry. It suppresses exact visible rigid instances rather than
+   entire entities so multi-surface models keep offscreen emissive siblings
+   resident when a non-emissive sibling is on camera.
 7. PathTraceSmokeSceneBuild calculates geometry ranges and static BLAS cache
    eligibility.
 8. PathTraceSmokeResources creates geometry/material/emissive buffers.

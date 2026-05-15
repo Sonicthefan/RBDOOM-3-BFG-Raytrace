@@ -114,13 +114,17 @@ Pass D: Full-resolution resolve/composite
 
 Future Pass E: Reflections
 
-- Current first slice: `pathtrace_restir_combined_resolve.rt.hlsl` can add a
-  developer-only screen-space reflection preview from
-  `PrimarySurfaceHistoryCurrent` when
-  `r_pathTracingRestirPTReflectionMode` is enabled. Mode 1 is sharp/low
-  roughness only; mode 2 widens the roughness threshold for diagnostic testing.
-  This is deliberately not a traced reflection reservoir and cannot see
-  off-screen reflected surfaces.
+- Current first traced slice: `pathtrace_restir_reflection_producer.rt.hlsl`
+  consumes `PrimarySurfaceHistoryCurrent`, traces a real reflection ray for
+  eligible opaque specular/low-roughness primary surfaces, shades the reflected
+  hit with the existing mode-18 NEE/emissive material path, and writes
+  `RestirPTReflectionOutput` for `pathtrace_restir_combined_resolve.rt.hlsl` to
+  composite. `r_pathTracingRestirPTReflectionMode` controls the gate: mode 1 is
+  sharp/low roughness only, mode 2 widens the roughness threshold for diagnostic
+  testing.
+- This is now a traced reflection preview rather than SSR, so off-screen
+  geometry can appear in reflections. It is still deliberately not a reflection
+  reservoir or reconstruction path.
 - The production reflection domain should be a separate pass after Pass A-D are
   stable. It should trace reflection rays or generate reflection reservoirs into
   its own buffers, then let the full-resolution resolve reconstruct them.
@@ -260,9 +264,12 @@ Task 04: Full-resolution resolve pass
 
 Task 05: Reflection domain planning
 
-- Only start after Tasks 01-04 are stable.
-- Define reflection domain resolution, roughness gating, mirror/glass policy,
-  and reconstruction inputs before adding new reflection rays.
+- First traced slice is active in mode 56 when primary prepass and standalone
+  resolve are available: `pathtrace_restir_reflection_producer.rt.hlsl` writes
+  `RestirPTReflectionOutput`, and the resolve composites it.
+- Next define reflection domain resolution, roughness gating, mirror/glass
+  policy, temporal/spatial reservoir ownership, and reconstruction inputs before
+  treating reflections as a production ReSTIR domain.
 
 Task 06: Monolithic ReSTIR shader retirement
 
@@ -272,7 +279,8 @@ Task 06: Monolithic ReSTIR shader retirement
   making one validation loop take many minutes.
 - The PT dev default should build only the mode-56-required shader set:
   core smoke, temporal producer, spatial-reservoir producer, standalone primary
-  surface, standalone GI initial producer, and standalone combined resolve.
+  surface, standalone GI initial producer, traced reflection producer, and
+  standalone combined resolve.
   Legacy diagnostic libraries can be rebuilt by setting
   `PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS=ON` during CMake configure.
 - Next extraction targets, in order:

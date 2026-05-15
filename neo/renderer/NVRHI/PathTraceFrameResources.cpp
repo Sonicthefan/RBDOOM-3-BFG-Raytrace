@@ -83,6 +83,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
     return
         outputTexture &&
         accumulationTexture &&
+        restirPTReflectionTexture &&
         motionVectorTexture &&
         motionVectorMaskTexture &&
         readbackTexture &&
@@ -98,6 +99,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
     return
         outputTexture ||
         accumulationTexture ||
+        restirPTReflectionTexture ||
         motionVectorTexture ||
         motionVectorMaskTexture ||
         readbackTexture ||
@@ -167,6 +169,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    outputDesc.debugName = "PathTraceRestirPTReflection";
+    nvrhi::TextureHandle newRestirPTReflectionTexture = device->createTexture(outputDesc);
+    if (!newRestirPTReflectionTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT ReSTIR reflection UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     nvrhi::TextureDesc motionVectorDesc = outputDesc;
     motionVectorDesc.format = nvrhi::Format::RG16_FLOAT;
     motionVectorDesc.debugName = "PathTraceSmokeMotionVectors";
@@ -207,16 +217,17 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
 
     outputTexture = newOutputTexture;
     accumulationTexture = newAccumulationTexture;
+    restirPTReflectionTexture = newRestirPTReflectionTexture;
     motionVectorTexture = newMotionVectorTexture;
     motionVectorMaskTexture = newMotionVectorMaskTexture;
     readbackTexture = newReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
-    diagnostics.outputTexturesCreated += 2;
+    diagnostics.outputTexturesCreated += 3;
     diagnostics.motionVectorTexturesCreated++;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.diagnosticReadbackResourcesCreated++;
-    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 2ull;
+    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 3ull;
     diagnostics.motionVectorBytes = EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     MarkResetReason(RT_FRAME_RESET_OUTPUT_RESIZE);
@@ -328,7 +339,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
-    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d)\n", requestedWidth, requestedHeight);
+    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47\n", requestedWidth, requestedHeight);
     return true;
 }
 
@@ -336,6 +347,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
 {
     outputTexture = nullptr;
     accumulationTexture = nullptr;
+    restirPTReflectionTexture = nullptr;
     motionVectorTexture = nullptr;
     motionVectorMaskTexture = nullptr;
     readbackTexture = nullptr;
