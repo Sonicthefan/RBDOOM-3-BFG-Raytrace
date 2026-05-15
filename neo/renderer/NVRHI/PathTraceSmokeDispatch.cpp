@@ -16,6 +16,7 @@
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
 #include "PathTraceRestirPasses.h"
+#include "PathTraceDLSSRRBridge.h"
 #include "../RenderBackend.h"
 #include "../RenderCommon.h"
 #include "../../sys/DeviceManager.h"
@@ -1811,7 +1812,60 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 dispatchRaysCompleteUs = Sys_Microseconds();
-    const uint64 historyCopyStartUs = dispatchRaysCompleteUs;
+    const bool dlssRrEvaluateRequested =
+        restirPTCombinedMode &&
+        restirPTPrimarySurfacePrepassEnabled &&
+        r_pathTracingDLSSRR.GetInteger() != 0 &&
+        r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
+    const uint64 dlssRrStartUs = dispatchRaysCompleteUs;
+    if (dlssRrEvaluateRequested)
+    {
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+        commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+
+        const bool historyReset =
+            !previousHistoryViewValid ||
+            m_frameResources.primarySurfaceHistoryNeedsClear ||
+            m_frameResources.settings.resetReasonFlags != 0;
+        const bool rrEvaluated = PathTraceDLSSRRBridge_Evaluate(
+            commandList,
+            m_frameResources.outputTexture,
+            m_frameResources.accumulationTexture,
+            m_frameResources.rrGuideAlbedoTexture,
+            m_frameResources.rrGuideNormalRoughnessTexture,
+            m_frameResources.rrGuideDepthTexture,
+            m_frameResources.motionVectorTexture,
+            m_frameResources.rrGuideHitDistanceTexture,
+            viewDef,
+            static_cast<uint32_t>(restirPTFrameIndex),
+            m_frameResources.width,
+            m_frameResources.height,
+            historyReset);
+        if (rrEvaluated)
+        {
+            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyTexture(m_frameResources.outputTexture, nvrhi::TextureSlice(), m_frameResources.accumulationTexture, nvrhi::TextureSlice());
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+        }
+    }
+    const uint64 dlssRrCompleteUs = Sys_Microseconds();
+    const uint64 historyCopyStartUs = dlssRrCompleteUs;
     if (!disablePrimarySurfaceHistory)
     {
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);

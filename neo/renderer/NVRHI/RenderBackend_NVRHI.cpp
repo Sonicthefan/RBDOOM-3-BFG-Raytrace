@@ -37,6 +37,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "../../framework/Common_local.h"
 #include "imgui.h"
 #include "../ImmediateMode.h"
+#include "PathTraceDLSSRRBridge.h"
 
 #include "nvrhi/utils.h"
 #include <sys/DeviceManager.h>
@@ -173,6 +174,8 @@ void idRenderBackend::Init()
 	{
 		api = nvrhi::GraphicsAPI::D3D12;
 	}
+
+	PathTraceDLSSRRBridge_Init( api );
 	deviceManager = DeviceManager::Create( api );
 
 	// DG: make sure SDL has setup video so getting supported modes in R_SetNewMode() works
@@ -184,6 +187,7 @@ void idRenderBackend::Init()
 	// DG end
 
 	R_SetNewMode( true );
+	PathTraceDLSSRRBridge_SetDevice( deviceManager );
 
 	// input and sound systems need to be tied to the new window
 	Sys_InitInput();
@@ -296,8 +300,10 @@ void idRenderBackend::Shutdown()
 	fhImmediateMode::Shutdown();
 
 #if defined( VULKAN_USE_PLATFORM_SDL )
+	PathTraceDLSSRRBridge_Shutdown();
 	VKimp_Shutdown( true );		// SRS - shutdown SDL on quit
 #else
+	PathTraceDLSSRRBridge_Shutdown();
 	GLimp_Shutdown();
 #endif
 

@@ -1119,6 +1119,24 @@ idCVar r_pathTracingDLSSRRGuideDebugView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask" );
 
+idCVar r_pathTracingDLSSRRProbe(
+    "r_pathTracingDLSSRRProbe",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER | CVAR_INIT,
+    "Initialize the experimental Streamline DLSS/RR bridge at renderer startup and dump SDK feature support; set 0 before startup to disable" );
+
+idCVar r_pathTracingDLSSRR(
+    "r_pathTracingDLSSRR",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental DLSS Ray Reconstruction evaluation gate; currently only the SDK/device probe is wired" );
+
+idCVar r_pathTracingDLSSRRVerbose(
+    "r_pathTracingDLSSRRVerbose",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Verbose Streamline DLSS/RR probe logging, including required tags and Vulkan extension requirements" );
+
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",
     "0",

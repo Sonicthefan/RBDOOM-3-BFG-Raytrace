@@ -73,6 +73,11 @@ option(RETAIL
 option(PATH_TRACING_DEV
 		"Enable path-tracing development tools while preserving retail runtime behavior" OFF)
 
+option(PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR
+		"Enable experimental NVIDIA Streamline DLSS Ray Reconstruction SDK probe hooks" ON)
+
+set(PATH_TRACING_STREAMLINE_SDK_ROOT "E:/prog/references/dlss-sdk" CACHE PATH "Path to the NVIDIA Streamline/DLSS SDK root used by the experimental PT DLSS RR bridge")
+
 option(FLATPAK
 		"Strip certain developer features and cheats from flatpak builds" OFF)
 		
@@ -1497,6 +1502,35 @@ endif()
 # needs to come after nvrhi_d3d11 etc. for link order
 target_link_libraries(${APP_NAME} nvrhi)
 target_link_libraries(${APP_NAME} ShaderMakeBlob ${MASKED_OCCLUSION_LIBRARY} ${ISPC_TEXCOMP_LIBRARY})
+
+if(WIN32 AND PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR)
+	set(PATH_TRACING_STREAMLINE_INCLUDE_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/include")
+	set(PATH_TRACING_STREAMLINE_LIB "${PATH_TRACING_STREAMLINE_SDK_ROOT}/lib/x64/sl.interposer.lib")
+	set(PATH_TRACING_STREAMLINE_BIN_DIR "${PATH_TRACING_STREAMLINE_SDK_ROOT}/bin/x64")
+
+	if(EXISTS "${PATH_TRACING_STREAMLINE_INCLUDE_DIR}/sl.h" AND EXISTS "${PATH_TRACING_STREAMLINE_LIB}" AND EXISTS "${PATH_TRACING_STREAMLINE_BIN_DIR}/sl.interposer.dll")
+		target_compile_definitions(${APP_NAME} PRIVATE RB_PT_STREAMLINE_DLSS_RR=1)
+		target_include_directories(${APP_NAME} PRIVATE "${PATH_TRACING_STREAMLINE_INCLUDE_DIR}")
+		target_link_libraries(${APP_NAME} "${PATH_TRACING_STREAMLINE_LIB}")
+
+		foreach(streamline_dll
+				sl.interposer.dll
+				sl.common.dll
+				sl.pcl.dll
+				sl.dlss.dll
+				sl.dlss_d.dll
+				nvngx_dlss.dll
+				nvngx_dlssd.dll)
+			add_custom_command(TARGET ${APP_NAME} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					"${PATH_TRACING_STREAMLINE_BIN_DIR}/${streamline_dll}"
+					"$<TARGET_FILE_DIR:${APP_NAME}>/${streamline_dll}"
+				COMMENT "Copying Streamline runtime ${streamline_dll}")
+		endforeach()
+	else()
+		message(WARNING "PATH_TRACING_ENABLE_STREAMLINE_DLSS_RR is ON, but the Streamline SDK was not found at ${PATH_TRACING_STREAMLINE_SDK_ROOT}; building without RB_PT_STREAMLINE_DLSS_RR")
+	endif()
+endif()
            
 
 add_subdirectory(shaders)

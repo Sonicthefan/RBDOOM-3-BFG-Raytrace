@@ -34,6 +34,7 @@
 #include "renderer/RenderCommon.h"
 #include "framework/Common_local.h"
 #include <sys/DeviceManager.h>
+#include "renderer/NVRHI/PathTraceDLSSRRBridge.h"
 
 #include <nvrhi/vulkan.h>
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
@@ -1249,6 +1250,7 @@ bool DeviceManager_VK::CreateDeviceAndSwapChain()
 	m_DeviceParams.enableNvrhiValidationLayer = r_useValidationLayers.GetInteger() > 0;
 	m_DeviceParams.enableDebugRuntime = r_useValidationLayers.GetInteger() > 1;
 	m_DeviceParams.enableRayTracingExtensions = r_pathTracing.GetInteger() != 0;
+	PathTraceDLSSRRBridge_AppendVulkanRequirements( m_DeviceParams );
 
 	// SRS - DynamicLoader is in a separate namespace in newer versions of Vulkan-Hpp
 #if VK_HEADER_VERSION >= 301
