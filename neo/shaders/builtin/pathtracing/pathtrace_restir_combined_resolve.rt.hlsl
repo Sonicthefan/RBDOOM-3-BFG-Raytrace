@@ -81,6 +81,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness :
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -743,7 +744,7 @@ float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
 
 uint RayReconstructionGuideDebugView()
 {
-    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 7u);
+    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 8u);
 }
 
 float4 RayReconstructionMotionMaskDebugColor(uint motionMask)
@@ -818,6 +819,13 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
         const float3 historyNormal = RAB_IsSurfaceValid(surface) ? surface.shadingNormal * 0.5 + 0.5 : float3(0.5, 0.5, 1.0);
         const float normalHasGuide = any(abs(guideNormal - float3(0.5, 0.5, 1.0)) > float3(0.001, 0.001, 0.001)) ? 1.0 : 0.0;
         return float4(saturate(lerp(historyNormal, guideNormal, normalHasGuide)), 1.0);
+    }
+    if (view == 8u)
+    {
+        const float3 guideSpecular = PathTraceRRGuideSpecularAlbedo[pixel].rgb;
+        const float3 historySpecular = RAB_IsSurfaceValid(surface) ? surface.material.specularF0 : float3(0.0, 0.0, 0.0);
+        const float3 specularAlbedo = max(max(guideSpecular.r, guideSpecular.g), guideSpecular.b) > 0.0 ? guideSpecular : historySpecular;
+        return float4(saturate(specularAlbedo), 1.0);
     }
     if (view == 3u)
     {

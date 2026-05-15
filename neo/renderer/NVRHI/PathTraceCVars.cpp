@@ -1117,7 +1117,7 @@ idCVar r_pathTracingDLSSRRGuideDebugView(
     "r_pathTracingDLSSRRGuideDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask" );
+    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0" );
 
 idCVar r_pathTracingDLSSRRProbe(
     "r_pathTracingDLSSRRProbe",
@@ -1130,6 +1130,30 @@ idCVar r_pathTracingDLSSRR(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental DLSS Ray Reconstruction evaluation gate for mode 56 primary-prepass output" );
+
+idCVar r_pathTracingDLSSRRColorBuffersHDR(
+    "r_pathTracingDLSSRRColorBuffersHDR",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "DLSS RR colorBuffersHDR option for mode 56; default 1 because the current Streamline/NGX RR path rejects the SDR-tagged option" );
+
+idCVar r_pathTracingDLSSRRPreExposure(
+    "r_pathTracingDLSSRRPreExposure",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "DLSS RR preExposure option for mode 56; keep 1.0 unless the input color has already been pre-exposed" );
+
+idCVar r_pathTracingDLSSRRExposureScale(
+    "r_pathTracingDLSSRRExposureScale",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "DLSS RR exposureScale option for mode 56; diagnostic color/exposure tuning for the experimental RR bridge" );
+
+idCVar r_pathTracingDLSSRRSharpness(
+    "r_pathTracingDLSSRRSharpness",
+    "0.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "DLSS RR sharpness option for mode 56, clamped 0..1" );
 
 idCVar r_pathTracingDLSSRRVerbose(
     "r_pathTracingDLSSRRVerbose",

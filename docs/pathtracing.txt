@@ -697,7 +697,15 @@ Implemented debug CVars:
 - r_pathTracingToyLightScale / r_pathTracingToyEmissiveScale
   Separate multipliers for mode 18 selected-light and emissive material
   contribution. Current useful defaults are 0.3 for lights and 4.0 for
-  emissives.
+  emissives. ReSTIR PT mode 56 also uses these as preview calibration:
+  analytic sphere lights use
+  `r_pathTracingAnalyticLightIntensityScale * r_pathTracingToyLightScale`, and
+  emissive reservoirs use `r_pathTracingToyEmissiveScale`.
+
+- r_pathTracingAnalyticLightIntensityScale
+  Radiance calibration scale for Doom analytic sphere lights. Defaults to 4.0.
+  In ReSTIR PT mode 56 this is multiplied by `r_pathTracingToyLightScale`, so
+  the effective default analytic-light preview scale is 1.2.
 
 - r_pathTracingToyLightTraceCap
   Caps the number of selected point lights that mode 18 traces for each direct
@@ -1016,9 +1024,9 @@ Denoise/upscale/Ray Reconstruction reservation:
   material/motion fields, but camera-only reprojection is not enough for DLSS/RR.
 - The first DLSS RR bridge scaffold is now explicit: the standalone
   primary-surface producer exports full-resolution guide UAVs for albedo
-  (`u48`), normal+roughness (`u49`), depth (`u50`), and hit distance (`u51`).
-  It also exports a conservative reset/debug mask (`u52`). Motion vectors and
-  the validity mask remain `u39/u40`. See
+  (`u48`), normal+roughness (`u49`), depth (`u50`), hit distance (`u51`), and
+  specular albedo/F0 (`u53`). It also exports a conservative reset/debug mask
+  (`u52`). Motion vectors and the validity mask remain `u39/u40`. See
   `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 - With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
   producer also writes the bridge motion-vector/mask outputs from static
@@ -1027,20 +1035,25 @@ Denoise/upscale/Ray Reconstruction reservation:
   the monolithic shader for `u39/u40`. The reset mask is written regardless of
   that CVar so history validity can be debugged independently.
 - With `r_pathTracingDLSSRR 1`, mode 56 forces motion-vector export for the RR
-  evaluation frame. Do not add extra primary-surface guide UAVs until the known
-  geometry-disappearing case is isolated; a u53 disocclusion-guide experiment
-  was backed out after the raw mode-56 path regressed.
+  evaluation frame. A u53 disocclusion-guide experiment was backed out after
+  the raw mode-56 path regressed; u53 is now reserved for the material-only
+  specular-albedo/F0 guide.
+- `r_pathTracingDLSSRRColorBuffersHDR` defaults to 1 because the current
+  Streamline/NGX RR path rejects the SDR-tagged option with `eErrorNGXFailed`.
+  `r_pathTracingDLSSRRPreExposure`, `r_pathTracingDLSSRRExposureScale`, and
+  `r_pathTracingDLSSRRSharpness` expose the corresponding Streamline RR options
+  for diagnostic tuning.
 - Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
   scaffold when needed even if `r_pathTracingGpuSkinning` is `0`; that CVar
   still controls the diagnostic GPU skinning compute path.
-- Mode 56 removes routed-ready rigid candidates from the legacy dynamic fallback
-  path, matching the routed-rigid object-motion diagnostics, so RR guide motion
-  is sourced from routed TLAS instances instead of overlapping fallback copies
-  when a rigid route exists.
+- Mode 56 keeps the legacy dynamic rigid fallback even when a routed rigid TLAS
+  route exists. A short-lived change that pruned the fallback made a known
+  routed-geometry disappearance visible in mode 56; keep this conservative
+  until the routed-rigid missing-geometry case is fixed at the source.
 - `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
   roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
-  reset/disocclusion mask.
+  reset/disocclusion mask, 8 specular albedo/F0.
 - Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
   geometry universe must provide current/previous transforms or vertex data for
   surfaces whose history is reused.

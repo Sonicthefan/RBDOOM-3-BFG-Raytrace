@@ -14,6 +14,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* inputColor,
 	nvrhi::ITexture* outputColor,
 	nvrhi::ITexture* albedo,
+	nvrhi::ITexture* specularAlbedo,
 	nvrhi::ITexture* normalRoughness,
 	nvrhi::ITexture* linearDepth,
 	nvrhi::ITexture* motionVectors,

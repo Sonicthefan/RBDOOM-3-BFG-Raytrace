@@ -1271,13 +1271,15 @@ full-resolution primary-surface producer writes:
 - `u50` `PathTraceRRGuideDepth`, `R32_FLOAT`.
 - `u51` `PathTraceRRGuideHitDistance`, `R32_FLOAT`.
 - `u52` `PathTraceRRGuideResetMask`, `R32_UINT`.
+- `u53` `PathTraceRRGuideSpecularAlbedo`, `RGBA16_FLOAT`.
 
 The existing motion-vector scaffold remains `u39/u40`. This is not a DLSS RR
 SDK integration; it is the explicit guide export needed before one. The task
 plan is `docs/ReSTIR/dlss_rr_bridge_plan.txt`. Use
 `r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect albedo, normal,
-roughness, depth, hit distance, motion-mask/source-category output, and
-reset/disocclusion output without loading the old monolithic ReSTIR shader.
+roughness, depth, hit distance, motion-mask/source-category output,
+reset/disocclusion output, and specular albedo/F0 without loading the old
+monolithic ReSTIR shader.
 With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
 producer writes `u39/u40` directly for this bridge path from static previous
 snapshots, retained skinned previous positions, and continuous rigid previous
@@ -1285,10 +1287,10 @@ transforms. The reset mask is written even when motion-vector export is disabled
 so history validity can be inspected independently. Mode 56 builds the skinned
 previous-position scaffold for this guide export even when
 `r_pathTracingGpuSkinning` is `0`; that CVar still controls the diagnostic GPU
-skinning compute path. It also removes routed-ready rigid candidates from the
-legacy dynamic fallback path, matching the routed-rigid object-motion
-diagnostics, so mode-56 RR guide motion is not polluted by overlapping fallback
-copies when a routed TLAS instance exists.
+skinning compute path. Mode 56 currently keeps the legacy dynamic rigid fallback
+even when a routed rigid TLAS route exists. This is deliberately conservative
+after pruning the fallback exposed a known routed-geometry disappearance in mode
+56; fix the routed path before removing the fallback again.
 
 Implications for PathTraceGeometryUniverse:
 

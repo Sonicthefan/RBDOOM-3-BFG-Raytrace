@@ -75,7 +75,8 @@ DLSS Ray Reconstruction bridge:
 
 - `r_pathTracingDLSSRRGuideDebugView`
   0 off, 1 albedo, 2 encoded normal, 3 roughness, 4 depth, 5 hit distance,
-  6 motion-vector mask/source category, 7 reset/disocclusion mask.
+  6 motion-vector mask/source category, 7 reset/disocclusion mask, 8
+  specular albedo/F0.
 - `r_pathTracingDLSSRRProbe`
   Default 1 and `CVAR_INIT`. Initializes the experimental Streamline DLSS/RR
   bridge at renderer startup and prints support. Change before startup or
@@ -85,6 +86,15 @@ DLSS Ray Reconstruction bridge:
   `r_pathTracingRestirPTPrimarySurfacePrepass 1`, and guide debug view 0. This
   now forces RR motion-vector export for the evaluated frame even when the
   standalone motion-vector debug CVar is 0.
+- `r_pathTracingDLSSRRColorBuffersHDR`
+  Default 1. Feeds Streamline `colorBuffersHDR`; the current Streamline/NGX RR
+  path rejects the SDR-tagged option with `eErrorNGXFailed`.
+- `r_pathTracingDLSSRRPreExposure`
+  Default 1.0. Streamline `preExposure` diagnostic knob.
+- `r_pathTracingDLSSRRExposureScale`
+  Default 1.0. Streamline `exposureScale` diagnostic knob.
+- `r_pathTracingDLSSRRSharpness`
+  Default 0.0. Streamline RR sharpness option, clamped 0..1.
 - `r_pathTracingDLSSRRVerbose`
   Extra Streamline/DLSS/RR requirement, tag, and evaluate logging.
 
@@ -177,15 +187,15 @@ consumer can all consume `PrimarySurfaceHistoryCurrent`. Pass dumps report this
 with `giConsumesPrimary`, `directConsumesPrimary`, and `finalConsumesPrimary`.
 The same standalone primary-surface producer now exports the first DLSS Ray
 Reconstruction guide scaffold: albedo `u48`, normal+roughness `u49`, depth
-`u50`, hit distance `u51`, and reset/debug mask `u52`. Existing motion-vector
-outputs remain `u39/u40`.
+`u50`, hit distance `u51`, reset/debug mask `u52`, and specular albedo/F0
+`u53`. Existing motion-vector outputs remain `u39/u40`.
 The experimental Streamline DLSS RR bridge can now evaluate mode 56 when the
 SDK reports support, but the guide data is still provisional. The bridge plan
 lives in `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 Use `r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect those guide
 outputs through the standalone resolve: 1 albedo, 2 normal, 3 roughness, 4
 depth, 5 hit distance, 6 motion-vector mask/source category, 7
-reset/disocclusion mask.
+reset/disocclusion mask, 8 specular albedo/F0.
 When `r_pathTracingMotionVectorExport 1` is enabled, the standalone
 primary-surface producer writes the bridge motion-vector/mask UAVs too, using
 static previous snapshots, retained skinned previous positions, and continuous
@@ -199,11 +209,12 @@ When `r_pathTracingDLSSRR 1` evaluates RR, motion-vector export is enabled for
 that frame. The bitfield u52 texture remains the human-readable reset/debug
 mask. A previous u53 float disocclusion-guide experiment was backed out because
 the raw mode-56 primary-prepass path showed a geometry-disappearing regression
-even with RR evaluation disabled.
-Mode 56 also removes routed-ready rigid candidates from the legacy dynamic
-fallback path, matching the routed-rigid object-motion diagnostics, so RR guide
-motion is sourced from routed TLAS instances instead of overlapping fallback
-copies when a rigid route exists.
+even with RR evaluation disabled; u53 is now reserved for the material-only
+specular-albedo/F0 guide.
+Mode 56 keeps the legacy dynamic rigid fallback even when a routed rigid TLAS
+route exists. A short-lived change that pruned the fallback made a known
+routed-geometry disappearance visible in mode 56; keep this conservative until
+the routed-rigid missing-geometry case is fixed at the source.
 
 Direct and GI sparsity now use real sparse producer dispatch widths instead of
 only full-domain dispatch plus inactive-pixel early return. Pass dumps report

@@ -165,6 +165,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness :
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -997,6 +998,7 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
     if (!RAB_IsSurfaceValid(surface))
     {
         PathTraceRRGuideAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
+        PathTraceRRGuideSpecularAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         PathTraceRRGuideNormalRoughness[pixel] = float4(0.5, 0.5, 1.0, 1.0);
         PathTraceRRGuideDepth[pixel] = 0.0;
         PathTraceRRGuideHitDistance[pixel] = 0.0;
@@ -1005,6 +1007,7 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
 
     const float3 normal = SafeNormalize(surface.shadingNormal, surface.geometryNormal);
     PathTraceRRGuideAlbedo[pixel] = float4(saturate(surface.material.diffuseAlbedo), saturate(surface.material.opacity));
+    PathTraceRRGuideSpecularAlbedo[pixel] = float4(saturate(surface.material.specularF0), 1.0);
     PathTraceRRGuideNormalRoughness[pixel] = float4(normal * 0.5 + 0.5, saturate(surface.material.roughness));
     PathTraceRRGuideDepth[pixel] = max(surface.linearDepth, 0.0);
     PathTraceRRGuideHitDistance[pixel] = max(surface.linearDepth, 0.0);

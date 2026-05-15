@@ -449,6 +449,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* inputColor,
 	nvrhi::ITexture* outputColor,
 	nvrhi::ITexture* albedo,
+	nvrhi::ITexture* specularAlbedo,
 	nvrhi::ITexture* normalRoughness,
 	nvrhi::ITexture* linearDepth,
 	nvrhi::ITexture* motionVectors,
@@ -464,7 +465,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		return false;
 	}
 
-	if( !commandList || !inputColor || !outputColor || !albedo || !normalRoughness || !linearDepth || !motionVectors || !specularHitDistance || !viewDef || width <= 0 || height <= 0 )
+	if( !commandList || !inputColor || !outputColor || !albedo || !specularAlbedo || !normalRoughness || !linearDepth || !motionVectors || !specularHitDistance || !viewDef || width <= 0 || height <= 0 )
 	{
 		if( !g_streamlineEvaluateWarned )
 		{
@@ -541,7 +542,10 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	options.mode = sl::DLSSMode::eDLAA;
 	options.outputWidth = static_cast<uint32_t>( width );
 	options.outputHeight = static_cast<uint32_t>( height );
-	options.colorBuffersHDR = sl::Boolean::eTrue;
+	options.sharpness = idMath::ClampFloat( 0.0f, 1.0f, r_pathTracingDLSSRRSharpness.GetFloat() );
+	options.preExposure = idMath::ClampFloat( 0.0001f, 1024.0f, r_pathTracingDLSSRRPreExposure.GetFloat() );
+	options.exposureScale = idMath::ClampFloat( 0.0001f, 1024.0f, r_pathTracingDLSSRRExposureScale.GetFloat() );
+	options.colorBuffersHDR = r_pathTracingDLSSRRColorBuffersHDR.GetInteger() != 0 ? sl::Boolean::eTrue : sl::Boolean::eFalse;
 	options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
 	CopyIdTechWorldCameraMatricesToStreamline( viewDef, options.worldToCameraView, options.cameraViewToWorld );
 	options.alphaUpscalingEnabled = sl::Boolean::eFalse;
@@ -558,6 +562,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	sl::Resource inputColorResource = BuildStreamlineTextureResource( inputColor, shaderResourceState );
 	sl::Resource outputColorResource = BuildStreamlineTextureResource( outputColor, unorderedAccessState );
 	sl::Resource albedoResource = BuildStreamlineTextureResource( albedo, shaderResourceState );
+	sl::Resource specularAlbedoResource = BuildStreamlineTextureResource( specularAlbedo, shaderResourceState );
 	sl::Resource normalRoughnessResource = BuildStreamlineTextureResource( normalRoughness, shaderResourceState );
 	sl::Resource linearDepthResource = BuildStreamlineTextureResource( linearDepth, shaderResourceState );
 	sl::Resource motionVectorResource = BuildStreamlineTextureResource( motionVectors, shaderResourceState );
@@ -571,7 +576,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		sl::ResourceTag( &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
 		sl::ResourceTag( &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
 		sl::ResourceTag( &albedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &albedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
+		sl::ResourceTag( &specularAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
 		sl::ResourceTag( &normalRoughnessResource, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
 		sl::ResourceTag( &linearDepthResource, sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
 		sl::ResourceTag( &motionVectorResource, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
@@ -598,7 +603,15 @@ bool PathTraceDLSSRRBridge_Evaluate(
 
 	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 )
 	{
-		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d\n", frameIndex, width, height, resetHistory ? 1 : 0 );
+		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f\n",
+			frameIndex,
+			width,
+			height,
+			resetHistory ? 1 : 0,
+			options.colorBuffersHDR == sl::Boolean::eTrue ? 1 : 0,
+			options.preExposure,
+			options.exposureScale,
+			options.sharpness );
 	}
 	return true;
 #else
