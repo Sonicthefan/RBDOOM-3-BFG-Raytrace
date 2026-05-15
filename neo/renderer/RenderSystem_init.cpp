@@ -43,6 +43,7 @@ If you have questions concerning this license or the applicable additional terms
 #endif
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceDynamicMaterialState.h"
 
 #include "sys/DeviceManager.h"
 
@@ -1679,6 +1680,11 @@ void R_TouchGui_f( const idCmdArgs& args )
 	uiManager->Touch( gui );
 }
 
+static void R_PathTraceToggleCrosshairZeroRoughness_f( const idCmdArgs& args )
+{
+	ArmSmokeCrosshairZeroRoughnessToggle();
+	common->Printf( "PathTracePrimaryPass: armed crosshair zero-roughness material toggle for the next RT smoke frame\n" );
+}
 
 
 /*
@@ -1702,6 +1708,8 @@ void R_InitCommands()
 	cmdSystem->AddCommand( "testImage", R_TestImage_f, CMD_FL_RENDERER | CMD_FL_CHEAT, "displays the given image centered on screen", idCmdSystem::ArgCompletion_ImageName );
 	cmdSystem->AddCommand( "testVideo", R_TestVideo_f, CMD_FL_RENDERER | CMD_FL_CHEAT, "displays the given cinematic", idCmdSystem::ArgCompletion_VideoName );
 	cmdSystem->AddCommand( "reportSurfaceAreas", R_ReportSurfaceAreas_f, CMD_FL_RENDERER, "lists all used materials sorted by surface area" );
+	cmdSystem->AddCommand( "pathTraceToggleCrosshairZeroRoughness", R_PathTraceToggleCrosshairZeroRoughness_f, CMD_FL_RENDERER, "toggles PT zero-roughness override for the material under the crosshair on the next path-traced frame" );
+	cmdSystem->AddCommand( "pathtracetogglecrosshairzeroroughness", R_PathTraceToggleCrosshairZeroRoughness_f, CMD_FL_RENDERER, "toggles PT zero-roughness override for the material under the crosshair on the next path-traced frame" );
 	cmdSystem->AddCommand( "showInteractionMemory", R_ShowInteractionMemory_f, CMD_FL_RENDERER, "shows memory used by interactions" );
 	cmdSystem->AddCommand( "vid_restart", R_VidRestart_f, CMD_FL_RENDERER, "restarts renderSystem" );
 	cmdSystem->AddCommand( "listRenderEntityDefs", R_ListRenderEntityDefs_f, CMD_FL_RENDERER, "lists the entity defs" );

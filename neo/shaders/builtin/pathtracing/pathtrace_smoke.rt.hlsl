@@ -362,6 +362,7 @@ static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 static const uint RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR = 0x00000080u;
+static const uint RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS = 0x00000001u;
 static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 static const uint RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
@@ -1414,6 +1415,11 @@ bool BuildSmokeReflectionBounce(
     const float3 specularColor = SampleSmokeDirectSpecular(material, payload.texCoord);
     float3 F0;
     BuildSmokeSpecularLobe(specularColor, F0, roughness);
+    if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
+    {
+        roughness = 0.0;
+        F0 = max(F0, float3(0.85, 0.85, 0.85));
+    }
     const float f0Max = max(max(F0.r, F0.g), F0.b);
     const float roughnessLimit = PathTraceIntegratorReflectionMode() >= 2u ? 0.72 : 0.36;
     if (f0Max < 0.035 || roughness > roughnessLimit)
@@ -1662,6 +1668,11 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     if (SmokeToyFakePBRSpecularEnabled())
     {
         SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
+    }
+    if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
+    {
+        roughness = 0.0;
+        specularF0 = max(specularF0, float3(0.85, 0.85, 0.85));
     }
 
     const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;

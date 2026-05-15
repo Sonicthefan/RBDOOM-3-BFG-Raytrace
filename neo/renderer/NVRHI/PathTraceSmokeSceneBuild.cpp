@@ -24,6 +24,7 @@
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSmokeResources.h"
+#include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderBackend.h"
 #include "../Image.h"
@@ -1606,6 +1607,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int metadataMs = metadataTiming.metadataMs;
     const int metadataValidationMs = metadataTiming.validationMs;
     const int metadataRegistrationMs = metadataTiming.registrationMs;
+
+    ProcessSmokeCrosshairZeroRoughnessToggle(viewDef);
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;

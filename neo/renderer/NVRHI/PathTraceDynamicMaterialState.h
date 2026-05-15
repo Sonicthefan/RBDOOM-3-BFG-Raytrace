@@ -30,6 +30,7 @@ const uint32_t RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
 const uint32_t RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 const uint32_t RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 const uint32_t RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
+const uint32_t RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS = 0x00000001u;
 
 struct RtSmokeMaterialTableBuild
 {
@@ -109,3 +110,9 @@ bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::
 RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMaterialTableBuild& expected, const RtSmokeMaterialTableBuild& actual);
 RtSmokeMaterialTableBuildStats GetSmokeMaterialTableBuildStats();
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats();
+void ArmSmokeCrosshairZeroRoughnessToggle();
+bool ConsumeSmokeCrosshairZeroRoughnessToggleRequest();
+bool ToggleSmokeMaterialZeroRoughnessOverride(uint32_t materialId, const char* materialName);
+bool SmokeMaterialHasZeroRoughnessOverride(uint32_t materialId);
+int SmokeMaterialZeroRoughnessOverrideCount();
+uint32_t SmokeMaterialOverrideGeneration();

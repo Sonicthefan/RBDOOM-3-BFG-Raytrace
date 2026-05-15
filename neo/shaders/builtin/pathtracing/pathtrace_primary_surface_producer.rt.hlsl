@@ -219,6 +219,7 @@ static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR = 0x00000080u;
+static const uint RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
@@ -606,6 +607,11 @@ RAB_Surface BuildSurfaceFromPayload(PathTraceSmokePayload payload, float3 rayOri
     if (SmokeToyFakePBRSpecularEnabled())
     {
         SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
+    }
+    if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
+    {
+        roughness = 0.0;
+        specularF0 = max(specularF0, float3(0.85, 0.85, 0.85));
     }
     const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
 

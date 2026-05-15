@@ -54,7 +54,12 @@ Active ReSTIR shader libraries:
   `r_pathTracingRestirPTPrimarySurfacePrepass 1` is enabled and the resolve
   library loads successfully. It consumes primary history, spatial direct
   reservoirs, and GI initial reservoirs, then writes the combined rough preview
-  without entering the monolithic combined shader.
+  without entering the monolithic combined shader. It also carries the first
+  developer-only ReSTIR reflection scaffold:
+  `r_pathTracingRestirPTReflectionMode 1` adds a sharp screen-space reflection
+  lookup from `PrimarySurfaceHistoryCurrent`, and mode 2 widens the roughness
+  threshold for diagnostic rough-reflection testing. This is an SSR-style
+  primary-history consumer, not the final traced reflection reservoir/pass.
 - pathtrace_restir_indirect_initial_producer.rt.hlsl
   Standalone-ish mode 56 GI initial producer used when the primary prepass is
   active. It still includes `pathtrace_smoke.rt.hlsl` for hit/material plumbing,
@@ -147,6 +152,25 @@ standalone combined resolve library when available. Pass dumps report this with
 load, mode 56 falls back to the older monolithic combined shader.
 Set `r_pathTracingRestirPTPrimarySurfacePrepass 0` only when deliberately
 testing that legacy fallback path.
+
+Mode 56 reflection preview is controlled by:
+
+  r_pathTracingRestirPTReflectionMode
+
+Mode 0 disables it. Mode 1 only targets low-roughness/specular primary surfaces
+and is the default validation shape for sharp reflections. Mode 2 is a rough
+diagnostic mode that broadens the roughness threshold but should not be treated
+as the final rough-reflection reconstruction path. The current implementation
+marches in screen space through the full-resolution primary-surface records and
+reuses the existing direct+GI resolve at the hit pixel without recursive
+reflection, so it cannot reflect off-screen objects and may miss thin geometry.
+
+For validation in Doom materials that are not naturally glossy, the console
+command `pathTraceToggleCrosshairZeroRoughness` arms a one-shot crosshair pick
+on the next RT smoke frame. The picked material id toggles a PT material-table
+override that forces roughness to 0 and raises F0 to at least 0.85 in the
+primary-surface producer and monolithic fallback. Running the command on the
+same material again disables the override.
 
 Primary-surface records now pack real material flags in
 `materialAndSurface.z`. Earlier prepass records accidentally wrote

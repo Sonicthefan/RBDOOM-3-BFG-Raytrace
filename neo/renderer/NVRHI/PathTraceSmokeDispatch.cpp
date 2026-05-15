@@ -704,7 +704,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool finalUsesStandaloneResolve = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode && state.shaderTable == m_smokeRestirCombinedResolveShaderTable;
         const bool finalConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode;
         const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -743,6 +743,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTBufferSelection.debugInput,
             (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1 : 0,
             restirPTVisibilityPolicy,
+            idMath::ClampInt(0, 2, r_pathTracingRestirPTReflectionMode.GetInteger()),
             toyLightScale,
             toyEmissiveScale,
             effectiveAnalyticLightIntensityScale,
@@ -924,7 +925,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.geometryInfo3[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedPreviousPositionCount));
     constants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
     constants.geometryInfo3[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedTriangleDispatchIndexCount));
-    constants.geometryInfo3[3] = 0.0f;
+    constants.geometryInfo3[3] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTReflectionMode.GetInteger()));
     constants.geometryInfo4[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticVertexCount));
     constants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
     constants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));

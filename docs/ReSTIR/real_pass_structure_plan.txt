@@ -71,9 +71,10 @@ Resolve/composite at full resolution:
 - The final resolve must know the source domain of every lighting signal.
 - No pass may pretend a sparse or scaled lighting buffer is full resolution.
 
-Do not add reflections before this structure exists. Reflections need their own
-domain and reconstruction policy; adding them to the current mode 56-style
-preview would add more shader pressure to the wrong shape.
+Do not fold final reflections into the old monolithic mode-56-style preview.
+The first reflection work may use the standalone Pass-D resolve as a
+developer-only scaffold, but the production target remains an explicit
+reflection domain with its own reconstruction policy.
 
 Target Pass Graph
 -----------------
@@ -113,11 +114,21 @@ Pass D: Full-resolution resolve/composite
 
 Future Pass E: Reflections
 
-- Add after Pass A-D are stable.
-- Likely half-resolution or sparse by default.
-- Must use roughness-aware reconstruction.
-- Mirror-like and glass/transmission cases need separate policy; do not force
-  all reflections into one low-resolution bucket.
+- Current first slice: `pathtrace_restir_combined_resolve.rt.hlsl` can add a
+  developer-only screen-space reflection preview from
+  `PrimarySurfaceHistoryCurrent` when
+  `r_pathTracingRestirPTReflectionMode` is enabled. Mode 1 is sharp/low
+  roughness only; mode 2 widens the roughness threshold for diagnostic testing.
+  This is deliberately not a traced reflection reservoir and cannot see
+  off-screen reflected surfaces.
+- The production reflection domain should be a separate pass after Pass A-D are
+  stable. It should trace reflection rays or generate reflection reservoirs into
+  its own buffers, then let the full-resolution resolve reconstruct them.
+- Sharp and rough reflections should stay policy-separated. Mirror-like
+  reflections can use more aggressive sparsity/half-resolution first; rough
+  reflections need denser sampling or roughness-aware filtering because sparse
+  representative reuse will smear and shimmer.
+- Glass/transmission remains a separate policy from opaque specular reflection.
 
 Sparse Dispatch Requirements
 ----------------------------
@@ -331,7 +342,7 @@ Validation sequence:
 
 Do Not Do Next
 --------------
-- Do not add reflections to the current mode 56 monolithic preview.
+- Do not add final reflections to the current mode 56 monolithic preview.
 - Do not switch to a `1/rate^2` sparse block pattern without adding
   reconstruction.
 - Do not treat low RT-core utilization as proof that ray tracing is broken; it
