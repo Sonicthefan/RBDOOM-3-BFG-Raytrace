@@ -62,6 +62,7 @@ Frame resources now allocate full-resolution DLSS RR guide UAVs:
 - `PathTraceRRGuideNormalRoughness` at `u49`, `RGBA16_FLOAT`.
 - `PathTraceRRGuideDepth` at `u50`, `R32_FLOAT`.
 - `PathTraceRRGuideHitDistance` at `u51`, `R32_FLOAT`.
+- `PathTraceRRGuideResetMask` at `u52`, `R32_UINT`.
 
 The standalone primary-surface producer writes these guide buffers from the
 same surface that it stores into `PrimarySurfaceHistoryCurrent`:
@@ -70,6 +71,7 @@ same surface that it stores into `PrimarySurfaceHistoryCurrent`:
 - encoded shading normal rgb plus roughness in alpha,
 - current primary linear depth,
 - current primary hit distance, currently the same value as linear depth.
+- conservative reset/disocclusion reasons for invalid history.
 
 Existing motion-vector outputs remain:
 
@@ -77,9 +79,16 @@ Existing motion-vector outputs remain:
 - `PathTraceMotionVectorMask` at `u40`, `R32_UINT`.
 
 When `r_pathTracingMotionVectorExport 1` is enabled, the standalone
-primary-surface producer writes a bridge-grade current-to-previous pixel motion
-vector and mask. This is currently a scaffold export from the primary surface;
-the final RR gate still needs stricter object/skinned motion validation.
+primary-surface producer writes bridge-grade current-to-previous pixel motion
+vectors and masks from static previous snapshots, retained skinned previous
+positions, and continuous rigid previous transforms. The reset mask is written
+even when the motion-vector export CVar is disabled, so mode 56 can inspect
+history validity without feeding `u39/u40` consumers.
+
+Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
+scaffold when needed, even if `r_pathTracingGpuSkinning` is `0`. That CVar still
+controls the diagnostic GPU skinning compute path; it is no longer required
+just to validate mode-56 skinned RR motion guides.
 
 This is intentionally an export scaffold, not an SDK call.
 
@@ -90,14 +99,15 @@ Known Placeholders
   must be split later if the RR integration needs per-lobe data.
 - Material/surface identity exists in primary-surface history, but there is not
   yet a dedicated material-id texture.
-- Motion vectors exist, but DLSS RR must not ship against camera-only motion.
-  Object/skinned previous-position coverage must stay part of the validation
-  gate.
+- Motion vectors now cover the primary static/skinned/rigid history bridge, but
+  DLSS RR still needs a stricter validation gate before it is trusted as a
+  player-facing reconstruction input.
 - Diffuse/specular radiance separation is not final. Mode 56 still composites a
   preview color; future RR integration should keep noisy diffuse/specular
   channels separable where possible.
 - Transparent/translucent handling is not final. Stochastic primary hits are
-  represented, but layered glass/transmission needs its own policy.
+  flagged in the reset mask, but layered glass/transmission needs its own
+  policy.
 
 Task 02: Guide Debug Views
 --------------------------
@@ -115,16 +125,24 @@ Values:
 - 3: roughness.
 - 4: depth.
 - 5: hit distance.
-- 6: motion-vector mask.
+- 6: motion-vector mask and source category.
+- 7: reset/disocclusion mask.
 
 These views use the standalone mode-56 combined resolve, not the old monolithic
 ReSTIR shader. They require the primary-surface prepass path because that pass
 is the current guide producer.
 
+The reset mask debug view is deliberately conservative:
+
+- green: reusable history.
+- red or orange: rejected previous history or material mismatch.
+- yellow: object/skinned/rigid motion unavailable.
+- purple: stochastic translucent primary hit.
+- black: invalid primary surface.
+
 Further debug views may still be useful for:
 
 - future material-id texture,
-- future disocclusion/reset mask,
 - future diffuse/specular separated noisy radiance.
 
 Task 03: History And Reset Contract
@@ -172,6 +190,8 @@ For the current scaffold:
 3. Copy `base\renderprogs2` after shader changes.
 4. Run mode 56 with `r_pathTracingRestirPTPrimarySurfacePrepass 1`.
 5. Confirm the frame-resource log reports:
-   `RT DLSS RR guide scaffold ... u48 ... u51`.
+   `RT DLSS RR guide scaffold ... u48 ... u52`.
 6. Confirm mode 56 visuals remain unchanged apart from expected compile/load
    churn from the touched primary-surface producer shader.
+7. Use debug view 6 to inspect valid motion source categories and debug view 7
+   to inspect conservative reset reasons.

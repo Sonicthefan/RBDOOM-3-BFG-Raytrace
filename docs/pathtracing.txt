@@ -1011,15 +1011,26 @@ Denoise/upscale/Ray Reconstruction reservation:
 - The first DLSS RR bridge scaffold is now explicit: the standalone
   primary-surface producer exports full-resolution guide UAVs for albedo
   (`u48`), normal+roughness (`u49`), depth (`u50`), and hit distance (`u51`).
-  Motion vectors and the validity mask remain `u39/u40`. See
+  It also exports a conservative reset/disocclusion mask (`u52`). Motion
+  vectors and the validity mask remain `u39/u40`. See
   `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 - With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
-  producer also writes the bridge motion-vector/mask outputs, so the
-  primary-prepass mode-56 path does not depend on the monolithic shader for
-  `u39/u40`.
+  producer also writes the bridge motion-vector/mask outputs from static
+  previous snapshots, retained skinned previous positions, and continuous rigid
+  previous transforms, so the primary-prepass mode-56 path does not depend on
+  the monolithic shader for `u39/u40`. The reset mask is written regardless of
+  that CVar so history validity can be debugged independently.
+- Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
+  scaffold when needed even if `r_pathTracingGpuSkinning` is `0`; that CVar
+  still controls the diagnostic GPU skinning compute path.
+- Mode 56 removes routed-ready rigid candidates from the legacy dynamic fallback
+  path, matching the routed-rigid object-motion diagnostics, so RR guide motion
+  is sourced from routed TLAS instances instead of overlapping fallback copies
+  when a rigid route exists.
 - `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
-  roughness, 4 depth, 5 hit distance, 6 motion-vector mask.
+  roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
+  reset/disocclusion mask.
 - Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
   geometry universe must provide current/previous transforms or vertex data for
   surfaces whose history is reused.

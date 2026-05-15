@@ -110,6 +110,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         rrGuideNormalRoughnessTexture &&
         rrGuideDepthTexture &&
         rrGuideHitDistanceTexture &&
+        rrGuideResetMaskTexture &&
         readbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
@@ -130,6 +131,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         rrGuideNormalRoughnessTexture ||
         rrGuideDepthTexture ||
         rrGuideHitDistanceTexture ||
+        rrGuideResetMaskTexture ||
         readbackTexture ||
         smokeReservoirBuffers.current ||
         smokeReservoirBuffers.previous ||
@@ -261,6 +263,16 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    nvrhi::TextureDesc rrGuideResetMaskDesc = outputDesc;
+    rrGuideResetMaskDesc.format = nvrhi::Format::R32_UINT;
+    rrGuideResetMaskDesc.debugName = "PathTraceRRGuideResetMask";
+    nvrhi::TextureHandle newRrGuideResetMaskTexture = device->createTexture(rrGuideResetMaskDesc);
+    if (!newRrGuideResetMaskTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR reset/disocclusion mask UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     nvrhi::TextureDesc readbackDesc = outputDesc;
     readbackDesc.isShaderResource = false;
     readbackDesc.isUAV = false;
@@ -288,20 +300,22 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     rrGuideNormalRoughnessTexture = newRrGuideNormalRoughnessTexture;
     rrGuideDepthTexture = newRrGuideDepthTexture;
     rrGuideHitDistanceTexture = newRrGuideHitDistanceTexture;
+    rrGuideResetMaskTexture = newRrGuideResetMaskTexture;
     readbackTexture = newReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
     diagnostics.outputTexturesCreated += 3;
     diagnostics.motionVectorTexturesCreated++;
     diagnostics.motionVectorMaskTexturesCreated++;
-    diagnostics.rrGuideTexturesCreated += 4;
+    diagnostics.rrGuideTexturesCreated += 5;
     diagnostics.diagnosticReadbackResourcesCreated++;
     diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 3ull;
     diagnostics.motionVectorBytes = EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
         EstimateRgba16FloatTextureBytes(width, height) * 2ull +
-        EstimateR32FloatTextureBytes(width, height) * 2ull;
+        EstimateR32FloatTextureBytes(width, height) * 2ull +
+        EstimateR32UintTextureBytes(width, height);
     MarkResetReason(RT_FRAME_RESET_OUTPUT_RESIZE);
 
     RtSmokeReservoirBufferCreateDesc reservoirDesc;
@@ -411,7 +425,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
-    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 bytes=%llu producer=primary-surface-prepass\n",
+    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 bytes=%llu producer=primary-surface-prepass\n",
         requestedWidth,
         requestedHeight,
         static_cast<unsigned long long>(diagnostics.rrGuideBytes));
@@ -431,6 +445,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     rrGuideNormalRoughnessTexture = nullptr;
     rrGuideDepthTexture = nullptr;
     rrGuideHitDistanceTexture = nullptr;
+    rrGuideResetMaskTexture = nullptr;
     readbackTexture = nullptr;
     width = 0;
     height = 0;
@@ -592,7 +607,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         accumulationTexture ? 1 : 0,
         motionVectorTexture ? 1 : 0,
         motionVectorMaskTexture ? 1 : 0,
-        (rrGuideAlbedoTexture && rrGuideNormalRoughnessTexture && rrGuideDepthTexture && rrGuideHitDistanceTexture) ? 1 : 0,
+        (rrGuideAlbedoTexture && rrGuideNormalRoughnessTexture && rrGuideDepthTexture && rrGuideHitDistanceTexture && rrGuideResetMaskTexture) ? 1 : 0,
         readbackTexture ? 1 : 0,
         smokeReservoirBuffers.IsValidFor(width, height) ? 1 : 0,
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(width), static_cast<uint32_t>(height), settings.checkerboardMode) ? 1 : 0,

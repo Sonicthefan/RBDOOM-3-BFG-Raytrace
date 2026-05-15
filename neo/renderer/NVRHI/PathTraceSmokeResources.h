@@ -120,6 +120,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::TextureHandle rrGuideNormalRoughnessTexture;
     nvrhi::TextureHandle rrGuideDepthTexture;
     nvrhi::TextureHandle rrGuideHitDistanceTexture;
+    nvrhi::TextureHandle rrGuideResetMaskTexture;
     nvrhi::TextureHandle fallbackTexture;
     nvrhi::BufferHandle constantsBuffer;
     nvrhi::BufferHandle restirPTConstantsBuffer;

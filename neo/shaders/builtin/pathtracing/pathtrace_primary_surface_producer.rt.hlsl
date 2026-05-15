@@ -96,6 +96,33 @@ struct PathTraceRigidRouteInstance
     float4 previousObjectToWorld2;
 };
 
+struct PathTraceSkinnedPreviousPosition
+{
+    float4 previousPosition;
+};
+
+struct PathTraceSkinnedSurfaceDispatchRecord
+{
+    uint sourceVertexOffset;
+    uint outputVertexOffset;
+    uint previousPositionOffset;
+    uint vertexCount;
+    uint currentJointOffset;
+    uint previousJointOffset;
+    uint surfaceRecordIndex;
+    uint flags;
+    uint dynamicVertexOffset;
+    uint dynamicIndexOffset;
+    uint dynamicTriangleOffset;
+    uint triangleCount;
+    float4 currentObjectToWorld0;
+    float4 currentObjectToWorld1;
+    float4 currentObjectToWorld2;
+    float4 previousObjectToWorld0;
+    float4 previousObjectToWorld1;
+    float4 previousObjectToWorld2;
+};
+
 struct RAB_Material
 {
     uint materialId;
@@ -137,6 +164,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness : register(u49);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
+VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -153,6 +181,14 @@ StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterials : register(t24);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
+StructuredBuffer<PathTraceSkinnedPreviousPosition> SmokeSkinnedPreviousPositions : register(t32);
+StructuredBuffer<PathTraceSkinnedSurfaceDispatchRecord> SmokeSkinnedSurfaceDispatch : register(t33);
+StructuredBuffer<PathTraceSmokeVertex> SmokePreviousStaticVertices : register(t34);
+StructuredBuffer<uint> SmokePreviousStaticIndices : register(t35);
+StructuredBuffer<uint> SmokePreviousStaticTriangleClasses : register(t36);
+StructuredBuffer<uint> SmokePreviousStaticTriangleMaterials : register(t37);
+StructuredBuffer<uint> SmokePreviousStaticTriangleMaterialIndexes : register(t38);
+StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -230,6 +266,17 @@ static const uint PT_MOTION_VECTOR_SOURCE_STATIC = 1u;
 static const uint PT_MOTION_VECTOR_SOURCE_SKINNED = 2u;
 static const uint PT_MOTION_VECTOR_SOURCE_RIGID = 3u;
 static const uint PT_MOTION_VECTOR_SOURCE_OTHER_OBJECT = 4u;
+static const uint RT_RR_RESET_INVALID_SURFACE = 0x00000001u;
+static const uint RT_RR_RESET_MISSING_PREVIOUS = 0x00000002u;
+static const uint RT_RR_RESET_REJECTED_PREVIOUS = 0x00000004u;
+static const uint RT_RR_RESET_MATERIAL_MISMATCH = 0x00000008u;
+static const uint RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE = 0x00000010u;
+static const uint RT_RR_RESET_STOCHASTIC_TRANSLUCENT = 0x00000020u;
+static const uint RT_RR_RESET_OTHER_INVALID = 0x00000040u;
+static const uint PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS = 0x00000001u;
+static const uint PT_SKINNED_DISPATCH_RT_CPU_SKINNED = 0x00000002u;
+static const uint PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 0x00000001u;
+static const uint PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 0x00000002u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
@@ -250,6 +297,13 @@ uint PathTraceRigidRouteIndexCount() { return (uint)max(GeometryInfo1.w, 0.0); }
 uint PathTraceRigidRouteTriangleCount() { return (uint)max(GeometryInfo2.x, 0.0); }
 uint PathTraceRigidRouteInstanceCount() { return (uint)max(GeometryInfo2.y, 0.0); }
 uint PathTracePrimarySurfaceHistoryCount() { return (uint)max(GeometryInfo2.z, 0.0); }
+uint PathTraceSkinnedPreviousPositionCount() { return (uint)max(GeometryInfo3.x, 0.0); }
+uint PathTraceSkinnedSurfaceDispatchCount() { return (uint)max(GeometryInfo3.y, 0.0); }
+uint PathTraceSkinnedTriangleDispatchIndexCount() { return (uint)max(GeometryInfo3.z, 0.0); }
+uint PathTracePreviousStaticVertexCount() { return (uint)max(GeometryInfo4.x, 0.0); }
+uint PathTracePreviousStaticIndexCount() { return (uint)max(GeometryInfo4.y, 0.0); }
+uint PathTracePreviousStaticTriangleCount() { return (uint)max(GeometryInfo4.z, 0.0); }
+uint PathTracePreviousStaticMaterialIndexCount() { return (uint)max(GeometryInfo4.w, 0.0); }
 
 uint2 PathTraceFullOutputSize()
 {
@@ -660,6 +714,213 @@ uint2 PathTracePrimarySurfaceStorePixel(uint2 pixel)
     return pixel + PathTraceDispatchTileOffset();
 }
 
+bool ComputeSmokeTriangleBarycentrics(float3 position, float3 p0, float3 p1, float3 p2, out float3 barycentrics)
+{
+    barycentrics = float3(1.0, 0.0, 0.0);
+    const float3 edge0 = p1 - p0;
+    const float3 edge1 = p2 - p0;
+    const float3 delta = position - p0;
+    const float d00 = dot(edge0, edge0);
+    const float d01 = dot(edge0, edge1);
+    const float d11 = dot(edge1, edge1);
+    const float d20 = dot(delta, edge0);
+    const float d21 = dot(delta, edge1);
+    const float denominator = d00 * d11 - d01 * d01;
+    if (abs(denominator) <= 1.0e-10)
+    {
+        return false;
+    }
+
+    const float invDenominator = 1.0 / denominator;
+    const float v = (d11 * d20 - d01 * d21) * invDenominator;
+    const float w = (d00 * d21 - d01 * d20) * invDenominator;
+    barycentrics = float3(1.0 - v - w, v, w);
+    return all(barycentrics == barycentrics);
+}
+
+float3 TransformPathTraceRigidRoutePoint(float4 row0, float4 row1, float4 row2, float3 localPoint)
+{
+    return float3(
+        dot(row0, float4(localPoint, 1.0)),
+        dot(row1, float4(localPoint, 1.0)),
+        dot(row2, float4(localPoint, 1.0)));
+}
+
+bool TryPathTracePrimarySurfaceSkinnedObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
+{
+    previousWorldPosition = float3(0.0, 0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (surface.instanceId != 1u || surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS;
+    const uint dispatchCount = PathTraceSkinnedSurfaceDispatchCount();
+    const uint dispatchIndexCount = PathTraceSkinnedTriangleDispatchIndexCount();
+    if (dispatchCount == 0u || dispatchIndexCount == 0u || PathTraceSkinnedPreviousPositionCount() == 0u)
+    {
+        return false;
+    }
+
+    if (surface.primitiveIndex >= dispatchIndexCount)
+    {
+        return false;
+    }
+
+    const uint dispatchIndex = SmokeSkinnedTriangleDispatchIndexes[surface.primitiveIndex];
+    if (dispatchIndex == 0xffffffffu || dispatchIndex >= dispatchCount)
+    {
+        return false;
+    }
+
+    const PathTraceSkinnedSurfaceDispatchRecord dispatch = SmokeSkinnedSurfaceDispatch[dispatchIndex];
+    if (surface.primitiveIndex < dispatch.dynamicTriangleOffset ||
+        surface.primitiveIndex >= dispatch.dynamicTriangleOffset + dispatch.triangleCount)
+    {
+        return false;
+    }
+
+    if ((dispatch.flags & (PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS | PT_SKINNED_DISPATCH_RT_CPU_SKINNED)) !=
+        (PT_SKINNED_DISPATCH_HAS_VALID_PREVIOUS | PT_SKINNED_DISPATCH_RT_CPU_SKINNED) ||
+        dispatch.previousPositionOffset == 0xffffffffu)
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH;
+    const uint localTriangleIndex = surface.primitiveIndex - dispatch.dynamicTriangleOffset;
+    const uint indexOffset = dispatch.dynamicIndexOffset + localTriangleIndex * 3u;
+    if (indexOffset + 2u >= PathTraceDynamicIndexCount() ||
+        dispatch.vertexCount == 0u ||
+        dispatch.triangleCount == 0u)
+    {
+        return false;
+    }
+
+    const uint i0 = SmokeDynamicIndices[indexOffset + 0u];
+    const uint i1 = SmokeDynamicIndices[indexOffset + 1u];
+    const uint i2 = SmokeDynamicIndices[indexOffset + 2u];
+    const uint vertexEnd = dispatch.dynamicVertexOffset + dispatch.vertexCount;
+    if (i0 < dispatch.dynamicVertexOffset || i0 >= vertexEnd ||
+        i1 < dispatch.dynamicVertexOffset || i1 >= vertexEnd ||
+        i2 < dispatch.dynamicVertexOffset || i2 >= vertexEnd ||
+        i0 >= PathTraceDynamicVertexCount() ||
+        i1 >= PathTraceDynamicVertexCount() ||
+        i2 >= PathTraceDynamicVertexCount())
+    {
+        return false;
+    }
+
+    const float3 p0 = SmokeDynamicVertices[i0].position.xyz;
+    const float3 p1 = SmokeDynamicVertices[i1].position.xyz;
+    const float3 p2 = SmokeDynamicVertices[i2].position.xyz;
+    float3 barycentrics;
+    if (!ComputeSmokeTriangleBarycentrics(surface.worldPos, p0, p1, p2, barycentrics))
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE;
+    const uint previous0 = dispatch.previousPositionOffset + (i0 - dispatch.dynamicVertexOffset);
+    const uint previous1 = dispatch.previousPositionOffset + (i1 - dispatch.dynamicVertexOffset);
+    const uint previous2 = dispatch.previousPositionOffset + (i2 - dispatch.dynamicVertexOffset);
+    if (previous0 >= PathTraceSkinnedPreviousPositionCount() ||
+        previous1 >= PathTraceSkinnedPreviousPositionCount() ||
+        previous2 >= PathTraceSkinnedPreviousPositionCount())
+    {
+        return false;
+    }
+
+    const float3 prev0 = SmokeSkinnedPreviousPositions[previous0].previousPosition.xyz;
+    const float3 prev1 = SmokeSkinnedPreviousPositions[previous1].previousPosition.xyz;
+    const float3 prev2 = SmokeSkinnedPreviousPositions[previous2].previousPosition.xyz;
+    previousWorldPosition = prev0 * barycentrics.x + prev1 * barycentrics.y + prev2 * barycentrics.z;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return all(previousWorldPosition == previousWorldPosition);
+}
+
+bool TryPathTracePrimarySurfaceRigidObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
+{
+    previousWorldPosition = float3(0.0, 0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (surface.instanceId < 2u || surface.surfaceClass != RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY)
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_MISSING_PREVIOUS;
+    const uint routeInstanceIndex = surface.instanceId - 2u;
+    if (routeInstanceIndex >= PathTraceRigidRouteInstanceCount())
+    {
+        return false;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    if ((routeInstance.flags & (PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS)) !=
+        (PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS))
+    {
+        return false;
+    }
+
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+    if (surface.primitiveIndex >= routeInstance.triangleCount ||
+        routeInstance.triangleOffset + surface.primitiveIndex >= PathTraceRigidRouteTriangleCount())
+    {
+        return false;
+    }
+
+    const uint indexOffset = routeInstance.indexOffset + surface.primitiveIndex * 3u;
+    if (indexOffset + 2u >= PathTraceRigidRouteIndexCount())
+    {
+        return false;
+    }
+
+    const uint i0 = SmokeRigidRouteIndices[indexOffset + 0u];
+    const uint i1 = SmokeRigidRouteIndices[indexOffset + 1u];
+    const uint i2 = SmokeRigidRouteIndices[indexOffset + 2u];
+    if (i0 >= routeInstance.vertexCount || i1 >= routeInstance.vertexCount || i2 >= routeInstance.vertexCount ||
+        routeInstance.vertexOffset + i0 >= PathTraceRigidRouteVertexCount() ||
+        routeInstance.vertexOffset + i1 >= PathTraceRigidRouteVertexCount() ||
+        routeInstance.vertexOffset + i2 >= PathTraceRigidRouteVertexCount())
+    {
+        return false;
+    }
+
+    const float3 local0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0].position.xyz;
+    const float3 local1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1].position.xyz;
+    const float3 local2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2].position.xyz;
+    const float3 current0 = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, local0);
+    const float3 current1 = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, local1);
+    const float3 current2 = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, local2);
+
+    float3 barycentrics;
+    if (!ComputeSmokeTriangleBarycentrics(surface.worldPos, current0, current1, current2, barycentrics))
+    {
+        return false;
+    }
+
+    const float3 prev0 = TransformPathTraceRigidRoutePoint(routeInstance.previousObjectToWorld0, routeInstance.previousObjectToWorld1, routeInstance.previousObjectToWorld2, local0);
+    const float3 prev1 = TransformPathTraceRigidRoutePoint(routeInstance.previousObjectToWorld0, routeInstance.previousObjectToWorld1, routeInstance.previousObjectToWorld2, local1);
+    const float3 prev2 = TransformPathTraceRigidRoutePoint(routeInstance.previousObjectToWorld0, routeInstance.previousObjectToWorld1, routeInstance.previousObjectToWorld2, local2);
+    previousWorldPosition = prev0 * barycentrics.x + prev1 * barycentrics.y + prev2 * barycentrics.z;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return all(previousWorldPosition == previousWorldPosition);
+}
+
+bool TryPathTracePrimarySurfaceObjectMotion(RAB_Surface surface, out float3 previousWorldPosition, out uint debugStatus)
+{
+    if (TryPathTracePrimarySurfaceSkinnedObjectMotion(surface, previousWorldPosition, debugStatus))
+    {
+        return true;
+    }
+    if (debugStatus != RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION)
+    {
+        return false;
+    }
+    return TryPathTracePrimarySurfaceRigidObjectMotion(surface, previousWorldPosition, debugStatus);
+}
+
 PathTracePrimarySurfaceRecord PackPrimarySurfaceRecord(RAB_Surface surface)
 {
     PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
@@ -675,7 +936,21 @@ PathTracePrimarySurfaceRecord PackPrimarySurfaceRecord(RAB_Surface surface)
     {
         validFlags |= RT_PRIMARY_SURFACE_HAS_CAMERA_REPROJECTION;
     }
-    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, validFlags, RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION, surface.flags);
+
+    uint debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    float3 previousWorldPosition = float3(0.0, 0.0, 0.0);
+    uint objectMotionDebugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    if (TryPathTracePrimarySurfaceObjectMotion(surface, previousWorldPosition, objectMotionDebugStatus))
+    {
+        validFlags |= RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    }
+    else
+    {
+        debugStatus = objectMotionDebugStatus;
+    }
+
+    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, validFlags, debugStatus, surface.flags);
     record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
     record.geometricNormalAndRoughness = float4(surface.geometryNormal, surface.material.roughness);
     record.shadingNormalAndOpacity = float4(surface.shadingNormal, surface.material.opacity);
@@ -683,7 +958,9 @@ PathTracePrimarySurfaceRecord PackPrimarySurfaceRecord(RAB_Surface surface)
     record.albedoAndAlphaCutoff = float4(surface.material.diffuseAlbedo, surface.material.alphaCutoff);
     record.specularF0AndReserved = float4(surface.material.specularF0, 0.0);
     record.emissiveAndHeight = float4(surface.material.emissiveRadiance, 0.0);
-    record.previousPositionOrMotion = float4(0.0, 0.0, 0.0, 0.0);
+    record.previousPositionOrMotion = (validFlags & RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION) != 0u
+        ? float4(previousWorldPosition, 1.0)
+        : float4(0.0, 0.0, 0.0, 0.0);
     record.materialAndSurface = uint4(surface.materialId, surface.materialIndex, surface.material.flags, surface.surfaceClass);
     record.instancePrimitiveObject = uint4(surface.instanceId, surface.primitiveIndex, 0u, surface.material.emissiveTextureIndex);
     return record;
@@ -764,9 +1041,10 @@ uint PathTraceMotionVectorMaskFromStatus(bool valid, uint sourceKind, uint debug
     return sourceBits | ((debugStatus & 0xffu) << PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT);
 }
 
-bool ProjectPrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out float2 previousPixel)
+bool ProjectPrimarySurfaceToPreviousPixelFloatAndDepth(float3 worldPosition, uint2 dimensions, out float2 previousPixel, out float previousLinearDepth)
 {
     previousPixel = float2(-1.0, -1.0);
+    previousLinearDepth = 0.0;
     if (PrevCameraOriginAndValid.w < 0.5)
     {
         return false;
@@ -778,6 +1056,7 @@ bool ProjectPrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions
     {
         return false;
     }
+    previousLinearDepth = length(delta);
 
     const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
     const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
@@ -791,13 +1070,226 @@ bool ProjectPrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions
         previousPixel.x < (float)dimensions.x && previousPixel.y < (float)dimensions.y;
 }
 
-void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
+bool ProjectPrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out float2 previousPixel)
 {
-    if (MotionVectorInfo.x < 0.5)
+    float previousLinearDepth;
+    return ProjectPrimarySurfaceToPreviousPixelFloatAndDepth(worldPosition, dimensions, previousPixel, previousLinearDepth);
+}
+
+bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out float3 previousPosition, out uint debugStatus)
+{
+    previousPosition = float3(0.0, 0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    if (!RAB_IsSurfaceValid(currentSurface))
     {
-        return;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
     }
 
+    if (currentSurface.instanceId != 0u || currentSurface.surfaceClass != 0u)
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+        return false;
+    }
+
+    if (PathTracePreviousStaticVertexCount() == 0u ||
+        PathTracePreviousStaticIndexCount() == 0u ||
+        PathTracePreviousStaticTriangleCount() == 0u ||
+        PathTracePreviousStaticMaterialIndexCount() == 0u)
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS;
+        return false;
+    }
+
+    const uint primitiveIndex = currentSurface.primitiveIndex;
+    const uint indexOffset = primitiveIndex * 3u;
+    if (primitiveIndex >= PathTraceStaticTriangleCount() ||
+        primitiveIndex >= PathTracePreviousStaticTriangleCount() ||
+        indexOffset + 2u >= PathTraceStaticIndexCount() ||
+        indexOffset + 2u >= PathTracePreviousStaticIndexCount() ||
+        primitiveIndex >= PathTracePreviousStaticMaterialIndexCount())
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        return false;
+    }
+
+    const uint currentClass = SmokeStaticTriangleClasses[primitiveIndex];
+    const uint previousClass = SmokePreviousStaticTriangleClasses[primitiveIndex];
+    const uint currentMaterialId = SmokeStaticTriangleMaterials[primitiveIndex];
+    const uint previousMaterialId = SmokePreviousStaticTriangleMaterials[primitiveIndex];
+    const uint currentMaterialIndex = SmokeStaticTriangleMaterialIndexes[primitiveIndex];
+    const uint previousMaterialIndex = SmokePreviousStaticTriangleMaterialIndexes[primitiveIndex];
+    if ((currentClass & RT_SMOKE_TRIANGLE_CLASS_MASK) != (previousClass & RT_SMOKE_TRIANGLE_CLASS_MASK) ||
+        currentMaterialId != previousMaterialId ||
+        currentMaterialIndex != previousMaterialIndex)
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH;
+        return false;
+    }
+
+    const uint ci0 = SmokeStaticIndices[indexOffset + 0u];
+    const uint ci1 = SmokeStaticIndices[indexOffset + 1u];
+    const uint ci2 = SmokeStaticIndices[indexOffset + 2u];
+    const uint pi0 = SmokePreviousStaticIndices[indexOffset + 0u];
+    const uint pi1 = SmokePreviousStaticIndices[indexOffset + 1u];
+    const uint pi2 = SmokePreviousStaticIndices[indexOffset + 2u];
+    if (ci0 >= PathTraceStaticVertexCount() ||
+        ci1 >= PathTraceStaticVertexCount() ||
+        ci2 >= PathTraceStaticVertexCount() ||
+        pi0 >= PathTracePreviousStaticVertexCount() ||
+        pi1 >= PathTracePreviousStaticVertexCount() ||
+        pi2 >= PathTracePreviousStaticVertexCount())
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        return false;
+    }
+
+    const float3 c0 = SmokeStaticVertices[ci0].position.xyz;
+    const float3 c1 = SmokeStaticVertices[ci1].position.xyz;
+    const float3 c2 = SmokeStaticVertices[ci2].position.xyz;
+    float3 barycentrics;
+    if (!ComputeSmokeTriangleBarycentrics(currentSurface.worldPos, c0, c1, c2, barycentrics))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        return false;
+    }
+
+    const float3 p0 = SmokePreviousStaticVertices[pi0].position.xyz;
+    const float3 p1 = SmokePreviousStaticVertices[pi1].position.xyz;
+    const float3 p2 = SmokePreviousStaticVertices[pi2].position.xyz;
+    previousPosition = p0 * barycentrics.x + p1 * barycentrics.y + p2 * barycentrics.z;
+    if (!all(previousPosition == previousPosition))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_NORMAL_MISMATCH;
+        return false;
+    }
+
+    return true;
+}
+
+bool TryPathTracePreviousStaticSnapshotMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
+    float3 previousPosition;
+    if (!TryPathTracePreviousStaticSnapshotPosition(currentSurface, previousPosition, debugStatus))
+    {
+        return false;
+    }
+
+    if (!ProjectPrimarySurfaceToPreviousPixelFloatAndDepth(previousPosition, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+        return false;
+    }
+
+    previousPixel = int2(floor(previousPixelFloat));
+    motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    return true;
+}
+
+bool TryPathTracePackedObjectMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+
+    const PathTracePrimarySurfaceRecord currentRecord = PackPrimarySurfaceRecord(currentSurface);
+    const uint requiredFlags = RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+    if (currentRecord.header.x != RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION ||
+        (currentRecord.header.y & requiredFlags) != requiredFlags ||
+        currentRecord.previousPositionOrMotion.w < 0.5)
+    {
+        debugStatus = currentRecord.header.z;
+        return false;
+    }
+
+    if (!ProjectPrimarySurfaceToPreviousPixelFloatAndDepth(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+        return false;
+    }
+
+    previousPixel = int2(floor(previousPixelFloat));
+    motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
+    return true;
+}
+
+bool TryPathTraceCombinedGeometryMotionPixels(RAB_Surface currentSurface, uint2 pixel, out int2 previousPixel, out float2 previousPixelFloat, out float2 motionPixels, out float expectedPrevDepth, out uint debugStatus, out uint sourceKind)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+    sourceKind = PathTraceMotionVectorSourceKind(currentSurface);
+    if (RAB_IsSurfaceValid(currentSurface) &&
+        currentSurface.instanceId == 0u &&
+        currentSurface.surfaceClass == 0u)
+    {
+        return TryPathTracePreviousStaticSnapshotMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus);
+    }
+
+    return TryPathTracePackedObjectMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus);
+}
+
+uint RayReconstructionResetMaskFromStatus(RAB_Surface surface, bool motionValid, uint debugStatus)
+{
+    uint mask = 0u;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return RT_RR_RESET_INVALID_SURFACE;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    {
+        mask |= RT_RR_RESET_STOCHASTIC_TRANSLUCENT;
+    }
+    if (motionValid)
+    {
+        return mask;
+    }
+
+    if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_MISSING_PREVIOUS ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_RIGID_MISSING_PREVIOUS)
+    {
+        mask |= RT_RR_RESET_MISSING_PREVIOUS;
+    }
+    else if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS)
+    {
+        mask |= RT_RR_RESET_REJECTED_PREVIOUS;
+    }
+    else if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH)
+    {
+        mask |= RT_RR_RESET_MATERIAL_MISMATCH;
+    }
+    else if (debugStatus == RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_RANGE_MISMATCH ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_SKINNED_PREVIOUS_OUT_OF_RANGE ||
+        debugStatus == RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH)
+    {
+        mask |= RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE;
+    }
+    else
+    {
+        mask |= RT_RR_RESET_OTHER_INVALID;
+    }
+    return mask;
+}
+
+void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
+{
+    const bool motionVectorExportEnabled = MotionVectorInfo.x >= 0.5;
     pixel = PathTracePrimarySurfaceStorePixel(pixel);
     const uint2 dimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
@@ -805,17 +1297,29 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
         return;
     }
 
-    const uint sourceKind = PathTraceMotionVectorSourceKind(surface);
-    float2 previousPixel;
-    if (RAB_IsSurfaceValid(surface) && ProjectPrimarySurfaceToPreviousPixel(surface.worldPos, dimensions, previousPixel))
+    uint sourceKind = PathTraceMotionVectorSourceKind(surface);
+    int2 previousPixel;
+    float2 previousPixelFloat;
+    float2 motionPixels;
+    float expectedPrevDepth;
+    uint debugStatus;
+    if (TryPathTraceCombinedGeometryMotionPixels(surface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus, sourceKind))
     {
-        PathTraceMotionVectors[pixel] = previousPixel - (float2(pixel) + 0.5);
-        PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, RT_PRIMARY_SURFACE_DEBUG_OK);
+        if (motionVectorExportEnabled)
+        {
+            PathTraceMotionVectors[pixel] = motionPixels;
+            PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, RT_PRIMARY_SURFACE_DEBUG_OK);
+        }
+        PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, true, RT_PRIMARY_SURFACE_DEBUG_OK);
     }
     else
     {
-        PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
-        PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS);
+        if (motionVectorExportEnabled)
+        {
+            PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
+            PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, debugStatus);
+        }
+        PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, false, debugStatus);
     }
 }
 

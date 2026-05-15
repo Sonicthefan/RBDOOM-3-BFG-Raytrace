@@ -80,6 +80,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness : register(u49);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
+VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -152,6 +153,19 @@ static const uint RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP = 0x00000004u;
 static const uint RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING = 0x00000008u;
 static const uint RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY = 0x00000020u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
+static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
+static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
+static const uint PT_MOTION_VECTOR_MASK_SOURCE_MASK = 0x0000001eu;
+static const uint PT_MOTION_VECTOR_SOURCE_STATIC = 1u;
+static const uint PT_MOTION_VECTOR_SOURCE_SKINNED = 2u;
+static const uint PT_MOTION_VECTOR_SOURCE_RIGID = 3u;
+static const uint RT_RR_RESET_INVALID_SURFACE = 0x00000001u;
+static const uint RT_RR_RESET_MISSING_PREVIOUS = 0x00000002u;
+static const uint RT_RR_RESET_REJECTED_PREVIOUS = 0x00000004u;
+static const uint RT_RR_RESET_MATERIAL_MISMATCH = 0x00000008u;
+static const uint RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE = 0x00000010u;
+static const uint RT_RR_RESET_STOCHASTIC_TRANSLUCENT = 0x00000020u;
+static const uint RT_RR_RESET_OTHER_INVALID = 0x00000040u;
 
 bool PathTraceSafetyDisabled(uint bit)
 {
@@ -729,7 +743,63 @@ float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
 
 uint RayReconstructionGuideDebugView()
 {
-    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 6u);
+    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 7u);
+}
+
+float4 RayReconstructionMotionMaskDebugColor(uint motionMask)
+{
+    const bool valid = (motionMask & PT_MOTION_VECTOR_MASK_VALID) != 0u;
+    const uint sourceKind = (motionMask & PT_MOTION_VECTOR_MASK_SOURCE_MASK) >> PT_MOTION_VECTOR_MASK_SOURCE_SHIFT;
+    if (!valid)
+    {
+        return sourceKind == 0u ? float4(0.02, 0.02, 0.02, 1.0) : float4(0.65, 0.08, 0.08, 1.0);
+    }
+    if (sourceKind == PT_MOTION_VECTOR_SOURCE_STATIC)
+    {
+        return float4(0.10, 0.75, 0.20, 1.0);
+    }
+    if (sourceKind == PT_MOTION_VECTOR_SOURCE_SKINNED)
+    {
+        return float4(0.15, 0.45, 1.00, 1.0);
+    }
+    if (sourceKind == PT_MOTION_VECTOR_SOURCE_RIGID)
+    {
+        return float4(0.10, 0.85, 0.85, 1.0);
+    }
+    return float4(0.85, 0.75, 0.15, 1.0);
+}
+
+float4 RayReconstructionResetMaskDebugColor(uint resetMask)
+{
+    if (resetMask == 0u)
+    {
+        return float4(0.03, 0.45, 0.12, 1.0);
+    }
+    if ((resetMask & RT_RR_RESET_STOCHASTIC_TRANSLUCENT) != 0u)
+    {
+        return float4(0.75, 0.15, 0.85, 1.0);
+    }
+    if ((resetMask & RT_RR_RESET_MATERIAL_MISMATCH) != 0u)
+    {
+        return float4(1.00, 0.60, 0.05, 1.0);
+    }
+    if ((resetMask & RT_RR_RESET_REJECTED_PREVIOUS) != 0u)
+    {
+        return float4(0.95, 0.05, 0.05, 1.0);
+    }
+    if ((resetMask & RT_RR_RESET_MISSING_PREVIOUS) != 0u)
+    {
+        return float4(0.60, 0.10, 0.10, 1.0);
+    }
+    if ((resetMask & RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE) != 0u)
+    {
+        return float4(0.80, 0.80, 0.15, 1.0);
+    }
+    if ((resetMask & RT_RR_RESET_INVALID_SURFACE) != 0u)
+    {
+        return float4(0.02, 0.02, 0.02, 1.0);
+    }
+    return float4(0.80, 0.30, 0.10, 1.0);
 }
 
 float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
@@ -779,8 +849,12 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
         return float4(normalizedHitDistance, normalizedHitDistance, normalizedHitDistance, 1.0);
     }
 
-    const uint motionMask = PathTraceMotionVectorMask[pixel];
-    return motionMask != 0u ? float4(0.1, 0.85, 0.2, 1.0) : float4(0.02, 0.02, 0.02, 1.0);
+    if (view == 6u)
+    {
+        return RayReconstructionMotionMaskDebugColor(PathTraceMotionVectorMask[pixel]);
+    }
+
+    return RayReconstructionResetMaskDebugColor(PathTraceRRGuideResetMask[pixel]);
 }
 
 [shader("raygeneration")]
