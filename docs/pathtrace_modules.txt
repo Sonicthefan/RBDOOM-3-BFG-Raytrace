@@ -1272,14 +1272,18 @@ full-resolution primary-surface producer writes:
 - `u51` `PathTraceRRGuideHitDistance`, `R32_FLOAT`.
 - `u52` `PathTraceRRGuideResetMask`, `R32_UINT`.
 - `u53` `PathTraceRRGuideSpecularAlbedo`, `RGBA16_FLOAT`.
+- `u54` `PathTraceRRInputColor`, `RGBA32_FLOAT`.
 
-The existing motion-vector scaffold remains `u39/u40`. This is not a DLSS RR
-SDK integration; it is the explicit guide export needed before one. The task
-plan is `docs/ReSTIR/dlss_rr_bridge_plan.txt`. Use
+The existing motion-vector scaffold remains `u39/u40`. `u54` is written by the
+standalone combined resolve, not by the primary-surface producer, and must stay
+raw scene-referred linear HDR input color rather than the tonemapped
+`SmokeOutput` preview. This is not a DLSS RR SDK integration; it is the explicit
+guide/input export needed before one. The task plan is
+`docs/ReSTIR/dlss_rr_bridge_plan.txt`. Use
 `r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect albedo, normal,
 roughness, depth, hit distance, motion-mask/source-category output,
-reset/disocclusion output, and specular albedo/F0 without loading the old
-monolithic ReSTIR shader.
+reset/disocclusion output, specular albedo/F0, and a tonemapped RR-input preview
+without loading the old monolithic ReSTIR shader.
 With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
 producer writes `u39/u40` directly for this bridge path from static previous
 snapshots, retained skinned previous positions, and continuous rigid previous

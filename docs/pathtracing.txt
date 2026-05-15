@@ -1026,8 +1026,10 @@ Denoise/upscale/Ray Reconstruction reservation:
   primary-surface producer exports full-resolution guide UAVs for albedo
   (`u48`), normal+roughness (`u49`), depth (`u50`), hit distance (`u51`), and
   specular albedo/F0 (`u53`). It also exports a conservative reset/debug mask
-  (`u52`). Motion vectors and the validity mask remain `u39/u40`. See
-  `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
+  (`u52`). The standalone combined resolve writes raw scene-referred linear HDR
+  RR input color to `PathTraceRRInputColor` (`u54`); `SmokeOutput` remains the
+  tonemapped mode-56 preview/debug image. Motion vectors and the validity mask
+  remain `u39/u40`. See `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 - With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
   producer also writes the bridge motion-vector/mask outputs from static
   previous snapshots, retained skinned previous positions, and continuous rigid
@@ -1037,7 +1039,8 @@ Denoise/upscale/Ray Reconstruction reservation:
 - With `r_pathTracingDLSSRR 1`, mode 56 forces motion-vector export for the RR
   evaluation frame. A u53 disocclusion-guide experiment was backed out after
   the raw mode-56 path regressed; u53 is now reserved for the material-only
-  specular-albedo/F0 guide.
+  specular-albedo/F0 guide. u54 is reserved for the RR input color and should
+  stay raw linear HDR, not preview-tonemapped or clamped SDR.
 - `r_pathTracingDLSSRRColorBuffersHDR` defaults to 1 because the current
   Streamline/NGX RR path rejects the SDR-tagged option with `eErrorNGXFailed`.
   `r_pathTracingDLSSRRPreExposure`, `r_pathTracingDLSSRRExposureScale`, and
@@ -1053,7 +1056,7 @@ Denoise/upscale/Ray Reconstruction reservation:
 - `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
   roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
-  reset/disocclusion mask, 8 specular albedo/F0.
+  reset/disocclusion mask, 8 specular albedo/F0, 9 RR input HDR preview.
 - Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
   geometry universe must provide current/previous transforms or vertex data for
   surfaces whose history is reused.

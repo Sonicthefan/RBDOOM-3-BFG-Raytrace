@@ -1117,7 +1117,7 @@ idCVar r_pathTracingDLSSRRGuideDebugView(
     "r_pathTracingDLSSRRGuideDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0" );
+    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0, 9 = RR input HDR preview" );
 
 idCVar r_pathTracingDLSSRRProbe(
     "r_pathTracingDLSSRRProbe",

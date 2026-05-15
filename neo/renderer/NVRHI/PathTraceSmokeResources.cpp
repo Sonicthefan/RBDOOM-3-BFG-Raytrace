@@ -620,7 +620,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     RtSmokeBindingBuildResult result;
     result.textureDescriptorTable = desc.existingTextureDescriptorTable;
 
-    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.motionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, rtxdi::CheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
+    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, rtxdi::CheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
     {
         result.errorMessage = "failed to create RT smoke binding set";
         return result;
@@ -757,6 +757,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, desc.rrGuideHitDistanceTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, desc.rrGuideResetMaskTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, desc.rrGuideSpecularAlbedoTexture));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, desc.rrInputColorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, desc.sampler));
     }
 
@@ -1072,6 +1073,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(52));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(53));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 

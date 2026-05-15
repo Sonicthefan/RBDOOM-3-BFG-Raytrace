@@ -82,6 +82,7 @@ VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50)
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -373,6 +374,17 @@ float3 RestirPTToneMapPreview(float3 contribution)
     return contribution / (float3(1.0, 1.0, 1.0) + contribution);
 }
 
+float3 RestirPTSanitizeHdrRadiance(float3 radiance)
+{
+    return RestirPTSanitizePreviewContribution(radiance);
+}
+
+struct RestirPTCombinedLighting
+{
+    float3 preview;
+    float3 hdrRadiance;
+};
+
 float3 RestirPTVisibleSurfaceBase(RAB_Surface surface)
 {
     if (!RAB_IsSurfaceValid(surface))
@@ -620,15 +632,23 @@ bool RestirPTProjectWorldToCurrentPixel(float3 worldPosition, uint2 dimensions, 
         pixelFloat.x < (float)dimensions.x && pixelFloat.y < (float)dimensions.y;
 }
 
-float3 RestirPTCombinedLightingNoReflection(RAB_Surface surface, uint2 pixel)
+RestirPTCombinedLighting RestirPTEvaluateCombinedLightingNoReflection(RAB_Surface surface, uint2 pixel)
 {
+    RestirPTCombinedLighting result;
+    result.preview = float3(0.0, 0.0, 0.0);
+    result.hdrRadiance = float3(0.0, 0.0, 0.0);
+
     if (!RAB_IsSurfaceValid(surface))
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
+
+    const float3 emissiveRadiance = RestirPTSanitizeHdrRadiance(surface.material.emissiveRadiance);
     if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
-        return RestirPTVisibleSurfaceBase(surface);
+        result.preview = RestirPTVisibleSurfaceBase(surface);
+        result.hdrRadiance = emissiveRadiance;
+        return result;
     }
 
     const float3 surfaceBase = RestirPTVisibleSurfaceBase(surface);
@@ -639,12 +659,23 @@ float3 RestirPTCombinedLightingNoReflection(RAB_Surface surface, uint2 pixel)
     const float giVisibility = (RestirPTInfo.z >= 0.5 && giValid) ? RestirPTTraceReservoirVisibility(surface, giReservoir) : 1.0;
     const bool giVisible = giValid && giVisibility > 0.0;
     const float3 giContribution = giVisible ? RestirPTReservoirPreviewContribution(giReservoir) * giVisibility : float3(0.0, 0.0, 0.0);
+    const float3 lightingRadiance =
+        (directValid ? directContribution : float3(0.0, 0.0, 0.0)) +
+        (giVisible ? giContribution : float3(0.0, 0.0, 0.0));
+    result.hdrRadiance = RestirPTSanitizeHdrRadiance(emissiveRadiance + lightingRadiance);
     if (!directValid && !giVisible)
     {
-        return surfaceBase;
+        result.preview = surfaceBase;
+        return result;
     }
 
-    return saturate(surfaceBase + RestirPTToneMapPreview(directContribution + giContribution));
+    result.preview = saturate(surfaceBase + RestirPTToneMapPreview(lightingRadiance));
+    return result;
+}
+
+float3 RestirPTCombinedLightingNoReflection(RAB_Surface surface, uint2 pixel)
+{
+    return RestirPTEvaluateCombinedLightingNoReflection(surface, pixel).preview;
 }
 
 bool RestirPTTryFindScreenSpaceReflectionHit(RAB_Surface surface, uint2 pixel, uint reflectionMode, out RAB_Surface hitSurface, out uint2 hitPixel)
@@ -733,18 +764,21 @@ float3 RestirPTScreenSpaceReflectionPreview(RAB_Surface surface, uint2 pixel)
 
 float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
 {
-    const float3 lighting = RestirPTCombinedLightingNoReflection(surface, pixel);
+    const RestirPTCombinedLighting lighting = RestirPTEvaluateCombinedLightingNoReflection(surface, pixel);
     if (!RestirPTSurfaceSupportsReflectionPreview(surface, RestirPTReflectionPreviewMode()))
     {
-        return float4(lighting, 1.0);
+        PathTraceRRInputColor[pixel] = float4(lighting.hdrRadiance, 1.0);
+        return float4(lighting.preview, 1.0);
     }
 
-    return float4(saturate(lighting + RestirPTReflectionOutput[pixel].rgb), 1.0);
+    const float3 reflectionPreview = RestirPTSanitizeHdrRadiance(RestirPTReflectionOutput[pixel].rgb);
+    PathTraceRRInputColor[pixel] = float4(RestirPTSanitizeHdrRadiance(lighting.hdrRadiance + reflectionPreview), 1.0);
+    return float4(saturate(lighting.preview + reflectionPreview), 1.0);
 }
 
 uint RayReconstructionGuideDebugView()
 {
-    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 8u);
+    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 9u);
 }
 
 float4 RayReconstructionMotionMaskDebugColor(uint motionMask)
@@ -862,7 +896,18 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
         return RayReconstructionMotionMaskDebugColor(PathTraceMotionVectorMask[pixel]);
     }
 
-    return RayReconstructionResetMaskDebugColor(PathTraceRRGuideResetMask[pixel]);
+    if (view == 7u)
+    {
+        return RayReconstructionResetMaskDebugColor(PathTraceRRGuideResetMask[pixel]);
+    }
+
+    if (view == 9u)
+    {
+        const RestirPTCombinedLighting lighting = RestirPTEvaluateCombinedLightingNoReflection(surface, pixel);
+        return float4(RestirPTToneMapPreview(lighting.hdrRadiance), 1.0);
+    }
+
+    return float4(0.0, 0.0, 0.0, 1.0);
 }
 
 [shader("raygeneration")]

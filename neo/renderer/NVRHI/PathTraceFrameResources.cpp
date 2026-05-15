@@ -104,6 +104,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         outputTexture &&
         accumulationTexture &&
         restirPTReflectionTexture &&
+        rrInputColorTexture &&
         motionVectorTexture &&
         motionVectorMaskTexture &&
         rrGuideAlbedoTexture &&
@@ -126,6 +127,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         outputTexture ||
         accumulationTexture ||
         restirPTReflectionTexture ||
+        rrInputColorTexture ||
         motionVectorTexture ||
         motionVectorMaskTexture ||
         rrGuideAlbedoTexture ||
@@ -206,6 +208,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     if (!newRestirPTReflectionTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT ReSTIR reflection UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    outputDesc.debugName = "PathTraceRRInputColor";
+    nvrhi::TextureHandle newRrInputColorTexture = device->createTexture(outputDesc);
+    if (!newRrInputColorTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR input-color UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
@@ -304,6 +314,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     outputTexture = newOutputTexture;
     accumulationTexture = newAccumulationTexture;
     restirPTReflectionTexture = newRestirPTReflectionTexture;
+    rrInputColorTexture = newRrInputColorTexture;
     motionVectorTexture = newMotionVectorTexture;
     motionVectorMaskTexture = newMotionVectorMaskTexture;
     rrGuideAlbedoTexture = newRrGuideAlbedoTexture;
@@ -315,12 +326,12 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     readbackTexture = newReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
-    diagnostics.outputTexturesCreated += 3;
+    diagnostics.outputTexturesCreated += 4;
     diagnostics.motionVectorTexturesCreated++;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 6;
     diagnostics.diagnosticReadbackResourcesCreated++;
-    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 3ull;
+    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 4ull;
     diagnostics.motionVectorBytes = EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
@@ -436,12 +447,12 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
-    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 specularAlbedo=RGBA16_FLOAT/u53 bytes=%llu producer=primary-surface-prepass\n",
+    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 specularAlbedo=RGBA16_FLOAT/u53 rrInputColor=RGBA32_FLOAT/u54 guideBytes=%llu producer=primary-surface-prepass\n",
         requestedWidth,
         requestedHeight,
         static_cast<unsigned long long>(diagnostics.rrGuideBytes));
 
-    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47\n", requestedWidth, requestedHeight);
+    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47 rrInputColorUav=u54\n", requestedWidth, requestedHeight);
     return true;
 }
 
@@ -450,6 +461,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     outputTexture = nullptr;
     accumulationTexture = nullptr;
     restirPTReflectionTexture = nullptr;
+    rrInputColorTexture = nullptr;
     motionVectorTexture = nullptr;
     motionVectorMaskTexture = nullptr;
     rrGuideAlbedoTexture = nullptr;
@@ -607,7 +619,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
     idStr resetReasons;
     DescribeResetReasons(resetReasons);
 
-    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
+    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/rrInput/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
         prefix ? prefix : "PathTraceFrameResources",
         width,
         height,
@@ -617,6 +629,7 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
         resetReasons.c_str(),
         outputTexture ? 1 : 0,
         accumulationTexture ? 1 : 0,
+        rrInputColorTexture ? 1 : 0,
         motionVectorTexture ? 1 : 0,
         motionVectorMaskTexture ? 1 : 0,
         (rrGuideAlbedoTexture && rrGuideSpecularAlbedoTexture && rrGuideNormalRoughnessTexture && rrGuideDepthTexture && rrGuideHitDistanceTexture && rrGuideResetMaskTexture) ? 1 : 0,

@@ -76,7 +76,7 @@ DLSS Ray Reconstruction bridge:
 - `r_pathTracingDLSSRRGuideDebugView`
   0 off, 1 albedo, 2 encoded normal, 3 roughness, 4 depth, 5 hit distance,
   6 motion-vector mask/source category, 7 reset/disocclusion mask, 8
-  specular albedo/F0.
+  specular albedo/F0, 9 RR input HDR preview.
 - `r_pathTracingDLSSRRProbe`
   Default 1 and `CVAR_INIT`. Initializes the experimental Streamline DLSS/RR
   bridge at renderer startup and prints support. Change before startup or
@@ -188,14 +188,17 @@ with `giConsumesPrimary`, `directConsumesPrimary`, and `finalConsumesPrimary`.
 The same standalone primary-surface producer now exports the first DLSS Ray
 Reconstruction guide scaffold: albedo `u48`, normal+roughness `u49`, depth
 `u50`, hit distance `u51`, reset/debug mask `u52`, and specular albedo/F0
-`u53`. Existing motion-vector outputs remain `u39/u40`.
+`u53`. The standalone combined resolve also writes `PathTraceRRInputColor`
+`u54`, an `RGBA32_FLOAT` raw linear HDR input color for Streamline
+`kBufferTypeScalingInputColor`; `SmokeOutput` stays the tonemapped mode-56
+preview/debug image. Existing motion-vector outputs remain `u39/u40`.
 The experimental Streamline DLSS RR bridge can now evaluate mode 56 when the
 SDK reports support, but the guide data is still provisional. The bridge plan
 lives in `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
 Use `r_pathTracingDLSSRRGuideDebugView` in mode 56 to inspect those guide
 outputs through the standalone resolve: 1 albedo, 2 normal, 3 roughness, 4
 depth, 5 hit distance, 6 motion-vector mask/source category, 7
-reset/disocclusion mask, 8 specular albedo/F0.
+reset/disocclusion mask, 8 specular albedo/F0, 9 RR input HDR preview.
 When `r_pathTracingMotionVectorExport 1` is enabled, the standalone
 primary-surface producer writes the bridge motion-vector/mask UAVs too, using
 static previous snapshots, retained skinned previous positions, and continuous
@@ -210,7 +213,8 @@ that frame. The bitfield u52 texture remains the human-readable reset/debug
 mask. A previous u53 float disocclusion-guide experiment was backed out because
 the raw mode-56 primary-prepass path showed a geometry-disappearing regression
 even with RR evaluation disabled; u53 is now reserved for the material-only
-specular-albedo/F0 guide.
+specular-albedo/F0 guide. u54 is reserved for the RR input color, not for
+geometry/disocclusion metadata.
 Mode 56 keeps the legacy dynamic rigid fallback even when a routed rigid TLAS
 route exists. A short-lived change that pruned the fallback made a known
 routed-geometry disappearance visible in mode 56; keep this conservative until

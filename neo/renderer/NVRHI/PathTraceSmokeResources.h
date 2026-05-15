@@ -114,6 +114,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::TextureHandle outputTexture;
     nvrhi::TextureHandle accumulationTexture;
     nvrhi::TextureHandle restirPTReflectionTexture;
+    nvrhi::TextureHandle rrInputColorTexture;
     nvrhi::TextureHandle motionVectorTexture;
     nvrhi::TextureHandle motionVectorMaskTexture;
     nvrhi::TextureHandle rrGuideAlbedoTexture;
