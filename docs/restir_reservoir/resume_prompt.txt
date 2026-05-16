@@ -1,0 +1,68 @@
+ReSTIR Reservoir Agent Resume Prompt
+Date: 2026-05-16
+
+You are continuing rbdoom-3-bfg-rt ReSTIR PT reservoir work.
+
+Repository:
+E:\prog\rbdoom-3-bfg-rt
+
+Prepared game folder:
+E:\prog\rbdoom-3-BFG-prebuilt
+
+Build from:
+E:\prog\rbdoom-3-bfg-rt\neo
+
+Build command:
+cmake --build --preset win64-pt-dev-release
+
+After building, copy:
+- E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+  to E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+- E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+  to E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2 after shader changes
+
+Read first:
+- docs\pathtracing.txt
+- docs\pathtrace_modules.txt
+- docs\ReSTIR\current_restir_pt_state.txt
+- docs\ReSTIR\real_pass_structure_plan.txt
+- docs\restir_reservoir\README.txt
+- docs\restir_reservoir\task_01_gi_reservoir_reuse.txt
+- docs\restir_reservoir\stage_gate_policy.txt
+- docs\restir_reservoir\code_sketches.txt
+
+Current task:
+Implement Stage 01 only: baseline GI reservoir reuse for the mode-56-derived
+path. The final resolve must consume a completed GI temporal/spatial reservoir
+instead of raw GI initial reservoirs before writing RR-facing radiance.
+
+Important current code:
+- neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+- neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+- neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+- neo\renderer\NVRHI\PathTraceSmokeResources.cpp
+- neo\renderer\NVRHI\PathTraceCVars.cpp
+- neo\renderer\NVRHI\PathTraceCVars.h
+
+Strict non-goals:
+- Do not copy/paste code from RTXDI, RTX Remix, Q2RTX, or papers.
+- Do not add RTX Remix enhancements in this task.
+- Do not merge DI/GI reservoirs in this task.
+- Do not add ReSTIR PT Enhanced paper features in this task.
+- Do not change mode 18 default rendering.
+- Do not remove modes 53-55 diagnostics.
+- Do not stage or commit docs\pathtracing_handoff.txt unless explicitly asked.
+
+Validation:
+- Build with `cmake --build --preset win64-pt-dev-release`.
+- Deploy exe and `base\renderprogs2` to the prepared game folder.
+- Runtime smoke path:
+  - `r_pathTracingDebugMode 56`
+  - `r_pathTracingRestirPTPrimarySurfacePrepass 1`
+  - `r_pathTracingRestirPTPassDump 1`
+  - Compare modes 50, 54, 55, and 56.
+  - If RR is evaluated, inspect `r_pathTracingDLSSRRGuideDebugView 9`.
+
+Stop after Stage 01 is built, deployed, and summarized. Report what remains for
+Stage 02 instead of implementing it.
+

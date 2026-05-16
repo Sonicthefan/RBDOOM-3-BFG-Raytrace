@@ -1,0 +1,77 @@
+ReSTIR Reservoir Stage Gate Policy
+Date: 2026-05-16
+
+Purpose
+-------
+This policy exists because ReSTIR work has several tempting follow-on features.
+Agents must not race from one stage into the next.
+
+Hard Stop Rule
+--------------
+If the commissioned task says "Stage 01", complete Stage 01, validate it, and
+stop. Do not continue into Stage 02 or later unless the user explicitly asks.
+
+If the commissioned task says "baseline ReSTIR PT", do not add RTX Remix
+features in the same turn.
+
+If the commissioned task says "RTX Remix enhancements", do not merge DI/GI
+reservoirs or add ReSTIR PT Enhanced paper features in the same turn.
+
+If the commissioned task says "unified reservoirs", do not also add duplication
+maps, paired spatial reuse, or dual motion-vector disocclusion support unless
+explicitly requested.
+
+Stage Definitions
+-----------------
+Stage 01: Baseline GI reservoir reuse
+
+    Goal: GI final resolve consumes a completed temporal/spatial GI reservoir
+    instead of raw GI initial reservoirs.
+
+    Not allowed: Remix hardening, unified reservoirs, Enhanced-paper features.
+
+Stage 02: RR-safe output shaping
+
+    Goal: make final shading and RR input denser and more denoiser-friendly
+    after baseline GI reuse exists.
+
+    Not allowed: replacing the reservoir architecture.
+
+Stage 03: RTX Remix-style hardening
+
+    Goal: production robustness around the existing reservoir pipeline:
+    adaptive history, sample stealing, larger low-history spatial recovery,
+    final visibility invalidation, boiling/firefly controls, RR compatibility.
+
+    Not allowed: unified reservoir rewrite unless explicitly commissioned.
+
+Stage 04: Unified DI/GI reservoirs
+
+    Goal: direct lighting becomes a short PT path candidate in the same
+    reservoir stream as GI/global illumination.
+
+    Not allowed: paired spatial reuse, duplication maps, or unrelated paper
+    features unless explicitly commissioned.
+
+Stage 05: ReSTIR PT Enhanced techniques
+
+    Goal: selected newer research features after the baseline and production
+    pipeline are measurable:
+    duplication maps/adaptive temporal cap, vector-valued shading weights,
+    reciprocal paired spatial reuse, footprint reconnection diagnostics, and
+    dual motion-vector disocclusion support.
+
+Minimum Completion Report
+-------------------------
+Every stage must end with:
+
+- Stage completed.
+- Files changed.
+- Build command run and result.
+- Deployment actions performed.
+- Runtime modes/CVars tested.
+- What is still explicitly not implemented.
+- Recommended next stage.
+
+Do not start the recommended next stage in the same task.
+

@@ -1,0 +1,191 @@
+ReSTIR Reservoir Code Sketches
+Date: 2026-05-16
+
+License / Copying Warning
+-------------------------
+These sketches are handwritten pseudocode for rbdoom-3-bfg-rt agents. They are
+not copied from RTXDI, RTX Remix, Q2RTX, or the ReSTIR PT Enhanced paper.
+
+Use reference projects to understand concepts, but do not copy/paste licensed
+source code from those projects into this repository. Implement branch-local
+code using the existing style, resources, RAB callbacks, and RTXDI headers that
+are already present in this tree.
+
+Current Local Outlier
+---------------------
+The current final resolve has GI behavior shaped like this:
+
+    RTXDI_PTReservoir giReservoir = LoadRestirPTInitialReservoir(pixel);
+    float3 giContribution = giReservoir.TargetFunction * giReservoir.WeightSum;
+
+That is acceptable for an initial diagnostic view. It is not acceptable as the
+long-term RR-facing GI estimate.
+
+Target shape:
+
+    GI initial producer
+        writes initial GI reservoir
+
+    GI temporal producer
+        reads current initial GI reservoir
+        reads previous temporal/spatial history
+        writes temporal GI reservoir
+
+    GI spatial producer
+        reads temporal GI reservoir
+        combines validated current-frame neighbors
+        writes spatial/final GI reservoir
+
+    Final resolve
+        reads spatial/final GI reservoir
+        writes PathTraceRRInputColor
+
+Pseudocode: Final GI Load Boundary
+----------------------------------
+Do not directly paste this. Adapt it to the actual buffer indices and helper
+names in the current branch.
+
+    RTXDI_PTReservoir LoadRestirPTGiFinalReservoir(uint2 pixel)
+    {
+        uint2 reservoirPos = PixelToReservoirPosForGi(pixel);
+        return LoadPTReservoir(reservoirPos, GI_FINAL_BUFFER_INDEX);
+    }
+
+    float3 EvaluateReservoirTargetEstimate(RTXDI_PTReservoir reservoir)
+    {
+        if (!IsValidReservoir(reservoir))
+            return float3(0.0, 0.0, 0.0);
+
+        float3 target = max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0));
+        float weight = max(reservoir.WeightSum, 0.0);
+        return SanitizeHdr(target * weight);
+    }
+
+Pseudocode: GI Temporal Producer Shape
+--------------------------------------
+This is a shape only. Use the actual RTXDI helper signatures and existing
+`pathtrace_smoke.rt.hlsl` bridge functions.
+
+    [raygeneration]
+    void RayGen_GiTemporalProducer()
+    {
+        uint2 pixel = DispatchRaysIndex().xy;
+
+        if (!PixelInActiveGiDomain(pixel))
+            return;
+
+        RAB_Surface surface = LoadCurrentPrimarySurface(pixel);
+        if (!RAB_IsSurfaceValid(surface))
+        {
+            StoreGiTemporalReservoir(pixel, EmptyPTReservoir());
+            return;
+        }
+
+        RTXDI_PTReservoir current = LoadGiInitialReservoir(pixel);
+        if (!IsValidReservoir(current))
+        {
+            StoreGiTemporalReservoir(pixel, EmptyPTReservoir());
+            return;
+        }
+
+        // Let RTXDI temporal resampling combine current and previous candidates.
+        // Respect current depth/normal/material/history validation rules.
+        RTXDI_PTReservoir temporal = RunExistingTemporalResamplingForGi(
+            pixel,
+            surface,
+            current);
+
+        StoreGiTemporalReservoir(pixel, temporal);
+    }
+
+Pseudocode: GI Spatial Producer Shape
+-------------------------------------
+This is a shape only. Keep sample count/radius conservative first.
+
+    [raygeneration]
+    void RayGen_GiSpatialProducer()
+    {
+        uint2 pixel = DispatchRaysIndex().xy;
+
+        if (!PixelInActiveGiDomain(pixel))
+            return;
+
+        RAB_Surface surface = LoadCurrentPrimarySurface(pixel);
+        if (!RAB_IsSurfaceValid(surface))
+        {
+            StoreGiSpatialReservoir(pixel, EmptyPTReservoir());
+            return;
+        }
+
+        RTXDI_PTReservoir temporal = LoadGiTemporalReservoir(pixel);
+        if (!IsValidReservoir(temporal))
+        {
+            StoreGiSpatialReservoir(pixel, temporal);
+            return;
+        }
+
+        // Let RTXDI spatial resampling combine valid neighbors.
+        // Use the existing neighbor validation contract; add GI-specific CVars
+        // only if sharing direct-lighting controls makes tests ambiguous.
+        RTXDI_PTReservoir spatial = RunExistingSpatialResamplingForGi(
+            pixel,
+            surface,
+            temporal);
+
+        StoreGiSpatialReservoir(pixel, spatial);
+    }
+
+Pseudocode: Final Resolve Shape
+-------------------------------
+The final resolve can keep raw initial as a debug comparison, but RR input should
+use the completed reservoir.
+
+    RTXDI_PTReservoir directReservoir = LoadDirectSpatialReservoir(pixel);
+    RTXDI_PTReservoir giReservoir = LoadGiFinalReservoir(pixel);
+
+    float3 direct = EvaluateDirectReservoirForPreview(surface, directReservoir);
+    float3 gi = EvaluateReservoirTargetEstimate(giReservoir);
+
+    float3 rrInputRadiance = direct + gi + reflection + emissiveContext;
+    PathTraceRRInputColor[pixel] = float4(rrInputRadiance, 1.0);
+
+Debug View Recommendation
+-------------------------
+If adding a comparison view, keep it simple:
+
+    0: normal mode 56 output
+    1: raw GI initial target estimate
+    2: GI temporal target estimate
+    3: GI spatial/final target estimate
+    4: absolute delta between initial and final GI
+
+Do not add a large debug UI. A CVar-backed numeric mode is enough.
+
+Useful Current Search Terms
+---------------------------
+Search these in the local repo:
+
+    LoadRestirPTInitialReservoir
+    LoadRestirPTSpatialOutputReservoir
+    GenerateRestirPTTemporalReservoir
+    GenerateRestirPTSpatialReservoir
+    StoreRestirPTTemporalOutputReservoir
+    StoreRestirPTSpatialOutputReservoir
+    PathTraceRRInputColor
+    r_pathTracingRestirPTPassDump
+
+Useful Reference Search Terms
+-----------------------------
+Search these in local references for understanding:
+
+    FindTemporalNeighbor
+    RTXDI_PTTemporalResampling
+    RTXDI_PTSpatialResampling
+    TargetFunction
+    WeightSum
+    useDLSSRRCompatibilityMode
+    applyBoilingFilter
+    duplication map
+
+Again: use these references for concept mapping only, not copied source.
+
