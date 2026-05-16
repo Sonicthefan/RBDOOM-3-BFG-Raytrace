@@ -11,6 +11,24 @@ source code from those projects into this repository. Implement branch-local
 code using the existing style, resources, RAB callbacks, and RTXDI headers that
 are already present in this tree.
 
+Reference-First Protocol
+------------------------
+These sketches are not a license to invent new ReSTIR PT math. They are only
+branch-local reminders of the shape that must be checked against the local
+reference implementations before coding. If a detail is unknown, inspect the
+RTXDI / RTX Remix implementation first and translate the existing idea into the
+rbdoom pass graph.
+
+Required behavior for future implementation slices:
+
+- Find the matching reference step before editing code.
+- Preserve the reference role of current sample, previous sample, neighbor
+  sample, target function, Jacobian, normalization, and final shading.
+- Do not replace reference-defined processing with ad hoc brightness scaling,
+  sample keeping, or reservoir weighting.
+- If the reference cannot fit directly, document the engine-specific mismatch
+  and the smallest local adaptation needed.
+
 Anti-Pattern From Failed Attempt
 --------------------------------
 Do not do this:

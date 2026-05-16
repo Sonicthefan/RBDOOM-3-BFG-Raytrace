@@ -32,6 +32,20 @@ Agents must not decide:
 - this fixes DLSS/RR,
 - this is visually acceptable.
 
+Reference-First Rule
+--------------------
+Agents must not invent ReSTIR PT algorithms or substitute ad hoc reservoir math
+for reference-defined processing. Temporal reuse, spatial reuse, neighbor
+validation, target-function evaluation, normalization/bias correction, and
+final shading must be mapped from the local RTXDI / RTX Remix reference
+implementations into branch-local code.
+
+When a reference step cannot be applied directly to rbdoom-3-bfg-rt, the agent
+must identify the exact mismatch before implementing a local adaptation. The
+adaptation must preserve the reference intent and be documented in the slice
+summary or repo docs. Debug-only approximations are allowed only when explicitly
+labeled as approximations and must not be promoted to production behavior.
+
 Stage 01 Micro-Slices
 ---------------------
 01A: Audit and map current GI flow.

@@ -70,6 +70,22 @@ Use local references for understanding only. Do not copy/paste licensed source
 code from reference projects into this repository. Translate concepts into
 branch-local code that fits the existing RAB bridge and shader style.
 
+Reference-First Implementation Rule
+-----------------------------------
+Do not invent ReSTIR PT math, reservoir weighting, temporal/spatial neighbor
+selection, bias correction, final shading, or denoiser-facing processing when a
+reference implementation already defines the idea. The required mathematical
+and processing shape exists in the local RTXDI / RTX Remix references. The
+agent's job is to understand that shape, map it onto this repository's passes,
+buffers, RAB bridge, and Doom-specific data, and implement a local version that
+preserves the same intent.
+
+If the reference approach does not fit directly because of rbdoom-specific
+constraints, stop and document the mismatch before designing a local deviation.
+Local deviations must be described as adaptations forced by the engine, not as
+new reservoir algorithms. Do not treat "simpler", "seems plausible", or
+"brighter in a debug view" as justification for invented processing.
+
 Standing Constraints
 --------------------
 - Keep mode 18 stable/playable behavior unchanged unless explicitly asked.

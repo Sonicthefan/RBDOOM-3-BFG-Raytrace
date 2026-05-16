@@ -74,6 +74,7 @@ struct PathTraceDoomAnalyticLightRemap
 #include "PathTracePrimarySurface.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
@@ -427,7 +428,12 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 4u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 5u);
+}
+
+bool RestirPTDiTemporalPrepassEnabled()
+{
+    return RestirPTDiDebugInfo.y >= 0.5;
 }
 
 uint RestirPTGiTemporalCurrentBufferIndex()
@@ -477,6 +483,63 @@ void StoreRestirPTDiTemporalReservoir(uint2 pixel, uint reservoirArrayIndex, RTX
     RestirPTDiReservoirs[RestirPTGiReservoirPointer(pixel, reservoirArrayIndex)] = RTXDI_PackPTReservoir(reservoir);
 }
 
+static const uint RESTIR_PT_TEMPORAL_UNSAFE_RESET_MASK =
+    RT_RR_RESET_INVALID_SURFACE |
+    RT_RR_RESET_MISSING_PREVIOUS |
+    RT_RR_RESET_REJECTED_PREVIOUS |
+    RT_RR_RESET_MATERIAL_MISMATCH |
+    RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE |
+    RT_RR_RESET_STOCHASTIC_TRANSLUCENT |
+    RT_RR_RESET_OTHER_INVALID;
+
+bool RestirPTTryProjectMotionVectorToPreviousPixel(uint2 pixel, out int2 previousPixel, out float2 motionPixels)
+{
+    previousPixel = int2(-1, -1);
+    motionPixels = float2(0.0, 0.0);
+
+    const uint motionMask = PathTraceMotionVectorMask[pixel];
+    if ((motionMask & PT_MOTION_VECTOR_MASK_VALID) == 0u)
+    {
+        return false;
+    }
+
+    const uint resetMask = PathTraceRRGuideResetMask[pixel];
+    if ((resetMask & RESTIR_PT_TEMPORAL_UNSAFE_RESET_MASK) != 0u)
+    {
+        return false;
+    }
+
+    motionPixels = PathTraceMotionVectors[pixel];
+    const float2 previousPixelFloat = float2(pixel) + 0.5 + motionPixels;
+    previousPixel = int2(floor(previousPixelFloat));
+
+    const uint2 dimensions = PathTraceFullOutputSize();
+    return previousPixel.x >= 0 && previousPixel.y >= 0 &&
+        (uint)previousPixel.x < dimensions.x && (uint)previousPixel.y < dimensions.y;
+}
+
+bool RestirPTTemporalSamePixelFallbackAllowed(RAB_Surface surface, uint2 pixel, bool projected, float2 motionPixels)
+{
+    bool candidate = projected && dot(motionPixels, motionPixels) <= 0.25;
+    if (!candidate)
+    {
+        const uint resetMask = PathTraceRRGuideResetMask[pixel];
+        const uint hardResetMask = RESTIR_PT_TEMPORAL_UNSAFE_RESET_MASK & ~RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE;
+        candidate =
+            (resetMask & hardResetMask) == 0u &&
+            (resetMask & RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE) != 0u;
+    }
+
+    if (!candidate)
+    {
+        return false;
+    }
+
+    const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(int2(pixel), true);
+    uint similarityStatus;
+    return PathTracePrimarySurfacesAreSimilar(surface, previousSurface, similarityStatus);
+}
+
 RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2 pixel, out uint status)
 {
     status = 0u;
@@ -498,8 +561,9 @@ RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2
 
     float piSum = RTXDI_Luminance(currentReservoir.TargetFunction) * max((float)currentReservoir.M, 1.0);
     int2 previousPixel;
-    uint debugStatus;
-    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(surface, PathTraceFullOutputSize(), previousPixel, debugStatus);
+    float2 motionPixels;
+    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
+    const bool samePixelFallbackAllowed = RestirPTTemporalSamePixelFallbackAllowed(surface, pixel, projected, motionPixels);
     bool acceptedPrevious = false;
     if (projected)
     {
@@ -520,6 +584,22 @@ RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2
                 }
                 piSum += RTXDI_Luminance(previousCandidate.TargetFunction) * max((float)previousCandidate.M, 1.0);
             }
+        }
+    }
+    if (!acceptedPrevious && samePixelFallbackAllowed)
+    {
+        const RTXDI_PTReservoir previousReservoir = LoadRestirPTGiTemporalReservoir(pixel, RestirPTGiTemporalPreviousBufferIndex());
+        if (RestirPTReservoirHasUsefulSample(previousReservoir))
+        {
+            acceptedPrevious = true;
+            const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+            RTXDI_PTReservoir previousCandidate = previousReservoir;
+            previousCandidate.M = max(cappedPreviousM, 1u);
+            if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x618033u), previousCandidate.TargetFunction))
+            {
+                selectedTargetFunction = previousCandidate.TargetFunction;
+            }
+            piSum += RTXDI_Luminance(previousCandidate.TargetFunction) * max((float)previousCandidate.M, 1.0);
         }
     }
 
@@ -743,6 +823,61 @@ bool RestirPTTryEvaluateNeeReservoirPreview(RAB_Surface surface, RTXDI_PTReservo
     return RAB_Luminance(contribution) > 0.0;
 }
 
+bool RestirPTTryEvaluateNeeReservoirTargetFunction(RAB_Surface surface, RTXDI_PTReservoir reservoir, bool traceVisibility, out float3 targetFunction)
+{
+    targetFunction = float3(0.0, 0.0, 0.0);
+    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidPTReservoir(reservoir) || !RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        return false;
+    }
+
+    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+    {
+        return false;
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(RTXDI_SampledLightData_GetLightIndex(sampledLightData), false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+        lightInfo,
+        surface,
+        RTXDI_SampledLightData_GetUVDataFloat2(sampledLightData));
+    if (lightSample.valid == 0u)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float ndotl = saturate(dot(normal, lightDir));
+    if (ndotl <= 0.0 || lightSample.solidAnglePdf <= 1.0e-6)
+    {
+        return false;
+    }
+
+    if (traceVisibility)
+    {
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = surface.worldPos + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = max(lightDistance - 0.5, 0.01);
+        if (TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu) <= 0.0)
+        {
+            return false;
+        }
+    }
+
+    const float3 reflected = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface)) * lightSample.radiance * ndotl;
+    targetFunction = RestirPTSanitizePreviewContribution(reflected / max(lightSample.solidAnglePdf, 1.0e-6));
+    return RAB_Luminance(targetFunction) > 0.0;
+}
+
 bool RestirPTTryEvaluateSpatialDirectLighting(RAB_Surface surface, uint2 pixel, out float3 contribution)
 {
     contribution = float3(0.0, 0.0, 0.0);
@@ -771,7 +906,7 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
     status = 0u;
     const uint currentIndex = RestirPTGiTemporalCurrentBufferIndex();
     const RTXDI_PTReservoir currentReservoir = LoadRestirPTRawDirectReservoir(pixel);
-    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface) || !RestirPTDirectReservoirHasUsefulSample(currentReservoir))
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         StoreRestirPTDiTemporalReservoir(pixel, currentIndex, RTXDI_EmptyPTReservoir());
         status = 1u;
@@ -780,16 +915,19 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
 
     RTXDI_PTReservoir temporalReservoir = RTXDI_EmptyPTReservoir();
     float3 selectedTargetFunction = float3(0.0, 0.0, 0.0);
-    if (CombineReservoirs(temporalReservoir, currentReservoir, RestirPTGiHash01(pixel, 0x444901u), currentReservoir.TargetFunction))
+    const bool currentValid = RestirPTDirectReservoirHasUsefulSample(currentReservoir);
+    if (currentValid && CombineReservoirs(temporalReservoir, currentReservoir, RestirPTGiHash01(pixel, 0x444901u), currentReservoir.TargetFunction))
     {
         selectedTargetFunction = currentReservoir.TargetFunction;
     }
 
-    float piSum = RTXDI_Luminance(currentReservoir.TargetFunction) * max((float)currentReservoir.M, 1.0);
+    float piSum = currentValid ? RTXDI_Luminance(currentReservoir.TargetFunction) * max((float)currentReservoir.M, 1.0) : 0.0;
     int2 previousPixel;
-    uint debugStatus;
-    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(surface, PathTraceFullOutputSize(), previousPixel, debugStatus);
+    float2 motionPixels;
+    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
+    const bool samePixelFallbackAllowed = RestirPTTemporalSamePixelFallbackAllowed(surface, pixel, projected, motionPixels);
     bool acceptedPrevious = false;
+    uint acceptedPreviousStatus = 0u;
     if (projected)
     {
         const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
@@ -800,6 +938,7 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
             if (RestirPTDirectReservoirHasUsefulSample(previousReservoir))
             {
                 acceptedPrevious = true;
+                acceptedPreviousStatus = 3u;
                 const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
                 RTXDI_PTReservoir previousCandidate = previousReservoir;
                 previousCandidate.M = max(cappedPreviousM, 1u);
@@ -811,22 +950,148 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
             }
         }
     }
+    if (!acceptedPrevious && samePixelFallbackAllowed)
+    {
+        const RTXDI_PTReservoir previousReservoir = LoadRestirPTDiTemporalReservoir(pixel, RestirPTGiTemporalPreviousBufferIndex());
+        if (RestirPTDirectReservoirHasUsefulSample(previousReservoir))
+        {
+            acceptedPrevious = true;
+            acceptedPreviousStatus = 4u;
+            const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+            RTXDI_PTReservoir previousCandidate = previousReservoir;
+            previousCandidate.M = max(cappedPreviousM, 1u);
+            if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x884221u), previousCandidate.TargetFunction))
+            {
+                selectedTargetFunction = previousCandidate.TargetFunction;
+            }
+            piSum += RTXDI_Luminance(previousCandidate.TargetFunction) * max((float)previousCandidate.M, 1.0);
+        }
+    }
 
     const float pi = RTXDI_Luminance(selectedTargetFunction);
     RTXDI_FinalizeResampling(temporalReservoir, pi, piSum * max(pi, 1.0e-6));
-    temporalReservoir.M = min(max(temporalReservoir.M, currentReservoir.M), RestirPTParams.temporalResampling.maxHistoryLength);
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        StoreRestirPTDiTemporalReservoir(pixel, currentIndex, RTXDI_EmptyPTReservoir());
+        status = 1u;
+        return RTXDI_EmptyPTReservoir();
+    }
+
+    const float currentM = currentValid ? currentReservoir.M : 0.0;
+    temporalReservoir.M = min(max(temporalReservoir.M, currentM), RestirPTParams.temporalResampling.maxHistoryLength);
     StoreRestirPTDiTemporalReservoir(pixel, currentIndex, temporalReservoir);
-    status = acceptedPrevious ? 3u : 2u;
+    status = acceptedPrevious ? acceptedPreviousStatus : 2u;
     return temporalReservoir;
+}
+
+float4 RestirPTDiTemporalStatusColor(RTXDI_PTReservoir reservoir, uint status)
+{
+    const float history = saturate((float)reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    if (status == 1u)
+    {
+        return float4(0.45, 0.02, 0.02, 1.0);
+    }
+    if (status == 3u)
+    {
+        return float4(0.05, 0.25 + 0.75 * history, 0.08, 1.0);
+    }
+    if (status == 4u)
+    {
+        return float4(0.85, 0.55 + 0.35 * history, 0.05, 1.0);
+    }
+    return float4(0.04, 0.10 + 0.35 * history, 0.75, 1.0);
+}
+
+float4 RestirPTDiSpatialStatusColor(RTXDI_PTReservoir reservoir, uint status)
+{
+    const float history = saturate((float)reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    if (status == 1u)
+    {
+        return float4(0.45, 0.02, 0.02, 1.0);
+    }
+    if (status == 3u)
+    {
+        return float4(0.05, 0.65 + 0.35 * history, 0.75, 1.0);
+    }
+    return float4(0.04, 0.10 + 0.35 * history, 0.75, 1.0);
+}
+
+RTXDI_PTReservoir GenerateRestirPTDiSpatialReservoir(RAB_Surface surface, uint2 pixel, out uint status)
+{
+    status = 0u;
+    const RTXDI_PTReservoir temporalReservoir = LoadRestirPTDiTemporalReservoir(pixel, RestirPTGiTemporalCurrentBufferIndex());
+    if (!RestirPTDirectReservoirHasUsefulSample(temporalReservoir))
+    {
+        status = 1u;
+        return RTXDI_EmptyPTReservoir();
+    }
+
+    RTXDI_PTReservoir spatialReservoir = RTXDI_EmptyPTReservoir();
+    float3 selectedTargetFunction = float3(0.0, 0.0, 0.0);
+    float3 currentTargetFunction;
+    if (!RestirPTTryEvaluateNeeReservoirTargetFunction(surface, temporalReservoir, RestirPTInfo.z >= 0.5, currentTargetFunction))
+    {
+        currentTargetFunction = temporalReservoir.TargetFunction;
+    }
+    if (CombineReservoirs(spatialReservoir, temporalReservoir, RestirPTGiHash01(pixel, 0x392211u), currentTargetFunction))
+    {
+        selectedTargetFunction = currentTargetFunction;
+    }
+
+    float piSum = RTXDI_Luminance(currentTargetFunction) * max((float)temporalReservoir.M, 1.0);
+    uint acceptedNeighbors = 0u;
+    const uint2 dimensions = PathTraceFullOutputSize();
+    const uint sampleCount = clamp(RestirPTParams.spatialResampling.numSpatialSamples, 1u, 8u);
+    const float sampleRadius = max(RestirPTParams.spatialResampling.samplingRadius, 1.0);
+
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    {
+        const float angle = RestirPTGiHash01(pixel, 0x6123a1u + sampleIndex * 17u) * 6.28318530718;
+        const float radius = max(1.0, sqrt(RestirPTGiHash01(pixel, 0x9427c3u + sampleIndex * 31u)) * sampleRadius);
+        int2 neighborPixel = int2(pixel) + int2(round(float2(cos(angle), sin(angle)) * radius));
+        neighborPixel = clamp(neighborPixel, int2(0, 0), int2(dimensions) - int2(1, 1));
+        if (all(neighborPixel == int2(pixel)))
+        {
+            continue;
+        }
+
+        const RAB_Surface neighborSurface = LoadPathTracePrimarySurfaceRecord(neighborPixel, false);
+        uint similarityStatus;
+        if (!PathTracePrimarySurfacesAreSimilar(surface, neighborSurface, similarityStatus))
+        {
+            continue;
+        }
+
+        const RTXDI_PTReservoir neighborReservoir = LoadRestirPTDiTemporalReservoir(uint2(neighborPixel), RestirPTGiTemporalCurrentBufferIndex());
+        if (!RestirPTDirectReservoirHasUsefulSample(neighborReservoir))
+        {
+            continue;
+        }
+
+        float3 neighborTargetFunction;
+        if (!RestirPTTryEvaluateNeeReservoirTargetFunction(surface, neighborReservoir, RestirPTInfo.z >= 0.5, neighborTargetFunction))
+        {
+            continue;
+        }
+
+        if (CombineReservoirs(spatialReservoir, neighborReservoir, RestirPTGiHash01(pixel, 0x827331u + sampleIndex * 43u), neighborTargetFunction))
+        {
+            selectedTargetFunction = neighborTargetFunction;
+        }
+        piSum += RTXDI_Luminance(neighborTargetFunction) * max((float)neighborReservoir.M, 1.0);
+        ++acceptedNeighbors;
+    }
+
+    const float pi = RTXDI_Luminance(selectedTargetFunction);
+    RTXDI_FinalizeResampling(spatialReservoir, pi, piSum * max(pi, 1.0e-6));
+    spatialReservoir.M = min(max(spatialReservoir.M, temporalReservoir.M), RestirPTParams.temporalResampling.maxHistoryLength);
+    status = acceptedNeighbors > 0u ? 3u : 2u;
+    return spatialReservoir;
 }
 
 float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
 {
-    if (view == 3u)
-    {
-        return float4(0.0, 0.0, 0.0, 1.0);
-    }
-
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         return view == 4u ? float4(0.20, 0.0, 0.0, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
@@ -846,10 +1111,41 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     {
         uint temporalStatus;
         const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTDiTemporalReservoir(surface, pixel, temporalStatus);
+        const bool temporalValid = RestirPTDirectReservoirHasUsefulSample(temporalReservoir);
         float3 contribution = float3(0.0, 0.0, 0.0);
-        const bool evaluated = RestirPTDirectReservoirHasUsefulSample(temporalReservoir) &&
+        const bool evaluated = temporalValid &&
             RestirPTTryEvaluateNeeReservoirPreview(surface, temporalReservoir, RestirPTInfo.z >= 0.5, contribution);
-        return float4(RestirPTToneMapPreview(evaluated ? contribution : float3(0.0, 0.0, 0.0)), 1.0);
+        if (!evaluated && temporalValid)
+        {
+            contribution = RestirPTReservoirPreviewContribution(temporalReservoir);
+        }
+        return float4(RestirPTToneMapPreview(contribution), 1.0);
+    }
+
+    if (view == 3u)
+    {
+        uint spatialStatus;
+        const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTDiSpatialReservoir(surface, pixel, spatialStatus);
+        const bool spatialValid = RestirPTDirectReservoirHasUsefulSample(spatialReservoir);
+        float3 contribution = float3(0.0, 0.0, 0.0);
+        const bool evaluated = spatialValid &&
+            RestirPTTryEvaluateNeeReservoirPreview(surface, spatialReservoir, RestirPTInfo.z >= 0.5, contribution);
+        if (!evaluated && spatialValid)
+        {
+            contribution = RestirPTReservoirPreviewContribution(spatialReservoir);
+        }
+        return float4(RestirPTToneMapPreview(contribution), 1.0);
+    }
+
+    if (view == 5u)
+    {
+        const RTXDI_PTReservoir temporalReservoir = LoadRestirPTDiTemporalReservoir(pixel, RestirPTGiTemporalCurrentBufferIndex());
+        const uint temporalStatus = RestirPTDirectReservoirHasUsefulSample(temporalReservoir) ? 2u : 1u;
+        uint spatialStatus;
+        const RTXDI_PTReservoir spatialReservoir = GenerateRestirPTDiSpatialReservoir(surface, pixel, spatialStatus);
+        return RestirPTDirectReservoirHasUsefulSample(spatialReservoir)
+            ? RestirPTDiSpatialStatusColor(spatialReservoir, spatialStatus)
+            : RestirPTDiTemporalStatusColor(temporalReservoir, temporalStatus);
     }
 
     if (view == 4u)
@@ -1189,6 +1485,14 @@ void RayGen()
     const uint2 dimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
+        return;
+    }
+
+    if (RestirPTDiTemporalPrepassEnabled())
+    {
+        const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
+        uint temporalStatus;
+        GenerateRestirPTDiTemporalReservoir(surface, pixel, temporalStatus);
         return;
     }
 

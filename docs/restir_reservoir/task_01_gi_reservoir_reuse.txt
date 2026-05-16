@@ -17,6 +17,20 @@ The user must commission exactly one micro-slice at a time:
 Every micro-slice must build, deploy, report, and stop. The user will visually
 inspect the result and decide whether to continue.
 
+Reference-First Rule
+--------------------
+Do not invent or "solve" ReSTIR PT processing in this task. The reservoir math
+and processing model must come from the local reference implementations. Agents
+must inspect the relevant RTXDI / RTX Remix reference step when temporal reuse,
+spatial reuse, neighbor validation, target-function evaluation, normalization,
+bias correction, or final shading behavior is unclear.
+
+The implementation goal is to make a rbdoom-local version of the existing
+reference idea. Deviate only when rbdoom-specific pass structure, buffer
+ownership, surface data, Doom lights, or RAB bridge constraints prevent a
+direct mapping. In that case, document the mismatch and keep the deviation
+debug-scoped until visually accepted.
+
 Why This Matters
 ----------------
 User testing showed that the GI view contains many black/dark samples on bright
@@ -36,9 +50,29 @@ Current Branch Baseline
 - GI/indirect has an initial-reservoir producer, visible initial views, and a
   debug-only temporal candidate exposed through
   `r_pathTracingRestirPTGiDebugView 2`.
-- DI/direct now has a matching debug-only temporal accumulator exposed through
-  `r_pathTracingRestirPTDiDebugView 2`. It uses a DI-owned scratch reservoir
-  buffer and does not feed normal mode 56.
+- DI/direct now has debug-only temporal and spatial reservoir experiments
+  exposed through `r_pathTracingRestirPTDiDebugView 2` and `3`. They use a
+  DI-owned scratch reservoir buffer and do not feed normal mode 56.
+  `r_pathTracingRestirPTDiDebugView 5` shows DI spatial/temporal status colors
+  for investigation.
+- The DI temporal debug view uses the primary-surface producer's exported
+  motion-vector mask, xy motion, and reset/disocclusion mask for previous-pixel
+  lookup. Same-pixel fallback is only allowed when that exported motion is
+  valid and effectively zero, or when an ordinary rigid surface lacks an
+  object-motion source but the same-pixel previous surface still matches. This
+  is still an unvalidated reservoir-history debug path. View 2 evaluates the
+  temporal reservoir in direct-light preview units without multiplying
+  brightness by reservoir `M`; do not describe it as completed final DI
+  lighting. Matching RTXDI PT temporal structure, an invalid current raw DI
+  sample no longer immediately clears history; validated previous DI temporal
+  history may still carry the pixel for this debug path.
+  The local bridge still differs from the RTXDI PT reference because `u39`
+  stores xy pixel motion only; the reference motion vector also carries a depth
+  delta used for temporal depth validation.
+- The DI spatial debug view first runs a debug-only temporal prepass into the
+  DI-owned reservoir buffer, then the visible spatial pass consumes completed
+  current-frame temporal DI neighbors. It is a debug-only candidate, not normal
+  mode 56 output and not RR input.
 - Normal mode 56 still combines the existing raw direct/DI reservoir preview
   with GI initial output.
 - The current final resolve still loads the GI initial reservoir. This is bad

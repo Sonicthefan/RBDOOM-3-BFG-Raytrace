@@ -566,6 +566,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 5, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -576,7 +577,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         restirPTCombinedMode &&
         r_pathTracingDLSSRR.GetInteger() != 0 &&
         r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
-    const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0 || dlssRrRuntimeRequested;
+    const bool restirPTRequiresMotionVectors = restirPTCombinedMode && !disablePrimarySurfaceHistory;
+    const bool motionVectorExportEnabled = r_pathTracingMotionVectorExport.GetInteger() != 0 || dlssRrRuntimeRequested || restirPTRequiresMotionVectors;
     const int restirPTReflectionMode = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_REFLECTION_RAY)
         ? 0
         : idMath::ClampInt(0, 2, r_pathTracingRestirPTReflectionMode.GetInteger());
@@ -992,7 +994,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             finalUsesStandaloneResolve ? 1 : 0,
             reflectionProducer ? 1 : 0,
             idMath::ClampInt(0, 9, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
-            idMath::ClampInt(0, 4, r_pathTracingRestirPTDiDebugView.GetInteger()),
+            restirPTDiDebugView,
             idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger()),
             nsightGpuMarkers ? 1 : 0,
             restirPTBufferSelection.initialOutput,
@@ -1173,7 +1175,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
     constants.rayReconstructionInfo[3] = 0.0f;
-    constants.restirPTDiDebugInfo[0] = restirPTCombinedMode ? static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTDiDebugView.GetInteger())) : 0.0f;
+    constants.restirPTDiDebugInfo[0] = static_cast<float>(restirPTDiDebugView);
     constants.restirPTDiDebugInfo[1] = 0.0f;
     constants.restirPTDiDebugInfo[2] = 0.0f;
     constants.restirPTDiDebugInfo[3] = 0.0f;
@@ -1613,7 +1615,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     int timingDispatchWidth = args.width;
     int timingDispatchHeight = args.height;
 
-    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, int restirShaderDispatchMode, bool restirIndirectProducerDispatch = false, bool restirIndirectSparseProducerDispatch = false)
+    auto dispatchSmokeRays = [&](const nvrhi::rt::DispatchRaysArguments& dispatchArgs, int domainWidth, int domainHeight, int restirShaderDispatchMode, bool restirIndirectProducerDispatch = false, bool restirIndirectSparseProducerDispatch = false, bool restirPTDiTemporalPrepass = false)
     {
         if (dispatchTileSettings.enabled)
         {
@@ -1628,6 +1630,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     tileConstants.dispatchTileInfo[1] = static_cast<float>(tileY);
                     tileConstants.restirPTDirectInfo[2] = static_cast<float>(restirShaderDispatchMode);
                     tileConstants.restirPTIndirectInfo[0] = restirIndirectSparseProducerDispatch ? 2.0f : (restirIndirectProducerDispatch ? 1.0f : 0.0f);
+                    tileConstants.restirPTDiDebugInfo[1] = restirPTDiTemporalPrepass ? 1.0f : 0.0f;
                     commandList->writeBuffer(m_smokeConstantsBuffer, &tileConstants, sizeof(tileConstants));
 
                     nvrhi::rt::DispatchRaysArguments tileArgs;
@@ -1645,6 +1648,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             dispatchConstants.dispatchTileInfo[1] = 0.0f;
             dispatchConstants.restirPTDirectInfo[2] = static_cast<float>(restirShaderDispatchMode);
             dispatchConstants.restirPTIndirectInfo[0] = restirIndirectSparseProducerDispatch ? 2.0f : (restirIndirectProducerDispatch ? 1.0f : 0.0f);
+            dispatchConstants.restirPTDiDebugInfo[1] = restirPTDiTemporalPrepass ? 1.0f : 0.0f;
             commandList->writeBuffer(m_smokeConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
             commandList->dispatchRays(dispatchArgs);
         }
@@ -1790,6 +1794,29 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+    }
+    const bool diSpatialDebugTemporalPrepassNeeded =
+        restirPTCombinedResolveActive &&
+        (restirPTDiDebugView == 3 || restirPTDiDebugView == 5);
+    if (diSpatialDebugTemporalPrepassNeeded)
+    {
+        {
+            PathTraceGpuMarkerScope nsightMarker(commandList, "PT56.3b DITemporalDebugPrepass DispatchRays", nsightGpuMarkers);
+            PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_DIRECT_TEMPORAL);
+            if (optickGpuMarkers)
+            {
+                OPTICK_GPU_EVENT("PT GPU ReSTIR DI Temporal Debug Prepass");
+                commandList->setRayTracingState(state);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode, false, false, true);
+            }
+            else
+            {
+                commandList->setRayTracingState(state);
+                dispatchSmokeRays(args, m_frameResources.width, m_frameResources.height, finalDispatchMode, false, false, true);
+            }
+        }
+
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTDiReservoirBuffers.reservoirs);
     }
     const bool reflectionProducerNeeded =
         restirPTPrimarySurfacePrepassEnabled &&

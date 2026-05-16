@@ -1287,14 +1287,22 @@ without loading the old monolithic ReSTIR shader.
 With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
 producer writes `u39/u40` directly for this bridge path from static previous
 snapshots, retained skinned previous positions, and continuous rigid previous
-transforms. The reset mask is written even when motion-vector export is disabled
-so history validity can be inspected independently. Mode 56 builds the skinned
-previous-position scaffold for this guide export even when
+transforms. Mode 56 also forces this export while primary surface history is
+enabled because the DI/GI temporal debug reservoir paths use `u39/u40` plus
+`u52` reset/disocclusion bits for previous-pixel lookup. Same-pixel DI history
+fallback is only allowed for valid near-zero exported motion or for an
+ordinary-rigid `OBJECT_MOTION_UNAVAILABLE` reset when the previous same-pixel
+surface still matches. The reset mask is written even when motion-vector export
+is disabled so history validity can be inspected independently. Mode 56 builds
+the skinned previous-position scaffold for this guide export even when
 `r_pathTracingGpuSkinning` is `0`; that CVar still controls the diagnostic GPU
 skinning compute path. Mode 56 currently keeps the legacy dynamic rigid fallback
 even when a routed rigid TLAS route exists. This is deliberately conservative
 after pruning the fallback exposed a known routed-geometry disappearance in mode
 56; fix the routed path before removing the fallback again.
+The local bridge still differs from the RTXDI PT reference motion-vector
+contract: `u39` is xy pixel motion only, while the reference carries xy plus a
+depth delta for temporal validation.
 
 Implications for PathTraceGeometryUniverse:
 
@@ -1955,9 +1963,28 @@ change mode 18.
 Mode 56 is the combined direct + GI debug preview. DI/direct is still raw
 initial-reservoir output; do not describe it as completed temporal/spatial
 ReSTIR DI. Normal mode 56 shades that raw direct/DI preview with the completed
-GI initial reservoir. The DI temporal accumulator is debug-only via
-`r_pathTracingRestirPTDiDebugView 2`; the GI temporal candidate is debug-only
-via `r_pathTracingRestirPTGiDebugView 2`. Neither is consumed by normal mode 56.
+GI initial reservoir. The DI temporal reservoir experiment is debug-only via
+`r_pathTracingRestirPTDiDebugView 2`; `r_pathTracingRestirPTDiDebugView 3`
+shows a debug-only DI spatial candidate, and `r_pathTracingRestirPTDiDebugView
+5` shows DI spatial/temporal status colors for investigation. The GI temporal
+candidate is debug-only via `r_pathTracingRestirPTGiDebugView 2`. Neither debug
+accumulator is consumed by normal mode 56.
+The DI temporal debug path uses the primary-surface producer's motion-vector
+mask, xy motion, and reset/disocclusion mask for previous-pixel lookup. If a
+previous sample is not accepted, same-pixel previous DI reservoir fallback is
+only allowed when exported motion is valid and effectively zero, or when an
+ordinary rigid surface has no object-motion source but the same-pixel previous
+surface still matches. View 2 evaluates the temporal reservoir in direct-light
+preview units without multiplying brightness by reservoir `M`; accepted history
+is visible through source stability, not artificial brightness gain. This is
+still an unvalidated reservoir-history debug path, not completed final DI
+lighting. Like the RTXDI PT temporal structure, the current raw DI sample is
+optional for this debug path; a missing current raw sample no longer immediately
+clears validated previous DI temporal history.
+The DI spatial debug path runs a temporal debug prepass into the DI reservoir
+buffer before the visible spatial pass consumes validated current-frame
+temporal DI neighbors. It is a comparison view only and does not feed RR input
+or normal mode 56.
 
 `r_pathTracingRestirPTRaySparsity` is a legacy direct-domain sparse update
 control over raw DI/direct diagnostics. Do not use it as evidence that DI has

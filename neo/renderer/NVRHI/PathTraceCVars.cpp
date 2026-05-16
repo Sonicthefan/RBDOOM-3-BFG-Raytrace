@@ -829,7 +829,7 @@ idCVar r_pathTracingRestirPTDiDebugView(
     "r_pathTracingRestirPTDiDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI comparison view: 0 = normal output, 1 = raw DI reservoir estimate, 2 = DI temporal accumulator, 3 = reserved DI spatial, 4 = DI reservoir validity/M/WeightSum" );
+    "Mode 56 DI comparison view: 0 = normal output, 1 = raw DI reservoir estimate, 2 = DI temporal accumulator, 3 = DI spatial candidate, 4 = DI reservoir validity/M/WeightSum, 5 = DI spatial/temporal status" );
 
 idCVar r_pathTracingRestirPTGiDebugView(
     "r_pathTracingRestirPTGiDebugView",

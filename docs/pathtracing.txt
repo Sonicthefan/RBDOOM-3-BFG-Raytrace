@@ -962,9 +962,16 @@ Ray dispatch safety diagnostics:
 
 - r_pathTracingRestirPTDiDebugView
   Mode 56 DI comparison view. `0` keeps normal mode 56 output, `1` shows the
-  raw DI reservoir estimate, `2` shows the debug-only DI temporal accumulator,
-  `3` is reserved for future DI spatial reuse, and `4` shows raw DI reservoir
-  validity/M/WeightSum. This view writes only the debug output, not RR input.
+  raw DI reservoir estimate, `2` shows the debug-only DI temporal reservoir
+  as a direct-light preview with temporal reservoir history, `3` shows the
+  debug-only DI spatial candidate, `4` shows raw DI reservoir
+  validity/M/WeightSum, and `5` shows DI spatial/temporal status colors. View 2
+  does not multiply brightness by reservoir `M`; view 3 runs a debug-only
+  temporal prepass into the DI reservoir buffer, barriers it, then combines the
+  current temporal DI candidate with validated current-frame temporal DI
+  neighbors. The temporal debug path can carry validated previous DI temporal
+  history when the current raw DI sample is missing. These views write only the
+  debug output, not RR input.
 
 - r_pathTracingRestirPTGiDebugView
   Mode 56 GI comparison view. `0` keeps normal mode 56 output, `1` shows raw GI
@@ -3268,7 +3275,15 @@ secondary hits can still appear. The override is scoped to the GI debug modes.
 Mode 56 is the combined direct + GI debug preview. Direct/DI is raw
 initial-reservoir output, and GI initial is the normal-mode-56 baseline. The 01C
 GI temporal candidate exists only in `r_pathTracingRestirPTGiDebugView 2`; it
-does not feed normal mode 56 or RR input yet.
+does not feed normal mode 56 or RR input yet. The mode-56 primary-prepass route
+now forces motion-vector export because the DI/GI temporal debug reservoirs use
+the primary-surface producer's motion-vector mask, xy motion, and reset mask for
+previous-pixel lookup. Same-pixel DI history fallback is restricted to valid
+near-zero exported motion, plus a debug-scoped ordinary-rigid fallback when the
+only reset reason is missing object-motion data and the previous same-pixel
+surface still matches. This follows the RTXDI PT motion-vector direction, but
+the local `u39` texture still stores xy motion only; the reference also provides
+a depth delta for temporal depth validation.
 
 `r_pathTracingRestirPTRaySparsity` is a legacy direct-domain sparse update
 control over raw DI/direct diagnostics. Do not use it as evidence that DI has

@@ -1,5 +1,5 @@
 Current ReSTIR PT State
-Date: 2026-05-16
+Date: 2026-05-17
 
 Repository Context
 ------------------
@@ -13,6 +13,17 @@ Repository Context
 
 Recent Mode 56 / DLSS RR CVar Quick Reference
 ---------------------------------------------
+Reference-first rule:
+
+- Do not invent ReSTIR PT reservoir math or processing when local reference
+  implementations already define the behavior. Temporal/spatial reuse,
+  neighbor validation, target-function evaluation, normalization, bias
+  correction, and final shading must be mapped from RTXDI / RTX Remix concepts
+  into rbdoom-local passes and buffers.
+- If a reference step does not fit this engine directly, document the exact
+  rbdoom-specific mismatch before implementing a local adaptation. Keep such
+  adaptations debug-scoped until visually accepted.
+
 Core mode-56 route:
 
 - `r_pathTracingRestirPTPrimarySurfacePrepass`
@@ -194,12 +205,24 @@ reset/disocclusion mask, 8 specular albedo/F0, 9 RR input HDR preview.
 When `r_pathTracingMotionVectorExport 1` is enabled, the standalone
 primary-surface producer writes the bridge motion-vector/mask UAVs too, using
 static previous snapshots, retained skinned previous positions, and continuous
-rigid previous transforms. The reset mask is written even when motion-vector
-export is disabled, so history validity can be inspected without feeding
-`u39/u40` consumers. Mode 56 builds the skinned previous-position scaffold for
-this guide export even when `r_pathTracingGpuSkinning` is `0`; that CVar still
-only gates the diagnostic GPU skinning compute path. The primary-prepass mode-56
-path no longer depends on the monolithic shader for these guide outputs.
+rigid previous transforms. Mode 56 now also forces this export while primary
+surface history is enabled because the DI/GI temporal debug reservoirs consume
+`u39/u40` plus the reset mask for previous-pixel lookup. The reset mask is
+written even when motion-vector export is disabled, so history validity can be
+inspected without feeding `u39/u40` consumers. Mode 56 builds the skinned
+previous-position scaffold for this guide export even when
+`r_pathTracingGpuSkinning` is `0`; that CVar still only gates the diagnostic GPU
+skinning compute path. The primary-prepass mode-56 path no longer depends on the
+monolithic shader for these guide outputs.
+The remaining reference mismatch is depth: RTXDI PT's temporal motion vector
+contract carries xy pixel motion plus previous-depth delta, while rbdoom's
+`u39` is currently `RG16F` xy motion only. DI/GI temporal reuse therefore uses
+the exported motion mask, reset mask, and previous-surface similarity checks,
+but not the reference depth-delta validation yet. A local debug-scoped fallback
+allows same-pixel temporal reuse for ordinary rigid surfaces whose only reset
+reason is missing object-motion data, but only after the current and previous
+same-pixel primary surfaces pass the existing material/normal/roughness
+similarity check.
 When `r_pathTracingDLSSRR 1` evaluates RR, motion-vector export is enabled for
 that frame. The bitfield u52 texture remains the human-readable reset/debug
 mask. A previous u53 float disocclusion-guide experiment was backed out because
@@ -517,9 +540,24 @@ Main Gaps
   temporal/spatial pass labels are scaffolding and should not be read as a
   completed DI reservoir path.
 - `r_pathTracingRestirPTDiDebugView` is the DI comparison path in mode 56:
-  `1` shows raw DI, `2` shows the debug-only DI temporal accumulator, `3` is
-  reserved for future DI spatial, and `4` shows raw DI reservoir health. It uses
-  a DI-owned scratch reservoir buffer and does not feed normal mode 56.
+  `1` shows raw DI, `2` shows the debug-only DI temporal reservoir experiment,
+  `3` shows the debug-only DI spatial candidate, `4` shows raw DI reservoir
+  health, and `5` shows DI spatial/temporal status colors. View 2 evaluates the
+  temporal reservoir in direct-light preview units and does not multiply
+  brightness by reservoir `M`; accepted history is visible through source
+  stability, not artificial brightness gain. The temporal path treats the
+  current raw DI sample as optional and can carry validated previous DI temporal
+  history when the current raw sample is missing. It now uses the
+  primary-prepass motion-vector mask, xy motion, and reset/disocclusion mask for
+  previous-pixel lookup; same-pixel fallback is limited to valid near-zero
+  motion or ordinary rigid `OBJECT_MOTION_UNAVAILABLE` cases where the
+  same-pixel previous surface still matches. View 3 runs a debug-only temporal
+  prepass into the DI-owned reservoir buffer, barriers it, then combines the
+  current temporal DI candidate with validated current-frame temporal DI
+  neighbors; it is still only a debug candidate. Status colors are red = no
+  usable temporal DI reservoir, blue = temporal-only/no spatial neighbor
+  accepted, and cyan = at least one spatial neighbor accepted. It uses a
+  DI-owned scratch reservoir buffer and does not feed normal mode 56.
 - Indirect/GI is diagnostic-only in modes 53-56. The normal baseline is GI
   initial; the 01C temporal candidate is visible only through
   `r_pathTracingRestirPTGiDebugView 2` and does not feed normal mode 56 yet.
