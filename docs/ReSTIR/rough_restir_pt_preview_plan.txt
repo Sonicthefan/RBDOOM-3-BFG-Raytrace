@@ -21,13 +21,15 @@ Current Baseline
 - Mode 31 calls RTXDI_PTTemporalResampling and validates temporal reservoirs.
 - Mode 32 shades the temporal reservoir as a preview.
 - Mode 33 colors temporal source attribution.
-- Mode 50 runs the first debug-only TemporalAndSpatial ReSTIR PT preview.
-- Mode 51 colors spatial source attribution after TemporalAndSpatial reuse.
+- Mode 50 is a debug-only raw direct/DI reservoir preview. Historical names may
+  say TemporalAndSpatial, but DI/direct processing is not complete.
+- Mode 51 colors direct/DI source attribution over the current raw reservoir
+  output.
 - Modes 53-55 are the first debug-only indirect/GI initial-reservoir views.
   They skip primary NEE in the RAB path tracer so the visible reservoir domain
   starts at secondary/indirect path candidates.
-- Mode 56 combines the completed direct spatial reservoir from the mode 50 path
-  with the completed indirect/GI initial reservoir from the mode 54 path.
+- Mode 56 combines raw direct/DI reservoir output with the completed
+  indirect/GI initial reservoir from the mode 54 path.
 - ReSTIR shader libraries are now split and force-specialized per mode, which
   makes iteration feasible again. Keep core mode 18 independent from ReSTIR
   debug-mode shader cost.
@@ -120,12 +122,9 @@ Success Criteria
 
 Spatial Follow-Up
 -----------------
-Modes 50-51 use RTXDI's TemporalAndSpatial buffer-index layout: initial output 0,
-temporal previous input 1, temporal current output 0, spatial input 0, spatial
-output 1, and final shading input 1. It first executes the same temporal
-reservoir generation used by mode 32, then calls RTXDI_PTSpatialResampling and
-stores the spatial result. The preview shades the spatial reservoir with the
-same rough NEE reconstruction fallback used by mode 32.
+Modes 50-51 have legacy TemporalAndSpatial labels in the wrapper path, but this
+branch should treat DI/direct as raw reservoir output. Do not use these modes as
+evidence that direct temporal/spatial resampling is complete.
 
 Mode 51 uses the same reservoir path as mode 50 but outputs source attribution
 instead of lighting: cyan/blue for Doom analytic lights, orange for emissive
@@ -199,12 +198,10 @@ representative while keeping their current full-resolution surface context.
 
 Combined DI + GI Follow-Up
 --------------------------
-Mode 56 is the first debug-only combined direct + GI preview. It runs the same
-staged direct temporal/spatial producer path as mode 50 and the same staged GI
-initial producer as modes 53-55, then shades the completed direct spatial
-reservoir and completed GI initial reservoir together in a specialized consumer.
-It is a validation view only; it does not add temporal/spatial GI reuse and does
-not change mode 18.
+Mode 56 is the debug-only combined direct + GI preview. It shades raw direct/DI
+reservoir output with completed GI initial output in the normal path. The 01C GI
+temporal candidate is debug-only via `r_pathTracingRestirPTGiDebugView 2` and
+does not change normal mode 56 or mode 18.
 
 Validate mode 56 by comparing it against:
 
@@ -227,15 +224,10 @@ is only roughly 5-10%. The next performance step should profile shader work
 inside `vkCmdTraceRays`, especially location-sensitive environment/sky,
 material, light sampling, memory/cache, and branch-divergence paths.
 
-`r_pathTracingRestirPTPrimarySurfacePrepass` is a default-off experiment for
-the repeated-primary-ray cost in staged direct ReSTIR producers. With it off,
-the current working path is unchanged. With it on, direct temporal/spatial
-producer prepasses load current primary-surface history instead of tracing a
-primary ray. In mode 56 the GI initial producer supplies that history; in modes
-50-51 and the mode 18 ReSTIR direct hybrid a standalone full-resolution primary
-surface prepass is inserted first. Keep this opt-in until mode 18 baseline,
-mode 50/51, and mode 56 have been checked for the light-blue clear-color
-regression.
+`r_pathTracingRestirPTPrimarySurfacePrepass` is a primary-surface sharing
+experiment. Do not interpret it as proof that DI/direct temporal/spatial
+reservoir processing is finished. DI/direct remains raw reservoir output until a
+future slice duplicates/adapts the accepted GI path.
 
 Mode 56's final combined consumer also has a surface-based preview path when
 the primary-surface prepass experiment is enabled and GI sparsity is 1. With GI
@@ -250,13 +242,10 @@ cost is likely after the primary hit is available: reservoir generation,
 RTXDI/RAB sampling, direct/indirect NEE trial loops, visibility/continuation
 rays, memory traffic, or shader divergence.
 
-In mode 56 there are four `vkCmdTraceRays` events, matching the staged pass
-order: GI initial producer, direct temporal producer, direct spatial producer,
-and final combined consumer. User Nsight validation reports events 2 and 3 are
-the majority of frame time by far. In bad locations event 1 also roughly
-doubles, but remains lower than events 2 and 3. Prioritize the staged direct
-temporal and spatial producer shaders, while using event 1 as a secondary check
-for shared location-sensitive material/light/environment paths.
+Mode 56 can still show legacy `vkCmdTraceRays` labels for direct temporal and
+direct spatial producer events. Those labels are stale scaffolding names. Do not
+prioritize DI temporal/spatial tuning until DI has been rebuilt from the
+accepted GI reservoir path.
 
 Some nominally dark base-game spaces appear to have open roofs. The raster path
 apparently hides those spaces from skybox light through rules outside simple

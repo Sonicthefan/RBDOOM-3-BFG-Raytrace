@@ -32,9 +32,13 @@ Control
 -------
 `r_pathTracingRestirPTRaySparsity`
 
+Historical note: this direct-side control is scaffolding over raw DI/direct
+diagnostics. Do not read it as evidence that DI/direct temporal or spatial
+reservoir reuse is complete. Future DI reuse should duplicate/adapt the
+accepted GI reservoir path.
+
 - `1`: disabled.
-- `2..8`: update roughly one out of N reservoir pixels in the staged direct
-  producer passes.
+- `2..8`: legacy direct-domain sparse update values.
 
 `r_pathTracingRestirPTGiRaySparsity`
 
@@ -42,26 +46,18 @@ Control
 - `2..8`: update roughly one out of N full-resolution GI reservoir pixels in the
   staged mode 53-56 producer pass.
 
-The active phase advances with the ReSTIR PT frame index. Current-frame producer
-lookups use the current phase; temporal previous-frame lookups snap to the
-previous phase so temporal reuse does not accidentally read inactive/stale
-reservoir slots from the last frame.
+The active phase advances with the ReSTIR PT frame index. The direct-side
+temporal wording below is historical; it is not evidence that DI temporal reuse
+is complete.
 
 Implementation Contract
 -----------------------
-For staged direct-lighting producer dispatches:
+For legacy direct-lighting producer dispatches:
 
-1. Sparse producer dispatches now launch only `ceil(directDomainWidth / rate)`
-   columns by `directDomainHeight` rows.
-2. Sparse dispatch pixels map back to the same active direct-domain pixels used
-   by the original diagonal `1/rate` pattern.
-3. Active reservoir pixels generate initial, temporal, and spatial reservoirs as
-   usual.
-4. Spatial neighbor positions snap to active representative pixels before
-   loading current surfaces and neighbor reservoirs.
-5. Full-resolution consumers map their pixel to the direct reservoir domain, then
-   snap to the current active representative before loading the spatial
-   reservoir.
+1. Treat the old direct-domain dispatch and neighbor language as scaffolding.
+2. DI/direct is raw reservoir output on this branch.
+3. Future DI sparsity should be designed after DI is rebuilt from the accepted
+   GI reservoir path.
 
 For staged GI initial producer dispatches:
 

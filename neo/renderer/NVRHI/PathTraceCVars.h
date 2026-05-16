@@ -144,6 +144,8 @@ extern idCVar r_pathTracingRestirPTSpatialSamples;
 extern idCVar r_pathTracingRestirPTSpatialRadius;
 extern idCVar r_pathTracingRestirPTCombinedSpatialRadius;
 extern idCVar r_pathTracingRestirPTSpatialDiagnosticView;
+extern idCVar r_pathTracingRestirPTDiDebugView;
+extern idCVar r_pathTracingRestirPTGiDebugView;
 extern idCVar r_pathTracingRestirPTDirectResolutionScale;
 extern idCVar r_pathTracingRestirPTRaySparsity;
 extern idCVar r_pathTracingRestirPTGiRaySparsity;

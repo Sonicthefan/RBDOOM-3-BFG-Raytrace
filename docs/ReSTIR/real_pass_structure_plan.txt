@@ -4,12 +4,11 @@ Project: rbdoom-3-bfg-rt path tracing
 
 Purpose
 -------
-Mode 56 proved that direct spatial ReSTIR and initial GI reservoirs can be
-combined into one rough preview, but it is not shaped like a production
-renderer. It still has full-resolution consumer/composite work and several
-debug-oriented raygen paths. Sparsity and primary-surface reuse helped validate
-cost boundaries, but they are not enough to make the current mode 56 pass graph
-scale cleanly with resolution.
+Mode 56 proved that raw direct/DI reservoir output and initial GI reservoirs can
+be combined into one rough preview, but it is not shaped like a production
+renderer. Do not describe DI/direct as having completed temporal/spatial
+reservoir processing on this branch. The accepted direction is to finish the GI
+reservoir path first, then duplicate/adapt that finished path for DI/direct.
 
 The next architecture target is a real pass graph:
 
@@ -59,7 +58,8 @@ Keep full-resolution reconstruction anchors:
 
 Run expensive lighting domains independently:
 
-- Direct ReSTIR reservoir domain.
+- Direct/DI reservoir domain. Current state is raw reservoir output only; the
+  future direct domain should be rebuilt from the accepted GI reservoir path.
 - GI/indirect reservoir domain.
 - Later reflection reservoir/ray domain.
 - Later volumetric/particle domain.
@@ -91,7 +91,9 @@ Pass B: Direct lighting producer
 - Dispatches in direct-lighting domain, not necessarily full resolution.
 - Maps direct-domain pixels to representative full-resolution primary pixels.
 - Loads full-resolution primary surface records.
-- Generates initial/temporal/spatial direct reservoirs.
+- Future target: generate initial/temporal/spatial direct reservoirs after the
+  GI path is accepted and duplicated/adapted for DI. Current branch state is raw
+  direct/DI reservoir output only.
 - Writes direct reservoir outputs only.
 
 Pass C: GI/indirect producer
@@ -207,10 +209,10 @@ Task 01: Primary surface producer pass
   first-hit stochastic transparency for the new pass graph, but it does not
   solve layered translucent composition in the final resolve.
 
-Task 02: Direct domain producer cleanup
+Task 02: Future direct domain producer
 
-- Convert direct temporal/spatial producers to consume primary history from
-  Pass A.
+- After the GI reservoir path is accepted, duplicate/adapt it for DI/direct and
+  make any direct-domain primary-history use explicit.
 - Keep direct reservoir domain explicit.
 - Preserve source attribution modes 50-51.
 
@@ -226,26 +228,12 @@ Task 03: GI sparse-domain producer
   plumbing, but its raygen is producer-only and the emitted Vulkan library is
   much smaller. Pass dumps report `giInitialStandalone=1` when this route is
   active.
-- Current direct-temporal slice: mode 56 primary-prepass builds can route the
-  direct temporal prepass through
-  `pathtrace_restir_direct_temporal_producer.rt.hlsl` instead of
-  `pathtrace_smoke_restir_temporal.rt.hlsl`. This is also still
-  monolithic-derived for now, but it compiles a producer-only raygen and avoids
-  loading the larger temporal debug/consumer library. Pass dumps report
-  `directTemporalStandalone=1` when this route is active.
-- Current direct-spatial slice: mode 56 primary-prepass builds can route the
-  spatial-reservoir prepass through
-  `pathtrace_restir_direct_spatial_reservoir_producer.rt.hlsl` instead of
-  `pathtrace_smoke_restir_spatial_reservoir.rt.hlsl`. This keeps the same
-  compile-time spatial producer specialization, but gives mode 56 its own
-  library and lets the default shader build skip the legacy diagnostic spatial
-  reservoir output. Pass dumps report `directSpatialStandalone=1` when this
-  route is active.
-- Current sparse-dispatch slice: direct temporal/spatial producers and GI
-  initial producers dispatch only `ceil(domainWidth / rate)` producer columns
-  when sparsity is active. Shader mapping sends those sparse lanes back to the
-  same diagonal `1/rate` active reservoir pixels used by the previous
-  early-return implementation.
+- Legacy direct-temporal/direct-spatial pass labels may still appear in mode 56
+  dumps and Nsight markers. Treat them as scaffolding names only. They do not
+  mean DI/direct has completed reservoir processing.
+- Legacy sparse-dispatch notes may still mention direct temporal/spatial
+  producers. Treat those as scaffolding names; DI/direct does not have
+  completed temporal/spatial reservoir processing yet.
 - Next add an explicit GI-domain metadata path instead of overloading the
   full-resolution output domain.
 - Preserve modes 53-55 source/path diagnostics.
@@ -340,7 +328,7 @@ E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
 Validation sequence:
 
 1. Confirm mode 18 stable baseline with ReSTIR direct off.
-2. Confirm mode 50 direct spatial shading and mode 51 source attribution.
+2. Confirm mode 50/51 raw direct/DI diagnostics and source attribution.
 3. Confirm modes 53-55 GI diagnostics and source/path attribution.
 4. Confirm mode 56 combined preview matches direct mode 50 plus GI mode 54
    behavior.

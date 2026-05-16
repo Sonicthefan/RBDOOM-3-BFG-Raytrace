@@ -304,6 +304,8 @@ struct PathTraceSmokeConstants
     float restirPTSparsityInfo[4];
     float restirPTIndirectInfo[4];
     float rayReconstructionInfo[4];
+    float restirPTDiDebugInfo[4];
+    float restirPTGiDebugInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -520,7 +522,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         return;
     }
-    if (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off))
+    if (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
+        !m_frameResources.restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
+        !m_frameResources.restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off))
     {
         return;
     }
@@ -919,6 +923,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         !m_frameResources.restirPTContextState.IsValidFor(static_cast<uint32_t>(restirPTDirectWidth), static_cast<uint32_t>(restirPTDirectHeight), rtxdi::CheckerboardMode::Off))
     {
         m_frameResources.restirPTReservoirNeedsClear = true;
+        m_frameResources.restirPTDiReservoirNeedsClear = true;
+        m_frameResources.restirPTGiReservoirNeedsClear = true;
     }
     const float restirPTSpatialRadius = idMath::ClampFloat(1.0f, 128.0f,
         restirPTCombinedMode
@@ -954,7 +960,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool reflectionProducer = finalUsesStandaloneResolve && restirPTReflectionMode > 0 && m_smokeRestirReflectionProducerShaderTable;
         const bool finalConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode;
         const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d diDebugView=%d giDebugView=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -986,6 +992,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             finalUsesStandaloneResolve ? 1 : 0,
             reflectionProducer ? 1 : 0,
             idMath::ClampInt(0, 9, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
+            idMath::ClampInt(0, 4, r_pathTracingRestirPTDiDebugView.GetInteger()),
+            idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger()),
             nsightGpuMarkers ? 1 : 0,
             restirPTBufferSelection.initialOutput,
             restirPTBufferSelection.temporalInput,
@@ -1165,6 +1173,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
     constants.rayReconstructionInfo[3] = 0.0f;
+    constants.restirPTDiDebugInfo[0] = restirPTCombinedMode ? static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTDiDebugView.GetInteger())) : 0.0f;
+    constants.restirPTDiDebugInfo[1] = 0.0f;
+    constants.restirPTDiDebugInfo[2] = 0.0f;
+    constants.restirPTDiDebugInfo[3] = 0.0f;
+    constants.restirPTGiDebugInfo[0] = restirPTCombinedMode ? static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())) : 0.0f;
+    constants.restirPTGiDebugInfo[1] = 0.0f;
+    constants.restirPTGiDebugInfo[2] = 0.0f;
+    constants.restirPTGiDebugInfo[3] = 0.0f;
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] =
@@ -1388,6 +1404,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_frameResources.restirPTDiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_frameResources.restirPTGiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
@@ -1442,6 +1460,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_frameResources.restirPTDiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_frameResources.restirPTGiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
@@ -1470,6 +1490,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         m_frameResources.smokeReservoirNeedsClear = true;
         m_frameResources.restirPTReservoirNeedsClear = true;
+        m_frameResources.restirPTDiReservoirNeedsClear = true;
+        m_frameResources.restirPTGiReservoirNeedsClear = true;
     }
     if (disablePrimarySurfaceHistory &&
         (!m_frameResources.primarySurfaceHistoryNeedsClear ||
@@ -1494,7 +1516,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 reservoirClearCompleteUs = Sys_Microseconds();
-    const bool restirPTReservoirClearRequested = !disableReservoirWrites && (requestedRestirPTDebugMode || mode18RestirDirectMode) && m_frameResources.restirPTReservoirNeedsClear;
+    const bool restirPTReservoirClearRequested = !disableReservoirWrites && (requestedRestirPTDebugMode || mode18RestirDirectMode) && (m_frameResources.restirPTReservoirNeedsClear || m_frameResources.restirPTDiReservoirNeedsClear || m_frameResources.restirPTGiReservoirNeedsClear);
     const uint64 restirPTReservoirClearStartUs = reservoirClearCompleteUs;
     if (restirPTReservoirClearRequested)
     {
@@ -1506,6 +1528,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             m_frameResources.restirPTReservoirNeedsClear = false;
             ++m_frameResources.restirPTReservoirClearCount;
+        }
+        if (ClearRestirPTReservoirBuffers(commandList, m_frameResources.restirPTDiReservoirBuffers))
+        {
+            m_frameResources.restirPTDiReservoirNeedsClear = false;
+            ++m_frameResources.restirPTDiReservoirClearCount;
+        }
+        if (ClearRestirPTReservoirBuffers(commandList, m_frameResources.restirPTGiReservoirBuffers))
+        {
+            m_frameResources.restirPTGiReservoirNeedsClear = false;
+            ++m_frameResources.restirPTGiReservoirClearCount;
         }
     }
     const uint64 restirPTReservoirClearCompleteUs = Sys_Microseconds();
@@ -1705,6 +1737,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
         nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTReservoirBuffers.reservoirs);
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTDiReservoirBuffers.reservoirs);
+        nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.restirPTGiReservoirBuffers.reservoirs);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
     }
     if (temporalPrepassNeeded)

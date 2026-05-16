@@ -4,27 +4,20 @@ Project: rbdoom-3-bfg-rt path tracing / mode-56-derived ReSTIR PT work
 
 Purpose
 -------
-This folder commissions focused agents for the next ReSTIR reservoir work.
+This folder commissions focused agents for ReSTIR reservoir work.
 
-The immediate image-quality problem is not DLSS Ray Reconstruction itself. The
-mode-56-derived path is exposing raw or under-reused reservoir dropout as image
-radiance, especially in the GI view. Bright surfaces can show many black/dark
-grey samples. DLSS/RR treats those samples as real high-frequency signal.
+The current visual problem is that mode-56-derived GI can expose raw or
+under-reused reservoir dropout as image radiance. Bright surfaces can contain
+many black/dark grey samples, and DLSS/RR treats those samples as important
+high-frequency detail.
 
-The near-term goal is to move the current implementation toward the baseline
-ReSTIR PT pass structure:
+Important operating rule: visual ReSTIR work must be gated by the user. Agents
+are not reliable judges of whether a noisy path-traced image is better. Every
+slice in this folder must produce a narrow visual/debug state, build/deploy it,
+then stop so the user can inspect it in-game.
 
-    initial reservoir
-        -> temporal reservoir reuse
-        -> spatial reservoir reuse
-        -> final visibility / validation
-        -> final shading
-        -> RR-facing radiance buffers
-
-The first commissioned implementation stage must focus on baseline reservoir
-reuse. Do not jump ahead into RTX Remix production hardening or ReSTIR PT
-Enhanced research features unless the user explicitly commissions that later
-stage.
+Do not commission or execute "Task 01" as one large implementation. It is split
+into micro-slices in `task_01_gi_reservoir_reuse.txt`.
 
 Repository Context
 ------------------
@@ -61,9 +54,9 @@ Before changing code, read:
     docs\pathtracing.txt
     docs\pathtrace_modules.txt
     docs\ReSTIR\current_restir_pt_state.txt
-    docs\ReSTIR\rough_restir_pt_preview_plan.txt
     docs\ReSTIR\real_pass_structure_plan.txt
     docs\restir_reservoir\task_01_gi_reservoir_reuse.txt
+    docs\restir_reservoir\stage_gate_policy.txt
     docs\restir_reservoir\code_sketches.txt
 
 Reference codebases are local:
@@ -89,23 +82,40 @@ Standing Constraints
   validation path.
 - Do not add RTX Remix hardening, ReSTIR PT Enhanced features, unified
   reservoirs, reflection reservoirs, or denoiser rewrites in the same slice as
-  the baseline GI reservoir reuse work.
-- Stop after the commissioned stage is implemented, built, deployed, and
-  summarized. Do not continue into the next stage without a new user request.
+  baseline GI reservoir investigation.
+- Do not switch mode 56 final resolve to a new GI reservoir path until the user
+  has visually accepted diagnostics proving that path is better than the raw GI
+  initial reservoir.
+
+Failed Attempt Warning
+----------------------
+A previous Stage 01 attempt failed because it tried to do the whole stage at
+once. Specific mistakes to avoid:
+
+- It added a side GI reservoir buffer, but RTXDI temporal/spatial functions
+  still operated on the main reservoir buffer.
+- It regenerated an initial reservoir and stored it as "temporal" instead of
+  calling true temporal resampling.
+- It reused generic spatial helper behavior without proving the GI domain was
+  valid.
+- It made mode 56 consume the new GI spatial output unconditionally, with no
+  visual acceptance and no fallback.
+
+Do not repeat that pattern. If a slice cannot prove its visual output, stop and
+report the blocker.
 
 Stage Order
 -----------
-Stage 01: Baseline GI reservoir reuse
+Stage 01: Baseline GI reservoir investigation and reuse
 
-    Make the GI contribution consumed by mode 56 come from a completed GI
-    temporal/spatial reservoir path instead of directly shading the initial GI
-    reservoir. This is the first task in this folder.
+    This is not one task. It is split into 01A, 01B, 01C, 01D, and 01E. Each
+    micro-slice must stop for user visual review.
 
 Stage 02: RR-safe final shading and dense output shaping
 
-    After Stage 01 is accepted, refine final shading so RR input is fed by a
-    denser, validated lighting estimate rather than raw stochastic dropout.
-    Keep diffuse/specular and hit-distance output requirements explicit.
+    Only after Stage 01E is visually accepted. Refine final shading so RR input
+    is fed by a denser, validated lighting estimate rather than raw stochastic
+    dropout.
 
 Stage 03: RTX Remix-style production hardening
 
@@ -125,34 +135,19 @@ Stage 05: ReSTIR PT Enhanced techniques
     paired spatial reuse, footprint reconnection diagnostics, and dual motion
     vector disocclusion support. These are not Stage 01 features.
 
-Current Root Symptom
---------------------
-The current mode-56-derived resolve path still has a GI path that loads the
-initial reservoir and directly turns it into radiance. This is the key behavior
-to remove from the final RR-facing path.
-
-Relevant current shader location:
-
-    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
-
-Look for:
-
-    LoadRestirPTInitialReservoir(pixel)
-
-That load is acceptable for diagnostics, but not as the production GI estimate
-fed into RR.
-
 Expected Agent Behavior
 -----------------------
 The agent should work like this:
 
 1. Read the listed docs.
-2. Inspect the current code and confirm the active mode-56 pass route.
-3. Implement only the commissioned stage.
-4. Build with the PT dev-release lane.
-5. Deploy the executable and shaders to the prepared game folder.
-6. Report exact files changed, validation performed, and remaining limits.
-7. Stop.
+2. Identify the exact commissioned micro-slice.
+3. If no micro-slice is named, do only 01A or ask for clarification.
+4. Implement only that micro-slice.
+5. Build with the PT dev-release lane.
+6. Deploy the executable and shaders to the prepared game folder.
+7. Report exact files changed, what visual/debug mode to inspect, and what the
+   user should compare.
+8. Stop.
 
 If a later stage looks tempting, write a note in the final answer. Do not start
 it.

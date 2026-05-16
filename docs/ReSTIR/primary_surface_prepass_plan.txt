@@ -9,18 +9,17 @@ camera ray before doing ReSTIR work. User Nsight captures showed mode 56 emits
 four `vkCmdTraceRays` events:
 
 1. GI initial producer.
-2. Direct temporal producer.
-3. Direct spatial producer.
+2. Legacy-named direct temporal producer.
+3. Legacy-named direct spatial producer.
 4. Final combined consumer.
 
-Events 2 and 3 dominate the bad locations. Ray sparsity changes the image but
-does not materially reduce frame time, which points at shader work and repeated
-primary-surface setup inside those producer passes rather than raw RT traversal
-count alone.
+Events 2 and 3 use legacy direct producer labels. Those labels are scaffolding,
+not proof that DI/direct has temporal/spatial reservoir reuse. Ray sparsity
+changes the image but does not materially reduce frame time.
 
-The next optimization target is to make the staged direct ReSTIR producer
-passes consume a previously generated full-resolution primary-surface buffer
-instead of tracing primary rays again.
+This document is now historical for the direct side. Future DI work should
+duplicate/adapt the accepted GI reservoir path rather than continue from the
+old direct temporal/spatial label names.
 
 Recent Failed Shortcut
 ----------------------
@@ -44,10 +43,11 @@ The branch already has the key pieces:
   `PathTraceFullPixelToRestirDirectPixel`,
   `PathTraceRestirDirectPixelToRepresentativeFullPixel`, and
   `PathTracePrimarySurfaceLoadPixel`.
-- Staged direct TemporalAndSpatial prepasses for modes 50-51, mode 56, and
-  mode 18 when `r_pathTracingRestirPTDirectLighting 1` is enabled.
+- Legacy-named direct producer wrappers for modes 50-51, mode 56, and mode 18
+  when `r_pathTracingRestirPTDirectLighting 1` is enabled. Treat their
+  temporal/spatial naming as scaffolding only.
 - A staged GI initial producer for modes 53-56 that already traces full
-  resolution before the direct temporal/spatial prepasses in mode 56.
+  resolution before the legacy-named direct producer wrappers in mode 56.
 
 Implementation Rule
 -------------------
@@ -78,7 +78,7 @@ Pass Graph
 Modes 50-51 and mode 18 ReSTIR direct hybrid:
 
 1. Optional full-resolution primary-surface producer dispatch.
-2. Direct temporal producer dispatch, consuming primary history.
+2. Legacy-named direct temporal producer dispatch, consuming primary history.
 3. Direct spatial producer dispatch, consuming primary history.
 4. Full-resolution visible consumer.
 
@@ -200,8 +200,8 @@ If this works, the next step is not to keep adding hidden modes to the shared
 raygen. Move toward explicit pass libraries or compile-time pass entry points:
 
 - primary-surface producer,
-- direct temporal producer,
-- direct spatial producer,
+- legacy-named direct temporal producer,
+- legacy-named direct spatial producer,
 - GI initial producer,
 - final visible consumer.
 

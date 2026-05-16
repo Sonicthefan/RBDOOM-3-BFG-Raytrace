@@ -825,6 +825,18 @@ idCVar r_pathTracingRestirPTSpatialDiagnosticView(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 51 spatial diagnostic view: 0 = source attribution, 1 = spatial acceptance/source-change status, 2 = temporal-vs-spatial source compare with local NEE replay check" );
 
+idCVar r_pathTracingRestirPTDiDebugView(
+    "r_pathTracingRestirPTDiDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 56 DI comparison view: 0 = normal output, 1 = raw DI reservoir estimate, 2 = DI temporal accumulator, 3 = reserved DI spatial, 4 = DI reservoir validity/M/WeightSum" );
+
+idCVar r_pathTracingRestirPTGiDebugView(
+    "r_pathTracingRestirPTGiDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 56 GI comparison view: 0 = normal output, 1 = raw GI initial estimate, 2 = GI temporal accumulator, 3 = reserved GI spatial, 4 = initial reservoir validity/M/WeightSum" );
+
 idCVar r_pathTracingRestirPTDirectResolutionScale(
     "r_pathTracingRestirPTDirectResolutionScale",
     "1",

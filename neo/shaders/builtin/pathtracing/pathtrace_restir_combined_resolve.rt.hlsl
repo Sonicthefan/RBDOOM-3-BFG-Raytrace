@@ -94,6 +94,8 @@ ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
+RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTGiReservoirs : register(u55);
+RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTDiReservoirs : register(u56);
 
 #define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
 #include "Rtxdi/PT/Reservoir.hlsli"
@@ -136,6 +138,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;
     float4 RayReconstructionInfo;
+    float4 RestirPTDiDebugInfo;
+    float4 RestirPTGiDebugInfo;
 };
 
 static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
@@ -416,6 +420,158 @@ bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
     return RTXDI_IsValidPTReservoir(reservoir) && reservoir.WeightSum > 0.0 && targetLuminance > 0.0;
 }
 
+uint RestirPTGiDebugView()
+{
+    return clamp((uint)max(RestirPTGiDebugInfo.x, 0.0), 0u, 4u);
+}
+
+uint RestirPTDiDebugView()
+{
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 4u);
+}
+
+uint RestirPTGiTemporalCurrentBufferIndex()
+{
+    return ((uint)max(RestirPTInfo.x, 0.0)) & 1u;
+}
+
+uint RestirPTGiTemporalPreviousBufferIndex()
+{
+    return 1u - RestirPTGiTemporalCurrentBufferIndex();
+}
+
+float RestirPTGiHash01(uint2 pixel, uint salt)
+{
+    uint h = pixel.x * 1664525u + pixel.y * 1013904223u + ((uint)max(RestirPTInfo.x, 0.0)) * 747796405u + salt;
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    h *= 3266489917u;
+    h ^= h >> 16;
+    return ((float)(h & 0x00ffffffu) + 0.5) / 16777216.0;
+}
+
+uint RestirPTGiReservoirPointer(uint2 pixel, uint reservoirArrayIndex)
+{
+    const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
+    return RTXDI_ReservoirPositionToPointer(RestirPTParams.reservoirBuffer, reservoirPosition, reservoirArrayIndex);
+}
+
+RTXDI_PTReservoir LoadRestirPTGiTemporalReservoir(uint2 pixel, uint reservoirArrayIndex)
+{
+    return RTXDI_UnpackPTReservoir(RestirPTGiReservoirs[RestirPTGiReservoirPointer(pixel, reservoirArrayIndex)]);
+}
+
+void StoreRestirPTGiTemporalReservoir(uint2 pixel, uint reservoirArrayIndex, RTXDI_PTReservoir reservoir)
+{
+    RestirPTGiReservoirs[RestirPTGiReservoirPointer(pixel, reservoirArrayIndex)] = RTXDI_PackPTReservoir(reservoir);
+}
+
+RTXDI_PTReservoir LoadRestirPTDiTemporalReservoir(uint2 pixel, uint reservoirArrayIndex)
+{
+    return RTXDI_UnpackPTReservoir(RestirPTDiReservoirs[RestirPTGiReservoirPointer(pixel, reservoirArrayIndex)]);
+}
+
+void StoreRestirPTDiTemporalReservoir(uint2 pixel, uint reservoirArrayIndex, RTXDI_PTReservoir reservoir)
+{
+    RestirPTDiReservoirs[RestirPTGiReservoirPointer(pixel, reservoirArrayIndex)] = RTXDI_PackPTReservoir(reservoir);
+}
+
+RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2 pixel, out uint status)
+{
+    status = 0u;
+    const uint currentIndex = RestirPTGiTemporalCurrentBufferIndex();
+    const RTXDI_PTReservoir currentReservoir = LoadRestirPTInitialReservoir(pixel);
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface) || !RestirPTReservoirHasUsefulSample(currentReservoir))
+    {
+        StoreRestirPTGiTemporalReservoir(pixel, currentIndex, RTXDI_EmptyPTReservoir());
+        status = 1u;
+        return RTXDI_EmptyPTReservoir();
+    }
+
+    RTXDI_PTReservoir temporalReservoir = RTXDI_EmptyPTReservoir();
+    float3 selectedTargetFunction = float3(0.0, 0.0, 0.0);
+    if (CombineReservoirs(temporalReservoir, currentReservoir, RestirPTGiHash01(pixel, 0x314159u), currentReservoir.TargetFunction))
+    {
+        selectedTargetFunction = currentReservoir.TargetFunction;
+    }
+
+    float piSum = RTXDI_Luminance(currentReservoir.TargetFunction) * max((float)currentReservoir.M, 1.0);
+    int2 previousPixel;
+    uint debugStatus;
+    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(surface, PathTraceFullOutputSize(), previousPixel, debugStatus);
+    bool acceptedPrevious = false;
+    if (projected)
+    {
+        const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
+        uint similarityStatus;
+        if (PathTracePrimarySurfacesAreSimilar(surface, previousSurface, similarityStatus))
+        {
+            const RTXDI_PTReservoir previousReservoir = LoadRestirPTGiTemporalReservoir(uint2(previousPixel), RestirPTGiTemporalPreviousBufferIndex());
+            if (RestirPTReservoirHasUsefulSample(previousReservoir))
+            {
+                acceptedPrevious = true;
+                const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+                RTXDI_PTReservoir previousCandidate = previousReservoir;
+                previousCandidate.M = max(cappedPreviousM, 1u);
+                if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x271828u), previousCandidate.TargetFunction))
+                {
+                    selectedTargetFunction = previousCandidate.TargetFunction;
+                }
+                piSum += RTXDI_Luminance(previousCandidate.TargetFunction) * max((float)previousCandidate.M, 1.0);
+            }
+        }
+    }
+
+    const float pi = RTXDI_Luminance(selectedTargetFunction);
+    RTXDI_FinalizeResampling(temporalReservoir, pi, piSum * max(pi, 1.0e-6));
+    temporalReservoir.M = min(max(temporalReservoir.M, currentReservoir.M), RestirPTParams.temporalResampling.maxHistoryLength);
+    StoreRestirPTGiTemporalReservoir(pixel, currentIndex, temporalReservoir);
+    status = acceptedPrevious ? 3u : 2u;
+    return temporalReservoir;
+}
+
+float4 EvaluateRestirPTGiDebugView(RAB_Surface surface, uint2 pixel, uint view)
+{
+    if (view == 3u)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return view == 4u ? float4(0.20, 0.0, 0.0, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const RTXDI_PTReservoir reservoir = LoadRestirPTInitialReservoir(pixel);
+    const bool valid = RestirPTReservoirHasUsefulSample(reservoir);
+
+    if (view == 1u)
+    {
+        const float3 contribution = valid ? RestirPTReservoirPreviewContribution(reservoir) : float3(0.0, 0.0, 0.0);
+        return float4(RestirPTToneMapPreview(contribution), 1.0);
+    }
+
+    if (view == 2u)
+    {
+        uint temporalStatus;
+        const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTGiTemporalReservoir(surface, pixel, temporalStatus);
+        const bool temporalValid = RestirPTReservoirHasUsefulSample(temporalReservoir);
+        const float3 contribution = temporalValid ? RestirPTReservoirPreviewContribution(temporalReservoir) : float3(0.0, 0.0, 0.0);
+        return float4(RestirPTToneMapPreview(contribution), 1.0);
+    }
+
+    if (view == 4u)
+    {
+        const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
+        const float weightHeat = saturate(max(reservoir.WeightSum, 0.0) / (1.0 + max(reservoir.WeightSum, 0.0)));
+        const float targetHeat = saturate(RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0))));
+        return valid ? float4(targetHeat, mNorm, weightHeat, 1.0) : float4(0.35, mNorm * 0.25, weightHeat * 0.25, 1.0);
+    }
+
+    return float4(0.0, 0.0, 0.0, 1.0);
+}
+
 float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
 {
     PathTraceSmokeShadowPayload shadowPayload;
@@ -593,6 +749,118 @@ bool RestirPTTryEvaluateSpatialDirectLighting(RAB_Surface surface, uint2 pixel, 
     const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
     const RTXDI_PTReservoir spatialReservoir = LoadRestirPTSpatialOutputReservoir(reservoirPixel);
     return RestirPTTryEvaluateNeeReservoirPreview(surface, spatialReservoir, RestirPTInfo.z >= 0.5, contribution);
+}
+
+RTXDI_PTReservoir LoadRestirPTRawDirectReservoir(uint2 pixel)
+{
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    return LoadRestirPTSpatialOutputReservoir(reservoirPixel);
+}
+
+bool RestirPTDirectReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
+{
+    const float targetLuminance = RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)));
+    return RTXDI_IsValidPTReservoir(reservoir) &&
+        RTXDI_ConnectsToNeeLight(reservoir) &&
+        reservoir.WeightSum > 0.0 &&
+        targetLuminance > 0.0;
+}
+
+RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2 pixel, out uint status)
+{
+    status = 0u;
+    const uint currentIndex = RestirPTGiTemporalCurrentBufferIndex();
+    const RTXDI_PTReservoir currentReservoir = LoadRestirPTRawDirectReservoir(pixel);
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface) || !RestirPTDirectReservoirHasUsefulSample(currentReservoir))
+    {
+        StoreRestirPTDiTemporalReservoir(pixel, currentIndex, RTXDI_EmptyPTReservoir());
+        status = 1u;
+        return RTXDI_EmptyPTReservoir();
+    }
+
+    RTXDI_PTReservoir temporalReservoir = RTXDI_EmptyPTReservoir();
+    float3 selectedTargetFunction = float3(0.0, 0.0, 0.0);
+    if (CombineReservoirs(temporalReservoir, currentReservoir, RestirPTGiHash01(pixel, 0x444901u), currentReservoir.TargetFunction))
+    {
+        selectedTargetFunction = currentReservoir.TargetFunction;
+    }
+
+    float piSum = RTXDI_Luminance(currentReservoir.TargetFunction) * max((float)currentReservoir.M, 1.0);
+    int2 previousPixel;
+    uint debugStatus;
+    const bool projected = ProjectPathTracePrimarySurfaceToPreviousPixel(surface, PathTraceFullOutputSize(), previousPixel, debugStatus);
+    bool acceptedPrevious = false;
+    if (projected)
+    {
+        const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
+        uint similarityStatus;
+        if (PathTracePrimarySurfacesAreSimilar(surface, previousSurface, similarityStatus))
+        {
+            const RTXDI_PTReservoir previousReservoir = LoadRestirPTDiTemporalReservoir(uint2(previousPixel), RestirPTGiTemporalPreviousBufferIndex());
+            if (RestirPTDirectReservoirHasUsefulSample(previousReservoir))
+            {
+                acceptedPrevious = true;
+                const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+                RTXDI_PTReservoir previousCandidate = previousReservoir;
+                previousCandidate.M = max(cappedPreviousM, 1u);
+                if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x554411u), previousCandidate.TargetFunction))
+                {
+                    selectedTargetFunction = previousCandidate.TargetFunction;
+                }
+                piSum += RTXDI_Luminance(previousCandidate.TargetFunction) * max((float)previousCandidate.M, 1.0);
+            }
+        }
+    }
+
+    const float pi = RTXDI_Luminance(selectedTargetFunction);
+    RTXDI_FinalizeResampling(temporalReservoir, pi, piSum * max(pi, 1.0e-6));
+    temporalReservoir.M = min(max(temporalReservoir.M, currentReservoir.M), RestirPTParams.temporalResampling.maxHistoryLength);
+    StoreRestirPTDiTemporalReservoir(pixel, currentIndex, temporalReservoir);
+    status = acceptedPrevious ? 3u : 2u;
+    return temporalReservoir;
+}
+
+float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
+{
+    if (view == 3u)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return view == 4u ? float4(0.20, 0.0, 0.0, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const RTXDI_PTReservoir reservoir = LoadRestirPTRawDirectReservoir(pixel);
+    const bool valid = RestirPTDirectReservoirHasUsefulSample(reservoir);
+
+    if (view == 1u)
+    {
+        float3 contribution = float3(0.0, 0.0, 0.0);
+        const bool evaluated = valid && RestirPTTryEvaluateNeeReservoirPreview(surface, reservoir, RestirPTInfo.z >= 0.5, contribution);
+        return float4(RestirPTToneMapPreview(evaluated ? contribution : float3(0.0, 0.0, 0.0)), 1.0);
+    }
+
+    if (view == 2u)
+    {
+        uint temporalStatus;
+        const RTXDI_PTReservoir temporalReservoir = GenerateRestirPTDiTemporalReservoir(surface, pixel, temporalStatus);
+        float3 contribution = float3(0.0, 0.0, 0.0);
+        const bool evaluated = RestirPTDirectReservoirHasUsefulSample(temporalReservoir) &&
+            RestirPTTryEvaluateNeeReservoirPreview(surface, temporalReservoir, RestirPTInfo.z >= 0.5, contribution);
+        return float4(RestirPTToneMapPreview(evaluated ? contribution : float3(0.0, 0.0, 0.0)), 1.0);
+    }
+
+    if (view == 4u)
+    {
+        const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
+        const float weightHeat = saturate(max(reservoir.WeightSum, 0.0) / (1.0 + max(reservoir.WeightSum, 0.0)));
+        const float targetHeat = saturate(RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0))));
+        return valid ? float4(targetHeat, mNorm, weightHeat, 1.0) : float4(0.35, mNorm * 0.25, weightHeat * 0.25, 1.0);
+    }
+
+    return float4(0.0, 0.0, 0.0, 1.0);
 }
 
 uint RestirPTReflectionPreviewMode()
@@ -928,6 +1196,22 @@ void RayGen()
     if (guideDebugView != 0u)
     {
         SmokeOutput[pixel] = EvaluateRayReconstructionGuideDebug(pixel, guideDebugView);
+        return;
+    }
+
+    const uint diDebugView = RestirPTDiDebugView();
+    if (diDebugView != 0u)
+    {
+        const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
+        SmokeOutput[pixel] = EvaluateRestirPTDiDebugView(surface, pixel, diDebugView);
+        return;
+    }
+
+    const uint giDebugView = RestirPTGiDebugView();
+    if (giDebugView != 0u)
+    {
+        const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
+        SmokeOutput[pixel] = EvaluateRestirPTGiDebugView(surface, pixel, giDebugView);
         return;
     }
 

@@ -92,6 +92,8 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     outputTextureBytes = 0;
     smokeReservoirBytes = 0;
     restirPTReservoirBytes = 0;
+    restirPTDiReservoirBytes = 0;
+    restirPTGiReservoirBytes = 0;
     primarySurfaceHistoryBytes = 0;
     motionVectorBytes = 0;
     motionVectorMaskBytes = 0;
@@ -116,6 +118,8 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         readbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
+        restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
+        restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
         primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight)) &&
         width == requestedWidth &&
         height == requestedHeight;
@@ -141,6 +145,8 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         smokeReservoirBuffers.previous ||
         smokeReservoirBuffers.spatialScratch ||
         restirPTReservoirBuffers.reservoirs ||
+        restirPTDiReservoirBuffers.reservoirs ||
+        restirPTGiReservoirBuffers.reservoirs ||
         primarySurfaceHistoryBuffers.current ||
         primarySurfaceHistoryBuffers.previous;
 }
@@ -309,6 +315,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
 
     const bool smokeReservoirWasValid = smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight);
     const bool restirReservoirWasValid = restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode);
+    const bool restirDiReservoirWasValid = restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode);
+    const bool restirGiReservoirWasValid = restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode);
     const bool primaryHistoryWasValid = primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight));
 
     outputTexture = newOutputTexture;
@@ -385,6 +393,52 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         diagnostics.restirPTReservoirBuffersRecreated++;
     }
 
+    RtRestirPTReservoirBufferCreateDesc restirPTDiReservoirDesc;
+    restirPTDiReservoirDesc.device = device;
+    restirPTDiReservoirDesc.existingBuffers = restirPTDiReservoirBuffers;
+    restirPTDiReservoirDesc.width = static_cast<uint32_t>(requestedWidth);
+    restirPTDiReservoirDesc.height = static_cast<uint32_t>(requestedHeight);
+    restirPTDiReservoirDesc.checkerboardMode = checkerboardMode;
+    const RtRestirPTReservoirBufferCreateResult restirPTDiReservoirResult = CreateRestirPTReservoirBuffers(restirPTDiReservoirDesc);
+    if (!restirPTDiReservoirResult.Succeeded())
+    {
+        common->Printf("PathTraceFrameResources: %s (%dx%d)\n", restirPTDiReservoirResult.errorMessage ? restirPTDiReservoirResult.errorMessage : "failed to create RT ReSTIR PT DI packed reservoir buffer", requestedWidth, requestedHeight);
+        return false;
+    }
+    restirPTDiReservoirBuffers = restirPTDiReservoirResult.buffers;
+    diagnostics.restirPTDiReservoirBytes = restirPTDiReservoirBuffers.reservoirBytes;
+    if (restirDiReservoirWasValid)
+    {
+        diagnostics.restirPTReservoirBuffersReused++;
+    }
+    else
+    {
+        diagnostics.restirPTReservoirBuffersRecreated++;
+    }
+
+    RtRestirPTReservoirBufferCreateDesc restirPTGiReservoirDesc;
+    restirPTGiReservoirDesc.device = device;
+    restirPTGiReservoirDesc.existingBuffers = restirPTGiReservoirBuffers;
+    restirPTGiReservoirDesc.width = static_cast<uint32_t>(requestedWidth);
+    restirPTGiReservoirDesc.height = static_cast<uint32_t>(requestedHeight);
+    restirPTGiReservoirDesc.checkerboardMode = checkerboardMode;
+    const RtRestirPTReservoirBufferCreateResult restirPTGiReservoirResult = CreateRestirPTReservoirBuffers(restirPTGiReservoirDesc);
+    if (!restirPTGiReservoirResult.Succeeded())
+    {
+        common->Printf("PathTraceFrameResources: %s (%dx%d)\n", restirPTGiReservoirResult.errorMessage ? restirPTGiReservoirResult.errorMessage : "failed to create RT ReSTIR PT GI packed reservoir buffer", requestedWidth, requestedHeight);
+        return false;
+    }
+    restirPTGiReservoirBuffers = restirPTGiReservoirResult.buffers;
+    diagnostics.restirPTGiReservoirBytes = restirPTGiReservoirBuffers.reservoirBytes;
+    if (restirGiReservoirWasValid)
+    {
+        diagnostics.restirPTReservoirBuffersReused++;
+    }
+    else
+    {
+        diagnostics.restirPTReservoirBuffersRecreated++;
+    }
+
     RtRestirPTPrimarySurfaceHistoryBufferCreateDesc primaryHistoryDesc;
     primaryHistoryDesc.device = device;
     primaryHistoryDesc.existingBuffers = primarySurfaceHistoryBuffers;
@@ -433,6 +487,24 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         restirPTReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
         rtxdi::c_NumReSTIRPTReservoirBuffers,
         static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+    common->Printf("PathTraceFrameResources: RT ReSTIR PT DI temporal reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u56\n",
+        requestedWidth,
+        requestedHeight,
+        restirPTDiReservoirBuffers.reservoirElementCount,
+        static_cast<unsigned long long>(restirPTDiReservoirBuffers.reservoirBytes),
+        restirPTDiReservoirBuffers.reservoirParams.reservoirArrayPitch,
+        restirPTDiReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
+        rtxdi::c_NumReSTIRPTReservoirBuffers,
+        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+    common->Printf("PathTraceFrameResources: RT ReSTIR PT GI temporal reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u55\n",
+        requestedWidth,
+        requestedHeight,
+        restirPTGiReservoirBuffers.reservoirElementCount,
+        static_cast<unsigned long long>(restirPTGiReservoirBuffers.reservoirBytes),
+        restirPTGiReservoirBuffers.reservoirParams.reservoirArrayPitch,
+        restirPTGiReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
+        rtxdi::c_NumReSTIRPTReservoirBuffers,
+        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
 
     common->Printf("PathTraceFrameResources: RT ReSTIR PT primary-surface history output=%dx%d records=%u bytes=%llu stride=%u\n",
         requestedWidth,
@@ -475,18 +547,24 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     height = 0;
     smokeReservoirBuffers.Reset();
     restirPTReservoirBuffers.Reset();
+    restirPTDiReservoirBuffers.Reset();
+    restirPTGiReservoirBuffers.Reset();
     primarySurfaceHistoryBuffers.Reset();
     restirPTContextState.Reset();
     smokeReservoirSceneSignature = 0;
     smokeReservoirDispatchSignature = 0;
     smokeReservoirNeedsClear = false;
     restirPTReservoirNeedsClear = true;
+    restirPTDiReservoirNeedsClear = true;
+    restirPTGiReservoirNeedsClear = true;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(reasonFlags);
     primarySurfaceHistoryView.Reset();
     smokeReservoirResetCount = 0;
     smokeReservoirClearCount = 0;
     restirPTReservoirClearCount = 0;
+    restirPTDiReservoirClearCount = 0;
+    restirPTGiReservoirClearCount = 0;
     smokeAccumulationSignature = 0;
     smokeAccumulationFrameCount = 0;
     ResetReadbackQueue();
@@ -501,12 +579,16 @@ void RtPathTraceFrameResources::ResetSceneDependentState()
     smokeReservoirDispatchSignature = 0;
     smokeReservoirNeedsClear = false;
     restirPTReservoirNeedsClear = true;
+    restirPTDiReservoirNeedsClear = true;
+    restirPTGiReservoirNeedsClear = true;
     primarySurfaceHistoryNeedsClear = true;
     primarySurfaceHistoryState.Reset(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
     primarySurfaceHistoryView.Reset();
     smokeReservoirResetCount = 0;
     smokeReservoirClearCount = 0;
     restirPTReservoirClearCount = 0;
+    restirPTDiReservoirClearCount = 0;
+    restirPTGiReservoirClearCount = 0;
     ResetReadbackQueue();
     MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_PRIMARY_HISTORY);
 }

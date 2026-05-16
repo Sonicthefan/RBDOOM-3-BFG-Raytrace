@@ -11,162 +11,146 @@ source code from those projects into this repository. Implement branch-local
 code using the existing style, resources, RAB callbacks, and RTXDI headers that
 are already present in this tree.
 
+Anti-Pattern From Failed Attempt
+--------------------------------
+Do not do this:
+
+    RTXDI_PTReservoir temporal = GenerateRestirPTInitialReservoir(surface, pixel);
+    StoreTemporalReservoir(pixel, temporal);
+
+That is not temporal reuse. It is a fresh initial sample relabeled as temporal.
+
+Do not do this either:
+
+    Add RestirPTGiReservoirs as a side buffer,
+    but keep RTXDI_PTTemporalResampling / RTXDI_PTSpatialResampling reading the
+    original RestirPTReservoirs buffer.
+
+That creates two reservoir worlds. The final resolve may read the side buffer,
+but RTXDI reuse did not actually operate on that side buffer's history.
+
 Current Local Outlier
 ---------------------
-The current final resolve has GI behavior shaped like this:
+The current known baseline final resolve has GI behavior shaped like this:
 
     RTXDI_PTReservoir giReservoir = LoadRestirPTInitialReservoir(pixel);
     float3 giContribution = giReservoir.TargetFunction * giReservoir.WeightSum;
 
-That is acceptable for an initial diagnostic view. It is not acceptable as the
-long-term RR-facing GI estimate.
+That is acceptable as a baseline and diagnostic. It should not be replaced until
+new debug views prove a better GI temporal/spatial output visually.
 
-Target shape:
+01B Diagnostic Sketch
+---------------------
+Goal: add comparison views without changing normal mode 56 output.
 
-    GI initial producer
-        writes initial GI reservoir
+Shape only:
 
-    GI temporal producer
-        reads current initial GI reservoir
-        reads previous temporal/spatial history
-        writes temporal GI reservoir
-
-    GI spatial producer
-        reads temporal GI reservoir
-        combines validated current-frame neighbors
-        writes spatial/final GI reservoir
-
-    Final resolve
-        reads spatial/final GI reservoir
-        writes PathTraceRRInputColor
-
-Pseudocode: Final GI Load Boundary
-----------------------------------
-Do not directly paste this. Adapt it to the actual buffer indices and helper
-names in the current branch.
-
-    RTXDI_PTReservoir LoadRestirPTGiFinalReservoir(uint2 pixel)
+    uint RestirGiDebugView()
     {
-        uint2 reservoirPos = PixelToReservoirPosForGi(pixel);
-        return LoadPTReservoir(reservoirPos, GI_FINAL_BUFFER_INDEX);
+        return clamp(cvarValue, 0u, 4u);
     }
 
-    float3 EvaluateReservoirTargetEstimate(RTXDI_PTReservoir reservoir)
+    float3 EvaluateGiInitialForDebug(uint2 pixel)
     {
-        if (!IsValidReservoir(reservoir))
-            return float3(0.0, 0.0, 0.0);
-
-        float3 target = max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0));
-        float weight = max(reservoir.WeightSum, 0.0);
-        return SanitizeHdr(target * weight);
+        RTXDI_PTReservoir r = LoadRestirPTInitialReservoir(pixel);
+        return IsUseful(r) ? r.TargetFunction * max(r.WeightSum, 0.0) : 0.0;
     }
 
-Pseudocode: GI Temporal Producer Shape
---------------------------------------
-This is a shape only. Use the actual RTXDI helper signatures and existing
-`pathtrace_smoke.rt.hlsl` bridge functions.
-
-    [raygeneration]
-    void RayGen_GiTemporalProducer()
+    float4 EvaluateGiDebugView(uint2 pixel)
     {
-        uint2 pixel = DispatchRaysIndex().xy;
+        if (view == 1)
+            return ToneMap(EvaluateGiInitialForDebug(pixel));
 
-        if (!PixelInActiveGiDomain(pixel))
-            return;
+        if (view == 2)
+            return float4(0, 0, 0, 1); // reserved temporal until 01C
 
-        RAB_Surface surface = LoadCurrentPrimarySurface(pixel);
-        if (!RAB_IsSurfaceValid(surface))
-        {
-            StoreGiTemporalReservoir(pixel, EmptyPTReservoir());
-            return;
-        }
+        if (view == 3)
+            return float4(0, 0, 0, 1); // reserved spatial until 01D
 
-        RTXDI_PTReservoir current = LoadGiInitialReservoir(pixel);
-        if (!IsValidReservoir(current))
-        {
-            StoreGiTemporalReservoir(pixel, EmptyPTReservoir());
-            return;
-        }
-
-        // Let RTXDI temporal resampling combine current and previous candidates.
-        // Respect current depth/normal/material/history validation rules.
-        RTXDI_PTReservoir temporal = RunExistingTemporalResamplingForGi(
-            pixel,
-            surface,
-            current);
-
-        StoreGiTemporalReservoir(pixel, temporal);
+        if (view == 4)
+            return ReservoirValidityColor(LoadRestirPTInitialReservoir(pixel));
     }
 
-Pseudocode: GI Spatial Producer Shape
--------------------------------------
-This is a shape only. Keep sample count/radius conservative first.
+Normal mode 56 and `PathTraceRRInputColor` must remain unchanged in 01B.
 
-    [raygeneration]
-    void RayGen_GiSpatialProducer()
-    {
-        uint2 pixel = DispatchRaysIndex().xy;
-
-        if (!PixelInActiveGiDomain(pixel))
-            return;
-
-        RAB_Surface surface = LoadCurrentPrimarySurface(pixel);
-        if (!RAB_IsSurfaceValid(surface))
-        {
-            StoreGiSpatialReservoir(pixel, EmptyPTReservoir());
-            return;
-        }
-
-        RTXDI_PTReservoir temporal = LoadGiTemporalReservoir(pixel);
-        if (!IsValidReservoir(temporal))
-        {
-            StoreGiSpatialReservoir(pixel, temporal);
-            return;
-        }
-
-        // Let RTXDI spatial resampling combine valid neighbors.
-        // Use the existing neighbor validation contract; add GI-specific CVars
-        // only if sharing direct-lighting controls makes tests ambiguous.
-        RTXDI_PTReservoir spatial = RunExistingSpatialResamplingForGi(
-            pixel,
-            surface,
-            temporal);
-
-        StoreGiSpatialReservoir(pixel, spatial);
-    }
-
-Pseudocode: Final Resolve Shape
--------------------------------
-The final resolve can keep raw initial as a debug comparison, but RR input should
-use the completed reservoir.
-
-    RTXDI_PTReservoir directReservoir = LoadDirectSpatialReservoir(pixel);
-    RTXDI_PTReservoir giReservoir = LoadGiFinalReservoir(pixel);
-
-    float3 direct = EvaluateDirectReservoirForPreview(surface, directReservoir);
-    float3 gi = EvaluateReservoirTargetEstimate(giReservoir);
-
-    float3 rrInputRadiance = direct + gi + reflection + emissiveContext;
-    PathTraceRRInputColor[pixel] = float4(rrInputRadiance, 1.0);
-
-Debug View Recommendation
+01C Temporal Proof Sketch
 -------------------------
-If adding a comparison view, keep it simple:
+Goal: expose real temporal GI candidate in debug view only.
 
-    0: normal mode 56 output
-    1: raw GI initial target estimate
-    2: GI temporal target estimate
-    3: GI spatial/final target estimate
-    4: absolute delta between initial and final GI
+Required properties:
 
-Do not add a large debug UI. A CVar-backed numeric mode is enough.
+- It consumes GI initial output.
+- It uses a GI-owned previous/current reservoir history route.
+- It calls true temporal resampling or a clearly documented branch-local
+  equivalent.
+- It does not alter normal mode 56 final resolve.
+
+Shape only:
+
+    RTXDI_PTReservoir GenerateGiTemporalReservoir(surface, pixel)
+    {
+        RTXDI_PTReservoir current = LoadGiInitialReservoir(pixel);
+
+        // Must be true temporal reuse. Do not regenerate current and call it
+        // temporal.
+        RTXDI_PTReservoir temporal = RunTemporalResamplingOnGiDomain(
+            current,
+            previousGiHistory,
+            motion,
+            validation);
+
+        return temporal;
+    }
+
+If the implementation cannot make `RunTemporalResamplingOnGiDomain` honest,
+stop and report why. Do not fake it.
+
+01D Spatial Proof Sketch
+------------------------
+Goal: expose GI spatial candidate in debug view only.
+
+Required properties:
+
+- It consumes the user-accepted GI temporal output.
+- It combines validated current-frame GI neighbors.
+- It keeps initial and temporal debug views available.
+- It does not alter normal mode 56 final resolve.
+
+Shape only:
+
+    RTXDI_PTReservoir GenerateGiSpatialReservoir(surface, pixel)
+    {
+        RTXDI_PTReservoir temporal = LoadGiTemporalReservoir(pixel);
+        if (!IsUseful(temporal))
+            return temporal;
+
+        RTXDI_PTReservoir spatial = RunSpatialResamplingOnGiDomain(
+            temporal,
+            currentGiNeighborReservoirs,
+            depthNormalMaterialValidation);
+
+        return spatial;
+    }
+
+01E Resolve Switch Sketch
+-------------------------
+Goal: switch only after user visually accepts the GI spatial/temporal debug
+output.
+
+Required fallback:
+
+    if (useGiInitialFallback)
+        giReservoir = LoadRestirPTInitialReservoir(pixel);
+    else
+        giReservoir = LoadAcceptedGiFinalReservoir(pixel);
+
+Do not remove the debug comparison views.
 
 Useful Current Search Terms
 ---------------------------
 Search these in the local repo:
 
     LoadRestirPTInitialReservoir
-    LoadRestirPTSpatialOutputReservoir
     GenerateRestirPTTemporalReservoir
     GenerateRestirPTSpatialReservoir
     StoreRestirPTTemporalOutputReservoir

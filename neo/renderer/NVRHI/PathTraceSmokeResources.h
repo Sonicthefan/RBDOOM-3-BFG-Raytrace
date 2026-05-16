@@ -134,6 +134,8 @@ struct RtSmokeBindingBuildDesc
     RtSmokeSceneBufferHandles buffers;
     RtSmokeReservoirBufferHandles reservoirBuffers;
     RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
+    RtRestirPTReservoirBufferHandles restirPTDiReservoirBuffers;
+    RtRestirPTReservoirBufferHandles restirPTGiReservoirBuffers;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;

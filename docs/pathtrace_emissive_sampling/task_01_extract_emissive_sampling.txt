@@ -159,11 +159,12 @@ Validation Notes
 ----------------
 
 Use `r_pathTracingRestirPTPassDump 1` in mode 56 to confirm the same staged pass
-plan:
+plan. The direct producer labels are legacy names and do not indicate completed
+DI temporal/spatial reuse:
 
     GI initial producer
-    direct temporal producer
-    direct spatial producer
+    legacy-named direct temporal producer
+    legacy-named direct spatial producer
     final combined consumer
 
 If performance changes substantially in Task 01, treat it as a regression or a

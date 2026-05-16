@@ -2585,6 +2585,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.buffers = smokeBuffers;
     bindingBuildDesc.reservoirBuffers = m_frameResources.smokeReservoirBuffers;
     bindingBuildDesc.restirPTReservoirBuffers = m_frameResources.restirPTReservoirBuffers;
+    bindingBuildDesc.restirPTDiReservoirBuffers = m_frameResources.restirPTDiReservoirBuffers;
+    bindingBuildDesc.restirPTGiReservoirBuffers = m_frameResources.restirPTGiReservoirBuffers;
     bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;

@@ -3,75 +3,88 @@ Date: 2026-05-16
 
 Purpose
 -------
-This policy exists because ReSTIR work has several tempting follow-on features.
-Agents must not race from one stage into the next.
+This policy prevents agents from racing through visual renderer work.
 
 Hard Stop Rule
 --------------
-If the commissioned task says "Stage 01", complete Stage 01, validate it, and
-stop. Do not continue into Stage 02 or later unless the user explicitly asks.
+Every commissioned item must be one micro-slice. Build, deploy, report, and
+stop. The next micro-slice requires a new user request after visual inspection.
 
-If the commissioned task says "baseline ReSTIR PT", do not add RTX Remix
-features in the same turn.
+If a task name contains "Task 01" but does not name 01A, 01B, 01C, 01D, or 01E,
+do only 01A or ask the user to choose a micro-slice.
 
-If the commissioned task says "RTX Remix enhancements", do not merge DI/GI
-reservoirs or add ReSTIR PT Enhanced paper features in the same turn.
+Visual Acceptance Rule
+----------------------
+An agent cannot mark a visual-quality slice as accepted. Only the user can.
 
-If the commissioned task says "unified reservoirs", do not also add duplication
-maps, paired spatial reuse, or dual motion-vector disocclusion support unless
-explicitly requested.
+Agents may report objective facts:
 
-Stage Definitions
------------------
-Stage 01: Baseline GI reservoir reuse
+- build succeeded or failed,
+- which pass ran,
+- which CVar enables the debug view,
+- whether a reservoir is valid/invalid by debug color,
+- whether a new output is darker/brighter by obvious numeric preview.
 
-    Goal: GI final resolve consumes a completed temporal/spatial GI reservoir
-    instead of raw GI initial reservoirs.
+Agents must not decide:
 
-    Not allowed: Remix hardening, unified reservoirs, Enhanced-paper features.
+- this looks better,
+- this is production-ready,
+- this fixes DLSS/RR,
+- this is visually acceptable.
 
-Stage 02: RR-safe output shaping
+Stage 01 Micro-Slices
+---------------------
+01A: Audit and map current GI flow.
 
-    Goal: make final shading and RR input denser and more denoiser-friendly
-    after baseline GI reuse exists.
+    No code by default. Produces the route map and proposes 01B.
 
-    Not allowed: replacing the reservoir architecture.
+01B: Visual compare diagnostics only.
 
-Stage 03: RTX Remix-style hardening
+    Adds comparison views. Does not change normal mode 56 or RR input.
 
-    Goal: production robustness around the existing reservoir pipeline:
-    adaptive history, sample stealing, larger low-history spatial recovery,
-    final visibility invalidation, boiling/firefly controls, RR compatibility.
+01C: Prove real GI temporal reuse only.
 
-    Not allowed: unified reservoir rewrite unless explicitly commissioned.
+    Exposes temporal candidate in debug view. Does not add spatial or switch
+    resolve.
 
-Stage 04: Unified DI/GI reservoirs
+01D: Prove GI spatial reuse only.
 
-    Goal: direct lighting becomes a short PT path candidate in the same
-    reservoir stream as GI/global illumination.
+    Exposes spatial candidate in debug view. Does not switch resolve.
 
-    Not allowed: paired spatial reuse, duplication maps, or unrelated paper
-    features unless explicitly commissioned.
+01E: Switch mode 56 resolve.
 
-Stage 05: ReSTIR PT Enhanced techniques
+    Allowed only after user says 01D output is visually acceptable.
 
-    Goal: selected newer research features after the baseline and production
-    pipeline are measurable:
-    duplication maps/adaptive temporal cap, vector-valued shading weights,
-    reciprocal paired spatial reuse, footprint reconnection diagnostics, and
-    dual motion-vector disocclusion support.
+Later Stages
+------------
+Stage 02: RR-safe output shaping.
+
+    Only after 01E is accepted.
+
+Stage 03: RTX Remix-style hardening.
+
+    Only after baseline GI reuse is visually accepted.
+
+Stage 04: Unified DI/GI reservoirs.
+
+    Separate architecture task. Do not combine with Stage 01.
+
+Stage 05: ReSTIR PT Enhanced techniques.
+
+    Separate research implementation task. Do not combine with Stage 01.
 
 Minimum Completion Report
 -------------------------
-Every stage must end with:
+Every micro-slice must end with:
 
-- Stage completed.
+- Micro-slice completed.
 - Files changed.
 - Build command run and result.
 - Deployment actions performed.
-- Runtime modes/CVars tested.
-- What is still explicitly not implemented.
-- Recommended next stage.
+- Runtime modes/CVars the user should test.
+- What the user should compare visually.
+- What is explicitly not implemented.
+- Recommended next micro-slice.
 
-Do not start the recommended next stage in the same task.
+Do not start the recommended next micro-slice in the same task.
 

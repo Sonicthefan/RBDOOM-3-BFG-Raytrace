@@ -260,14 +260,15 @@ Step-By-Step Procedure
    Focus on the four `vkCmdTraceRays` events:
 
        event 1: GI initial producer
-       event 2: direct temporal producer
-       event 3: direct spatial producer
+       event 2: legacy-named direct temporal producer
+       event 3: legacy-named direct spatial producer
        event 4: final combined consumer
 
    Expected result:
 
-       event 2 and event 3 should improve if the linear emissive scan was the
-       dominant stall.
+       Event 2 and event 3 names are historical scaffolding, not proof of
+       completed DI temporal/spatial reuse. Improvements there only show that
+       the raw direct/DI diagnostic path was affected by emissive proposal cost.
 
    If event 2/3 do not improve, inspect whether the compiler still emits a
    fallback linear scan in the hot path, or whether another `SmokeEmissiveTriangles`

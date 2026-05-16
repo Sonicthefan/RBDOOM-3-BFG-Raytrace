@@ -77,6 +77,8 @@ struct RtPathTraceFrameResourceDiagnostics
     uint64_t outputTextureBytes = 0;
     uint64_t smokeReservoirBytes = 0;
     uint64_t restirPTReservoirBytes = 0;
+    uint64_t restirPTDiReservoirBytes = 0;
+    uint64_t restirPTGiReservoirBytes = 0;
     uint64_t primarySurfaceHistoryBytes = 0;
     uint64_t motionVectorBytes = 0;
     uint64_t motionVectorMaskBytes = 0;
@@ -106,6 +108,8 @@ struct RtPathTraceFrameResources
 
     RtSmokeReservoirBufferHandles smokeReservoirBuffers;
     RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
+    RtRestirPTReservoirBufferHandles restirPTDiReservoirBuffers;
+    RtRestirPTReservoirBufferHandles restirPTGiReservoirBuffers;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     RtRestirPTContextState restirPTContextState;
     uint32_t restirPTFrameIndex = 0;
@@ -114,12 +118,16 @@ struct RtPathTraceFrameResources
     uint64 smokeReservoirDispatchSignature = 0;
     bool smokeReservoirNeedsClear = false;
     bool restirPTReservoirNeedsClear = true;
+    bool restirPTDiReservoirNeedsClear = true;
+    bool restirPTGiReservoirNeedsClear = true;
     bool primarySurfaceHistoryNeedsClear = true;
     RtPathTracePrimarySurfaceHistoryState primarySurfaceHistoryState;
     RtPathTraceFrameCameraState primarySurfaceHistoryView;
     int smokeReservoirResetCount = 0;
     int smokeReservoirClearCount = 0;
     int restirPTReservoirClearCount = 0;
+    int restirPTDiReservoirClearCount = 0;
+    int restirPTGiReservoirClearCount = 0;
     uint64 smokeAccumulationSignature = 0;
     int smokeAccumulationFrameCount = 0;
 

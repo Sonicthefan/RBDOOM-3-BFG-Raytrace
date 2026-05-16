@@ -813,16 +813,15 @@ pathtrace_smoke_restir_spatial.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
     `RB_PT_ENABLE_RESTIR_SPATIAL`, and `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`.
     CMake builds `pathtrace_smoke_restir_spatial.rt.bin`, and dispatch selects
-    it only for mode 50 spatial-reservoir shading preview. The wrapper consumes
-    the completed temporal and spatial prepasses instead of rebuilding them. The
-    wrapper defines `RB_PT_FORCE_DEBUG_MODE 50u`.
+    it only for legacy mode 50 direct/DI diagnostics. The wrapper and macro
+    names are historical scaffolding; DI/direct is raw reservoir output on this
+    branch. The wrapper defines `RB_PT_FORCE_DEBUG_MODE 50u`.
 
 pathtrace_smoke_restir_spatial_reservoir.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
     `RB_PT_ENABLE_RESTIR_SPATIAL`, and `RB_PT_RESTIR_SPATIAL_PRODUCER`. CMake
-    builds `pathtrace_smoke_restir_spatial_reservoir.rt.bin`, and dispatch uses
-    it as the modes 50-51 spatial reservoir producer after the temporal prepass.
-    It writes only the spatial output reservoir buffer.
+    builds `pathtrace_smoke_restir_spatial_reservoir.rt.bin`. Treat this as a
+    legacy-named diagnostic wrapper, not completed DI spatial reuse.
 
 pathtrace_smoke_restir_spatial_attribution.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, `RB_PT_ENABLE_RESTIR_TEMPORAL`,
@@ -838,22 +837,23 @@ pathtrace_smoke_restir_combined.rt.hlsl
     `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`, and
     `RB_PT_RESTIR_COMBINED_SHADING`. CMake builds
     `pathtrace_smoke_restir_combined.rt.bin`, and dispatch selects it only for
-    mode 56 combined direct + GI preview. The wrapper consumes the completed
-    direct temporal/spatial prepasses and the completed staged GI initial
-    prepass, then shades both reservoirs together. The wrapper defines
-    `RB_PT_FORCE_DEBUG_MODE 56u`.
+    mode 56 combined direct + GI preview. Historical wrapper names and pass
+    labels mention direct temporal/spatial work, but DI/direct must currently be
+    treated as raw initial-reservoir output, not a completed ReSTIR DI path.
+    Normal mode 56 shades that raw direct/DI preview with the staged GI initial
+    prepass. The wrapper defines `RB_PT_FORCE_DEBUG_MODE 56u`.
 
 pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
     Defines `RB_PT_ENABLE_RESTIR`, temporal/spatial ReSTIR support,
     `RB_PT_ENABLE_RESTIR_SPATIAL_SHADING`, and
     `RB_PT_ENABLE_RESTIR_MODE18_DIRECT`. CMake builds
     `pathtrace_smoke_mode18_restir_hybrid.rt.bin`, and dispatch selects it only
-    for mode 18 when `r_pathTracingRestirPTDirectLighting 1`. It consumes the
-    completed spatial reservoir prepass and replaces the primary sample-0 direct
-    NEE term with the ReSTIR spatial contribution while leaving native mode 18
-    ambient, emissive, secondary bounce, reflection, and accumulation behavior
-    in place. `r_pathTracingRestirPTMode18DebugView` can isolate native direct,
-    ReSTIR direct, delta heat, or ratio heat. `r_pathTracingRestirPTMode18HeavyDirect`
+    for mode 18 when `r_pathTracingRestirPTDirectLighting 1`. The wrapper name
+    and defines are historical; do not document this path as completed
+    DI/direct temporal or spatial reuse. DI/direct is raw reservoir output until
+    a future slice duplicates/adapts the accepted GI reservoir flow.
+    `r_pathTracingRestirPTMode18DebugView` can isolate native direct, ReSTIR
+    direct, delta heat, or ratio heat. `r_pathTracingRestirPTMode18HeavyDirect`
     suppresses native direct NEE on secondary diffuse/reflection hits for
     heavy-handed isolation only.
 
@@ -1891,57 +1891,37 @@ portal-depth order; the active proposal path samples the full uploaded analytic
 candidate domain uniformly until a real spatial/local light proposal structure
 exists.
 
-Mode 50 is the first debug-only spatial reuse preview. It uses RTXDI's
-TemporalAndSpatial buffer-index contract, writes initial and temporal reservoirs
-as mode 32 does, spatially resamples the temporal output with
-RTXDI_PTSpatialResampling, writes the spatial output reservoir, and shades that
-spatial reservoir with the same rough preview path. The current implementation
-uses a shader-local 32-entry neighbor-offset table instead of a host-bound RTXDI
-neighbor-offset buffer. `r_pathTracingRestirPTSpatialSamples` and
-`r_pathTracingRestirPTSpatialRadius` control the first test path, while spatial
-depth/normal validation reuses the temporal threshold CVars.
+Mode 50 is a debug-only DI/direct reservoir preview. Despite older
+TemporalAndSpatial wrapper names, treat the visible DI/direct reservoir as raw
+initial output on this branch. It is not a completed temporal/spatial ReSTIR DI
+path.
 
-Modes 50-51 dispatch the temporal ReSTIR shader first, insert UAV barriers,
-dispatch the spatial reservoir producer, insert a reservoir UAV barrier, then
-dispatch the shading or attribution consumer. The spatial producer consumes the
-temporal prepass instead of rebuilding temporal reservoirs, and the consumers
-read completed spatial reservoirs instead of running RTXDI_PTSpatialResampling
-again. This staging is necessary because RTXDI's spatial resampling callbacks
-read current-frame neighbor surfaces and neighbor temporal reservoirs; those
-inputs are not reliable if initial, temporal, spatial, and shading work are all
-attempted inside one raygen dispatch. This remains debug scaffolding and should
-become a real pass graph before production ReSTIR shading.
+Modes 50-51 may still dispatch legacy-named producer libraries and insert UAV
+barriers for diagnostics. Those names are scaffolding, not evidence that DI has
+finished temporal/spatial reservoir processing. Treat the current visible
+DI/direct result as raw reservoir output until a future slice duplicates or
+adapts the accepted GI reservoir path for DI.
 
-`r_pathTracingRestirPTDirectResolutionScale` gives this staged direct-lighting
-path an explicit reservoir pixel domain. The ReSTIR PT context and the temporal
-and spatial producer dispatches use the scaled direct size, while mode 18, mode
-50, and mode 51 final consumers keep the full PT output size and map full output
-pixels to direct reservoir pixels. During direct-domain producer dispatches, the
-raygen maps each direct pixel to a representative full-resolution pixel before
-tracing, and RAB G-buffer callbacks map direct-domain neighbor pixels back to
-the full-resolution primary-surface history. The packed reservoir UAV binding
-still has full-output capacity in this first slice; RTXDI reservoir addressing
-uses the scaled direct-domain parameters.
+`r_pathTracingRestirPTDirectResolutionScale` and the older direct-domain
+producer labels are legacy scaffolding. They may still appear in code paths,
+passes, or dumps, but they do not indicate completed DI temporal/spatial
+reservoir reuse on this branch.
 
-`r_pathTracingRestirPTDirectLighting 1` applies the same temporal and spatial
-producer prepasses to mode 18 and selects the mode 18 ReSTIR hybrid consumer.
-The hybrid keeps mode 18's native ambient/emissive/base path-tracing behavior
-but replaces the primary direct NEE term for sample 0 with the completed spatial
-reservoir contribution. This is intentionally opt-in and should be tested at
-`r_pathTracingSamplesPerPixel 1` first; higher SPP currently mixes one ReSTIR
-primary sample with native NEE for additional jittered samples.
+`r_pathTracingRestirPTDirectLighting 1` selects a diagnostic mode 18 ReSTIR
+hybrid consumer. It must not be documented as a completed DI reservoir path.
+Future direct-lighting reuse should be rebuilt from the accepted GI reservoir
+flow rather than inferred from the current direct labels.
 `r_pathTracingRestirPTMode18DebugView` isolates native direct, ReSTIR direct,
 absolute delta heat, or luminance ratio heat. `r_pathTracingRestirPTMode18HeavyDirect 1`
 is a deliberate stress test that suppresses native direct NEE on secondary
 diffuse/reflection hits so the primary ReSTIR term is less masked.
 
-Mode 51 is the spatial source-attribution diagnostic. It uses the same
-initial->temporal->spatial reservoir path as mode 50 but colors the selected
-spatial reservoir source instead of shading it. The colors match mode 33:
+Mode 51 is the source-attribution diagnostic. It colors the selected raw
+DI/direct reservoir source instead of shading it. The colors match mode 33:
 cyan/blue for Doom analytic sphere lights, orange for emissive triangles, green
 for non-NEE/indirect reservoirs, and red for invalid/unknown light metadata.
-Use it to compare spatial source stability against mode 33 and to look for
-source bleeding across depth/object edges. `r_pathTracingRestirPTSpatialDiagnosticView 1`
+Do not use it as evidence that direct temporal/spatial reuse is complete.
+`r_pathTracingRestirPTSpatialDiagnosticView 1`
 keeps mode 51 on the same path but switches the output to acceptance/change
 status: gray temporal invalid, red spatial invalid, blue no spatial neighbor
 contribution detected/kept temporal, green spatial neighbor contribution
@@ -1972,19 +1952,16 @@ initial max of 3 accepts primary NEE but silently rejects the first indirect
 analytic NEE candidate. This override is scoped to modes 53-56 and does not
 change mode 18.
 
-Mode 56 is the first combined direct + GI debug preview. It runs the staged
-direct temporal/spatial producer path used by mode 50 and the staged GI initial
-producer path used by modes 53-55, then a specialized consumer shades the
-completed direct spatial reservoir and completed GI initial reservoir together.
-It is a validation view, not production integration; GI remains initial-only.
+Mode 56 is the combined direct + GI debug preview. DI/direct is still raw
+initial-reservoir output; do not describe it as completed temporal/spatial
+ReSTIR DI. Normal mode 56 shades that raw direct/DI preview with the completed
+GI initial reservoir. The DI temporal accumulator is debug-only via
+`r_pathTracingRestirPTDiDebugView 2`; the GI temporal candidate is debug-only
+via `r_pathTracingRestirPTGiDebugView 2`. Neither is consumed by normal mode 56.
 
-`r_pathTracingRestirPTRaySparsity` is the first default-off sparse-ray update
-path for staged ReSTIR direct lighting. Values 2-8 skip inactive producer pixels
-before ray tracing, snap spatial neighbor lookups to active representative
-direct-domain pixels, and make full-resolution consumers read representative
-spatial reservoirs. Previous-frame temporal lookup uses the previous sparse
-phase. This is scoped to modes 50-51, mode 56, and mode 18 ReSTIR direct
-lighting.
+`r_pathTracingRestirPTRaySparsity` is a legacy direct-domain sparse update
+control over raw DI/direct diagnostics. Do not use it as evidence that DI has
+completed temporal/spatial reservoir reuse.
 
 `r_pathTracingRestirPTGiRaySparsity` is the matching default-off sparse-ray
 update path for staged GI initial reservoirs. Values 2-8 skip inactive mode
@@ -2003,13 +1980,11 @@ found dark base-game areas with apparently open roofs that raster lighting keeps
 hidden from skybox light; mode 56 GI can over-brighten those spaces until the
 Doom sky/environment visibility or light-mask contract is mapped.
 
-Mode 56 emits four `vkCmdTraceRays` events in pass order: GI initial producer,
-direct temporal producer, direct spatial producer, and final combined consumer.
-User Nsight validation reports the second and third events dominate frame time
-by far. In bad locations the first event also roughly doubles, but it remains
-lower than the second and third events. Prioritize the staged direct
-TemporalAndSpatial producer shaders, while using GI initial as a secondary check
-for shared location-sensitive material/light/environment paths.
+Mode 56 can emit legacy-labeled `vkCmdTraceRays` events such as GI initial
+producer, direct temporal producer, direct spatial producer, and final combined
+consumer. The direct labels are not proof of completed DI temporal/spatial reuse;
+DI should be treated as raw reservoir output until a future slice duplicates the
+accepted GI reservoir path for direct lighting.
 
 Mode 38 is the skinned primary object-motion vector diagnostic. It visualizes
 skinned hits with retained previous positions and intentionally treats routed

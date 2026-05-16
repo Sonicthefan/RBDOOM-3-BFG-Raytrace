@@ -24,33 +24,28 @@ The important direction is:
 
 Current Baseline
 ----------------
-Current ReSTIR state is a rough ReSTIR DI/direct-lighting path, not full ReSTIR PT/GI.
+Current ReSTIR state is raw DI/direct reservoir output plus the developing
+GI/indirect reservoir path. Do not treat DI/direct as having completed
+temporal/spatial reservoir processing.
 
 Relevant modes and controls:
 
 - Mode 18 is the stable base path-traced renderer.
-- Mode 50 is the current rough ReSTIR spatial direct-lighting preview.
-- Mode 51 is the ReSTIR spatial source-attribution diagnostic.
+- Mode 50 is the current raw direct/DI reservoir preview.
+- Mode 51 is the direct/DI source-attribution diagnostic.
 - Mode 18 can opt into ReSTIR direct lighting with:
   - r_pathTracingDebugMode 18
   - r_pathTracingRestirPTDirectLighting 1
   - r_pathTracingSamplesPerPixel 1
 
-The current staged ReSTIR flow is:
-
-1. Temporal reservoir producer.
-2. Spatial reservoir producer.
-3. Spatial shading/attribution consumer.
-4. Optional mode 18 hybrid direct-lighting consumer.
-
-The mode 18 hybrid keeps native mode 18 ambient, emissive, secondary diffuse/reflection, accumulation, and general composition behavior. It only replaces the sample-0 primary direct NEE contribution with the completed spatial reservoir direct contribution.
+The older staged-direct flow described here is obsolete as implementation
+status. Future DI work should duplicate/adapt the accepted GI reservoir path
+after GI temporal/spatial reuse is visually accepted.
 
 Observed behavior:
 
-- It works.
-- Image difference versus native mode 18 is currently small.
-- It is slower than native mode 18.
-- ReSTIR DI alone is expected to be only modestly useful until indirect, reflections, reconstruction, and denoising are involved.
+- DI/direct is raw reservoir output and should not be judged as a completed
+  ReSTIR DI implementation.
 - Sample count and full-resolution reservoir passes are expensive.
 - Device removal has historically appeared when raising PT resolution too far, especially above roughly 720p-class testing on this branch.
 
@@ -118,15 +113,15 @@ Reserved but not implemented yet:
 The first usable target is:
 
 - Full-resolution mode 18 primary path remains intact.
-- ReSTIR direct reservoir producers can run at a smaller direct-lighting resolution.
-- Mode 18 hybrid samples the direct-light reservoir through an explicit full-res-to-ReSTIR coordinate mapping.
-- Mode 50/51 diagnostics continue to work in the ReSTIR direct-lighting domain.
+- Future ReSTIR direct reservoir producers may run at a smaller direct-lighting
+  resolution after DI is rebuilt from the accepted GI path.
+- Mode 50/51 diagnostics currently expose raw direct/DI reservoir behavior.
 
-Implementation status, 2026-05-14:
+Historical implementation notes, superseded by the current reservoir-stage gate:
 
-- `r_pathTracingRestirPTDirectResolutionScale` is wired for the staged
-  TemporalAndSpatial direct-lighting path used by modes 50-51, mode 56, and by mode 18
-  when `r_pathTracingRestirPTDirectLighting 1`.
+- Older notes describe `r_pathTracingRestirPTDirectResolutionScale` and staged
+  TemporalAndSpatial direct-lighting paths. Treat those as provisional
+  scaffolding, not completed DI reservoir processing.
 - The ReSTIR PT context and temporal/spatial producer dispatches use the scaled
   direct-lighting dimensions.
 - Producer raygen maps each direct reservoir pixel to a representative
@@ -243,7 +238,9 @@ The existing ReSTIR bridge was originally built around a single output-size assu
 Preferred eventual model:
 
 - Full-resolution primary surface history remains the renderer's reconstruction anchor.
-- ReSTIR direct producers also have a direct-resolution surface domain or a clean coordinate-mapped access path.
+- Future ReSTIR direct producers should have a direct-resolution surface domain
+  or a clean coordinate-mapped access path after DI is rebuilt from the accepted
+  GI reservoir path.
 - RAB_GetGBufferSurface and related callbacks are explicit about whether their pixel coordinate is full-resolution or direct-reservoir-resolution.
 
 Acceptable first bridge:
@@ -273,9 +270,9 @@ Mode 18 hybrid final render stays:
 - dispatchWidth = fullOutputWidth
 - dispatchHeight = fullOutputHeight
 
-Mode 18 hybrid then maps:
+Future mode 18 hybrid work would map:
 
-- full pixel -> direct reservoir pixel -> completed spatial direct sample.
+- full pixel -> direct reservoir pixel -> accepted direct sample.
 
 Mode 50 and 51 can either:
 

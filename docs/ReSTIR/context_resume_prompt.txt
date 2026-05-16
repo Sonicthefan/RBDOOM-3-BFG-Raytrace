@@ -78,9 +78,10 @@ Current implementation state:
   the nearest direct reservoir pixel.
 - Mode 32 remains a full-resolution single-dispatch temporal preview; do not
   assume it has been moved to the scaled direct domain.
-- Mode 50 shades the completed spatial reservoir with the rough preview path.
-- Mode 51 colors the completed spatial reservoir source using the mode 33 source
-  convention.
+- Mode 50 is a raw direct/DI reservoir preview. Do not describe it as completed
+  temporal/spatial reservoir reuse.
+- Mode 51 colors the current raw direct/DI reservoir source using the mode 33
+  source convention.
 - Modes 53-55 are the first debug-only indirect/GI reservoir domain. They reuse
   the initial RTXDI PT reservoir buffer and shader library. They now run as
   staged initial-GI passes: an initial producer dispatch writes completed
@@ -91,11 +92,10 @@ Current implementation state:
   They also force one secondary bridge bounce and raise the debug-only RTXDI
   initial path-length budget to 4 so secondary-surface analytic NEE is not
   rejected by the default initial max of 3.
-- Mode 56 is debug-only combined direct + GI preview. It runs the staged direct
-  temporal/spatial producers, the staged GI initial producer, then a specialized
-  consumer shades the completed direct spatial reservoir and completed GI
-  initial reservoir together. It does not add temporal/spatial GI reuse or
-  change mode 18.
+- Mode 56 is debug-only combined direct + GI preview. Normal mode 56 shades raw
+  direct/DI reservoir output with GI initial output. The 01C GI temporal
+  candidate is visible only through `r_pathTracingRestirPTGiDebugView 2`; it
+  does not feed normal mode 56 or RR input.
 - r_pathTracingRestirPTSpatialDiagnosticView 1 switches mode 51 to spatial
   acceptance/source-change colors.
 - A recent local slice added r_pathTracingRestirPTSpatialDiagnosticView 2 for a
@@ -104,19 +104,15 @@ Current implementation state:
   this view-2 slice as a suspect and regression-test or revert it first.
 - The first mode 50/51 path still uses a shader-local 32-entry neighbor offset
   table rather than a host-bound RTXDI neighbor-offset buffer.
-- r_pathTracingRestirPTRaySparsity is default-off. Values 2-8 sparsely update
-  staged ReSTIR direct producers and reconstruct full-resolution consumers from
-  active representative direct-reservoir pixels. It is currently scoped to modes
-  50-51, mode 56, and mode 18 ReSTIR direct lighting.
+- r_pathTracingRestirPTRaySparsity is legacy direct-domain scaffolding over raw
+  DI/direct diagnostics. Do not treat it as completed DI temporal/spatial reuse.
 - r_pathTracingRestirPTGiRaySparsity is default-off. Values 2-8 sparsely update
   the staged GI initial producer for modes 53-56, while the visible pass loads
   nearest active GI initial reservoir representatives.
-- r_pathTracingRestirPTPrimarySurfacePrepass is default-off. When enabled,
-  staged direct temporal/spatial producers consume current full-resolution
-  primary-surface history instead of tracing primary rays. Mode 56 reuses the
-  GI initial producer's history; modes 50-51 and mode 18 ReSTIR direct insert a
-  standalone primary-surface producer. Keep this opt-in until runtime testing
-  confirms it avoids the previous light-blue clear-color failure.
+- r_pathTracingRestirPTPrimarySurfacePrepass is primary-surface sharing
+  scaffolding. Older notes describe it around direct temporal/spatial producers,
+  but DI/direct remains raw reservoir output until rebuilt from the accepted GI
+  reservoir path.
 - User validation reported that mode 56 works visually, but performance is low
   and sparsity visibly changes the image without meaningful performance gains.
   Nsight validation reports bad cases are GPU-bound below 60 FPS:
@@ -124,12 +120,9 @@ Current implementation state:
   roughly 5-10%. Treat the next performance step as GPU shader/location
   profiling inside the raygen path, not CPU setup or raw traversal ray-count
   profiling.
-- Mode 56 has four `vkCmdTraceRays` events in order: GI initial producer,
-  direct temporal producer, direct spatial producer, final combined consumer.
-  User Nsight validation reports events 2 and 3 dominate frame time by far.
-  In bad locations event 1 also roughly doubles, but remains lower than events
-  2 and 3. Target the staged direct TemporalAndSpatial producer path first, and
-  use event 1 as a secondary check for shared location-sensitive paths.
+- Mode 56 can show legacy `vkCmdTraceRays` labels such as GI initial producer,
+  direct temporal producer, direct spatial producer, and final combined
+  consumer. The direct labels are scaffolding, not proof of completed DI reuse.
 - User validation also found dark base-game areas with apparently open roofs
   that raster lighting keeps hidden from skybox light through some setting or
   light/visibility rule. Mode 56 GI can over-brighten these spaces. Investigate
@@ -144,9 +137,9 @@ Current implementation state:
 Current mode 18 ReSTIR direct-lighting hybrid:
 - Use r_pathTracingDebugMode 18 and r_pathTracingRestirPTDirectLighting 1.
 - Test first with r_pathTracingSamplesPerPixel 1.
-- The hybrid runs the same temporal and spatial producer prepasses, then
-  replaces only the sample-0 primary direct NEE contribution with the completed
-  spatial reservoir contribution.
+- This is diagnostic only. Do not describe it as completed DI temporal/spatial
+  reuse; DI/direct is raw reservoir output until a future slice ports the
+  accepted GI reservoir flow.
 - Native mode 18 ambient, emissive, secondary diffuse/reflection, accumulation,
   and general composition remain mode 18-native.
 

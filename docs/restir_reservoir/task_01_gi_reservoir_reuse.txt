@@ -1,21 +1,21 @@
-Task 01: Baseline GI Reservoir Reuse
+Task 01: GI Reservoir Reuse, Visual-Gated Micro-Slices
 Date: 2026-05-16
 Project: rbdoom-3-bfg-rt path tracing / mode 56 ReSTIR PT
 
 Task Boundary
 -------------
-Implement the first baseline ReSTIR PT correction for the GI side:
+Do not implement this whole file in one pass.
 
-    GI initial reservoir
-        -> GI temporal reservoir reuse
-        -> GI spatial reservoir reuse
-        -> final resolve consumes the completed GI reservoir
+The user must commission exactly one micro-slice at a time:
 
-The task is successful when the mode-56-derived final resolve no longer shades
-the raw GI initial reservoir as the RR-facing GI estimate.
+    01A: audit and map current GI reservoir flow, no code changes
+    01B: add visual compare diagnostics only
+    01C: prove real GI temporal reuse only
+    01D: prove GI spatial reuse only
+    01E: switch mode 56 resolve only after user visual approval
 
-Stop after this task. Do not add RTX Remix enhancements. Do not merge DI and GI
-reservoirs. Do not implement ReSTIR PT Enhanced paper features.
+Every micro-slice must build, deploy, report, and stop. The user will visually
+inspect the result and decide whether to continue.
 
 Why This Matters
 ----------------
@@ -24,19 +24,33 @@ surfaces. Albedo floors and DLSS/RR input brightness changes only turn black
 dropout into grey dropout. This points upstream: the reservoir estimate itself
 is too sparse or under-reused before it becomes image radiance.
 
-Current branch behavior is split:
+Agents should not decide that a visual result is improved. The correct behavior
+is to expose controlled comparison modes and let the user judge.
 
-- Direct lighting has a staged temporal/spatial reservoir path.
-- GI/indirect has an initial-reservoir producer and visible initial views.
-- Mode 56 combines direct spatial output with GI initial output.
-
-The GI path is therefore behind the direct path. This task narrows that gap.
+Current Branch Baseline
+-----------------------
+- Direct lighting/DI must be treated as raw reservoir output in the normal
+  renderer. The current DI work is debug-view only through
+  `r_pathTracingRestirPTDiDebugView`; do not describe normal DI as having
+  completed temporal/spatial reservoir processing on this branch.
+- GI/indirect has an initial-reservoir producer, visible initial views, and a
+  debug-only temporal candidate exposed through
+  `r_pathTracingRestirPTGiDebugView 2`.
+- DI/direct now has a matching debug-only temporal accumulator exposed through
+  `r_pathTracingRestirPTDiDebugView 2`. It uses a DI-owned scratch reservoir
+  buffer and does not feed normal mode 56.
+- Normal mode 56 still combines the existing raw direct/DI reservoir preview
+  with GI initial output.
+- The current final resolve still loads the GI initial reservoir. This is bad
+  for production/RR, but it is also the known baseline. Do not replace it until
+  a new path is visually proven.
 
 Read Before Editing
 -------------------
 Read these files:
 
     docs\restir_reservoir\README.txt
+    docs\restir_reservoir\stage_gate_policy.txt
     docs\restir_reservoir\code_sketches.txt
     docs\ReSTIR\current_restir_pt_state.txt
     docs\ReSTIR\real_pass_structure_plan.txt
@@ -59,174 +73,188 @@ Reference only, do not copy/paste:
     E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\pass\rtxdi\restir_gi_spatial_reuse.comp.slang
     E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\pass\rtxdi\restir_gi_final_shading.comp.slang
 
-Implementation Rules
---------------------
-- Use the existing RTXDI PT reservoir ABI already integrated in the branch.
-- Use the existing RAB bridge and primary-surface history plumbing.
-- Keep existing direct temporal/spatial behavior intact.
-- Keep existing modes 53, 54, and 55 useful as GI initial diagnostics.
-- Keep mode 56 as the first combined validation path.
-- Preserve debug access to the GI initial reservoir. Do not delete the initial
-  diagnostic views just because final resolve should stop using them.
-- Keep CVar defaults conservative.
-- Add pass-plan dumps or CVar names if needed, but do not bury behavior behind
-  undocumented switches.
-
-Do Not Do
----------
+Global Do Not Do
+----------------
 - Do not copy reference source code into this repository.
 - Do not implement RTX Remix sample stealing, adaptive history, RR
-  compatibility randomization, virtual samples, or boiling filters in this task.
+  compatibility randomization, virtual samples, or boiling filters in Stage 01.
 - Do not implement ReSTIR PT Enhanced duplication maps, reciprocal paired
   spatial reuse, vector-valued shading weights, unified reservoirs, or dual
-  motion vectors in this task.
+  motion vectors in Stage 01.
 - Do not change mode 18 default rendering.
-- Do not remove mode 53-55 diagnostics.
+- Do not remove modes 53-55 diagnostics.
 - Do not solve the problem by adding a brightness floor after final shading.
+- Do not relabel initial reservoirs as temporal output.
+- Do not add a side reservoir buffer unless the RTXDI resampling functions are
+  also correctly pointed at that buffer and its current/previous slice history.
+- Do not switch mode 56 resolve to any new GI output without user visual
+  acceptance of the comparison mode.
 
-Suggested Slice A: Map Current GI Reservoir Flow
-------------------------------------------------
-Before editing, write down or keep notes for yourself:
+01A: Audit And Map Current GI Flow
+----------------------------------
+Default task when no micro-slice is named.
 
-1. Which dispatch writes the GI initial reservoir in mode 56?
-2. Which buffer index/page contains the GI initial output?
-3. Which shader loads the final GI contribution for mode 56?
-4. Which existing helper functions already call RTXDI_PTTemporalResampling and
-   RTXDI_PTSpatialResampling for the direct path?
-5. Whether those helpers are direct-only because of RAB mode flags or because of
-   host pass routing.
+Goal:
 
-If this mapping reveals that the GI temporal/spatial path already exists but is
-not routed into mode 56, prefer wiring the existing path over duplicating it.
+    Produce a written map of the current GI initial path and the exact places a
+    future temporal/spatial path would connect.
 
-Suggested Slice B: Add GI Temporal Reservoir Producer
------------------------------------------------------
-Add a GI temporal producer only if no existing route can produce it.
+Allowed edits:
 
-Requirements:
+    None, unless the user explicitly asks to write the audit into docs.
 
-- Consume the GI initial reservoir output.
-- Use current primary-surface history for the current surface.
-- Use previous-frame reservoir input through the existing RTXDI PT buffer
-  indexing scheme.
-- Preserve temporal depth/normal/material validation behavior where applicable.
-- Keep previous-frame NEE light reuse conservative. Respect the current
-  temporal NEE safety rule unless the user explicitly asks to revisit it.
-- Store a GI temporal output reservoir in an explicit buffer index/page.
-- Add a diagnostic or pass dump that confirms this producer ran.
+Required answers:
 
-Stop point if Slice B is commissioned alone:
+1. Which dispatch writes GI initial reservoirs in mode 56?
+2. Which buffer and buffer index/page contain that output?
+3. Which shader loads GI for mode 56 final resolve?
+4. Which direct-path helpers already call true temporal/spatial resampling?
+5. Which pieces are direct-domain-specific and cannot be reused blindly for GI?
+6. What is the smallest diagnostic-only code slice for 01B?
 
-    Build, deploy, and report. Do not start GI spatial reuse until asked.
+Stop:
 
-Suggested Slice C: Add GI Spatial Reservoir Producer
-----------------------------------------------------
-Add GI spatial reuse after GI temporal output exists.
+    Report the map and recommended 01B change. Do not implement 01B.
 
-Requirements:
+01B: Visual Compare Diagnostics Only
+------------------------------------
+Goal:
 
-- Consume the GI temporal output reservoir.
-- Use validated neighboring current-frame reservoirs.
-- Keep sample count and radius conservative.
-- Reuse existing CVars if they semantically apply, or add GI-specific CVars if
-  sharing direct-lighting controls would make testing ambiguous.
-- Store a GI spatial output reservoir in an explicit buffer index/page.
-- Add source/acceptance diagnostics only if needed to prove the pass is working.
+    Add a debug comparison mode that lets the user visually compare current GI
+    initial output against any future GI candidate output. This slice must not
+    change normal mode 56 rendering or RR input behavior.
 
-Stop point if Slice C is commissioned alone:
+Allowed edits:
 
-    Build, deploy, and report. Do not add Remix hardening or unified reservoirs.
+- Add a small CVar or reuse an existing debug-view CVar for comparison.
+- Add views such as:
 
-Suggested Slice D: Final Resolve Consumes Completed GI Reservoir
----------------------------------------------------------------
-After temporal/spatial GI output exists, update the mode-56-derived final
-resolve:
+      0 normal mode 56 output
+      1 raw GI initial target estimate
+      2 reserved GI temporal estimate, black if not implemented
+      3 reserved GI spatial estimate, black if not implemented
+      4 false-color reservoir validity / M / WeightSum check
 
-- Load the completed GI reservoir, not the raw GI initial reservoir.
-- Use `TargetFunction * WeightSum` style final contribution for the diagnostic
-  estimate.
+- Add pass-plan text that prints which view is active.
+
+Forbidden edits:
+
+- Do not add new temporal/spatial producer passes.
+- Do not add new reservoir buffers.
+- Do not change `PathTraceRRInputColor`.
+- Do not change normal mode 56 output when the debug view is off.
+
+Validation:
+
+    Build and deploy. Tell the user exactly which CVar values to try and what
+    to compare against modes 54, 55, and 56.
+
+Stop:
+
+    Wait for user visual feedback. Do not implement 01C.
+
+01C: Prove Real GI Temporal Reuse Only
+--------------------------------------
+Goal:
+
+    Add a real GI temporal candidate path and expose it through the 01B debug
+    view. Do not feed it into normal mode 56 output yet.
+
+Required behavior:
+
+- It must consume the existing GI initial reservoir output.
+- It must call true temporal resampling or an explicitly documented equivalent.
+- It must use a reservoir history path that actually corresponds to GI, not the
+  direct-lighting reservoir history.
+- It must preserve the raw GI initial view for side-by-side comparison.
+- It must show rejected/invalid cases clearly in a debug view.
+
+Forbidden behavior:
+
+- Do not call `GenerateRestirPTInitialReservoir` and store the result as
+  "temporal".
+- Do not overwrite or relabel raw direct/DI reservoir state.
+- Do not switch final resolve.
+- Do not add spatial reuse.
+
+Validation:
+
+    Build and deploy. The user should compare:
+
+      GI initial debug view
+      GI temporal debug view
+      mode 54
+      mode 56 normal output
+
+Stop:
+
+    Report whether the temporal view is denser/brighter/darker, but do not
+    claim success without user visual acceptance. Do not implement 01D.
+
+01D: Prove GI Spatial Reuse Only
+--------------------------------
+Goal:
+
+    Add GI spatial reuse on top of the user-accepted temporal GI output and
+    expose it through the debug comparison view. Do not feed it into normal mode
+    56 output yet.
+
+Required behavior:
+
+- It must consume the accepted GI temporal output.
+- It must use validated current-frame neighbors.
+- It must expose validity/rejection information.
+- It must preserve initial and temporal comparison views.
+
+Forbidden behavior:
+
+- Do not switch final resolve.
+- Do not use generic direct-spatial helpers unless the audit proves their buffer
+  indices, domains, and history ownership are valid for GI.
+- Do not add Remix hardening.
+- Do not add unified DI/GI reservoirs.
+
+Validation:
+
+    Build and deploy. The user should compare:
+
+      GI initial debug view
+      GI temporal debug view
+      GI spatial debug view
+      mode 56 normal output
+
+Stop:
+
+    Wait for user visual acceptance. Do not implement 01E.
+
+01E: Switch Mode 56 Resolve
+---------------------------
+Goal:
+
+    Only after the user says the GI spatial/temporal debug output is visually
+    better than raw GI initial, switch normal mode 56 and RR input to consume
+    the accepted GI output.
+
+Required behavior:
+
+- Keep a CVar fallback to raw GI initial.
+- Keep debug views for initial/temporal/spatial comparison.
 - Keep final visibility/validation policy explicit.
-- Preserve a debug mode or CVar that can compare:
-    raw GI initial
-    GI temporal
-    GI spatial/final
-- Keep `PathTraceRRInputColor` fed by the completed GI estimate, not the raw
-  initial estimate.
+- Keep `PathTraceRRInputColor` behavior documented.
 
-Stop point:
+Forbidden behavior:
 
-    Build, deploy, and report. Do not continue into RTX Remix or paper features.
+- Do not remove the comparison views.
+- Do not add Remix hardening.
+- Do not add unified reservoirs.
+- Do not tune brightness floors to hide failure.
 
-Validation Checklist
---------------------
-Minimum validation after the commissioned slice:
+Validation:
 
-1. Build:
+    Build and deploy. User compares normal mode 56 before/after using the
+    fallback CVar, plus RR input preview if requested.
 
-       cmake --build --preset win64-pt-dev-release
+Stop:
 
-2. Deploy executable:
-
-       E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
-           -> E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
-
-3. Deploy shaders:
-
-       E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
-           -> E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
-
-4. Runtime checks:
-
-       r_pathTracingDebugMode 56
-       r_pathTracingRestirPTPrimarySurfacePrepass 1
-       r_pathTracingRestirPTPassDump 1
-
-5. Compare against diagnostics:
-
-       mode 50: direct spatial reservoir preview
-       mode 54: GI initial reservoir preview
-       mode 55: GI source/path attribution
-       mode 56: combined direct + completed GI reservoir preview
-
-6. If RR is tested:
-
-       r_pathTracingDLSSRRGuideDebugView 9
-
-   The RR input preview should no longer be dominated by raw GI initial dropout.
-
-Expected Result
----------------
-This task may not make the final image clean by itself. The expected improvement
-is narrower:
-
-- GI should no longer look like a raw one-sample initial reservoir field.
-- Dark/dropout pixels on bright surfaces should reduce if temporal/spatial reuse
-  accepts useful neighbors/history.
-- Any remaining artifact should be attributable to reuse validation,
-  disocclusion, visibility, correlation, or final shading, rather than direct
-  raw initial-reservoir exposure.
-
-If the image does not improve, report which stage failed:
-
-- temporal reuse rejects too much,
-- spatial reuse rejects too much,
-- reservoirs have invalid target/weight data,
-- final resolve loads the wrong buffer index,
-- visibility invalidates useful samples,
-- previous-frame history is unavailable or stale,
-- source/path attribution shows poor initial candidates.
-
-Final Report Requirements
--------------------------
-When done, report:
-
-- Files changed.
-- Which slice was completed.
-- Build/deploy status.
-- Exact runtime modes/CVars tested.
-- Whether mode 56 consumes GI initial, temporal, or spatial/final reservoir.
-- Whether `PathTraceRRInputColor` still receives raw GI initial dropout.
-- Known limitations and recommended next commissioned stage.
-
-Stop after this report.
-
+    Report final files changed, exact CVar fallback, and remaining limitations.
+    Do not start Stage 02.

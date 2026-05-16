@@ -53,9 +53,9 @@ The current selector scans:
 
 and accumulates `sampleWeightAndPdf.y` until the random target is reached. It
 also tracks the largest weight as a fallback. That is O(N) structured-buffer
-loads per emissive proposal. ReSTIR PT direct temporal/spatial producer passes
-can call this repeatedly per pixel through the RAB path tracer / NEE proposal
-path.
+loads per emissive proposal. Older ReSTIR PT docs referred to direct
+temporal/spatial producer passes here, but DI/direct is currently raw reservoir
+output; treat those labels as historical scaffolding.
 
 Target End State
 ----------------
