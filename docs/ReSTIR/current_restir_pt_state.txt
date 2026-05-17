@@ -214,15 +214,17 @@ previous-position scaffold for this guide export even when
 `r_pathTracingGpuSkinning` is `0`; that CVar still only gates the diagnostic GPU
 skinning compute path. The primary-prepass mode-56 path no longer depends on the
 monolithic shader for these guide outputs.
-The remaining reference mismatch is depth: RTXDI PT's temporal motion vector
-contract carries xy pixel motion plus previous-depth delta, while rbdoom's
-`u39` is currently `RG16F` xy motion only. DI/GI temporal reuse therefore uses
-the exported motion mask, reset mask, and previous-surface similarity checks,
-but not the reference depth-delta validation yet. A local debug-scoped fallback
-allows same-pixel temporal reuse for ordinary rigid surfaces whose only reset
-reason is missing object-motion data, but only after the current and previous
-same-pixel primary surfaces pass the existing material/normal/roughness
-similarity check.
+The primary-prepass motion-vector export now follows the RTXDI PT temporal
+contract shape: `u39` is `RGBA16F`, with xy pixel motion and z equal to expected
+previous linear depth minus current surface linear depth. DI/GI temporal reuse
+still uses the exported motion mask, reset mask, and previous-surface
+similarity checks, but the reference-chain debug view can now classify
+depth/normal rejection against `surface.linearDepth + motionVector.z` instead
+of silently falling back to current depth for valid motion vectors. A local
+debug-scoped fallback allows same-pixel temporal reuse for ordinary rigid
+surfaces whose only reset reason is missing object-motion data, but only after
+the current and previous same-pixel primary surfaces pass the existing
+material/normal/roughness similarity check.
 When `r_pathTracingDLSSRR 1` evaluates RR, motion-vector export is enabled for
 that frame. The bitfield u52 texture remains the human-readable reset/debug
 mask. A previous u53 float disocclusion-guide experiment was backed out because
@@ -542,7 +544,150 @@ Main Gaps
 - `r_pathTracingRestirPTDiDebugView` is the DI comparison path in mode 56:
   `1` shows raw DI, `2` shows the debug-only DI temporal reservoir experiment,
   `3` shows the debug-only DI spatial candidate, `4` shows raw DI reservoir
-  health, and `5` shows DI spatial/temporal status colors. View 2 evaluates the
+  health, `5` shows DI spatial/temporal status colors, `6` shows the RTXDI
+  final-shading input as `TargetFunction * WeightSum`, `7` shows the RTXDI
+  final-shading input validity/target/weight/M state, `8` shows official RTXDI
+  page-chain state quadrants, and `9` shows official page-chain contribution
+  quadrants. `10` shows a temporal-readiness/rejection proxy over reset masks,
+  primary-surface projection/similarity, and temporal output history. `11`
+  classifies initial, temporal input, and temporal output validity/M flow. `12`
+  classifies the RTXDI-shaped temporal-neighbor acceptance stage: red = no
+  motion/projection, dark blue = missing/out-of-range previous surface, purple =
+  depth/normal rejection, yellow/orange variants = materialId/materialIndex/
+  surfaceClass/roughness rejection, blue = previous reservoir
+  invalid, orange = reservoir age cap, cyan = a previous candidate was
+  acceptable but output stayed current-only, bright orange = the accepted
+  previous sample is NEE while previous NEE reuse is disabled, white = invalid sampled-light
+  data, bright green = accepted previous emissive light still failed the
+  previous-to-current emissive identity remap, blue/purple/magenta/pink = accepted analytic identity/remap/
+  range failure, gray = accepted analytic light state mismatch, and dark
+  green/blue = output history grew. `13` shows the RAB BRDF contract
+  classifier: green = low/no specular input, yellow/orange/red = specular F0
+  present with rough/glossy/mirror-like roughness, purple = unsupported
+  non-opaque-diffuse surface. `14` classifies the RTXDI initial path-tracer
+  NEE sampled-light payload: black/gray = no usable initial NEE reservoir,
+  blue = non-NEE path sample, white = invalid sampledLightData, magenta =
+  out-of-range light index, purple = failed light-info load, orange = failed
+  light-sample replay, yellow = invalid replay pdf/data, orange/cyan = valid
+  emissive/Doom analytic NEE. `15` classifies the RTXDI initial path metadata:
+  black = invalid reservoir, blue = non-NEE sample, white = invalid
+  sampledLightData, red = zero path length, magenta = missing light-vertex
+  partial Jacobian, yellow = missing pre-light RcWiPdf, green = no-RC-vertex
+  path, orange/cyan = primary/secondary NEE path. `16` classifies
+  final-shading input contract gates: black = invalid/no surface, red =
+  invalid reservoir, magenta = invalid WeightSum, orange = negative WeightSum,
+  yellow = zero WeightSum, purple = invalid TargetFunction, blue = zero
+  TargetFunction, violet = invalid contribution, white = contribution overflow,
+  green = usable contribution. `17` replays the final-shading input target
+  against the current surface: black = invalid/no surface, red = invalid
+  reservoir, blue = non-NEE sample, magenta = invalid stored TargetFunction,
+  orange = replay failed, dark blue = zero replay target, yellow = large replay
+  mismatch, cyan = moderate replay mismatch, green = close replay match.
+  `18` classifies environment MIS inputs in three vertical bands: left =
+  direction-to-UV, middle = sampling PDF, right = environment light/radiance
+  domain. `19` classifies the final-shading input sampled-light payload:
+  black/gray = no usable final reservoir, blue = non-NEE path sample, white =
+  invalid sampledLightData, magenta = out-of-range light index, purple = failed
+  light-info load, orange = failed light-sample replay, yellow = invalid replay
+  pdf/data, orange/cyan = valid emissive/Doom analytic NEE. `20` classifies the
+  final-shading input path metadata: black = invalid reservoir, blue = non-NEE
+  sample, white = invalid sampledLightData, red = zero PathLength, magenta =
+  missing light-vertex PartialJacobian, yellow = missing pre-light RcWiPdf,
+  green = no-RC-vertex path, orange/cyan = primary/secondary NEE path. `21`
+  classifies final-shading input random-replay metadata: black = invalid
+  reservoir, red = zero PathLength, magenta = invalid RcVertexLength/PathLength
+  relation, blue = no random replay needed, yellow = zero RandomSeed and zero
+  RandomIndex, orange = zero RandomSeed, purple = RandomIndex 255, green =
+  replay metadata present. `22` compares the RAB random sampler bridge against
+  RTXDI: green = sampler state and next-random advancement match, red =
+  pixel/frame initialization mismatch, magenta = direct-seed initialization
+  mismatch, yellow = generated random value mismatch, orange = post-advance
+  state mismatch, purple = direct-seed next-random mismatch. `23` self-tests
+  the RAB path-tracer user-data bridge: green =
+  empty/setter/callback diagnostics match, red = empty initializer nonzero,
+  magenta = path-type setter flag mismatch, purple = reconnection denoiser
+  callback mismatch, yellow = last-bounce denoiser callback mismatch, white =
+  environment-miss flag mismatch. `24` classifies final-shading input
+  visibility policy: black = invalid surface, red = invalid reservoir, blue =
+  non-NEE sample or geometry-only policy accepted while strict visibility
+  blocked, white = invalid sampledLightData, magenta = out-of-range light index
+  or unexpected underaccept, purple = geometry reject, orange = sample/load
+  failure or strict reject, green = strict/candidate/selected visible, yellow =
+  selected strict rejected while candidate was still policy-accepted. `25`
+  classifies final-shading input RAB light-sample numeric replay: black =
+  invalid surface, red = invalid reservoir or invalid solid-angle pdf, blue =
+  non-NEE sample or zero target pdf, white = invalid sampledLightData or
+  invalid radiance, magenta = out-of-range light index, purple = failed
+  light-info load or invalid light direction, orange = failed sample replay or
+  invalid target pdf, yellow = invalid position, cyan = invalid distance or
+  valid Doom analytic, green = valid emissive/local light sample. `26`
+  classifies visible emissive primary surfaces against rbdoom's current
+  hit-to-light scan: black = invalid surface, blue = non-emissive, red = no
+  current emissive domain, orange = no matching current light, yellow =
+  duplicate identity matches, purple = failed light-info load, magenta =
+  invalid loaded light record, white = mapped but zero loaded radiance, cyan =
+  unique dynamic emissive match, green = unique static emissive match. `27`
+  classifies the RAB light-domain load contract as 12px tiles: top half =
+  `RAB_LoadLightInfo(index,false)`, bottom half =
+  `RAB_LoadLightInfo(index,true)`, black = no current light domain or outside
+  light count, purple = load failed or remap-invalid, orange = missing
+  previous/remap target, yellow = duplicate/remap-invalid key or invalid
+  area/weight, blue = unproven continuity, cyan = candidate-cap/
+  state-compatible Doom analytic, magenta = non-finite loaded position/radiance
+  or remap record unavailable, red = current-domain range/translated-load
+  failure, white = zero loaded radiance or non-sampleable identity, green =
+  emissive. `28` classifies current-frame RAB light-domain sample replay as
+  12px tiles against the visible surface: black = no current light domain/
+  outside light count/no valid surface, purple = failed current light load,
+  orange = invalid `RAB_SamplePolymorphicLight` sample, magenta = non-finite
+  sampled position/radiance, yellow = invalid solid-angle pdf or distance, red
+  = invalid light direction/distance, cyan = invalid target pdf or valid Doom
+  analytic sample, dark purple = unsupported BRDF zero target pdf, dark blue =
+  shading-normal backface zero target pdf, teal = geometric-normal backface
+  zero target pdf, violet = view-vector rejection zero target pdf, blue = other
+  zero target pdf, white = zero sampled radiance, green = valid emissive
+  sample. `29` classifies current-frame RAB light-domain visibility policy as
+  12px tiles over the same current light-domain sample replay: black = no
+  current light domain/outside light count/no valid surface, purple = failed
+  current light load, orange = invalid sampled light, dark purple =
+  geometry-facing rejection, green = strict/candidate/selected visible, cyan =
+  policy accepted while strict visibility rejected, yellow = selected strict
+  rejected while candidate policy accepted, orange-red = candidate/selected/
+  strict all rejected, red = strict-only accepted, magenta = strict+selected
+  accepted, violet = strict+candidate accepted, white = selected-only accepted.
+  `30` classifies the initial reservoir NEE record scalar contract: black =
+  invalid initial reservoir, blue = non-NEE sample, white = invalid
+  sampledLightData, red = invalid WeightSum, orange = invalid PathLength or
+  RcVertexLength relation, purple = invalid or zero TargetFunction, magenta =
+  light-vertex NEE missing packed sampledLightData marker, violet =
+  non-light-vertex NEE unexpectedly packed sampledLightData, yellow = missing
+  light-vertex PartialJacobian, cyan = missing pre-light RcWiPdf or
+  PartialJacobian, orange-red = invalid unpacked Radiance, green = valid
+  light-vertex packed NEE, teal = valid pre-light-vertex NEE, dark green =
+  valid earlier/no-RC NEE. `31` classifies the local RAB path-tracer entry
+  contract as six vertical bands: band 0 surface support, band 1 NEE/light
+  domain availability, band 2 secondary continuation availability, band 3
+  Russian-roulette probability tracking, band 4 PSR/denoiser payload, band 5
+  local path-depth cap. `32` classifies the PSR/denoiser payload contract as
+  six vertical bands: PSR payload availability, path-type/callback scalar
+  self-test, reconnection scalar-only callback, last-bounce scalar-only
+  callback, prior-path last-NEE-light sink, and environment miss marker. `33`
+  classifies path continuation policy inputs: Russian-roulette depth config,
+  continuation-probability supplier, RecordRussianRouletteProbability usage,
+  throughput minimum threshold, shader execution reordering policy, and
+  combined continuation-policy status. `34` classifies final-shading output
+  contract inputs: final input reservoir usability, finite contribution, local
+  combined-preview output source, missing diffuse/specular output split,
+  missing PSR final-shading buffers, and mode-56 RR/preview output sink. `35`
+  summarizes remaining supplier gaps: previous-frame light suppliers,
+  candidate/selected visibility supplier, environment light/MIS suppliers,
+  PSR/RR path-tracer payload, final-shading output path, and duplication map.
+  Visual testing of view 35 showed all six expected supplier-gap bands:
+  orange, yellow, orange, magenta, purple, and darker purple.
+  Views 6-35
+  are the reference-shaped DI baseline and avoid the custom DI
+  scratch-reservoir math.
+  View 2 evaluates the
   temporal reservoir in direct-light preview units and does not multiply
   brightness by reservoir `M`; accepted history is visible through source
   stability, not artificial brightness gain. The temporal path treats the
@@ -564,12 +709,192 @@ Main Gaps
   Mode 56 combines raw direct/DI output with GI initial for its normal preview.
 - No production final ReSTIR PT pass yet; mode 18 has only an opt-in primary
   direct-lighting hybrid hook.
-- Light identity is still index-fragile across changing emissive/light order.
+- Emissive NEE now has a first conservative previous-frame bridge: the CPU
+  uploads previous emissive triangle records plus a stable-identity remap, and
+  the RAB light bridge can translate emissive light indices in both directions.
+  Duplicate/missing emissive identities still reject history, but the remap
+  buffer now carries directional failure bits so debug view 12 can split
+  previous-emissive remap failures into zero identity, duplicate current or
+  previous identity, missing current counterpart, incompatible record, and
+  out-of-range current target. Analytic NEE still follows its existing Doom
+  analytic remap path.
+- View 12 material/surface rejection now splits the former yellow bucket into
+  materialId, materialIndex, surfaceClass, and roughness-delta subcolors. This
+  does not loosen the actual RAB similarity gate.
+- `RAB_GetDuplicationMapCount` is still a stubbed zero, but now returns 0 only
+  after bounds checking the full-output domain. View 12 marks accepted
+  temporal candidates red-orange if duplication-based history reduction is
+  requested while rbdoom still lacks the reference sample-ID and duplication-map
+  buffers.
+- Environment-map MIS remains incomplete: `RAB_GetEnvironmentMapRandXYFromDir`
+  now returns deterministic equirectangular UVs from direction, but
+  `RAB_EvaluateEnvironmentMapSamplingPdf` still returns 0 and environment
+  lights are still absent from `RAB_GetCurrentLightCount`. When the RAB path
+  tracer reaches a continuation-ray miss, it now sets
+  `RAB_PTUD_FLAG_ENVIRONMENT_MAP_MISS_UNBRIDGED` in `RAB_PathTracerUserData`
+  instead of recording fake environment radiance. DI debug view 18 shows three
+  vertical contract bands: UV mapping, environment PDF, and missing environment
+  light/radiance domain. rbdoom's current shader-visible outputs are
+  insufficient for the reference environment-light branch; the suppliers for
+  environment sampling PDF, environment light-domain records, environment
+  radiance, and miss-sample recording policy need their own RTXDI-reference
+  audit before this can be wired.
+- NEE MIS weighting is a conservative local adapter. Emissive triangle samples
+  now use rbdoom's existing emissive proposal PDF and emissive trial count for
+  the reference-shaped `numSamples * lightSourcePdf * solidAnglePdf` term.
+  Analytic samples still return weight 1.0. rbdoom does not expose the
+  reference local-light PDF texture or local-light sampling-mode inputs.
+- BRDF-hit emissive-surface MIS is also a conservative local adapter. The path
+  tracer now applies `GetMISWeightForEmissiveSurface` before recording
+  emissive-surface radiance. The callback maps the ray hit back to the current
+  emissive domain by matching instanceId, primitiveId, and materialId.
+  RAB_RayPayload now carries DXR GeometryIndex, but rbdoom still lacks the
+  reference direct hit-to-light lookup table.
+- NEE selected-light recording uses rbdoom's local RIS stream instead of the
+  reference secondary DI reservoir path. Debug view 14 classifies the initial
+  NEE sampled-light payload so invalid sampled data, out-of-range light
+  indices, failed light-info loads, and failed polymorphic replay can be
+  separated from valid emissive and Doom analytic NEE records. Debug view 19
+  applies the same sampled-light payload classifier to the final-shading input
+  reservoir after temporal/spatial resampling. Debug view 30 classifies the
+  initial NEE RecordNeeLightSample scalar/packing contract: WeightSum,
+  TargetFunction, PathLength, RcVertexLength, PartialJacobian, RcWiPdf,
+  Radiance, and packed sampledLightData marker. Visual testing showed mostly
+  valid green light-vertex NEE records with blue non-NEE resets around edges
+  and light accumulation. An off-camera animated object can stop accumulation
+  in one room, which is logged as upstream proposal/history instability rather
+  than a RecordNeeLightSample scalar packing failure.
+- The RAB path tracer entry point is a capped diffuse bridge, not the full
+  reference sample path tracer. Debug view 15 classifies initial reservoir path
+  metadata (`PathLength`, `RcVertexLength`, `PartialJacobian`, `RcWiPdf`) so
+  entry-point/path-recording failures can be separated from light-payload
+  failures. Debug view 20 applies the same path-metadata classifier to the
+  final-shading input reservoir after temporal/spatial resampling. Debug view
+  31 classifies entry-gate and missing-reference-feature bands. rbdoom does not
+  currently call `RecordRussianRouletteProbability`, does not carry the
+  reference PSR payload, and caps the local path bridge to a small diffuse
+  subset. Visual testing of view 31 showed bands 1, 2, 3, and 6 green, band 4
+  red, and band 5 magenta.
+- Final-shading target replay is diagnostic-only. View 17 compares the stored
+  final-shading input `TargetFunction` with the current-surface RAB replay for
+  NEE-connected reservoirs; it does not rewrite stored reservoir weights or
+  normal mode-56 output.
+- Final-shading sampled-light payload replay is diagnostic-only. View 19 decodes
+  final-shading input `sampledLightData`, loads the referenced rbdoom light, and
+  replays `RAB_SamplePolymorphicLight`; it does not rewrite stored payloads or
+  normal mode-56 output.
+- Final-shading path-metadata classification is diagnostic-only. View 20 reads
+  final-shading input `PathLength`, `RcVertexLength`, `PartialJacobian`, and
+  `RcWiPdf`; it does not rewrite stored replay/reconnection metadata or normal
+  mode-56 output.
+- Final-shading random-replay metadata classification is diagnostic-only. View
+  21 reads final-shading input `RandomSeed` and `RandomIndex` for paths that
+  would require random replay; it does not rewrite replay RNG state or normal
+  mode-56 output.
+- Final-shading output classification is diagnostic-only. View 34 compares
+  rbdoom's mode-56 output shape to NVIDIA's final shading sample. rbdoom writes
+  a combined direct/GI preview plus RR HDR input instead of the reference
+  PSR-aware diffuse/specular `StoreShadingOutput` path. Visual testing showed
+  bands 1, 2, and 6 green, band 3 orange, band 4 magenta, and band 5 purple.
+- RAB random sampler classification is diagnostic-only. View 22 compares
+  `RAB_RandomSamplerState` construction and `RAB_GetNextRandom` advancement
+  against the RTXDI random sampler in the same shader path; it does not rewrite
+  path tracing RNG state or normal mode-56 output.
+- RAB path-tracer user-data classification is diagnostic-only. View 23 checks
+  the empty initializer, RTXDI path-trace invocation type flags, denoiser
+  callback flags/hit distances, and environment-miss marker in the local
+  `RAB_PathTracerUserData`; it does not add the missing PSR payload or rewrite
+  normal mode-56 output. View 32 separately classifies the missing NVIDIA PSR
+  denoiser payload fields: PSRData, packed light direction, mirror matrix,
+  prior-path last-NEE-light sink, and scalar-only hit-distance callbacks.
+- RAB path continuation policy classification is diagnostic-only. View 33 reads
+  rbdoom's existing Russian-roulette depth and path-depth controls, but it does
+  not invent a continuation probability. rbdoom still lacks the reference
+  continuation-probability supplier, `RecordRussianRouletteProbability` call,
+  throughput-minimum threshold, and shader execution reordering policy. Visual
+  testing showed RR disabled for the current config, so the active missing
+  inputs were throughput minimum threshold and SER policy.
+- RAB visibility policy classification is diagnostic-only. View 24 loads the
+  final-shading input selected NEE sample and compares rbdoom's geometry,
+  candidate, selected, and strict conservative visibility gates; it does not
+  change `r_pathTracingRestirPTVisibilityPolicy`, stored reservoir state, or
+  normal mode-56 output. View 29 applies the same classification to current
+  light-domain tile samples so visibility-policy behavior can be audited
+  independent of selected reservoir samples. The view 29 unexpected bucket is
+  split into strict-only, strict+selected, strict+candidate, and selected-only
+  policy combinations.
+- RAB conservative visibility itself is connected through the local shadow-ray
+  query and is the reference-shaped callback. The current candidate/selected
+  NEE supplier is unacceptable as RTXDI-reference reuse input when policy 0
+  admits samples that strict conservative visibility rejects. This is logged as
+  a producer-layer mismatch; reservoir math has not been changed to compensate
+  for it.
+- RAB light-sample numeric classification is diagnostic-only. View 25 loads the
+  final-shading input selected NEE sample, replays `RAB_SamplePolymorphicLight`,
+  and checks position, radiance, solid-angle pdf, distance, light direction,
+  and `RAB_GetLightSampleTargetPdfForSurface`; it does not change light
+  sampling or stored reservoir state.
+- Emissive hit-to-light map classification is diagnostic-only. View 26 scans
+  visible emissive primary surfaces against the current rbdoom linear
+  `instanceId/primitiveIndex/materialId` map. rbdoom still lacks the reference
+  geometry-instance-to-light buffer and emissive triangle vertex data needed for
+  exact barycentric hit replay. Structurally loadable emissive records with
+  zero CPU-estimated proposal weight now get a tiny structural weight fallback
+  so view 26 can classify them as mapped-but-zero-radiance instead of failed
+  light-info loads. The missing supplier is radiance estimation for RAB
+  emissive light records. View 26 does not call `RAB_SamplePolymorphicLight`
+  from the visible emissive surface itself because the reference emissive-hit
+  MIS path replays from the previous receiver surface with ray hit
+  barycentrics.
+- RAB light-domain load classification is diagnostic-only. View 27 maps each
+  12px tile to one light index; the top half tests
+  `RAB_LoadLightInfo(index,false)` and the bottom half tests the translated
+  previous-frame `RAB_LoadLightInfo(index,true)`. This exposes current-domain
+  holes and current-to-previous load failures without depending on a selected
+  reservoir sample. Visual testing showed rbdoom's current light-domain loads
+  are mostly sufficient, but previous-frame light suppliers remain insufficient
+  for full RTXDI PT temporal reuse: many static analytic records reject as
+  unproven continuity or non-sampleable, and motion can briefly flash missing
+  previous/remap target or other remap/load failures before stabilizing again.
+- RAB light-domain sample classification is diagnostic-only. View 28 maps each
+  12px tile to one current light index, loads it with
+  `RAB_LoadLightInfo(index,false)`, and replays
+  `RAB_SamplePolymorphicLight` against the visible surface. This exposes
+  current-domain light records whose load succeeds but whose sampled
+  RAB_LightSample position/radiance/pdf/target-pdf contract fails. Visual
+  testing showed mostly valid emissive samples and receiver-dependent zero
+  target-pdf tiles; the zero target-pdf bucket is split by unsupported BRDF,
+  shading-normal backface, geometric-normal backface, view-vector rejection, or
+  other zero-target cause.
 - RAB visibility remains conservative/preview-oriented.
-- Environment lighting is not bridged.
+- Environment lighting is not bridged; only direction-to-UV is no longer a
+  dummy value.
 - Reflection/glass/transmission are not integrated into ReSTIR final history.
-- Motion vectors are good enough for rough experiments, but ReSTIR consumers
-  still need stricter rejection and disocclusion handling.
+- RAB BRDF sampling/evaluation remains diffuse-only. The bridge carries
+  diffuse albedo, roughness, and specular F0, but it does not implement the
+  reference mixed diffuse/GGX pdf, GGX sampling/evaluation, or delta BSDF
+  properties. DI debug view 13 marks surfaces affected by this gap.
+- `RAB_GetLightTargetPdfForVolume` is a conservative adapter. rbdoom has no
+  reference world-space light-grid volume domain or PolymorphicLight volume
+  weight function, so it returns the local light weight instead of custom
+  distance/radius pseudo-volume scoring.
+- RAB continuation-ray payloads now carry DXR hit barycentrics from
+  PathTraceSmokePayload into RAB_RayPayload. They now also carry DXR
+  GeometryIndex. rbdoom surface/material loading still uses local
+  instance/primitive routing.
+- RAB path-tracer denoiser callbacks now set diagnostic bits in
+  RAB_PathTracerUserData.flags when invoked and store scalar hit-distance
+  diagnostics for reconnection and last-bounce callback position pairs. rbdoom
+  still lacks the reference PSR user-data payload for packed light direction,
+  mirror matrix, and last-NEE-light debug output.
+- RAB path-tracer user data stores `pathType` plus diagnostic flags, not the
+  reference PSR payload. The path-type setter now marks flags for initial,
+  temporal, temporal-inverse, spatial, spatial-inverse, and debug retrace
+  invocation types so downstream code can identify which RTXDI invocation
+  touched the local payload.
+- Motion vectors now carry the reference depth-delta component for valid
+  primary-prepass exports, but ReSTIR consumers still need stricter rejection
+  and disocclusion handling.
 - High resolution remains risky; temporal previews can device-remove above
   roughly 720p-class output.
 - Mode 56 performance is not yet a trustworthy ray-count signal because

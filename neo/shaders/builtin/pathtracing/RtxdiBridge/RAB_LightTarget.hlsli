@@ -41,10 +41,7 @@ float RAB_GetLightTargetPdfForVolume(RAB_LightInfo lightInfo, float3 volumeCente
         return 0.0;
     }
 
-    const float distance = length(lightInfo.position - volumeCenter);
-    const float reach = max(volumeRadius + max(lightInfo.radius, lightInfo.influenceRadius), 1.0);
-    const float attenuation = saturate(1.0 - distance / reach);
-    return lightInfo.weight * max(attenuation, 0.01);
+    return lightInfo.weight;
 }
 
 float RAB_GetPTSampleTargetPdfForSurface(float3 samplePosition, float3 radiance, RAB_Surface surface)

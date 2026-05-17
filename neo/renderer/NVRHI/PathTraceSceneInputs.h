@@ -228,6 +228,8 @@ struct RtPathTraceSceneInputMaterials
 struct RtPathTraceSceneInputLights
 {
     nvrhi::BufferHandle emissiveTriangleBuffer;
+    nvrhi::BufferHandle previousEmissiveTriangleBuffer;
+    nvrhi::BufferHandle emissiveRemapBuffer;
     nvrhi::BufferHandle emissiveDistributionBuffer;
     nvrhi::BufferHandle lightCandidateBuffer;
     nvrhi::BufferHandle doomAnalyticLightBuffer;

@@ -17,6 +17,7 @@ struct PathTraceSmokePayload
     float3 tangent;
     float3 bitangent;
     float2 texCoord;
+    float2 hitBarycentrics;
     float4 vertexColor;
     float4 vertexColorAdd;
     uint surfaceClass;
@@ -25,6 +26,7 @@ struct PathTraceSmokePayload
     uint materialId;
     uint materialIndex;
     uint instanceId;
+    uint geometryIndex;
     uint primitiveIndex;
     uint shadowIgnoreInstanceId;
     uint shadowIgnorePrimitiveIndex;
@@ -118,6 +120,14 @@ struct PathTraceSmokeEmissiveTriangle
     uint universeMaterialIndex;
     uint identityHashLo;
     uint identityHashHi;
+    uint padding0;
+};
+
+struct PathTraceEmissiveLightRemap
+{
+    int previousToCurrentIndex;
+    int currentToPreviousIndex;
+    uint flags;
     uint padding0;
 };
 
@@ -231,7 +241,7 @@ struct PathTraceBoundsOverlayLine
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
-VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceMotionVectors : register(u39);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
@@ -257,6 +267,8 @@ StructuredBuffer<PathTraceDoomAnalyticLightRemap> DoomAnalyticRemap : register(t
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights : register(t45);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
+StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokePreviousEmissiveTriangles : register(t57);
+StructuredBuffer<PathTraceEmissiveLightRemap> SmokeEmissiveRemap : register(t58);
 StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18);
@@ -1599,6 +1611,7 @@ PathTraceSmokePayload InitSmokePayload()
     payload.materialId = 0;
     payload.materialIndex = 0;
     payload.instanceId = 0xffffffffu;
+    payload.geometryIndex = 0xffffffffu;
     payload.primitiveIndex = 0xffffffffu;
     payload.shadowIgnoreInstanceId = 0xffffffffu;
     payload.shadowIgnorePrimitiveIndex = 0xffffffffu;
@@ -2248,16 +2261,17 @@ void StorePathTraceMotionVectorExport(uint2 pixel, RAB_Surface currentSurface)
     int2 previousPixel;
     float2 previousPixelFloat;
     float2 motionPixels;
+    float expectedPrevDepth;
     uint debugStatus;
     uint sourceKind;
-    if (TryPathTraceCombinedGeometryMotionPixels(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, debugStatus, sourceKind))
+    if (TryPathTraceCombinedGeometryMotionPixelsAndDepth(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus, sourceKind))
     {
-        PathTraceMotionVectors[pixel] = motionPixels;
+        PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - currentSurface.linearDepth, 0.0);
         PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
     }
     else
     {
-        PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
+        PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
         PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, debugStatus);
     }
 }
@@ -2443,43 +2457,6 @@ bool RestirPTPreviousNeeReservoirFailsLightRemap(RTXDI_PTReservoir reservoir)
     return RAB_TranslateLightIndex(RTXDI_SampledLightData_GetLightIndex(sampledLightData), false) < 0;
 }
 
-bool RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(int2 previousPixel)
-{
-    const uint2 dimensions = PathTraceRestirDirectDispatchActive() ? PathTraceRestirDirectSize() : PathTraceFullOutputSize();
-    [unroll]
-    for (int offsetY = -1; offsetY <= 1; ++offsetY)
-    {
-        [unroll]
-        for (int offsetX = -1; offsetX <= 1; ++offsetX)
-        {
-            const int2 samplePixel = previousPixel + int2(offsetX, offsetY);
-            if (samplePixel.x < 0 || samplePixel.y < 0 ||
-                (uint)samplePixel.x >= dimensions.x || (uint)samplePixel.y >= dimensions.y)
-            {
-                continue;
-            }
-
-            uint2 previousReservoirPixel = (uint2)samplePixel;
-            if (PathTraceRestirDirectDispatchActive() && PathTraceRestirSparsityEnabled())
-            {
-                previousReservoirPixel = PathTraceRestirSparseRepresentativePixel(previousReservoirPixel, true);
-            }
-            const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(previousReservoirPixel, 0u);
-            const RTXDI_PTReservoir previousReservoir = RTXDI_LoadPTReservoir(
-                RestirPTParams.reservoirBuffer,
-                reservoirPosition,
-                RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
-            if (RestirPTShouldRejectPreviousNeeReservoir(previousReservoir) ||
-                RestirPTPreviousNeeReservoirFailsLightRemap(previousReservoir))
-            {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, uint2 pixel, out float4 rejectionColor, out bool selectedPrevSample)
 {
@@ -2572,10 +2549,6 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, rtxdiRuntimeParams.frameIndex, 0x51ed270bu);
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
     RTXDI_PTTemporalResamplingParameters temporalParams = RestirPTParams.temporalResampling;
-    if (RestirPTPreviousTemporalNeighborhoodHasRejectedNeeReservoir(previousPixel))
-    {
-        temporalParams.maxReservoirAge = 0u;
-    }
     RTXDI_PTReservoir temporalReservoir = RTXDI_PTTemporalResampling(
         temporalParams,
         runtimeParams,
@@ -2587,7 +2560,9 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
         RestirPTParams.bufferIndices,
         selectedPrevSample,
         ptud);
-    if (selectedPrevSample && RestirPTShouldRejectPreviousNeeReservoir(temporalReservoir))
+    if (selectedPrevSample &&
+        (RestirPTShouldRejectPreviousNeeReservoir(temporalReservoir) ||
+            RestirPTPreviousNeeReservoirFailsLightRemap(temporalReservoir)))
     {
         temporalReservoir = currentReservoir;
         selectedPrevSample = false;
@@ -5621,8 +5596,10 @@ void ShadowClosestHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangle
 void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
+    const uint geometryIndex = GeometryIndex();
     const uint primitiveIndex = PrimitiveIndex();
     payload.instanceId = instanceId;
+    payload.geometryIndex = geometryIndex;
     payload.primitiveIndex = primitiveIndex;
     if (instanceId >= 2u)
     {
@@ -5670,6 +5647,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 
         payload.value = 1;
         payload.hitT = RayTCurrent();
+        payload.hitBarycentrics = attributes.barycentrics;
         const float3 actualWorld = WorldRayOrigin() + WorldRayDirection() * payload.hitT;
         const float3 tlasWorld = TransformObjectPointToWorld(localHit);
         const float3 routeWorld = TransformPathTraceRigidRoutePoint(routeInstance.currentObjectToWorld0, routeInstance.currentObjectToWorld1, routeInstance.currentObjectToWorld2, localHit);
@@ -5749,6 +5727,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 
     payload.value = 1;
     payload.hitT = RayTCurrent();
+    payload.hitBarycentrics = attributes.barycentrics;
     const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
     const bool forceGeometricNormal = (triangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0;
     payload.geometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), float3(0.0, 0.0, 1.0));

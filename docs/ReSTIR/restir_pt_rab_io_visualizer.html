@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReSTIR PT RAB IO Graph</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #202124;
+      --panel: #2f3137;
+      --panel-2: #383b42;
+      --panel-3: #25272c;
+      --text: #e7e4dd;
+      --muted: #aaa59a;
+      --grid: rgba(255,255,255,.045);
+      --stroke: rgba(255,255,255,.18);
+      --accent: #f2a541;
+      --good: #63c174;
+      --warn: #f1b650;
+      --bad: #e46d61;
+      --miss: #8c93a3;
+      --line: #c89253;
+      --source-line: #61a4c5;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      grid-template-rows: 44px 1fr;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-bottom: 1px solid #111318;
+      background: #2b2d33;
+      box-shadow: 0 1px 0 rgba(255,255,255,.05) inset;
+      z-index: 20;
+    }
+
+    .title {
+      font-weight: 650;
+      letter-spacing: .01em;
+      margin-right: 10px;
+      white-space: nowrap;
+    }
+
+    button, label.file-button {
+      border: 1px solid #575b65;
+      border-radius: 4px;
+      background: #3a3d45;
+      color: var(--text);
+      font: inherit;
+      height: 30px;
+      padding: 0 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+
+    button:hover, label.file-button:hover { background: #454954; }
+    button.active { border-color: #b4793c; color: #ffd29b; }
+    input[type="file"] { display: none; }
+
+    .search {
+      margin-left: auto;
+      width: min(340px, 30vw);
+      height: 30px;
+      border: 1px solid #575b65;
+      border-radius: 4px;
+      background: #1f2127;
+      color: var(--text);
+      padding: 0 10px;
+      font: inherit;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 150px;
+      text-align: right;
+    }
+
+    #viewport {
+      position: relative;
+      overflow: hidden;
+      cursor: grab;
+      background-color: #202124;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+
+    #viewport.panning { cursor: grabbing; }
+
+    #world {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 5200px;
+      height: 3200px;
+      transform-origin: 0 0;
+    }
+
+    #links {
+      position: absolute;
+      inset: 0;
+      width: 5200px;
+      height: 3200px;
+      z-index: 1;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    #nodes {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 2.25;
+      stroke-linecap: round;
+      opacity: .58;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .edge.source-link {
+      stroke: var(--source-line);
+      opacity: .5;
+      stroke-dasharray: 7 7;
+    }
+
+    .edge.dimmed { opacity: .08; }
+    .edge.hidden { display: none; }
+
+    .node {
+      position: absolute;
+      width: 356px;
+      border: 1px solid #16181d;
+      border-radius: 7px;
+      background: var(--panel);
+      box-shadow:
+        0 12px 28px rgba(0,0,0,.42),
+        0 1px 0 rgba(255,255,255,.08) inset;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .node.highlight {
+      outline: 2px solid #f0bc68;
+      box-shadow: 0 0 0 5px rgba(240,188,104,.15), 0 12px 28px rgba(0,0,0,.42);
+    }
+
+    .node.final {
+      width: 430px;
+      background: #30353c;
+      border-color: #624b2e;
+    }
+
+    .node-header {
+      min-height: 34px;
+      padding: 8px 11px;
+      background: linear-gradient(#464a54, #393d46);
+      border-bottom: 1px solid #1c1f25;
+      cursor: move;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .node.final .node-header {
+      background: linear-gradient(#69502f, #4b3d2d);
+    }
+
+    .node-title {
+      font-weight: 700;
+      font-size: 13px;
+      line-height: 1.25;
+      min-width: 0;
+    }
+
+    .node-meta {
+      color: #d0c7b8;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .files {
+      padding: 7px 11px 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      background: var(--panel-3);
+      border-bottom: 1px solid #1c1f25;
+    }
+
+    .io {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      align-items: stretch;
+    }
+
+    .side {
+      padding: 8px 0 10px;
+      min-width: 0;
+    }
+
+    .side.inputs { border-right: 1px solid #1f2229; }
+
+    .side-title {
+      padding: 0 11px 6px;
+      color: #cfc9bf;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .port {
+      position: relative;
+      min-height: 22px;
+      padding: 3px 10px 4px 18px;
+      color: #ddd7cb;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .outputs .port { padding: 3px 18px 4px 10px; }
+
+    .port:hover {
+      background: rgba(255,255,255,.055);
+    }
+
+    .port::before,
+    .outputs .port::after,
+    .final .inputs .port::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 9px;
+      height: 9px;
+      margin-top: -4px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,.65);
+      background: var(--status);
+      box-shadow: 0 0 0 2px rgba(255,255,255,.04);
+    }
+
+    .inputs .port::before { left: 4px; }
+    .outputs .port::before { display: none; }
+    .outputs .port::after { right: 4px; }
+
+    .status-functional, .status-clear { --status: var(--good); }
+    .status-wrong, .status-poisoned { --status: var(--warn); }
+    .status-compromised { --status: var(--bad); }
+    .status-missing { --status: var(--miss); }
+    .status-final { --status: var(--accent); }
+
+    .port-category {
+      display: block;
+      color: #9fa6b6;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 2px;
+    }
+
+    .port-name {
+      overflow-wrap: anywhere;
+    }
+
+    .detail {
+      display: none;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.3;
+      white-space: pre-wrap;
+    }
+
+    body.show-details .detail { display: block; }
+
+    .loader {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(20,21,24,.86);
+    }
+
+    .loader.visible { display: flex; }
+
+    .loader-panel {
+      width: min(520px, calc(100vw - 40px));
+      padding: 20px;
+      border-radius: 8px;
+      background: #2f3137;
+      border: 1px solid #575b65;
+      box-shadow: 0 20px 60px rgba(0,0,0,.55);
+    }
+
+    .loader-panel h1 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    .loader-panel p {
+      color: var(--muted);
+      line-height: 1.45;
+      margin: 0 0 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="title">ReSTIR PT RAB IO Graph</div>
+    <button id="fit">Fit</button>
+    <button id="reset">Reset</button>
+    <button id="save-layout">Save Layout</button>
+    <button id="load-layout">Load Layout</button>
+    <button id="clear-layout">Clear Saved</button>
+    <button id="toggle-source" class="active">Supplier Links</button>
+    <button id="toggle-restir" class="active">ReSTIR Links</button>
+    <button id="toggle-details">Details</button>
+    <label class="file-button" for="source-file">Load Map</label>
+    <input id="source-file" type="file" accept=".txt,text/plain">
+    <input id="search" class="search" type="search" placeholder="Filter modules, ports, files">
+    <div id="status" class="status"></div>
+  </div>
+
+  <main id="viewport" aria-label="RAB IO node graph">
+    <div id="world">
+      <svg id="links"></svg>
+      <div id="nodes"></div>
+    </div>
+    <div id="loader" class="loader">
+      <div class="loader-panel">
+        <h1>Map text not loaded</h1>
+        <p>Open this page through a local server for automatic loading, or choose <code>restir_pt_rab_io_supply_map.txt</code> from this folder.</p>
+        <label class="file-button" for="source-file">Load Map</label>
+      </div>
+    </div>
+  </main>
+
+  <script>
+  (() => {
+    const MAP_FILE = "restir_pt_rab_io_supply_map.txt";
+    const inputCategories = [
+      "functional input",
+      "connected but wrong data",
+      "compromised input",
+      "missing input"
+    ];
+    const outputCategories = [
+      "clear function observed output correctly to ReSTIR",
+      "poisoned function thought to be broken from bad supplier data",
+      "compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design",
+      "missing output"
+    ];
+
+    const els = {
+      viewport: document.getElementById("viewport"),
+      world: document.getElementById("world"),
+      nodes: document.getElementById("nodes"),
+      links: document.getElementById("links"),
+      status: document.getElementById("status"),
+      loader: document.getElementById("loader"),
+      search: document.getElementById("search"),
+      file: document.getElementById("source-file"),
+      fit: document.getElementById("fit"),
+      reset: document.getElementById("reset"),
+      saveLayout: document.getElementById("save-layout"),
+      loadLayout: document.getElementById("load-layout"),
+      clearLayout: document.getElementById("clear-layout"),
+      toggleSource: document.getElementById("toggle-source"),
+      toggleRestir: document.getElementById("toggle-restir"),
+      toggleDetails: document.getElementById("toggle-details")
+    };
+
+    const state = {
+      data: null,
+      scale: 0.8,
+      panX: 80,
+      panY: 70,
+      showSource: true,
+      showRestir: true,
+      search: "",
+      dragging: null,
+      panning: null,
+      statusNote: ""
+    };
+
+    function slug(value) {
+      return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    }
+
+    function setStatusNote(message) {
+      state.statusNote = message;
+      updateTransform();
+      window.clearTimeout(setStatusNote.timer);
+      setStatusNote.timer = window.setTimeout(() => {
+        state.statusNote = "";
+        updateTransform();
+      }, 1800);
+    }
+
+    function cleanLine(line) {
+      return line.replace(/\s+/g, " ").trim();
+    }
+
+    function statusClass(category, isOutput) {
+      if (isOutput) {
+        if (category.startsWith("clear")) return "status-clear";
+        if (category.startsWith("poisoned")) return "status-poisoned";
+        if (category.startsWith("compromised")) return "status-compromised";
+        return "status-missing";
+      }
+      if (category === "functional input") return "status-functional";
+      if (category === "connected but wrong data") return "status-wrong";
+      if (category === "compromised input") return "status-compromised";
+      return "status-missing";
+    }
+
+    function shortCategory(category) {
+      return category
+        .replace("clear function observed output correctly to ReSTIR", "clear output")
+        .replace("poisoned function thought to be broken from bad supplier data", "poisoned output")
+        .replace("compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design", "compromised output");
+    }
+
+    function isNoiseLine(text) {
+      const value = text.toLowerCase();
+      return !value ||
+        value.startsWith("none ") ||
+        value.startsWith("none;") ||
+        value.startsWith("none.") ||
+        value === "none recorded." ||
+        value === "none recorded" ||
+        value === "none directly; missing inputs are listed under individual callbacks." ||
+        value === "none directly; compromised behavior is in included file callbacks." ||
+        value === "none for observed final input/contribution in view 34.";
+    }
+
+    function isModuleHeading(lines, index) {
+      const line = cleanLine(lines[index]);
+      if (!line || lines[index].startsWith(" ") || line.endsWith(":")) return false;
+      if (/^(ReSTIR PT RAB IO Supply Map|Date|Purpose|Category keys|Inputs|Outputs)$/.test(line)) return false;
+
+      for (let next = index + 1; next < lines.length; next++) {
+        const value = cleanLine(lines[next]);
+        if (!value) continue;
+        return value === "File:" || value === "Files:";
+      }
+      return false;
+    }
+
+    function parseBlocks(text) {
+      const lines = text.replace(/\r\n/g, "\n").split("\n");
+      const starts = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (isModuleHeading(lines, i)) starts.push(i);
+      }
+      return starts.map((start, index) => ({
+        title: cleanLine(lines[start]),
+        lines: lines.slice(start + 1, starts[index + 1] || lines.length)
+      }));
+    }
+
+    function splitParagraphs(lines) {
+      const chunks = [];
+      let current = [];
+      for (const line of lines) {
+        if (!cleanLine(line)) {
+          if (current.length) {
+            chunks.push(current);
+            current = [];
+          }
+          continue;
+        }
+        current.push(line);
+      }
+      if (current.length) chunks.push(current);
+      return chunks;
+    }
+
+    function paragraphLabel(lines, fallback) {
+      const candidates = lines
+        .map(cleanLine)
+        .filter(Boolean)
+        .filter(line => !/^(Supplier|Suppliers|File|Files|Expected supplier area):$/.test(line))
+        .filter(line => !/^neo\\|^PathTracer\\/.test(line));
+
+      const first = candidates[0] || fallback;
+      return first.length > 92 ? `${first.slice(0, 89)}...` : first;
+    }
+
+    function parsePorts(bucketLines, category, isOutput) {
+      const body = bucketLines.filter(line => cleanLine(line));
+      if (!body.length) return [];
+      if (body.every(line => isNoiseLine(cleanLine(line)))) return [];
+
+      if (!isOutput && category === "missing input") {
+        return body
+          .map(cleanLine)
+          .filter(line => line && !isNoiseLine(line) && !/^(Expected supplier area|Supplier|Suppliers):$/.test(line))
+          .map((label, index) => ({ label, detail: label, category, index }));
+      }
+
+      if (isOutput) {
+        const ports = [];
+        for (const line of body) {
+          const trimmed = cleanLine(line);
+          if (isNoiseLine(trimmed)) continue;
+          if (/^ {8,}\S/.test(line) || !ports.length) {
+            ports.push({ label: trimmed, detail: trimmed, category, index: ports.length });
+          } else {
+            const last = ports[ports.length - 1];
+            last.detail += `\n${trimmed}`;
+            if (last.label.length < 80) last.label = cleanLine(`${last.label} ${trimmed}`);
+          }
+        }
+        return ports;
+      }
+
+      return splitParagraphs(body).map((lines, index) => {
+        const detail = lines.map(cleanLine).join("\n");
+        return {
+          label: paragraphLabel(lines, shortCategory(category)),
+          detail,
+          category,
+          index
+        };
+      }).filter(port => !isNoiseLine(port.label));
+    }
+
+    function parseModule(block, moduleIndex) {
+      const files = [];
+      const buckets = { inputs: {}, outputs: {} };
+      let mode = "files";
+      let category = null;
+
+      for (const line of block.lines) {
+        const trimmed = cleanLine(line);
+        if (!trimmed) {
+          if (category && mode) buckets[mode][category].push(line);
+          continue;
+        }
+        if (trimmed === "File:" || trimmed === "Files:") {
+          mode = "files";
+          category = null;
+          continue;
+        }
+        if (trimmed === "Inputs:") {
+          mode = "inputs";
+          category = null;
+          continue;
+        }
+        if (trimmed === "Outputs:") {
+          mode = "outputs";
+          category = null;
+          continue;
+        }
+        if (mode === "files" && /^\s+/.test(line)) {
+          files.push(trimmed);
+          continue;
+        }
+        if (mode === "inputs" && inputCategories.includes(trimmed)) {
+          category = trimmed;
+          buckets.inputs[category] = [];
+          continue;
+        }
+        if (mode === "outputs" && outputCategories.includes(trimmed)) {
+          category = trimmed;
+          buckets.outputs[category] = [];
+          continue;
+        }
+        if (category && buckets[mode] && buckets[mode][category]) {
+          buckets[mode][category].push(line);
+        }
+      }
+
+      const inputs = [];
+      const outputs = [];
+      for (const cat of inputCategories) {
+        for (const port of parsePorts(buckets.inputs[cat] || [], cat, false)) {
+          port.id = `in-${moduleIndex}-${inputs.length}`;
+          inputs.push(port);
+        }
+      }
+      for (const cat of outputCategories) {
+        for (const port of parsePorts(buckets.outputs[cat] || [], cat, true)) {
+          port.id = `out-${moduleIndex}-${outputs.length}`;
+          outputs.push(port);
+        }
+      }
+
+      return {
+        id: `module-${moduleIndex}-${slug(block.title)}`,
+        title: block.title,
+        files,
+        inputs,
+        outputs,
+        x: 0,
+        y: 0,
+        aliases: []
+      };
+    }
+
+    function aliasesFor(module) {
+      const values = new Set();
+      for (const part of module.title.split("/")) values.add(cleanLine(part));
+      for (const file of module.files) {
+        const name = file.split(/[\\/]/).pop().replace(/\.[^.]+$/, "");
+        values.add(name);
+      }
+      return Array.from(values)
+        .map(value => value.trim())
+        .filter(value => value.length > 3)
+        .sort((a, b) => b.length - a.length);
+    }
+
+    function layoutModules(modules) {
+      const columns = 3;
+      const colWidth = 420;
+      const rowHeight = 365;
+      modules.forEach((module, index) => {
+        const col = index % columns;
+        const row = Math.floor(index / columns);
+        module.x = 70 + col * colWidth;
+        module.y = 70 + row * rowHeight;
+      });
+    }
+
+    function buildEdges(modules, finalNode) {
+      const edges = [];
+      for (const target of modules) {
+        for (const input of target.inputs) {
+          const haystack = `${input.label}\n${input.detail}`.toLowerCase();
+          for (const source of modules) {
+            if (source.id === target.id) continue;
+            const matched = source.aliases.find(alias => haystack.includes(alias.toLowerCase()));
+            if (!matched) continue;
+            edges.push({
+              id: `source-${source.id}-${target.id}-${input.id}-${slug(matched)}`,
+              type: "source",
+              from: { moduleId: source.id, portId: source.outputs[0]?.id || null, side: "out" },
+              to: { moduleId: target.id, portId: input.id, side: "in" }
+            });
+            break;
+          }
+        }
+      }
+
+      for (const module of modules) {
+        module.outputs.forEach((output, index) => {
+          const finalPort = finalNode.inputs.find(port => port.sourceModuleId === module.id && port.sourceOutputIndex === index);
+          edges.push({
+            id: `restir-${module.id}-${output.id}`,
+            type: "restir",
+            from: { moduleId: module.id, portId: output.id, side: "out" },
+            to: { moduleId: finalNode.id, portId: finalPort.id, side: "in" }
+          });
+        });
+      }
+      return edges;
+    }
+
+    function parseMap(text) {
+      const modules = parseBlocks(text).map(parseModule);
+      layoutModules(modules);
+      modules.forEach(module => module.aliases = aliasesFor(module));
+
+      const finalInputs = [];
+      for (const module of modules) {
+        module.outputs.forEach((output, index) => {
+          finalInputs.push({
+            id: `final-${module.id}-${index}`,
+            sourceModuleId: module.id,
+            sourceOutputIndex: index,
+            label: `${module.title}: ${output.label}`,
+            detail: output.detail,
+            category: "ReSTIR PT",
+            index: finalInputs.length
+          });
+        });
+      }
+
+      const finalNode = {
+        id: "restir-pt",
+        title: "ReSTIR PT",
+        files: ["Final ReSTIR PT consumers"],
+        inputs: finalInputs,
+        outputs: [],
+        aliases: ["ReSTIR PT"],
+        x: 1460,
+        y: 120,
+        final: true
+      };
+
+      return { modules: [...modules, finalNode], sourceModules: modules, finalNode, edges: buildEdges(modules, finalNode) };
+    }
+
+    function portHtml(port, side, isOutput) {
+      const cls = statusClass(port.category, isOutput);
+      return `
+        <div class="port ${cls}" data-port-id="${port.id}" data-side="${side}" title="${escapeHtml(port.detail || port.label)}">
+          <span class="port-category">${escapeHtml(shortCategory(port.category))}</span>
+          <span class="port-name">${escapeHtml(port.label)}</span>
+          <span class="detail">${escapeHtml(port.detail || "")}</span>
+        </div>`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function render() {
+      const data = state.data;
+      if (!data) return;
+      els.nodes.innerHTML = "";
+      for (const module of data.modules) {
+        const node = document.createElement("section");
+        node.className = `node${module.final ? " final" : ""}`;
+        node.dataset.nodeId = module.id;
+        node.style.left = `${module.x}px`;
+        node.style.top = `${module.y}px`;
+        node.innerHTML = `
+          <div class="node-header">
+            <div class="node-title">${escapeHtml(module.title)}</div>
+            <div class="node-meta">${module.inputs.length} in / ${module.outputs.length} out</div>
+          </div>
+          <div class="files">${module.files.slice(0, 3).map(escapeHtml).join("<br>")}</div>
+          <div class="io">
+            <div class="side inputs">
+              <div class="side-title">Inputs</div>
+              ${module.inputs.map(port => portHtml(port, "in", false)).join("") || `<div class="port status-missing"><span class="port-name">none</span></div>`}
+            </div>
+            <div class="side outputs">
+              <div class="side-title">Outputs</div>
+              ${module.outputs.map(port => portHtml(port, "out", true)).join("") || `<div class="port status-missing"><span class="port-name">none</span></div>`}
+            </div>
+          </div>`;
+        els.nodes.appendChild(node);
+      }
+      wireDragging();
+      applyFilter();
+      requestAnimationFrame(drawEdges);
+    }
+
+    function nodeById(id) {
+      return state.data.modules.find(module => module.id === id);
+    }
+
+    function portElement(ref) {
+      const node = els.nodes.querySelector(`[data-node-id="${CSS.escape(ref.moduleId)}"]`);
+      if (!node) return null;
+      if (!ref.portId) return node.querySelector(".node-header");
+      return node.querySelector(`[data-port-id="${CSS.escape(ref.portId)}"]`);
+    }
+
+    function portPoint(ref) {
+      const el = portElement(ref);
+      if (!el) {
+        const module = nodeById(ref.moduleId);
+        return { x: module.x + (ref.side === "out" ? 356 : 0), y: module.y + 36 };
+      }
+      const viewRect = els.viewport.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
+      const xScreen = ref.side === "out" ? rect.right : rect.left;
+      const yScreen = rect.top + rect.height / 2;
+      return {
+        x: (xScreen - viewRect.left - state.panX) / state.scale,
+        y: (yScreen - viewRect.top - state.panY) / state.scale
+      };
+    }
+
+    function bezierPath(a, b) {
+      const dx = Math.max(72, Math.abs(b.x - a.x) * 0.45);
+      return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} C ${(a.x + dx).toFixed(1)} ${a.y.toFixed(1)}, ${(b.x - dx).toFixed(1)} ${b.y.toFixed(1)}, ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+    }
+
+    function drawEdges() {
+      if (!state.data) return;
+      const activeTypes = {
+        source: state.showSource,
+        restir: state.showRestir
+      };
+      els.links.innerHTML = "";
+      const frag = document.createDocumentFragment();
+      for (const edge of state.data.edges) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("class", `edge ${edge.type === "source" ? "source-link" : "restir-link"}${activeTypes[edge.type] ? "" : " hidden"}`);
+        path.setAttribute("d", bezierPath(portPoint(edge.from), portPoint(edge.to)));
+        path.dataset.edgeId = edge.id;
+        frag.appendChild(path);
+      }
+      els.links.appendChild(frag);
+      applyFilterToEdges();
+    }
+
+    function updateTransform() {
+      els.world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+      els.status.textContent = state.data
+        ? `${state.data.sourceModules.length} modules / ${state.data.edges.length} links / ${Math.round(state.scale * 100)}%${state.statusNote ? ` / ${state.statusNote}` : ""}`
+        : "";
+      requestAnimationFrame(drawEdges);
+    }
+
+    function wireDragging() {
+      for (const header of els.nodes.querySelectorAll(".node-header")) {
+        header.addEventListener("pointerdown", event => {
+          const nodeEl = header.closest(".node");
+          const module = nodeById(nodeEl.dataset.nodeId);
+          state.dragging = {
+            pointerId: event.pointerId,
+            module,
+            startX: event.clientX,
+            startY: event.clientY,
+            originX: module.x,
+            originY: module.y
+          };
+          header.setPointerCapture(event.pointerId);
+          event.preventDefault();
+        });
+      }
+    }
+
+    function screenToWorld(clientX, clientY) {
+      const rect = els.viewport.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - state.panX) / state.scale,
+        y: (clientY - rect.top - state.panY) / state.scale
+      };
+    }
+
+    function fitGraph() {
+      if (!state.data) return;
+      const nodes = Array.from(els.nodes.querySelectorAll(".node"));
+      if (!nodes.length) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const nodeEl of nodes) {
+        const module = nodeById(nodeEl.dataset.nodeId);
+        minX = Math.min(minX, module.x);
+        minY = Math.min(minY, module.y);
+        maxX = Math.max(maxX, module.x + nodeEl.offsetWidth);
+        maxY = Math.max(maxY, module.y + nodeEl.offsetHeight);
+      }
+      const view = els.viewport.getBoundingClientRect();
+      const padding = 70;
+      const scaleX = (view.width - padding * 2) / Math.max(1, maxX - minX);
+      const scaleY = (view.height - padding * 2) / Math.max(1, maxY - minY);
+      state.scale = Math.max(0.22, Math.min(1.15, Math.min(scaleX, scaleY)));
+      state.panX = padding - minX * state.scale;
+      state.panY = padding - minY * state.scale;
+      updateTransform();
+    }
+
+    function resetLayout() {
+      if (!state.data) return;
+      layoutModules(state.data.sourceModules);
+      state.data.finalNode.x = 1460;
+      state.data.finalNode.y = 120;
+      render();
+      requestAnimationFrame(fitGraph);
+    }
+
+    function layoutStorageKey() {
+      if (!state.data) return null;
+      const graphSignature = state.data.sourceModules
+        .map(module => `${module.id}:${module.inputs.length}:${module.outputs.length}`)
+        .join("|");
+      return `restir-pt-rab-io-layout:v1:${graphSignature}`;
+    }
+
+    function captureLayout() {
+      return {
+        savedAt: new Date().toISOString(),
+        scale: state.scale,
+        panX: state.panX,
+        panY: state.panY,
+        modules: Object.fromEntries(state.data.modules.map(module => [
+          module.id,
+          { x: module.x, y: module.y }
+        ]))
+      };
+    }
+
+    function saveLayout() {
+      const key = layoutStorageKey();
+      if (!key) return false;
+      try {
+        window.localStorage.setItem(key, JSON.stringify(captureLayout()));
+        setStatusNote("layout saved");
+        return true;
+      } catch {
+        setStatusNote("layout save failed");
+        return false;
+      }
+    }
+
+    function applyLayout(layout) {
+      if (!layout || !layout.modules) return false;
+      let applied = 0;
+      for (const module of state.data.modules) {
+        const saved = layout.modules[module.id];
+        if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) continue;
+        module.x = saved.x;
+        module.y = saved.y;
+        applied++;
+      }
+      if (!applied) return false;
+      if (Number.isFinite(layout.scale)) state.scale = Math.max(0.18, Math.min(2.4, layout.scale));
+      if (Number.isFinite(layout.panX)) state.panX = layout.panX;
+      if (Number.isFinite(layout.panY)) state.panY = layout.panY;
+      return true;
+    }
+
+    function loadLayout(showMessage = true) {
+      const key = layoutStorageKey();
+      if (!key) return false;
+      try {
+        const saved = window.localStorage.getItem(key);
+        if (!saved) {
+          if (showMessage) setStatusNote("no saved layout");
+          return false;
+        }
+        if (!applyLayout(JSON.parse(saved))) {
+          if (showMessage) setStatusNote("saved layout did not match");
+          return false;
+        }
+        render();
+        updateTransform();
+        if (showMessage) setStatusNote("layout loaded");
+        return true;
+      } catch {
+        if (showMessage) setStatusNote("layout load failed");
+        return false;
+      }
+    }
+
+    function clearSavedLayout() {
+      const key = layoutStorageKey();
+      if (!key) return;
+      try {
+        window.localStorage.removeItem(key);
+        setStatusNote("saved layout cleared");
+      } catch {
+        setStatusNote("clear failed");
+      }
+    }
+
+    function applyFilter() {
+      const query = state.search.trim().toLowerCase();
+      const matched = new Set();
+      for (const nodeEl of els.nodes.querySelectorAll(".node")) {
+        const module = nodeById(nodeEl.dataset.nodeId);
+        const haystack = [
+          module.title,
+          module.files.join(" "),
+          ...module.inputs.map(port => `${port.label} ${port.detail}`),
+          ...module.outputs.map(port => `${port.label} ${port.detail}`)
+        ].join(" ").toLowerCase();
+        const hit = query && haystack.includes(query);
+        nodeEl.classList.toggle("highlight", hit);
+        if (hit) matched.add(module.id);
+      }
+      applyFilterToEdges(matched);
+    }
+
+    function applyFilterToEdges(precomputedMatches) {
+      if (!state.data) return;
+      const query = state.search.trim().toLowerCase();
+      const matched = precomputedMatches || new Set(Array.from(els.nodes.querySelectorAll(".node.highlight")).map(el => el.dataset.nodeId));
+      for (const edgeEl of els.links.querySelectorAll(".edge")) {
+        const edge = state.data.edges.find(candidate => candidate.id === edgeEl.dataset.edgeId);
+        edgeEl.classList.toggle("dimmed", Boolean(query) && !matched.has(edge.from.moduleId) && !matched.has(edge.to.moduleId));
+      }
+    }
+
+    function setData(text) {
+      state.data = parseMap(text);
+      els.loader.classList.remove("visible");
+      if (!loadLayout(false)) {
+        render();
+        updateTransform();
+        requestAnimationFrame(fitGraph);
+      }
+    }
+
+    async function loadDefault() {
+      try {
+        const response = await fetch(MAP_FILE, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        setData(await response.text());
+      } catch {
+        els.loader.classList.add("visible");
+      }
+    }
+
+    els.viewport.addEventListener("wheel", event => {
+      event.preventDefault();
+      const before = screenToWorld(event.clientX, event.clientY);
+      const factor = Math.exp(-event.deltaY * 0.0012);
+      state.scale = Math.max(0.18, Math.min(2.4, state.scale * factor));
+      const rect = els.viewport.getBoundingClientRect();
+      state.panX = event.clientX - rect.left - before.x * state.scale;
+      state.panY = event.clientY - rect.top - before.y * state.scale;
+      updateTransform();
+    }, { passive: false });
+
+    els.viewport.addEventListener("pointerdown", event => {
+      if (event.target.closest(".node")) return;
+      state.panning = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY };
+      els.viewport.classList.add("panning");
+      els.viewport.setPointerCapture(event.pointerId);
+    });
+
+    window.addEventListener("pointermove", event => {
+      if (state.dragging) {
+        const drag = state.dragging;
+        drag.module.x = drag.originX + (event.clientX - drag.startX) / state.scale;
+        drag.module.y = drag.originY + (event.clientY - drag.startY) / state.scale;
+        const nodeEl = els.nodes.querySelector(`[data-node-id="${CSS.escape(drag.module.id)}"]`);
+        nodeEl.style.left = `${drag.module.x}px`;
+        nodeEl.style.top = `${drag.module.y}px`;
+        drawEdges();
+      } else if (state.panning) {
+        state.panX = state.panning.panX + event.clientX - state.panning.x;
+        state.panY = state.panning.panY + event.clientY - state.panning.y;
+        updateTransform();
+      }
+    });
+
+    window.addEventListener("pointerup", event => {
+      if (state.dragging && state.dragging.pointerId === event.pointerId) state.dragging = null;
+      if (state.panning && state.panning.pointerId === event.pointerId) {
+        state.panning = null;
+        els.viewport.classList.remove("panning");
+      }
+    });
+
+    els.fit.addEventListener("click", fitGraph);
+    els.reset.addEventListener("click", resetLayout);
+    els.saveLayout.addEventListener("click", saveLayout);
+    els.loadLayout.addEventListener("click", () => loadLayout(true));
+    els.clearLayout.addEventListener("click", clearSavedLayout);
+    els.toggleSource.addEventListener("click", () => {
+      state.showSource = !state.showSource;
+      els.toggleSource.classList.toggle("active", state.showSource);
+      drawEdges();
+    });
+    els.toggleRestir.addEventListener("click", () => {
+      state.showRestir = !state.showRestir;
+      els.toggleRestir.classList.toggle("active", state.showRestir);
+      drawEdges();
+    });
+    els.toggleDetails.addEventListener("click", () => {
+      document.body.classList.toggle("show-details");
+      els.toggleDetails.classList.toggle("active", document.body.classList.contains("show-details"));
+      requestAnimationFrame(drawEdges);
+    });
+    els.search.addEventListener("input", () => {
+      state.search = els.search.value;
+      applyFilter();
+    });
+    els.file.addEventListener("change", async () => {
+      const file = els.file.files[0];
+      if (!file) return;
+      setData(await file.text());
+    });
+    window.addEventListener("resize", () => requestAnimationFrame(drawEdges));
+
+    window.__restirGraph = { parseMap };
+
+    updateTransform();
+    loadDefault();
+  })();
+  </script>
+</body>
+</html>

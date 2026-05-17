@@ -965,13 +965,38 @@ Ray dispatch safety diagnostics:
   raw DI reservoir estimate, `2` shows the debug-only DI temporal reservoir
   as a direct-light preview with temporal reservoir history, `3` shows the
   debug-only DI spatial candidate, `4` shows raw DI reservoir
-  validity/M/WeightSum, and `5` shows DI spatial/temporal status colors. View 2
-  does not multiply brightness by reservoir `M`; view 3 runs a debug-only
-  temporal prepass into the DI reservoir buffer, barriers it, then combines the
-  current temporal DI candidate with validated current-frame temporal DI
-  neighbors. The temporal debug path can carry validated previous DI temporal
-  history when the current raw DI sample is missing. These views write only the
-  debug output, not RR input.
+  validity/M/WeightSum, `5` shows DI spatial/temporal status colors, `6` shows
+  the RTXDI final-shading input as `TargetFunction * WeightSum`, `7` shows
+  the RTXDI final-shading input validity/target/weight/M state, `8` shows the
+  official RTXDI page-chain state in quadrants, and `9` shows the official page
+  chain's `TargetFunction * WeightSum` contribution in quadrants. View `10`
+  shows a temporal-readiness/rejection proxy over the official path: reset-mask
+  colors first, then primary-surface projection/similarity colors, then
+  blue/green when temporal output has valid history. View `11` classifies the
+  official temporal page flow: red = initial invalid, blue = temporal input
+  invalid, purple = temporal output invalid, cyan = output valid but current-only
+  M, magenta = output kept prior input M but did not grow, and green/blue =
+  output M grew beyond current/input. View `12` classifies the RTXDI-shaped
+  temporal-neighbor acceptance stage: red = no motion/projection, dark blue =
+  missing/out-of-range previous surface, purple = depth/normal rejection, yellow
+  = material rejection, blue = previous reservoir invalid, orange = reservoir
+  age cap, cyan = a previous candidate was acceptable but output stayed
+  current-only, bright orange = the accepted previous sample is NEE while
+  previous NEE reuse is disabled, white = invalid sampled-light data, bright green =
+  accepted previous emissive light has no stable identity/remap, blue/purple/
+  magenta/pink = accepted analytic identity/remap/range failure, gray =
+  accepted analytic light state mismatch, and dark green/blue = output history
+  grew. For views 8
+  and 9, top-left is initial, top-right is temporal output, bottom-left is
+  spatial output, and bottom-right is final-shading input. Views 6-11 are the
+  reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
+  producer output and avoid the custom DI scratch reservoir math. View 2 does
+  not multiply brightness by reservoir `M`; view 3 runs a
+  debug-only temporal prepass into the DI reservoir buffer, barriers it, then
+  combines the current temporal DI candidate with validated current-frame
+  temporal DI neighbors. The temporal debug path can carry validated previous
+  DI temporal history when the current raw DI sample is missing. These views
+  write only the debug output, not RR input.
 
 - r_pathTracingRestirPTGiDebugView
   Mode 56 GI comparison view. `0` keeps normal mode 56 output, `1` shows raw GI

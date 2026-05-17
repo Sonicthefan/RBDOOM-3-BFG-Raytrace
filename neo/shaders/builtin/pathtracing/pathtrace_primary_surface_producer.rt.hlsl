@@ -14,6 +14,7 @@ struct PathTraceSmokePayload
     float3 tangent;
     float3 bitangent;
     float2 texCoord;
+    float2 hitBarycentrics;
     float4 vertexColor;
     float4 vertexColorAdd;
     uint surfaceClass;
@@ -22,6 +23,7 @@ struct PathTraceSmokePayload
     uint materialId;
     uint materialIndex;
     uint instanceId;
+    uint geometryIndex;
     uint primitiveIndex;
     uint shadowIgnoreInstanceId;
     uint shadowIgnorePrimitiveIndex;
@@ -158,7 +160,7 @@ struct RAB_Surface
 
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
-VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceMotionVectors : register(u39);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness : register(u49);
@@ -1310,7 +1312,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
     {
         if (motionVectorExportEnabled)
         {
-            PathTraceMotionVectors[pixel] = motionPixels;
+            PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - surface.linearDepth, 0.0);
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, RT_PRIMARY_SURFACE_DEBUG_OK);
         }
         PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, true, RT_PRIMARY_SURFACE_DEBUG_OK);
@@ -1319,7 +1321,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
     {
         if (motionVectorExportEnabled)
         {
-            PathTraceMotionVectors[pixel] = float2(0.0, 0.0);
+            PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, debugStatus);
         }
         PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, false, debugStatus);
@@ -1329,6 +1331,9 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
 PathTraceSmokePayload InitSmokePayload()
 {
     PathTraceSmokePayload payload = (PathTraceSmokePayload)0;
+    payload.instanceId = 0xffffffffu;
+    payload.geometryIndex = 0xffffffffu;
+    payload.primitiveIndex = 0xffffffffu;
     payload.shadowIgnoreInstanceId = 0xffffffffu;
     payload.shadowIgnorePrimitiveIndex = 0xffffffffu;
     payload.shadowIgnoreMaterialId = 0xffffffffu;
@@ -1695,8 +1700,10 @@ void ShadowClosestHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangle
 void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
+    const uint geometryIndex = GeometryIndex();
     const uint primitiveIndex = PrimitiveIndex();
     payload.instanceId = instanceId;
+    payload.geometryIndex = geometryIndex;
     payload.primitiveIndex = primitiveIndex;
 
     if (instanceId >= 2u)
@@ -1744,6 +1751,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 
         payload.value = 1u;
         payload.hitT = RayTCurrent();
+        payload.hitBarycentrics = attributes.barycentrics;
         const float3 worldRayFallback = SafeNormalize(-WorldRayDirection(), float3(0.0, 0.0, 1.0));
         const float3 objectGeometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), worldRayFallback);
         payload.geometricNormal = TransformObjectNormalToWorld(objectGeometricNormal, worldRayFallback);
@@ -1819,6 +1827,7 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
 
     payload.value = 1u;
     payload.hitT = RayTCurrent();
+    payload.hitBarycentrics = attributes.barycentrics;
     payload.geometricNormal = SafeNormalize(cross(p1 - p0, p2 - p0), float3(0.0, 0.0, 1.0));
     const float3 interpolatedNormal = SafeNormalize(n0 * barycentrics.x + n1 * barycentrics.y + n2 * barycentrics.z, payload.geometricNormal);
     payload.normal = forceGeometricNormal ? payload.geometricNormal : interpolatedNormal;

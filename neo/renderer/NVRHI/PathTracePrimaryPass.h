@@ -8,6 +8,7 @@
 
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceDrawSurfCapture.h"
+#include "PathTraceEmissiveCandidates.h"
 #include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
@@ -116,6 +117,8 @@ private:
     nvrhi::BufferHandle m_smokeDynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeMaterialTableBuffer;
     nvrhi::BufferHandle m_smokeEmissiveTriangleBuffer;
+    nvrhi::BufferHandle m_smokePreviousEmissiveTriangleBuffer;
+    nvrhi::BufferHandle m_smokeEmissiveRemapBuffer;
     nvrhi::BufferHandle m_smokeEmissiveDistributionBuffer;
     nvrhi::BufferHandle m_smokeLightCandidateBuffer;
     nvrhi::BufferHandle m_smokeDoomAnalyticLightBuffer;
@@ -167,6 +170,7 @@ private:
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
     std::vector<uint32_t> m_smokePreviousStaticTriangleMaterialIndexes;
+    std::vector<PathTraceSmokeEmissiveTriangle> m_smokePreviousEmissiveTriangles;
     uint64 m_smokePreviousStaticSnapshotUploadSignature = 0;
     int m_smokeMaterialTableEntryCount = 0;
     int m_smokeEmissiveTriangleCount = 0;

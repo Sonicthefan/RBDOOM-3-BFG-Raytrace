@@ -1,0 +1,821 @@
+ReSTIR PT RAB IO Supply Map
+Date: 2026-05-17
+
+Purpose
+-------
+Map each rbdoom RtxdiBridge file by input/output condition.
+
+Category keys
+-------------
+Inputs:
+    functional input
+        Present input; supplier file exists; RAB can use it as intended.
+    connected but wrong data
+        Input is wired, but supplied data is unstable, incomplete, or not
+        reference-valid.
+    compromised input
+        RAB callback was adapted to make do with rbdoom data instead of using
+        the full NVIDIA reference input.
+    missing input
+        Required reference input has no real rbdoom supplier.
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        Callback/output is connected and produces reference-shaped data for its
+        supported domain.
+    poisoned function thought to be broken from bad supplier data
+        Callback shape is acceptable, but output can become invalid because
+        supplied data is bad.
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        Local adapter or substitute exists that is not NVIDIA-equivalent.
+    missing output
+        Code path exists, but output is stubbed, diagnostic-only, or inert
+        because the supplier is absent.
+
+
+RAB_SurfaceCore / RAB_Surface / RAB_Material
+Files:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_SurfaceCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_Surface.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_Material.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTraceRtxdiBridgeCore.hlsli
+
+Inputs:
+    functional input
+        RAB_Surface world position, normals, view direction, linear depth,
+        surface class, instance id, primitive id, material id, material index.
+        Suppliers:
+            neo\shaders\builtin\pathtracing\pathtrace_primary_surface_producer.rt.hlsl
+            neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+            PrimarySurfaceHistoryCurrent u30
+            PrimarySurfaceHistoryPrevious u31
+
+    connected but wrong data
+        Previous-frame surface history can become invalid or mismatched under
+        skinned/rigid motion.
+        Suppliers:
+            neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+            neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+            neo\shaders\builtin\pathtracing\pathtrace_primary_surface_producer.rt.hlsl
+            PathTraceMotionVectors u39
+            PathTraceMotionVectorMask u40
+            PathTraceRRGuideResetMask u52
+
+        Material/surface similarity can reject valid-looking moving objects due
+        to unstable material id/index/class/roughness inputs.
+        Suppliers:
+            PrimarySurfaceHistoryCurrent u30
+            PrimarySurfaceHistoryPrevious u31
+            material tables from PathTraceSmokeResources/SceneBuild
+
+    compromised input
+        none recorded for core accessors.
+
+    missing input
+        none for basic surface accessors.
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_IsSurfaceValid
+        RAB_GetSurfaceWorldPos
+        RAB_SetSurfaceWorldPos
+        RAB_GetSurfaceNormal
+        RAB_GetSurfaceGeoNormal
+        RAB_SetSurfaceNormal
+        RAB_GetSurfaceViewDir
+        RAB_GetSurfaceLinearDepth
+        RAB_GetMaterial
+
+    poisoned function thought to be broken from bad supplier data
+        RAB_AreMaterialsSimilar
+        PathTracePrimarySurfacesAreSimilar consumers
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        none recorded.
+
+    missing output
+        none recorded.
+
+
+RAB_Brdf
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_Brdf.hlsli
+
+Inputs:
+    functional input
+        Diffuse albedo, surface normal, geometric normal, view direction,
+        roughness, specular F0.
+        Suppliers:
+            RAB_Surface material fields
+            pathtrace_smoke.rt.hlsl material sampling
+            PathTraceSmokeResources material buffers
+
+    connected but wrong data
+        Specular F0 and roughness are connected but not consumed by the current
+        diffuse-only BRDF implementation.
+        Suppliers:
+            RAB_Surface material fields
+            material tables from PathTraceSmokeResources/SceneBuild
+
+    compromised input
+        RAB callbacks use a Lambert/diffuse-only model despite receiving
+        roughness and specular F0.
+        File:
+            neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_Brdf.hlsli
+
+    missing input
+        brdf_diffuse_probability
+        brdf_ggx_importance_sampling
+        brdf_mixed_diffuse_specular_pdf
+        brdf_ggx_specular_evaluation
+        bsdf_delta_reflection_properties
+        bsdf_delta_pdf_properties
+        bsdf_delta_reflection_evaluation
+        Expected supplier area:
+            material/BSDF layer feeding RAB_Brdf.hlsli
+            pathtrace_smoke.rt.hlsl material sampling
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_GetSurfaceBrdfSample for diffuse surfaces
+        RAB_GetSurfaceBrdfPdf for diffuse surfaces
+        RAB_EvaluateSurfaceBrdf for diffuse surfaces
+        RAB_EvaluateSurfaceBrdfOverPdf for diffuse surfaces
+
+    poisoned function thought to be broken from bad supplier data
+        none recorded; limitation is functional incompleteness, not bad data.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        Diffuse-only BRDF output where NVIDIA reference expects mixed
+        diffuse/GGX/delta BSDF behavior.
+
+    missing output
+        GGX/specular sample output
+        mixed diffuse/specular pdf output
+        delta BSDF output
+
+
+RAB_LightInfo / RAB_LightInfoCore / RAB_LightInfoRuntime
+Files:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightInfo.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightInfoCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightInfoRuntime.hlsli
+
+Inputs:
+    functional input
+        Current emissive triangle records.
+        Supplier:
+            SmokeEmissiveTriangles t16
+            EmissiveInfo.x
+            PathTraceEmissiveCandidates
+            PathTraceSmokeResources / PathTraceSmokeSceneBuild
+
+        Current Doom analytic light records.
+        Supplier:
+            DoomAnalyticLights t27
+            DoomAnalyticLightInfo
+            PathTraceDoomLights / PathTraceSmokeSceneBuild
+
+        Current/previous analytic identity/remap buffers.
+        Supplier:
+            DoomAnalyticCurrentIdentities t42
+            DoomAnalyticPreviousIdentities t43
+            DoomAnalyticRemap t44
+            DoomAnalyticPreviousLights t45
+
+        Previous emissive triangle records and remap buffer.
+        Supplier:
+            SmokePreviousEmissiveTriangles t57
+            SmokeEmissiveRemap t58
+            DoomAnalyticLightRemapInfo.w for previous emissive count
+
+    connected but wrong data
+        Previous-frame emissive and analytic suppliers are insufficient for full
+        RTXDI PT temporal reuse. Observed failures include missing previous
+        target, remap invalid, duplicate identity, unproven continuity,
+        non-sampleable identity, and motion-triggered transient load failures.
+        Suppliers:
+            SmokePreviousEmissiveTriangles t57
+            SmokeEmissiveRemap t58
+            DoomAnalyticPreviousLights t45
+            DoomAnalyticRemap t44
+            CPU light identity/remap builders
+
+    compromised input
+        Conservative invalidation of dynamic/projectile/unproven analytic
+        identities rather than reference-equivalent stable light identity.
+        Files:
+            RAB_LightInfoRuntime.hlsli
+            PathTraceDoomLights / analytic remap builders
+
+    missing input
+        Environment light records in RAB light domain.
+        Expected supplier area:
+            environment/sky light-domain builder
+            RAB_GetCurrentLightCount supplier
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_GetCurrentLightCount for emissive + Doom analytic domain
+        RAB_LoadLightInfo(index,false) for mostly valid current records
+        RAB_TranslateLightIndex for supported emissive/analytic remaps
+
+    poisoned function thought to be broken from bad supplier data
+        RAB_LoadLightInfo(index,true)
+        RAB_TranslateLightIndex on previous-frame light IDs
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        Conservative previous-frame invalidation used to avoid unsafe reuse
+        when stable identity is not proven.
+
+    missing output
+        Environment light-info output.
+
+
+RAB_LightSample / RAB_LightSampling / RAB_LightSamplingCore
+Files:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSample.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSampling.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+
+Inputs:
+    functional input
+        Current emissive triangle light info.
+        Supplier:
+            RAB_LoadLightInfo(index,false)
+            SmokeEmissiveTriangles t16
+
+        Current Doom analytic sphere light info.
+        Supplier:
+            RAB_LoadLightInfo(index,false)
+            DoomAnalyticLights t27
+
+        Receiver surface position/normal/view/material data.
+        Supplier:
+            RAB_SurfaceCore / primary surface history
+
+    connected but wrong data
+        Receiver-dependent zero target pdf appears near edges/backfaces and is
+        driven by surface normal/geometric normal/view-vector relationships.
+        Supplier:
+            RAB_Surface current surface record
+
+        Current light-domain load holes can poison sample replay.
+        Supplier:
+            RAB_LightInfoRuntime.hlsli light load sources
+
+    compromised input
+        none for current emissive/Doom analytic sample construction.
+
+    missing input
+        Environment light sampling records.
+        Expected supplier area:
+            environment light-domain records
+            environment sampling pdf/radiance source
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_SamplePolymorphicLight for current emissive triangles
+        RAB_SamplePolymorphicLight for current Doom analytic spheres
+        RAB_LightSamplePosition
+        RAB_LightSampleSolidAnglePdf
+        RAB_GetLightDirDistance
+
+    poisoned function thought to be broken from bad supplier data
+        RAB_SamplePolymorphicLight when RAB_LoadLightInfo supplies invalid or
+        zero-radiance records.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        none recorded for current local light types.
+
+    missing output
+        Environment light sample output.
+
+
+RAB_LightTarget
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightTarget.hlsli
+
+Inputs:
+    functional input
+        Surface world position, normal, geometric normal, view direction,
+        diffuse material, incoming light position/radiance.
+        Suppliers:
+            RAB_SurfaceCore
+            RAB_Brdf
+            RAB_LightSample
+
+    connected but wrong data
+        Surface normal/material data can poison target pdf/replay when primary
+        surface history is unstable.
+        Suppliers:
+            PrimarySurfaceHistoryCurrent u30
+            PrimarySurfaceHistoryPrevious u31
+
+    compromised input
+        Volume target pdf uses local light weight instead of reference
+        polymorphic volume-weight/light-grid inputs.
+        File:
+            RAB_LightTarget.hlsli
+
+    missing input
+        polymorphic_light_volume_weight_function
+        world_space_light_grid_volume_domain
+        volume_media_light_target_parameters
+        Expected supplier area:
+            volume/light grid supplier
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_GetPTSampleTargetPdfForSurface
+        RAB_GetLightSampleTargetPdfForSurface
+        RAB_GetReflectedBsdfRadianceForSurface for diffuse local model
+
+    poisoned function thought to be broken from bad supplier data
+        Target replay outputs when surface/material history is unstable.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        RAB_GetLightTargetPdfForVolume adapter returns local light weight.
+
+    missing output
+        Reference volume-domain target pdf output.
+
+
+RAB_MISCallbacks
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_MISCallbacks.hlsli
+
+Inputs:
+    functional input
+        Analytic NEE light sample data.
+        Supplier:
+            DoomAnalyticLights t27
+            RAB_LightSample
+
+        Emissive NEE proposal pdf and emissive trial count.
+        Supplier:
+            SmokeEmissiveTriangles.sampleWeightAndPdf.y
+            EmissiveInfo.z
+
+        Ray payload instance/primitive/material/geometry identity for emissive
+        hit matching.
+        Supplier:
+            RAB_RayPayload.hlsli
+            PathTraceSmokePayload
+
+    connected but wrong data
+        Emissive light records can be structurally loadable but have zero or
+        poor CPU-estimated radiance/proposal weight.
+        Suppliers:
+            PathTraceEmissiveCandidates
+            SmokeEmissiveTriangles
+
+    compromised input
+        Emissive NEE MIS uses rbdoom proposal pdf and local trial count instead
+        of NVIDIA local light PDF texture/sampling-mode inputs.
+        File:
+            RAB_MISCallbacks.hlsli
+
+        BRDF-hit emissive surface MIS uses a linear identity scan instead of
+        a reference geometry-instance-to-light lookup table.
+        File:
+            RAB_MISCallbacks.hlsli
+
+    missing input
+        local_light_pdf_texture
+        local_light_sampling_mode
+        nee_light_selection_pdf_in_callback
+        exact_reference_num_local_light_samples
+        emissive_surface_hit_to_light_index_map
+        geometry_instance_to_light_buffer
+        emissive_triangle_barycentric_replay_vertices
+        emissive_radiance_estimate_for_rab_light_records
+        environment_sampling_pdf_source
+        environment_light_domain_records
+        environment_miss_sample_records_for_restir
+        environment_map_radiance_source
+        environment_map_recording_policy
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_GetMISWeightForNEE for Doom analytic samples returns 1.0.
+        GetMISWeightForEmissiveSurface exists for mapped emissive hits.
+
+    poisoned function thought to be broken from bad supplier data
+        Emissive MIS outputs when emissive proposal/radiance supplier is poor or
+        hit-to-light mapping is missing/duplicate.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        Emissive NEE MIS local adapter.
+        Emissive hit-to-light linear scan adapter.
+        Environment miss marker instead of real environment sample recording.
+
+    missing output
+        Reference environment MIS pdf output.
+        Reference environment light sample recording output.
+        Reference hit-to-light lookup output.
+
+
+RAB_Visibility
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_Visibility.hlsli
+
+Inputs:
+    functional input
+        Strict conservative visibility shadow ray through SmokeScene.
+        Supplier:
+            SmokeScene t0
+            TraceSmokeShadowVisibility in pathtrace_restir_combined_resolve.rt.hlsl
+            RAB_Surface receiver
+            RAB_LightSample or sample position
+
+    connected but wrong data
+        Candidate/selected NEE producer policy can mark samples accepted when
+        strict visibility rejects them.
+        Suppliers:
+            r_pathTracingRestirPTVisibilityPolicy
+            RAB_GetCandidateNeeVisibility
+            RAB_GetSelectedNeeVisibility
+            PathTracer\RAB_PathTracer.hlsli NEE producer
+
+    compromised input
+        Policy 0 geometry-only candidate/selected checks.
+        Files:
+            RAB_Visibility.hlsli
+            PathTracer\RAB_PathTracer.hlsli
+
+    missing input
+        Reference-valid visibility supplier for policy 0 output.
+        Expected supplier area:
+            NEE proposal/selected-sample producer visibility policy
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_GetConservativeVisibility(surface, lightSample)
+        RAB_GetConservativeVisibility(surface, samplePosition)
+
+    poisoned function thought to be broken from bad supplier data
+        RAB_GetCandidateNeeVisibility
+        RAB_GetSelectedNeeVisibility
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        Geometry-only visibility acceptance path.
+
+    missing output
+        Reference-valid policy-0 producer output.
+
+
+RAB_DuplicationMap
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_DuplicationMap.hlsli
+
+Inputs:
+    functional input
+        Full-output bounds check.
+        Supplier:
+            PathTraceFullOutputSize / dispatch constants
+
+    connected but wrong data
+        none.
+
+    compromised input
+        Bounds-aware zero return.
+        File:
+            RAB_DuplicationMap.hlsli
+
+    missing input
+        reference sample-ID texture
+        duplication-map UAV/pass
+        previous-pixel duplicate count buffer
+        Expected supplier area:
+            temporal prepass/sample-ID producer
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        none.
+
+    poisoned function thought to be broken from bad supplier data
+        none.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        RAB_GetDuplicationMapCount returns 0 after bounds check.
+
+    missing output
+        Real duplication count output.
+
+
+RAB_RandomSamplerState
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_RandomSamplerState.hlsli
+
+Inputs:
+    functional input
+        RTXDI random sampler seed/index.
+        Supplier:
+            RTXDI_RandomSamplerState
+            RTXDI_PathTracerRandomContext
+
+    connected but wrong data
+        none observed.
+
+    compromised input
+        none observed.
+
+    missing input
+        none observed.
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_InitRandomSampler
+        RAB_CreateRandomSamplerFromDirectSeed
+        RAB_GetNextRandom
+
+    poisoned function thought to be broken from bad supplier data
+        none observed.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        none observed.
+
+    missing output
+        none observed.
+
+
+RAB_RayPayload
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_RayPayload.hlsli
+
+Inputs:
+    functional input
+        PathTraceSmokePayload hit flag, hitT, instance id, geometry index,
+        primitive id, barycentrics, material id, material index, surface class,
+        front-face state.
+        Suppliers:
+            pathtrace_smoke.rt.hlsl
+            PathTracer\RAB_PathTracer.hlsli
+            SmokeScene TraceRay
+
+    connected but wrong data
+        Surface/material loading still routes through local rbdoom
+        instance/primitive domains instead of NVIDIA reference geometry systems.
+        Suppliers:
+            RAB_BuildSurfaceFromSmokePayload
+            pathtrace_smoke.rt.hlsl
+
+    compromised input
+        none for payload fields after barycentrics/GeometryIndex bridge.
+
+    missing input
+        none recorded for payload fields.
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        RAB_RayPayload hit state
+        committed hit T
+        front-face state
+        instance/geometry/primitive/material identity
+        barycentric hit data
+
+    poisoned function thought to be broken from bad supplier data
+        Downstream surface/material load if rbdoom local identity domains are
+        unstable.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        none recorded.
+
+    missing output
+        none recorded.
+
+
+PathTracer/RAB_PathTracerUserData
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracerUserData.hlsli
+
+Inputs:
+    functional input
+        RTXDI_PTPathTraceInvocationType path type.
+        Supplier:
+            RTXDI path tracer invocation
+
+        Local diagnostic flags.
+        Supplier:
+            RAB_PathTracerUserDataSetPathType
+            RAB_ReconnectionDenoiserCallback
+            RAB_LastBounceDenoiserCallback
+            RAB_NoteEnvironmentMapMissUnbridged
+
+    connected but wrong data
+        none; payload is intentionally incomplete.
+
+    compromised input
+        Scalar hit-distance diagnostics substituted for NVIDIA PSR payload.
+        File:
+            PathTracer\RAB_PathTracerUserData.hlsli
+
+    missing input
+        PSRData psr
+        psr_active_state
+        psr_recorded_state
+        psr_packed_light_direction
+        psr_hit_distance
+        psr_mirror_matrix
+        prior_path_last_nee_light_position_sink
+        psr_get_empty_data_initializer
+        psr_path_type_enable_policy
+        Expected supplier area:
+            PSR buffer/user-data system equivalent to NVIDIA sample
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        pathType storage
+        path-type diagnostic flags
+        environment miss marker flag
+
+    poisoned function thought to be broken from bad supplier data
+        none; missing payload is structural.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        reconnectionDenoiserHitDistance scalar
+        lastBounceDenoiserHitDistance scalar
+        diagnostic flags in place of PSRData
+
+    missing output
+        PSRData output
+        packed light direction output
+        mirror matrix output
+        prior-path last-NEE-light output
+
+
+PathTracer/RAB_PathTracer
+File:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+
+Inputs:
+    functional input
+        Initial surface from RTXDI context.
+        Supplier:
+            GenerateInitialSamples / RTXDI_PathTracerContext
+
+        BRDF continuation ray for diffuse surfaces.
+        Supplier:
+            RAB_Brdf.hlsli
+
+        Current emissive and Doom analytic NEE candidates.
+        Supplier:
+            RAB_LightInfoRuntime.hlsli
+            RAB_LightSamplingCore.hlsli
+            RAB_MISCallbacks.hlsli
+
+        Continuation TraceRay through SmokeScene.
+        Supplier:
+            SmokeScene t0
+            PathTraceSmokePayload
+
+    connected but wrong data
+        Initial NEE can reset to non-NEE due upstream proposal/history
+        instability; off-camera animated object can break accumulation in one
+        tested room.
+        Suppliers:
+            NEE proposal stream
+            light suppliers
+            primary surface/history suppliers
+
+        Candidate/selected visibility policy can admit strict-rejected samples.
+        Suppliers:
+            RAB_Visibility.hlsli
+            r_pathTracingRestirPTVisibilityPolicy
+
+    compromised input
+        Local RIS over emissive and analytic proposals instead of NVIDIA
+        secondary DI reservoir path.
+        File:
+            PathTracer\RAB_PathTracer.hlsli
+
+        Capped diffuse bridge instead of full reference path tracer.
+        File:
+            PathTracer\RAB_PathTracer.hlsli
+
+        Primary NEE skip for indirect debug mode.
+        File:
+            PathTracer\RAB_PathTracer.hlsli
+
+    missing input
+        reference_di_reservoir_for_secondary_nee
+        secondary_di_spatial_resampling_input
+        exact_nee_reservoir_weight_sum
+        strict_reference_visibility_supplier_for_policy_0
+        psr_path_state
+        russian_roulette_pdf_tracking
+        continuation_probability_supplier
+        throughput_minimum_threshold
+        extra_mirror_bounce_budget
+        shader_execution_reordering_policy
+        full_reference_path_depth_policy
+        environment_map_radiance_source
+        environment_map_recording_policy
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        ctx.RecordNeeLightSample scalar/packing contract when NEE is selected.
+        RAB path metadata for current capped diffuse path.
+        Continuation hit payload for local trace path.
+
+    poisoned function thought to be broken from bad supplier data
+        NEE-selected reservoir stream when proposal/history/light suppliers
+        reset or invalidate samples.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        Local emissive/analytic RIS stream.
+        Capped diffuse path tracer.
+        Environment miss marker instead of environment sample recording.
+
+    missing output
+        Full PSR-aware path-tracer output.
+        RR probability recording output.
+        Throughput-threshold termination output.
+        SER policy output.
+        Reference secondary DI reservoir output.
+        Environment-map light sample output.
+
+
+PathTraceRtxdiBridge / PathTraceRtxdiBridgeCore
+Files:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTraceRtxdiBridge.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTraceRtxdiBridgeCore.hlsli
+
+Inputs:
+    functional input
+        Bridge include umbrella and core constants/types for the local RAB
+        implementation.
+        Supplier:
+            pathtrace_smoke.rt.hlsl
+            pathtrace_restir_combined_resolve.rt.hlsl
+
+    connected but wrong data
+        Depends on downstream supplier state listed in individual RAB files.
+
+    compromised input
+        none directly; compromised behavior is in included file callbacks.
+
+    missing input
+        none directly; missing inputs are listed under individual callbacks.
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        Includes and exposes RAB callback set to RTXDI shaders.
+
+    poisoned function thought to be broken from bad supplier data
+        Any included callback can be poisoned by listed supplier gaps.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        none directly.
+
+    missing output
+        none directly.
+
+
+Non-RAB final shading output boundary
+File:
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+
+Inputs:
+    functional input
+        finalShadingInputBufferIndex reservoir.
+        Supplier:
+            RestirPTParams.bufferIndices.finalShadingInputBufferIndex
+            RTXDI reservoir buffer u29
+
+        Final input contribution TargetFunction * WeightSum.
+        Supplier:
+            RTXDI_PTReservoir
+
+    connected but wrong data
+        none for observed final input/contribution in view 34.
+
+    compromised input
+        Mode 56 combines direct/GI preview and RR HDR input instead of NVIDIA
+        final-shading-only diffuse/specular output path.
+        File:
+            pathtrace_restir_combined_resolve.rt.hlsl
+
+    missing input
+        PSR final-shading buffers
+        diffuse/specular StoreShadingOutput sink
+        reference final shading demodulation output path
+        Expected supplier area:
+            final ReSTIR PT shading/denoiser output pass
+
+Outputs:
+    clear function observed output correctly to ReSTIR
+        final input reservoir usable
+        final input contribution finite and positive
+
+    poisoned function thought to be broken from bad supplier data
+        none for observed final input/contribution.
+
+    compromised coding agent tried to bypass RBDoom limitation by inventing code and violating reference design
+        local combined direct/GI preview output
+        PathTraceRRInputColor HDR preview sink
+
+    missing output
+        NVIDIA PSR-aware diffuse/specular StoreShadingOutput path.
+

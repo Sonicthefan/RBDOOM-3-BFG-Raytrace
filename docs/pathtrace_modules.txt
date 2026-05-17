@@ -1969,6 +1969,24 @@ shows a debug-only DI spatial candidate, and `r_pathTracingRestirPTDiDebugView
 5` shows DI spatial/temporal status colors for investigation. The GI temporal
 candidate is debug-only via `r_pathTracingRestirPTGiDebugView 2`. Neither debug
 accumulator is consumed by normal mode 56.
+`r_pathTracingRestirPTDiDebugView 6` through `11` are the reference-shaped DI
+baseline views. They consume the RTXDI pages selected by the existing direct
+temporal/spatial producer passes and display `TargetFunction * WeightSum`,
+final-input state, and initial/temporal/spatial/final page-chain quadrants
+plus temporal-readiness and temporal page-flow classifiers without running the
+custom DI scratch-reservoir temporal/spatial math.
+`r_pathTracingRestirPTDiDebugView 12` classifies the RTXDI-shaped temporal
+neighbor acceptance stage: red = no motion/projection, dark blue =
+missing/out-of-range previous surface, purple = depth/normal rejection, yellow
+= material rejection, blue = previous reservoir invalid, orange = reservoir age
+cap, cyan = a previous candidate was acceptable but output stayed current-only,
+bright orange = the accepted previous sample is NEE while previous NEE reuse is
+disabled, white = invalid sampled-light data, bright green = accepted previous emissive
+light has no stable identity/remap, blue/purple/magenta/pink = accepted
+analytic identity/remap/range failure, gray = accepted analytic light state
+mismatch, and dark green/blue = output history grew.
+It is also a diagnostic over official RTXDI pages, not the custom DI
+scratch-reservoir path.
 The DI temporal debug path uses the primary-surface producer's motion-vector
 mask, xy motion, and reset/disocclusion mask for previous-pixel lookup. If a
 previous sample is not accepted, same-pixel previous DI reservoir fallback is

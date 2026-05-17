@@ -34,6 +34,7 @@
 #include "../../sys/DeviceManager.h"
 
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 extern DeviceManager* deviceManager;
@@ -117,6 +118,162 @@ uint64_t SumSmokeSkippedUploadBytes(const RtSmokeBufferUploadItem* items, int fi
         }
     }
     return bytes;
+}
+
+uint64_t SmokeEmissiveIdentityKey(const PathTraceSmokeEmissiveTriangle& triangle)
+{
+    return (static_cast<uint64_t>(triangle.identityHashHi) << 32ull) | static_cast<uint64_t>(triangle.identityHashLo);
+}
+
+bool SmokeEmissiveLightRecordsCompatible(const PathTraceSmokeEmissiveTriangle& current, const PathTraceSmokeEmissiveTriangle& previous)
+{
+    return current.identityHashLo == previous.identityHashLo &&
+        current.identityHashHi == previous.identityHashHi &&
+        current.materialId == previous.materialId &&
+        current.universeMaterialIndex == previous.universeMaterialIndex &&
+        current.emissiveTextureIndex == previous.emissiveTextureIndex;
+}
+
+void BuildSmokeEmissiveIdentityMap(
+    const std::vector<PathTraceSmokeEmissiveTriangle>& triangles,
+    std::unordered_map<uint64_t, int>& identityToIndex)
+{
+    identityToIndex.clear();
+    identityToIndex.reserve(triangles.size());
+    for (int triangleIndex = 0; triangleIndex < static_cast<int>(triangles.size()); ++triangleIndex)
+    {
+        const uint64_t identityKey = SmokeEmissiveIdentityKey(triangles[triangleIndex]);
+        if (identityKey == 0)
+        {
+            continue;
+        }
+
+        const auto insertResult = identityToIndex.emplace(identityKey, triangleIndex);
+        if (!insertResult.second)
+        {
+            insertResult.first->second = -1;
+        }
+    }
+}
+
+std::vector<PathTraceEmissiveLightRemap> BuildSmokeEmissiveLightRemap(
+    const std::vector<PathTraceSmokeEmissiveTriangle>& currentTriangles,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& previousTriangles)
+{
+    std::vector<PathTraceEmissiveLightRemap> remap(std::max(currentTriangles.size(), previousTriangles.size()));
+    std::unordered_map<uint64_t, int> currentByIdentity;
+    std::unordered_map<uint64_t, int> previousByIdentity;
+    BuildSmokeEmissiveIdentityMap(currentTriangles, currentByIdentity);
+    BuildSmokeEmissiveIdentityMap(previousTriangles, previousByIdentity);
+
+    for (int currentIndex = 0; currentIndex < static_cast<int>(currentTriangles.size()); ++currentIndex)
+    {
+        const uint64_t identityKey = SmokeEmissiveIdentityKey(currentTriangles[currentIndex]);
+        if (identityKey == 0)
+        {
+            if (currentIndex < static_cast<int>(remap.size()))
+            {
+                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY;
+            }
+            continue;
+        }
+
+        const auto currentIt = currentByIdentity.find(identityKey);
+        if (currentIt == currentByIdentity.end() || currentIt->second != currentIndex)
+        {
+            if (currentIndex < static_cast<int>(remap.size()))
+            {
+                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE;
+            }
+            continue;
+        }
+
+        const auto previousIt = previousByIdentity.find(identityKey);
+        if (previousIt == previousByIdentity.end())
+        {
+            if (currentIndex < static_cast<int>(remap.size()))
+            {
+                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING;
+            }
+            continue;
+        }
+        if (previousIt->second < 0)
+        {
+            if (currentIndex < static_cast<int>(remap.size()))
+            {
+                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
+            }
+            continue;
+        }
+
+        const int previousIndex = previousIt->second;
+        if (previousIndex >= static_cast<int>(previousTriangles.size()) ||
+            !SmokeEmissiveLightRecordsCompatible(currentTriangles[currentIndex], previousTriangles[previousIndex]))
+        {
+            if (currentIndex < static_cast<int>(remap.size()))
+            {
+                remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE;
+            }
+            if (previousIndex >= 0 && previousIndex < static_cast<int>(remap.size()))
+            {
+                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE;
+            }
+            continue;
+        }
+
+        if (currentIndex < static_cast<int>(remap.size()))
+        {
+            remap[currentIndex].currentToPreviousIndex = previousIndex;
+            remap[currentIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_VALID;
+        }
+        if (previousIndex < static_cast<int>(remap.size()))
+        {
+            remap[previousIndex].previousToCurrentIndex = currentIndex;
+            remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_VALID;
+        }
+    }
+
+    for (int previousIndex = 0; previousIndex < static_cast<int>(previousTriangles.size()); ++previousIndex)
+    {
+        const uint64_t identityKey = SmokeEmissiveIdentityKey(previousTriangles[previousIndex]);
+        if (identityKey == 0)
+        {
+            if (previousIndex < static_cast<int>(remap.size()))
+            {
+                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY;
+            }
+            continue;
+        }
+
+        const auto previousIt = previousByIdentity.find(identityKey);
+        if (previousIt == previousByIdentity.end() || previousIt->second != previousIndex)
+        {
+            if (previousIndex < static_cast<int>(remap.size()))
+            {
+                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE;
+            }
+            continue;
+        }
+
+        const auto currentIt = currentByIdentity.find(identityKey);
+        if (currentIt == currentByIdentity.end())
+        {
+            if (previousIndex < static_cast<int>(remap.size()))
+            {
+                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING;
+            }
+            continue;
+        }
+        if (currentIt->second < 0)
+        {
+            if (previousIndex < static_cast<int>(remap.size()))
+            {
+                remap[previousIndex].flags |= RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE;
+            }
+        }
+    }
+
+    return remap;
 }
 
 template< typename T >
@@ -1820,6 +1977,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         emissiveInventoryStats.skippedRuntimeInactiveTriangles = runtimeInactiveEmissiveTrianglesBeforeStatsRebuild;
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
+    const std::vector<PathTraceSmokeEmissiveTriangle> previousEmissiveTriangles = m_sceneInputs.valid
+        ? m_smokePreviousEmissiveTriangles
+        : std::vector<PathTraceSmokeEmissiveTriangle>();
+    const std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap = BuildSmokeEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
     const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
     const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates;
     doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, restirPTAnalyticLightCandidates);
@@ -2067,6 +2228,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
+    bufferCreateDesc.existingBuffers.previousEmissiveTriangleBuffer = m_smokePreviousEmissiveTriangleBuffer;
+    bufferCreateDesc.existingBuffers.emissiveRemapBuffer = m_smokeEmissiveRemapBuffer;
     bufferCreateDesc.existingBuffers.emissiveDistributionBuffer = m_smokeEmissiveDistributionBuffer;
     bufferCreateDesc.existingBuffers.lightCandidateBuffer = m_smokeLightCandidateBuffer;
     bufferCreateDesc.existingBuffers.doomAnalyticLightBuffer = m_smokeDoomAnalyticLightBuffer;
@@ -2103,6 +2266,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
     bufferCreateDesc.materialTableBytes = materialTable.materials.size() * sizeof(materialTable.materials[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
+    bufferCreateDesc.previousEmissiveTriangleBytes = previousEmissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle);
+    bufferCreateDesc.emissiveRemapBytes = emissiveLightRemap.size() * sizeof(PathTraceEmissiveLightRemap);
     bufferCreateDesc.emissiveDistributionBytes = emissiveDistribution.entries.size() * sizeof(PathTraceEmissiveDistributionEntry);
     bufferCreateDesc.lightCandidateBytes = lightCandidates.size() * sizeof(lightCandidates[0]);
     bufferCreateDesc.doomAnalyticLightBytes = doomAnalyticLights.size() * sizeof(PathTraceDoomAnalyticLightCandidate);
@@ -2150,6 +2315,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = smokeBuffers.dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeMaterialTableBuffer = smokeBuffers.materialTableBuffer;
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
+    nvrhi::BufferHandle smokePreviousEmissiveTriangleBuffer = smokeBuffers.previousEmissiveTriangleBuffer;
+    nvrhi::BufferHandle smokeEmissiveRemapBuffer = smokeBuffers.emissiveRemapBuffer;
     nvrhi::BufferHandle smokeEmissiveDistributionBuffer = smokeBuffers.emissiveDistributionBuffer;
     nvrhi::BufferHandle smokeLightCandidateBuffer = smokeBuffers.lightCandidateBuffer;
     nvrhi::BufferHandle smokeDoomAnalyticLightBuffer = smokeBuffers.doomAnalyticLightBuffer;
@@ -2412,6 +2579,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeEmissiveRemapBuffer, emissiveLightRemap, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveDistributionBuffer, emissiveDistribution.entries, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeLightCandidateBuffer, lightCandidates, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDoomAnalyticLightBuffer, doomAnalyticLights, nvrhi::ResourceStates::ShaderResource, false),
@@ -2633,8 +2802,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 8);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 24, 5);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 10);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 26, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -2912,6 +3081,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.materials.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER | RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED | RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED;
 
     sceneInputs.lights.emissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
+    sceneInputs.lights.previousEmissiveTriangleBuffer = smokePreviousEmissiveTriangleBuffer;
+    sceneInputs.lights.emissiveRemapBuffer = smokeEmissiveRemapBuffer;
     sceneInputs.lights.emissiveDistributionBuffer = smokeEmissiveDistributionBuffer;
     sceneInputs.lights.lightCandidateBuffer = smokeLightCandidateBuffer;
     sceneInputs.lights.doomAnalyticLightBuffer = smokeDoomAnalyticLightBuffer;
@@ -2933,7 +3104,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.doomAnalyticPreviousIdentityCount = static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size());
     sceneInputs.lights.doomAnalyticRemapCount = static_cast<int>(doomAnalyticRemap.universeRemap.size());
     sceneInputs.lights.doomAnalyticInvalidRemapCount = doomAnalyticRemap.invalidRemapCount;
-    sceneInputs.lights.previousEmissiveTriangleCount = m_sceneInputs.valid ? m_sceneInputs.lights.emissiveTriangleCount : 0;
+    sceneInputs.lights.previousEmissiveTriangleCount = static_cast<int>(previousEmissiveTriangles.size());
     sceneInputs.lights.emissiveDistributionTotalPdf = emissiveDistribution.totalPdf;
     sceneInputs.lights.emissiveDistributionFallbackWeight = emissiveDistribution.fallbackWeight;
     sceneInputs.lights.emissiveDistributionValid = emissiveDistribution.valid;
@@ -2993,6 +3164,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
     }
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
+    m_smokePreviousEmissiveTriangles = emissiveTriangles;
     m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;

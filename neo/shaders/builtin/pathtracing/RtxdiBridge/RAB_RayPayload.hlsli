@@ -6,6 +6,7 @@ struct RAB_RayPayload
     uint hit;
     float hitT;
     uint instanceId;
+    uint geometryIndex;
     uint primitiveId;
     float2 barycentrics;
     uint materialId;

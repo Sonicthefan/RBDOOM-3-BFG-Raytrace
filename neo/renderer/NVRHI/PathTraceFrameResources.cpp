@@ -226,7 +226,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     }
 
     nvrhi::TextureDesc motionVectorDesc = outputDesc;
-    motionVectorDesc.format = nvrhi::Format::RG16_FLOAT;
+    motionVectorDesc.format = nvrhi::Format::RGBA16_FLOAT;
     motionVectorDesc.debugName = "PathTraceSmokeMotionVectors";
     nvrhi::TextureHandle newMotionVectorTexture = device->createTexture(motionVectorDesc);
     if (!newMotionVectorTexture)
@@ -340,7 +340,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     diagnostics.rrGuideTexturesCreated += 6;
     diagnostics.diagnosticReadbackResourcesCreated++;
     diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 4ull;
-    diagnostics.motionVectorBytes = EstimateRg16FloatTextureBytes(width, height);
+    diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
         EstimateRgba16FloatTextureBytes(width, height) * 3ull +
@@ -513,7 +513,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(primarySurfaceHistoryBuffers.surfaceBytes),
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE);
 
-    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RG16_FLOAT vectorBytes=%llu vectorUav=u39 maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-or-dlssrr\n",
+    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RGBA16_FLOAT vectorBytes=%llu vectorUav=u39 maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-or-dlssrr\n",
         requestedWidth,
         requestedHeight,
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),

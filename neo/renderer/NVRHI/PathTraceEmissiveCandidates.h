@@ -63,6 +63,24 @@ struct PathTraceSmokeEmissiveTriangle
 };
 static_assert((sizeof(PathTraceSmokeEmissiveTriangle) % 16) == 0, "PathTraceSmokeEmissiveTriangle must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_VALID = 0x00000001u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY = 0x00000010u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY = 0x00000020u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE = 0x00000040u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE = 0x00000080u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING = 0x00000100u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING = 0x00000200u;
+const uint32_t RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE = 0x00000400u;
+
+struct PathTraceEmissiveLightRemap
+{
+    int32_t previousToCurrentIndex = -1;
+    int32_t currentToPreviousIndex = -1;
+    uint32_t flags = 0;
+    uint32_t padding0 = 0;
+};
+static_assert(sizeof(PathTraceEmissiveLightRemap) == 16, "PathTraceEmissiveLightRemap must match HLSL layout");
+
 struct PathTraceEmissiveDistributionEntry
 {
     uint32_t emissiveTriangleIndex = UINT32_MAX;

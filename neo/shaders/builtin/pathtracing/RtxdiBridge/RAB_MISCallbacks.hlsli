@@ -5,6 +5,37 @@
 #include "RAB_LightSamplingCore.hlsli"
 #include "RAB_RayPayload.hlsli"
 
+float RAB_EvaluateLocalLightSourcePdf(uint lightIndex)
+{
+    const uint emissiveTriangleCount = RAB_GetCurrentEmissiveTriangleCount();
+    if (lightIndex >= emissiveTriangleCount || emissiveTriangleCount == 0u)
+    {
+        return 0.0;
+    }
+
+    const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[lightIndex];
+    const float uniformFallbackPdf = 1.0 / max((float)emissiveTriangleCount, 1.0);
+    return max(emissiveTriangle.sampleWeightAndPdf.y, uniformFallbackPdf);
+}
+
+uint RAB_FindCurrentEmissiveLightIndexForRayPayload(RAB_RayPayload rayPayload)
+{
+    const uint emissiveTriangleCount = RAB_GetCurrentEmissiveTriangleCount();
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < emissiveTriangleCount; ++lightIndex)
+    {
+        const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[lightIndex];
+        if (emissiveTriangle.instanceId == rayPayload.instanceId &&
+            emissiveTriangle.primitiveIndex == rayPayload.primitiveId &&
+            emissiveTriangle.materialId == rayPayload.materialId)
+        {
+            return lightIndex;
+        }
+    }
+
+    return RAB_INVALID_LIGHT_INDEX;
+}
+
 float RAB_GetMISWeightForNEE(
     uint lightIndex,
     RAB_LightSample lightSample,
@@ -21,7 +52,15 @@ float RAB_GetMISWeightForNEE(
         return 1.0;
     }
 
-    const float neeTerm = lightSolidAnglePdf;
+    const uint emissiveTriangleCount = RAB_GetCurrentEmissiveTriangleCount();
+    if (lightIndex >= emissiveTriangleCount)
+    {
+        return 1.0;
+    }
+
+    const float lightSourcePdf = RAB_EvaluateLocalLightSourcePdf(lightIndex) * lightSolidAnglePdf;
+    const float neeSampleCount = (float)clamp((uint)max(EmissiveInfo.z, 1.0), 1u, 16u);
+    const float neeTerm = neeSampleCount * lightSourcePdf;
     return neeTerm / max(neeTerm + scatterPdf, 1.0e-6);
 }
 
@@ -45,7 +84,28 @@ float GetMISWeightForEmissiveSurface(
         return 1.0;
     }
 
-    return brs.OutPdf > 0.0 ? 1.0 : 0.0;
+    if (brs.properties.IsDelta() || brs.OutPdf <= 0.0)
+    {
+        return brs.OutPdf > 0.0 ? 1.0 : 0.0;
+    }
+
+    const uint lightIndex = RAB_FindCurrentEmissiveLightIndexForRayPayload(rayPayload);
+    if (lightIndex == RAB_INVALID_LIGHT_INDEX)
+    {
+        return 1.0;
+    }
+
+    RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, prevSurface, rayPayload.barycentrics);
+    if (lightSample.valid == 0u || lightSample.solidAnglePdf <= 0.0)
+    {
+        return 1.0;
+    }
+
+    const float lightSourcePdf = RAB_EvaluateLocalLightSourcePdf(lightIndex) * RAB_LightSampleSolidAnglePdf(lightSample);
+    const float neeSampleCount = (float)clamp((uint)max(EmissiveInfo.z, 1.0), 1u, 16u);
+    const float pdfSum = neeSampleCount * lightSourcePdf + brs.OutPdf;
+    return brs.OutPdf / max(pdfSum, 1.0e-6);
 }
 
 float GetMISWeightForEnvironmentMap(float3 direction, RAB_Surface prevSurface, RTXDI_BrdfRaySample brs)
@@ -60,7 +120,12 @@ float RAB_EvaluateEnvironmentMapSamplingPdf(float3 direction)
 
 float2 RAB_GetEnvironmentMapRandXYFromDir(float3 direction)
 {
-    return float2(0.0, 0.0);
+    const float3 dir = RAB_SafeNormalize(direction, float3(0.0, 0.0, 1.0));
+    const float invTwoPi = 0.15915494309189535;
+    const float invPi = 0.3183098861837907;
+    const float u = atan2(dir.y, dir.x) * invTwoPi + 0.5;
+    const float v = acos(clamp(dir.z, -1.0, 1.0)) * invPi;
+    return frac(float2(u, v));
 }
 
 #endif

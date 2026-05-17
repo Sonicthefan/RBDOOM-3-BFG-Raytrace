@@ -10,6 +10,7 @@
 #include "../RAB_Brdf.hlsli"
 #include "../RAB_LightInfo.hlsli"
 #include "../RAB_LightSamplingCore.hlsli"
+#include "../RAB_MISCallbacks.hlsli"
 #include "../RAB_Visibility.hlsli"
 #include "Rtxdi/PT/PathTracerContext.hlsli"
 #include "Rtxdi/PT/PathTracerRandomContext.hlsli"
@@ -21,8 +22,9 @@ RAB_RayPayload RAB_BuildRayPayloadFromSmokePayload(PathTraceSmokePayload payload
     rayPayload.hit = payload.value != 0u ? 1u : 0u;
     rayPayload.hitT = payload.hitT;
     rayPayload.instanceId = payload.instanceId;
+    rayPayload.geometryIndex = payload.geometryIndex;
     rayPayload.primitiveId = payload.primitiveIndex;
-    rayPayload.barycentrics = float2(0.0, 0.0);
+    rayPayload.barycentrics = payload.hitBarycentrics;
     rayPayload.materialId = payload.materialId;
     rayPayload.materialIndex = payload.materialIndex;
     rayPayload.surfaceClass = payload.surfaceClass;
@@ -360,6 +362,7 @@ void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRand
 
         if (!RAB_IsRayPayloadHit(rayPayload))
         {
+            RAB_NoteEnvironmentMapMissUnbridged(ptud);
             ctx.RecordPathRadianceMiss(ptRandContext.initialRandomSamplerState);
             break;
         }
@@ -375,7 +378,8 @@ void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRand
 
         if (ctx.ShouldSampleEmissiveSurfaces() && RAB_Luminance(nextSurface.material.emissiveRadiance) > 0.0)
         {
-            ctx.RecordEmissiveLightSample(nextSurface.material.emissiveRadiance, previousSurface, ptRandContext.initialRandomSamplerState);
+            const float emissiveMisWeight = GetMISWeightForEmissiveSurface(rayPayload, previousSurface, ctx.GetBrdfRaySample());
+            ctx.RecordEmissiveLightSample(nextSurface.material.emissiveRadiance * emissiveMisWeight, previousSurface, ptRandContext.initialRandomSamplerState);
         }
 
         ctx.IncreaseBounceDepth();

@@ -7,6 +7,14 @@ static const uint RAB_DOOM_ANALYTIC_IDENTITY_VALID = 0x00000001u;
 static const uint RAB_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE = 0x00000002u;
 static const uint RAB_DOOM_ANALYTIC_IDENTITY_REMAP_VALID = 0x00000004u;
 static const uint RAB_DOOM_ANALYTIC_INVALID_INDEX = 0xffffffffu;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_VALID = 0x00000001u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY = 0x00000010u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY = 0x00000020u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE = 0x00000040u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE = 0x00000080u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING = 0x00000100u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING = 0x00000200u;
+static const uint RAB_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE = 0x00000400u;
 
 uint RAB_GetCurrentEmissiveTriangleCount()
 {
@@ -40,6 +48,11 @@ bool RAB_DoomAnalyticIdentitySampleable(PathTraceDoomAnalyticLightCandidateIdent
 bool RAB_DoomAnalyticRemapValid(PathTraceDoomAnalyticLightRemap remap)
 {
     return (remap.flags & RAB_DOOM_ANALYTIC_IDENTITY_REMAP_VALID) != 0u;
+}
+
+bool RAB_SmokeEmissiveRemapValid(PathTraceEmissiveLightRemap remap)
+{
+    return (remap.flags & RAB_SMOKE_EMISSIVE_REMAP_VALID) != 0u;
 }
 
 float RAB_DoomAnalyticLightColorMagnitude(PathTraceDoomAnalyticLightCandidate light)
@@ -109,7 +122,14 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
     {
         if (lightIndex < currentEmissiveTriangleCount)
         {
-            return -1;
+            const PathTraceEmissiveLightRemap remap = SmokeEmissiveRemap[lightIndex];
+            if (!RAB_SmokeEmissiveRemapValid(remap) || remap.currentToPreviousIndex < 0)
+            {
+                return -1;
+            }
+
+            const uint previousEmissiveIndex = (uint)remap.currentToPreviousIndex;
+            return previousEmissiveIndex < previousEmissiveTriangleCount ? (int)previousEmissiveIndex : -1;
         }
         const uint currentAnalyticIndex = lightIndex - currentEmissiveTriangleCount;
         if (currentAnalyticIndex >= analyticCount || currentAnalyticIndex >= currentIdentityCount)
@@ -144,7 +164,14 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
 
     if (lightIndex < previousEmissiveTriangleCount)
     {
-        return -1;
+        const PathTraceEmissiveLightRemap remap = SmokeEmissiveRemap[lightIndex];
+        if (!RAB_SmokeEmissiveRemapValid(remap) || remap.previousToCurrentIndex < 0)
+        {
+            return -1;
+        }
+
+        const uint currentEmissiveIndex = (uint)remap.previousToCurrentIndex;
+        return currentEmissiveIndex < currentEmissiveTriangleCount ? (int)currentEmissiveIndex : -1;
     }
 
     const uint previousAnalyticIndex = lightIndex - previousEmissiveTriangleCount;
@@ -196,12 +223,15 @@ RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
     const uint emissiveTriangleCount = previousFrame ? RAB_GetPreviousEmissiveTriangleCount() : RAB_GetCurrentEmissiveTriangleCount();
     if (index < emissiveTriangleCount)
     {
+        PathTraceSmokeEmissiveTriangle emissiveTriangle;
         if (previousFrame)
         {
-            return RAB_EmptyLightInfo();
+            emissiveTriangle = SmokePreviousEmissiveTriangles[index];
         }
-
-        const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[index];
+        else
+        {
+            emissiveTriangle = SmokeEmissiveTriangles[index];
+        }
         RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
         lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
         lightInfo.lightIndex = index;
@@ -213,7 +243,9 @@ RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
         lightInfo.normal = RAB_LightInfoSafeNormalize(emissiveTriangle.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
         lightInfo.area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
         lightInfo.radiance = max(emissiveTriangle.estimatedRadianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
-        lightInfo.weight = max(emissiveTriangle.sampleWeightAndPdf.x, emissiveTriangle.estimatedRadianceAndLuminance.w);
+        const bool structurallyLoadableEmissive = emissiveTriangle.centerAndArea.w > 1.0e-6;
+        const float structuralWeightFallback = structurallyLoadableEmissive ? 1.0e-6 : 0.0;
+        lightInfo.weight = max(max(emissiveTriangle.sampleWeightAndPdf.x, emissiveTriangle.estimatedRadianceAndLuminance.w), structuralWeightFallback);
         return lightInfo;
     }
 
