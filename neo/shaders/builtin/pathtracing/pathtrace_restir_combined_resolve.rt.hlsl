@@ -691,12 +691,18 @@ float4 RestirPTReferenceEmissiveHitMapColor(RAB_Surface surface);
 float4 RestirPTReferenceLightDomainLoadColor(uint2 pixel);
 float4 RestirPTReferenceLightDomainSampleColor(RAB_Surface surface, uint2 pixel);
 float4 RestirPTReferenceLightDomainVisibilityColor(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTUnifiedLightTypeView(uint2 pixel);
+float4 EvaluateRestirPTUnifiedLightRadianceView(uint2 pixel);
+float4 EvaluateRestirPTUnifiedLightRemapView(uint2 pixel);
+float4 EvaluateRestirPTUnifiedLightNumericView(uint2 pixel);
 
 #include "pathtrace_restir_local_debug_reservoirs.hlsli"
 
 #include "pathtrace_restir_reference_temporal_debug.hlsli"
 
 #include "pathtrace_restir_reference_rab_contract_debug.hlsli"
+
+#include "RtxdiBridge/Debug/RAB_UnifiedLightDebug.hlsli"
 
 #include "pathtrace_restir_local_preview_resolve.hlsli"
 
