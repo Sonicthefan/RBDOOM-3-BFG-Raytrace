@@ -1219,16 +1219,7 @@ PathTraceSmokePayload InitSmokePayload()
     return payload;
 }
 
-PathTraceSmokeShadowPayload InitSmokeShadowPayload(uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
-{
-    PathTraceSmokeShadowPayload payload;
-    payload.hit = 0u;
-    payload.rayMode = ignoreInstanceId != 0xffffffffu ? 2u : 1u;
-    payload.ignoreInstanceId = ignoreInstanceId;
-    payload.ignorePrimitiveIndex = ignorePrimitiveIndex;
-    payload.ignoreMaterialId = ignoreMaterialId;
-    return payload;
-}
+#include "pathtrace_smoke_rab_visibility_supplier.hlsli"
 
 #include "pathtrace_smoke_rab_surface_supplier.hlsli"
 
@@ -1241,7 +1232,6 @@ uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float rando
 #include "pathtrace_emissive_sampling.hlsli"
 
 #ifdef RB_PT_ENABLE_RESTIR
-float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId);
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 #include "RtxdiBridge/RAB_LightTarget.hlsli"
@@ -2983,33 +2973,6 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
     }
 
     return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
-}
-
-float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId)
-{
-    PathTraceSmokeShadowPayload shadowPayload = InitSmokeShadowPayload(ignoreInstanceId, ignorePrimitiveIndex, ignoreMaterialId);
-
-    RayDesc shadowRay;
-    shadowRay.Origin = origin;
-    shadowRay.Direction = direction;
-    shadowRay.TMin = 0.01;
-    shadowRay.TMax = tMax;
-
-    const uint rayFlags = ignoreInstanceId != 0xffffffffu
-        ? (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_NON_OPAQUE)
-        : (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER);
-
-    TraceRay(
-        SmokeScene,
-        rayFlags,
-        0xff,
-        1,
-        1,
-        1,
-        shadowRay,
-        shadowPayload);
-
-    return shadowPayload.hit == 0u ? 1.0 : 0.0;
 }
 
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
