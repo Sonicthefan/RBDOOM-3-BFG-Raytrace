@@ -43,6 +43,9 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle doomAnalyticCurrentIdentityBuffer;
     nvrhi::BufferHandle doomAnalyticPreviousIdentityBuffer;
     nvrhi::BufferHandle doomAnalyticRemapBuffer;
+    nvrhi::BufferHandle unifiedLightBuffer;
+    nvrhi::BufferHandle unifiedPreviousLightBuffer;
+    nvrhi::BufferHandle unifiedLightRemapBuffer;
     nvrhi::BufferHandle rigidRouteVertexBuffer;
     nvrhi::BufferHandle rigidRouteIndexBuffer;
     nvrhi::BufferHandle rigidRouteTriangleMaterialBuffer;
@@ -89,6 +92,9 @@ struct RtSmokeSceneBufferCreateDesc
     size_t doomAnalyticCurrentIdentityBytes = 0;
     size_t doomAnalyticPreviousIdentityBytes = 0;
     size_t doomAnalyticRemapBytes = 0;
+    size_t unifiedLightBytes = 0;
+    size_t unifiedPreviousLightBytes = 0;
+    size_t unifiedLightRemapBytes = 0;
     size_t rigidRouteVertexBytes = 0;
     size_t rigidRouteIndexBytes = 0;
     size_t rigidRouteTriangleMaterialBytes = 0;
@@ -190,6 +196,9 @@ struct RtSmokeSceneResourceCommitDesc
     int doomAnalyticRemapCount = 0;
     int doomAnalyticInvalidRemapCount = 0;
     int previousEmissiveTriangleCount = 0;
+    int unifiedLightCount = 0;
+    int unifiedPreviousLightCount = 0;
+    int unifiedLightRemapCount = 0;
     uint64 reservoirSceneSignature = 0;
 };
 
@@ -224,6 +233,9 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int doomAnalyticRemapCount = 0;
     int doomAnalyticInvalidRemapCount = 0;
     int previousEmissiveTriangleCount = 0;
+    int unifiedLightCount = 0;
+    int unifiedPreviousLightCount = 0;
+    int unifiedLightRemapCount = 0;
     uint64 reservoirSceneSignature = 0;
 };
 

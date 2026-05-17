@@ -103,6 +103,9 @@ StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticCurren
 StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticPreviousIdentities : register(t43);
 StructuredBuffer<PathTraceDoomAnalyticLightRemap> DoomAnalyticRemap : register(t44);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights : register(t45);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedLights : register(t59);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedPreviousLights : register(t60);
+StructuredBuffer<uint> PathTraceUnifiedLightRemap : register(t61);
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
@@ -697,6 +700,9 @@ float4 EvaluateRestirPTUnifiedLightTypeView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLightRadianceView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLightRemapView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLightNumericView(uint2 pixel);
+float4 EvaluateRestirPTCpuUnifiedLightTypeView(uint2 pixel);
+float4 EvaluateRestirPTCpuUnifiedLightCompareView(uint2 pixel);
+float4 EvaluateRestirPTCpuUnifiedLightRemapView(uint2 pixel);
 
 #include "pathtrace_restir_local_debug_reservoirs.hlsli"
 

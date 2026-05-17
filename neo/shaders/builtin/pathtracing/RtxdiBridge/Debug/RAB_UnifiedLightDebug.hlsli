@@ -143,6 +143,190 @@ float3 RestirPTDebugUnifiedLightTypeColor(uint type)
     return float3(0.0, 0.0, 0.0);
 }
 
+uint RestirPTDebugUnifiedPreviousLightCount()
+{
+    return RAB_GetPreviousEmissiveTriangleCount() + (uint)max(DoomAnalyticLightRemapInfo.y, 0.0);
+}
+
+int RestirPTDebugUnifiedSignedPreviousIndex(uint previousIndex)
+{
+    return previousIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX ? -1 : (int)previousIndex;
+}
+
+uint RestirPTDebugCpuUnifiedLightValid(PathTraceUnifiedLightRecord record)
+{
+    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE &&
+        record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return 0u;
+    }
+    if (record.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+    {
+        return 0u;
+    }
+    if (!all(record.positionAndRadius.xyz == record.positionAndRadius.xyz) ||
+        !all(record.radianceAndLuminance.rgb == record.radianceAndLuminance.rgb) ||
+        record.sourceWeight != record.sourceWeight ||
+        record.sourceWeight <= 0.0)
+    {
+        return 0u;
+    }
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return record.normalAndArea.w > 1.0e-6 ? 1u : 0u;
+    }
+    return record.positionAndRadius.w > 0.0 && record.uvOrDoomParams.x > 0.0 ? 1u : 0u;
+}
+
+bool RestirPTDebugApproximatelyEqual(float a, float b, float relativeTolerance)
+{
+    const float scale = max(max(abs(a), abs(b)), 1.0);
+    return abs(a - b) <= max(1.0e-4, scale * relativeTolerance);
+}
+
+float RestirPTDebugCpuUnifiedRuntimeScale(uint type)
+{
+    if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return max(ToyPathInfo.z, 0.0);
+    }
+    if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return max(DoomAnalyticLightInfo.z, 0.0);
+    }
+    return 0.0;
+}
+
+float3 RestirPTDebugCpuUnifiedScaledRadiance(PathTraceUnifiedLightRecord record)
+{
+    return max(record.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * RestirPTDebugCpuUnifiedRuntimeScale(record.type);
+}
+
+float RestirPTDebugCpuUnifiedScaledLuminance(PathTraceUnifiedLightRecord record, float3 scaledRadiance)
+{
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return max(record.radianceAndLuminance.w, RAB_Luminance(scaledRadiance));
+    }
+    return RAB_Luminance(scaledRadiance);
+}
+
+float RestirPTDebugCpuUnifiedScaledSourceWeight(PathTraceUnifiedLightRecord record)
+{
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return record.sourceWeight * RestirPTDebugCpuUnifiedRuntimeScale(record.type);
+    }
+    return record.sourceWeight;
+}
+
+float4 EvaluateRestirPTCpuUnifiedLightTypeView(uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const PathTraceUnifiedLightRecord record = PathTraceUnifiedLights[unifiedIndex];
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID)
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (RestirPTDebugCpuUnifiedLightValid(record) == 0u)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+    return float4(RestirPTDebugUnifiedLightTypeColor(record.type), 1.0);
+}
+
+float4 EvaluateRestirPTCpuUnifiedLightCompareView(uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const PathTraceUnifiedLightRecord cpuRecord = PathTraceUnifiedLights[unifiedIndex];
+    const RestirPTDebugUnifiedLightRecord virtualRecord = RestirPTDebugLoadUnifiedCurrentLight(unifiedIndex);
+    if (RestirPTDebugCpuUnifiedLightValid(cpuRecord) == 0u)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+    if (virtualRecord.valid == 0u)
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (cpuRecord.type != virtualRecord.type)
+    {
+        return float4(1.0, 0.0, 0.75, 1.0);
+    }
+    if (cpuRecord.sourceIndex != virtualRecord.sourceIndex)
+    {
+        return float4(1.0, 0.85, 0.05, 1.0);
+    }
+    if (RestirPTDebugUnifiedSignedPreviousIndex(cpuRecord.previousIndex) != virtualRecord.previousIndex)
+    {
+        return float4(1.0, 0.35, 0.0, 1.0);
+    }
+    const float3 scaledCpuRadiance = RestirPTDebugCpuUnifiedScaledRadiance(cpuRecord);
+    const float scaledCpuLuminance = RestirPTDebugCpuUnifiedScaledLuminance(cpuRecord, scaledCpuRadiance);
+    if (!RestirPTDebugApproximatelyEqual(scaledCpuRadiance.x, virtualRecord.radiance.x, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(scaledCpuRadiance.y, virtualRecord.radiance.y, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(scaledCpuRadiance.z, virtualRecord.radiance.z, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(scaledCpuLuminance, virtualRecord.luminance, 0.01))
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+    if (!RestirPTDebugApproximatelyEqual(RestirPTDebugCpuUnifiedScaledSourceWeight(cpuRecord), virtualRecord.sourceWeight, 0.05))
+    {
+        return float4(0.05, 0.18, 0.75, 1.0);
+    }
+    return float4(RestirPTDebugUnifiedLightTypeColor(cpuRecord.type), 1.0);
+}
+
+float4 EvaluateRestirPTCpuUnifiedLightRemapView(uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    if (MotionVectorInfo.y < 0.5)
+    {
+        return float4(0.05, 0.18, 0.75, 1.0);
+    }
+
+    const PathTraceUnifiedLightRecord record = PathTraceUnifiedLights[unifiedIndex];
+    if (RestirPTDebugCpuUnifiedLightValid(record) == 0u)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+
+    const uint previousIndex = PathTraceUnifiedLightRemap[unifiedIndex];
+    if (previousIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+    {
+        return RestirPTReferenceCurrentToPreviousLightFailureColor(unifiedIndex);
+    }
+    if (previousIndex >= RestirPTDebugUnifiedPreviousLightCount())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (record.previousIndex != previousIndex)
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+
+    const PathTraceUnifiedLightRecord previousRecord = PathTraceUnifiedPreviousLights[previousIndex];
+    if (previousRecord.type != record.type)
+    {
+        return float4(1.0, 0.85, 0.05, 1.0);
+    }
+    return float4(RestirPTDebugUnifiedLightTypeColor(record.type), 1.0);
+}
+
 float4 EvaluateRestirPTUnifiedLightTypeView(uint2 pixel)
 {
     const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);

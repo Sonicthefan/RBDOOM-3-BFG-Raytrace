@@ -4,6 +4,13 @@
 // rebuild. This is a layout contract only; upload/binding comes later.
 
 #include <cstdint>
+#include <vector>
+
+struct PathTraceSmokeEmissiveTriangle;
+struct PathTraceEmissiveLightRemap;
+struct PathTraceDoomAnalyticLightCandidate;
+struct PathTraceDoomAnalyticLightCandidateIdentity;
+struct PathTraceDoomAnalyticLightRemap;
 
 static constexpr uint32_t PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID = 0u;
 static constexpr uint32_t PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE = 1u;
@@ -34,3 +41,21 @@ struct PathTraceUnifiedLightRecord
 };
 static_assert(sizeof(PathTraceUnifiedLightRecord) == 112, "PathTraceUnifiedLightRecord must match HLSL layout");
 static_assert((sizeof(PathTraceUnifiedLightRecord) % 16) == 0, "PathTraceUnifiedLightRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
+
+struct PathTraceUnifiedLightBuild
+{
+    std::vector<PathTraceUnifiedLightRecord> currentLights;
+    std::vector<PathTraceUnifiedLightRecord> previousLights;
+    std::vector<uint32_t> currentToPreviousRemap;
+};
+
+PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
+    const std::vector<PathTraceSmokeEmissiveTriangle>& currentEmissiveTriangles,
+    const std::vector<PathTraceSmokeEmissiveTriangle>& previousEmissiveTriangles,
+    const std::vector<PathTraceEmissiveLightRemap>& emissiveRemap,
+    const std::vector<PathTraceDoomAnalyticLightCandidate>& currentAnalyticLights,
+    const std::vector<PathTraceDoomAnalyticLightCandidate>& previousAnalyticLights,
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& currentAnalyticIdentities,
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& previousAnalyticIdentities,
+    const std::vector<PathTraceDoomAnalyticLightRemap>& analyticRemap,
+    float analyticStateCompatibilityTolerance);
