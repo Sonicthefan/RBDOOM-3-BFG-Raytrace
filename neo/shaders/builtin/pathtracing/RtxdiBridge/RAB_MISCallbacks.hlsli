@@ -5,24 +5,7 @@
 #include "RAB_LightSamplingCore.hlsli"
 #include "RAB_RayPayload.hlsli"
 #include "RAB_LocalLightPdf.hlsli"
-
-uint RAB_FindCurrentEmissiveLightIndexForRayPayload(RAB_RayPayload rayPayload)
-{
-    const uint emissiveTriangleCount = RAB_GetCurrentEmissiveTriangleCount();
-    [loop]
-    for (uint lightIndex = 0u; lightIndex < emissiveTriangleCount; ++lightIndex)
-    {
-        const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[lightIndex];
-        if (emissiveTriangle.instanceId == rayPayload.instanceId &&
-            emissiveTriangle.primitiveIndex == rayPayload.primitiveId &&
-            emissiveTriangle.materialId == rayPayload.materialId)
-        {
-            return lightIndex;
-        }
-    }
-
-    return RAB_INVALID_LIGHT_INDEX;
-}
+#include "RAB_HitToLightIndex.hlsli"
 
 float RAB_GetMISWeightForNEE(
     uint lightIndex,
