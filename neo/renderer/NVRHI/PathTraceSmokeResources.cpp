@@ -15,6 +15,7 @@
 #include "PathTraceSmokeDispatch.h"
 #include "PathTraceSmokeResources.h"
 #include "PathTraceTextureRegistry.h"
+#include "PathTraceUnifiedLight.h"
 #include "../RenderProgs.h"
 #include "../../sys/DeviceManager.h"
 

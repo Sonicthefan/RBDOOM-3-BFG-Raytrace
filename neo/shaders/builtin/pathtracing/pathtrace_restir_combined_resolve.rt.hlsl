@@ -79,6 +79,8 @@ struct PathTraceDoomAnalyticLightRemap
     uint invalidReasonFlags;
 };
 
+#include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
+
 #include "PathTracePrimarySurface.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);

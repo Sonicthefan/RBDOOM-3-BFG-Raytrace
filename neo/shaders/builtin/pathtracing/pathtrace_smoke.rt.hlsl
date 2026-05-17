@@ -184,6 +184,8 @@ struct PathTraceDoomAnalyticLightRemap
     uint invalidReasonFlags;
 };
 
+#include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
+
 struct PathTraceSmokeReservoir
 {
     float4 radianceAndTargetPdf;
