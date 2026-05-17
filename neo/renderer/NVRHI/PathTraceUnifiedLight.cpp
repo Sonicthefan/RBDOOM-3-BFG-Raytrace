@@ -122,7 +122,7 @@ PathTraceUnifiedLightRecord BuildUnifiedEmissiveLightRecord(
     record.type = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
     record.sourceIndex = sourceIndex;
     record.flags = emissiveTriangle.flags | emissiveTriangle.padding0;
-    record.materialOrLightId = emissiveTriangle.materialId;
+    record.materialOrLightId = emissiveTriangle.materialIndex;
     record.instanceId = emissiveTriangle.instanceId;
     record.primitiveIndex = emissiveTriangle.primitiveIndex;
     record.identityA = emissiveTriangle.identityHashLo;

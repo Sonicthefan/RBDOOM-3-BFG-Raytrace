@@ -304,6 +304,7 @@ struct PathTraceSmokeConstants
     float restirPTSparsityInfo[4];
     float restirPTIndirectInfo[4];
     float rayReconstructionInfo[4];
+    float unifiedLightInfo[4];
     float restirPTDiDebugInfo[4];
     float restirPTGiDebugInfo[4];
 };
@@ -566,7 +567,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
-    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 42, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 44, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -1175,6 +1176,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
     constants.rayReconstructionInfo[3] = 0.0f;
+    constants.unifiedLightInfo[0] = static_cast<float>(Max(0, m_smokeUnifiedLightCount));
+    constants.unifiedLightInfo[1] = static_cast<float>(Max(0, m_smokeUnifiedPreviousLightCount));
+    constants.unifiedLightInfo[2] = r_pathTracingRestirPTUnifiedLightLoad.GetInteger() != 0 ? 1.0f : 0.0f;
+    constants.unifiedLightInfo[3] = static_cast<float>(Max(0, m_smokeUnifiedLightRemapCount));
     constants.restirPTDiDebugInfo[0] = static_cast<float>(restirPTDiDebugView);
     constants.restirPTDiDebugInfo[1] = 0.0f;
     constants.restirPTDiDebugInfo[2] = 0.0f;

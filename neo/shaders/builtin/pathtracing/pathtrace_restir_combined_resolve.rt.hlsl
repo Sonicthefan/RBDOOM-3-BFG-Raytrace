@@ -154,6 +154,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;
     float4 RayReconstructionInfo;
+    float4 UnifiedLightInfo;
     float4 RestirPTDiDebugInfo;
     float4 RestirPTGiDebugInfo;
 };
@@ -703,6 +704,8 @@ float4 EvaluateRestirPTUnifiedLightNumericView(uint2 pixel);
 float4 EvaluateRestirPTCpuUnifiedLightTypeView(uint2 pixel);
 float4 EvaluateRestirPTCpuUnifiedLightCompareView(uint2 pixel);
 float4 EvaluateRestirPTCpuUnifiedLightRemapView(uint2 pixel);
+float4 EvaluateRestirPTUnifiedLoadCurrentCompareView(uint2 pixel);
+float4 EvaluateRestirPTUnifiedLoadPreviousCompareView(uint2 pixel);
 
 #include "pathtrace_restir_local_debug_reservoirs.hlsli"
 

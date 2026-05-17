@@ -220,6 +220,90 @@ float RestirPTDebugCpuUnifiedScaledSourceWeight(PathTraceUnifiedLightRecord reco
     return record.sourceWeight;
 }
 
+float3 RestirPTDebugRabLightInfoTypeColor(uint lightType)
+{
+    if (lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return RestirPTDebugUnifiedLightTypeColor(PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE);
+    }
+    if (lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        return RestirPTDebugUnifiedLightTypeColor(PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC);
+    }
+    return float3(0.0, 0.0, 0.0);
+}
+
+float4 RestirPTDebugCompareRabLightInfo(RAB_LightInfo splitInfo, RAB_LightInfo unifiedInfo)
+{
+    const bool splitValid = RAB_IsLightInfoValid(splitInfo);
+    const bool unifiedValid = RAB_IsLightInfoValid(unifiedInfo);
+    if (!splitValid && !unifiedValid)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (splitValid != unifiedValid)
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (splitInfo.lightType != unifiedInfo.lightType)
+    {
+        return float4(1.0, 0.0, 0.75, 1.0);
+    }
+    if (splitInfo.lightIndex != unifiedInfo.lightIndex)
+    {
+        return float4(1.0, 0.85, 0.05, 1.0);
+    }
+    if (splitInfo.materialIndex != unifiedInfo.materialIndex)
+    {
+        return float4(1.0, 0.35, 0.0, 1.0);
+    }
+    if (!RestirPTDebugApproximatelyEqual(splitInfo.position.x, unifiedInfo.position.x, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.position.y, unifiedInfo.position.y, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.position.z, unifiedInfo.position.z, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.radius, unifiedInfo.radius, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.influenceRadius, unifiedInfo.influenceRadius, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.area, unifiedInfo.area, 0.001))
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+    if (!RestirPTDebugApproximatelyEqual(splitInfo.radiance.x, unifiedInfo.radiance.x, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.radiance.y, unifiedInfo.radiance.y, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.radiance.z, unifiedInfo.radiance.z, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(splitInfo.weight, unifiedInfo.weight, 0.05))
+    {
+        return float4(0.05, 0.18, 0.75, 1.0);
+    }
+    return float4(RestirPTDebugRabLightInfoTypeColor(splitInfo.lightType), 1.0);
+}
+
+float4 EvaluateRestirPTUnifiedLoadCurrentCompareView(uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    return RestirPTDebugCompareRabLightInfo(
+        RAB_LoadSplitLightInfo(unifiedIndex, false),
+        RAB_LoadUnifiedLightInfo(unifiedIndex, false));
+}
+
+float4 EvaluateRestirPTUnifiedLoadPreviousCompareView(uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (MotionVectorInfo.y < 0.5)
+    {
+        return float4(0.05, 0.18, 0.75, 1.0);
+    }
+    return RestirPTDebugCompareRabLightInfo(
+        RAB_LoadSplitLightInfo(unifiedIndex, true),
+        RAB_LoadUnifiedLightInfo(unifiedIndex, true));
+}
+
 float4 EvaluateRestirPTCpuUnifiedLightTypeView(uint2 pixel)
 {
     const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);

@@ -124,7 +124,7 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
     return (int)(currentEmissiveTriangleCount + currentAnalyticIndex);
 }
 
-RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
+RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
 {
     if (previousFrame)
     {
@@ -224,6 +224,126 @@ RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
     }
 
     return RAB_EmptyLightInfo();
+}
+
+uint RAB_GetCurrentUnifiedLightCount()
+{
+    return (uint)max(UnifiedLightInfo.x, 0.0);
+}
+
+uint RAB_GetPreviousUnifiedLightCount()
+{
+    return (uint)max(UnifiedLightInfo.y, 0.0);
+}
+
+uint RAB_GetUnifiedLightRemapCount()
+{
+    return (uint)max(UnifiedLightInfo.w, 0.0);
+}
+
+bool RAB_UnifiedLightLoadEnabled()
+{
+    return UnifiedLightInfo.z >= 0.5;
+}
+
+bool RAB_UnifiedDoomAnalyticRecordSampleable(PathTraceUnifiedLightRecord record)
+{
+    return record.sourceIndex != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX &&
+        (record.flags & RAB_DOOM_ANALYTIC_IDENTITY_VALID) != 0u &&
+        (record.flags & RAB_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE) != 0u;
+}
+
+RAB_LightInfo RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedLightRecord record, uint unifiedIndex)
+{
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        if (record.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX ||
+            record.normalAndArea.w <= 1.0e-6 ||
+            record.sourceWeight <= 0.0)
+        {
+            return RAB_EmptyLightInfo();
+        }
+
+        RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+        lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+        lightInfo.lightIndex = unifiedIndex;
+        lightInfo.materialIndex = record.materialOrLightId;
+        lightInfo.flags = record.flags;
+        lightInfo.position = record.positionAndRadius.xyz;
+        lightInfo.radius = 0.0;
+        lightInfo.influenceRadius = 0.0;
+        lightInfo.normal = RAB_LightInfoSafeNormalize(record.normalAndArea.xyz, float3(0.0, 0.0, 1.0));
+        lightInfo.area = max(record.normalAndArea.w, 1.0e-4);
+        lightInfo.radiance = max(record.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
+        lightInfo.weight = record.sourceWeight;
+        return lightInfo;
+    }
+
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        const float radius = max(record.positionAndRadius.w, 0.01);
+        const float influenceRadius = max(record.uvOrDoomParams.x, 1.0);
+        const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
+        const float3 radiance = max(record.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * intensityScale;
+        if (!RAB_UnifiedDoomAnalyticRecordSampleable(record) ||
+            !all(record.positionAndRadius.xyz == record.positionAndRadius.xyz) ||
+            !all(radiance == radiance) ||
+            radius <= 0.0 ||
+            influenceRadius <= 0.0 ||
+            record.sourceWeight <= 0.0)
+        {
+            return RAB_EmptyLightInfo();
+        }
+
+        RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+        lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+        lightInfo.lightIndex = unifiedIndex;
+        lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
+        lightInfo.flags = record.flags;
+        lightInfo.position = record.positionAndRadius.xyz;
+        lightInfo.radius = radius;
+        lightInfo.influenceRadius = influenceRadius;
+        lightInfo.normal = float3(0.0, 0.0, 1.0);
+        lightInfo.area = max(record.normalAndArea.w, 1.0e-4);
+        lightInfo.radiance = radiance;
+        lightInfo.weight = record.sourceWeight * intensityScale;
+        return lightInfo;
+    }
+
+    return RAB_EmptyLightInfo();
+}
+
+RAB_LightInfo RAB_LoadUnifiedLightInfo(uint index, bool previousFrame)
+{
+    if (previousFrame)
+    {
+        if (MotionVectorInfo.y < 0.5 || index >= RAB_GetCurrentUnifiedLightCount() || index >= RAB_GetUnifiedLightRemapCount())
+        {
+            return RAB_EmptyLightInfo();
+        }
+
+        const uint previousIndex = PathTraceUnifiedLightRemap[index];
+        if (previousIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX || previousIndex >= RAB_GetPreviousUnifiedLightCount())
+        {
+            return RAB_EmptyLightInfo();
+        }
+        return RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedPreviousLights[previousIndex], previousIndex);
+    }
+
+    if (index >= RAB_GetCurrentUnifiedLightCount())
+    {
+        return RAB_EmptyLightInfo();
+    }
+    return RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedLights[index], index);
+}
+
+RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
+{
+    if (RAB_UnifiedLightLoadEnabled())
+    {
+        return RAB_LoadUnifiedLightInfo(index, previousFrame);
+    }
+    return RAB_LoadSplitLightInfo(index, previousFrame);
 }
 
 #endif
