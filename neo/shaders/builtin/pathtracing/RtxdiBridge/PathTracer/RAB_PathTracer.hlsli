@@ -362,6 +362,7 @@ void RAB_PathTrace(inout RTXDI_PathTracerContext ctx, inout RTXDI_PathTracerRand
 
         if (!RAB_IsRayPayloadHit(rayPayload))
         {
+            // Environment lighting is intentionally unbridged; see pathtrace_smoke_rab_environment_stub.hlsli.
             RAB_NoteEnvironmentMapMissUnbridged(ptud);
             ctx.RecordPathRadianceMiss(ptRandContext.initialRandomSamplerState);
             break;

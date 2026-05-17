@@ -1230,6 +1230,7 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
 
 #include "pathtrace_emissive_sampling.hlsli"
+#include "pathtrace_smoke_rab_environment_stub.hlsli"
 
 #ifdef RB_PT_ENABLE_RESTIR
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"

@@ -110,11 +110,13 @@ float GetMISWeightForEmissiveSurface(
 
 float GetMISWeightForEnvironmentMap(float3 direction, RAB_Surface prevSurface, RTXDI_BrdfRaySample brs)
 {
+    // Environment lighting is intentionally unbridged; see pathtrace_smoke_rab_environment_stub.hlsli.
     return 1.0;
 }
 
 float RAB_EvaluateEnvironmentMapSamplingPdf(float3 direction)
 {
+    // Environment lighting is intentionally unbridged; see pathtrace_smoke_rab_environment_stub.hlsli.
     return 0.0;
 }
 
