@@ -6,6 +6,7 @@
 #include "RAB_RayPayload.hlsli"
 #include "RAB_LocalLightPdf.hlsli"
 #include "RAB_HitToLightIndex.hlsli"
+#include "RAB_EnvironmentSamplingStub.hlsli"
 
 float RAB_GetMISWeightForNEE(
     uint lightIndex,
@@ -83,22 +84,6 @@ float GetMISWeightForEnvironmentMap(float3 direction, RAB_Surface prevSurface, R
 {
     // Environment lighting is intentionally unbridged; see pathtrace_smoke_rab_environment_stub.hlsli.
     return 1.0;
-}
-
-float RAB_EvaluateEnvironmentMapSamplingPdf(float3 direction)
-{
-    // Environment lighting is intentionally unbridged; see pathtrace_smoke_rab_environment_stub.hlsli.
-    return 0.0;
-}
-
-float2 RAB_GetEnvironmentMapRandXYFromDir(float3 direction)
-{
-    const float3 dir = RAB_SafeNormalize(direction, float3(0.0, 0.0, 1.0));
-    const float invTwoPi = 0.15915494309189535;
-    const float invPi = 0.3183098861837907;
-    const float u = atan2(dir.y, dir.x) * invTwoPi + 0.5;
-    const float v = acos(clamp(dir.z, -1.0, 1.0)) * invPi;
-    return frac(float2(u, v));
 }
 
 #endif
