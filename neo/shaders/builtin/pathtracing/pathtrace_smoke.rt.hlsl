@@ -685,40 +685,6 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 #include "RtxdiBridge/PathTraceRtxdiBridgeCore.hlsli"
 #else
 #include "RtxdiBridge/RAB_Material.hlsli"
-
-struct RAB_Surface
-{
-    uint valid;
-    float3 worldPos;
-    float linearDepth;
-    float3 geometryNormal;
-    uint materialId;
-    float3 shadingNormal;
-    uint materialIndex;
-    float3 viewDir;
-    uint instanceId;
-    uint primitiveIndex;
-    uint surfaceClass;
-    uint flags;
-    RAB_Material material;
-};
-
-RAB_Surface RAB_EmptySurface()
-{
-    RAB_Surface surface = (RAB_Surface)0;
-    surface.material = RAB_EmptyMaterial();
-    return surface;
-}
-
-bool RAB_IsSurfaceValid(RAB_Surface surface)
-{
-    return surface.valid != 0u;
-}
-
-float3 RAB_GetSurfaceNormal(RAB_Surface surface)
-{
-    return surface.shadingNormal;
-}
 #endif
 
 #include "pathtrace_smoke_rab_policy_supplier.hlsli"
@@ -1264,47 +1230,7 @@ PathTraceSmokeShadowPayload InitSmokeShadowPayload(uint ignoreInstanceId, uint i
     return payload;
 }
 
-RAB_Surface RAB_BuildSurfaceFromSmokePayload(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap)
-{
-    RAB_Surface surface = RAB_EmptySurface();
-    if (payload.value == 0u)
-    {
-        return surface;
-    }
-
-    const PathTraceSmokeMaterial smokeMaterial = LoadSmokeMaterial(payload.materialIndex);
-    const float3 baseNormal = SafeNormalize(payload.normal, payload.geometricNormal);
-    float3 shadingNormal = useNormalMap
-        ? DecodeSmokeNormalTexture(smokeMaterial, payload.texCoord, baseNormal, payload.tangent, payload.bitangent)
-        : baseNormal;
-    const float3 hitPosition = rayOrigin + rayDirection * payload.hitT;
-    const float3 viewDir = SafeNormalize(rayOrigin - hitPosition, -rayDirection);
-    float3 geometryNormal = SafeNormalize(payload.geometricNormal, baseNormal);
-    if (dot(geometryNormal, viewDir) < 0.0)
-    {
-        geometryNormal = -geometryNormal;
-    }
-    if (dot(shadingNormal, viewDir) < 0.0)
-    {
-        shadingNormal = -shadingNormal;
-    }
-    shadingNormal = ConstrainSmokeShadingNormal(shadingNormal, geometryNormal);
-
-    surface.valid = 1u;
-    surface.worldPos = hitPosition;
-    surface.linearDepth = payload.hitT;
-    surface.geometryNormal = geometryNormal;
-    surface.materialId = payload.materialId;
-    surface.shadingNormal = shadingNormal;
-    surface.materialIndex = payload.materialIndex;
-    surface.viewDir = viewDir;
-    surface.instanceId = payload.instanceId;
-    surface.primitiveIndex = payload.primitiveIndex;
-    surface.surfaceClass = payload.surfaceClass;
-    surface.flags = payload.triangleClassAndFlags;
-    surface.material = RAB_BuildMaterialFromSmokePayload(payload);
-    return surface;
-}
+#include "pathtrace_smoke_rab_surface_supplier.hlsli"
 
 bool ComputeSmokeTriangleBarycentrics(float3 position, float3 p0, float3 p1, float3 p2, out float3 barycentrics)
 {
