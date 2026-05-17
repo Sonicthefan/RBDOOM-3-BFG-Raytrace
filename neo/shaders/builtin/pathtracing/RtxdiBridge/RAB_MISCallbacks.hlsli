@@ -4,19 +4,7 @@
 #include "Rtxdi/Utils/BrdfRaySample.hlsli"
 #include "RAB_LightSamplingCore.hlsli"
 #include "RAB_RayPayload.hlsli"
-
-float RAB_EvaluateLocalLightSourcePdf(uint lightIndex)
-{
-    const uint emissiveTriangleCount = RAB_GetCurrentEmissiveTriangleCount();
-    if (lightIndex >= emissiveTriangleCount || emissiveTriangleCount == 0u)
-    {
-        return 0.0;
-    }
-
-    const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[lightIndex];
-    const float uniformFallbackPdf = 1.0 / max((float)emissiveTriangleCount, 1.0);
-    return max(emissiveTriangle.sampleWeightAndPdf.y, uniformFallbackPdf);
-}
+#include "RAB_LocalLightPdf.hlsli"
 
 uint RAB_FindCurrentEmissiveLightIndexForRayPayload(RAB_RayPayload rayPayload)
 {
