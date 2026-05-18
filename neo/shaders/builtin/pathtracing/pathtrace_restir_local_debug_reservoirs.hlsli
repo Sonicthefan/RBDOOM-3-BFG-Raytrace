@@ -27,7 +27,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 53u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 54u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -636,6 +636,39 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 53u)
     {
         return EvaluateRestirPTNeeRecordVsDiInitialContributionRatioView(surface, pixel);
+    }
+    if (view == 54u)
+    {
+        const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+        const RTXDI_PTReservoir initialReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+        const RTXDI_PTReservoir finalReservoir = LoadRestirPTFinalShadingInputReservoir(reservoirPixel);
+        const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+        const bool showFinalInput = pixel.x >= dimensions.x / 2u;
+        if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+        {
+            return float4(0.0, 0.0, 0.0, 1.0);
+        }
+        if (showFinalInput)
+        {
+            if (!RTXDI_IsValidPTReservoir(finalReservoir))
+            {
+                return float4(0.35, 0.0, 0.0, 1.0);
+            }
+            if (!RestirPTReferenceFinalShadingHasUsefulSample(finalReservoir))
+            {
+                return float4(0.02, 0.12, 0.35, 1.0);
+            }
+            return float4(RestirPTToneMapPreview(RestirPTReferenceFinalShadingContribution(finalReservoir)), 1.0);
+        }
+        if (!RTXDI_IsValidPTReservoir(initialReservoir))
+        {
+            return float4(0.18, 0.0, 0.0, 1.0);
+        }
+        if (!RestirPTReferenceFinalShadingHasUsefulSample(initialReservoir))
+        {
+            return float4(0.02, 0.06, 0.22, 1.0);
+        }
+        return float4(RestirPTToneMapPreview(RestirPTReferenceFinalShadingContribution(initialReservoir)), 1.0);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
