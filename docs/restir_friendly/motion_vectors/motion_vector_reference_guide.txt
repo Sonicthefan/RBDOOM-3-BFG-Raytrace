@@ -120,12 +120,13 @@ Relevant files:
 
 Current high-risk deviations:
 
-1. Offscreen previous xy is treated as producer failure.
+1. Offscreen previous xy was treated as producer failure before MV-01A.
 
    ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth rejects previous
-   NDC outside the screen. The motion-vector supplier then marks the vector
-   invalid and writes zero motion. RTXDI and Remix instead produce the vector
-   and leave previous-pixel usability to the consumer.
+   NDC outside the screen in the MV-00A baseline. MV-01A changed the
+   producer/projection boundary so finite offscreen previous xy still produces
+   the vector and depth delta. RTXDI and Remix leave previous-pixel usability
+   to the consumer.
 
 2. Static geometry motion depends on previous static array identity.
 
@@ -233,8 +234,8 @@ MV-00A: diagnostic-only contract audit
             neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
             Set by PathTracePrimarySurfacePreviousProjectionStatus when the
             finite previous projection lands outside the previous frame. In
-            MV-00A this is still a producer failure; MV-01A is the behavior
-            change that should stop rejecting this case.
+            MV-00A this was a producer failure; MV-01A preserves this status as
+            a diagnostic while returning a valid motion-vector producer result.
 
         RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH
             neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
@@ -292,6 +293,22 @@ MV-01A: stop producer rejection for offscreen previous xy
         Motion-vector debug should show long vectors toward newly revealed room
         edges while moving forward or panning, instead of collapsing to invalid
         or zero after a few meters.
+
+    Implemented behavior:
+
+        ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus
+        in neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli now
+        returns true for finite previous xy outside the previous frame. It
+        leaves previousPixelFloat outside the frame and returns
+        RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME as a diagnostic
+        status. Missing previous camera, behind-camera previous positions, and
+        non-finite projections still return false.
+
+        The combined geometry producer in
+        neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+        preserves that offscreen diagnostic status while still writing the
+        current-to-previous motion vector and depth delta. Consumers that need
+        previous history still own their previous-pixel bounds checks.
 
 MV-02A: reference-shaped static camera motion
 

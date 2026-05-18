@@ -243,6 +243,10 @@ uint PathTracePrimarySurfacePreviousProjectionStatus(float3 worldPosition, uint2
     const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
     const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
     projectedPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    if (!all(projectedPixelFloat == projectedPixelFloat))
+    {
+        return RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+    }
     if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
     {
         return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME;
@@ -259,7 +263,8 @@ uint PathTracePrimarySurfacePreviousProjectionStatus(float3 worldPosition, uint2
 bool ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat, out float previousLinearDepth, out uint debugStatus)
 {
     debugStatus = PathTracePrimarySurfacePreviousProjectionStatus(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
-    if (debugStatus != RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR)
+    if (debugStatus != RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR &&
+        debugStatus != RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME)
     {
         previousPixelFloat = float2(-1.0, -1.0);
         return false;

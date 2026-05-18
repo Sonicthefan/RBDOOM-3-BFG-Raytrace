@@ -411,7 +411,6 @@ bool TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(RAB_Surface currentS
 
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
-    debugStatus = RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR;
     return true;
 }
 
@@ -448,7 +447,6 @@ bool TryPathTracePackedObjectMotionPixelsAndDepth(RAB_Surface currentSurface, ui
 
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
-    debugStatus = RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR;
     return true;
 }
 
