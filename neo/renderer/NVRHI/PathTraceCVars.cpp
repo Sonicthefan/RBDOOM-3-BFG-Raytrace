@@ -797,9 +797,9 @@ idCVar r_pathTracingRestirPTUnifiedLightSample(
 
 idCVar r_pathTracingRestirPTUnifiedNee(
     "r_pathTracingRestirPTUnifiedNee",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Opt-in RTXDI-shaped ReSTIR PT NEE producer: 0 legacy rbdoom RIS producer, 1 unified local-light RTXDI DI initial producer; requires unified load/sample gates" );
+    "ReSTIR PT NEE producer when unified load/sample gates are enabled: 1 = RTXDI-shaped unified local-light DI initial producer, 0 = explicit legacy rbdoom RIS fallback" );
 
 idCVar r_pathTracingRestirPTAnalyticLightTrials(
     "r_pathTracingRestirPTAnalyticLightTrials",
