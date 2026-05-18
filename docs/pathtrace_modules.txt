@@ -293,7 +293,7 @@ PathTraceSmokeResources.cpp
     dispatch path now reserves private PT motion-vector export textures: RG16F
     vectors at shader UAV `u39` and an R32_UINT validity/source mask at UAV
     `u40`; they are allocated, bound, and reported by frame-resource
-    diagnostics. `r_pathTracingMotionVectorExport 1` lets raygen populate them
+    diagnostics. `r_pathTracingMotionVectorExport` defaults to 1 and lets raygen populate them
     with combined static/skinned/routed-rigid current-to-previous pixel motion
     plus an explicit mask. Mask bit 0 is valid, bits 1-4 are source kind, and
     bits 5-12 carry a compact invalid reason from the primary-surface debug
@@ -1284,7 +1284,7 @@ guide/input export needed before one. The task plan is
 roughness, depth, hit distance, motion-mask/source-category output,
 reset/disocclusion output, specular albedo/F0, and a tonemapped RR-input preview
 without loading the old monolithic ReSTIR shader.
-With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
+With `r_pathTracingMotionVectorExport` defaulting to 1, the standalone primary-surface
 producer writes `u39/u40` directly for this bridge path from static previous
 snapshots, retained skinned previous positions, and continuous rigid previous
 transforms. Mode 56 also forces this export while primary surface history is

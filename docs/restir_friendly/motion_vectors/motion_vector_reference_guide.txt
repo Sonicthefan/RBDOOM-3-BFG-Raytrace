@@ -1,0 +1,405 @@
+Motion Vector Reference Guide For rbdoom ReSTIR/PT
+==================================================
+Date: 2026-05-19
+
+Mission
+-------
+
+Make rbdoom's path-traced motion vectors follow the RTXDI reference contract.
+Use RTX Remix as the reference for old-game hostility, ray portals, PSR, and
+dual motion domains. Do not invent replacement temporal logic.
+
+This guide is intentionally about contract and slice order. It is not a request
+to copy NVIDIA source. Implement rbdoom-local code that presents the same data
+shape and decision boundaries.
+
+Reference Contract
+------------------
+
+RTXDI sample shape
+~~~~~~~~~~~~~~~~~~
+
+Reference files:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/GBufferHelpers.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/TemporalResampling.hlsl
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/PSRUtils.hlsli
+
+Required contract shape:
+
+1. The motion producer supplies a float3 motion vector for each current primary
+   surface that has valid history inputs.
+
+2. The xy convention is:
+
+       previousPixelCenter - currentPixelCenter
+
+   It is a pixel-space offset by the time RTXDI PT temporal resampling consumes
+   it.
+
+3. The z convention is:
+
+       expectedPreviousLinearDepth - currentLinearDepth
+
+   RTXDI PT temporal resampling reconstructs expected previous depth as:
+
+       currentSurfaceLinearDepth + motionVector.z
+
+4. The producer may reject impossible history, such as invalid previous camera
+   state or previous position behind the previous camera. It must not reject a
+   vector only because previous xy falls outside the previous frame.
+
+5. The temporal consumer owns previous-pixel bounds checks, neighbor search,
+   surface similarity, material similarity, depth thresholds, reservoir validity,
+   and history-age policy.
+
+6. Camera jitter and dynamic-resolution differences are accounted for at the
+   motion-vector load/conversion boundary. Do not bury that adjustment inside
+   unrelated ReSTIR logic.
+
+RTX Remix hostile-game and portal shape
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/geometry_resolver.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface/surface_interaction.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/camera/camera.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/gbuffer/gbuffer_bindings.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Required contract shape:
+
+1. Remix separates two motion domains:
+
+       PrimaryScreenSpaceMotionVector
+       PrimaryVirtualMotionVector
+
+2. Screen-space motion answers:
+
+       Which previous pixel should this current pixel try first?
+
+3. Virtual/world motion answers:
+
+       Where was this same virtual surface in previous frame space?
+
+   RTXDI and ReSTIR GI then use that value for expected previous hit distance,
+   portal-aware validation, bias correction, gradient confidence, and denoisers.
+
+4. Static surfaces do not need previous static vertices to express camera
+   motion. Their object/world motion is zero. Screen-space motion is produced by
+   projecting the current world or virtual hit position through the previous
+   camera.
+
+5. Dynamic surfaces use previous transforms and previous vertex positions when
+   available. If those inputs are absent, the producer should expose that
+   absence through diagnostics rather than fabricating continuity.
+
+6. Ray misses and environment pixels can still receive camera-derived motion.
+   That is separate from surface-reservoir reuse and must not be confused with
+   a valid previous surface.
+
+7. Portal and PSR paths should not force portal behavior into a single xy
+   vector. The reference design carries virtual/world motion beside the
+   screen-space vector.
+
+rbdoom Current Shape
+--------------------
+
+Relevant files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_reference_temporal_debug.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+
+Current high-risk deviations:
+
+1. Offscreen previous xy is treated as producer failure.
+
+   ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth rejects previous
+   NDC outside the screen. The motion-vector supplier then marks the vector
+   invalid and writes zero motion. RTXDI and Remix instead produce the vector
+   and leave previous-pixel usability to the consumer.
+
+2. Static geometry motion depends on previous static array identity.
+
+   TryPathTracePreviousStaticSnapshotPosition maps the current static primitive
+   index directly into previous static buffers. This is fragile when portal
+   residency, area preload, or first-seen static surfaces change the current
+   static domain after the previous snapshot was captured.
+
+   Reference-aligned static camera motion should not require previous static
+   vertices for static world geometry. A static surface has zero world motion;
+   the screen-space vector comes from projecting the current world position
+   through the previous camera.
+
+3. rbdoom has only one exported motion domain.
+
+   PathTraceMotionVectors stores xy pixel motion and z depth delta. There is no
+   separate virtual/world motion buffer equivalent to Remix
+   PrimaryVirtualMotionVector. That is acceptable for a first RTXDI-alignment
+   slice, but portal-aware reuse should not pretend xy alone contains all the
+   information carried by Remix.
+
+4. Debug colors can hide range problems.
+
+   PathTracePrimarySurfaceMotionVectorColor visualizes up to a small pixel
+   magnitude. That is fine for a debug color, but it must not become a
+   functional clamp.
+
+Required rbdoom End Shape
+-------------------------
+
+The minimum RTXDI-aligned path is:
+
+    current primary surface
+        -> current world position
+        -> previous world or virtual position when object motion exists
+        -> previous camera projection
+        -> float3 motionVector
+        -> RTXDI/PT temporal consumer
+        -> consumer bounds/similarity/depth/history checks
+
+For static world geometry:
+
+    previous world position = current world position
+    motion.xy = previousCameraProject(currentWorldPosition) - currentPixelCenter
+    motion.z  = previousDepth(currentWorldPosition) - currentLinearDepth
+
+For dynamic rigid/skinned geometry:
+
+    previous world position = previous transform/previous vertex result
+    motion.xy = previousCameraProject(previousWorldPosition) - currentPixelCenter
+    motion.z  = previousDepth(previousWorldPosition) - currentLinearDepth
+
+For portal/PSR-capable reuse:
+
+    screen-space motion chooses the previous pixel
+    virtual/world motion supplies previous virtual surface position
+    portal-aware RAB validation decides whether cross-portal reuse is allowed
+
+Do Not Do
+---------
+
+- Do not blur or denoise the motion-vector field to make debug colors look
+  stable.
+- Do not clamp large vectors to the screen edge in the producer.
+- Do not turn an out-of-bounds previous pixel into zero motion.
+- Do not loosen ReSTIR temporal rejection to compensate for bad producer data.
+- Do not reinterpret static previous-buffer failure as camera motion without a
+  visible diagnostic gate.
+- Do not make portal brute force the permanent motion-vector fix.
+- Do not combine the screen-space and virtual/world domains into one packed
+  value unless the exact consumer contract is documented first.
+- Do not copy/paste RTXDI or Remix code.
+
+Recommended Slice Order
+-----------------------
+
+MV-00A: diagnostic-only contract audit
+
+    Add or reuse diagnostics that split motion-vector failures by:
+
+        missing previous camera
+        previous position behind camera
+        previous xy outside frame
+        static previous range mismatch
+        static material/class mismatch
+        packed object missing previous motion
+        valid vector
+
+    This slice must not change motion-vector behavior.
+
+    Implemented diagnostic names and locations:
+
+        RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS_CAMERA
+            neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+            Set by PathTracePrimarySurfacePreviousProjectionStatus when
+            PrevCameraOriginAndValid.w is not valid.
+
+        RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_BEHIND_CAMERA
+            neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+            Set by PathTracePrimarySurfacePreviousProjectionStatus when the
+            previous projection position is behind or too close to the previous
+            camera forward plane.
+
+        RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME
+            neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+            Set by PathTracePrimarySurfacePreviousProjectionStatus when the
+            finite previous projection lands outside the previous frame. In
+            MV-00A this is still a producer failure; MV-01A is the behavior
+            change that should stop rejecting this case.
+
+        RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH
+            neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+            Set by TryPathTracePreviousStaticSnapshotPosition for static
+            previous-snapshot primitive, index, vertex, or barycentric range
+            failures.
+
+        RT_PRIMARY_SURFACE_DEBUG_STATIC_MATERIAL_CLASS_MISMATCH
+            neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+            Set by TryPathTracePreviousStaticSnapshotPosition when the static
+            previous snapshot has a different material id, material index, or
+            masked triangle class.
+
+        RT_PRIMARY_SURFACE_DEBUG_PACKED_OBJECT_MISSING_PREVIOUS_MOTION
+            neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+            neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+            Set by packed-object motion helpers when an unsupported surface
+            record does not contain object-motion plus previous-position flags.
+            Skinned and routed-rigid source kinds preserve their source-specific
+            missing-previous statuses so modes 47-49 do not hide them as a
+            generic packed-object case.
+
+        RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR
+            neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+            Alias for RT_PRIMARY_SURFACE_DEBUG_OK, used at successful
+            motion-vector producer exits to make the valid-vector status name
+            explicit without changing encoded status value.
+
+    Debug color exposure:
+
+        PathTracePrimarySurfaceDebugColor in
+        neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli maps the
+        new statuses to distinct diagnostic colors. The exported
+        PathTraceMotionVectorMask invalid-reason field already carries the
+        numeric status from
+        PathTraceMotionVectorMaskFromStatus in
+        neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli.
+
+MV-01A: stop producer rejection for offscreen previous xy
+
+    Change only the producer/projection boundary so a finite previous projection
+    outside the previous frame still produces motion.xy and motion.z.
+
+    Rules:
+
+        - preserve the xy convention: previous pixel center minus current pixel
+          center
+        - preserve the z convention: previous depth minus current depth
+        - still reject invalid previous camera and behind-camera positions
+        - leave consumer bounds checks intact
+        - do not change reservoir math or temporal thresholds
+
+    Expected visual result:
+
+        Motion-vector debug should show long vectors toward newly revealed room
+        edges while moving forward or panning, instead of collapsing to invalid
+        or zero after a few meters.
+
+MV-02A: reference-shaped static camera motion
+
+    For static world geometry, produce camera motion from current world position
+    and previous camera projection instead of requiring a matching previous
+    static primitive.
+
+    Rules:
+
+        - do not remove the previous-static diagnostic path
+        - keep a debug view that shows where the previous-static identity path
+          would have failed
+        - do not fabricate object motion for static geometry
+        - keep dynamic/skinned object motion on the existing previous-position
+          path until a separate slice audits it
+
+MV-03A: dynamic object previous-position audit
+
+    Compare rigid and skinned previous-position producers against the RTXDI
+    sample's previous transform/previous vertex shape and Remix's
+    previousPositionBuffer path.
+
+    Rules:
+
+        - no portal policy changes
+        - no static path changes
+        - no ReSTIR math changes
+        - report missing previous-motion cases instead of hiding them
+
+MV-04A: Remix-style virtual/world motion planning
+
+    Plan the rbdoom equivalent of PrimaryVirtualMotionVector. This should be a
+    doc or diagnostic-resource slice first.
+
+    Required questions:
+
+        - which rbdoom surfaces can supply current virtual/world hit position?
+        - which paths can supply previous virtual/world position?
+        - how are Doom portals represented at the motion-vector producer?
+        - which consumers need virtual/world motion first: RTXDI PT temporal,
+          ReSTIR GI, DLSS RR, or debug views?
+
+    Do not implement cross-portal reuse policy in this slice.
+
+MV-05A: portal-aware validation bridge
+
+    Only after MV-04A is accepted, connect virtual/world motion to the RAB
+    validation path. Follow Remix's separation of pixel lookup, expected
+    previous hit distance, and cross-portal validation.
+
+    This slice must not use portal brute force as proof of correctness.
+
+Acceptance Tests For User Visual Pass
+-------------------------------------
+
+After any code slice, build/deploy and ask the user to inspect:
+
+    r_pathTracingRestirPTUnifiedLightLoad 1
+    r_pathTracingRestirPTUnifiedLightSample 1
+    r_pathTracingRestirPTDiDebugView 12
+    r_pathTracingRestirPTTemporalNeighborDebugMode 2
+    r_pathTracingMotionVectorExport 1
+
+Motion-vector specific inspection:
+
+    - stand still facing a wall
+    - strafe side to side
+    - walk directly toward a room edge
+    - pan the camera across a large doorway
+    - cross a portal boundary
+    - compare with portal brute force off and on only as a diagnostic
+
+Expected reference-shaped behavior:
+
+    - static walls should not flash invalid just because the camera moved
+    - moving forward should create long vectors near room edges
+    - panning should create broad coherent vectors, not a tiny valid island
+    - offscreen previous positions should be represented as large vectors
+    - consumers may reject out-of-bounds previous pixels, but the producer
+      should not erase the vector first
+    - portal crossings may still need virtual/world motion work, but the
+      failure should be diagnosable rather than hidden as zero motion
+
+Build And Deploy Reminder
+-------------------------
+
+For code slices only:
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to
+    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders after shader edits:
+
+    E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not create:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/renderprogs2

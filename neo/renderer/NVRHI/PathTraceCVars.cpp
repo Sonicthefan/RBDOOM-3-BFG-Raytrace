@@ -1145,9 +1145,9 @@ idCVar r_pathTracingGpuSkinning(
 
 idCVar r_pathTracingMotionVectorExport(
     "r_pathTracingMotionVectorExport",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Off-by-default PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion plus validity/source mask into private PT UAVs; no consumer reads them yet" );
+    "PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion plus validity/source mask into private PT UAVs" );
 
 idCVar r_pathTracingRestirPTDirectLighting(
     "r_pathTracingRestirPTDirectLighting",

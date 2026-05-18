@@ -267,7 +267,7 @@ bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out 
         indexOffset + 2u >= PathTracePreviousStaticIndexCount() ||
         primitiveIndex >= PathTracePreviousStaticMaterialIndexCount())
     {
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH;
         return false;
     }
 
@@ -281,7 +281,7 @@ bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out 
         currentMaterialId != previousMaterialId ||
         currentMaterialIndex != previousMaterialIndex)
     {
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MATERIAL_MISMATCH;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_STATIC_MATERIAL_CLASS_MISMATCH;
         return false;
     }
 
@@ -298,7 +298,7 @@ bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out 
         pi1 >= PathTracePreviousStaticVertexCount() ||
         pi2 >= PathTracePreviousStaticVertexCount())
     {
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH;
         return false;
     }
 
@@ -308,7 +308,7 @@ bool TryPathTracePreviousStaticSnapshotPosition(RAB_Surface currentSurface, out 
     float3 barycentrics;
     if (!ComputeSmokeTriangleBarycentrics(currentSurface.worldPos, c0, c1, c2, barycentrics))
     {
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_RIGID_RANGE_MISMATCH;
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH;
         return false;
     }
 
@@ -350,10 +350,14 @@ float4 EvaluatePathTracePreviousStaticSnapshotReprojectionDebug(RAB_Surface curr
     }
 
     int2 previousPixel;
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixel(previousPosition, PathTraceFullOutputSize(), previousPixel))
+    float2 previousPixelFloat;
+    float previousLinearDepth;
+    uint projectionDebugStatus;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(previousPosition, PathTraceFullOutputSize(), previousPixelFloat, previousLinearDepth, projectionDebugStatus))
     {
-        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS, currentSurface);
+        return PathTracePrimarySurfaceDebugColor(projectionDebugStatus, currentSurface);
     }
+    previousPixel = int2(floor(previousPixelFloat));
 
     const RAB_Surface previousSurface = LoadPathTracePrimarySurfaceRecord(previousPixel, true);
     if (!PathTracePrimarySurfacesAreSimilar(currentSurface, previousSurface, debugStatus))
@@ -400,15 +404,14 @@ bool TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(RAB_Surface currentS
         return false;
     }
 
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(previousPosition, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth))
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(previousPosition, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth, debugStatus))
     {
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
         return false;
     }
 
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
-    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR;
     return true;
 }
 
@@ -434,18 +437,18 @@ bool TryPathTracePackedObjectMotionPixelsAndDepth(RAB_Surface currentSurface, ui
     const PathTracePrimarySurfaceRecord currentRecord = PackPathTracePrimarySurfaceRecord(currentSurface);
     if (!PathTracePrimarySurfaceRecordHasObjectMotion(currentRecord))
     {
-        debugStatus = currentRecord.header.z;
+        debugStatus = PathTracePrimarySurfaceMissingPackedObjectMotionStatus(currentSurface, currentRecord.header.z);
         return false;
     }
 
-    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth))
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(currentRecord.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixelFloat, expectedPrevDepth, debugStatus))
     {
-        debugStatus = RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
         return false;
     }
 
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR;
     return true;
 }
 

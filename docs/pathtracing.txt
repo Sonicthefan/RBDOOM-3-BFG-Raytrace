@@ -1054,7 +1054,7 @@ Denoise/upscale/Ray Reconstruction reservation:
   RR input color to `PathTraceRRInputColor` (`u54`); `SmokeOutput` remains the
   tonemapped mode-56 preview/debug image. Motion vectors and the validity mask
   remain `u39/u40`. See `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
-- With `r_pathTracingMotionVectorExport 1`, the standalone primary-surface
+- `r_pathTracingMotionVectorExport` defaults to 1, so the standalone primary-surface
   producer also writes the bridge motion-vector/mask outputs from static
   previous snapshots, retained skinned previous positions, and continuous rigid
   previous transforms, so the primary-prepass mode-56 path does not depend on
@@ -2362,7 +2362,7 @@ Geometry universe status:
 - The smoke path now reserves private output-sized motion-vector export
   resources in PathTraceFrameResources: RG16F vectors at raygen UAV `u39` and
   an R32_UINT validity/source mask at UAV `u40`.
-  `r_pathTracingMotionVectorExport 1` makes raygen write combined geometry
+  `r_pathTracingMotionVectorExport` defaults to 1 and makes raygen write combined geometry
   current-to-previous pixel motion into those private textures, using the same
   shared static/skinned/routed-rigid helper as debug mode 49. Unsupported or
   invalid pixels write a zero vector plus a zero-valid mask containing the
