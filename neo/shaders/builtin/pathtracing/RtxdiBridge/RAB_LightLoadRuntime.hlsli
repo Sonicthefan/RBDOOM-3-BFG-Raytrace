@@ -154,6 +154,7 @@ RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
         RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
         lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
         lightInfo.lightIndex = index;
+        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
         lightInfo.materialIndex = emissiveTriangle.materialIndex;
         lightInfo.flags = emissiveTriangle.flags | emissiveTriangle.padding0;
         lightInfo.position = emissiveTriangle.centerAndArea.xyz;
@@ -211,6 +212,7 @@ RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
         RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
         lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
         lightInfo.lightIndex = index;
+        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
         lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
         lightInfo.flags = analyticLight.flags;
         lightInfo.position = analyticLight.originAndRadius.xyz;
@@ -243,7 +245,12 @@ uint RAB_GetUnifiedLightRemapCount()
 
 bool RAB_UnifiedLightLoadEnabled()
 {
-    return UnifiedLightInfo.z >= 0.5;
+    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 1u) != 0u;
+}
+
+bool RAB_UnifiedLightSampleEnabled()
+{
+    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 2u) != 0u;
 }
 
 bool RAB_UnifiedDoomAnalyticRecordSampleable(PathTraceUnifiedLightRecord record)
@@ -267,6 +274,7 @@ RAB_LightInfo RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedLightRecord re
         RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
         lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
         lightInfo.lightIndex = unifiedIndex;
+        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
         lightInfo.materialIndex = record.materialOrLightId;
         lightInfo.flags = record.flags;
         lightInfo.position = record.positionAndRadius.xyz;
@@ -298,6 +306,7 @@ RAB_LightInfo RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedLightRecord re
         RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
         lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
         lightInfo.lightIndex = unifiedIndex;
+        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
         lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
         lightInfo.flags = record.flags;
         lightInfo.position = record.positionAndRadius.xyz;

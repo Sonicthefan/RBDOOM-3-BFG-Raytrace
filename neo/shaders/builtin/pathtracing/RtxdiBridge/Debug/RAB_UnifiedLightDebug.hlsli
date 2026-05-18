@@ -304,6 +304,105 @@ float4 EvaluateRestirPTUnifiedLoadPreviousCompareView(uint2 pixel)
         RAB_LoadUnifiedLightInfo(unifiedIndex, true));
 }
 
+float2 RestirPTDebugUnifiedSampleUv(uint unifiedIndex)
+{
+    const uint hash = unifiedIndex * 1664525u + 1013904223u;
+    const float ux = (float)(hash & 0xffffu) / 65535.0;
+    const float uy = (float)((hash >> 16u) & 0xffffu) / 65535.0;
+    return float2(ux, uy);
+}
+
+float4 RestirPTDebugCompareRabLightSample(RAB_LightSample splitSample, RAB_LightSample unifiedSample)
+{
+    const bool splitValid = splitSample.valid != 0u;
+    const bool unifiedValid = unifiedSample.valid != 0u;
+    if (!splitValid && !unifiedValid)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (splitValid != unifiedValid)
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (splitSample.lightType != unifiedSample.lightType)
+    {
+        return float4(1.0, 0.0, 0.75, 1.0);
+    }
+    if (splitSample.lightIndex != unifiedSample.lightIndex)
+    {
+        return float4(1.0, 0.85, 0.05, 1.0);
+    }
+    if (!RestirPTDebugApproximatelyEqual(splitSample.position.x, unifiedSample.position.x, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitSample.position.y, unifiedSample.position.y, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitSample.position.z, unifiedSample.position.z, 0.001) ||
+        !RestirPTDebugApproximatelyEqual(splitSample.distance, unifiedSample.distance, 0.001))
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+    if (!RestirPTDebugApproximatelyEqual(splitSample.areaPdf, unifiedSample.areaPdf, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(splitSample.solidAnglePdf, unifiedSample.solidAnglePdf, 0.01))
+    {
+        return float4(1.0, 0.35, 0.0, 1.0);
+    }
+    if (!RestirPTDebugApproximatelyEqual(splitSample.radiance.x, unifiedSample.radiance.x, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(splitSample.radiance.y, unifiedSample.radiance.y, 0.01) ||
+        !RestirPTDebugApproximatelyEqual(splitSample.radiance.z, unifiedSample.radiance.z, 0.01))
+    {
+        return float4(0.05, 0.18, 0.75, 1.0);
+    }
+    return float4(RestirPTDebugRabLightInfoTypeColor(splitSample.lightType), 1.0);
+}
+
+float4 EvaluateRestirPTUnifiedSampleCompareView(RAB_Surface surface, uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    const float2 uv = RestirPTDebugUnifiedSampleUv(unifiedIndex);
+    const RAB_LightInfo splitInfo = RAB_LoadSplitLightInfo(unifiedIndex, false);
+    const RAB_LightInfo unifiedInfo = RAB_LoadUnifiedLightInfo(unifiedIndex, false);
+    return RestirPTDebugCompareRabLightSample(
+        RAB_SampleSplitPolymorphicLight(splitInfo, surface, uv),
+        RAB_SampleUnifiedPolymorphicLight(unifiedInfo, surface, uv));
+}
+
+float4 EvaluateRestirPTUnifiedSampleNumericView(RAB_Surface surface, uint2 pixel)
+{
+    const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);
+    if (unifiedIndex >= RestirPTDebugUnifiedCurrentLightCount())
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    const RAB_LightInfo lightInfo = RAB_LoadUnifiedLightInfo(unifiedIndex, false);
+    const RAB_LightSample sample = RAB_SampleUnifiedPolymorphicLight(lightInfo, surface, RestirPTDebugUnifiedSampleUv(unifiedIndex));
+    if (sample.valid == 0u)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+
+    const uint cellSize = 12u;
+    const uint2 localPixel = pixel % cellSize;
+    if (localPixel.x < (cellSize / 2u) && localPixel.y < (cellSize / 2u))
+    {
+        const float heat = saturate(log2(1.0 + RAB_Luminance(sample.radiance)) / 12.0);
+        return float4(RestirPTDebugRabLightInfoTypeColor(sample.lightType) * (0.15 + heat * 0.85), 1.0);
+    }
+    if (localPixel.x >= (cellSize / 2u) && localPixel.y < (cellSize / 2u))
+    {
+        const float heat = saturate(log2(1.0 + sample.areaPdf) / 12.0);
+        return float4(heat, 0.85 * heat, 0.05, 1.0);
+    }
+    if (localPixel.x < (cellSize / 2u))
+    {
+        const float heat = saturate(log2(1.0 + sample.solidAnglePdf) / 12.0);
+        return float4(0.05, 0.85 * heat, heat, 1.0);
+    }
+    const float heat = saturate(log2(1.0 + sample.distance) / 12.0);
+    return float4(heat, 0.05, 0.85 * heat, 1.0);
+}
+
 float4 EvaluateRestirPTCpuUnifiedLightTypeView(uint2 pixel)
 {
     const uint unifiedIndex = RestirPTDebugUnifiedGridIndex(pixel);

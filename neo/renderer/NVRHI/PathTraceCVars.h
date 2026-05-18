@@ -138,6 +138,7 @@ extern idCVar r_pathTracingRestirPTTemporalFallbackSampling;
 extern idCVar r_pathTracingRestirPTTemporalAnalyticNeeReuse;
 extern idCVar r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance;
 extern idCVar r_pathTracingRestirPTUnifiedLightLoad;
+extern idCVar r_pathTracingRestirPTUnifiedLightSample;
 extern idCVar r_pathTracingRestirPTAnalyticLightTrials;
 extern idCVar r_pathTracingRestirPTVisibilityPolicy;
 extern idCVar r_pathTracingRestirPTReflectionMode;

@@ -113,7 +113,7 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     return lightSample;
 }
 
-RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
+RAB_LightSample RAB_SampleSplitPolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
 {
     if (lightInfo.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
@@ -124,6 +124,28 @@ RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface 
         return RAB_SampleDoomAnalyticSphereLight(lightInfo, surface, uv);
     }
     return RAB_EmptyLightSample();
+}
+
+RAB_LightSample RAB_SampleUnifiedPolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
+{
+    if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return RAB_SampleEmissiveTriangleLight(lightInfo, surface);
+    }
+    if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return RAB_SampleDoomAnalyticSphereLight(lightInfo, surface, uv);
+    }
+    return RAB_EmptyLightSample();
+}
+
+RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
+{
+    if (RAB_UnifiedLightSampleEnabled())
+    {
+        return RAB_SampleUnifiedPolymorphicLight(lightInfo, surface, uv);
+    }
+    return RAB_SampleSplitPolymorphicLight(lightInfo, surface, uv);
 }
 
 #endif

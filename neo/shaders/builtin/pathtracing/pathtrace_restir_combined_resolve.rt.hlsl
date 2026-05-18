@@ -706,6 +706,8 @@ float4 EvaluateRestirPTCpuUnifiedLightCompareView(uint2 pixel);
 float4 EvaluateRestirPTCpuUnifiedLightRemapView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLoadCurrentCompareView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLoadPreviousCompareView(uint2 pixel);
+float4 EvaluateRestirPTUnifiedSampleCompareView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTUnifiedSampleNumericView(RAB_Surface surface, uint2 pixel);
 
 #include "pathtrace_restir_local_debug_reservoirs.hlsli"
 

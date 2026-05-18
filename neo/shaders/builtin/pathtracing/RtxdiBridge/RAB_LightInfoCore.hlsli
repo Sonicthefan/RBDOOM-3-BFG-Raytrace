@@ -5,6 +5,7 @@ struct RAB_LightInfo
 {
     uint lightType;
     uint lightIndex;
+    uint unifiedLightType;
     uint materialIndex;
     uint flags;
     float3 position;
