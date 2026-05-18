@@ -1,0 +1,335 @@
+ReSTIR PT Chain After Light Universe
+Date: 2026-05-18
+
+Purpose
+-------
+Define the intended RTXDI-shaped processing chain once rbdoom has a stable
+unified light universe.
+
+This document starts after Doom emissive triangles and Doom analytic lights
+have been converted into one coherent light domain. It does not describe how to
+build that light universe. It describes what should happen after it exists.
+
+
+Starting assumption
+-------------------
+The light side has been fixed enough that rbdoom can provide:
+
+    one current light count
+    one previous light count
+    one current light buffer
+    one previous light buffer
+    one current-to-previous remap
+    one previous-to-current remap
+    one local-light sampling mode
+    one local-light source PDF story
+    one RAB_LoadLightInfo(index, previousFrame)
+    one RAB_SamplePolymorphicLight(...)
+
+The first version can be minimal:
+
+    emissive triangles + Doom analytic spheres only
+    no environment light yet
+    no infinite light yet
+    uniform local-light sampling initially
+    no local-light PDF texture initially
+
+Do not keep pushing Doom-specific emissive/analytic branching deeper into every
+RAB callback once this light universe exists. The Doom-specific work should be
+before RAB, not inside every ReSTIR stage.
+
+
+Chain overview
+--------------
+Target shape:
+
+    rbdoom unified light universe
+        -> RAB light callbacks
+        -> RTXDI DI initial sampling for NEE
+        -> optional secondary DI spatial resampling
+        -> PT path tracer RecordNeeLightSample
+        -> RTXDI PT initial reservoir
+        -> RTXDI PT temporal resampling
+        -> RTXDI PT spatial resampling
+        -> RTXDI PT final shading input
+        -> final shading / denoiser output
+
+
+Stage 1: RAB light info and sampling
+------------------------------------
+Goal:
+    Make rbdoom's unified light domain look like the reference application
+    light domain.
+
+rbdoom files:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightInfoRuntime.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSample.hlsli
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Buffers.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\PolymorphicLight.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Source\RenderPasses\PrepareLightsPass.cpp
+
+Reference shape:
+    RAB_LoadLightInfo(index, previousFrame)
+        reads a coherent light buffer.
+
+    RAB_SamplePolymorphicLight(lightInfo, surface, uv)
+        samples a light record by type.
+
+    RAB_EvaluateLocalLightSourcePdf(lightIndex)
+        returns the local-light source PDF for that light index.
+
+First rbdoom target:
+    RAB_LoadLightInfo should become simple: index into unified current/previous
+    light buffers, not branch across Doom domains.
+
+    RAB_SamplePolymorphicLight should branch only on the unified light type.
+
+    RAB_EvaluateLocalLightSourcePdf can start as uniform over the local-light
+    region. Add a PDF texture later only if needed.
+
+
+Stage 2: DI initial sampling for NEE
+-----------------------------------
+Goal:
+    Replace rbdoom's hand-written local NEE RIS path with the same DI initial
+    sampling primitive NVIDIA uses before recording PT NEE.
+
+rbdoom files to replace or bypass:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracerNee.hlsli
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\ReSTIRDIParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\RtxdiParameters.h
+
+Reference functions:
+    SampleDirectLightsForIndirectSurface(...)
+    CalculateNEE(...)
+    RTXDI_SampleLightsForSurface(...)
+    RTXDI_SampleLocalLights(...)
+    RTXDI_SampleInfiniteLights(...)
+    RTXDI_SampleEnvironmentMap(...)
+    RTXDI_SampleBrdf(...)
+
+First rbdoom target:
+    Construct minimal DI sampling inputs:
+
+        RTXDI_DIInitialSamplingParameters
+            numLocalLightSamples > 0
+            numInfiniteLightSamples = 0
+            numEnvironmentSamples = 0
+            numBrdfSamples = 0
+            localLightSamplingMode = Uniform
+            enableInitialVisibility = true or current validated equivalent
+
+        RTXDI_LightBufferParameters
+            localLightBufferRegion.firstLightIndex = 0
+            localLightBufferRegion.numLights = unified current light count
+            infiniteLightBufferRegion.numLights = 0
+            environmentLightParams.lightPresent = 0
+
+    Then call RTXDI_SampleLightsForSurface for the current intersection
+    surface and use the returned RTXDI_DIReservoir and RAB_LightSample.
+
+Do not start with:
+    environment sampling
+    BRDF-hit light sampling
+    local-light PDF texture
+    ReGIR
+    RIS presampling
+
+Those can be added after the basic local-light DI path works.
+
+
+Stage 3: Record selected DI result into PT
+------------------------------------------
+Goal:
+    Feed the PT reservoir context using NVIDIA's CalculateNEE pattern instead
+    of rbdoom's local RIS estimator.
+
+rbdoom file:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+
+Reference functions:
+    CalculateNEE(...)
+    ctx.RecordNeeLightSample(...)
+
+Reference formula shape:
+    if DI reservoir is valid:
+
+        radianceFromLights =
+            reflected BSDF radiance
+            * visibility
+            * RTXDI_GetDIReservoirInvPdf(diReservoir)
+            / lightSample.solidAnglePdf
+
+        sampledLightData.lightData = diReservoir.lightData
+        sampledLightData.uvData = diReservoir.uvData
+        neePdf = 1.0 / diReservoir.weightSum
+        scatterPdf = RAB_SurfaceEvaluateBrdfPdf(...)
+        ctx.RecordNeeLightSample(...)
+
+First rbdoom target:
+    Preserve the existing RAB_PathTrace loop shape, but make its NEE branch call
+    a reference-shaped CalculateNEE equivalent instead of
+    RAB_RecordSmokeNeeSample local RIS.
+
+Do not invent alternate reservoir weights here.
+
+
+Stage 4: Optional secondary DI spatial resampling
+------------------------------------------------
+Goal:
+    Match the NVIDIA secondary-surface DI spatial reuse hook after basic DI
+    initial sampling works.
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\SpatialResampling.hlsli
+
+Reference function:
+    RTXDI_DISpatialResampling(...)
+
+Reference inputs:
+    secondary surface projected to current screen pixel
+    current DI reservoir from RTXDI_SampleLightsForSurface
+    runtime params
+    DI reservoir buffer params
+    restirDI shadingInputBufferIndex
+    spatial resampling params
+
+First rbdoom target:
+    Leave this off until Stage 2 and Stage 3 produce a sane DI reservoir and PT
+    NEE record.
+
+Reason:
+    Spatial reuse will hide basic feed errors if it is enabled too early.
+
+
+Stage 5: PT initial reservoir generation
+----------------------------------------
+Goal:
+    Let RTXDI PT initial sampling record NEE results into PT reservoirs.
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\InitialSampling.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\InitialSampling.hlsl
+
+rbdoom check:
+    The selected NEE record should appear in the PT initial reservoir with
+    coherent:
+
+        sampled light data
+        TargetFunction
+        WeightSum
+        PathLength
+        RcVertexLength
+        NEE metadata
+
+Diagnostic views:
+    Existing rbdoom reference/debug views around initial NEE payload,
+    finalShadingInput state, and NEE scalar fields should be used before moving
+    on.
+
+
+Stage 6: PT temporal and spatial resampling
+-------------------------------------------
+Goal:
+    Consume the reference-shaped PT initial reservoirs through RTXDI's PT reuse
+    chain.
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\TemporalResampling.hlsl
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\SpatialResampling.hlsl
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+
+Required rbdoom suppliers:
+    current RAB_GetGBufferSurface
+    previous RAB_GetGBufferSurface
+    current/previous light remap
+    surface/material similarity
+    motion-vector previous-pixel projection
+    duplication map, or an explicitly accepted zero-duplication fallback
+
+Do not use rbdoom local_debug_reservoirs as proof of this stage.
+That file is custom debug code, not the RTXDI PT reuse chain.
+
+
+Stage 7: Final shading input
+----------------------------
+Goal:
+    Verify the RTXDI PT chain produces sane finalShadingInputBufferIndex data.
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\ShadingHelpers.hlsli
+
+rbdoom diagnostic files:
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve_reservoir_pages.hlsli
+    neo\shaders\builtin\pathtracing\pathtrace_restir_reference_final_shading_debug.hlsli
+
+Expected check:
+    finalShadingInputBufferIndex contains valid reservoirs whose
+    TargetFunction * WeightSum contribution is finite and visibly meaningful.
+
+
+Stage 8: Final shading / denoiser output
+----------------------------------------
+Goal:
+    Replace local mode 56 preview output with an RTXDI-shaped final shading
+    pass only after earlier stages are accepted.
+
+RTXDI / FullSample reference files:
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\ShadingHelpers.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+
+Reference functions:
+    CalculateDirectLighting(...)
+    CalculateDiffuseAndSpecular(...)
+    StoreShadingOutput(...)
+    UpdatePSRBuffers(...)
+
+First rbdoom target:
+    Do not jump here from the current state. Final shading can only be useful
+    after the NEE/DI/PT reservoir chain produces stable final input data.
+
+
+Immediate next correctness task after light universe
+----------------------------------------------------
+The first post-light-universe task should be:
+
+    Replace RAB_RecordSmokeNeeSample's local RIS selection with a minimal
+    reference-shaped CalculateNEE path that calls RTXDI_SampleLightsForSurface
+    over rbdoom's unified local light region.
+
+Strict constraints for that task:
+
+    use uniform local-light sampling first
+    local lights only
+    no environment
+    no infinite lights
+    no BRDF-hit sampling
+    no secondary DI spatial resampling
+    no PSR
+    no final resolve switch
+    no custom reservoir math
+
+Acceptance signal:
+    Diagnostics show the PT initial reservoir NEE payload is populated by the
+    RTXDI DI reservoir path, and the result is no worse than the old local-RIS
+    path before enabling later features.

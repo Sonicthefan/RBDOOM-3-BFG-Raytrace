@@ -156,6 +156,31 @@ bool RestirPTReferenceSurfaceMaterialSimilar(RAB_Surface surface, RAB_Surface te
 
 uint RestirPTReferenceSurfaceMaterialMismatchReason(RAB_Surface surface, RAB_Surface temporalSurface)
 {
+    if (RAB_AreMaterialsSimilar(RAB_GetMaterial(surface), RAB_GetMaterial(temporalSurface)))
+    {
+        return 0u;
+    }
+
+    const uint materialSimilarityMode = RAB_MaterialSimilarityMode();
+    if (materialSimilarityMode != 0u)
+    {
+        const uint rtxdiReason = RAB_MaterialSimilarityFailureReasonRTXDI(
+            RAB_GetMaterial(surface), RAB_GetMaterial(temporalSurface));
+        if (rtxdiReason == 1u)
+        {
+            return 28u;
+        }
+        if (rtxdiReason == 2u)
+        {
+            return 29u;
+        }
+        if (rtxdiReason == 3u)
+        {
+            return 30u;
+        }
+        return 26u;
+    }
+
     if (surface.materialId != temporalSurface.materialId)
     {
         return 23u;
@@ -172,7 +197,7 @@ uint RestirPTReferenceSurfaceMaterialMismatchReason(RAB_Surface surface, RAB_Sur
     {
         return 26u;
     }
-    return 0u;
+    return 26u;
 }
 
 bool RestirPTReferenceReservoirConnectsToNeeLight(RTXDI_PTReservoir reservoir)
@@ -216,6 +241,31 @@ uint RestirPTReferencePreviousNeeLightRemapFailureReason(RTXDI_PTReservoir reser
     }
 
     const uint lightIndex = RTXDI_SampledLightData_GetLightIndex(sampledLightData);
+    if (RAB_UnifiedLightLoadEnabled())
+    {
+        if (lightIndex >= RAB_GetPreviousUnifiedLightCount())
+        {
+            return 12u;
+        }
+
+        const int currentUnifiedIndex = RAB_TranslateLightIndex(lightIndex, false);
+        if (currentUnifiedIndex < 0)
+        {
+            const PathTraceUnifiedLightRecord previousUnifiedLight = PathTraceUnifiedPreviousLights[lightIndex];
+            if (previousUnifiedLight.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+            {
+                return 31u;
+            }
+            if (previousUnifiedLight.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+            {
+                return 32u;
+            }
+            return 11u;
+        }
+
+        return (uint)currentUnifiedIndex < RAB_GetCurrentUnifiedLightCount() ? 0u : 15u;
+    }
+
     const uint previousEmissiveTriangleCount = RAB_GetPreviousEmissiveTriangleCount();
     const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
     const uint currentIdentityCount = (uint)max(DoomAnalyticLightRemapInfo.x, 0.0);
@@ -391,7 +441,167 @@ float4 RestirPTReferenceTemporalNeighborColor(uint status, float history)
     if (status == 25u) return float4(0.65, 0.55, 0.00, 1.0);
     if (status == 26u) return float4(0.95, 0.90, 0.45, 1.0);
     if (status == 27u) return float4(1.00, 0.12, 0.00, 1.0);
+    if (status == 28u) return float4(1.00, 0.85, 0.15, 1.0);
+    if (status == 29u) return float4(1.00, 0.15, 0.65, 1.0);
+    if (status == 30u) return float4(0.35, 0.85, 1.00, 1.0);
     return float4(0.02, 0.30 + 0.45 * history, 0.08 + 0.75 * history, 1.0);
+}
+
+uint RestirPTReferenceTemporalNeighborDebugMode()
+{
+    return clamp((uint)max(RestirPTSurfaceInfo.y, 0.0), 0u, 2u);
+}
+
+float4 RestirPTReferenceTemporalReuseBucketColor(
+    uint bestFailure,
+    bool acceptedCandidate,
+    bool duplicationMapRequested,
+    bool outputGrewHistory,
+    bool previousNeeReuseDisabledForAcceptedCandidate,
+    uint acceptedRemapFailureReason,
+    float history)
+{
+    if (!acceptedCandidate)
+    {
+        if (bestFailure == 5u || bestFailure == 6u)
+        {
+            return float4(0.05, 0.22, 0.95, 1.0);
+        }
+        return float4(0.95, 0.05, 0.05, 1.0);
+    }
+
+    if (duplicationMapRequested)
+    {
+        return float4(1.00, 0.12, 0.00, 1.0);
+    }
+
+    if (outputGrewHistory)
+    {
+        return float4(0.02, 0.30 + 0.45 * history, 0.08 + 0.75 * history, 1.0);
+    }
+
+    if (previousNeeReuseDisabledForAcceptedCandidate || acceptedRemapFailureReason != 0u)
+    {
+        return float4(0.95, 0.90, 0.05, 1.0);
+    }
+
+    return float4(0.05, 0.65, 0.65, 1.0);
+}
+
+float4 RestirPTReferenceTemporalNeeRemapBucketColor(
+    uint bestFailure,
+    bool acceptedCandidate,
+    bool duplicationMapRequested,
+    bool outputGrewHistory,
+    bool previousNeeReuseDisabledForAcceptedCandidate,
+    uint acceptedRemapFailureReason,
+    float history)
+{
+    if (!acceptedCandidate)
+    {
+        if (bestFailure == 5u || bestFailure == 6u)
+        {
+            return float4(0.05, 0.22, 0.95, 1.0);
+        }
+        return float4(0.95, 0.05, 0.05, 1.0);
+    }
+
+    if (duplicationMapRequested)
+    {
+        return float4(1.00, 0.12, 0.00, 1.0);
+    }
+
+    if (previousNeeReuseDisabledForAcceptedCandidate)
+    {
+        return float4(1.00, 0.80, 0.05, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 10u)
+    {
+        return float4(1.00, 1.00, 1.00, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 11u)
+    {
+        return float4(1.00, 0.00, 1.00, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 12u)
+    {
+        return float4(0.25, 0.45, 1.00, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 13u)
+    {
+        return float4(0.55, 0.25, 1.00, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 14u)
+    {
+        return float4(0.85, 0.00, 0.55, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 15u)
+    {
+        return float4(1.00, 0.35, 0.65, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 16u)
+    {
+        return float4(0.45, 0.45, 0.45, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 17u)
+    {
+        return float4(0.00, 0.45, 0.15, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 18u)
+    {
+        return float4(0.20, 1.00, 0.10, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 19u)
+    {
+        return float4(0.55, 1.00, 0.15, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 20u)
+    {
+        return float4(0.00, 0.85, 0.65, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 21u)
+    {
+        return float4(0.95, 0.95, 0.10, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 22u)
+    {
+        return float4(0.00, 0.25, 0.18, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 31u)
+    {
+        return float4(1.00, 0.45, 0.00, 1.0);
+    }
+
+    if (acceptedRemapFailureReason == 32u)
+    {
+        return float4(1.00, 0.00, 1.00, 1.0);
+    }
+
+    if (acceptedRemapFailureReason != 0u)
+    {
+        return float4(0.95, 0.90, 0.05, 1.0);
+    }
+
+    if (outputGrewHistory)
+    {
+        return float4(0.02, 0.30 + 0.45 * history, 0.08 + 0.75 * history, 1.0);
+    }
+
+    return float4(0.05, 0.65, 0.65, 1.0);
 }
 
 float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 pixel)
@@ -471,19 +681,60 @@ float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 
     const float history = saturate(outputM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
     if (!RTXDI_IsValidPTReservoir(acceptedReservoir))
     {
+        const uint temporalNeighborDebugMode = RestirPTReferenceTemporalNeighborDebugMode();
+        if (temporalNeighborDebugMode == 1u)
+        {
+            return RestirPTReferenceTemporalReuseBucketColor(
+                bestFailure, false, false, false, false, 0u, history);
+        }
+        if (temporalNeighborDebugMode == 2u)
+        {
+            return RestirPTReferenceTemporalNeeRemapBucketColor(
+                bestFailure, false, false, false, false, 0u, history);
+        }
         return RestirPTReferenceTemporalNeighborColor(bestFailure, history);
     }
-    if (RestirPTReferenceDuplicationMapRequested())
+
+    const bool duplicationMapRequested = RestirPTReferenceDuplicationMapRequested();
+    const bool outputGrewHistory = outputM > initialM + 0.5;
+    const bool previousNeeReuseDisabledForAcceptedCandidate =
+        MotionVectorInfo.y < 0.5 && RestirPTReferenceReservoirConnectsToNeeLight(acceptedReservoir);
+    const uint acceptedRemapFailureReason = RestirPTReferencePreviousNeeLightRemapFailureReason(acceptedReservoir);
+
+    const uint temporalNeighborDebugMode = RestirPTReferenceTemporalNeighborDebugMode();
+    if (temporalNeighborDebugMode == 1u)
+    {
+        return RestirPTReferenceTemporalReuseBucketColor(
+            bestFailure,
+            true,
+            duplicationMapRequested,
+            outputGrewHistory,
+            previousNeeReuseDisabledForAcceptedCandidate,
+            acceptedRemapFailureReason,
+            history);
+    }
+    if (temporalNeighborDebugMode == 2u)
+    {
+        return RestirPTReferenceTemporalNeeRemapBucketColor(
+            bestFailure,
+            true,
+            duplicationMapRequested,
+            outputGrewHistory,
+            previousNeeReuseDisabledForAcceptedCandidate,
+            acceptedRemapFailureReason,
+            history);
+    }
+
+    if (duplicationMapRequested)
     {
         return RestirPTReferenceTemporalNeighborColor(27u, history);
     }
     if (outputM <= initialM + 0.5)
     {
-        if (MotionVectorInfo.y < 0.5 && RestirPTReferenceReservoirConnectsToNeeLight(acceptedReservoir))
+        if (previousNeeReuseDisabledForAcceptedCandidate)
         {
             return RestirPTReferenceTemporalNeighborColor(9u, history);
         }
-        const uint acceptedRemapFailureReason = RestirPTReferencePreviousNeeLightRemapFailureReason(acceptedReservoir);
         if (acceptedRemapFailureReason != 0u)
         {
             return RestirPTReferenceTemporalNeighborColor(acceptedRemapFailureReason, history);

@@ -23,8 +23,77 @@
 #ifndef RB_PATH_TRACING_RAB_LIGHT_LOAD_RUNTIME_HLSLI
 #define RB_PATH_TRACING_RAB_LIGHT_LOAD_RUNTIME_HLSLI
 
+uint RAB_GetCurrentUnifiedLightCount()
+{
+    return (uint)max(UnifiedLightInfo.x, 0.0);
+}
+
+uint RAB_GetPreviousUnifiedLightCount()
+{
+    return (uint)max(UnifiedLightInfo.y, 0.0);
+}
+
+uint RAB_GetUnifiedLightRemapCount()
+{
+    return (uint)max(UnifiedLightInfo.w, 0.0);
+}
+
+bool RAB_UnifiedLightLoadEnabled()
+{
+    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 1u) != 0u;
+}
+
+bool RAB_UnifiedLightSampleEnabled()
+{
+    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 2u) != 0u;
+}
+
+bool RAB_UnifiedPrevToCurrentScanEnabled()
+{
+    return RestirPTSurfaceInfo.z >= 0.5;
+}
+
+int RAB_TranslateUnifiedLightIndex(uint lightIndex, bool currentToPrevious)
+{
+    if (currentToPrevious)
+    {
+        if (MotionVectorInfo.y < 0.5 ||
+            lightIndex >= RAB_GetCurrentUnifiedLightCount() ||
+            lightIndex >= RAB_GetUnifiedLightRemapCount())
+        {
+            return -1;
+        }
+
+        const uint previousIndex = PathTraceUnifiedLightRemap[lightIndex];
+        return previousIndex != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX &&
+            previousIndex < RAB_GetPreviousUnifiedLightCount() ? (int)previousIndex : -1;
+    }
+
+    if (MotionVectorInfo.y < 0.5 || !RAB_UnifiedPrevToCurrentScanEnabled() || lightIndex >= RAB_GetPreviousUnifiedLightCount())
+    {
+        return -1;
+    }
+
+    const uint currentCount = min(RAB_GetCurrentUnifiedLightCount(), RAB_GetUnifiedLightRemapCount());
+    [loop]
+    for (uint currentIndex = 0u; currentIndex < currentCount; ++currentIndex)
+    {
+        if (PathTraceUnifiedLightRemap[currentIndex] == lightIndex)
+        {
+            return (int)currentIndex;
+        }
+    }
+
+    return -1;
+}
+
 int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
 {
+    if (RAB_UnifiedLightLoadEnabled())
+    {
+        return RAB_TranslateUnifiedLightIndex(lightIndex, currentToPrevious);
+    }
+
     const uint currentEmissiveTriangleCount = RAB_GetCurrentEmissiveTriangleCount();
     const uint previousEmissiveTriangleCount = RAB_GetPreviousEmissiveTriangleCount();
     const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
@@ -226,31 +295,6 @@ RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
     }
 
     return RAB_EmptyLightInfo();
-}
-
-uint RAB_GetCurrentUnifiedLightCount()
-{
-    return (uint)max(UnifiedLightInfo.x, 0.0);
-}
-
-uint RAB_GetPreviousUnifiedLightCount()
-{
-    return (uint)max(UnifiedLightInfo.y, 0.0);
-}
-
-uint RAB_GetUnifiedLightRemapCount()
-{
-    return (uint)max(UnifiedLightInfo.w, 0.0);
-}
-
-bool RAB_UnifiedLightLoadEnabled()
-{
-    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 1u) != 0u;
-}
-
-bool RAB_UnifiedLightSampleEnabled()
-{
-    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 2u) != 0u;
 }
 
 bool RAB_UnifiedDoomAnalyticRecordSampleable(PathTraceUnifiedLightRecord record)

@@ -1,0 +1,1096 @@
+Mechanical Light-Universe Slices
+================================
+
+This file is for implementation agents. It intentionally removes strategy from
+the coding task. If a slice is commissioned, do only that slice.
+
+Default slice
+-------------
+
+LU-01A through LU-01E, LU-02A, LU-02B, LU-03A, LU-03B, and LU-05A have been
+completed. LU-04A is blocked by missing real ReSTIR DI reservoir storage and
+may be skipped because it is optional/default-off in NVIDIA's reference. If the
+user asks to continue this folder and does not name a slice, do LU-06A only.
+
+LU-01A: Shader-Side Unified Light Debug View
+--------------------------------------------
+
+Goal:
+
+    Add a debug-only unified local-light view over the existing split emissive
+    and Doom analytic buffers. Do not add CPU buffers yet.
+
+Files to inspect first:
+
+    docs/restir_friendly/light_universe_rebuild_protocol.txt
+    docs/restir_friendly/unified_light_record_contract.txt
+    docs/restir_friendly/layered_debug_gates.txt
+    docs/ReSTIR/restir_pt_rab_io_supply_map.txt
+    docs/ReSTIR/restir_pt_smoke_to_rab_crossings.txt
+
+Reference files to compare:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Buffers.hlsli
+
+rbdoom files to edit:
+
+    Prefer adding a new small include under:
+        neo\shaders\builtin\pathtracing\RtxdiBridge\Debug\
+
+    Likely integration points:
+        neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+        neo\renderer\NVRHI\PathTraceCVars.cpp
+
+Required implementation:
+
+    1. Add a shader helper that exposes a virtual unified index space:
+
+           0 .. emissiveCount - 1:
+               source type = emissive
+               source index = unified index
+
+           emissiveCount .. emissiveCount + analyticCount - 1:
+               source type = Doom analytic
+               source index = unified index - emissiveCount
+
+    2. Load only existing buffers. Do not add new CPU resources.
+
+    3. Add debug output for:
+
+           type/validity
+           radiance/luminance
+           source PDF or source weight sanity
+           current-to-previous/remap state if available
+
+    4. Append view numbers after current DI debug view 35 if reusing
+       r_pathTracingRestirPTDiDebugView. Recommended:
+
+           36 unified light type/validity
+           37 unified light luminance/radiance heat
+           38 unified light remap/previous-state classifier
+           39 unified light source numeric sanity
+
+    5. Update cvar help text and shader clamp if new DI debug view numbers are
+       added.
+
+Forbidden:
+
+    - do not change RAB_LoadLightInfo
+    - do not change RAB_SamplePolymorphicLight
+    - do not change RAB_RecordSmokeNeeSample
+    - do not change ReSTIR reservoir generation
+    - do not change final resolve
+    - do not remove legacy debug views 27-35
+
+Build/deploy:
+
+    Build from E:\prog\rbdoom-3-bfg-rt\neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy exe:
+
+        E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+        to
+        E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+    Copy shaders:
+
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+        to
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+User inspection instructions:
+
+    Ask the user to inspect the new view while standing still, rotating the
+    camera, walking toward static lights, and moving near analytic lights.
+    Report what each color means. Do not claim visual success.
+
+Stop condition:
+
+    Stop after build, deploy, and summary.
+
+LU-01B: CPU Unified Light Record Definition
+-------------------------------------------
+
+Goal:
+
+    Add CPU/HLSL definitions for PathTraceUnifiedLightRecord, but do not upload
+    or bind buffers yet.
+
+Files to inspect:
+
+    neo\renderer\NVRHI\PathTraceEmissiveCandidates.h
+    neo\renderer\NVRHI\PathTraceDoomLights.h
+    neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+
+Required implementation:
+
+    - add aligned C++ struct with static_assert
+    - add matching HLSL struct in a small include
+    - document field mapping in comments only where needed
+    - no resource binding
+    - no behavior change
+
+Forbidden:
+
+    - no resource creation
+    - no debug view changes unless necessary to compile
+    - no RAB routing changes
+
+LU-01C: CPU Unified Current/Previous Buffer Upload
+--------------------------------------------------
+
+Goal:
+
+    Build and upload current and previous unified light buffers alongside the
+    legacy split buffers.
+
+Required implementation:
+
+    - construct current unified records from current emissive + analytic arrays
+    - construct previous unified records from previous emissive + analytic arrays
+    - construct unified current-to-previous remap where identity is known
+    - bind buffers to the combined path-tracing shaders
+    - add debug views comparing CPU unified records against LU-01A virtual view
+
+Forbidden:
+
+    - do not remove or stop binding legacy split buffers
+    - do not route RAB_LoadLightInfo to the unified buffers
+    - do not change NEE or ReSTIR
+
+LU-01D: Unified RAB_LoadLightInfo Opt-In
+----------------------------------------
+
+Goal:
+
+    Let RAB_LoadLightInfo load from unified buffers behind an explicit opt-in
+    gate, while preserving the old split loader.
+
+Required implementation:
+
+    - add gate/cvar or debug-only define
+    - old split loader remains default
+    - unified loader can be A/B compared in debug
+    - previousFrame=true must use previous unified buffer and remap data
+
+Forbidden:
+
+    - do not change RAB_SamplePolymorphicLight math
+    - do not change NEE or ReSTIR
+
+LU-01E: Unified RAB_SamplePolymorphicLight Opt-In
+-------------------------------------------------
+
+Goal:
+
+    Route sample replay through the unified record type switch, still behind an
+    opt-in gate.
+
+Required implementation:
+
+    - emissive sampling behavior matches the old emissive path
+    - analytic sampling behavior matches the old analytic path
+    - numeric debug exposes sample PDF, solid angle PDF, radiance, and distance
+
+Forbidden:
+
+    - no invented falloff/PDF changes
+    - no environment light work
+    - no final resolve changes
+
+After LU-01E
+------------
+
+Only after LU-01A through LU-01E are accepted visually should an agent move to
+RTXDI DI initial sampling feed work. Use:
+
+    docs/ReSTIR/restir_pt_chain_after_light_universe.txt
+
+LU-02A: RTXDI DI Initial Sampling Debug Feed
+--------------------------------------------
+
+Goal:
+
+    Add a mode 56 debug-only path that feeds the unified local-light universe
+    into RTXDI_SampleLightsForSurface and displays the selected DI initial
+    sample/reservoir state. Do not replace rbdoom NEE yet. Do not store into
+    the ReSTIR PT reservoir chain yet.
+
+Reference files checked for this slice:
+
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\ReSTIRDIParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\RtxdiParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\LightSampling\UniformSampling.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Source\RenderPasses\LightingPasses\LightingPasses.cpp
+
+Reference math and function shape:
+
+    RTXDI_SampleLightsForSurface:
+
+        1. computes RTXDI_InitialSamplingMisData from
+           RTXDI_DIInitialSamplingParameters
+
+        2. samples local lights through RTXDI_SampleLocalLights
+
+        3. RTXDI_SampleLocalLightsInternal selects lights through
+           RTXDI_SelectNextLocalLight
+
+        4. UniformSampling.hlsli selects a local index from
+           RTXDI_LightBufferRegion and calls RAB_LoadLightInfo(lightIndex,false)
+
+        5. RTXDI_StreamLocalLightAtUVIntoReservoir calls
+           RAB_SamplePolymorphicLight, computes blended source PDF through
+           RTXDI_LightBrdfMisWeight, computes target PDF through
+           RAB_GetLightSampleTargetPdfForSurface, and streams the sample into a
+           DI reservoir
+
+        6. local sampling finalizes with:
+
+               RTXDI_FinalizeResampling(state, 1.0, misData.numMisSamples)
+               state.M = 1
+
+        7. RTXDI_SampleLightsForSurface combines local/infinite/environment/BRDF
+           reservoirs with RTXDI_CombineDIReservoirs, then finalizes with:
+
+               RTXDI_FinalizeResampling(state, 1.0, 1.0)
+               state.M = 1
+
+        8. if enableInitialVisibility is set and the selected DI reservoir is
+           valid, it calls RAB_GetConservativeVisibility and stores visibility
+           in the DI reservoir
+
+    FullSample path tracer NEE shape:
+
+        SampleDirectLightsForIndirectSurface calls RTXDI_SampleLightsForSurface.
+        CalculateNEE then uses the selected DI reservoir and selected
+        RAB_LightSample to compute:
+
+            radianceFromLights =
+                RAB_GetReflectedBsdfRadianceForSurface(...) *
+                visibility *
+                RTXDI_GetDIReservoirInvPdf(diReservoir) /
+                lightSample.solidAnglePdf
+
+            sampledLightData.lightData = diReservoir.lightData
+            sampledLightData.uvData = diReservoir.uvData
+            neePdf = 1.0 / diReservoir.weightSum
+            scatterPdf = RAB_SurfaceEvaluateBrdfPdf(...)
+
+    LU-02A must not reimplement or modify that math. It should only call the
+    RTXDI helper and display the resulting reservoir/sample diagnostics.
+
+Initial rbdoom constraints:
+
+    - local lights only
+    - use the unified local-light count as RTXDI_LightBufferRegion.numLights
+    - RTXDI_LightBufferRegion.firstLightIndex = 0
+    - numLocalLightSamples must be at least 1
+    - numInfiniteLightSamples = 0
+    - numEnvironmentSamples = 0
+    - numBrdfSamples = 0
+    - localLightSamplingMode = Uniform
+    - environmentMapImportanceSampling = 0
+    - no RIS/presampling buffers
+    - no ReGIR
+    - do not add environment/infinite/BRDF proposal work in this slice
+
+Visibility:
+
+    NVIDIA's PT NEE defaults enableInitialVisibility to true, but rbdoom should
+    make the LU-02A debug path expose visibility as a separate diagnostic
+    dimension. If the first implementation needs to reduce variables, add two
+    debug views or a debug flag so the user can compare initial visibility off
+    and on. Do not hide failed visibility by painting fallback light.
+
+Required implementation:
+
+    1. Add a small HLSL helper for a local-only
+       RTXDI_DIInitialSamplingParameters value.
+
+    2. Add a small HLSL helper for a local-only RTXDI_LightBufferParameters
+       value:
+
+           localLightBufferRegion.firstLightIndex = 0
+           localLightBufferRegion.numLights = RAB_GetCurrentUnifiedLightCount()
+           infiniteLightBufferRegion.numLights = 0
+           environmentLightParams.lightPresent = 0
+
+    3. In the debug path, call RTXDI_SampleLightsForSurface with the current
+       RAB surface and the existing RTXDI random sampler type already used by
+       rbdoom/RAB. Do not hand-roll reservoir streaming.
+
+    4. Require unified light load/sample to be enabled for this debug path:
+
+           r_pathTracingRestirPTUnifiedLightLoad 1
+           r_pathTracingRestirPTUnifiedLightSample 1
+
+       If these cvars are off, the debug view should show a clear disabled
+       color rather than silently sampling the split path.
+
+    5. Append mode 56 DI debug views after 46. Recommended:
+
+           47 RTXDI DI initial sample validity/type
+           48 RTXDI DI initial sample contribution preview
+           49 RTXDI DI initial reservoir numeric state
+           50 RTXDI DI initial visibility state
+
+       Update shader clamp, CPU clamp, and PathTraceCVars help text.
+
+    6. Debug contribution preview must follow the reference CalculateNEE shape
+       for display only:
+
+           if reservoir.weightSum > 0 and lightSample.solidAnglePdf > 0:
+               reflected radiance *
+               RTXDI_GetDIReservoirInvPdf(reservoir) /
+               lightSample.solidAnglePdf
+
+       If visibility is enabled for that debug view, multiply by
+       RAB_GetConservativeVisibility. Otherwise do not.
+
+Forbidden:
+
+    - do not replace RAB_RecordSmokeNeeSample
+    - do not replace existing rbdoom NEE yet
+    - do not store this reservoir into initialSamplingOutputBufferIndex
+    - do not alter PT temporal/spatial/final resolve
+    - do not add environment, infinite, BRDF, RIS, ReGIR, or PDF texture support
+    - do not invent reservoir weights or fallback brightness
+    - do not copy/paste NVIDIA source; write rbdoom-local glue around the RTXDI
+      helper calls already available in the tree
+
+User inspection instructions:
+
+    Ask the user to run:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTUnifiedLightLoad 1
+        r_pathTracingRestirPTUnifiedLightSample 1
+
+    Then inspect the new DI debug views 47-50. The user should compare:
+
+        - whether selected light type colors match unified light debug views
+          40-46
+        - whether invalid pixels correspond to invalid/unsupported surfaces,
+          not random whole-frame flicker
+        - whether contribution preview has light where the old unified RAB
+          sample debug suggested valid light samples
+        - whether enabling visibility changes only occluded regions
+
+Stop condition:
+
+    Stop after build, deploy, and summary. Do not proceed to replacing NEE in
+    the same turn.
+
+LU-02B: Path Tracer NEE Record A/B Debug
+----------------------------------------
+
+Do not start until LU-02A is visually accepted.
+
+Goal:
+
+    Compare existing rbdoom RAB_RecordSmokeNeeSample output against the
+    reference-shaped CalculateNEE output derived from RTXDI_SampleLightsForSurface.
+    This is still a debug/A-B slice, not a final replacement.
+
+Reference:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+Forbidden:
+
+    - do not connect to PT temporal/spatial
+    - do not alter final resolve
+    - do not remove the old NEE path
+
+LU-03A: Opt-In RTXDI-Shaped Path Tracer NEE Producer
+----------------------------------------------------
+
+Do not start until LU-02A/LU-02B debug views have been visually accepted.
+
+Goal:
+
+    Add an opt-in path tracer NEE producer that uses the RTXDI DI initial
+    sampling feed instead of rbdoom's current hand-written local RIS stream.
+    The old rbdoom NEE path remains the default. This slice only changes the
+    producer behind a cvar; it does not change temporal/spatial reuse or final
+    resolve behavior.
+
+Observed reason for this slice:
+
+    Mode 56 DI debug view 51 showed the old rbdoom NEE record side with
+    incorrect luminance and flickering lights, while the RTXDI DI initial side
+    was already in a better state. Treat that as the acceptance signal for
+    trying the RTXDI-shaped NEE producer behind an opt-in gate.
+
+Reference files to check before coding:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\Reservoir.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\ReSTIRDIParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\RtxdiParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\LightSampling\UniformSampling.hlsli
+
+rbdoom files to inspect/edit:
+
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracerNee.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightTarget.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+    neo\renderer\NVRHI\PathTraceCVars.cpp
+    neo\renderer\NVRHI\PathTraceCVars.h
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+
+Reference shape:
+
+    NVIDIA's path tracer flow is:
+
+        SampleDirectLightsForIndirectSurface
+            -> RTXDI_SampleLightsForSurface
+            -> selected RTXDI_DIReservoir + selected RAB_LightSample
+
+        CalculateNEE
+            -> reflected radiance
+            -> RTXDI_GetDIReservoirInvPdf(diReservoir)
+            -> sampledLightData.lightData = diReservoir.lightData
+            -> sampledLightData.uvData = diReservoir.uvData
+            -> neePdf = 1.0 / diReservoir.weightSum
+            -> scatterPdf = RAB_SurfaceEvaluateBrdfPdf(...)
+
+        ctx.RecordNeeLightSample(...)
+
+    LU-03A should follow that shape locally. Do not keep rbdoom's old RIS
+    normalization in the opt-in path.
+
+Required implementation:
+
+    1. Add a renderer cvar, default 0. Recommended name:
+
+           r_pathTracingRestirPTUnifiedNee
+
+       Meaning:
+
+           0 = existing rbdoom RAB_RecordSmokeNeeSample path
+           1 = opt-in RTXDI DI initial NEE producer
+
+    2. Pass the cvar to shaders without disturbing existing flags. Recommended:
+
+           add bit 4 to UnifiedLightInfo.z
+
+       Existing bits:
+
+           bit 1 = unified RAB_LoadLightInfo
+           bit 2 = unified RAB_SamplePolymorphicLight
+
+       New bit:
+
+           bit 4 = RTXDI-shaped unified NEE producer
+
+    3. Add a small HLSL predicate:
+
+           RAB_UnifiedNeeProducerEnabled()
+
+       It should require:
+
+           - new cvar bit enabled
+           - RAB_UnifiedLightLoadEnabled()
+           - RAB_UnifiedLightSampleEnabled()
+
+       If load/sample are off, the opt-in NEE producer must not silently use
+       the old split light path.
+
+    4. Add a helper near RAB_RecordSmokeNeeSample that calls
+       RTXDI_SampleLightsForSurface with the same local-only constraints used
+       by LU-02A:
+
+           localLightBufferRegion.firstLightIndex = 0
+           localLightBufferRegion.numLights = RAB_GetCurrentUnifiedLightCount()
+           numLocalLightSamples >= 1
+           numInfiniteLightSamples = 0
+           numEnvironmentSamples = 0
+           numBrdfSamples = 0
+           localLightSamplingMode = Uniform
+           environmentMapImportanceSampling = 0
+           no RIS/presampling
+           no ReGIR
+
+    5. Convert the selected DI reservoir into the existing PT NEE record shape:
+
+           if diReservoir.weightSum > 0 and lightSample.solidAnglePdf > 0:
+               radianceFromLights =
+                   RAB_GetReflectedBsdfRadianceForSurface(...) *
+                   visibility *
+                   RTXDI_GetDIReservoirInvPdf(diReservoir) /
+                   lightSample.solidAnglePdf
+
+               sampledLightData.lightData = diReservoir.lightData
+               sampledLightData.uvData = diReservoir.uvData
+               neePdf = 1.0 / diReservoir.weightSum
+               scatterPdf = RAB_SurfaceEvaluateBrdfPdf(...)
+               ctx.RecordNeeLightSample(...)
+
+       Visibility should use the same selected-NEE visibility policy as the old
+       path where possible. Do not invent fallback brightness when visibility or
+       sampling fails.
+
+    6. Keep the old implementation in place as a separate helper. The public
+       RAB_RecordSmokeNeeSample entry point should choose:
+
+           if RAB_UnifiedNeeProducerEnabled():
+               call RTXDI-shaped helper
+           else:
+               call old rbdoom RIS helper
+
+    7. Keep mode 56 DI debug views 51-53 available so the user can compare old
+       NEE records against the RTXDI DI feed after this change.
+
+Forbidden:
+
+    - do not change mode 56 final resolve default behavior
+    - do not connect this to PT temporal/spatial manually
+    - do not change reservoir finalization math
+    - do not alter finalShadingInputBufferIndex usage
+    - do not add environment/infinite/BRDF/RIS/ReGIR
+    - do not remove old rbdoom NEE code
+    - do not make the new NEE producer default-on
+
+User inspection instructions:
+
+    Ask the user to test:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTUnifiedLightLoad 1
+        r_pathTracingRestirPTUnifiedLightSample 1
+        r_pathTracingRestirPTUnifiedNee 0/1
+
+    Compare:
+
+        - mode 56 debug view 0 with the NEE producer off/on
+        - mode 56 DI debug views 51-53 with the same toggles
+        - any portal-area flicker or luminance popping with the new path on
+
+Stop condition:
+
+    Stop after build, deploy, and summary. Do not proceed to making this path
+    default or changing temporal/spatial reuse in the same slice.
+
+LU-03B: Normalize RTXDI Unified NEE As ReSTIR/PT Test Feed
+----------------------------------------------------------
+
+Do not start until LU-03A has been visually accepted.
+
+Goal:
+
+    Make the RTXDI-shaped unified NEE producer the normal path for ReSTIR/PT
+    mode 56 testing, while preserving the old rbdoom RIS producer behind an
+    explicit fallback cvar. This is still a feeder-layer cleanup. It must not
+    add temporal/spatial reuse or change final resolve behavior.
+
+Observed reason for this slice:
+
+    The old rbdoom NEE feed has shown incorrect luminance and flickering in the
+    A/B views. The RTXDI-shaped unified NEE producer appears visually stable and
+    better suited as the single input source for later reservoir-chain work.
+
+Reference files to check before coding:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\Reservoir.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\LightSampling\UniformSampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+
+rbdoom files to inspect/edit:
+
+    neo\renderer\NVRHI\PathTraceCVars.cpp
+    neo\renderer\NVRHI\PathTraceCVars.h
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracerNee.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+
+Required implementation:
+
+    1. Keep the RTXDI-shaped unified NEE producer math exactly aligned with
+       NVIDIA's CalculateNEE / RecordNeeLightSample shape:
+
+           RTXDI_SampleLightsForSurface
+               -> selected RTXDI_DIReservoir + selected RAB_LightSample
+               -> reflected radiance
+               -> selected visibility policy
+               -> RTXDI_GetDIReservoirInvPdf(diReservoir) / solidAnglePdf
+               -> sampledLightData from diReservoir lightData/uvData
+               -> neePdf = 1.0 / diReservoir.weightSum
+               -> scatterPdf = RAB_SurfaceEvaluateBrdfPdf
+               -> GetMISWeightForNEELight
+               -> ctx.RecordNeeLightSample
+
+       Do not change formulas in this slice except to remove a proven
+       deviation from that shape.
+
+    2. Change the mode 56/ReSTIR/PT test feed selection so the RTXDI-shaped
+       unified NEE producer is the normal path when the unified load and sample
+       gates are enabled.
+
+       Recommended policy:
+
+           r_pathTracingRestirPTUnifiedLightLoad 1
+           r_pathTracingRestirPTUnifiedLightSample 1
+               -> RTXDI-shaped unified NEE path is used
+
+           explicit fallback cvar enabled
+               -> old rbdoom RIS producer is used for A/B/debug comparison
+
+       If the implementation keeps r_pathTracingRestirPTUnifiedNee, update its
+       help text and default semantics so it no longer hides the accepted
+       RTXDI-shaped test feed behind three separate toggles. The fallback must
+       be explicit and documented.
+
+    3. Preserve the old rbdoom RIS producer as a named helper. Do not delete it.
+       It remains useful for regression comparison and emergency fallback.
+
+    4. Preserve mode 56 DI debug views 51-53, or update their labels/help text
+       if their comparison direction changes. The user must still be able to
+       compare:
+
+           old rbdoom RIS NEE record
+           RTXDI-shaped unified NEE record
+           current displayed mode 56 path
+
+    5. Keep all local-only constraints from LU-03A:
+
+           no environment lights
+           no infinite lights
+           no BRDF proposals
+           no RIS/presampling buffers
+           no ReGIR
+           uniform local-light sampling first
+
+Forbidden:
+
+    - do not remove the old rbdoom RIS helper
+    - do not add PT temporal/spatial reservoir-chain work
+    - do not add secondary DI spatial resampling in this slice
+    - do not change finalShadingInputBufferIndex usage
+    - do not switch mode 56 final resolve to a new reservoir chain
+    - do not invent PDFs, weights, falloffs, fallback brightness, or reservoir
+      finalization
+    - do not add environment/infinite/BRDF/RIS/ReGIR work
+
+User inspection instructions:
+
+    Ask the user to test:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTUnifiedLightLoad 1
+        r_pathTracingRestirPTUnifiedLightSample 1
+
+    Then compare the explicit old-RIS fallback toggle against the normal
+    RTXDI-shaped path. The user should inspect:
+
+        - portal-area flicker
+        - luminance popping
+        - static emissive stability
+        - Doom analytic light stability
+        - mode 56 DI debug views 51-53 if still present
+
+Stop condition:
+
+    Stop after build, deploy, and summary. Do not start LU-04A in the same
+    turn.
+
+LU-04A: Optional Secondary DI Spatial Resampling Debug Hook
+-----------------------------------------------------------
+
+Do not start until LU-03B has been visually accepted.
+
+Current status:
+
+    Blocked until rbdoom has a real RTXDI ReSTIR DI reservoir chain.
+
+    The NVIDIA hook calls RTXDI_DISpatialResampling, which requires DI storage:
+
+        RWStructuredBuffer<RTXDI_PackedDIReservoir>
+        RTXDI_ReservoirBufferParameters for that DI buffer
+        restirDI.bufferIndices.shadingInputBufferIndex
+
+    The current rbdoom ReSTIR/PT resources in this area are PT reservoirs:
+
+        RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs
+        RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTGiReservoirs
+        RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTDiReservoirs
+
+    Do not bind or reinterpret PT packed reservoirs as DI packed reservoirs.
+    That would violate the RTXDI contract and make the hook mathematically
+    meaningless.
+
+Goal:
+
+    Add NVIDIA's optional secondary DI spatial resampling hook behind a
+    default-off cvar/debug gate. This is the next reference layer after
+    RTXDI_SampleLightsForSurface in the FullSample path tracer. It must be
+    inspectable before it is allowed to affect normal mode 56 testing.
+
+Reference files to check before coding:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\ShadeSecondarySurfaces.hlsl
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\SpatialResampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\ReSTIRDIParameters.h
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\SharedShaderInclude\SharedShaderInclude\PTParameters.h
+
+Reference shape:
+
+    NVIDIA's path tracer does:
+
+        RTXDI_SampleLightsForSurface(...)
+            -> center DI reservoir
+
+        if enableSecondaryDISpatialResampling:
+            project secondarySurface.worldPos to current clip/window pixel
+            if projected pixel is on screen:
+                secondarySurface.viewDepth = projected clip depth
+                sourceBufferIndex = restirDI.bufferIndices.shadingInputBufferIndex
+                RTXDI_DISpatialResampling(
+                    secondaryPixelPos,
+                    secondarySurface,
+                    center reservoir,
+                    rng,
+                    runtime params,
+                    restirDI reservoir buffer params,
+                    sourceBufferIndex,
+                    spatial resampling params,
+                    selected light sample)
+
+    LU-04A must follow that structure. Do not write a custom neighbor search or
+    custom DI reservoir combiner.
+
+Blocking rule:
+
+    If no real RTXDI_PackedDIReservoir buffer and DI shadingInputBufferIndex are
+    present, stop immediately and report LU-04A blocked. Do not edit shader math
+    or route through RestirPTDiReservoirs.
+
+rbdoom files to inspect/edit:
+
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracerNee.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+    neo\shaders\builtin\pathtracing\PathTraceRtxdiBridgeCore.hlsli
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve_reservoir_pages.hlsli
+    neo\renderer\NVRHI\PathTraceCVars.cpp
+    neo\renderer\NVRHI\PathTraceCVars.h
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+
+Required implementation:
+
+    1. Add a default-off cvar, recommended:
+
+           r_pathTracingRestirPTUnifiedNeeSecondarySpatial
+
+       Meaning:
+
+           0 = no secondary DI spatial resampling hook
+           1 = enable the reference-shaped hook for debug/testing only
+
+    2. Add or reuse shader constants for the minimum RTXDI inputs required by
+       RTXDI_DISpatialResampling:
+
+           RTXDI_RuntimeParameters
+           RTXDI_ReservoirBufferParameters for the existing ReSTIR DI reservoir
+           sourceBufferIndex = existing DI shading input buffer index
+           RTXDI_DISpatialResamplingParameters
+
+       If any of these are not currently available in the rbdoom shader
+       constant path, stop and document the exact missing input. Do not invent
+       substitute parameters.
+
+    3. In the RTXDI-shaped NEE producer, after RTXDI_SampleLightsForSurface and
+       before CalculateNEE-style contribution conversion, optionally call
+       RTXDI_DISpatialResampling only when:
+
+           - the new cvar/debug gate is enabled
+           - the current path is using the RTXDI-shaped unified NEE producer
+           - the surface projects to an on-screen current-frame pixel
+           - the required DI reservoir buffer inputs are valid
+
+    4. Projection must follow the reference structure:
+
+           world position -> current clip position
+           divide by w
+           require abs(clip.xy) < 1 and w > 0
+           convert clip xy to window/pixel position
+           set the surface viewDepth to the projected depth used by RTXDI
+
+       Use existing rbdoom view/projection helpers if present. If they are not
+       present, isolate the missing input and stop.
+
+    5. Add a debug view or diagnostic color that compares:
+
+           DI initial only
+           DI initial + secondary DI spatial hook
+           projected-on-screen state
+           spatial reservoir valid/invalid
+
+       The user must be able to turn the hook on and see whether it helps or
+       hurts without guessing.
+
+Forbidden:
+
+    - do not start this slice without a real RTXDI DI reservoir buffer chain
+    - do not reinterpret RTXDI_PackedPTReservoir storage as DI storage
+    - do not make secondary DI spatial resampling default-on
+    - do not use custom spatial reservoir code
+    - do not alter PT temporal/spatial/final resolve
+    - do not connect to PT initial/temporal/spatial reservoirs
+    - do not change the light universe, RAB load, or RAB sample math
+    - do not add environment/infinite/BRDF/RIS/ReGIR work
+    - do not fake missing RTXDI parameters with arbitrary constants
+    - do not hide invalid projections with fallback brightness
+
+User inspection instructions:
+
+    Ask the user to test:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTUnifiedLightLoad 1
+        r_pathTracingRestirPTUnifiedLightSample 1
+        r_pathTracingRestirPTUnifiedNeeSecondarySpatial 0/1
+
+    Compare:
+
+        - stationary noise near bright emissives
+        - portal-area flicker
+        - moving around static geometry
+        - moving around skinned characters
+        - the new diagnostic view showing projected-on-screen and spatial
+          valid/invalid states
+
+Stop condition:
+
+    Stop after build, deploy, and summary. Do not proceed to the PT reservoir
+    chain in the same slice.
+
+LU-04PREP: Real ReSTIR DI Reservoir Resource Scaffold
+-----------------------------------------------------
+
+Do not start unless the user explicitly chooses to unblock LU-04A instead of
+skipping optional secondary DI spatial resampling.
+
+Goal:
+
+    Add or map the real ReSTIR DI resource inputs required by
+    RTXDI_DISpatialResampling, without enabling the spatial hook and without
+    changing path-tracer output.
+
+Reference files to check before coding:
+
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\RtxdiParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\ReservoirStorage.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\ReSTIRDIParameters.h
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\DI\GenerateInitialSamples.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\DI\FusedResampling.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\DI\ShadeSamples.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Source\RenderPasses\LightingPasses\LightingPasses.cpp
+
+Required implementation:
+
+    1. Audit whether rbdoom already owns any RTXDI_PackedDIReservoir buffer.
+       If not, document that clearly before adding anything.
+
+    2. If adding a resource, it must be a distinct DI reservoir buffer with:
+
+           structStride = sizeof(RTXDI_PackedDIReservoir)
+           RTXDI_ReservoirBufferParameters matching the allocated dimensions
+           explicit buffer indices including shadingInputBufferIndex
+
+       Do not reuse the PT reservoir buffers.
+
+    3. Bind the DI buffer only as a typed DI resource for future DI passes. Do
+       not connect it to the path tracer NEE producer yet.
+
+    4. Add a debug-only empty/clear or state view if needed to prove the buffer
+       is bound and sized correctly.
+
+Forbidden:
+
+    - do not implement DI temporal/spatial resampling in this prep slice
+    - do not call RTXDI_DISpatialResampling yet
+    - do not change final resolve
+    - do not change PT reservoir storage
+    - do not invent buffer parameters that disagree with the allocation
+
+Stop condition:
+
+    Stop after build, deploy if needed, and summary. LU-04A can only be retried
+    after this scaffold exists and is verified.
+
+LU-05A: PT Initial Reservoir Chain Reconnect
+--------------------------------------------
+
+Do not start until LU-03B has been visually accepted. LU-04A is optional and
+currently blocked by missing ReSTIR DI resources; it may be skipped because the
+NVIDIA secondary DI spatial hook is optional and default-off in the reference.
+
+Goal:
+
+    Begin reconnecting the RTXDI PT initial reservoir chain using the stable
+    RTXDI-shaped unified NEE feed. This is separate from ReSTIR DI spatial
+    resampling and must use RTXDI_PackedPTReservoir storage, not DI storage.
+
+Reference:
+
+    docs/ReSTIR/restir_pt_chain_after_light_universe.txt
+
+Required first step:
+
+    Audit the current PT initial reservoir producer and final-shading-input
+    reference debug views. Identify exactly where the accepted NEE record enters
+    RTXDI PT initial sampling and which PT buffer index should contain it.
+
+Stop condition:
+
+    Stop after the audit or one explicitly commissioned micro-slice. Do not
+    combine PT initial, temporal, spatial, and final resolve work in one task.
+
+LU-06A: PT Initial To Temporal Output Audit
+-------------------------------------------
+
+Do not start until LU-05A has been completed and visually accepted.
+
+Goal:
+
+    Verify the RTXDI PT temporal pass is consuming
+    initialPathTracerOutputBufferIndex and producing
+    temporalResamplingOutputBufferIndex with sane reservoirs. This is an
+    audit/debug slice only. Do not change temporal resampling math.
+
+Reference files to check before coding:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\PT\TemporalResampling.hlsl
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\Reservoir.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\ReSTIRPTParameters.h
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+
+rbdoom files to inspect/edit:
+
+    neo\shaders\builtin\pathtracing\pathtrace_restir_local_debug_reservoirs.hlsli
+    neo\shaders\builtin\pathtracing\pathtrace_restir_reference_temporal_debug.hlsli
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve_reservoir_pages.hlsli
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+    neo\renderer\NVRHI\PathTraceCVars.cpp
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+
+Reference shape:
+
+    NVIDIA's temporal pass does:
+
+        pixelPosition = RTXDI_ReservoirPosToPixelPos(...)
+        reservoirPosition = RTXDI_PixelPosToReservoirPos(...)
+        motionVector = current motion vector converted to pixel space
+        RTXDI_PTTemporalResampling(
+            temporalResampling parameters,
+            temporal runtime parameters,
+            hybrid shift parameters,
+            reconnection parameters,
+            runtime parameters,
+            restirPT reservoir buffer,
+            rng,
+            restirPT buffer indices,
+            selectedPrevSample,
+            path tracer user data)
+        RTXDI_StorePTReservoir(
+            Reservoir,
+            restirPT reservoir buffer,
+            reservoirPosition,
+            temporalResamplingOutputBufferIndex)
+
+    Inside RTXDI PT temporal resampling, the current-frame input is loaded from
+    initialPathTracerOutputBufferIndex. The previous-frame history input is
+    loaded from temporalResamplingInputBufferIndex through the same PT reservoir
+    buffer parameters and buffer-index struct.
+
+Required implementation:
+
+    1. Add a mode 56 DI debug view after the current highest view that compares:
+
+           left side:  initialPathTracerOutputBufferIndex
+           right side: temporalResamplingOutputBufferIndex
+
+       Use the existing page loaders where possible:
+
+           LoadRestirPTInitialDirectReservoir
+           LoadRestirPTTemporalOutputReservoir
+
+    2. The view must expose contribution preview and state. If one view cannot
+       show both clearly, add two adjacent views:
+
+           contribution split
+           state/classifier split
+
+    3. The classifier must distinguish at least:
+
+           invalid reservoir
+           valid but zero WeightSum
+           valid but zero/invalid TargetFunction
+           valid NEE-connected reservoir
+           valid non-NEE reservoir
+           NaN/Inf WeightSum or TargetFunction
+           M/history difference between initial and temporal
+
+    4. Add the new view numbers to:
+
+           shader clamp
+           CPU clamp
+           r_pathTracingRestirPTDiDebugView help text
+
+    5. Do not use rbdoom's custom local DI/GI temporal buffers as proof of this
+       stage. LU-06A must read the RTXDI PT reference pages only.
+
+Forbidden:
+
+    - do not edit RTXDI_PTTemporalResampling math
+    - do not add custom temporal combine/finalization logic
+    - do not change final resolve
+    - do not change finalShadingInputBufferIndex routing
+    - do not touch DI reservoir storage
+    - do not alter unified light, RAB load, RAB sample, or NEE producer math
+    - do not connect spatial resampling in this slice
+
+User inspection instructions:
+
+    Ask the user to test:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTUnifiedLightLoad 1
+        r_pathTracingRestirPTUnifiedLightSample 1
+
+    Then inspect the new LU-06A debug views while:
+
+        - standing still near bright emissives
+        - rotating the camera slowly
+        - walking near static geometry
+        - moving near skinned characters
+        - crossing portal boundaries
+
+    The user should report whether temporal output is:
+
+        - empty compared with initial
+        - dimmer than initial
+        - brighter than initial
+        - strobing/resetting
+        - accumulating sane history
+        - producing different validity colors than initial
+
+Stop condition:
+
+    Stop after build, deploy, and summary. Do not proceed to spatial output or
+    any temporal fix in the same slice unless the user explicitly commissions a
+    separate follow-up.

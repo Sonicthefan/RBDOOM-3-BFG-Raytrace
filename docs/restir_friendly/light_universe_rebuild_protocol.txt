@@ -1,0 +1,158 @@
+Light Universe Rebuild Protocol
+===============================
+
+Mission
+-------
+
+Rebuild the light-universe layer so rbdoom presents one RTXDI-friendly local
+light domain to the RAB callbacks. This is a feeder-layer rebuild. It is not a
+reservoir-math task, a denoiser task, or a final-resolve task.
+
+The intended end shape is:
+
+    existing emissive triangles
+    existing Doom analytic lights
+        -> unified local-light records
+        -> unified current/previous light buffers and counts
+        -> RAB_LoadLightInfo
+        -> RAB_SamplePolymorphicLight
+        -> RTXDI-style DI initial sampling
+
+The immediate target is smaller:
+
+    existing split outputs
+        -> unified local-light debug output
+
+Non-negotiable rules
+--------------------
+
+1. Preserve the legacy split outputs.
+
+   The existing emissive and Doom analytic buffers remain valid and bound:
+
+       SmokeEmissiveTriangles
+       SmokePreviousEmissiveTriangles
+       SmokeEmissiveRemap
+       DoomAnalyticLights
+       DoomAnalyticPreviousLights
+       DoomAnalyticCurrentIdentities
+       DoomAnalyticPreviousIdentities
+       DoomAnalyticRemap
+
+   Do not delete, replace, or reinterpret these as part of the first unified
+   light-universe slices.
+
+2. Keep the first unified path debug-only.
+
+   The first unified light path must not change final resolve, mode 18, mode 56,
+   ReSTIR reservoir generation, path tracer NEE, DLSS RR inputs, or existing
+   RAB debug views. It only creates and displays the unified light domain.
+
+3. No new light math during rebuild.
+
+   Do not invent new PDFs, weights, falloffs, reservoir weights, or target
+   functions. Copy the existing rbdoom values into a unified record and expose
+   their state. Mathematical behavior changes are later slices with separate
+   user inspection.
+
+4. Follow RTXDI shape, not rbdoom convenience shape.
+
+   NVIDIA's reference has an application light buffer loaded by
+   RAB_LoadLightInfo, then sampled by RAB_SamplePolymorphicLight. The rbdoom
+   rebuild should move toward that shape. Temporary compatibility wrappers are
+   allowed only when explicitly documented as temporary.
+
+5. One layer per slice.
+
+   Do not build the unified buffer, route RAB to it, alter NEE, and change
+   ReSTIR in the same patch. Every slice must leave a visible debug gate.
+
+6. Debug before consumption.
+
+   A new layer must feed a basic debug view before any downstream layer consumes
+   it. The user must inspect the debug view in game before the next layer is
+   stacked on top.
+
+7. Preserve existing diagnostics.
+
+   Existing modes and debug views, especially DI debug views 27-35 and modes
+   53-56, must remain reachable unless the user explicitly asks to remove them.
+
+8. Do not hide invalid data.
+
+   Invalid, zero-weight, zero-radiance, stale-remap, and unsupported light
+   records must display as diagnostic colors. Do not replace them with neighbor
+   blur, average scene color, or fallback brightness in this layer.
+
+9. No RTXDI source paste.
+
+   Use RTXDI as a structure and contract reference. Do not paste NVIDIA source
+   directly into rbdoom unless the user explicitly commissions a separate
+   reference-copy experiment.
+
+10. Stop after build, deploy, and summary.
+
+    For visual/debug slices, build and deploy, then tell the user exactly what
+    to inspect. Do not claim visual success.
+
+Debug routing policy
+--------------------
+
+For the first unified light-universe slice, append debug views after the
+existing DI debug range. Current rbdoom clamps r_pathTracingRestirPTDiDebugView
+to 35. Use 36+ for unified light-universe diagnostics if reusing that cvar.
+
+Required when adding a view:
+
+    - update the clamp in shader-side RestirPTDiDebugView
+    - update r_pathTracingRestirPTDiDebugView help text in PathTraceCVars.cpp
+    - keep old view numbers stable
+    - ensure RayReconstructionInfo.x is not overriding the DI debug output
+
+Acceptable first debug views:
+
+    36 unified light type/classifier
+    37 unified light radiance/luminance heat
+    38 unified light current-to-previous/remap classifier
+    39 unified light source-index/PDF sanity classifier
+
+If a dedicated cvar is added instead, it must be clearly documented and must
+not bypass the existing ReSTIR combined debug path by accident.
+
+Visual gate
+-----------
+
+The first unified debug view is accepted only if the user reports that it is
+stable while:
+
+    - standing still near emissive surfaces
+    - turning the camera around lights
+    - walking toward rigid static lights
+    - walking near Doom analytic lights
+    - observing skinned/moving entities if they affect the light set
+
+Expected diagnostics:
+
+    - emissive records keep a stable emissive color
+    - Doom analytic records keep a stable analytic color
+    - invalid/unsupported records are rare and explainable
+    - no whole-frame strobe from current/previous remap churn
+    - no random switching between emissive and analytic type colors
+
+Build/deploy gate
+-----------------
+
+Every coding slice must end with:
+
+    1. build win64-pt-dev-release
+    2. copy RBDoom3BFG.exe to the prepared game folder
+    3. copy base\renderprogs2 to the prepared game folder after shader edits
+    4. report the exact cvars/debug views for user inspection
+
+The renderprogs2 copy must replace:
+
+    E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+It must not create:
+
+    E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2\renderprogs2

@@ -1,0 +1,297 @@
+Layered Debug Gates
+===================
+
+This file defines the stack order. Do not skip layers. Do not consume a layer
+downstream until the user has inspected its debug output in game.
+
+Layer 0: Legacy Split Sources
+-----------------------------
+
+Current state:
+
+    emissive triangles are built and uploaded through existing smoke/emissive
+    buffers
+
+    Doom analytic lights are built and uploaded through existing analytic-light
+    buffers and identity/remap buffers
+
+Preserve this layer. It remains the comparison baseline.
+
+Debug already available:
+
+    r_pathTracingRestirPTDiDebugView 27
+    r_pathTracingRestirPTDiDebugView 28
+    r_pathTracingRestirPTDiDebugView 29
+    r_pathTracingRestirPTDiDebugView 35
+
+Layer 1A: Shader-Side Unified View
+----------------------------------
+
+Purpose:
+
+    Build a unified local-light index space over the existing split buffers,
+    but only in shader debug code.
+
+Allowed:
+
+    - add a small HLSL helper that maps unified light index to legacy source
+    - append debug view 36+ or add a dedicated documented cvar
+    - show type, validity, radiance, source PDF, source weight, and remap state
+
+Forbidden:
+
+    - no CPU buffer changes
+    - no RAB_LoadLightInfo routing change
+    - no NEE changes
+    - no ReSTIR reservoir changes
+    - no final resolve changes
+
+Expected user inspection:
+
+    The unified view should be stable and should agree with the legacy split
+    source counts. Type colors must not randomly change when the camera moves.
+
+Layer 1B: CPU-Built Unified Buffers
+-----------------------------------
+
+Purpose:
+
+    Build explicit current/previous unified light records from the legacy split
+    source arrays and upload them as separate debug-only buffers.
+
+Allowed:
+
+    - add PathTraceUnifiedLightRecord C++ and HLSL definitions
+    - add current/previous unified light buffers
+    - add unified remap buffer
+    - update resource creation and binding
+    - add debug views comparing shader-side virtual unified records against
+      CPU-built unified records
+
+Forbidden:
+
+    - do not remove legacy split buffers
+    - do not change existing RAB_LoadLightInfo consumers
+    - do not route final shading through unified records
+
+Expected user inspection:
+
+    CPU-built unified records match the shader-side virtual view. Static lights
+    should keep stable previous mappings. Unsupported records should classify
+    as invalid rather than flickering.
+
+Layer 2: RAB Loader Opt-In
+--------------------------
+
+Purpose:
+
+    Route RAB_LoadLightInfo through the unified buffers behind an explicit
+    opt-in cvar or debug-only gate.
+
+Allowed:
+
+    - add a unified RAB load path
+    - preserve the old split RAB load path
+    - add A/B debug comparison between old split RAB load and unified RAB load
+
+Forbidden:
+
+    - do not change RAB_SamplePolymorphicLight math in the same slice
+    - do not alter NEE or reservoir output
+
+Expected user inspection:
+
+    Existing RAB light-domain debug colors should remain stable when the
+    unified loader is enabled. Differences must be explainable by unsupported
+    records, not random source switching.
+
+Layer 3: RAB Sampler Opt-In
+---------------------------
+
+Purpose:
+
+    Make RAB_SamplePolymorphicLight consume unified records cleanly, still
+    without changing downstream NEE or reservoir math.
+
+Allowed:
+
+    - separate emissive and analytic sample replay under one unified type switch
+    - add numeric contract debug for sample radiance, PDF, distance, and normal
+
+Forbidden:
+
+    - do not invent PDFs
+    - do not add environment lights
+    - do not change final shading
+
+Layer 4: RTXDI DI Initial Sampling Feed
+---------------------------------------
+
+Purpose:
+
+    Add a minimal RTXDI-shaped DI initial sampling feed only after the unified
+    loader and sampler are accepted. The first slice is debug-only; it must not
+    replace the local rbdoom NEE RIS feed yet.
+
+Reference files:
+
+    Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\ReSTIRDIParameters.h
+    Libraries\Rtxdi\Include\Rtxdi\RtxdiParameters.h
+    Samples\FullSample\Source\RenderingPasses\LightingPasses.cpp
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\LightSampling\UniformSampling.hlsli
+
+Initial constraints:
+
+    - local lights only
+    - use RTXDI_SampleLightsForSurface rather than hand-rolled reservoir
+      streaming
+    - use RTXDI_LightBufferRegion { firstLightIndex = 0, numLights =
+      current unified light count }
+    - numLocalLightSamples >= 1
+    - no environment lights
+    - no infinite lights
+    - no BRDF proposals
+    - no RIS/presampling buffers
+    - uniform local-light sampling first
+    - mode 56 debug output first, not final resolve
+
+Expected user inspection:
+
+    New debug views should show RTXDI DI initial sample validity, contribution,
+    reservoir numeric state, and visibility state. Valid selected-light type
+    colors should agree with the unified RAB sample debug views.
+
+Layer 5: Path Tracer NEE Record
+-------------------------------
+
+Purpose:
+
+    Once DI initial sampling is feeding valid local-light reservoirs, compare it
+    against the path tracer's NEE record in the same shape as NVIDIA's
+    CalculateNEE / RecordNeeLightSample path. The first Layer 5 slice should be
+    an A/B debug view, not a replacement.
+
+Current status:
+
+    The A/B debug view has now shown the old rbdoom NEE feed with bad luminance
+    and flickering compared with the RTXDI DI initial feed. LU-03A added an
+    opt-in RTXDI-shaped unified NEE producer, and the reference MIS weighting
+    step has been aligned with NVIDIA's path tracer flow.
+
+Next slice:
+
+    LU-03B makes the RTXDI-shaped unified NEE producer the normal ReSTIR/PT
+    mode 56 test feed when unified load/sample are enabled, while preserving
+    the old rbdoom RIS producer behind an explicit fallback/debug toggle.
+
+Required shape:
+
+    RTXDI_SampleLightsForSurface
+        -> selected RTXDI_DIReservoir + RAB_LightSample
+        -> reflected radiance * RTXDI_GetDIReservoirInvPdf / solidAnglePdf
+        -> sampledLightData from diReservoir lightData/uvData
+        -> neePdf = 1.0 / diReservoir.weightSum
+        -> scatterPdf = RAB_SurfaceEvaluateBrdfPdf
+        -> ctx.RecordNeeLightSample
+
+Constraints:
+
+    - local unified lights only
+    - old NEE remains available as a fallback/debug comparison
+    - RTXDI-shaped NEE requires unified load and unified sample gates
+    - no environment/infinite/BRDF/RIS/ReGIR
+    - no temporal/spatial/final resolve changes
+
+Forbidden:
+
+    - do not combine with PT temporal/spatial changes
+    - do not change final resolve in this slice
+
+Layer 5B: Optional Secondary DI Spatial Hook
+--------------------------------------------
+
+Purpose:
+
+    After the RTXDI-shaped NEE producer is the accepted test feed, add the
+    optional NVIDIA path tracer hook that spatially resamples the current DI
+    reservoir from the screen-space DI shading-input reservoir for projected
+    secondary surfaces.
+
+Current status:
+
+    Blocked unless rbdoom has real ReSTIR DI reservoir storage. The hook
+    requires RTXDI_DISpatialResampling inputs backed by
+    RTXDI_PackedDIReservoir storage and restirDI.shadingInputBufferIndex. The
+    current local RestirPTDiReservoirs buffer is RTXDI_PackedPTReservoir storage
+    and must not be used as a substitute.
+
+Reference files:
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    Samples\FullSample\Shaders\LightingPasses\ShadeSecondarySurfaces.hlsl
+    Libraries\Rtxdi\Include\Rtxdi\DI\SpatialResampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\DI\ReSTIRDIParameters.h
+
+Required shape:
+
+    RTXDI_SampleLightsForSurface
+        -> center DI reservoir
+        -> project current surface/world position to current screen pixel
+        -> RTXDI_DISpatialResampling using restirDI shadingInputBufferIndex
+        -> existing CalculateNEE / RecordNeeLightSample conversion
+
+Constraints:
+
+    - default-off/debug-first
+    - use RTXDI_DISpatialResampling directly
+    - require real RTXDI runtime, reservoir-buffer, source-buffer, and spatial
+      parameter inputs
+    - if an input is missing, document it and stop rather than inventing values
+
+Forbidden:
+
+    - do not reinterpret PT reservoir storage as DI reservoir storage
+    - do not custom-code neighbor search or reservoir combination
+    - do not make this default-on
+    - do not advance to the PT reservoir chain in the same slice
+
+Layer 6: ReSTIR PT Reservoir Chain
+----------------------------------
+
+Purpose:
+
+    Only after the feeder and NEE record are stable, reconnect the PT initial,
+    temporal, spatial, and final-shading-input reservoir chain.
+
+Reference:
+
+    docs/ReSTIR/restir_pt_chain_after_light_universe.txt
+
+Current status:
+
+    LU-05A added a debug split for PT initial versus final-shading input. The
+    next step is not to fix temporal math. The next step is to isolate the
+    first RTXDI PT reuse stage.
+
+Next slice:
+
+    LU-06A audits:
+
+        initialPathTracerOutputBufferIndex
+            -> RTXDI_PTTemporalResampling
+            -> temporalResamplingOutputBufferIndex
+
+Required shape:
+
+    The debug output must read RTXDI PT reservoir pages through the existing
+    PT reservoir buffer indices. It must not use rbdoom's custom local DI/GI
+    temporal debug buffers as evidence for the reference chain.
+
+Forbidden:
+
+    - do not start here while the light universe is unstable
+    - do not edit temporal resampling math during LU-06A
+    - do not combine temporal audit, spatial audit, and final resolve changes
+      in one slice

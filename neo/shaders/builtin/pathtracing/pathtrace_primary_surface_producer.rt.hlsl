@@ -232,6 +232,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 DispatchTileInfo;
     float4 NeeInfo;
     float4 MotionVectorInfo;
+    float4 RestirPTSurfaceInfo;
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;

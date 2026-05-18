@@ -300,6 +300,7 @@ struct PathTraceSmokeConstants
     float dispatchTileInfo[4];
     float neeInfo[4];
     float motionVectorInfo[4];
+    float restirPTSurfaceInfo[4];
     float restirPTDirectInfo[4];
     float restirPTSparsityInfo[4];
     float restirPTIndirectInfo[4];
@@ -963,7 +964,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool reflectionProducer = finalUsesStandaloneResolve && restirPTReflectionMode > 0 && m_smokeRestirReflectionProducerShaderTable;
         const bool finalConsumesPrimary = restirPTPrimarySurfacePrepassEnabled && restirPTCombinedMode;
         const int restirPTVisibilityPolicy = idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger());
-        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d diDebugView=%d giDebugView=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d spatial samples=%u radius=%.1f\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR PT pass plan mode=%d label=%s producer=%s output=%s flags=0x%08x resampling=%d output=%dx%d directDomain=%dx%d directDispatch=%dx%d scale=%.3f sparsity=%d phase=%d prevPhase=%d giDispatch=%dx%d giSparsity=%d giPhase=%d primaryPrepass=%d standalonePrimaryPrepass=%d giConsumesPrimary=%d giInitialStandalone=%d directConsumesPrimary=%d directTemporalStandalone=%d directSpatialStandalone=%d finalConsumesPrimary=%d finalResolve=%d reflectionProducer=%d rrGuideDebug=%d diDebugView=%d giDebugView=%d nsightMarkers=%d buffers initialOut=%u temporalIn=%u temporalOut=%u spatialIn=%u spatialOut=%u finalShadingIn=%u debugIn=%u previewVisibility=%d visibilityPolicy=%d reflectionMode=%d toyLight=%.3f toyEmissive=%.3f analyticScale=%.3f maxPixels=%d temporalThresholds depth=%.3f normal=%.3f temporalReuse=%d temporalFallback=%d materialSimilarity=%d temporalNeighborDebug=%d unifiedPrevToCurrentScan=%d spatial samples=%u radius=%.1f\n",
             debugMode,
             restirPTPassPlan.label,
             PathTraceRestirPassKindName(restirPTPassPlan.producer),
@@ -1016,6 +1017,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTContextDesc.temporalNormalThreshold,
             restirPTContextDesc.temporalReservoirReuse ? 1 : 0,
             restirPTContextDesc.temporalFallbackSampling ? 1 : 0,
+            idMath::ClampInt(0, 5, r_pathTracingRestirPTMaterialSimilarityMode.GetInteger()),
+            idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()),
+            r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1 : 0,
             restirPTContextDesc.spatialSamples,
             restirPTContextDesc.spatialRadius);
         r_pathTracingRestirPTPassDump.SetInteger(0);
@@ -1160,6 +1164,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.motionVectorInfo[1] = r_pathTracingRestirPTTemporalAnalyticNeeReuse.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
     constants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
+    constants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 5, r_pathTracingRestirPTMaterialSimilarityMode.GetInteger()));
+    constants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()));
+    constants.restirPTSurfaceInfo[2] = r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1.0f : 0.0f;
+    constants.restirPTSurfaceInfo[3] = 0.0f;
     constants.restirPTDirectInfo[0] = static_cast<float>(restirPTDirectWidth);
     constants.restirPTDirectInfo[1] = static_cast<float>(restirPTDirectHeight);
     constants.restirPTDirectInfo[2] = 0.0f;

@@ -1,0 +1,251 @@
+rbdoom ReSTIR Geometry/Emissive Universe Audit Against RTXDI and RTX Remix
+Date: 2026-05-18
+
+Scope
+-----
+This audit follows the orange mode-12 debug result:
+
+    accepted temporal candidate
+    selected previous light is an emissive unified light
+    previous-to-current unified light translation failed
+
+That points at the geometry-derived emissive light domain, not at temporal
+resampling math by itself.
+
+Local evidence
+--------------
+Current diagnostic behavior:
+
+- With analytic light scale set to 0, stationary magenta mostly disappears.
+- Remaining portal/motion flashes become orange after splitting unified light
+  failures by type.
+- Orange means a previous-frame unified emissive light cannot be mapped into
+  the current unified light list.
+
+Critical rbdoom code path:
+
+1. Build raw emissive triangle records.
+   File:
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+   Calls:
+       BuildSmokeEmissiveTriangleInventory(...)
+
+2. Copy the previous uploaded emissive list.
+   File:
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp:1981
+   Current previous source:
+       previousEmissiveTriangles = m_smokePreviousEmissiveTriangles
+
+3. Build the emissive remap immediately.
+   File:
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp:1984
+   Code shape:
+       BuildSmokeEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles)
+
+4. Then mutate/rebuild the current emissive list through the light universe.
+   File:
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp:2005
+   Code shape:
+       emissiveTriangles = m_smokeLightUniverse.MergeFrameCandidates(...)
+
+5. Build unified lights from the post-merge current emissive list but with the
+   pre-merge remap.
+   File:
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp:2022
+   Code shape:
+       BuildPathTraceUnifiedLights(emissiveTriangles, previousEmissiveTriangles, emissiveLightRemap, ...)
+
+6. Store the post-merge list as next frame's previous list.
+   File:
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp:3285
+   Code shape:
+       m_smokePreviousEmissiveTriangles = emissiveTriangles
+
+Impact:
+
+The current-to-previous remap can describe a different current emissive array
+than the array uploaded to the unified light buffer. This violates the RTXDI
+light-index translation contract. A previous reservoir can point at a valid
+previous emissive, but the shader reverse scan cannot find a current unified
+light whose remap points back to it. That is exactly the orange debug failure.
+
+This is more damaging than the generic geometry-universe suspicion because it
+is a direct producer-order mismatch in the ReSTIR light domain.
+
+RTXDI reference contract
+------------------------
+RTXDI FullSample uses a prepared light pass that writes both current and
+previous light index mappings for the same light-domain buffer that ReSTIR
+samples.
+
+Reference files:
+
+- E:/prog/references/RTXDI-main/Samples/FullSample/Source/RenderPasses/PrepareLightsPass.cpp
+- E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+- E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Buffers.hlsli
+
+Important structure:
+
+- PrepareLights counts emissive triangles from scene mesh instances.
+- PrepareLights writes light data into the active light buffer.
+- When a light has previous-frame continuity, PrepareLights writes both:
+      previous frame light index -> current frame light index
+      current frame light index  -> previous frame light index
+- RAB_TranslateLightIndex reads that mapping buffer directly.
+
+Reference consequence:
+
+The mapping is built for the exact light list that ReSTIR sees. There is no
+intermediate mutation of the current light list after the mapping is produced.
+
+RTX Remix reference contract
+----------------------------
+RTX Remix has to survive an uncooperative base game, so it keeps persistent
+scene/light objects and explicit current/previous buffers.
+
+Reference files:
+
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_accel_manager.cpp
+
+Important structure:
+
+- rtx_context binds current light, previous light, and light mapping buffers
+  together.
+- rtx_scene_manager tracks RtInstance lifetime through add/update/destroy
+  callbacks rather than rebuilding every temporal identity from visible draws.
+- rtx_accel_manager keeps previous TLAS/BLAS/surface data alive and uploads a
+  previous-to-current surface mapping buffer.
+
+Reference consequence:
+
+Visibility, portal state, and object churn are not allowed to redefine the
+identity domain after the remap/mapping data has been produced. Filtering and
+sampling policy are separate from the persistent identity/mapping domain.
+
+rbdoom emissive identity observations
+-------------------------------------
+Relevant files:
+
+- neo/renderer/NVRHI/PathTraceEmissiveCandidates.cpp
+- neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+- neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+- neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Current emissive identity is based on:
+
+    materialId
+    instanceId
+    primitiveIndex
+    materialIndex
+    triangleClassAndFlags
+
+High-risk details:
+
+1. The current remap is built before light-universe merge.
+
+   This is the most concrete defect. Fix this before wider geometry work.
+
+2. The light universe changes ordering and membership.
+
+   MergeFrameCandidates emits:
+       dynamicFrameCandidates first
+       persistent static records second
+       missing promoted dynamic history records later, if enabled
+
+   That is not inherently wrong, but any remap built before this merge is stale.
+
+3. Portal/area logic is still metadata plus optional filtering.
+
+   The current default test has area filtering not applied, but the light
+   universe still resolves area membership and portal depth. Portal movement can
+   change which frame candidates are seen, which persistent records are updated,
+   and how dynamic/history records are injected.
+
+4. Dynamic rigid emissive identity uses routeTlasInstanceId = 2 + instanceIndex.
+
+   This can be stable only if rigidRouteBuild instance ordering is stable across
+   portal/residency changes. That should be audited after the remap-order fix.
+
+5. Full-level static emissive identity uses a sequential worldPrimitiveId.
+
+   That is likely stable for static world models if entity/surface iteration is
+   stable, but it should not be mixed with a post-merge current list using a
+   pre-merge remap.
+
+6. Skinned emissive triangles are skipped.
+
+   This is acceptable as an explicit non-goal for now if they are excluded from
+   ReSTIR light sampling, but they should not leak partial identity into the
+   current/previous unified domain.
+
+Most likely current failure
+---------------------------
+The orange mode-12 flashes are likely caused by this exact graph:
+
+    raw current emissive list
+        -> BuildSmokeEmissiveLightRemap(raw current, previous merged)
+        -> MergeFrameCandidates(raw current) produces uploaded current
+        -> BuildPathTraceUnifiedLights(uploaded current, previous merged, raw remap)
+        -> shader reverse-scans uploaded current remap
+        -> previous emissive reservoir cannot be found
+        -> orange debug failure
+
+This also explains why portal distance and motion change the orange/cyan ratio:
+the light universe merge is portal/residency sensitive, while the remap was
+created before that merge.
+
+Recommended next slice
+----------------------
+Do not redesign geometry universe first. Fix the direct RTXDI contract mismatch.
+
+Slice GU-01A: move emissive remap construction after light-universe merge.
+
+Rules:
+
+- Do not change ReSTIR math.
+- Do not change light sampling policy.
+- Do not change temporal rejection logic.
+- Do not remove legacy split buffers.
+- Preserve existing debug views.
+
+Implementation shape:
+
+1. Build raw emissive candidates as today.
+2. Run m_smokeLightUniverse.MergeFrameCandidates(...) to produce the actual
+   uploaded current emissive domain.
+3. Rebuild emissiveInventoryStats, lightCandidates, and emissiveDistribution
+   from the post-merge current list as today.
+4. BuildSmokeEmissiveLightRemap(postMergeCurrentEmissiveTriangles, previousEmissiveTriangles).
+5. BuildPathTraceUnifiedLights(postMergeCurrentEmissiveTriangles, previousEmissiveTriangles, postMergeRemap, ...).
+6. Upload the post-merge remap.
+7. Store the same post-merge current list into m_smokePreviousEmissiveTriangles.
+
+Expected diagnostic change:
+
+- With r_pathTracingRestirPTTemporalNeighborDebugMode 2:
+    orange should fall sharply if the stale-remap order is the main issue.
+- If orange remains:
+    next inspect currentMissing/currentDuplicate/incompatible in the emissive
+    remap dump and audit rigid route instance identity stability.
+
+Next audits after GU-01A, only if needed
+---------------------------------------
+GU-02A: rigid route identity stability
+
+- Verify routeTlasInstanceId and localTriangleIndex are stable across portal
+  movement and animated-object visibility changes.
+- Compare against RTX Remix RtInstance lifetime and previous surface mapping.
+
+GU-03A: surface/geometry previous-frame mapping
+
+- Audit rbdoom primary surface records and motion-vector projection against
+  RTXDI RAB_GetGBufferSurface(previousFrame) expectations.
+- Compare against Remix surfaceMappingBuffer and previous TLAS retention.
+
+GU-04A: persistent emissive domain policy
+
+- Ensure portal/radius/residency affects proposal priority and sampling, not
+  whether a light identity exists in the current/previous mapping domain.
+

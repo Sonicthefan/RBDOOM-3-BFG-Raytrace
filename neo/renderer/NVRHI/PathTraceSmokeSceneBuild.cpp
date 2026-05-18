@@ -2178,6 +2178,92 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             lightUniverseStats.activeChurnStayedWeight,
             lightUniverseStats.activeChurnEnteredWeight,
             lightUniverseStats.activeChurnLeftWeight);
+        int emissiveRemapValid = 0;
+        int emissiveCurrentToPrevious = 0;
+        int emissivePreviousToCurrent = 0;
+        int emissiveCurrentZeroIdentity = 0;
+        int emissivePreviousZeroIdentity = 0;
+        int emissiveCurrentDuplicate = 0;
+        int emissivePreviousDuplicate = 0;
+        int emissiveCurrentMissing = 0;
+        int emissivePreviousMissing = 0;
+        int emissiveIncompatible = 0;
+        for (const PathTraceEmissiveLightRemap& remap : emissiveLightRemap)
+        {
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u)
+            {
+                ++emissiveRemapValid;
+            }
+            if (remap.currentToPreviousIndex >= 0)
+            {
+                ++emissiveCurrentToPrevious;
+            }
+            if (remap.previousToCurrentIndex >= 0)
+            {
+                ++emissivePreviousToCurrent;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_CURRENT_ZERO_IDENTITY) != 0u)
+            {
+                ++emissiveCurrentZeroIdentity;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_ZERO_IDENTITY) != 0u)
+            {
+                ++emissivePreviousZeroIdentity;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_CURRENT_DUPLICATE) != 0u)
+            {
+                ++emissiveCurrentDuplicate;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_DUPLICATE) != 0u)
+            {
+                ++emissivePreviousDuplicate;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_CURRENT_MISSING) != 0u)
+            {
+                ++emissiveCurrentMissing;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_PREVIOUS_MISSING) != 0u)
+            {
+                ++emissivePreviousMissing;
+            }
+            if ((remap.flags & RT_SMOKE_EMISSIVE_REMAP_INCOMPATIBLE) != 0u)
+            {
+                ++emissiveIncompatible;
+            }
+        }
+        common->Printf("PathTracePrimaryPass: RT smoke emissive remap current=%d previous=%d records=%d valid=%d currentToPrevious=%d previousToCurrent=%d currentZeroId=%d previousZeroId=%d currentDuplicate=%d previousDuplicate=%d currentMissing=%d previousMissing=%d incompatible=%d\n",
+            static_cast<int>(emissiveTriangles.size()),
+            static_cast<int>(previousEmissiveTriangles.size()),
+            static_cast<int>(emissiveLightRemap.size()),
+            emissiveRemapValid,
+            emissiveCurrentToPrevious,
+            emissivePreviousToCurrent,
+            emissiveCurrentZeroIdentity,
+            emissivePreviousZeroIdentity,
+            emissiveCurrentDuplicate,
+            emissivePreviousDuplicate,
+            emissiveCurrentMissing,
+            emissivePreviousMissing,
+            emissiveIncompatible);
+        common->Printf("PathTracePrimaryPass: RTXDI unified uploaded-domain diagnostic currentUnified=%d previousUnified=%d remap=%d currentEmissive=%d previousEmissive=%d currentAnalytic=%d previousAnalytic=%d persistentEmissiveStatic=%d persistentEmissiveDynamic=%d emissiveMerged=%d emissiveSelected=%d emissiveConnected=%d emissiveDisconnected=%d emissiveWouldUpload=%d emissiveWouldDrop=%d analyticCurrentUploaded=%d analyticPreviousUploaded=%d analyticRemap=%d behavior=cpu-diagnostics-only\n",
+            static_cast<int>(unifiedLights.currentLights.size()),
+            static_cast<int>(unifiedLights.previousLights.size()),
+            static_cast<int>(unifiedLights.currentToPreviousRemap.size()),
+            static_cast<int>(emissiveTriangles.size()),
+            static_cast<int>(previousEmissiveTriangles.size()),
+            static_cast<int>(doomAnalyticLights.size()),
+            static_cast<int>(doomAnalyticRemap.previousCandidates.size()),
+            lightUniverseStats.persistentStaticTriangles,
+            lightUniverseStats.persistentDynamicTriangles,
+            lightUniverseStats.mergedTriangles,
+            lightUniverseStats.mergedSelectedAreaTriangles,
+            lightUniverseStats.mergedConnectedAreaTriangles,
+            lightUniverseStats.mergedDisconnectedAreaTriangles,
+            lightUniverseStats.areaFilterWouldUploadCandidates,
+            lightUniverseStats.areaFilterWouldDropCandidates,
+            static_cast<int>(doomAnalyticRemap.currentCandidateIdentities.size()),
+            static_cast<int>(doomAnalyticRemap.previousCandidateIdentities.size()),
+            static_cast<int>(doomAnalyticRemap.universeRemap.size()));
         if (lightUniverseStats.enteredSampleCount > 0)
         {
             for (int sampleIndex = 0; sampleIndex < lightUniverseStats.enteredSampleCount; ++sampleIndex)

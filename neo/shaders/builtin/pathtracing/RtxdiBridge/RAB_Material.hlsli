@@ -38,9 +38,87 @@ float GetRoughness(RAB_Material material)
     return material.roughness;
 }
 
+float RAB_MaterialLuminance(float3 value)
+{
+    return dot(max(value, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
+}
+
+bool RAB_MaterialCompareRelativeDifference(float reference, float candidate, float threshold)
+{
+    return threshold <= 0.0 || abs(reference - candidate) <= threshold * max(reference, candidate);
+}
+
+uint RAB_MaterialSimilarityMode()
+{
+    return clamp((uint)max(RestirPTSurfaceInfo.x, 0.0), 0u, 5u);
+}
+
+bool RAB_AreMaterialsSimilarRTXDIWithMode(RAB_Material a, RAB_Material b, uint mode)
+{
+    const float roughnessThreshold = 0.5;
+    const float reflectivityThreshold = 0.25;
+    const float albedoThreshold = 0.25;
+
+    if (mode == 5u)
+    {
+        return true;
+    }
+
+    if (mode != 4u && !RAB_MaterialCompareRelativeDifference(a.roughness, b.roughness, roughnessThreshold))
+    {
+        return false;
+    }
+
+    if (mode != 3u && abs(RAB_MaterialLuminance(a.specularF0) - RAB_MaterialLuminance(b.specularF0)) > reflectivityThreshold)
+    {
+        return false;
+    }
+
+    if (mode != 2u && abs(RAB_MaterialLuminance(a.diffuseAlbedo) - RAB_MaterialLuminance(b.diffuseAlbedo)) > albedoThreshold)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool RAB_AreMaterialsSimilarRTXDI(RAB_Material a, RAB_Material b)
+{
+    return RAB_AreMaterialsSimilarRTXDIWithMode(a, b, 1u);
+}
+
+uint RAB_MaterialSimilarityFailureReasonRTXDI(RAB_Material a, RAB_Material b)
+{
+    const float roughnessThreshold = 0.5;
+    const float reflectivityThreshold = 0.25;
+    const float albedoThreshold = 0.25;
+
+    if (!RAB_MaterialCompareRelativeDifference(a.roughness, b.roughness, roughnessThreshold))
+    {
+        return 1u;
+    }
+
+    if (abs(RAB_MaterialLuminance(a.specularF0) - RAB_MaterialLuminance(b.specularF0)) > reflectivityThreshold)
+    {
+        return 2u;
+    }
+
+    if (abs(RAB_MaterialLuminance(a.diffuseAlbedo) - RAB_MaterialLuminance(b.diffuseAlbedo)) > albedoThreshold)
+    {
+        return 3u;
+    }
+
+    return 0u;
+}
+
 bool RAB_AreMaterialsSimilar(RAB_Material a, RAB_Material b)
 {
-    return a.materialId == b.materialId && a.flags == b.flags;
+    const uint materialSimilarityMode = RAB_MaterialSimilarityMode();
+    if (materialSimilarityMode == 0u)
+    {
+        return a.materialId == b.materialId && a.flags == b.flags;
+    }
+    return RAB_AreMaterialsSimilarRTXDIWithMode(a, b, materialSimilarityMode);
 }
 
 #endif

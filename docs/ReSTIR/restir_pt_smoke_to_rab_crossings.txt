@@ -1,0 +1,855 @@
+ReSTIR PT pathtrace_smoke to RAB Crossings
+Date: 2026-05-18
+
+Purpose
+-------
+Map the specific places where rbdoom's `pathtrace_smoke.rt.hlsl` supplies data
+into the local RAB bridge, and name the corresponding NVIDIA RTXDI / FullSample
+source for the same contract.
+
+This is narrower than `restir_pt_external_rab_inputs.txt`. That broader file
+lists all external RAB inputs. This file is for route visualization and repair
+planning:
+
+    pathtrace_smoke.rt.hlsl -> rbdoom RAB_* file
+    corresponding NVIDIA RTXDI / FullSample supplier or RAB path
+
+Rules for this file
+-------------------
+1. The main section only includes edges where rbdoom data comes from
+   `pathtrace_smoke.rt.hlsl` or a helper included by it before/around the RAB
+   bridge.
+
+2. Plain rbdoom `RAB_* -> RAB_*` edges are not listed in the main section when
+   the NVIDIA sample has the same kind of internal RAB cluster. Those edges are
+   implementation wiring, not the primary external supply problem.
+
+3. If rbdoom is `pathtrace_smoke.rt.hlsl -> RAB_*` but NVIDIA routes the same
+   logical need through a RAB-to-RAB helper, this file still lists it in the main
+   section and names the NVIDIA helper. That is an external-supply mismatch on
+   the rbdoom side.
+
+4. rbdoom `RAB_* -> RAB_*` edges where NVIDIA's design is materially different
+   are listed at the end under "Lower Priority Internal RAB Design Differences".
+
+
+Main Crossings: pathtrace_smoke.rt.hlsl -> rbdoom RAB
+=====================================================
+
+1. Surface Payload Construction
+-------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PathTraceSmokePayload
+        RAB_BuildSurfaceFromSmokePayload(...)
+        RAB_BuildMaterialFromSmokePayload(...)
+    -> RtxdiBridge\RAB_SurfaceCore.hlsli
+        RAB_Surface fields consumed by:
+            RAB_IsSurfaceValid
+            RAB_GetSurfaceWorldPos
+            RAB_GetSurfaceNormal
+            RAB_GetSurfaceGeoNormal
+            RAB_GetSurfaceViewDir
+            RAB_GetSurfaceLinearDepth
+            RAB_GetMaterial
+            RAB_GetSurfaceRoughness
+
+rbdoom supplied fields:
+    valid
+    worldPos
+    linearDepth
+    geometryNormal
+    shadingNormal
+    viewDir
+    materialId
+    materialIndex
+    instanceId
+    primitiveIndex
+    surfaceClass
+    triangle flags
+    RAB_Material
+
+rbdoom source details:
+    `RAB_BuildSurfaceFromSmokePayload` reconstructs the RAB surface directly
+    from the path tracing payload, ray origin/direction, Doom material index,
+    normal map decode, and local surface class.
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        RAB_Surface
+        RAB_GetGBufferSurface(pixelPosition, previousFrame)
+        RAB_IsSurfaceValid
+        RAB_GetSurfaceWorldPos
+        RAB_GetSurfaceNormal
+        RAB_GetSurfaceGeoNormal
+        RAB_GetSurfaceViewDir
+        RAB_GetSurfaceLinearDepth
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        LoadSurfaceFromRayPayload(...)
+        getGeometryFromHit(...)
+        sampleGeometryMaterial(...)
+
+NVIDIA detail:
+    The FullSample's primary surface path is G-buffer-backed. Its continuation
+    surface path is ray-payload-backed, but the payload is decoded through
+    `getGeometryFromHit` and `sampleGeometryMaterial` using the sample scene
+    geometry/material buffers. rbdoom does the equivalent surface reconstruction
+    in `pathtrace_smoke.rt.hlsl` itself, then hands a ready `RAB_Surface` to the
+    RAB cluster.
+
+current risk:
+    This route is valid but local. Any error in Doom payload identity, material
+    decoding, normal map handling, or surface class enters every downstream RAB
+    callback as if it were reference G-buffer data.
+
+
+2. Primary Surface History / RAB_GetGBufferSurface
+--------------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PrimarySurfaceHistoryCurrent u30
+        PrimarySurfaceHistoryPrevious u31
+        PathTracePrimarySurfaceStorePixel(...)
+        PathTracePrimarySurfaceLoadPixel(...)
+        PathTraceFullOutputSize()
+        PathTraceRestirDirectPixelToRepresentativeFullPixel(...)
+
+    PathTracePrimarySurface.hlsli
+        PackPathTracePrimarySurfaceRecord(...)
+        UnpackPathTracePrimarySurfaceRecord(...)
+        StorePathTracePrimarySurfaceRecord(...)
+        LoadPathTracePrimarySurfaceRecord(...)
+        RAB_GetGBufferSurface(pixelPosition, previousFrame)
+        RAB_GetGBufferMaterial(pixelPosition, previousFrame)
+
+    -> RtxdiBridge\RAB_SurfaceCore.hlsli consumers
+
+rbdoom supplied fields:
+    current/previous world position
+    current/previous view depth
+    current/previous shading and geometric normals
+    current/previous albedo, roughness, F0, opacity
+    material id/index/flags
+    surface class
+    instance id / primitive id
+    previous object-motion position when available
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        RAB_GetGBufferSurface(...)
+        GetGBufferSurface(...)
+        t_GBufferDepth / t_PrevGBufferDepth
+        t_GBufferNormals / t_PrevGBufferNormals
+        t_GBufferGeoNormals / t_PrevGBufferGeoNormals
+        RAB_GetGBufferMaterial(...)
+
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        RAB_GetGBufferSurface(trrParams.pixelPosition, false)
+        RAB_GetGBufferSurface(temporalSurfacePos, true)
+        expected previous depth = current depth + motionVector.z
+
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        RAB_GetGBufferSurface(neighborSurfacePos, false)
+
+NVIDIA detail:
+    NVIDIA treats `RAB_GetGBufferSurface` as the application bridge to current
+    and previous G-buffer textures. rbdoom has no normal raster G-buffer in this
+    PT path, so `pathtrace_smoke.rt.hlsl` writes a custom primary-surface
+    history buffer and exposes it through the same RAB callback name.
+
+current risk:
+    This is one of the most important non-reference substitutions. It is shaped
+    like NVIDIA's RAB API, but the supplier is a custom PT prepass/history
+    record, not the FullSample G-buffer stack.
+
+
+3. Surface Motion / Previous Pixel Projection
+---------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PathTraceMotionVectors u39
+        PathTraceMotionVectorMask u40
+        PathTraceRRGuideResetMask u52
+        PrevCameraOriginAndValid
+        PrevCameraForwardAndTanX
+        PrevCameraLeftAndTanY
+        PrevCameraUpAndTanY
+
+    PathTracePrimarySurface.hlsli
+        ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(...)
+        ProjectPathTracePrimarySurfaceToPreviousPixel(...)
+        RestirPTProjectWorldToPreviousPixel(...)
+
+    -> RAB_GetGBufferSurface(previousFrame=true)
+    -> TemporalResampling.hlsli previous surface checks
+
+rbdoom supplied fields:
+    previous pixel position
+    previous linear depth / motion-vector z equivalent
+    validity/reset mask
+    object-motion-derived previous position for some surfaces
+
+NVIDIA corresponding route:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        trrParams.motionVector
+        expected previous depth uses `motionVector.z`
+        RAB_GetGBufferSurface(temporalSurfacePos, true)
+
+    Samples\FullSample\Shaders\LightingPasses\PT\TemporalResampling.hlsl
+        pass-level temporal resampling dispatch and motion-vector input
+
+NVIDIA detail:
+    RTXDI PT expects pass-level temporal runtime inputs plus previous-frame
+    G-buffer data. It does not know rbdoom's skinned/rigid object-motion helper
+    scheme. rbdoom must make the projected previous pixel and previous depth
+    obey the same contract before the RAB surface comparison is meaningful.
+
+current risk:
+    This is not an internal RAB edge. It is a custom external producer feeding
+    the same RAB surface callback NVIDIA expects to be backed by stable current
+    and previous G-buffer resources.
+
+
+4. Smoke Material / Texture Sampling to RAB_Material and RAB_Brdf
+-----------------------------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        SmokeMaterials t13
+        SmokeDiffuseTextures[] space1
+        SmokeFallbackTexture t14
+        SmokeMaterialSampler s0
+        TextureInfo
+        LoadSmokeMaterial(...)
+        SampleSmokeSurfaceAlbedo(...)
+        SampleSmokeDirectSpecular(...)
+        SampleSmokeEmissive(...)
+        SmokeAlphaCoverage(...)
+        RAB_BuildMaterialFromSmokePayload(...)
+
+    -> RtxdiBridge\RAB_Material.hlsli
+        RAB_Material
+        GetDiffuseAlbedo
+        GetSpecularF0
+        GetRoughness
+        RAB_AreMaterialsSimilar
+
+    -> RtxdiBridge\RAB_Brdf.hlsli
+        RAB_GetSurfaceBrdfSample
+        RAB_GetSurfaceBrdfPdf
+        RAB_EvaluateSurfaceBrdf
+        RAB_EvaluateSurfaceBrdfOverPdf
+
+rbdoom supplied fields:
+    material id
+    material index
+    material flags
+    alpha cutoff
+    diffuse albedo
+    roughness
+    specular F0
+    opacity
+    emissive radiance
+    emissive texture index
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Material.hlsli
+        RAB_Material diffuseAlbedo / specularF0 / roughness / emissiveColor
+        RAB_GetGBufferMaterial(...)
+        t_GBufferDiffuseAlbedo / t_PrevGBufferDiffuseAlbedo
+        t_GBufferSpecularRough / t_PrevGBufferSpecularRough
+        RAB_AreMaterialsSimilar(...)
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        getSurfaceDiffuseProbability(...)
+        RAB_SurfaceEvaluateBrdfTimesNoL(...)
+        RAB_SurfaceImportanceSampleBrdf(...)
+        RAB_SurfaceEvaluateBrdfPdf(...)
+        RAB_SurfaceEvaluateBsdfTimesNoL(...)
+        RAB_SurfaceImportanceSampleBsdf(...)
+        RAB_SurfaceEvaluateBsdfPdf(...)
+
+NVIDIA detail:
+    NVIDIA's material values come from G-buffer textures for primary surfaces
+    and from geometry/material sampling for continuation hits. BRDF/BSDF logic
+    lives largely in `RAB_Surface.hlsli`. rbdoom samples Doom textures directly
+    in `pathtrace_smoke.rt.hlsl` and gives the resulting material to a local
+    split of `RAB_Material.hlsli` plus diffuse-only `RAB_Brdf.hlsli`.
+
+current risk:
+    `pathtrace_smoke.rt.hlsl` supplies enough material fields to look
+    reference-shaped, but rbdoom currently consumes them through a simplified
+    diffuse BRDF path. The direct external crossing is real; the missing
+    NVIDIA-equivalent part is the mixed diffuse/GGX/delta BSDF behavior.
+
+
+5. Emissive Light Buffer to RAB_LightInfoRuntime
+------------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PathTraceSmokeEmissiveTriangle
+        SmokeEmissiveTriangles t16
+        SmokePreviousEmissiveTriangles t57
+        SmokeEmissiveRemap t58
+        EmissiveInfo.x
+        DoomAnalyticLightRemapInfo.w
+        ToyPathInfo.z
+
+    -> RtxdiBridge\RAB_LightInfoRuntime.hlsli
+        RAB_GetCurrentEmissiveTriangleCount
+        RAB_GetPreviousEmissiveTriangleCount
+        RAB_TranslateLightIndex
+        RAB_LoadLightInfo(index, previousFrame)
+
+rbdoom supplied fields:
+    current emissive triangle center/area
+    normal/luminance
+    estimated radiance/luminance
+    sample weight/pdf
+    material id/index
+    instance id
+    primitive index
+    flags/history flags
+    current/previous emissive remap
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        typedef PolymorphicLightInfo RAB_LightInfo
+        RAB_LoadLightInfo(index, previousFrame)
+        t_LightDataBuffer[index]
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        getLightIndex(...)
+        t_GeometryInstanceToLight
+
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        RAB_LoadLightInfo(...)
+        RAB_SamplePolymorphicLight(...)
+
+NVIDIA detail:
+    FullSample exposes a coherent polymorphic light buffer. rbdoom builds a
+    Doom-specific emissive triangle list and remap inside the smoke shader's
+    resource space, then converts it into local `RAB_LightInfo` records at
+    load time.
+
+current risk:
+    This is a direct external-light-universe substitution. It is higher
+    priority than internal RAB wiring because temporal light reuse depends on
+    stable current/previous identities and remap validity.
+
+
+6. Doom Analytic Light Buffer to RAB_LightInfoRuntime
+----------------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PathTraceDoomAnalyticLightCandidate
+        PathTraceDoomAnalyticLightCandidateIdentity
+        PathTraceDoomAnalyticLightRemap
+        DoomAnalyticLights t27
+        DoomAnalyticCurrentIdentities t42
+        DoomAnalyticPreviousIdentities t43
+        DoomAnalyticRemap t44
+        DoomAnalyticPreviousLights t45
+        DoomAnalyticLightInfo
+        DoomAnalyticLightRemapInfo
+        MotionVectorInfo.w
+
+    -> RtxdiBridge\RAB_LightInfoRuntime.hlsli
+        RAB_GetCurrentDoomAnalyticLightCount
+        RAB_DoomAnalyticIdentitySampleable
+        RAB_DoomAnalyticLightStateCompatible
+        RAB_TranslateLightIndex
+        RAB_LoadLightInfo
+
+rbdoom supplied fields:
+    current and previous analytic light payload
+    current and previous analytic identity records
+    universe-index remap
+    candidate count/cap
+    intensity scale
+    influence radius / Doom radius
+    continuity tolerance
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        RAB_LoadLightInfo reads a reference polymorphic light buffer
+
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        previous/current light identity must be coherent for inverse shift
+
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        loads sampled light data and replays light sample with previousFrame
+        state where needed
+
+NVIDIA detail:
+    NVIDIA's sample does not have rbdoom's Doom analytic light universe/remap
+    layer. It assumes the application light buffer is already a stable
+    polymorphic-light domain. rbdoom must synthesize that domain from Doom
+    renderer light data before RAB can behave like the reference.
+
+current risk:
+    Very high. If this supplier is wrong, RAB light records can look connected
+    but still poison temporal and hybrid-shift replay.
+
+
+7. Light Sampling Runtime Inputs
+--------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        TextureInfo.w
+            RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES
+        ToyPathInfo.z
+        DoomAnalyticLightInfo
+        SmokeEmissiveTriangles
+        DoomAnalyticLights
+
+    -> RtxdiBridge\RAB_LightSamplingCore.hlsli
+        RAB_SampleEmissiveTriangleLight
+        RAB_SampleDoomAnalyticSphereLight
+        RAB_SamplePolymorphicLight
+
+rbdoom supplied fields:
+    two-sided emissive policy flag
+    emissive radiance scaling
+    Doom analytic sphere radius
+    Doom influence radius
+    light radiance
+    surface-relative sample position and pdf
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        RAB_SamplePolymorphicLight(...)
+        PolymorphicLight::calcSample(...)
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        RAB_LightSample target pdf helpers
+        environment and local-light pdf helpers
+
+NVIDIA detail:
+    NVIDIA delegates polymorphic light sampling to the reference light system.
+    rbdoom implements two local light types directly: emissive triangles and
+    Doom analytic spheres.
+
+current risk:
+    This crossing is acceptable only for the current supported light types.
+    Environment lights and full polymorphic light behavior are absent.
+
+
+8. Emissive MIS Inputs
+----------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        SmokeEmissiveTriangles.sampleWeightAndPdf.y
+        EmissiveInfo.z
+        PathTraceSmokePayload instanceId / primitiveIndex / materialId
+
+    -> RtxdiBridge\RAB_MISCallbacks.hlsli
+        RAB_EvaluateLocalLightSourcePdf
+        RAB_FindCurrentEmissiveLightIndexForRayPayload
+        RAB_GetMISWeightForNEE
+        GetMISWeightForEmissiveSurface
+
+rbdoom supplied fields:
+    local emissive proposal pdf
+    local emissive trial count
+    payload identity for emissive-hit matching
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        RAB_GetMISWeightForNEE
+        GetMISWeightForEmissiveSurface
+        GetMISWeightForEnvironmentMap
+        g_Const.pt.nee.initialSamplingParams
+        sampleParams.localLightSamplingMode
+        sampleParams.numLocalLightSamples
+        sampleParams.numEnvironmentSamples
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        RAB_EvaluateLocalLightSourcePdf
+        t_LocalLightPdfTexture
+        getLightIndex(...)
+        t_GeometryInstanceToLight
+
+NVIDIA detail:
+    NVIDIA's MIS path expects local-light PDF texture/sampling mode and direct
+    geometry-to-light mapping. rbdoom feeds local proposal weights and performs
+    a linear identity scan over `SmokeEmissiveTriangles`.
+
+current risk:
+    This is a direct local substitution, not just RAB internals. It can make MIS
+    connected but not reference-equivalent.
+
+
+9. Visibility / Shadow Ray Supplier
+-----------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        SmokeScene t0
+        PathTraceSmokeShadowPayload
+        InitSmokeShadowPayload(...)
+        TraceSmokeShadowVisibility(...)
+        ShadowAnyHit / ShadowClosestHit / ShadowMiss
+        alpha reject and ignore-instance/material behavior
+        SafetyInfo.z visibility policy bits
+
+    -> RtxdiBridge\RAB_Visibility.hlsli
+        RAB_GetStrictLightSampleVisibility
+        RAB_GetCandidateNeeVisibility
+        RAB_GetSelectedNeeVisibility
+        RAB_GetConservativeVisibility(surface, lightSample)
+        RAB_GetConservativeVisibility(surface, samplePosition)
+
+rbdoom supplied fields:
+    acceleration structure
+    shadow ray hit/miss payload
+    emissive self-hit ignore identity
+    candidate/selected visibility policy
+    sample position / light sample visibility result
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+        RAB_GetConservativeVisibility(surface, lightSample)
+        RAB_GetConservativeVisibility(surface, samplePosition)
+        RAB_GetTemporalConservativeVisibility(...)
+        SceneBVH / PrevSceneBVH
+        RayQuery or TraceRay path
+
+NVIDIA detail:
+    NVIDIA uses the sample scene BVH/previous BVH and a conservative ray query.
+    rbdoom routes visibility through Doom smoke scene traversal and has an
+    extra producer policy layer for candidate/selected NEE.
+
+current risk:
+    The strict visibility callback is concrete, but policy-accepted candidate
+    data can still be less strict than the NVIDIA conservative visibility
+    contract.
+
+
+10. Continuation Ray Payload to RAB_RayPayload / RAB_PathTracer
+--------------------------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PathTraceSmokePayload
+        InitSmokePayload(...)
+        TraceRay(SmokeScene, ...)
+        ClosestHit / AnyHit / Miss
+        instanceId
+        geometryIndex
+        primitiveIndex
+        barycentrics
+        materialId
+        materialIndex
+        surfaceClass
+        frontFace
+
+    -> RtxdiBridge\RAB_RayPayload.hlsli
+        RAB_RayPayload
+        RAB_IsRayPayloadHit
+        RAB_RayPayloadGetCommittedHitT
+        RAB_RayPayloadIsFrontFace
+
+    -> RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+        RAB_BuildRayPayloadFromSmokePayload
+        RAB_TraceSmokePathRay
+        RAB_BuildSurfaceFromSmokePayload
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_RayPayload.hlsli
+        reference RAB ray payload fields
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        TraceNextBounce(...)
+        LoadSurfaceFromRayPayload(...)
+        getGeometryFromHit(...)
+        sampleGeometryMaterial(...)
+
+NVIDIA detail:
+    Both paths have a ray-payload to RAB-payload conversion, but the scene
+    identity domains are different. NVIDIA loads material and geometry through
+    FullSample instance/geometry/material buffers. rbdoom loads through Doom
+    smoke payload fields and local material tables.
+
+current risk:
+    Payload shape is present, but hit identity is only as stable as rbdoom's
+    local instance/primitive/material domains.
+
+
+11. Path-Tracer Policy Constants
+--------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        IntegratorInfo
+        IntegratorInfo2
+        NeeInfo
+        SafetyInfo
+        DoomAnalyticLightInfo
+        EmissiveInfo
+        ToyPathInfo
+
+    -> RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+        PathTraceIntegratorMaxPathDepth
+        PathTraceIntegratorDiffuseBounceLimit
+        PathTraceIntegratorSpecularBounceLimit
+        PathTraceIntegratorRussianRouletteDepth
+        PathTraceIntegratorNextEventEstimationEnabled
+        PathTraceIntegratorSecondaryNeeMode
+        RAB_RecordSmokeNeeSample
+        local capped diffuse path loop
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        g_Const.pt
+        g_Const.brdfPT
+        g_Const.updatePSRwithResampling
+        extraMirrorBounceBudget
+        Russian roulette policy
+        path-depth policy
+        PSR enable/update policy
+        SER policy macro
+
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        path throughput, path depth, NEE recording, RR probability recording
+
+NVIDIA detail:
+    NVIDIA's path tracer policy is a richer application bridge around PSR,
+    Russian roulette, extra mirror bounce budget, NEE reservoir handling, and
+    optional SER. rbdoom exposes a smaller policy block from
+    `pathtrace_smoke.rt.hlsl`.
+
+current risk:
+    This is a pathtrace_smoke-to-RAB policy input, not a pure internal RAB edge.
+    It explains why the local `RAB_PathTrace` can be structurally connected but
+    still not reference-equivalent.
+
+
+12. Duplication Map Bounds Without Duplication Map Data
+-------------------------------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        PathTraceFullOutputSize()
+        dispatch constants / output dimensions
+
+    -> RtxdiBridge\RAB_DuplicationMap.hlsli
+        RAB_GetDuplicationMapCount(prevPos)
+        bounds-aware zero return
+
+NVIDIA corresponding route:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        calls RAB_GetDuplicationMapCount(prevPos)
+
+    Samples\FullSample\Shaders\LightingPasses\PT\FillSampleID.hlsl
+        fills sample IDs
+
+    Samples\FullSample\Shaders\LightingPasses\PT\ComputeDuplicationMap.hlsl
+        writes PT duplication-map counts
+
+NVIDIA detail:
+    NVIDIA's PT path has a real duplication-map pass. rbdoom only supplies
+    enough information to avoid out-of-bounds reads and returns zero.
+
+current risk:
+    This should not be treated as a working duplication-map supplier.
+
+
+13. Environment-Miss Stub Inputs
+--------------------------------
+rbdoom route:
+    pathtrace_smoke.rt.hlsl
+        no environment radiance texture
+        no environment light-domain record
+        no environment PDF texture
+
+    -> RtxdiBridge\RAB_MISCallbacks.hlsli
+        GetMISWeightForEnvironmentMap returns 1.0
+        RAB_EvaluateEnvironmentMapSamplingPdf returns 0.0
+        RAB_GetEnvironmentMapRandXYFromDir is deterministic equirect only
+
+    -> RtxdiBridge\PathTracer\RAB_PathTracer.hlsli
+        RAB_NoteEnvironmentMapMissUnbridged(ptud)
+
+NVIDIA corresponding route:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        RAB_GetEnvironmentMapRandXYFromDir
+        RAB_EvaluateEnvironmentMapSamplingPdf
+        RAB_GetEnvironmentRadiance
+        t_EnvironmentPdfTexture
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        GetMISWeightForEnvironmentMap
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        ShouldRecordEnvironmentMapLightSample
+        RecordEnvironmentMapLightSample
+
+    Samples\FullSample\Shaders\LightingPasses\Presampling\PresampleEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\RenderEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\PreprocessEnvironmentMap.hlsl
+
+NVIDIA detail:
+    NVIDIA has real environment radiance, pdf, and recording policy. rbdoom has
+    only a direction-to-UV helper plus a diagnostic unbridged-miss marker.
+
+current risk:
+    This is a missing pathtrace_smoke-side supplier. It belongs in the main
+    crossing list because the absence is at the external supplier boundary, not
+    in an internal RAB-to-RAB helper.
+
+
+Main Exclusions: Internal RAB Cluster Edges With Matching NVIDIA Shape
+======================================================================
+
+These are intentionally not in the main list:
+
+    rbdoom RAB_LightTarget -> RAB_Brdf
+    rbdoom RAB_LightTarget -> RAB_LightSamplingCore
+    rbdoom RAB_Visibility -> RAB_LightSamplingCore
+    rbdoom RAB_MISCallbacks -> RAB_LightSamplingCore
+    rbdoom PathTracer\RAB_PathTracer -> RAB_Brdf
+    rbdoom PathTracer\RAB_PathTracer -> RAB_LightInfoRuntime
+    rbdoom PathTracer\RAB_PathTracer -> RAB_LightSamplingCore
+    rbdoom PathTracer\RAB_PathTracer -> RAB_MISCallbacks
+    rbdoom PathTracer\RAB_PathTracer -> RAB_Visibility
+
+Reason:
+    NVIDIA also has RAB callbacks calling other RAB callbacks for BRDF, target
+    pdf, light sampling, MIS, visibility, and path tracing. Those edges matter
+    for code navigation, but they are not the primary external data supply
+    problem this file is meant to expose.
+
+
+Lower Priority Internal RAB Design Differences
+==============================================
+
+These are rbdoom `RAB_* -> RAB_*` edges where the NVIDIA design is materially
+different. They are lower priority than `pathtrace_smoke.rt.hlsl -> RAB_*`
+because they do not identify the original external data supplier, but they are
+still useful when debugging why the local bridge differs from the reference.
+
+1. rbdoom RAB_Brdf split vs NVIDIA RAB_Surface BSDF implementation
+------------------------------------------------------------------
+rbdoom internal route:
+    RtxdiBridge\RAB_Brdf.hlsli
+        includes RAB_SurfaceCore.hlsli
+        includes RAB_RandomSamplerState.hlsli
+        implements cosine hemisphere diffuse sampling
+        evaluates Lambert diffuse only
+
+NVIDIA design:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        carries material fields and BRDF/BSDF behavior in the surface bridge
+        implements diffuse, GGX, and delta BSDF branches
+
+why lower priority:
+    The missing external data is already called out in the material crossing:
+    rbdoom supplies roughness/F0 but the internal callback ignores the full
+    reference BSDF design.
+
+
+2. rbdoom RAB_LightTarget split vs NVIDIA RAB_LightSampling target helpers
+-------------------------------------------------------------------------
+rbdoom internal route:
+    RtxdiBridge\RAB_LightTarget.hlsli
+        includes RAB_Brdf.hlsli
+        includes RAB_LightSamplingCore.hlsli
+        owns RAB_GetLightSampleTargetPdfForSurface
+        owns RAB_GetPTSampleTargetPdfForSurface
+        owns RAB_GetReflectedBsdfRadianceForSurface
+
+NVIDIA design:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        owns target pdf helper shape
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        owns reflected BSDF radiance
+
+why lower priority:
+    This is mostly a local file split. The real external inputs are surface
+    fields, material/BRDF behavior, and light sample radiance/pdf.
+
+
+3. rbdoom RAB_LightInfoRuntime remap layer vs NVIDIA coherent light buffer
+--------------------------------------------------------------------------
+rbdoom internal route:
+    RtxdiBridge\RAB_LightInfoRuntime.hlsli
+        RAB_TranslateLightIndex
+        RAB_LoadLightInfo
+        Doom analytic identity/remap checks
+        Smoke emissive remap checks
+
+NVIDIA design:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        RAB_LoadLightInfo reads t_LightDataBuffer directly
+
+why lower priority:
+    The actual supplier mismatch is listed in the emissive and Doom analytic
+    light buffer crossings. This internal route explains why rbdoom needs more
+    local code to approximate the stable light domain NVIDIA assumes.
+
+
+4. rbdoom PathTracer\RAB_PathTracer local RIS vs NVIDIA secondary DI reservoir
+------------------------------------------------------------------------------
+rbdoom internal route:
+    PathTracer\RAB_PathTracer.hlsli
+        RAB_RecordSmokeNeeSample
+        RAB_StreamSmokeNeeRisCandidate
+        local RIS over emissive and Doom analytic proposals
+
+NVIDIA design:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        SampleDirectLightsForIndirectSurface
+        RTXDI_SampleLightsForSurface
+        optional secondary DI spatial resampling
+
+why lower priority:
+    The policy and light-domain suppliers are external crossings from
+    `pathtrace_smoke.rt.hlsl`, but this internal design difference explains why
+    the local selected NEE stream is not NVIDIA-equivalent.
+
+
+5. rbdoom scalar PathTracerUserData vs NVIDIA PSRData payload
+-------------------------------------------------------------
+rbdoom internal route:
+    PathTracer\RAB_PathTracerUserData.hlsli
+        path-type flags
+        reconnectionDenoiserHitDistance scalar
+        lastBounceDenoiserHitDistance scalar
+        environment miss marker
+
+NVIDIA design:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracerUserData.hlsli
+        RAB_PathTracerUserData contains PSRData
+
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+        PSRData
+        GetEmptyPSRData
+        UpdatePSRFromHit
+        UpdatePSRFromNee
+        FinalizePSRForHybridShift
+        UpdatePSRBuffers
+
+why lower priority:
+    This is a large design difference, but it is not a
+    `pathtrace_smoke.rt.hlsl -> RAB_*` data edge unless/until rbdoom creates
+    real PSR buffers and PSR update inputs.
+
+
+6. rbdoom RAB_MISCallbacks environment stubs vs NVIDIA environment branch
+-------------------------------------------------------------------------
+rbdoom internal route:
+    RAB_MISCallbacks.hlsli
+        GetMISWeightForEnvironmentMap returns 1.0
+        RAB_EvaluateEnvironmentMapSamplingPdf returns 0.0
+
+NVIDIA design:
+    RAB_LightSampling.hlsli
+        RAB_EvaluateEnvironmentMapSamplingPdf
+        t_EnvironmentPdfTexture
+        RAB_GetEnvironmentRadiance
+
+    PathTracer\RAB_PathTracer.hlsli
+        ShouldRecordEnvironmentMapLightSample
+        ctx.RecordEnvironmentMapLightSample
+
+why lower priority:
+    The absence of pathtrace-smoke-side environment radiance/pdf/light-domain
+    inputs is the main issue. The internal stub is the symptom.
+

@@ -783,6 +783,24 @@ idCVar r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance(
     CVAR_RENDERER | CVAR_FLOAT,
     "Relative current/previous Doom analytic light color tolerance for ReSTIR PT temporal NEE remap; lower rejects animated light phases more aggressively" );
 
+idCVar r_pathTracingRestirPTMaterialSimilarityMode(
+    "r_pathTracingRestirPTMaterialSimilarityMode",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "ReSTIR PT temporal material similarity: 0 = legacy Doom material id/flags, 1 = RTXDI roughness/specular/diffuse, 2 = ignore diffuse, 3 = ignore specular, 4 = ignore roughness, 5 = accept all materials" );
+
+idCVar r_pathTracingRestirPTTemporalNeighborDebugMode(
+    "r_pathTracingRestirPTTemporalNeighborDebugMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Mode 56 DI debug view 12 classifier: 0 = detailed status palette, 1 = temporal reuse bucket summary, 2 = NEE/light-remap bucket summary" );
+
+idCVar r_pathTracingRestirPTUnifiedPrevToCurrentScan(
+    "r_pathTracingRestirPTUnifiedPrevToCurrentScan",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only ReSTIR PT unified-light temporal remap proof: invert the current-to-previous unified remap in shader for previous-to-current translation" );
+
 idCVar r_pathTracingRestirPTUnifiedLightLoad(
     "r_pathTracingRestirPTUnifiedLightLoad",
     "0",

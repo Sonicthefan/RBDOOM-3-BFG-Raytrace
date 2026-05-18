@@ -1,0 +1,109 @@
+ReSTIR-Friendly Light Universe Agent Prompt
+===========================================
+
+Date: 2026-05-18
+
+You are working in:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Prepared game folder:
+
+    E:\prog\rbdoom-3-BFG-prebuilt
+
+Build from:
+
+    E:\prog\rbdoom-3-bfg-rt\neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+After building, copy:
+
+    E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+    to
+    E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+After shader edits, copy:
+
+    E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+    to
+    E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Do not create a nested renderprogs2 folder in the destination.
+
+Read first:
+
+    docs\pathtracing.txt
+    docs\pathtrace_modules.txt
+    docs\restir_friendly\README.txt
+    docs\restir_friendly\light_universe_rebuild_protocol.txt
+    docs\restir_friendly\unified_light_record_contract.txt
+    docs\restir_friendly\layered_debug_gates.txt
+    docs\restir_friendly\mechanical_light_universe_slices.txt
+    docs\ReSTIR\restir_pt_chain_after_light_universe.txt
+    docs\ReSTIR\restir_pt_rab_io_supply_map.txt
+    docs\ReSTIR\restir_pt_smoke_to_rab_crossings.txt
+
+Reference root:
+
+    E:\prog\references\RTXDI-main
+
+Relevant reference files:
+
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Buffers.hlsli
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    Samples\FullSample\Source\RenderingPasses\PrepareLightsPass.cpp
+    Samples\FullSample\Source\RenderingPasses\LightingPasses.cpp
+    Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\DI\SpatialResampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\LightSampling\UniformSampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\RtxdiParameters.h
+    Libraries\Rtxdi\Include\Rtxdi\ReSTIRDIParameters.h
+
+Current task discipline:
+
+    The unified light-universe layer and RTXDI-shaped NEE feed have been built
+    and visually accepted. LU-05A added a debug split for PT initial versus
+    final-shading input. Continue by auditing the next RTXDI PT reservoir-chain
+    stage. Do not fix temporal math, spatial reuse, final resolve, denoising,
+    or mode 56 final behavior unless explicitly commissioned later.
+
+    Preserve legacy split outputs:
+
+        SmokeEmissiveTriangles
+        SmokePreviousEmissiveTriangles
+        SmokeEmissiveRemap
+        DoomAnalyticLights
+        DoomAnalyticPreviousLights
+        DoomAnalyticCurrentIdentities
+        DoomAnalyticPreviousIdentities
+        DoomAnalyticRemap
+
+    Preserve existing RAB debug views, especially r_pathTracingRestirPTDiDebugView
+    27-35. If you add DI debug views, append 36+ and update clamp/help text.
+
+    Do not invent light math. Do not invent PDFs, weights, falloffs, reservoir
+    weights, or ReSTIR finalization. The RTXDI-shaped unified NEE producer has
+    been added and visually accepted as the better ReSTIR/PT test feed.
+
+If no slice is named, do LU-06A only:
+
+    Add an audit/debug view for PT initial versus PT temporal output:
+
+        initialPathTracerOutputBufferIndex
+            -> RTXDI_PTTemporalResampling
+            -> temporalResamplingOutputBufferIndex
+
+    Read only RTXDI PT reservoir pages through the existing PT reservoir buffer
+    indices. Do not use rbdoom's custom local DI/GI temporal buffers as proof.
+    Show contribution and state/classifier information for validity,
+    TargetFunction, WeightSum, M/history, NEE connection, and NaN/Inf. Do not
+    change temporal resampling math, spatial resampling, final resolve, or light
+    and NEE producer math. Build, deploy, and tell the user exactly what to
+    compare.
+
+Stop after the commissioned slice is built, deployed, and summarized.

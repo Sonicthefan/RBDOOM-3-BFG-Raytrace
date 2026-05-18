@@ -1,0 +1,158 @@
+Unified Light Record Contract
+=============================
+
+Purpose
+-------
+
+The unified light record is the bridge between rbdoom's existing light sources
+and the RTXDI-shaped RAB layer. It should be boring, explicit, and easy to
+debug. Its first job is to carry existing data without changing behavior.
+
+Reference intent
+----------------
+
+NVIDIA's sample exposes a generic light domain through:
+
+    t_LightDataBuffer
+    RAB_LoadLightInfo(index, previousFrame)
+    RAB_SamplePolymorphicLight(lightInfo, surface, uv)
+
+rbdoom's first equivalent does not need to be byte-identical to
+PolymorphicLightInfo. It does need to provide the same kind of stable unified
+source: one local-light index space with enough data for load, sample, PDF,
+visibility, and later ReSTIR DI initial sampling.
+
+First-pass source records
+-------------------------
+
+The unified universe starts from the existing split outputs:
+
+    emissive:
+        PathTraceSmokeEmissiveTriangle
+        SmokeEmissiveTriangles
+        SmokePreviousEmissiveTriangles
+        SmokeEmissiveRemap
+
+    Doom analytic:
+        PathTraceDoomAnalyticLightCandidate
+        PathTraceDoomAnalyticLightCandidateIdentity
+        DoomAnalyticLights
+        DoomAnalyticPreviousLights
+        DoomAnalyticCurrentIdentities
+        DoomAnalyticPreviousIdentities
+        DoomAnalyticRemap
+
+The first slices must not remove these records or require downstream code to
+consume only the unified record.
+
+Record fields
+-------------
+
+The CPU and HLSL definitions must stay 16-byte aligned. Use explicit scalar
+types and static asserts on the C++ side.
+
+Recommended first-pass shape:
+
+    struct PathTraceUnifiedLightRecord
+    {
+        float positionAndRadius[4];
+        float normalAndArea[4];
+        float radianceAndLuminance[4];
+        float uvOrDoomParams[4];
+
+        uint32_t type;
+        uint32_t sourceIndex;
+        uint32_t flags;
+        uint32_t materialOrLightId;
+
+        uint32_t instanceId;
+        uint32_t primitiveIndex;
+        uint32_t identityA;
+        uint32_t identityB;
+
+        float sourcePdf;
+        float sourceWeight;
+        uint32_t previousIndex;
+        uint32_t padding0;
+    };
+
+Required meanings:
+
+    type:
+        0 invalid
+        1 emissive triangle
+        2 Doom analytic sphere/light
+
+    sourceIndex:
+        index into the legacy split buffer for this record type
+
+    previousIndex:
+        unified previous-frame index, or 0xffffffffu when not remapped
+
+    sourcePdf:
+        existing source PDF if available; zero means unsupported/unknown, not
+        an instruction to invent one
+
+    sourceWeight:
+        existing proposal/sample weight if available; zero means unsupported or
+        structurally invalid
+
+    radianceAndLuminance.xyz:
+        existing estimated radiance/color for debug and sampling replay
+
+    radianceAndLuminance.w:
+        existing luminance/importance scalar
+
+    identityA/identityB:
+        stable identity/remap fields. These can be packed from existing
+        emissive keys and Doom analytic identities. Do not rely on raw array
+        index as the only identity.
+
+Temporary shader-side view
+--------------------------
+
+It is acceptable for the first slice to implement a shader-side virtual unified
+view over the old split buffers instead of a new CPU-built buffer. That slice is
+debug-only and proves the unified index space:
+
+    unifiedIndex < emissiveCount:
+        load SmokeEmissiveTriangles[unifiedIndex]
+
+    otherwise:
+        analyticIndex = unifiedIndex - emissiveCount
+        load DoomAnalyticLights[analyticIndex]
+
+This is not the final structure. The next accepted layer should create explicit
+current and previous unified buffers on the CPU.
+
+Persistent CPU/GPU buffers
+--------------------------
+
+When the explicit unified buffer is introduced, keep both paths available:
+
+    legacy split buffers:
+        remain uploaded and consumed by old code
+
+    unified buffers:
+        consumed only by new debug/RAB opt-in code until accepted
+
+Required buffers:
+
+    PathTraceUnifiedLights
+    PathTraceUnifiedPreviousLights
+    PathTraceUnifiedLightRemap
+
+Required counts:
+
+    currentUnifiedLightCount
+    previousUnifiedLightCount
+
+Required first debug checks:
+
+    - unified count equals emissive count + analytic count
+    - current records classify into expected source types
+    - previous records classify into expected source types
+    - current-to-previous remap is stable for static lights
+    - unsupported records are visible as invalid, not silently black
+
+Do not connect to RAB_LoadLightInfo until this debug layer is visually accepted.

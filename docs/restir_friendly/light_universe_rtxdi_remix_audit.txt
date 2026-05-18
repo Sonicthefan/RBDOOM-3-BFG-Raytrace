@@ -1,0 +1,432 @@
+Light Universe Audit Against RTXDI and RTX Remix
+Date: 2026-05-18
+
+Scope
+=====
+
+This is a read-only audit. It compares rbdoom's current ReSTIR-friendly
+light-universe path with:
+
+    E:\prog\references\RTXDI-main
+    E:\prog\references\dxvk-remix-git
+
+The goal is not to design new ReSTIR math. The goal is to identify where the
+rbdoom light producer violates the data contract expected by NVIDIA-style
+RTXDI/RAB reuse.
+
+
+Reference Contract
+==================
+
+RTXDI clean sample
+------------------
+
+Important files:
+
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\PrepareLights.hlsl
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Buffers.hlsli
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\TemporalResampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+
+Observed contract:
+
+    1. RAB_LoadLightInfo(index, previousFrame) is a simple light-buffer load.
+
+    2. RAB_TranslateLightIndex(lightIndex, currentToPrevious) is backed by an
+       application-supplied mapping buffer. The full sample writes both
+       previous-to-current and current-to-previous mappings, offset by one so
+       zero means invalid.
+
+    3. Temporal reuse maps a previous reservoir's selected light into the
+       current frame before evaluating it at the current surface. If the mapping
+       fails, RTXDI kills that reservoir sample.
+
+    4. The reference code assumes the application has already provided a
+       coherent current/previous light domain. RTXDI does not solve unstable
+       game light identity by itself.
+
+
+RTX Remix hostile-game layer
+----------------------------
+
+Important files:
+
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_light_manager.h
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_light_manager.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_lights.h
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_scene_manager.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\algorithm\rtxdi\RtxdiApplicationBridge.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\pass\rtxdi\rtxdi_initial_sampling.comp.slang
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\pass\rtxdi\rtxdi_temporal_reuse.comp.slang
+
+Observed contract:
+
+    1. Remix explicitly treats old game lighting as uncooperative. The comments
+       in rtx_light_manager.cpp describe games turning a small set of lights on
+       and off as the player moves, because old fixed-function paths could only
+       use a few lights.
+
+    2. Remix does not feed that unstable per-frame list directly to RTXDI.
+       LightManager owns a persistent map of RtLight objects, tracks the last
+       frame each light was touched, classifies long-lived/static, short-lived,
+       and dynamic lights, and can keep lights alive for a configurable number
+       of frames.
+
+    3. Remix preserves a mutable buffer index per RtLight. prepareSceneData()
+       swaps current/previous GPU light buffers, linearizes active lights, then
+       writes a lightMapping buffer containing:
+
+           current index -> previous index
+           previous index -> current index
+
+       In the shader, RAB_TranslateLightIndex(lightIndex, currentToPrevious)
+       indexes that mapping using either the current-frame region or the
+       previous-frame region.
+
+    4. Remix includes dynamic-light matching by similarity. If the game gives
+       a moved or newly hashed light that appears to be the same physical light,
+       it carries over the old buffer index and removes the stale entry.
+
+    5. Remix separates light lifetime/identity from immediate view selection.
+       Anti-culling and frame retention exist specifically to prevent hostile
+       game culling from deleting light history too early.
+
+
+rbdoom Current State
+====================
+
+Important files:
+
+    neo\renderer\NVRHI\PathTraceLightUniverse.cpp
+    neo\renderer\NVRHI\PathTraceDoomLights.cpp
+    neo\renderer\NVRHI\PathTraceUnifiedLight.cpp
+    neo\renderer\NVRHI\PathTraceUnifiedLight.h
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\PathTracer\RAB_PathTracerNee.hlsli
+
+Current rbdoom behavior:
+
+    1. Emissive lights are passed through RtSmokeLightUniverse::MergeFrameCandidates.
+       That path classifies selected, connected overflow, disconnected, and
+       unknown-area candidates, and can apply an area filter before upload.
+
+    2. Doom analytic candidates are built from records whose eligibility still
+       requires record.selectedArea. Out-of-selected-area lights remain in some
+       CPU diagnostics, but they do not become uploaded GPU candidates.
+
+    3. PathTraceUnifiedLight.cpp builds PathTraceUnifiedLights by appending the
+       current uploaded emissive list and current uploaded analytic list. It
+       builds PathTraceUnifiedPreviousLights from the previous uploaded lists.
+
+    4. The unified remap buffer is current-to-previous only:
+
+           PathTraceUnifiedLightRemap[currentUnifiedIndex] = previousUnifiedIndex
+
+       There is no CPU-built previous-to-current unified mapping buffer. A
+       shader-side scan proof switch was added, but testing showed no visible
+       effect, which is expected if the missing previous light is absent from
+       the current uploaded domain.
+
+    5. RAB_LoadUnifiedLightInfo(index, true) does not behave like the RTXDI
+       sample's RAB_LoadLightInfo(index, previousFrame). It expects a current
+       index and internally maps current-to-previous. That is useful for one
+       inverse-shift case, but it is not a general previous-frame indexed load.
+
+    6. RAB_TranslateUnifiedLightIndex(lightIndex, false) needs a previous-to-
+       current mapping. The current implementation can only scan the current-to-
+       previous table when the proof cvar is enabled. That is not RTXDI's
+       mapping-buffer shape.
+
+
+Most Damaging Deviation
+=======================
+
+The current rbdoom unified light domain is still a selected/uploaded proposal
+list, not a persistent RTXDI light-index universe.
+
+This is the most likely root of the magenta/cyan view-12 behavior and the older
+NEE strobing pattern:
+
+    - Portal/area selection changes as the player moves.
+    - Lights outside the selected/uploaded region vanish from the current GPU
+      domain.
+    - RTXDI temporal reservoirs still hold indices from the previous frame.
+    - Translation or replay fails because the corresponding physical light is
+      not present in the current uploaded domain.
+    - The shader reports remap/light-load failure or falls back to current-only
+      samples, so accumulation does not grow.
+
+The recent dump supports this:
+
+    merged=551 selected=328 disconnected=223 wouldDrop=223
+    outOfSelectedArea=359 shaderInvalidRemap=362
+
+Those numbers are not small edge cases. They show that hundreds of authored or
+known lights can exist outside the current uploaded RTXDI domain.
+
+RTXDI's clean sample does not expose this because it assumes a coherent light
+buffer. RTX Remix does expose the problem class, and its answer is the opposite
+of rbdoom's current shape: retain and map lights across hostile culling instead
+of making the current visible/selected set the identity domain.
+
+
+Secondary Deviations
+====================
+
+1. Previous/current mapping shape is incomplete.
+
+    RTXDI and Remix both provide a mapping buffer that supports both directions.
+    rbdoom unified currently uploads only current-to-previous. The shader scan
+    is a proof aid, not a production mapping structure.
+
+2. Previous-frame light loading has mixed semantics.
+
+    RTXDI calls RAB_LoadLightInfo(index, true) when the index is already in the
+    previous-frame domain. rbdoom unified RAB_LoadUnifiedLightInfo(index, true)
+    treats index as a current-frame index and remaps it internally. That can be
+    correct for a narrow inverse-shift call but is not the general RTXDI RAB
+    load contract.
+
+3. Portal selection is doing two jobs.
+
+    It is currently both a proposal/cost filter and an identity/lifetime filter.
+    RTXDI wants proposal distributions to bias which lights are sampled, but
+    temporal reuse needs light identities to remain mappable even when a light
+    is not a preferred current proposal.
+
+4. Doom analytic sampleability encoded selectedArea before the persistent
+   analytic-domain slice.
+
+    Before the 2026-05-18 persistent analytic-domain slice,
+    IsDoomAnalyticUniverseSampleableLight required record.selectedArea and
+    BuildAnalyticDoomLightRecords filtered candidates by selectedArea. That was
+    useful for a legacy bounded list, but hostile to a persistent RTXDI light
+    universe. The forced/ReSTIR analytic path now keeps the broad active
+    structural analytic domain; the legacy manual candidate path remains
+    area-filtered.
+
+5. The unified NEE producer is closer to RTXDI, but it inherits the wrong light
+    domain.
+
+    RAB_RecordUnifiedNeeSample calls RTXDI_SampleLightsForSurface with a uniform
+    local-light region over RAB_GetCurrentUnifiedLightCount(). If that count is
+    the portal-selected upload list, the RTXDI math is being fed a domain that
+    can change discontinuously.
+
+
+Impact Assessment
+=================
+
+High impact:
+
+    Current uploaded light domain changes with portal/area selection. This can
+    invalidate reservoir light indices even when the physical lights still exist.
+    It explains magenta remap failures, temporal history loss, and strobing near
+    portal boundaries.
+
+High impact:
+
+    Unified mapping is not RTXDI-shaped. A real mapping buffer should support
+    previous-to-current and current-to-previous without a shader scan and without
+    relying on selected/uploaded proposal membership.
+
+Medium impact:
+
+    RAB_LoadLightInfo(previousFrame=true) is not a plain previous-domain load in
+    the unified path. This should be corrected when the light domain is split
+    into stable current and previous buffers.
+
+Medium impact:
+
+    The unified NEE path is using RTXDI_SampleLightsForSurface, but only after
+    rbdoom has already filtered the light universe. That makes the math closer
+    while leaving the damaging producer instability intact.
+
+Lower immediate impact:
+
+    Environment and infinite lights are omitted. That limits completeness, but
+    it does not explain the portal/motion remap strobing in local-light tests.
+
+
+Recommended Direction
+=====================
+
+Do not start by changing RTXDI reservoir math.
+
+The next work should make rbdoom's light producer conform to the light-index
+contract first:
+
+    1. Split "persistent light universe" from "current proposal/upload budget".
+
+       Persistent universe:
+           stable current/previous light records that RTXDI reservoirs may
+           reference and remap.
+
+       Proposal layer:
+           portal/area/importance-selected lights used to bias sampling work.
+
+       Portal selection should affect proposal probability, not whether a
+       known light can be translated or loaded.
+
+    2. Build an RTXDI-shaped unified mapping buffer on the CPU.
+
+       It should contain both:
+
+           current index -> previous index
+           previous index -> current index
+
+       Use RTXDI/Remix's "invalid sentinel in mapping buffer" pattern. The
+       shader-side scan should be removed after the CPU map exists.
+
+    3. Make RAB_LoadUnifiedLightInfo(index, previousFrame) a direct load from
+       the selected frame's unified buffer.
+
+       Translation should happen in RAB_TranslateLightIndex or in the RTXDI
+       code paths that explicitly request translation, not hidden inside the
+       general previous-frame load.
+
+    4. Add Remix-style retention for hostile rbdoom inputs.
+
+       Static authored Doom lights should stay in the persistent universe even
+       when out of the current selected portal area. Dynamic/temporary lights
+       should use a short retention/matching policy, not disappear instantly
+       because the current frame did not upload them.
+
+    5. Keep legacy split outputs alive while this is being corrected.
+
+       The debug/validation path can route unified light loading and sampling
+       behind cvars, but the old split outputs should remain available until
+       the persistent unified domain is proven stable in-game.
+
+
+Suggested Next Slice
+====================
+
+LU-AUDIT-FIX-01 should be a CPU/light-producer slice only:
+
+    - no reservoir math changes
+    - no RTXDI finalization changes
+    - no final resolve changes
+    - no shader fallback heuristics
+
+Task:
+
+    Add diagnostics that compare the persistent authored light universe against
+    the current uploaded unified RTXDI domain.
+
+Required dump fields:
+
+    - persistent emissive/static universe count
+    - persistent Doom analytic universe count
+    - current unified uploaded count
+    - previous unified uploaded count
+    - persistent lights missing from current unified domain
+    - persistent lights missing from previous unified domain
+    - previous lights that fail previous-to-current mapping because they are
+      absent from the current uploaded domain
+    - missing-by-reason buckets:
+        selected-area filter
+        disconnected/portal filter
+        candidate cap
+        zero radiance
+        unproven dynamic continuity
+        unknown identity
+
+Acceptance:
+
+    The dump should prove or disprove that view-12 magenta/cyan failures line up
+    with lights that exist in the persistent universe but are missing from the
+    selected/uploaded RTXDI domain.
+
+After that proof, the correction slice should rebuild the unified current and
+previous light buffers from the persistent universe, and move portal selection
+into proposal weighting or proposal masks rather than identity removal.
+
+
+Implemented Diagnostic Slice
+============================
+
+2026-05-18:
+
+    LU-AUDIT-FIX-01 adds CPU-only diagnostics under the existing
+    r_pathTracingLightUniverseDump path.
+
+    New log lines:
+
+        PathTracePrimaryPass: Doom RTXDI analytic uploaded-domain diagnostic ...
+        PathTracePrimaryPass: RTXDI unified uploaded-domain diagnostic ...
+
+    The Doom analytic line compares the persistent authored analytic-light
+    universe against the current and previous uploaded RTXDI-facing domains. It
+    reports:
+
+        - persistent/static/dynamic counts
+        - current and previous uploaded counts
+        - persistent lights missing from the current uploaded domain
+        - previous lights missing from the previous uploaded domain
+        - previous lights that cannot map back to the current uploaded domain
+        - non-exclusive missing-reason buckets:
+            selectedArea
+            disconnectedOrPortal
+            candidateCap
+            zeroRadiance
+            unprovenContinuity
+            unknownIdentity
+            missingCurrent
+            suppressed
+            duplicate
+            nonPointOrParallel
+            invalidRadius
+
+    The unified line ties the uploaded RTXDI-facing domain back to the split
+    producers:
+
+        - current/previous unified counts
+        - current/previous emissive counts
+        - current/previous analytic counts
+        - persistent emissive static/dynamic counts
+        - selected/connected/disconnected emissive aggregate counts
+        - analytic current/previous uploaded counts
+
+    This slice intentionally does not change candidate selection, RAB loading,
+    shader sampling, reservoir math, final resolve, or any visual path.
+
+
+Implemented Persistent Analytic Domain Slice
+============================================
+
+2026-05-18:
+
+    The ReSTIR-forced Doom analytic producer now treats portal selection as
+    metadata rather than as a hard identity-domain filter.
+
+    Changed behavior:
+
+        - the forced/ReSTIR analytic candidate list includes active structural
+          point lights even when they are outside the selected portal area
+        - Doom analytic sampleability no longer requires selectedArea
+        - the forced/ReSTIR candidate order is stable by light identity rather
+          than portal depth
+        - r_pathTracingAnalyticLightMaxGpu remains a cap for the old manual
+          analytic-light candidate path, but the forced/ReSTIR path uploads the
+          full active structural analytic list
+
+    Preserved behavior:
+
+        - legacy manual analytic-light candidate dumps remain area-filtered
+        - portal depth and selection area are still stored in doomRadiusAndArea
+          for later sampling policy
+        - no RAB math, reservoir math, final resolve, or shader sampling
+          behavior was changed in this slice
+
+    Expected diagnostic change:
+
+        Doom RTXDI analytic uploaded-domain diagnostic should move from roughly:
+
+            currentUploaded=117 currentMissing=362 selectedArea=358
+
+        toward a broad uploaded domain where currentMissing is limited to
+        genuinely inactive, missing-current, invalid, or non-structural lights.

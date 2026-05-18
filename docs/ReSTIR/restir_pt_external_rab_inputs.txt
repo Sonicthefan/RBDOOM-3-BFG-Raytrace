@@ -1,0 +1,1297 @@
+ReSTIR PT External RAB Input Inventory
+Date: 2026-05-17
+
+Purpose
+-------
+List every input that enters the local RAB bridge from outside the RAB callback
+files, grouped by current condition.
+
+This file is derived from:
+
+    docs\ReSTIR\restir_pt_rab_io_supply_map.txt
+    docs\ReSTIR\restir_pt_reference_input_map.txt
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\PT
+    E:\prog\references\RTXDI-main\Samples\FullSample\Shaders\LightingPasses
+
+Definition
+----------
+"External to RAB" means the value is supplied by rbdoom shader resources,
+rbdoom CPU builders, RTXDI PT pass parameters, RTXDI PT reservoir state, or
+the NVIDIA FullSample application bridge. If the current rbdoom RAB file says
+its supplier is another RAB file, this inventory names the ultimate external
+supplier behind that RAB-to-RAB edge.
+
+"RTXDI supplier" means the reference-side file or sample bridge that shows the
+expected input shape. Many inputs are not supplied by the RTXDI library itself:
+the library calls RAB callbacks and expects the application bridge to provide
+engine-specific G-buffer, material, geometry, light, environment, and PSR data.
+
+
+Functional Inputs
+-----------------
+
+input name: RAB_SurfaceCore / RAB_Surface / RAB_Material - current and previous
+surface record
+fields:
+    world position, shading normal, geometric normal, view direction, linear
+    depth, surface class, instance id, primitive id, material id, material
+    index, current/previous surface validity
+rbdoom supplier:
+    neo\shaders\builtin\pathtracing\pathtrace_primary_surface_producer.rt.hlsl
+        - writes PrimarySurfaceHistoryCurrent u30
+        - writes PrimarySurfaceHistoryPrevious u31
+        - exports motion/reset-aware primary surface fields
+    neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+        - builds RAB_Surface from path payloads for local path tracing
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+        - feeds geometry/material identity domains used by surface records
+    neo\renderer\NVRHI\PathTraceSmokeResources.cpp
+        - owns surface/material GPU resource upload paths
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_GetGBufferSurface
+        - RAB_IsSurfaceValid
+        - RAB_GetSurfaceWorldPos
+        - RAB_GetSurfaceNormal
+        - RAB_GetSurfaceGeoNormal
+        - RAB_GetSurfaceViewDir
+        - RAB_GetSurfaceLinearDepth
+    Samples\FullSample\Shaders\LightingPasses\PT\GenerateInitialSamples.hlsl
+        - reads current RAB surface for initial PT sampling
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - reads current and previous RAB surfaces for temporal validation
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - reads current and neighbor RAB surfaces
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+        - reads current RAB surface for final shading
+
+input name: RAB_Brdf - material and orientation inputs
+fields:
+    diffuse albedo, roughness, specular F0, surface normal, geometric normal,
+    view direction
+rbdoom supplier:
+    neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+        - material sampling for local PT shading
+    neo\renderer\NVRHI\PathTraceSmokeResources.cpp
+        - material buffer upload
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+        - material table population for current surfaces
+    PrimarySurfaceHistoryCurrent u30
+    PrimarySurfaceHistoryPrevious u31
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Material.hlsli
+        - RAB_Material diffuseAlbedo, specularF0, roughness
+        - RAB_GetGBufferMaterial reads diffuse/specular/roughness G-buffer data
+        - RAB_AreMaterialsSimilar compares roughness, specular F0, albedo
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - BRDF/BSDF sample, pdf, and evaluation callbacks use the material
+        - reference sample implements Lambert + GGX + delta BSDF paths
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+        - replays BRDF/BSDF outputs for final diffuse/specular resolve
+
+input name: RAB_LightInfoRuntime - current emissive triangle records
+fields:
+    current emissive triangle light info, emissive count, radiance/area/pdf
+    metadata, source identity
+rbdoom supplier:
+    SmokeEmissiveTriangles t16
+    EmissiveInfo.x
+    neo\renderer\NVRHI\PathTraceEmissiveCandidates.h
+    neo\renderer\NVRHI\PathTraceSmokeResources.cpp
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_LoadLightInfo reads the application light buffer
+        - reference bridge uses PolymorphicLightInfo as RAB_LightInfo
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - replays light info through RAB_LoadLightInfo
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - records NEE/emissive samples through the reference app bridge
+
+input name: RAB_LightInfoRuntime - current Doom analytic light records
+fields:
+    current analytic sphere light payload, count, radius/falloff/radiance,
+    source identity
+rbdoom supplier:
+    DoomAnalyticLights t27
+    DoomAnalyticLightInfo
+    neo\renderer\NVRHI\PathTraceDoomLights.cpp
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - reference-shaped PolymorphicLightInfo light domain
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_SamplePolymorphicLight samples analytic/polymorphic lights
+
+input name: RAB_LightInfoRuntime - current/previous analytic identity and remap
+fields:
+    current analytic identities, previous analytic identities, current to
+    previous remap, previous analytic payload records
+rbdoom supplier:
+    DoomAnalyticCurrentIdentities t42
+    DoomAnalyticPreviousIdentities t43
+    DoomAnalyticRemap t44
+    DoomAnalyticPreviousLights t45
+    neo\renderer\NVRHI\PathTraceDoomLights.cpp
+        - CPU identity/remap builders
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - temporal inverse shift expects previous-frame light identity to map
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - RAB_LoadLightInfo(index, previousFrame) and light-index replay
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - reference bridge demonstrates a coherent application light buffer;
+          rbdoom supplies the explicit remap layer because its light universe
+          is not a stable FullSample light-buffer index
+
+input name: RAB_LightInfoRuntime - previous emissive triangle records and remap
+fields:
+    previous emissive records, current/previous emissive remap, previous
+    emissive count
+rbdoom supplier:
+    SmokePreviousEmissiveTriangles t57
+    SmokeEmissiveRemap t58
+    DoomAnalyticLightRemapInfo.w
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+    neo\renderer\NVRHI\PathTraceEmissiveCandidates.h
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - previous-frame light sample validation and inverse mapping
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - previous-frame light sample replay
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - application light buffer contract
+
+input name: RAB_LightSample / RAB_LightSampling - current emissive light sample
+fields:
+    loaded current emissive light info, receiver surface position/normal/view,
+    random/sample UV
+rbdoom supplier:
+    RAB_LoadLightInfo(index,false)
+    SmokeEmissiveTriangles t16
+    PrimarySurfaceHistoryCurrent u30
+    pathtrace_smoke.rt.hlsl receiver surface construction
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_SamplePolymorphicLight(lightInfo, surface, uv)
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - replays sampledLightData through RAB_SamplePolymorphicLight
+
+input name: RAB_LightSample / RAB_LightSampling - current Doom analytic sphere
+sample
+fields:
+    loaded current analytic light info, receiver surface position/normal/view,
+    random/sample UV
+rbdoom supplier:
+    RAB_LoadLightInfo(index,false)
+    DoomAnalyticLights t27
+    PrimarySurfaceHistoryCurrent u30
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_SamplePolymorphicLight for analytic/polymorphic light samples
+
+input name: RAB_LightTarget - surface target function inputs
+fields:
+    surface world position, surface normal, geometric normal, view direction,
+    diffuse material, incoming light/sample position, incoming radiance
+rbdoom supplier:
+    PrimarySurfaceHistoryCurrent u30
+    PrimarySurfaceHistoryPrevious u31
+    SmokeEmissiveTriangles t16
+    DoomAnalyticLights t27
+    RAB light sample replay from RAB_LightSamplingCore.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        - RAB_GetPTSampleTargetPdfForSurface
+        - RAB_GetLightSampleTargetPdfForSurface
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_GetReflectedBsdfRadianceForSurface
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - re-evaluates previous samples against current target function
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - re-evaluates neighbor samples against current target function
+
+input name: RAB_MISCallbacks - analytic NEE MIS input
+fields:
+    analytic light sample data, light direction, scatter pdf, solid-angle pdf
+rbdoom supplier:
+    DoomAnalyticLights t27
+    RAB_LightSample
+    PathTracer\RAB_PathTracer.hlsli NEE producer
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - RAB_GetMISWeightForNEE
+        - analytic light branch returns NEE weight 1.0
+
+input name: RAB_MISCallbacks - emissive NEE proposal pdf and trial count
+fields:
+    emissive proposal pdf, emissive trial count, scatter pdf, solid-angle pdf
+rbdoom supplier:
+    SmokeEmissiveTriangles.sampleWeightAndPdf.y
+    EmissiveInfo.z
+    PathTraceEmissiveCandidates
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - reference app bridge reads local light sampling mode, local light
+          pdf, and local/environment sample counts
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        - reference bridge supplies local/environment pdf helpers
+
+input name: RAB_MISCallbacks - ray payload identity for emissive hit matching
+fields:
+    instance id, geometry index, primitive id, material id, barycentrics
+rbdoom supplier:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_RayPayload.hlsli
+    PathTraceSmokePayload
+    SmokeScene TraceRay
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - GetMISWeightForEmissiveSurface calls getLightIndex on ray payload
+          identity
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - supplies the ray payload from path continuation tracing
+
+input name: RAB_Visibility - strict conservative visibility
+fields:
+    receiver surface, light sample or sample position, local acceleration
+    structure/scene, shadow-ray result
+rbdoom supplier:
+    SmokeScene t0
+    TraceSmokeShadowVisibility in
+        neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+    RAB_Surface receiver
+    RAB_LightSample or sample position
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+        - RAB_GetConservativeVisibility(surface, lightSample)
+        - RAB_GetConservativeVisibility(surface, samplePosition)
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - visibility gate for light-sample replay
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - visibility gate for previous sample reconnection
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - visibility gate for neighbor sample reconnection
+
+input name: RAB_RayPayload - continuation ray hit payload
+fields:
+    hit flag, hitT, instance id, geometry index, primitive id, barycentrics,
+    material id, material index, surface class, front-face state
+rbdoom supplier:
+    neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+    PathTracer\RAB_PathTracer.hlsli
+    SmokeScene TraceRay
+    PathTraceSmokePayload
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - LoadSurfaceFromRayPayload converts continuation hits into surfaces
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_RTShaders.hlsli
+        - reference app bridge ray payload and hit shading helpers
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - records continuation trace results and path intersections
+
+input name: RAB_RandomSamplerState - RTXDI random sampler seed/index
+fields:
+    random sampler seed, random index, direct-seed creation, next random value
+rbdoom supplier:
+    RTXDI_RandomSamplerState
+    RTXDI_PathTracerRandomContext
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\InitialSampling.hlsli
+        - creates path tracer random context for initial PT sampling
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - random replay and temporal resampling
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - random replay and spatial resampling
+    Rtxdi\Utils\RandomSamplerState.hlsli
+        - random sampler state contract
+
+input name: RAB_DuplicationMap - full-output bounds check
+fields:
+    full output size / dispatch bounds
+rbdoom supplier:
+    PathTraceFullOutputSize / dispatch constants
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - calls RAB_GetDuplicationMapCount(prevPos) when duplication-based
+          history reduction is enabled
+
+input name: PathTracer/RAB_PathTracerUserData - path trace invocation type
+fields:
+    RTXDI_PTPathTraceInvocationType path type
+rbdoom supplier:
+    RTXDI path tracer invocation
+    RAB_PathTracerUserDataSetPathType
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\InitialSampling.hlsli
+        - sets RTXDI_PTPathTraceInvocationType_Initial
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - sets temporal, temporal inverse, and debug temporal path types
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - sets spatial, spatial inverse, and debug spatial path types
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracerUserData.hlsli
+        - reference user-data carrier
+
+input name: PathTracer/RAB_PathTracerUserData - local diagnostic flags
+fields:
+    path-type flags, denoiser callback flags, environment miss marker
+rbdoom supplier:
+    RAB_PathTracerUserDataSetPathType
+    RAB_ReconnectionDenoiserCallback
+    RAB_LastBounceDenoiserCallback
+    RAB_NoteEnvironmentMapMissUnbridged
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+        - reference PSR payload utilities
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracerUserData.hlsli
+        - reference ptud includes PSRData rather than only flags
+
+input name: PathTracer/RAB_PathTracer - initial surface
+fields:
+    initial/current RAB_Surface selected by RTXDI PT context
+rbdoom supplier:
+    GenerateInitialSamples / RTXDI_PathTracerContext
+    PrimarySurfaceHistoryCurrent u30
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\InitialSampling.hlsli
+        - calls RAB_PathTrace with current surface
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - path tracer context surface accessors
+
+input name: PathTracer/RAB_PathTracer - BRDF continuation ray
+fields:
+    sampled outgoing direction, scatter pdf, diffuse-only local throughput
+rbdoom supplier:
+    RAB_Brdf.hlsli
+    RAB_Surface material fields
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - ImportanceSampleBrdf / ImportanceSampleBsdf path
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - reference BRDF/BSDF sampling and pdf
+
+input name: PathTracer/RAB_PathTracer - current emissive and Doom analytic NEE
+candidates
+fields:
+    candidate light info, sampled light data, NEE pdf/target data
+rbdoom supplier:
+    RAB_LightInfoRuntime.hlsli
+    RAB_LightSamplingCore.hlsli
+    RAB_MISCallbacks.hlsli
+    SmokeEmissiveTriangles t16
+    DoomAnalyticLights t27
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - CalculateNEE and RecordNeeLightSample flow
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - selected NEE sample recording contract
+
+input name: PathTracer/RAB_PathTracer - continuation TraceRay
+fields:
+    path continuation ray, hit payload, surface reconstruction from payload
+rbdoom supplier:
+    SmokeScene t0
+    PathTraceSmokePayload
+    PathTracer\RAB_PathTracer.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - continuation tracing and LoadSurfaceFromRayPayload
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - continuation ray/result context
+
+input name: PathTraceRtxdiBridge / PathTraceRtxdiBridgeCore - bridge umbrella
+and constants
+fields:
+    local RAB include set, shared constants, bridge types
+rbdoom supplier:
+    neo\shaders\builtin\pathtracing\pathtrace_smoke.rt.hlsl
+    neo\shaders\builtin\pathtracing\pathtrace_restir_combined_resolve.rt.hlsl
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RtxdiApplicationBridge.hlsli
+        - reference app bridge include umbrella
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge
+        - reference RAB callback implementation set
+
+input name: Non-RAB final shading boundary - finalShadingInputBufferIndex
+reservoir
+fields:
+    final input reservoir index, packed RTXDI_PTReservoir, TargetFunction *
+    WeightSum contribution
+rbdoom supplier:
+    RestirPTParams.bufferIndices.finalShadingInputBufferIndex
+    RTXDI reservoir buffer u29
+    pathtrace_restir_combined_resolve.rt.hlsl
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+        - loads finalShadingInputBufferIndex and stores diffuse/specular output
+    Libraries\Rtxdi\Include\Rtxdi\PT\Reservoir.hlsli
+        - RTXDI_PTReservoir load/store/target fields
+
+
+Connected But Wrong Data
+------------------------
+
+input name: RAB_SurfaceCore / RAB_Surface - previous-frame surface history under
+skinned or rigid motion
+problem:
+    input is wired, but previous-frame surface records can become invalid,
+    mismatched, or materially incompatible during motion.
+rbdoom supplier:
+    neo\renderer\NVRHI\PathTraceSmokeSceneBuild.cpp
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+    neo\shaders\builtin\pathtracing\pathtrace_primary_surface_producer.rt.hlsl
+    PathTraceMotionVectors u39
+    PathTraceMotionVectorMask u40
+    PathTraceRRGuideResetMask u52
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - expects previous pixel position and motionVector.z depth delta
+        - validates current/previous surface depth and normals
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - reference previous-frame G-buffer read path
+
+input name: RAB_Surface / RAB_Material - material/surface similarity inputs
+problem:
+    material id/index/class/roughness can reject otherwise valid moving
+    surfaces; this poisons temporal/spatial reuse before reservoir math.
+rbdoom supplier:
+    PrimarySurfaceHistoryCurrent u30
+    PrimarySurfaceHistoryPrevious u31
+    material tables from PathTraceSmokeResources / PathTraceSmokeSceneBuild
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Material.hlsli
+        - RAB_AreMaterialsSimilar roughness/specular/albedo comparison
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - temporal neighbor validation uses surface/material compatibility
+
+input name: RAB_Brdf - roughness and specular F0 reach the bridge but are not
+consumed by the local diffuse-only callbacks
+problem:
+    RAB has roughness/F0 inputs, but current rbdoom BRDF outputs behave like
+    diffuse-only Lambert callbacks.
+rbdoom supplier:
+    RAB_Surface material fields
+    material tables from PathTraceSmokeResources / PathTraceSmokeSceneBuild
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - reference FullSample uses diffuse + GGX + delta BSDF paths
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+        - expects split diffuse/specular final shading behavior
+
+input name: RAB_LightInfoRuntime - previous-frame emissive and analytic light
+suppliers
+problem:
+    previous light records/remaps are wired, but still insufficient for full
+    RTXDI PT temporal reuse. Known failures include missing previous target,
+    remap invalid, duplicate identity, unproven continuity, non-sampleable
+    identity, and motion-triggered transient load failures.
+rbdoom supplier:
+    SmokePreviousEmissiveTriangles t57
+    SmokeEmissiveRemap t58
+    DoomAnalyticPreviousLights t45
+    DoomAnalyticRemap t44
+    CPU light identity/remap builders
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - previous light-domain validation and inverse remap
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - previous-frame sampled-light replay
+
+input name: RAB_LightSample / RAB_LightSampling - receiver-dependent sample
+target inputs
+problem:
+    receiver surface normal/geometric normal/view relationships can drive zero
+    target pdf near edges or backfaces even when light records are loadable.
+rbdoom supplier:
+    RAB_Surface current surface record
+    PrimarySurfaceHistoryCurrent u30
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        - RAB_GetLightSampleTargetPdfForSurface
+        - RAB_GetPTSampleTargetPdfForSurface
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+        - target evaluation during light replay
+
+input name: RAB_LightSample / RAB_LightSampling - current light-domain load
+holes
+problem:
+    sample replay can be poisoned if RAB_LoadLightInfo returns invalid,
+    zero-radiance, or mismatched records.
+rbdoom supplier:
+    RAB_LightInfoRuntime.hlsli light load sources
+    SmokeEmissiveTriangles t16
+    DoomAnalyticLights t27
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_LoadLightInfo / RAB_SamplePolymorphicLight
+
+input name: RAB_LightTarget - unstable surface/material history
+problem:
+    target pdf and reflected radiance replay can be numerically connected but
+    invalid when current/previous surface history is unstable.
+rbdoom supplier:
+    PrimarySurfaceHistoryCurrent u30
+    PrimarySurfaceHistoryPrevious u31
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - replay stored reservoirs against current surface target function
+
+input name: RAB_MISCallbacks - emissive proposal/radiance quality
+problem:
+    emissive records can be structurally loadable but carry zero or poor
+    CPU-estimated radiance/proposal weight, poisoning MIS terms.
+rbdoom supplier:
+    PathTraceEmissiveCandidates
+    SmokeEmissiveTriangles
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - reference local-light pdf and sample-count MIS terms
+
+input name: RAB_Visibility - candidate/selected NEE producer visibility
+problem:
+    local policy can mark candidate/selected samples accepted when strict
+    conservative visibility rejects them.
+rbdoom supplier:
+    r_pathTracingRestirPTVisibilityPolicy
+    RAB_GetCandidateNeeVisibility
+    RAB_GetSelectedNeeVisibility
+    PathTracer\RAB_PathTracer.hlsli NEE producer
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+        - strict conservative ray visibility
+    Libraries\Rtxdi\Include\Rtxdi\PT\HybridShift.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\PT\SpatialResampling.hlsli
+        - visibility-gated sample replay
+
+input name: RAB_RayPayload - local rbdoom identity domains
+problem:
+    payload fields are present, but downstream surface/material loading still
+    routes through local instance/primitive/material domains instead of the
+    NVIDIA reference geometry systems.
+rbdoom supplier:
+    RAB_BuildSurfaceFromSmokePayload
+    pathtrace_smoke.rt.hlsl
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - reference LoadSurfaceFromRayPayload rebuilds surface/material data
+          from the sample scene geometry domain
+
+input name: PathTracer/RAB_PathTracer - initial NEE proposal stream
+problem:
+    initial NEE can reset to non-NEE due to upstream proposal/history
+    instability; one tested room can stop accumulating when an off-camera
+    animated object moves.
+rbdoom supplier:
+    NEE proposal stream
+    light suppliers
+    primary surface/history suppliers
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - CalculateNEE and RecordNeeLightSample
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - selected light data/scalar recording contract
+
+input name: PathTracer/RAB_PathTracer - candidate/selected visibility policy
+problem:
+    accepted samples can be strict-visibility rejected later.
+rbdoom supplier:
+    RAB_Visibility.hlsli
+    r_pathTracingRestirPTVisibilityPolicy
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+        - strict reference-shaped visibility test
+
+
+Compromised Inputs
+------------------
+
+input name: RAB_Brdf - diffuse-only local BRDF callbacks
+compromise:
+    local callbacks use a Lambert/diffuse-only model even when roughness and
+    specular F0 are available.
+rbdoom supplier:
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_Brdf.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - reference implementation includes diffuse, GGX, and delta BSDF
+          sampling/pdf/evaluation paths
+
+input name: RAB_LightInfoRuntime - conservative analytic identity invalidation
+compromise:
+    dynamic/projectile/unproven analytic identities are invalidated instead of
+    being mapped through a reference-equivalent stable light identity system.
+rbdoom supplier:
+    RAB_LightInfoRuntime.hlsli
+    PathTraceDoomLights / analytic remap builders
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - reference app bridge assumes coherent light-buffer indexing
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - expects valid previous/current light-domain mapping
+
+input name: RAB_LightTarget - volume target pdf
+compromise:
+    rbdoom returns local light weight rather than reference polymorphic
+    volume-weight/light-grid target pdf.
+rbdoom supplier:
+    RAB_LightTarget.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_GetLightTargetPdfForVolume delegates to PolymorphicLight volume
+          weighting in the reference bridge
+
+input name: RAB_MISCallbacks - emissive NEE MIS local adapter
+compromise:
+    rbdoom uses emissive proposal pdf and local trial count instead of NVIDIA
+    local-light PDF texture / sampling-mode inputs.
+rbdoom supplier:
+    RAB_MISCallbacks.hlsli
+    SmokeEmissiveTriangles.sampleWeightAndPdf.y
+    EmissiveInfo.z
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - reference MIS reads local light sampling mode, local light pdf, and
+          local/environment sample counts
+
+input name: RAB_MISCallbacks - emissive hit-to-light linear scan
+compromise:
+    BRDF-hit emissive surface MIS uses a local linear scan instead of a direct
+    geometry-instance-to-light lookup table.
+rbdoom supplier:
+    RAB_MISCallbacks.hlsli
+    SmokeEmissiveTriangles
+    PathTraceSmokePayload
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - GetMISWeightForEmissiveSurface calls getLightIndex from payload
+          geometry identity
+
+input name: RAB_Visibility - policy 0 geometry-only candidate/selected checks
+compromise:
+    policy 0 can accept samples without strict conservative visibility.
+rbdoom supplier:
+    RAB_Visibility.hlsli
+    PathTracer\RAB_PathTracer.hlsli
+    r_pathTracingRestirPTVisibilityPolicy
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+        - strict ray visibility is the reference-shaped conservative query
+
+input name: RAB_DuplicationMap - bounds-aware zero return
+compromise:
+    RAB_GetDuplicationMapCount returns 0 after bounds checking because no real
+    duplication map is bound.
+rbdoom supplier:
+    RAB_DuplicationMap.hlsli
+    PathTraceFullOutputSize / dispatch constants
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - calls RAB_GetDuplicationMapCount for duplication-based history
+          reduction
+    Samples\FullSample\Shaders\LightingPasses\PT\FillSampleID.hlsl
+        - fills sample IDs for duplication counting
+    Samples\FullSample\Shaders\LightingPasses\PT\ComputeDuplicationMap.hlsl
+        - builds PT duplication counts
+
+input name: PathTracer/RAB_PathTracerUserData - scalar denoiser diagnostics
+compromise:
+    scalar hit-distance diagnostics stand in for the NVIDIA PSR payload.
+rbdoom supplier:
+    PathTracer\RAB_PathTracerUserData.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+        - PSRData payload and update helpers
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_DenoiserCallbacks.hlsli
+        - reference reconnection/last-bounce denoiser callbacks
+
+input name: PathTracer/RAB_PathTracer - local RIS over emissive and analytic
+proposals
+compromise:
+    local RIS replaces the NVIDIA secondary DI reservoir path.
+rbdoom supplier:
+    PathTracer\RAB_PathTracer.hlsli
+    RAB_LightInfoRuntime.hlsli
+    RAB_LightSamplingCore.hlsli
+    RAB_MISCallbacks.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - reference NEE/light recording path
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - reference selected light and path-state recording contract
+
+input name: PathTracer/RAB_PathTracer - capped diffuse bridge
+compromise:
+    local bridge is a limited diffuse path tracer, not the full reference path
+    tracer with full BSDF/PSR/RR/SER behavior.
+rbdoom supplier:
+    PathTracer\RAB_PathTracer.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - reference app path tracer includes continuation, MIS, environment,
+          PSR, and Russian-roulette behavior
+
+input name: PathTracer/RAB_PathTracer - primary NEE skip for indirect debug mode
+compromise:
+    local debug policy skips primary NEE in one mode rather than following the
+    full reference path-depth policy.
+rbdoom supplier:
+    PathTracer\RAB_PathTracer.hlsli
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - reference path tracer owns path-depth and NEE policy
+
+input name: Non-RAB final shading boundary - mode 56 preview/RR sink
+compromise:
+    mode 56 combines direct/GI preview and RR HDR input instead of NVIDIA's
+    final-shading-only diffuse/specular output path.
+rbdoom supplier:
+    pathtrace_restir_combined_resolve.rt.hlsl
+    PathTraceRRInputColor HDR preview sink
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+        - final diffuse/specular StoreShadingOutput path
+    Samples\FullSample\Shaders\LightingPasses\ShadingHelpers.hlsli
+        - StoreShadingOutput helpers
+
+
+Missing Inputs
+--------------
+
+input name: RAB_Brdf - brdf_diffuse_probability
+missing input:
+    diffuse/specular mixture probability used by the reference surface BSDF
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - getSurfaceDiffuseProbability
+        - RAB_Surface.diffuseProbability
+
+input name: RAB_Brdf - brdf_ggx_importance_sampling
+missing input:
+    GGX VNDF sample path driven by roughness, view direction, specular F0
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_SurfaceImportanceSampleBrdf
+        - RAB_SurfaceImportanceSampleBsdf
+        - ImportanceSampleGGX_VNDF usage
+
+input name: RAB_Brdf - brdf_mixed_diffuse_specular_pdf
+missing input:
+    mixed diffuse/specular pdf used for BRDF/BSDF replay
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_SurfaceEvaluateBrdfPdf
+        - RAB_SurfaceEvaluateBsdfPdf
+
+input name: RAB_Brdf - brdf_ggx_specular_evaluation
+missing input:
+    GGX specular BRDF contribution
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_SurfaceEvaluateBrdfTimesNoL
+        - RAB_SurfaceEvaluateBsdfTimesNoL
+
+input name: RAB_Brdf - bsdf_delta_reflection_properties
+missing input:
+    delta/mirror reflection classification and throughput
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_SurfaceEvaluateDeltaReflectionThroughput
+        - BSDF delta branch in RAB_SurfaceImportanceSampleBsdf
+
+input name: RAB_Brdf - bsdf_delta_pdf_properties
+missing input:
+    delta BSDF pdf behavior for replay
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_SurfaceEvaluateBsdfPdf
+
+input name: RAB_Brdf - bsdf_delta_reflection_evaluation
+missing input:
+    delta/mirror reflection BSDF evaluation
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_Surface.hlsli
+        - RAB_SurfaceEvaluateBsdfTimesNoL
+        - RAB_SurfaceEvaluateDeltaReflectionThroughput
+
+input name: RAB_LightInfoRuntime - environment light records in RAB light domain
+missing input:
+    environment light records included in RAB_GetCurrentLightCount and
+    RAB_LoadLightInfo
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    environment/sky light-domain builder
+    RAB_GetCurrentLightCount supplier
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_LoadLightInfo over polymorphic light buffer
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        - environment map random and pdf helpers
+    Samples\FullSample\Shaders\LightingPasses\Presampling\PresampleEnvironmentMap.hlsl
+        - environment presampling path
+
+input name: RAB_LightSample / RAB_LightSampling - environment light sampling
+records
+missing input:
+    environment light-domain records, pdf, radiance source, sample replay data
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    environment light-domain records
+    environment sampling pdf/radiance source
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        - RAB_GetEnvironmentMapRandXYFromDir
+        - RAB_EvaluateEnvironmentMapSamplingPdf
+    Samples\FullSample\Shaders\LightingPasses\Presampling\PresampleEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\RenderEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\PreprocessEnvironmentMap.hlsl
+
+input name: RAB_LightTarget - polymorphic_light_volume_weight_function
+missing input:
+    reference volume target weight for arbitrary lights
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    volume/light grid supplier
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - RAB_GetLightTargetPdfForVolume
+        - PolymorphicLight::getWeightForVolume
+
+input name: RAB_LightTarget - world_space_light_grid_volume_domain
+missing input:
+    volume/light grid domain used by reference light target pdf
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    volume/light grid supplier
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - reference bridge volume target callback
+
+input name: RAB_LightTarget - volume_media_light_target_parameters
+missing input:
+    media/volume target parameters
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    volume/light grid supplier
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - reference bridge volume target callback
+
+input name: RAB_MISCallbacks - local_light_pdf_texture
+missing input:
+    reference local light PDF lookup
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - RAB_EvaluateLocalLightSourcePdf path
+
+input name: RAB_MISCallbacks - local_light_sampling_mode
+missing input:
+    reference local light sampling mode controlling uniform vs pdf lookup
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - sampleParams.localLightSamplingMode
+
+input name: RAB_MISCallbacks - nee_light_selection_pdf_in_callback
+missing input:
+    exact reference light-source pdf for selected NEE samples
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - RAB_GetMISWeightForNEE lightSourcePdf term
+
+input name: RAB_MISCallbacks - exact_reference_num_local_light_samples
+missing input:
+    reference local/environment sample counts used in NEE MIS
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - sampleParams.numLocalLightSamples
+        - sampleParams.numEnvironmentSamples
+
+input name: RAB_MISCallbacks - emissive_surface_hit_to_light_index_map
+missing input:
+    direct map from hit emissive surface to RAB light index
+rbdoom supplier:
+    none; current path uses a local linear scan
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - getLightIndex(rayPayload.instanceID, geometryIndex, primitiveIndex)
+
+input name: RAB_MISCallbacks - geometry_instance_to_light_buffer
+missing input:
+    geometry-to-light index buffer for emissive hit matching
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - getLightIndex dependency
+
+input name: RAB_MISCallbacks - emissive_triangle_barycentric_replay_vertices
+missing input:
+    reference barycentric replay for emissive triangle hits
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - RAB_SamplePolymorphicLight(lightInfo, prevSurface, rayPayload.barycentrics)
+
+input name: RAB_MISCallbacks - emissive_radiance_estimate_for_rab_light_records
+missing input:
+    robust radiance estimate for RAB emissive light records
+rbdoom supplier:
+    none complete; current structural fallback is diagnostic
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+        - PolymorphicLightInfo radiance fields
+
+input name: RAB_MISCallbacks - environment_sampling_pdf_source
+missing input:
+    environment sampling pdf for MIS
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightSampling.hlsli
+        - RAB_EvaluateEnvironmentMapSamplingPdf
+    Samples\FullSample\Shaders\LightingPasses\Presampling\PresampleEnvironmentMap.hlsl
+
+input name: RAB_MISCallbacks - environment_light_domain_records
+missing input:
+    environment light records in the RAB polymorphic light domain
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_LightInfo.hlsli
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_MISCallbacks.hlsli
+        - environment branch loads environment light index
+
+input name: RAB_MISCallbacks - environment_miss_sample_records_for_restir
+missing input:
+    path tracer miss samples recorded as ReSTIR PT environment light samples
+rbdoom supplier:
+    none; current path only marks an unbridged environment miss flag
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - RecordEnvironmentMapLightSample
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - ShouldRecordEnvironmentMapLightSample and miss recording path
+
+input name: RAB_MISCallbacks - environment_map_radiance_source
+missing input:
+    environment map radiance used by continuation ray misses and MIS
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\RenderEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\PreprocessEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: RAB_MISCallbacks - environment_map_recording_policy
+missing input:
+    policy deciding when environment map misses are recorded into PT reservoirs
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - ShouldRecordEnvironmentMapLightSample
+
+input name: RAB_Visibility - reference-valid visibility supplier for policy 0
+output
+missing input:
+    policy-0 producer output that is already strict-reference valid
+rbdoom supplier:
+    none; current policy 0 is geometry-only
+expected rbdoom supplier area:
+    NEE proposal/selected-sample producer visibility policy
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+        - strict conservative ray query path
+
+input name: RAB_DuplicationMap - reference sample-ID texture
+missing input:
+    previous/current sample-ID texture used to count duplicated previous pixels
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    temporal prepass/sample-ID producer
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\FillSampleID.hlsl
+        - fills sample IDs for duplication map construction
+
+input name: RAB_DuplicationMap - duplication-map UAV/pass
+missing input:
+    pass and UAV that build duplication counts
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    temporal prepass/sample-ID producer
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\ComputeDuplicationMap.hlsl
+        - writes PT duplication map counts
+
+input name: RAB_DuplicationMap - previous-pixel duplicate count buffer
+missing input:
+    count buffer read by RAB_GetDuplicationMapCount(prevPos)
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    temporal prepass/sample-ID producer
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\ComputeDuplicationMap.hlsl
+    Libraries\Rtxdi\Include\Rtxdi\PT\TemporalResampling.hlsli
+        - uses dup count when duplication-based history reduction is enabled
+
+input name: PathTracer/RAB_PathTracerUserData - PSRData psr
+missing input:
+    full PSR payload carried through path tracing and final shading
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+        - PSRData struct and PSR update helpers
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracerUserData.hlsli
+        - reference ptud contains PSRData
+
+input name: PathTracer/RAB_PathTracerUserData - psr_active_state
+missing input:
+    active PSR state for reconnection/final shading
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+
+input name: PathTracer/RAB_PathTracerUserData - psr_recorded_state
+missing input:
+    recorded PSR state for history/output
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+
+input name: PathTracer/RAB_PathTracerUserData - psr_packed_light_direction
+missing input:
+    packed light direction for PSR/denoiser path
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+
+input name: PathTracer/RAB_PathTracerUserData - psr_hit_distance
+missing input:
+    PSR hit-distance field, not just scalar diagnostics
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_DenoiserCallbacks.hlsli
+
+input name: PathTracer/RAB_PathTracerUserData - psr_mirror_matrix
+missing input:
+    mirror/reconnection matrix for PSR
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+
+input name: PathTracer/RAB_PathTracerUserData - prior_path_last_nee_light_position_sink
+missing input:
+    sink for prior path last NEE light position
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_DenoiserCallbacks.hlsli
+
+input name: PathTracer/RAB_PathTracerUserData - psr_get_empty_data_initializer
+missing input:
+    reference empty PSR initializer
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+        - GetEmptyPSRData
+
+input name: PathTracer/RAB_PathTracerUserData - psr_path_type_enable_policy
+missing input:
+    policy that gates PSR behavior by RTXDI path-trace invocation type
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+        - FinalizePSRForHybridShift and UpdatePSRBuffers
+
+input name: PathTracer/RAB_PathTracer - reference_di_reservoir_for_secondary_nee
+missing input:
+    reference secondary DI reservoir path used instead of local RIS
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+
+input name: PathTracer/RAB_PathTracer - secondary_di_spatial_resampling_input
+missing input:
+    spatially resampled secondary DI input for the reference PT path
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+
+input name: PathTracer/RAB_PathTracer - exact_nee_reservoir_weight_sum
+missing input:
+    exact reference NEE reservoir WeightSum semantics for secondary NEE
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - RecordNeeLightSample scalar contract
+    Libraries\Rtxdi\Include\Rtxdi\PT\Reservoir.hlsli
+
+input name: PathTracer/RAB_PathTracer - strict_reference_visibility_supplier_for_policy_0
+missing input:
+    strict visibility result at the producer stage
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\RAB_VisibilityTest.hlsli
+
+input name: PathTracer/RAB_PathTracer - psr_path_state
+missing input:
+    PSR state carried through path traversal
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: PathTracer/RAB_PathTracer - russian_roulette_pdf_tracking
+missing input:
+    recording of Russian roulette probability into the PT path state
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - ShouldRunRussianRoulette
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - path state probability recording
+
+input name: PathTracer/RAB_PathTracer - continuation_probability_supplier
+missing input:
+    continuation probability source for RR and path throughput decisions
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: PathTracer/RAB_PathTracer - throughput_minimum_threshold
+missing input:
+    threshold used for path termination/continuation policy
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: PathTracer/RAB_PathTracer - extra_mirror_bounce_budget
+missing input:
+    reference mirror/delta bounce policy budget
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+
+input name: PathTracer/RAB_PathTracer - shader_execution_reordering_policy
+missing input:
+    SER policy used by the reference path tracer
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: PathTracer/RAB_PathTracer - full_reference_path_depth_policy
+missing input:
+    full production path-depth policy rather than local capped diffuse bridge
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: PathTracer/RAB_PathTracer - environment_map_radiance_source
+missing input:
+    environment radiance used by continuation misses
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\RenderEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\PreprocessEnvironmentMap.hlsl
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+
+input name: PathTracer/RAB_PathTracer - environment_map_recording_policy
+missing input:
+    policy and records for writing environment-map light samples into PT
+    reservoirs
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Libraries\Rtxdi\Include\Rtxdi\PT\PathTracerContext.hlsli
+        - RecordEnvironmentMapLightSample
+    Samples\FullSample\Shaders\LightingPasses\RtxdiApplicationBridge\PathTracer\RAB_PathTracer.hlsli
+        - ShouldRecordEnvironmentMapLightSample
+
+input name: Non-RAB final shading boundary - PSR final-shading buffers
+missing input:
+    final shading PSR buffers consumed/updated around the reference resolve
+rbdoom supplier:
+    none
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\PSRUtils.hlsli
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+
+input name: Non-RAB final shading boundary - diffuse/specular StoreShadingOutput
+sink
+missing input:
+    split final diffuse/specular output sink
+rbdoom supplier:
+    none; current mode 56 writes local preview/RR input instead
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+        - StoreShadingOutput call
+    Samples\FullSample\Shaders\LightingPasses\ShadingHelpers.hlsli
+        - StoreShadingOutput implementation
+
+input name: Non-RAB final shading boundary - reference final shading
+demodulation output path
+missing input:
+    final ReSTIR PT demodulated output path matching NVIDIA FullSample resolve
+rbdoom supplier:
+    none
+expected rbdoom supplier area:
+    final ReSTIR PT shading/denoiser output pass
+RTXDI supplier:
+    Samples\FullSample\Shaders\LightingPasses\PT\FinalShading.hlsl
+    Samples\FullSample\Shaders\LightingPasses\ShadingHelpers.hlsli
+

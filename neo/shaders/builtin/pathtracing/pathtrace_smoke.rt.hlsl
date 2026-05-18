@@ -336,6 +336,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 DispatchTileInfo;
     float4 NeeInfo;
     float4 MotionVectorInfo;
+    float4 RestirPTSurfaceInfo;
     float4 RestirPTDirectInfo;
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;
@@ -1285,32 +1286,6 @@ RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel);
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel);
 float RestirPTTraceReservoirVisibility(RAB_Surface surface, RTXDI_PTReservoir reservoir);
 
-bool RestirPTReservoirConnectsToNeeLight(RTXDI_PTReservoir reservoir)
-{
-    return RTXDI_IsValidPTReservoir(reservoir) && RTXDI_ConnectsToNeeLight(reservoir);
-}
-
-bool RestirPTShouldRejectPreviousNeeReservoir(RTXDI_PTReservoir reservoir)
-{
-    return MotionVectorInfo.y < 0.5 && RestirPTReservoirConnectsToNeeLight(reservoir);
-}
-
-bool RestirPTPreviousNeeReservoirFailsLightRemap(RTXDI_PTReservoir reservoir)
-{
-    if (!RestirPTReservoirConnectsToNeeLight(reservoir))
-    {
-        return false;
-    }
-
-    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
-    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
-    {
-        return true;
-    }
-
-    return RAB_TranslateLightIndex(RTXDI_SampledLightData_GetLightIndex(sampledLightData), false) < 0;
-}
-
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, uint2 pixel, out float4 rejectionColor, out bool selectedPrevSample)
 {
@@ -1414,13 +1389,6 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
         RestirPTParams.bufferIndices,
         selectedPrevSample,
         ptud);
-    if (selectedPrevSample &&
-        (RestirPTShouldRejectPreviousNeeReservoir(temporalReservoir) ||
-            RestirPTPreviousNeeReservoirFailsLightRemap(temporalReservoir)))
-    {
-        temporalReservoir = currentReservoir;
-        selectedPrevSample = false;
-    }
 
     StoreRestirPTTemporalOutputReservoir(pixel, temporalReservoir);
 
