@@ -1434,7 +1434,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         if (useDrawSurfMirrorDynamicFrame)
         {
             usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
-            if (r_pathTracingStaticAreaPreload.GetInteger() != 0)
+            const bool staticAreaPreloadEnabled =
+                r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
+                r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
+            if (staticAreaPreloadEnabled)
             {
                 const int staticRecordsBefore = static_cast<int>(m_smokeGeometryUniverse.StaticSurfaceRecords().size());
                 const int staticVertsBefore = static_cast<int>(m_smokeGeometryUniverse.StaticVertices().size());
@@ -2959,6 +2962,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.portalPolicy.rigidSelectedAreaCount = rigidResidencyStats.selectedAreas;
     sceneInputs.portalPolicy.rigidPortalEdges = rigidResidencyStats.portalEdges;
     sceneInputs.portalPolicy.rigidBlockedPortalEdges = rigidResidencyStats.blockedPortalEdges;
+    sceneInputs.portalPolicy.bruteForceFullMap = r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
     sceneInputs.portalPolicy.defaultPolicyEquivalent =
         sceneInputs.portalPolicy.staticAreaPreloadSteps == sceneInputs.portalPolicy.rigidResidencySteps &&
         sceneInputs.portalPolicy.rigidResidencySteps == sceneInputs.portalPolicy.lightAreaSteps;

@@ -56,6 +56,7 @@ extern idCVar r_pathTracingSceneBoundsDepthTest;
 extern idCVar r_pathTracingSceneBoundsOverlayGpu;
 extern idCVar r_pathTracingSceneUniverseDump;
 extern idCVar r_pathTracingScenePortalSteps;
+extern idCVar r_pathTracingPortalBruteforceFullMap;
 extern idCVar r_pathTracingSceneUniverseVerbose;
 extern idCVar r_pathTracingWorldStaticEmissives;
 extern idCVar r_pathTracingWorldStaticEmissiveMaxTriangles;

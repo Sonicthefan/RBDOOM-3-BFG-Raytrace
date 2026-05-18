@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceLightUniverse.h"
+#include "PathTraceCVars.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderCommon.h"
@@ -203,6 +204,12 @@ std::vector<bool> BuildLightUniverseSelectedAreas(const viewDef_t* viewDef, int 
 
     portalSteps = idMath::ClampInt(0, 8, portalSteps);
     selectedAreas.assign(areaCount, false);
+    if (r_pathTracingPortalBruteforceFullMap.GetInteger() != 0)
+    {
+        std::fill(selectedAreas.begin(), selectedAreas.end(), true);
+        return selectedAreas;
+    }
+
     std::vector<int> selectedDepth(areaCount, -1);
     std::vector<int> queue;
     queue.reserve(areaCount);

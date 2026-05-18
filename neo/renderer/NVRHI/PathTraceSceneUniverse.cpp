@@ -897,6 +897,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         return buildStats;
     }
 
+    const bool bruteForceFullMap = r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
     const RtPathTraceSceneUniverseSelectionStats selection = BuildSelectionStats(viewDef, &geometryUniverse, idMath::ClampInt(0, 8, portalSteps));
     if (!selection.valid)
     {
@@ -904,13 +905,16 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     }
 
     std::vector<bool> selectedAreas;
-    selectedAreas.assign(renderWorld->NumAreas(), false);
-    for (int areaListIndex = 0; areaListIndex < selection.selectedAreaListCount; ++areaListIndex)
+    selectedAreas.assign(renderWorld->NumAreas(), bruteForceFullMap);
+    if (!bruteForceFullMap)
     {
-        const int area = selection.selectedAreaList[areaListIndex];
-        if (area >= 0 && area < static_cast<int>(selectedAreas.size()))
+        for (int areaListIndex = 0; areaListIndex < selection.selectedAreaListCount; ++areaListIndex)
         {
-            selectedAreas[area] = true;
+            const int area = selection.selectedAreaList[areaListIndex];
+            if (area >= 0 && area < static_cast<int>(selectedAreas.size()))
+            {
+                selectedAreas[area] = true;
+            }
         }
     }
 
@@ -1149,11 +1153,12 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     addSeedArea(renderWorld->PointInArea(viewOrigin + viewDef->renderView.viewaxis[2] * probeDistance));
     addSeedArea(renderWorld->PointInArea(viewOrigin - viewDef->renderView.viewaxis[2] * probeDistance));
 
-    if (seedAreas.empty())
+    const bool bruteForceFullMap = r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
+    if (seedAreas.empty() && !bruteForceFullMap)
     {
         return selection;
     }
-    selection.currentArea = seedAreas[0];
+    selection.currentArea = !seedAreas.empty() ? seedAreas[0] : -1;
 
     selection.valid = true;
     std::vector<bool> selectedAreas(areaCount, false);
@@ -1162,53 +1167,65 @@ RtPathTraceSceneUniverseSelectionStats RtPathTraceSceneUniverse::BuildSelectionS
     std::vector<int> selectedBlockedPortalEdges(areaCount, 0);
     std::vector<int> queue;
     queue.reserve(areaCount);
-    for (int seedArea : seedAreas)
+    if (bruteForceFullMap)
     {
-        selectedAreas[seedArea] = true;
-        selectedDepth[seedArea] = 0;
-        queue.push_back(seedArea);
-    }
-
-    for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
-    {
-        const int area = queue[queueIndex];
-        const int depth = selectedDepth[area];
-        if (depth >= portalSteps)
+        std::fill(selectedAreas.begin(), selectedAreas.end(), true);
+        std::fill(selectedDepth.begin(), selectedDepth.end(), 0);
+        for (int areaIndex = 0; areaIndex < areaCount; ++areaIndex)
         {
-            continue;
+            queue.push_back(areaIndex);
+        }
+    }
+    else
+    {
+        for (int seedArea : seedAreas)
+        {
+            selectedAreas[seedArea] = true;
+            selectedDepth[seedArea] = 0;
+            queue.push_back(seedArea);
         }
 
-        const int portalCount = renderWorld->NumPortalsInArea(area);
-        for (int portalIndex = 0; portalIndex < portalCount; ++portalIndex)
+        for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
         {
-            const exitPortal_t portal = renderWorld->GetPortal(area, portalIndex);
-            if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
-            {
-                ++selection.blockedPortalEdges;
-                ++selectedBlockedPortalEdges[area];
-            }
-
-            int nextArea = -1;
-            if (portal.areas[0] == area)
-            {
-                nextArea = portal.areas[1];
-            }
-            else if (portal.areas[1] == area)
-            {
-                nextArea = portal.areas[0];
-            }
-            if (nextArea < 0 || nextArea >= areaCount)
+            const int area = queue[queueIndex];
+            const int depth = selectedDepth[area];
+            if (depth >= portalSteps)
             {
                 continue;
             }
 
-            ++selection.portalEdgesWalked;
-            ++selectedPortalEdges[area];
-            if (!selectedAreas[nextArea])
+            const int portalCount = renderWorld->NumPortalsInArea(area);
+            for (int portalIndex = 0; portalIndex < portalCount; ++portalIndex)
             {
-                selectedAreas[nextArea] = true;
-                selectedDepth[nextArea] = depth + 1;
-                queue.push_back(nextArea);
+                const exitPortal_t portal = renderWorld->GetPortal(area, portalIndex);
+                if ((portal.blockingBits & PS_BLOCK_VIEW) != 0)
+                {
+                    ++selection.blockedPortalEdges;
+                    ++selectedBlockedPortalEdges[area];
+                }
+
+                int nextArea = -1;
+                if (portal.areas[0] == area)
+                {
+                    nextArea = portal.areas[1];
+                }
+                else if (portal.areas[1] == area)
+                {
+                    nextArea = portal.areas[0];
+                }
+                if (nextArea < 0 || nextArea >= areaCount)
+                {
+                    continue;
+                }
+
+                ++selection.portalEdgesWalked;
+                ++selectedPortalEdges[area];
+                if (!selectedAreas[nextArea])
+                {
+                    selectedAreas[nextArea] = true;
+                    selectedDepth[nextArea] = depth + 1;
+                    queue.push_back(nextArea);
+                }
             }
         }
     }

@@ -297,6 +297,12 @@ idCVar r_pathTracingScenePortalSteps(
     CVAR_RENDERER | CVAR_INTEGER,
     "Portal traversal depth for diagnostics-only PT scene-universe selected-area counts" );
 
+idCVar r_pathTracingPortalBruteforceFullMap(
+    "r_pathTracingPortalBruteforceFullMap",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic override: 1 treats every render-world area as selected for PT scene, rigid-residency, emissive-light, and analytic-light portal selectors; very slow" );
+
 idCVar r_pathTracingSceneUniverseVerbose(
     "r_pathTracingSceneUniverseVerbose",
     "0",

@@ -479,6 +479,13 @@ DoomLightPortalSelection BuildDoomLightPortalSelection(const viewDef_t* viewDef,
     const int areaCount = renderWorld->NumAreas();
 
     selection.depthByArea.assign(areaCount, -1);
+    if (r_pathTracingPortalBruteforceFullMap.GetInteger() != 0)
+    {
+        std::fill(selection.depthByArea.begin(), selection.depthByArea.end(), 0);
+        selection.selectedAreaCount = areaCount;
+        return selection;
+    }
+
     std::vector<int> queue;
     queue.reserve(areaCount);
     for (int seedArea : seedAreas)

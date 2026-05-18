@@ -68,6 +68,7 @@ struct RtPathTraceSceneInputPortalPolicy
     int rigidSelectedAreaCount = 0;
     int rigidPortalEdges = 0;
     int rigidBlockedPortalEdges = 0;
+    bool bruteForceFullMap = false;
     bool defaultPolicyEquivalent = false;
 };
 

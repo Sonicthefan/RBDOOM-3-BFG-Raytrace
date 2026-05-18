@@ -199,7 +199,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         lights.unifiedLightRemapCount,
         static_cast<unsigned long long>(lights.lightUniverseGeneration),
         lights.capabilityFlags);
-    common->Printf("PathTracePrimaryPass: PT scene inputs portal view/current/total=%d/%d/%d steps static/rigid/light/scene=%d/%d/%d/%d light selected/edges/blocked=%d/%d/%d rigid selected/edges/blocked=%d/%d/%d defaultEquivalent=%d uploads geometry/static/prevStatic/dynamic/rigidRoute/material/light=%llu/%llu/%llu/%llu/%llu/%llu/%llu timings scene/capture/material/emissive/bufferCreate/upload/accel=%d/%d/%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs portal view/current/total=%d/%d/%d steps static/rigid/light/scene=%d/%d/%d/%d light selected/edges/blocked=%d/%d/%d rigid selected/edges/blocked=%d/%d/%d fullMap=%d defaultEquivalent=%d uploads geometry/static/prevStatic/dynamic/rigidRoute/material/light=%llu/%llu/%llu/%llu/%llu/%llu/%llu timings scene/capture/material/emissive/bufferCreate/upload/accel=%d/%d/%d/%d/%d/%d/%d\n",
         portal.viewArea,
         portal.currentArea,
         portal.totalAreas,
@@ -213,6 +213,7 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         portal.rigidSelectedAreaCount,
         portal.rigidPortalEdges,
         portal.rigidBlockedPortalEdges,
+        portal.bruteForceFullMap ? 1 : 0,
         portal.defaultPolicyEquivalent ? 1 : 0,
         static_cast<unsigned long long>(diagnostics.geometryUploadBytes),
         static_cast<unsigned long long>(diagnostics.staticUploadBytes),
@@ -256,6 +257,7 @@ static uint64_t BuildPathTraceSceneTransitionSignature(const RtPathTraceSceneInp
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.currentArea));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.selectedAreaCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidSelectedAreaCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.bruteForceFullMap ? 1 : 0));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.staticAreaPreloadSteps));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidResidencySteps));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.lightAreaSteps));
@@ -281,6 +283,7 @@ static uint64_t BuildPathTracePortalTransitionSignature(const RtPathTraceSceneIn
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.currentArea));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.selectedAreaCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidSelectedAreaCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.bruteForceFullMap ? 1 : 0));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.staticAreaPreloadSteps));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.rigidResidencySteps));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(portal.lightAreaSteps));
@@ -323,7 +326,7 @@ static void PrintPathTracePortalTransitionDump(
     const RtPathTraceSceneInputLights& oldLights = previous.lights;
     const RtPathTraceSceneInputLights& newLights = current.lights;
 
-    common->Printf("PathTracePrimaryPass: PT portal transition waitIdle=%d oldSig=%llu newSig=%llu sceneSource %d->%d viewArea %d->%d currentArea %d->%d selectedAreas light %d->%d rigid %d->%d steps static %d->%d rigid %d->%d light %d->%d\n",
+    common->Printf("PathTracePrimaryPass: PT portal transition waitIdle=%d oldSig=%llu newSig=%llu sceneSource %d->%d viewArea %d->%d currentArea %d->%d selectedAreas light %d->%d rigid %d->%d fullMap %d->%d steps static %d->%d rigid %d->%d light %d->%d\n",
         waitedForIdle ? 1 : 0,
         static_cast<unsigned long long>(BuildPathTraceSceneTransitionSignature(previous)),
         static_cast<unsigned long long>(BuildPathTraceSceneTransitionSignature(current)),
@@ -337,6 +340,8 @@ static void PrintPathTracePortalTransitionDump(
         newPortal.selectedAreaCount,
         oldPortal.rigidSelectedAreaCount,
         newPortal.rigidSelectedAreaCount,
+        oldPortal.bruteForceFullMap ? 1 : 0,
+        newPortal.bruteForceFullMap ? 1 : 0,
         oldPortal.staticAreaPreloadSteps,
         newPortal.staticAreaPreloadSteps,
         oldPortal.rigidResidencySteps,
