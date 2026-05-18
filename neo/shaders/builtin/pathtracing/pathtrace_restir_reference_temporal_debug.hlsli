@@ -493,4 +493,130 @@ float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 
     return RestirPTReferenceTemporalNeighborColor(7u, history);
 }
 
+bool RestirPTReferenceReservoirHasBadNumericState(RTXDI_PTReservoir reservoir)
+{
+    return reservoir.WeightSum != reservoir.WeightSum ||
+        abs(reservoir.WeightSum) > 65504.0 ||
+        !all(reservoir.TargetFunction == reservoir.TargetFunction) ||
+        any(abs(reservoir.TargetFunction) > 65504.0);
+}
+
+bool RestirPTReferenceReservoirHasUsefulTarget(RTXDI_PTReservoir reservoir)
+{
+    return RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0))) > 0.0;
+}
+
+float4 RestirPTReferenceInitialTemporalReservoirClassColor(RTXDI_PTReservoir reservoir)
+{
+    if (!RTXDI_IsValidPTReservoir(reservoir))
+    {
+        return float4(0.55, 0.04, 0.03, 1.0);
+    }
+    if (RestirPTReferenceReservoirHasBadNumericState(reservoir))
+    {
+        return float4(1.0, 0.0, 1.0, 1.0);
+    }
+    if (reservoir.WeightSum <= 0.0)
+    {
+        return float4(0.95, 0.82, 0.05, 1.0);
+    }
+    if (!RestirPTReferenceReservoirHasUsefulTarget(reservoir))
+    {
+        return float4(0.05, 0.18, 0.75, 1.0);
+    }
+    return RTXDI_ConnectsToNeeLight(reservoir)
+        ? float4(0.04, 0.82, 0.22, 1.0)
+        : float4(0.05, 0.78, 0.88, 1.0);
+}
+
+float4 RestirPTReferenceInitialTemporalHistoryColor(
+    RTXDI_PTReservoir initialReservoir,
+    RTXDI_PTReservoir temporalReservoir,
+    bool showTemporal)
+{
+    if (!RTXDI_IsValidPTReservoir(initialReservoir))
+    {
+        return float4(0.35, 0.02, 0.02, 1.0);
+    }
+
+    const float initialM = (float)initialReservoir.M;
+    if (!showTemporal)
+    {
+        const float initialHeat = saturate(initialM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+        return float4(0.04, 0.24 + initialHeat * 0.35, 0.58 + initialHeat * 0.30, 1.0);
+    }
+
+    if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+    {
+        return float4(0.55, 0.04, 0.03, 1.0);
+    }
+
+    const float temporalM = (float)temporalReservoir.M;
+    const float history = saturate(temporalM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    if (temporalM > initialM + 0.5)
+    {
+        return float4(0.04, 0.42 + history * 0.50, 0.12 + history * 0.55, 1.0);
+    }
+    return float4(0.95, 0.42, 0.04, 1.0);
+}
+
+float4 EvaluateRestirPTReferenceInitialTemporalContributionSplitView(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    const RTXDI_PTReservoir initialReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+    const RTXDI_PTReservoir temporalReservoir = LoadRestirPTTemporalOutputReservoir(reservoirPixel);
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const bool showTemporal = pixel.x >= dimensions.x / 2u;
+
+    if (showTemporal)
+    {
+        if (!RTXDI_IsValidPTReservoir(temporalReservoir))
+        {
+            return float4(0.35, 0.0, 0.0, 1.0);
+        }
+        if (!RestirPTReferenceFinalShadingHasUsefulSample(temporalReservoir))
+        {
+            return float4(0.02, 0.12, 0.35, 1.0);
+        }
+        return float4(RestirPTToneMapPreview(RestirPTReferenceFinalShadingContribution(temporalReservoir)), 1.0);
+    }
+
+    if (!RTXDI_IsValidPTReservoir(initialReservoir))
+    {
+        return float4(0.18, 0.0, 0.0, 1.0);
+    }
+    if (!RestirPTReferenceFinalShadingHasUsefulSample(initialReservoir))
+    {
+        return float4(0.02, 0.06, 0.22, 1.0);
+    }
+    return float4(RestirPTToneMapPreview(RestirPTReferenceFinalShadingContribution(initialReservoir)), 1.0);
+}
+
+float4 EvaluateRestirPTReferenceInitialTemporalStateSplitView(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    const RTXDI_PTReservoir initialReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+    const RTXDI_PTReservoir temporalReservoir = LoadRestirPTTemporalOutputReservoir(reservoirPixel);
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const bool showTemporal = pixel.x >= dimensions.x / 2u;
+    const bool showHistory = pixel.y >= dimensions.y / 2u;
+    if (showHistory)
+    {
+        return RestirPTReferenceInitialTemporalHistoryColor(initialReservoir, temporalReservoir, showTemporal);
+    }
+    return showTemporal
+        ? RestirPTReferenceInitialTemporalReservoirClassColor(temporalReservoir)
+        : RestirPTReferenceInitialTemporalReservoirClassColor(initialReservoir);
+}
+
 #endif

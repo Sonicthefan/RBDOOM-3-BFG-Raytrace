@@ -679,6 +679,8 @@ bool RestirPTTryEvaluateSpatialDirectLighting(RAB_Surface surface, uint2 pixel, 
 float4 EvaluateRestirPTReferenceTemporalReadinessView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferenceTemporalPageFlowView(uint2 pixel);
 float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTReferenceInitialTemporalContributionSplitView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTReferenceInitialTemporalStateSplitView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferenceBrdfContractView(RAB_Surface surface);
 float4 EvaluateRestirPTReferenceNeeSampleContractView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferencePathTraceMetadataView(uint2 pixel);
