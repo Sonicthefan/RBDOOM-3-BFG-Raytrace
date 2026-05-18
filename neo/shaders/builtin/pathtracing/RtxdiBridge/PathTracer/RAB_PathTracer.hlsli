@@ -10,6 +10,7 @@
 #include "../RAB_Brdf.hlsli"
 #include "../RAB_LightInfo.hlsli"
 #include "../RAB_LightSamplingCore.hlsli"
+#include "../RAB_LightTarget.hlsli"
 #include "../RAB_MISCallbacks.hlsli"
 #include "../RAB_Visibility.hlsli"
 #include "Rtxdi/PT/PathTracerContext.hlsli"

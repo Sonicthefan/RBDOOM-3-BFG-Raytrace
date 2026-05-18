@@ -1180,7 +1180,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.unifiedLightInfo[1] = static_cast<float>(Max(0, m_smokeUnifiedPreviousLightCount));
     constants.unifiedLightInfo[2] =
         (r_pathTracingRestirPTUnifiedLightLoad.GetInteger() != 0 ? 1.0f : 0.0f) +
-        (r_pathTracingRestirPTUnifiedLightSample.GetInteger() != 0 ? 2.0f : 0.0f);
+        (r_pathTracingRestirPTUnifiedLightSample.GetInteger() != 0 ? 2.0f : 0.0f) +
+        (r_pathTracingRestirPTUnifiedNee.GetInteger() != 0 ? 4.0f : 0.0f);
     constants.unifiedLightInfo[3] = static_cast<float>(Max(0, m_smokeUnifiedLightRemapCount));
     constants.restirPTDiDebugInfo[0] = static_cast<float>(restirPTDiDebugView);
     constants.restirPTDiDebugInfo[1] = 0.0f;

@@ -23,6 +23,10 @@
 #ifndef RB_PATH_TRACING_RAB_PATH_TRACER_NEE_HLSLI
 #define RB_PATH_TRACING_RAB_PATH_TRACER_NEE_HLSLI
 
+#undef RTXDI_ENABLE_PRESAMPLING
+#define RTXDI_ENABLE_PRESAMPLING 0
+#include "Rtxdi/DI/InitialSampling.hlsli"
+
 struct RAB_SmokeNeeRisSelection
 {
     uint lightIndex;
@@ -137,7 +141,110 @@ bool RAB_SelectSmokeAnalyticNeeProposal(
     return true;
 }
 
-bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
+static const uint RAB_UNIFIED_NEE_SAMPLE_COUNT = 32u;
+
+bool RAB_UnifiedNeeProducerEnabled()
+{
+    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 4u) != 0u &&
+        RAB_UnifiedLightLoadEnabled() &&
+        RAB_UnifiedLightSampleEnabled();
+}
+
+RTXDI_DIInitialSamplingParameters RAB_BuildUnifiedNeeInitialSamplingParameters()
+{
+    RTXDI_DIInitialSamplingParameters sampleParams = (RTXDI_DIInitialSamplingParameters)0;
+    sampleParams.numLocalLightSamples = min(RAB_GetCurrentUnifiedLightCount(), RAB_UNIFIED_NEE_SAMPLE_COUNT);
+    sampleParams.numInfiniteLightSamples = 0u;
+    sampleParams.numEnvironmentSamples = 0u;
+    sampleParams.numBrdfSamples = 0u;
+    sampleParams.brdfCutoff = 0.0;
+    sampleParams.brdfRayMinT = 0.0;
+    sampleParams.localLightSamplingMode = ReSTIRDI_LocalLightSamplingMode_UNIFORM;
+    sampleParams.enableInitialVisibility = 0u;
+    sampleParams.environmentMapImportanceSampling = 0u;
+    return sampleParams;
+}
+
+RTXDI_LightBufferParameters RAB_BuildUnifiedNeeLightBufferParameters()
+{
+    RTXDI_LightBufferParameters lightBufferParams = (RTXDI_LightBufferParameters)0;
+    lightBufferParams.localLightBufferRegion.firstLightIndex = 0u;
+    lightBufferParams.localLightBufferRegion.numLights = RAB_GetCurrentUnifiedLightCount();
+    lightBufferParams.infiniteLightBufferRegion.firstLightIndex = 0u;
+    lightBufferParams.infiniteLightBufferRegion.numLights = 0u;
+    lightBufferParams.environmentLightParams.lightPresent = 0u;
+    lightBufferParams.environmentLightParams.lightIndex = RAB_INVALID_LIGHT_INDEX;
+    return lightBufferParams;
+}
+
+bool RAB_RecordUnifiedNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
+{
+    if (!RAB_UnifiedNeeProducerEnabled() ||
+        RAB_GetCurrentUnifiedLightCount() == 0u ||
+        !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    RAB_LightSample lightSample = RAB_EmptyLightSample();
+    RTXDI_DIReservoir diReservoir = RTXDI_SampleLightsForSurface(
+        ptRandContext.initialRandomSamplerState,
+        ptRandContext.initialCoherentRandomSamplerState,
+        surface,
+        RAB_BuildUnifiedNeeInitialSamplingParameters(),
+        RAB_BuildUnifiedNeeLightBufferParameters(),
+        lightSample);
+
+    if (!RTXDI_IsValidDIReservoir(diReservoir) ||
+        diReservoir.weightSum <= 0.0 ||
+        lightSample.valid == 0u ||
+        lightSample.solidAnglePdf <= 0.0)
+    {
+        return false;
+    }
+
+    if (!RAB_GetSelectedNeeVisibility(surface, lightSample))
+    {
+        return false;
+    }
+
+    const float3 reflectedRadiance = RAB_GetReflectedBsdfRadianceForSurface(
+        lightSample.position,
+        lightSample.radiance,
+        surface);
+    const float3 radianceOverPdf =
+        reflectedRadiance *
+        RTXDI_GetDIReservoirInvPdf(diReservoir) /
+        max(lightSample.solidAnglePdf, 1.0e-6);
+    if (RAB_Luminance(radianceOverPdf) <= 0.0)
+    {
+        return false;
+    }
+
+    RTXDI_SampledLightData sampledLightData = RTXDI_SampledLightData_CreateInvalidData();
+    sampledLightData.lightData = diReservoir.lightData;
+    sampledLightData.uvData = diReservoir.uvData;
+
+    const float3 lightDir = RAB_SafeNormalize(
+        RAB_LightSamplePosition(lightSample) - RAB_GetSurfaceWorldPos(surface),
+        RAB_GetSurfaceNormal(surface));
+    const float scatterPdf = RAB_SurfaceEvaluateBrdfPdf(surface, lightDir);
+    const float neePdf = 1.0 / max(diReservoir.weightSum, 1.0e-6);
+    if (scatterPdf <= 0.0 || neePdf <= 0.0)
+    {
+        return false;
+    }
+
+    return ctx.RecordNeeLightSample(
+        sampledLightData,
+        radianceOverPdf,
+        neePdf,
+        scatterPdf,
+        lightSample,
+        ptRandContext.initialRandomSamplerState);
+}
+
+bool RAB_RecordSmokeRisNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
 {
     const uint lightCount = RAB_GetCurrentLightCount();
     if (lightCount == 0u || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
@@ -222,5 +329,17 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
         selection.lightSample,
         ptRandContext.initialRandomSamplerState);
 }
+
+bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
+{
+    if (RAB_UnifiedNeeProducerEnabled())
+    {
+        return RAB_RecordUnifiedNeeSample(ctx, surface, ptRandContext);
+    }
+    return RAB_RecordSmokeRisNeeSample(ctx, surface, ptRandContext);
+}
+
+#undef RTXDI_ENABLE_PRESAMPLING
+#define RTXDI_ENABLE_PRESAMPLING 1
 
 #endif

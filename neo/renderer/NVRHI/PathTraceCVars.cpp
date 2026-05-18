@@ -795,6 +795,12 @@ idCVar r_pathTracingRestirPTUnifiedLightSample(
     CVAR_RENDERER | CVAR_INTEGER,
     "Opt-in RAB_SamplePolymorphicLight unified type-switch path: 0 legacy RAB light-type switch, 1 unified light-record type switch" );
 
+idCVar r_pathTracingRestirPTUnifiedNee(
+    "r_pathTracingRestirPTUnifiedNee",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opt-in RTXDI-shaped ReSTIR PT NEE producer: 0 legacy rbdoom RIS producer, 1 unified local-light RTXDI DI initial producer; requires unified load/sample gates" );
+
 idCVar r_pathTracingRestirPTAnalyticLightTrials(
     "r_pathTracingRestirPTAnalyticLightTrials",
     "32",
