@@ -234,10 +234,17 @@ bool RAB_RecordUnifiedNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface s
     {
         return false;
     }
+    const float3 weightedRadianceOverPdf =
+        radianceOverPdf *
+        GetMISWeightForNEELight(
+            RTXDI_SampledLightData_GetLightIndex(sampledLightData),
+            lightSample,
+            RAB_GetSurfaceWorldPos(surface),
+            scatterPdf);
 
     return ctx.RecordNeeLightSample(
         sampledLightData,
-        radianceOverPdf,
+        weightedRadianceOverPdf,
         neePdf,
         scatterPdf,
         lightSample,
