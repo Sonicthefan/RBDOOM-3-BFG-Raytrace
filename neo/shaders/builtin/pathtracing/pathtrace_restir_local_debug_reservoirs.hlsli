@@ -27,7 +27,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 50u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 53u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -624,6 +624,18 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 50u)
     {
         return EvaluateRestirPTDiInitialVisibilityView(surface, pixel);
+    }
+    if (view == 51u)
+    {
+        return EvaluateRestirPTNeeRecordVsDiInitialContributionSplitView(surface, pixel);
+    }
+    if (view == 52u)
+    {
+        return EvaluateRestirPTNeeRecordVsDiInitialSampleCompareView(surface, pixel);
+    }
+    if (view == 53u)
+    {
+        return EvaluateRestirPTNeeRecordVsDiInitialContributionRatioView(surface, pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))

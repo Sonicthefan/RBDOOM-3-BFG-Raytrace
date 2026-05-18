@@ -212,6 +212,164 @@ float4 EvaluateRestirPTDiInitialVisibilityView(RAB_Surface surface, uint2 pixel)
     return directVisible ? float4(0.85, 0.85, 0.05, 1.0) : float4(0.85, 0.05, 0.85, 1.0);
 }
 
+bool RestirPTDiInitialDebugTryContribution(RAB_Surface surface, RestirPTDiInitialDebugResult result, out float3 contribution)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    if (result.status != RESTIR_PT_DI_INITIAL_STATUS_VALID)
+    {
+        return false;
+    }
+
+    contribution = RestirPTDiInitialDebugContribution(surface, result);
+    return RAB_Luminance(contribution) > 0.0;
+}
+
+bool RestirPTDiInitialDebugTryLoadedLight(RestirPTDiInitialDebugResult result, out RAB_LightInfo lightInfo)
+{
+    lightInfo = RAB_EmptyLightInfo();
+    if (result.status != RESTIR_PT_DI_INITIAL_STATUS_VALID)
+    {
+        return false;
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(result.reservoir);
+    if (lightIndex >= RAB_GetCurrentLightCount())
+    {
+        return false;
+    }
+
+    lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    return RAB_IsLightInfoValid(lightInfo);
+}
+
+bool RestirPTInitialNeeRecordTryLoadedLight(RTXDI_PTReservoir reservoir, out RAB_LightInfo lightInfo)
+{
+    lightInfo = RAB_EmptyLightInfo();
+    if (!RTXDI_IsValidPTReservoir(reservoir) || !RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        return false;
+    }
+
+    const RTXDI_SampledLightData sampledLightData = RTXDI_GetSampledLightData(reservoir);
+    if (!RTXDI_SampledLightData_IsValidLightData(sampledLightData))
+    {
+        return false;
+    }
+
+    const uint lightIndex = RTXDI_SampledLightData_GetLightIndex(sampledLightData);
+    if (lightIndex >= RAB_GetCurrentLightCount())
+    {
+        return false;
+    }
+
+    lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    return RAB_IsLightInfoValid(lightInfo);
+}
+
+float4 EvaluateRestirPTNeeRecordVsDiInitialContributionSplitView(RAB_Surface surface, uint2 pixel)
+{
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    const RTXDI_PTReservoir neeReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+
+    float3 oldContribution = float3(0.0, 0.0, 0.0);
+    const bool oldValid = RestirPTTryEvaluateNeeReservoirPreview(surface, neeReservoir, false, oldContribution);
+
+    const RestirPTDiInitialDebugResult diResult = RestirPTDiInitialDebugSample(surface, pixel, false);
+    float3 diContribution = float3(0.0, 0.0, 0.0);
+    const bool diValid = RestirPTDiInitialDebugTryContribution(surface, diResult, diContribution);
+
+    const uint2 dimensions = PathTraceFullOutputSize();
+    const bool showOld = pixel.x < dimensions.x / 2u;
+    return float4(RestirPTToneMapPreview(showOld ? (oldValid ? oldContribution : float3(0.0, 0.0, 0.0)) : (diValid ? diContribution : float3(0.0, 0.0, 0.0))), 1.0);
+}
+
+float4 EvaluateRestirPTNeeRecordVsDiInitialSampleCompareView(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    const RTXDI_PTReservoir neeReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+    RAB_LightInfo oldLightInfo;
+    const bool oldValid = RestirPTInitialNeeRecordTryLoadedLight(neeReservoir, oldLightInfo);
+
+    const RestirPTDiInitialDebugResult diResult = RestirPTDiInitialDebugSample(surface, pixel, false);
+    RAB_LightInfo diLightInfo;
+    const bool diValid = RestirPTDiInitialDebugTryLoadedLight(diResult, diLightInfo);
+
+    if (!oldValid && !diValid)
+    {
+        return float4(0.03, 0.03, 0.03, 1.0);
+    }
+    if (oldValid && !diValid)
+    {
+        return float4(0.85, 0.35, 0.04, 1.0);
+    }
+    if (!oldValid && diValid)
+    {
+        return float4(0.85, 0.05, 0.85, 1.0);
+    }
+
+    const uint oldLightIndex = RTXDI_SampledLightData_GetLightIndex(RTXDI_GetSampledLightData(neeReservoir));
+    const uint diLightIndex = RTXDI_GetDIReservoirLightIndex(diResult.reservoir);
+    if (oldLightIndex == diLightIndex)
+    {
+        return float4(0.05, 0.75, 0.12, 1.0);
+    }
+    if (oldLightInfo.unifiedLightType == diLightInfo.unifiedLightType)
+    {
+        return float4(0.05, 0.80, 0.95, 1.0);
+    }
+    return float4(0.95, 0.85, 0.05, 1.0);
+}
+
+float4 EvaluateRestirPTNeeRecordVsDiInitialContributionRatioView(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    const RTXDI_PTReservoir neeReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+
+    float3 oldContribution = float3(0.0, 0.0, 0.0);
+    const bool oldValid = RestirPTTryEvaluateNeeReservoirPreview(surface, neeReservoir, false, oldContribution);
+    const float oldLum = oldValid ? RAB_Luminance(RestirPTSanitizePreviewContribution(oldContribution)) : 0.0;
+
+    const RestirPTDiInitialDebugResult diResult = RestirPTDiInitialDebugSample(surface, pixel, false);
+    float3 diContribution = float3(0.0, 0.0, 0.0);
+    const bool diValid = RestirPTDiInitialDebugTryContribution(surface, diResult, diContribution);
+    const float diLum = diValid ? RAB_Luminance(RestirPTSanitizePreviewContribution(diContribution)) : 0.0;
+
+    if (oldLum <= 0.0 && diLum <= 0.0)
+    {
+        return float4(0.03, 0.03, 0.03, 1.0);
+    }
+    if (oldLum > 0.0 && diLum <= 0.0)
+    {
+        return float4(0.85, 0.35, 0.04, 1.0);
+    }
+    if (oldLum <= 0.0 && diLum > 0.0)
+    {
+        return float4(0.85, 0.05, 0.85, 1.0);
+    }
+
+    const float ratio = diLum / max(oldLum, 1.0e-6);
+    if (ratio >= 0.5 && ratio <= 2.0)
+    {
+        const float strength = saturate(min(oldLum, diLum) / (1.0 + min(oldLum, diLum)));
+        return float4(0.05, 0.35 + 0.55 * strength, 0.12, 1.0);
+    }
+    if (ratio > 2.0)
+    {
+        return float4(0.05, 0.80, 0.95, 1.0);
+    }
+    return float4(0.95, 0.85, 0.05, 1.0);
+}
+
 #undef RTXDI_ENABLE_PRESAMPLING
 #define RTXDI_ENABLE_PRESAMPLING 1
 

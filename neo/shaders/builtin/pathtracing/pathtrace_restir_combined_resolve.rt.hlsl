@@ -713,6 +713,9 @@ float4 EvaluateRestirPTDiInitialSampleValidityView(RAB_Surface surface, uint2 pi
 float4 EvaluateRestirPTDiInitialContributionView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTDiInitialNumericView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTDiInitialVisibilityView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTNeeRecordVsDiInitialContributionSplitView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTNeeRecordVsDiInitialSampleCompareView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTNeeRecordVsDiInitialContributionRatioView(RAB_Surface surface, uint2 pixel);
 
 #include "RtxdiBridge/Debug/RAB_UnifiedLightDebug.hlsli"
 
