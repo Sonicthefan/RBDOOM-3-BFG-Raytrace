@@ -37,4 +37,11 @@ uint RAB_FindCurrentEmissiveLightIndexForRayPayload(RAB_RayPayload rayPayload)
     return RAB_INVALID_LIGHT_INDEX;
 }
 
+bool RAB_TraceRayForLocalLight(float3 origin, float3 direction, float tMin, float tMax, out uint lightIndex, out float2 randXY)
+{
+    lightIndex = RAB_INVALID_LIGHT_INDEX;
+    randXY = float2(0.0, 0.0);
+    return false;
+}
+
 #endif

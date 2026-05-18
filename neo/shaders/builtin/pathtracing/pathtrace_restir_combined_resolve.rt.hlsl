@@ -697,6 +697,7 @@ float4 RestirPTReferenceEmissiveHitMapColor(RAB_Surface surface);
 float4 RestirPTReferenceLightDomainLoadColor(uint2 pixel);
 float4 RestirPTReferenceLightDomainSampleColor(RAB_Surface surface, uint2 pixel);
 float4 RestirPTReferenceLightDomainVisibilityColor(RAB_Surface surface, uint2 pixel);
+float4 RestirPTReferenceCurrentToPreviousLightFailureColor(uint lightIndex);
 float4 EvaluateRestirPTUnifiedLightTypeView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLightRadianceView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLightRemapView(uint2 pixel);
@@ -708,14 +709,21 @@ float4 EvaluateRestirPTUnifiedLoadCurrentCompareView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLoadPreviousCompareView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedSampleCompareView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTUnifiedSampleNumericView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTDiInitialSampleValidityView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTDiInitialContributionView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTDiInitialNumericView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTDiInitialVisibilityView(RAB_Surface surface, uint2 pixel);
+
+#include "RtxdiBridge/Debug/RAB_UnifiedLightDebug.hlsli"
+
+// LU-02A: debug-only RTXDI DI initial sampling views 47-50.
+#include "pathtrace_restir_di_initial_debug.hlsli"
 
 #include "pathtrace_restir_local_debug_reservoirs.hlsli"
 
 #include "pathtrace_restir_reference_temporal_debug.hlsli"
 
 #include "pathtrace_restir_reference_rab_contract_debug.hlsli"
-
-#include "RtxdiBridge/Debug/RAB_UnifiedLightDebug.hlsli"
 
 #include "pathtrace_restir_local_preview_resolve.hlsli"
 
