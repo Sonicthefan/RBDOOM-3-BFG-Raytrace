@@ -12,6 +12,9 @@
 #include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
+#include "PathTraceRemixFramePrepare.h"
+#include "PathTraceRemixLightManager.h"
+#include "PathTraceRemixRtxdiResources.h"
 #include "PathTraceRestirLightManager.h"
 #include "PathTraceSceneInputs.h"
 #include "PathTraceSceneUniverse.h"
@@ -97,6 +100,9 @@ private:
     RtPathTraceSceneUniverse m_sceneUniverse;
     RtPathTraceInstanceUniverse m_instanceUniverse;
     RtSmokeLightUniverse m_smokeLightUniverse;
+    PathTraceRemixFramePrepare m_remixFramePrepare;
+    PathTraceRemixLightManager m_remixLightManager;
+    PathTraceRemixRtxdiResources m_remixRtxdiResources;
     PathTraceRestirLightManager m_restirLightManager;
     const void* m_smokeLightUniverseRenderWorld = nullptr;
     uint32_t m_smokeTextureProbeMaterialId;

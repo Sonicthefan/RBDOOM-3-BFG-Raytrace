@@ -1,0 +1,58 @@
+RRX-00 Worker Prompt
+====================
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-00 only: File Graph And Contract Freeze.
+
+Read first:
+
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/remix_file_graph.txt
+    docs/restir_remix_rebuild/implementation_slices.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+
+Authoritative source roots:
+
+    RTX Remix: E:/prog/references/dxvk-remix-git
+    RTXDI:     E:/prog/references/RTXDI-main
+
+Remix file-equivalents to inspect:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/raytrace_args.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Allowed writes:
+
+    docs/restir_remix_rebuild/remix_file_graph.txt
+    docs/restir_remix_rebuild/implementation_slices.txt
+
+Forbidden:
+
+    Do not edit C++.
+    Do not edit shaders.
+    Do not copy/paste RTX Remix source.
+    Do not invent ReSTIR math.
+    Do not continue old LM/LU prompt sequences.
+
+Output required:
+
+    1. Confirm or correct the Remix file graph.
+    2. For every Remix file-equivalent, state the rbdoom replacement file target.
+    3. For every target, list exact inputs and outputs.
+    4. Mark deferred features explicitly.
+    5. Recommend the next one-file-equivalent implementation slice.

@@ -19,6 +19,9 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTracePrimaryPass.h"
+#include "PathTraceRemixFramePrepare.h"
+#include "PathTraceRemixLightManager.h"
+#include "PathTraceRemixRtxdiResources.h"
 #include "PathTraceRestirLightManager.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
@@ -1204,6 +1207,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_sceneUniverse.Clear();
             m_instanceUniverse.Clear();
             m_smokeLightUniverse.Clear();
+            m_remixFramePrepare.Clear();
+            m_remixLightManager.Clear();
+            m_remixRtxdiResources.Clear();
             m_restirLightManager.Clear();
             m_smokeLightUniverseRenderWorld = nullptr;
             m_smokeStaticBlas = nullptr;
@@ -1276,6 +1282,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
     {
         m_smokeLightUniverse.Clear();
+        m_remixFramePrepare.Clear();
+        m_remixLightManager.Clear();
+        m_remixRtxdiResources.Clear();
         m_restirLightManager.Clear();
         m_smokeLightUniverseRenderWorld = viewDef->renderWorld;
     }
@@ -2049,6 +2058,153 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         emissiveTriangles,
         doomAnalyticLights,
         doomAnalyticRemap.currentCandidateIdentities);
+    PathTraceRemixFramePrepareDesc remixFramePrepareDesc;
+    remixFramePrepareDesc.frameIndex = m_smokeGeometryFrameIndex;
+    remixFramePrepareDesc.resetReasonFlags = m_frameResources.settings.resetReasonFlags;
+    remixFramePrepareDesc.previousSceneInputsValid = m_sceneInputs.valid;
+    remixFramePrepareDesc.sceneSource = sceneSource;
+    remixFramePrepareDesc.debugMode = requestedDebugMode;
+    remixFramePrepareDesc.outputWidth = m_frameResources.width;
+    remixFramePrepareDesc.outputHeight = m_frameResources.height;
+    m_remixFramePrepare.BeginFrame(remixFramePrepareDesc);
+    PathTraceRemixFramePrepareLightInputs remixFramePrepareLightInputs;
+    remixFramePrepareLightInputs.emissiveObservationCount = static_cast<uint32_t>(emissiveTriangles.size());
+    remixFramePrepareLightInputs.previousEmissiveObservationCount = static_cast<uint32_t>(previousEmissiveTriangles.size());
+    remixFramePrepareLightInputs.doomAnalyticObservationCount = static_cast<uint32_t>(doomAnalyticLights.size());
+    remixFramePrepareLightInputs.previousDoomAnalyticObservationCount = static_cast<uint32_t>(doomAnalyticRemap.previousCandidates.size());
+    remixFramePrepareLightInputs.doomAnalyticIdentityCount = static_cast<uint32_t>(doomAnalyticRemap.currentCandidateIdentities.size());
+    remixFramePrepareLightInputs.previousDoomAnalyticIdentityCount = static_cast<uint32_t>(doomAnalyticRemap.previousCandidateIdentities.size());
+    remixFramePrepareLightInputs.restirLightObservationCount = static_cast<uint32_t>(restirLightManagerObservations.size());
+    m_remixFramePrepare.SetLightInputs(remixFramePrepareLightInputs);
+    m_remixFramePrepare.EndFrame();
+    if (r_pathTracingRemixFramePrepareDump.GetInteger() != 0)
+    {
+        const PathTraceRemixFramePrepareObservationPackage& remixFramePackage = m_remixFramePrepare.GetObservationPackage();
+        const PathTraceRemixFramePrepareStats& remixFrameStats = m_remixFramePrepare.GetStats();
+        common->Printf("PathTracePrimaryPass: Remix frame prepare frame=%llu source=%d debugMode=%d output=%dx%d previousScene=%d resetFlags=0x%x structuralReset=0x%x reservoirReset=0x%x lights emissive current/previous=%u/%u doomAnalytic current/previous=%u/%u identities current/previous=%u/%u restirObservations=%u counts begin/end/lightUpdates=%u/%u/%u payloadObservations=%u mappingObservations=%u oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=cpu-diagnostics-only\n",
+            static_cast<unsigned long long>(remixFramePackage.frameIndex),
+            remixFramePackage.sceneSource,
+            remixFramePackage.debugMode,
+            remixFramePackage.outputWidth,
+            remixFramePackage.outputHeight,
+            remixFramePackage.previousSceneInputsValid ? 1 : 0,
+            remixFramePackage.resetReasonFlags,
+            remixFrameStats.structuralResetReasonFlags,
+            remixFrameStats.reservoirResetReasonFlags,
+            remixFramePackage.lights.emissiveObservationCount,
+            remixFramePackage.lights.previousEmissiveObservationCount,
+            remixFramePackage.lights.doomAnalyticObservationCount,
+            remixFramePackage.lights.previousDoomAnalyticObservationCount,
+            remixFramePackage.lights.doomAnalyticIdentityCount,
+            remixFramePackage.lights.previousDoomAnalyticIdentityCount,
+            remixFramePackage.lights.restirLightObservationCount,
+            remixFrameStats.beginFrameCount,
+            remixFrameStats.endFrameCount,
+            remixFrameStats.lightInputUpdateCount,
+            remixFrameStats.payloadObservationCount,
+            remixFrameStats.mappingObservationCount,
+            remixFrameStats.oldSmokeReservoirSignatureConsulted,
+            remixFrameStats.resourceAllocationCount,
+            remixFrameStats.shaderRouteCount);
+        r_pathTracingRemixFramePrepareDump.SetInteger(0);
+    }
+    m_remixLightManager.PrepareSceneData(
+        m_remixFramePrepare.GetObservationPackage(),
+        emissiveTriangles,
+        previousEmissiveTriangles,
+        emissiveLightRemap,
+        doomAnalyticLights,
+        doomAnalyticRemap.previousCandidates,
+        doomAnalyticRemap.currentCandidateIdentities,
+        doomAnalyticRemap.previousCandidateIdentities,
+        doomAnalyticRemap.universeRemap,
+        static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())),
+        static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())),
+        idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()));
+    if (r_pathTracingRemixLightManagerDump.GetInteger() != 0)
+    {
+        const PathTraceRemixLightManagerStats& remixLightStats = m_remixLightManager.GetStats();
+        common->Printf("PathTracePrimaryPass: Remix light manager frame=%llu current=%u previous=%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=cpu-diagnostics-only\n",
+            static_cast<unsigned long long>(remixLightStats.frameIndex),
+            remixLightStats.currentLightCount,
+            remixLightStats.previousLightCount,
+            remixLightStats.currentToPreviousCount,
+            remixLightStats.currentMappedCount,
+            remixLightStats.currentInvalidCount,
+            remixLightStats.previousToCurrentCount,
+            remixLightStats.previousMappedCount,
+            remixLightStats.previousInvalidCount,
+            remixLightStats.emissiveRangeOffset,
+            remixLightStats.emissiveRangeCount,
+            remixLightStats.emissiveSampleCount,
+            remixLightStats.doomAnalyticRangeOffset,
+            remixLightStats.doomAnalyticRangeCount,
+            remixLightStats.doomAnalyticSampleCount,
+            remixLightStats.totalSampleCount,
+            remixLightStats.nonEmptyRangeCount,
+            static_cast<unsigned long long>(remixLightStats.structuralSignature),
+            static_cast<unsigned long long>(remixLightStats.mappingSignature),
+            static_cast<unsigned long long>(remixLightStats.payloadSignature),
+            remixLightStats.structuralSignatureChanged,
+            remixLightStats.mappingSignatureChanged,
+            remixLightStats.payloadSignatureChanged,
+            remixLightStats.payloadOnlyChange,
+            remixLightStats.oldSmokeReservoirSignatureConsulted,
+            remixLightStats.resourceAllocationCount,
+            remixLightStats.shaderRouteCount);
+        r_pathTracingRemixLightManagerDump.SetInteger(0);
+    }
+    const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
+    const bool useRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 || dumpRemixRtxdiResources;
+    bool remixRtxdiResourcesReady = false;
+    if (useRemixRtxdiResources)
+    {
+        PathTraceRemixRtxdiResourcePrepareDesc remixRtxdiResourceDesc;
+        remixRtxdiResourceDesc.device = device;
+        remixRtxdiResourceDesc.framePackage = m_remixFramePrepare.GetObservationPackage();
+        remixRtxdiResourceDesc.lightManagerStats = m_remixLightManager.GetStats();
+        remixRtxdiResourceDesc.checkerboardMode = m_frameResources.settings.checkerboardMode;
+        remixRtxdiResourcesReady = m_remixRtxdiResources.PrepareOutputSizedResources(remixRtxdiResourceDesc);
+    }
+    else
+    {
+        m_remixRtxdiResources.Clear();
+    }
+    if (dumpRemixRtxdiResources)
+    {
+        const PathTraceRemixRtxdiResourceStats& remixRtxdiStats = m_remixRtxdiResources.GetStats();
+        common->Printf("PathTracePrimaryPass: Remix RTXDI resources frame=%llu output=%ux%u checkerboard=%u enabled=%u ready=%u reset allowed=0x%x ignoredSmoke=0x%x DI recreate/reuse/clearPending=%u/%u/%u arrays/stride/elements/bytes=%u/%u/%u/%llu GI recreate/reuse/clearPending=%u/%u/%u arrays/stride/elements/bytes=%u/%u/%u/%llu lightSignatures structural/mapping/payload=%llu/%llu/%llu oldSmokeReservoirSignatureConsulted=%u smokeDoomAnalyticLightCountConsulted=%u shaderRoutes=%u bindingHandoffs=%u behavior=resource-owner-only-clear-deferred\n",
+            static_cast<unsigned long long>(remixRtxdiStats.frameIndex),
+            remixRtxdiStats.outputWidth,
+            remixRtxdiStats.outputHeight,
+            remixRtxdiStats.checkerboardMode,
+            useRemixRtxdiResources ? 1u : 0u,
+            remixRtxdiResourcesReady ? 1u : 0u,
+            remixRtxdiStats.allowedResetReasonFlags,
+            remixRtxdiStats.ignoredSmokeResetReasonFlags,
+            remixRtxdiStats.diRecreated,
+            remixRtxdiStats.diReused,
+            remixRtxdiStats.diClearPending,
+            remixRtxdiStats.diArrayCount,
+            remixRtxdiStats.diStructStride,
+            remixRtxdiStats.diElementCount,
+            static_cast<unsigned long long>(remixRtxdiStats.diReservoirBytes),
+            remixRtxdiStats.giRecreated,
+            remixRtxdiStats.giReused,
+            remixRtxdiStats.giClearPending,
+            remixRtxdiStats.giArrayCount,
+            remixRtxdiStats.giStructStride,
+            remixRtxdiStats.giElementCount,
+            static_cast<unsigned long long>(remixRtxdiStats.giReservoirBytes),
+            static_cast<unsigned long long>(remixRtxdiStats.lightStructuralSignature),
+            static_cast<unsigned long long>(remixRtxdiStats.lightMappingSignature),
+            static_cast<unsigned long long>(remixRtxdiStats.lightPayloadSignature),
+            remixRtxdiStats.oldSmokeReservoirSignatureConsulted,
+            remixRtxdiStats.smokeDoomAnalyticLightCountConsulted,
+            remixRtxdiStats.shaderRouteCount,
+            remixRtxdiStats.bindingHandoffCount);
+        r_pathTracingRemixRtxdiResourcesDump.SetInteger(0);
+    }
     m_restirLightManager.BeginFrame();
     m_restirLightManager.UpdateFromObservations(restirLightManagerObservations);
     m_restirLightManager.UpdateActivePayloadRecords(

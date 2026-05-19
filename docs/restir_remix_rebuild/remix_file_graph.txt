@@ -1,0 +1,511 @@
+Remix File Graph To Recreate
+============================
+
+This file freezes the RTX Remix responsibility graph for the clean-room rbdoom
+ReSTIR rebuild. The Remix files below are file-equivalents: workers mirror their
+responsibility and data contracts in rbdoom-native code, but must not copy
+source text.
+
+RRX-00 status:
+
+    Confirmed with one correction: keep the RtxContext common binding/args
+    responsibility separate from the DxvkRtxdiRayQuery pass-dispatch
+    responsibility. Both are needed before shader passes consume the bridge.
+
+
+CPU Frame Preparation
+---------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/rtx_render/rtx_scene_manager.cpp
+
+Confirmed responsibility:
+
+    SceneManager::prepareSceneData orders the frame: dynamic light matching runs
+    before garbage collection, then scene systems prepare GPU-visible data, and
+    LightManager::prepareSceneData runs after acceleration data is prepared.
+
+rbdoom replacement target:
+
+    neo/renderer/NVRHI/PathTraceRemixFramePrepare.h
+    neo/renderer/NVRHI/PathTraceRemixFramePrepare.cpp
+
+Inputs:
+
+    rbdoom frame index and reset/history state
+    PathTraceSceneCapture / PathTraceSceneInputs frame observations
+    Doom analytic light observations
+    emissive/light-universe observations
+    current output extent and feature CVars
+
+Outputs:
+
+    ordered frame-preparation call point for Remix-shaped ReSTIR
+    current frame observation package for PathTraceRemixLightManager
+    structural reset reasons separated from payload/mapping churn
+    diagnostics proving old smoke reservoir signatures are not consulted
+
+Deferred:
+
+    no resource allocation in RRX-01
+    no RAB routing in RRX-01
+    no reservoir clear policy change in RRX-01
+
+
+CPU Light Manager
+-----------------
+
+Authoritative Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_light_manager.cpp
+    src/dxvk/rtx_render/rtx_light_manager.h
+
+Confirmed responsibility:
+
+    LightManager owns persistent light identity, current/previous light payloads,
+    dynamic-light matching, active-light compaction, current-to-previous and
+    previous-to-current mapping, light type ranges, and per-type sample counts.
+    Payload animation does not globally clear RTXDI reservoirs.
+
+rbdoom replacement target:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+
+Inputs:
+
+    PathTraceRemixFramePrepare observation package
+    PathTraceDoomAnalyticLightCandidate records
+    PathTraceDoomAnalyticLightCandidateIdentity records
+    PathTraceDoomAnalyticLightRemap / universe remap evidence
+    emissive light records when promoted into the unified Remix light domain
+    prior PathTraceRemixLightManager state
+    configured per-type sample counts
+    maximum GPU light count and output compatibility limits
+
+Outputs:
+
+    current active light payload array
+    previous active light payload array
+    current-to-previous light map
+    previous-to-current light map
+    invalid mapping sentinel entries
+    light type ranges
+    per-type sample counts
+    total active light count
+    structural signature
+    mapping signature
+    payload signature
+    low-noise diagnostics for structural/mapping/payload churn
+
+Deferred:
+
+    no reservoir ownership in this file
+    no shader RAB implementation in this file
+    no global dynamic-light suppression
+    no old split Doom analytic remap as final shader policy
+
+
+Common Binding And Raytrace Args
+--------------------------------
+
+Authoritative Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_context.cpp
+    src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    src/dxvk/shaders/rtx/pass/raytrace_args.h
+
+Confirmed responsibility:
+
+    RtxContext updates RaytraceArgs, calls LightManager::setRaytraceArgs, binds
+    the current light buffer, previous light buffer, and light mapping buffer,
+    and exposes those resources plus RaytraceArgs through common shader
+    bindings.
+
+rbdoom replacement targets:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.cpp
+    neo/shaders/builtin/pathtracing/remix_bridge/remix_common_bindings.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/remix_raytrace_args.hlsli
+
+Inputs:
+
+    PathTraceRemixLightManager current light payloads
+    PathTraceRemixLightManager previous light payloads
+    PathTraceRemixLightManager current-to-previous map
+    PathTraceRemixLightManager previous-to-current map
+    light type ranges
+    per-type sample counts
+    output extent and reservoir-buffer compatibility state
+    RTXDI/DI/GI feature CVars
+    existing rbdoom pathtrace common scene/surface buffers
+
+Outputs:
+
+    shader-visible current light buffer
+    shader-visible previous light buffer
+    shader-visible light mapping buffer
+    shader-visible light count
+    shader-visible light ranges
+    shader-visible per-type sample counts
+    shader-visible enable flags and temporal/spatial parameters
+    persistent DI reservoir buffer set
+    persistent GI reservoir buffer set, deferred until GI slices
+    explicit resource reset reasons independent of old smoke reset gates
+
+Deferred:
+
+    gradient/confidence resources are deferred until the DI spatial/gradient
+    slice
+    ReSTIR GI resources are declared as a target but remain inactive until DI
+    temporal behavior is sane
+    DLSS RR validation is deferred until DI and GI debug layers are stable
+
+
+RTXDI Dispatch Layer
+--------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+
+Confirmed responsibility:
+
+    DxvkRtxdiRayQuery owns RTXDI DI pass configuration and dispatch order:
+    initial sampling, temporal reuse, spatial reuse, gradient production,
+    gradient filtering, and confidence production. It binds persistent reservoir
+    buffers and per-pass inputs/outputs; it does not own light identity.
+
+rbdoom replacement target:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.cpp
+
+Inputs:
+
+    PathTraceRemixRtxdiResources buffer handles and binding table
+    remix_raytrace_args constants
+    current and previous primary-surface data
+    motion/reprojection data
+    persistent RTXDI DI reservoir buffer set
+    best-light texture, when valid
+    temporal position texture
+    current/previous illuminance textures for gradients
+    current/previous confidence textures for denoiser confidence
+    pass enable flags and sample-count CVars
+
+Outputs:
+
+    dispatch of rtxdi_initial_sampling equivalent
+    dispatch of rtxdi_temporal_reuse equivalent
+    dispatch of rtxdi_spatial_reuse equivalent
+    dispatch of gradient/confidence equivalents, deferred
+    updated DI reservoir pages
+    temporal position output
+    best-light output
+    current illuminance / confidence outputs as required by later consumers
+
+Deferred:
+
+    portal variants are deferred unless a rbdoom portal-space contract is
+    explicitly commissioned
+    gradient and confidence passes are not part of the first DI implementation
+    no GI dispatch until DI temporal and spatial layers are inspectable
+
+
+RAB Light And Reservoir Bridge
+------------------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Confirmed responsibility:
+
+    RtxdiApplicationBridge is the application side of RTXDI: it translates
+    light indices across frames, loads current or previous light payloads, loads
+    and stores DI/GI reservoirs, supplies surface/light target callbacks, and
+    turns missing mappings into local invalid selected-light paths.
+
+rbdoom replacement targets:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_VisibilityBridge.hlsli
+
+Inputs:
+
+    remix_common_bindings current light buffer
+    remix_common_bindings previous light buffer
+    remix_common_bindings light mapping buffer
+    remix_raytrace_args light ranges and sample counts
+    current primary surface data
+    previous primary surface data for temporal passes
+    motion/reprojection data
+    persistent DI reservoir pages
+    persistent GI reservoir pages, deferred
+    RTXDI invalid light sentinel
+
+Outputs:
+
+    RAB_TranslateLightIndex equivalent
+    current/previous light load equivalent
+    light range and count callbacks
+    DI reservoir load/store equivalent
+    GI reservoir load/store equivalent, deferred
+    invalid mapping sentinel behavior
+    local selected-light rejection on failed translation
+    surface, target-pdf, and visibility callbacks needed by RTXDI helpers
+
+Deferred:
+
+    portal transforms and cross-portal light sampling
+    volume ReSTIR callbacks
+    full GI reservoir callbacks until RRX-08+
+    old RtxdiBridge files remain legacy/reference until a slice explicitly
+    migrates them into the remix_bridge target
+
+
+RTXDI DI Initial Sampling
+-------------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Confirmed responsibility:
+
+    The initial pass builds a DI reservoir from the current surface and current
+    light domain, optionally reusing previous best-light guidance mapped through
+    RAB_TranslateLightIndex, then stores the temporal-output reservoir page.
+
+rbdoom replacement target:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+Inputs:
+
+    current RAB surface
+    current light buffer and ranges
+    RTXDI sample counts
+    previous best-light texture, if valid
+    light mapping buffer for previous-best-light translation
+    random sampler state
+    DI reservoir temporal-output page
+
+Outputs:
+
+    initialized DI reservoir at the temporal-output page
+    optional selected-light visibility update when enabled
+    no temporal or spatial reuse
+
+Deferred:
+
+    temporal reuse
+    spatial reuse
+    gradients/confidence
+    GI
+
+
+RTXDI DI Temporal Reuse
+-----------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+
+Confirmed responsibility:
+
+    The temporal pass reprojects the current surface, loads temporal input and
+    output reservoir pages, maps previous selected lights through
+    RAB_TranslateLightIndex, runs RTXDI temporal resampling, writes temporal
+    position, and stores the temporal-output reservoir page.
+
+rbdoom replacement target:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+
+Inputs:
+
+    current RAB surface
+    previous RAB surface
+    motion/reprojection data
+    temporal input reservoir page
+    temporal output reservoir page
+    light mapping buffer
+    previous best-light texture, if valid
+    temporal reuse parameters
+    current reprojection confidence, if present
+
+Outputs:
+
+    temporally reused DI reservoir page
+    temporal sample position output
+    local rejection of failed selected-light mappings
+
+Deferred:
+
+    spatial reuse
+    gradient/confidence outputs
+    portal variants
+    hand-authored temporal math changes
+
+
+RTXDI DI Spatial Reuse
+----------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+
+Confirmed responsibility:
+
+    The spatial pass loads the spatial input reservoir page, samples current
+    neighboring surfaces, runs RTXDI spatial resampling, stores the spatial
+    output page, and may emit BSDF-detail enhancement data.
+
+rbdoom replacement target:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+
+Inputs:
+
+    current RAB surface
+    spatial input reservoir page
+    spatial output reservoir page
+    current neighboring surfaces
+    reprojection confidence neighborhood data, if present
+    spatial parameters and sample counts
+    current light buffer through RAB callbacks
+
+Outputs:
+
+    spatially reused DI reservoir page
+    last-frame/current surface packing for later temporal comparison, if needed
+    optional BSDF-detail enhancement data, deferred
+
+Deferred:
+
+    gradients and best-light production are separate file-equivalents
+    portal variants
+    BSDF-detail enhancement unless explicitly commissioned
+
+
+RTXDI Gradient And Confidence Passes
+------------------------------------
+
+Authoritative Remix file-equivalents:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_filter_gradients.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_confidence.comp.slang
+
+Confirmed responsibility:
+
+    These passes produce best-light guidance and denoiser confidence from DI
+    reservoirs, illuminance history, temporal positions, and filtered gradients.
+
+rbdoom replacement targets:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_compute_gradients.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_filter_gradients.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_compute_confidence.rt.hlsl
+
+Inputs:
+
+    DI reservoir buffer
+    temporal position texture
+    current illuminance
+    previous illuminance, if valid
+    current gradients
+    previous confidence, if valid
+    gradient/confidence parameters
+
+Outputs:
+
+    best-light texture
+    filtered gradient texture
+    current confidence texture
+
+Deferred:
+
+    not part of RRX-05 or RRX-06
+    no DLSS RR claims before these layers are inspectable
+
+
+ReSTIR GI Temporal Reuse
+------------------------
+
+Authoritative Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Confirmed responsibility:
+
+    The GI temporal pass creates or updates a GI reservoir from indirect
+    radiance/hit-geometry inputs, performs temporal reprojection/resampling,
+    optionally uses RTXDI gradients for sample validation, and stores GI
+    reservoir pages.
+
+rbdoom replacement target:
+
+    neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+
+Inputs:
+
+    current RAB surface
+    previous RAB surface
+    indirect radiance and distance input
+    GI hit geometry input
+    GI init-sample reservoir page
+    GI temporal input/output pages
+    motion/reprojection data
+    RTXDI gradients for lighting-change validation, when enabled
+    GI temporal parameters
+
+Outputs:
+
+    GI init-sample reservoir page
+    GI temporally reused reservoir page
+    locally rejected stale GI samples
+
+Deferred:
+
+    all GI work waits until DI temporal behavior is stable
+    reflection reprojection and DLSS RR randomization compatibility
+    portal GI behavior
+
+
+ReSTIR GI Spatial And Final Shading
+-----------------------------------
+
+Authoritative Remix file-equivalents:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_spatial_reuse.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_final_shading.comp.slang
+
+rbdoom replacement targets:
+
+    neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_spatial_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_final_shading.rt.hlsl
+
+Inputs:
+
+    GI temporal output reservoir page
+    current RAB surface
+    neighboring current surfaces
+    GI visibility callbacks
+    final shading integration inputs
+
+Outputs:
+
+    GI spatial output reservoir page
+    final GI lighting contribution
+
+Deferred:
+
+    explicitly outside RRX-00 through RRX-07
+    do not build on the old rbdoom broken reservoir path

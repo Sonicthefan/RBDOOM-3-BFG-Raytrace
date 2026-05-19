@@ -393,6 +393,30 @@ idCVar r_pathTracingLightAreaOverflowMax(
     CVAR_RENDERER | CVAR_INTEGER,
     "Connected-area overflow budget for RT smoke emissive light-area selection; high default keeps connected candidates greedy and mainly drops disconnected/unknown candidates" );
 
+idCVar r_pathTracingRemixFramePrepareDump(
+    "r_pathTracingRemixFramePrepareDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the CPU-only Remix-shaped frame preparation scaffold once" );
+
+idCVar r_pathTracingRemixLightManagerDump(
+    "r_pathTracingRemixLightManagerDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the CPU-only Remix-shaped light manager contract once" );
+
+idCVar r_pathTracingRemixRtxdiResourcesEnable(
+    "r_pathTracingRemixRtxdiResourcesEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opt in to persistent allocation of the Remix-shaped RTXDI reservoir resource owner; dump requests allocate for one validation frame" );
+
+idCVar r_pathTracingRemixRtxdiResourcesDump(
+    "r_pathTracingRemixRtxdiResourcesDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the Remix-shaped RTXDI reservoir resource owner once" );
+
 idCVar r_pathTracingRestirLightManagerDump(
     "r_pathTracingRestirLightManagerDump",
     "0",

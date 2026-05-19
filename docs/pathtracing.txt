@@ -988,7 +988,10 @@ Ray dispatch safety diagnostics:
   accepted analytic light state mismatch, and dark green/blue = output history
   grew. For views 8
   and 9, top-left is initial, top-right is temporal output, bottom-left is
-  spatial output, and bottom-right is final-shading input. Views 6-11 are the
+  spatial output, and bottom-right is final-shading input. View `58` is the
+  binary temporal keep-mask view: black = rejected and red = temporal history
+  accepted. It is a debug visualization only and should not be interpreted as
+  a change to reservoir finalization. Views 6-11 are the
   reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
   producer output and avoid the custom DI scratch reservoir math. View 2 does
   not multiply brightness by reservoir `M`; view 3 runs a
@@ -1030,6 +1033,16 @@ Ray dispatch safety diagnostics:
   primary ReSTIR direct term is easier to isolate. This is a heavy-handed test
   lever, not a desired final lighting policy.
 
+- r_pathTracingRestirPTMode56Accumulation
+  Temporary diagnostic accumulator for debug mode 56 final/subview output.
+  Defaults to 0. Set to 1 only when isolating whether a mode 56 view can hold
+  history once its input is otherwise stable. This is not a ReSTIR reservoir
+  fix and should not be treated as final accumulation policy.
+
+- r_pathTracingRestirPTMode56AccumulationMaxFrames
+  Defaults to 256. Caps the temporary debug-mode-56 accumulator frame count
+  when `r_pathTracingRestirPTMode56Accumulation 1` is enabled.
+
 Glass/transmission reservation:
 
 - `r_pathTracingTransmissionBounceLimit` is reserved and currently clamps/fails
@@ -1065,6 +1078,10 @@ Denoise/upscale/Ray Reconstruction reservation:
   the raw mode-56 path regressed; u53 is now reserved for the material-only
   specular-albedo/F0 guide. u54 is reserved for the RR input color and should
   stay raw linear HDR, not preview-tonemapped or clamped SDR.
+- `r_pathTracingDLSSRRProbe` defaults to 1 and initializes the experimental
+  Streamline DLSS/RR bridge at renderer startup, then reports SDK feature
+  support. Set it to 0 before startup only when isolating startup or platform
+  problems in the RR bridge.
 - `r_pathTracingDLSSRRColorBuffersHDR` defaults to 1 because the current
   Streamline/NGX RR path rejects the SDR-tagged option with `eErrorNGXFailed`.
   `r_pathTracingDLSSRRPreExposure`, `r_pathTracingDLSSRRExposureScale`, and
@@ -1187,6 +1204,47 @@ Denoise/upscale/Ray Reconstruction reservation:
   `r_pathTracingLightAreaFilterApply 1` is enabled, this budget is applied to
   the uploaded mode 20 candidate list.
 
+- r_pathTracingRemixFramePrepareDump
+  One-shot dump of the CPU-only RTX Remix-shaped frame-preparation scaffold.
+  Reports frame ordering, output size, reset flags, light/emissive observation
+  counts, and explicit zero counts for resource allocation, shader routing, and
+  old smoke reservoir signature consultation.
+
+- r_pathTracingRemixLightManagerDump
+  One-shot dump of the CPU-only RTX Remix-shaped light manager contract.
+  Reports current/previous unified light payload counts, current-to-previous
+  and previous-to-current map counts, per-type ranges and sample counts, and
+  structural/mapping/payload signatures. Structural signature changes are
+  reserved for the stable light-domain schema/ABI; active payload/range/sample
+  churn belongs to payload or mapping state.
+
+- r_pathTracingRemixRtxdiResourcesEnable
+  Defaults to 0. Opt-in persistent allocation gate for the RTX Remix-shaped
+  RTXDI DI/GI reservoir resource owner. Keep this disabled during normal runs
+  while shader binding and command-list clear execution are deferred, so the
+  scaffold does not add baseline DI/GI memory pressure.
+
+- r_pathTracingRemixRtxdiResourcesDump
+  One-shot dump of the RTX Remix-shaped RTXDI reservoir resource owner. The
+  dump allocates for one validation frame even when
+  `r_pathTracingRemixRtxdiResourcesEnable` is 0, then reports DI/GI
+  recreate/reuse/clearPending state, reservoir array/stride/byte metadata,
+  light signatures, and explicit zero counts for old smoke reservoir
+  consultation, shader routes, and binding handoffs. `clearPending` means GPU
+  reservoir contents still require a future command-list clear before binding.
+
+- r_pathTracingRestirLightManagerDump
+  One-shot dump of the ReSTIR light-manager bridge. Reports observation counts
+  plus active current/previous/map/payload counts when those domains are built.
+  Use this to verify the manager-side contract before enabling the RAB routing
+  gate.
+
+- r_pathTracingRestirLightManagerRAB
+  Defaults to 0. Opt-in routing gate that makes the ReSTIR RAB light-load path
+  consume the CPU light-manager current/previous domains and manager-owned
+  payload buffers. `0` preserves the legacy RAB light path. The gate is for
+  bridge validation only; it does not change RTXDI math or reservoir policy.
+
 - r_pathTracingReservoirDump
   One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized
   record count/bytes, scene and dispatch signatures, reset/clear counters,
@@ -1205,6 +1263,12 @@ Denoise/upscale/Ray Reconstruction reservation:
   view/current area plus portal step/area/edge facts, and CPU upload/timing
   estimates. This is a diagnostics contract only; it does not change dispatch
   routing or shader-visible buffer layouts.
+
+- r_pathTracingPortalBruteforceFullMap
+  Defaults to 0. Diagnostic override that treats every render-world area as
+  selected for the PT scene, rigid residency, emissive-light, and analytic-light
+  portal selectors. Set to 1 only for portal-boundary A/B tests; it is expected
+  to be very slow and is not a final residency or light-selection policy.
 
 - r_pathTracingGpuSkinning
   Off-by-default PT GPU skinning scaffold gate. `0` keeps only the existing

@@ -1,0 +1,443 @@
+Implementation Slices
+=====================
+
+Use one slice per worker. Do not combine slices unless the user explicitly
+orders it.
+
+Each slice is a clean-room direct-port slice. The worker must mirror the named
+Remix file-equivalent contract in rbdoom-native code. Do not treat this as a
+general redesign, tuning pass, or opportunity to keep old smoke behavior because
+it looks close.
+
+
+RRX-00: File Graph And Contract Freeze
+--------------------------------------
+
+Status:
+
+    Complete when docs/restir_remix_rebuild/remix_file_graph.txt lists each
+    Remix file-equivalent, rbdoom replacement target, exact inputs, exact
+    outputs, and deferred features.
+
+Confirmed file graph:
+
+    rtx_scene_manager.cpp
+        -> neo/renderer/NVRHI/PathTraceRemixFramePrepare.*
+
+    rtx_light_manager.cpp
+    rtx_light_manager.h
+        -> neo/renderer/NVRHI/PathTraceRemixLightManager.*
+
+    rtx_context.cpp
+    common_bindings.slangh
+    raytrace_args.h
+        -> neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+        -> neo/shaders/builtin/pathtracing/remix_bridge/remix_common_bindings.hlsli
+        -> neo/shaders/builtin/pathtracing/remix_bridge/remix_raytrace_args.hlsli
+
+    rtx_rtxdi_rayquery.cpp
+        -> neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.*
+
+    RtxdiApplicationBridge.slangh
+        -> neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+        -> neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+        -> neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
+        -> neo/shaders/builtin/pathtracing/remix_bridge/RAB_VisibilityBridge.hlsli
+
+    rtxdi_initial_sampling.comp.slang
+        -> neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+    rtxdi_temporal_reuse.comp.slang
+        -> neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+
+    rtxdi_spatial_reuse.comp.slang
+        -> neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+
+    rtxdi_compute_gradients.comp.slang
+    rtxdi_filter_gradients.comp.slang
+    rtxdi_compute_confidence.comp.slang
+        -> neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_compute_gradients.rt.hlsl
+        -> neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_filter_gradients.rt.hlsl
+        -> neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_compute_confidence.rt.hlsl
+
+    restir_gi_temporal_reuse.comp.slang
+        -> neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+
+    restir_gi_spatial_reuse.comp.slang
+    restir_gi_final_shading.comp.slang
+        -> neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_spatial_reuse.rt.hlsl
+        -> neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_final_shading.rt.hlsl
+
+Frozen contract:
+
+    Dynamic light animation updates payload and mapping data. It must not be a
+    structural reason to clear all DI/GI reservoir history.
+
+    Only output/resource incompatibility, explicit history reset, or a proven
+    structural contract break may reset persistent reservoir domains.
+
+    Failed light translation returns the invalid sentinel and rejects only the
+    selected-light path being evaluated.
+
+    RTXDI helper math remains authoritative; workers must not hand-roll
+    reservoir weights, target PDFs, MIS, temporal thresholds, spatial
+    thresholds, or finalization.
+
+Recommended next slice:
+
+    RRX-01: Remix Frame Prepare Scaffold.
+
+    Reason: it is the smallest one-file-equivalent implementation slice after
+    the graph freeze. It establishes the rbdoom-native ordering point and
+    diagnostic observation package without touching shaders, RAB routing,
+    reservoirs, or render output beyond the explicitly owned scaffold files.
+
+Forbidden:
+
+    no code changes in RRX-00
+    no shader changes in RRX-00
+    no ReSTIR math changes
+    no broad rewrite proposal
+
+
+RRX-01: Remix Frame Prepare Scaffold
+------------------------------------
+
+Status:
+
+    Implemented as a CPU-diagnostics-only scaffold in
+    PathTraceRemixFramePrepare.*. The scaffold records frame/reset state,
+    light/emissive observation counts, and explicit zero counts for resource
+    allocation, shader routing, and old smoke reservoir signature consultation.
+    Runtime one-shot dump:
+
+        r_pathTracingRemixFramePrepareDump 1
+
+    Validation:
+
+        cmake --build --preset win64-pt-dev-release
+        copied build-win64-pt-dev/Release/RBDoom3BFG.exe to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Goal:
+
+    Add a rbdoom-native frame preparation scaffold equivalent to
+    rtx_scene_manager.cpp frame ordering. It must be diagnostic-only.
+
+Remix file-equivalent:
+
+    src/dxvk/rtx_render/rtx_scene_manager.cpp
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRemixFramePrepare.h
+    neo/renderer/NVRHI/PathTraceRemixFramePrepare.cpp
+    CMake/project files only if required
+    docs/restir_remix_rebuild/* only for status notes
+
+Inputs:
+
+    rbdoom frame index and reset/history state
+    PathTraceSceneCapture / PathTraceSceneInputs frame observations
+    Doom analytic light observations
+    emissive/light-universe observations
+    output extent and feature CVars
+
+Outputs:
+
+    ordered frame-preparation call point for Remix-shaped ReSTIR
+    current frame observation package for the future Remix light manager
+    diagnostics separating structural reset reasons from payload/mapping churn
+
+Steps:
+
+    1. Add an object with BeginFrame/EndFrame style ownership.
+    2. Accept rbdoom light/emissive observations as input.
+    3. Emit only debug stats for now.
+    4. Do not route RAB, RTXDI, or reservoirs through it yet.
+
+Forbidden:
+
+    no old smoke reservoir changes
+    no ReSTIR math changes
+    no render output changes
+    no light-manager implementation beyond inputs needed for diagnostics
+
+
+RRX-02: Remix Light Manager Contract
+------------------------------------
+
+Status:
+
+    Implemented as a CPU-diagnostics-only contract in
+    PathTraceRemixLightManager.* and wired beside the older ReSTIR light
+    manager. The manager builds current/previous unified light payload arrays,
+    current-to-previous and previous-to-current maps, per-type light ranges,
+    per-type sample counts, and structural/mapping/payload signatures. Doom
+    analytic remapping is identity/remap based inside this Remix-shaped manager:
+    payload animation is allowed to change the payload signature without
+    becoming a structural signature change or a payload-compatibility remap
+    failure. The structural signature is limited to the stable light-domain
+    schema/ABI; active payload counts, per-type ranges, and sampleable range
+    churn are payload/mapping state and must not become structural changes.
+
+    Runtime one-shot dump:
+
+        r_pathTracingRemixLightManagerDump 1
+
+    Validation:
+
+        cmake --build --preset win64-pt-dev-release
+        copied build-win64-pt-dev/Release/RBDoom3BFG.exe to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Goal:
+
+    Build the current/previous light contract equivalent to Remix
+    LightManager::prepareSceneData.
+
+Remix file-equivalent:
+
+    src/dxvk/rtx_render/rtx_light_manager.cpp
+    src/dxvk/rtx_render/rtx_light_manager.h
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixFramePrepare.* only as needed
+
+Required inputs:
+
+    PathTraceRemixFramePrepare observation package
+    Doom analytic light records and identity/remap evidence
+    emissive light records when promoted into the unified domain
+    prior manager state
+    configured per-type sample counts
+
+Required outputs:
+
+    current active light payloads
+    previous active light payloads
+    current-to-previous map
+    previous-to-current map
+    invalid mapping sentinels
+    light type ranges
+    sample count metadata
+    structural/mapping/payload signatures
+
+Acceptance:
+
+    Animated payload-only changes must change payload signature, not structural
+    signature. Mapping failure must be represented as invalid map entries.
+
+Forbidden:
+
+    no reservoir clear policy changes yet
+    no RAB routing yet
+    no global dynamic-light suppression
+
+
+RRX-03: ReSTIR Resource Ownership Split
+---------------------------------------
+
+Status:
+
+    Implemented as an independent DI/GI reservoir owner in
+    PathTraceRemixRtxdiResources.*. The owner allocates RTXDI packed DI and GI
+    reservoir buffers with RTXDI reservoir addressing parameters, records its
+    own recreate/reuse decision, and reports clearPending when newly allocated
+    or explicitly reset reservoirs still require a future command-list clear.
+    It ignores old smoke reservoir scene/dispatch signature reset flags and
+    records zero consultation of
+    smokeReservoirDispatchSignature and m_smokeDoomAnalyticLightCount, and does
+    not bind the new reservoirs to shaders yet. Persistent allocation is gated
+    behind r_pathTracingRemixRtxdiResourcesEnable; the one-shot dump allocates
+    for one validation frame so normal runs do not carry baseline DI/GI memory
+    pressure while binding is deferred.
+
+    Runtime one-shot dump:
+
+        r_pathTracingRemixRtxdiResourcesDump 1
+
+    Runtime persistent allocation gate:
+
+        r_pathTracingRemixRtxdiResourcesEnable 1
+
+    Deferred:
+
+        remix_common_bindings.hlsli
+        remix_raytrace_args.hlsli
+        explicit command-list reservoir clear execution
+        PathTraceSmokeResources.cpp binding handoff
+
+    Validation:
+
+        cmake --build --preset win64-pt-dev-release
+        copied build-win64-pt-dev/Release/RBDoom3BFG.exe to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Goal:
+
+    Create new RTXDI/ReSTIR reservoir resource ownership that is independent
+    from the old smoke reservoir reset path.
+
+Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_context.cpp
+    src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    src/dxvk/shaders/rtx/pass/raytrace_args.h
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.cpp
+    neo/shaders/builtin/pathtracing/remix_bridge/remix_common_bindings.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/remix_raytrace_args.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp only for binding handoff
+
+Rules:
+
+    Do not consult smokeReservoirDispatchSignature.
+    Do not use m_smokeDoomAnalyticLightCount as reservoir validity.
+    Reset only on output-size/resource incompatibility or explicit history
+    reset reasons equivalent to Remix.
+
+
+RRX-04: RAB Light Bridge
+------------------------
+
+Goal:
+
+    Add the shader bridge equivalent to Remix RtxdiApplicationBridge light
+    translation, light loading, and reservoir page access.
+
+Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli only as required
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_VisibilityBridge.hlsli only as required
+    binding declarations only as required
+
+Acceptance:
+
+    Previous reservoir light indices map through the light mapping buffer. A
+    failed mapping returns invalid and rejects only that selected-light path.
+
+Forbidden:
+
+    no RTXDI math changes
+    no fallback to old split Doom analytic remap as final policy
+    no GI callbacks until GI slices
+
+
+RRX-05: DI Initial Sampling
+---------------------------
+
+Goal:
+
+    Implement the rbdoom equivalent of Remix DI initial sampling against the
+    new light bridge and new reservoir resources.
+
+Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.* only as required
+
+Forbidden:
+
+    no temporal reuse yet
+    no spatial reuse yet
+    no DLSS RR validation
+
+
+RRX-06: DI Temporal Reuse
+-------------------------
+
+Goal:
+
+    Implement the rbdoom equivalent of Remix DI temporal reuse using motion,
+    previous surface, reservoir pages, and RAB light translation.
+
+Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+
+Acceptance:
+
+    Dynamic light animation must not cause a whole reservoir-domain clear.
+    Failed light translation rejects the selected-light path locally.
+
+Forbidden:
+
+    no hand-rolled temporal math
+    no changed thresholds unless explicitly documented from a Remix/RTXDI
+    contract mismatch
+
+
+RRX-07: DI Spatial Reuse And Gradients
+--------------------------------------
+
+Goal:
+
+    Add spatial reuse and the gradient/best-light/confidence outputs needed
+    before GI lighting validation.
+
+Remix file-equivalents:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_filter_gradients.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_confidence.comp.slang
+
+Forbidden:
+
+    no GI work in this slice
+    no denoiser tuning
+    no DLSS RR claims until debug views are sane
+
+
+RRX-08: ReSTIR GI Temporal Contract
+-----------------------------------
+
+Goal:
+
+    Start GI only after DI temporal reuse is stable. Use the same light bridge
+    and Remix-style lighting validation inputs.
+
+Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Forbidden:
+
+    no old rbdoom GI reservoir algorithm as a base
+    no DLSS RR claims until DI and GI temporal debug views are sane
+
+
+RRX-09: ReSTIR GI Spatial And Final Shading
+-------------------------------------------
+
+Goal:
+
+    Add GI spatial reuse and final GI contribution only after the temporal GI
+    contract is inspectable.
+
+Remix file-equivalents:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_spatial_reuse.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_final_shading.comp.slang
+
+Forbidden:
+
+    no old rbdoom broken reservoir path
+    no denoiser/RR tuning as proof of correctness
