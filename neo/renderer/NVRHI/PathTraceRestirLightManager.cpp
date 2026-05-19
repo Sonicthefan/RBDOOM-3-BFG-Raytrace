@@ -201,12 +201,13 @@ uint64 HashEmissivePayload(const PathTraceSmokeEmissiveTriangle& emissiveTriangl
     hash = HashLightManagerFloatArray(hash, emissiveTriangle.centerAndArea, 4);
     hash = HashLightManagerFloatArray(hash, emissiveTriangle.normalAndLuminance, 4);
     hash = HashLightManagerFloatArray(hash, emissiveTriangle.estimatedRadianceAndLuminance, 4);
-    hash = HashLightManagerFloatArray(hash, emissiveTriangle.sampleWeightAndPdf, 4);
-    hash = HashLightManagerValue(hash, emissiveTriangle.materialIndex);
+    hash = HashLightManagerFloatArray(hash, emissiveTriangle.uvBounds, 4);
+    hash = HashLightManagerFloatArray(hash, emissiveTriangle.centroidUvAndWeight, 3);
     hash = HashLightManagerValue(hash, emissiveTriangle.instanceId);
     hash = HashLightManagerValue(hash, emissiveTriangle.primitiveIndex);
     hash = HashLightManagerValue(hash, emissiveTriangle.flags);
     hash = HashLightManagerValue(hash, emissiveTriangle.materialId);
+    hash = HashLightManagerValue(hash, emissiveTriangle.emissiveTextureIndex);
     return hash;
 }
 
