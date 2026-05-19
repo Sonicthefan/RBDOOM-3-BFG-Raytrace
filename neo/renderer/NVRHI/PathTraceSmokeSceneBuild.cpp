@@ -2060,7 +2060,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const PathTraceRestirLightObservationStats restirLightManagerStats = BuildPathTraceRestirLightManagerDebugObservations(
             restirLightManagerObservations);
         const PathTraceRestirLightManagerStats restirLightManagerPersistentStats = m_restirLightManager.GetStats();
-        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u payloadSourceValid=%u mappedReady=%u remapInvalid=%u unsupported=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u stableMapped=%u payloadChangedMapped=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset/unproven/zero/suppressed/outOfArea/disconnectedOrPortal/invalidShape/candidateCap/incompatible/deleted=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u payloadSourceValid=%u mappedReady=%u remapInvalid=%u unsupported=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u stableMapped=%u payloadChangedMapped=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u topPayloadChanged current/previous/source/key/hashCurrent/hashPrevious=%u/%u/%u/%u:%u/%u:%u/%u:%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset/unproven/zero/suppressed/outOfArea/disconnectedOrPortal/invalidShape/candidateCap/incompatible/deleted=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
             restirLightManagerStats.totalObservationCount,
             restirLightManagerStats.stableIdentityCount,
             restirLightManagerStats.unknownIdentityCount,
@@ -2097,6 +2097,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.structuralSignatureChanged,
             restirLightManagerPersistentStats.mappingIdentitySignatureChanged,
             restirLightManagerPersistentStats.animatedPayloadSignatureChanged,
+            restirLightManagerPersistentStats.topPayloadChangedCurrentIndex,
+            restirLightManagerPersistentStats.topPayloadChangedPreviousIndex,
+            restirLightManagerPersistentStats.topPayloadChangedSourceType,
+            restirLightManagerPersistentStats.topPayloadChangedIdentityKeyLo,
+            restirLightManagerPersistentStats.topPayloadChangedIdentityKeyHi,
+            restirLightManagerPersistentStats.topPayloadChangedCurrentHashLo,
+            restirLightManagerPersistentStats.topPayloadChangedCurrentHashHi,
+            restirLightManagerPersistentStats.topPayloadChangedPreviousHashLo,
+            restirLightManagerPersistentStats.topPayloadChangedPreviousHashHi,
             restirLightManagerPersistentStats.invalidReasons.newLight,
             restirLightManagerPersistentStats.invalidReasons.missingLight,
             restirLightManagerPersistentStats.invalidReasons.temporary,

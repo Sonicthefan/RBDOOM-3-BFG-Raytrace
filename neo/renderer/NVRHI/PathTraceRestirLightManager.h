@@ -159,6 +159,15 @@ struct PathTraceRestirLightManagerStats
     uint32_t structuralSignatureChanged = 0;
     uint32_t mappingIdentitySignatureChanged = 0;
     uint32_t animatedPayloadSignatureChanged = 0;
+    uint32_t topPayloadChangedCurrentIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    uint32_t topPayloadChangedPreviousIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    uint32_t topPayloadChangedSourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
+    uint32_t topPayloadChangedIdentityKeyLo = 0;
+    uint32_t topPayloadChangedIdentityKeyHi = 0;
+    uint32_t topPayloadChangedCurrentHashLo = 0;
+    uint32_t topPayloadChangedCurrentHashHi = 0;
+    uint32_t topPayloadChangedPreviousHashLo = 0;
+    uint32_t topPayloadChangedPreviousHashHi = 0;
     uint64_t structuralSignature = 0;
     uint64_t mappingIdentitySignature = 0;
     uint64_t animatedPayloadSignature = 0;

@@ -567,10 +567,20 @@ void PathTraceRestirLightManager::RebuildStats()
     m_stats.mapSizeMismatchCount =
         (m_currentToPreviousRemap.size() == m_currentLightRecords.size() ? 0u : 1u) +
         (m_previousToCurrentRemap.size() == m_previousLightRecords.size() ? 0u : 1u);
+    m_stats.topPayloadChangedCurrentIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    m_stats.topPayloadChangedPreviousIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    m_stats.topPayloadChangedSourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
+    m_stats.topPayloadChangedIdentityKeyLo = 0;
+    m_stats.topPayloadChangedIdentityKeyHi = 0;
+    m_stats.topPayloadChangedCurrentHashLo = 0;
+    m_stats.topPayloadChangedCurrentHashHi = 0;
+    m_stats.topPayloadChangedPreviousHashLo = 0;
+    m_stats.topPayloadChangedPreviousHashHi = 0;
     m_stats.invalidReasons = {};
 
-    for (const PathTraceRestirCurrentLightRecord& record : m_currentLightRecords)
+    for (size_t currentIndex = 0; currentIndex < m_currentLightRecords.size(); ++currentIndex)
     {
+        const PathTraceRestirCurrentLightRecord& record = m_currentLightRecords[currentIndex];
         if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u)
         {
             ++m_stats.stableIdentityCount;
@@ -586,6 +596,25 @@ void PathTraceRestirLightManager::RebuildStats()
             if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED) != 0u)
             {
                 ++m_stats.payloadChangedMappedCount;
+                if (m_stats.topPayloadChangedCurrentIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX &&
+                    currentIndex < m_currentToPreviousRemap.size())
+                {
+                    const uint32_t previousIndex = m_currentToPreviousRemap[currentIndex];
+                    if (previousIndex != PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX &&
+                        previousIndex < m_previousLightRecords.size())
+                    {
+                        const PathTraceRestirPreviousLightRecord& previousRecord = m_previousLightRecords[previousIndex];
+                        m_stats.topPayloadChangedCurrentIndex = static_cast<uint32_t>(currentIndex);
+                        m_stats.topPayloadChangedPreviousIndex = previousIndex;
+                        m_stats.topPayloadChangedSourceType = record.sourceType;
+                        m_stats.topPayloadChangedIdentityKeyLo = record.identityKeyLo;
+                        m_stats.topPayloadChangedIdentityKeyHi = record.identityKeyHi;
+                        m_stats.topPayloadChangedCurrentHashLo = record.payloadHashLo;
+                        m_stats.topPayloadChangedCurrentHashHi = record.payloadHashHi;
+                        m_stats.topPayloadChangedPreviousHashLo = previousRecord.payloadHashLo;
+                        m_stats.topPayloadChangedPreviousHashHi = previousRecord.payloadHashHi;
+                    }
+                }
             }
         }
         if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY) != 0u)
