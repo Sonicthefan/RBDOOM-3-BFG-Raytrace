@@ -43,7 +43,14 @@ enum PathTraceRestirLightInvalidReasonFlags : uint32_t
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE = 1u << 4,
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY = 1u << 5,
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE = 1u << 6,
-    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_STRUCTURAL_RESET = 1u << 7
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_STRUCTURAL_RESET = 1u << 7,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNPROVEN_CONTINUITY = 1u << 8,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE = 1u << 9,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_SUPPRESSED = 1u << 10,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA = 1u << 11,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL = 1u << 12,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE = 1u << 13,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP = 1u << 14
 };
 
 struct PathTraceRestirCurrentLightRecord
@@ -80,6 +87,13 @@ struct PathTraceRestirLightInvalidReasonStats
     uint32_t unknownIdentity = 0;
     uint32_t unsupportedSource = 0;
     uint32_t structuralReset = 0;
+    uint32_t unprovenContinuity = 0;
+    uint32_t zeroRadiance = 0;
+    uint32_t suppressed = 0;
+    uint32_t outOfSelectedArea = 0;
+    uint32_t disconnectedOrPortal = 0;
+    uint32_t invalidShape = 0;
+    uint32_t candidateCap = 0;
 };
 
 struct PathTraceRestirLightManagerStats

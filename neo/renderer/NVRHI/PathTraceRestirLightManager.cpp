@@ -7,6 +7,19 @@
 
 namespace {
 
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_MISSING_PREVIOUS = 0x00000001u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_MISSING_CURRENT = 0x00000002u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_DUPLICATE_KEY = 0x00000004u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_UNKNOWN_ENTITY = 0x00000008u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_UNPROVEN_CONTINUITY = 0x00000010u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_ZERO_RADIANCE = 0x00000020u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_SUPPRESSED = 0x00000040u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_OUT_OF_SELECTED_AREA = 0x00000080u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_NON_POINT_OR_PARALLEL = 0x00000100u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_RADIUS_INVALID = 0x00000200u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_CANDIDATE_CAP_DROPPED = 0x00000400u;
+constexpr uint32_t DOOM_LIGHT_MANAGER_INVALID_DISCONNECTED_OR_PORTAL = 0x00000800u;
+
 uint64 HashLightManagerBytes(uint64 hash, const void* data, size_t size)
 {
     const uint8_t* bytes = static_cast<const uint8_t*>(data);
@@ -64,6 +77,84 @@ void AccumulateInvalidReasonStats(
     {
         ++stats.structuralReset;
     }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNPROVEN_CONTINUITY) != 0u)
+    {
+        ++stats.unprovenContinuity;
+    }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE) != 0u)
+    {
+        ++stats.zeroRadiance;
+    }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_SUPPRESSED) != 0u)
+    {
+        ++stats.suppressed;
+    }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA) != 0u)
+    {
+        ++stats.outOfSelectedArea;
+    }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL) != 0u)
+    {
+        ++stats.disconnectedOrPortal;
+    }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE) != 0u)
+    {
+        ++stats.invalidShape;
+    }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP) != 0u)
+    {
+        ++stats.candidateCap;
+    }
+}
+
+uint32_t TranslateDoomAnalyticInvalidReasons(uint32_t doomInvalidReasonFlags)
+{
+    uint32_t result = PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_MISSING_PREVIOUS) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_MISSING_LIGHT;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_MISSING_CURRENT) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_MISSING_LIGHT;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_DUPLICATE_KEY) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_UNKNOWN_ENTITY) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_UNPROVEN_CONTINUITY) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNPROVEN_CONTINUITY;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_ZERO_RADIANCE) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_SUPPRESSED) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_SUPPRESSED;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_OUT_OF_SELECTED_AREA) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_DISCONNECTED_OR_PORTAL) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL;
+    }
+    if ((doomInvalidReasonFlags & (DOOM_LIGHT_MANAGER_INVALID_NON_POINT_OR_PARALLEL | DOOM_LIGHT_MANAGER_INVALID_RADIUS_INVALID)) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE;
+    }
+    if ((doomInvalidReasonFlags & DOOM_LIGHT_MANAGER_INVALID_CANDIDATE_CAP_DROPPED) != 0u)
+    {
+        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP;
+    }
+    return result;
 }
 
 PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurrentLightRecord& currentRecord)
@@ -79,7 +170,14 @@ PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurre
     previousRecord.invalidReasonFlags = currentRecord.invalidReasonFlags & (
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE);
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNPROVEN_CONTINUITY |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_SUPPRESSED |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP);
     return previousRecord;
 }
 
@@ -154,6 +252,14 @@ PathTraceRestirCurrentLightRecord MakeDoomAnalyticRecord(
         record.stableKeyLo = identity->universeIndex;
         record.stableKeyHi = 0u;
         record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
+        if ((identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID) == 0u)
+        {
+            record.invalidReasonFlags |= TranslateDoomAnalyticInvalidReasons(identity->invalidReasonFlags);
+            if (record.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
+            {
+                record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE;
+            }
+        }
     }
     else
     {
@@ -225,18 +331,12 @@ bool RecordHasStableIdentity(const PathTraceRestirPreviousLightRecord& record)
 
 bool RecordRemapBlocked(const PathTraceRestirCurrentLightRecord& record)
 {
-    return (record.invalidReasonFlags & (
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE)) != 0u;
+    return record.invalidReasonFlags != PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
 }
 
 bool RecordRemapBlocked(const PathTraceRestirPreviousLightRecord& record)
 {
-    return (record.invalidReasonFlags & (
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE)) != 0u;
+    return record.invalidReasonFlags != PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
 }
 
 } // namespace
