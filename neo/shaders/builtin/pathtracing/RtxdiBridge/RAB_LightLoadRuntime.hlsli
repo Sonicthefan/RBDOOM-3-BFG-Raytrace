@@ -53,6 +53,65 @@ bool RAB_UnifiedPrevToCurrentScanEnabled()
     return RestirPTSurfaceInfo.z >= 0.5;
 }
 
+uint RAB_GetCurrentRestirLightManagerCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerInfo.x, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetPreviousRestirLightManagerCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerInfo.y, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetRestirLightManagerCurrentToPreviousCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerInfo.z, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetRestirLightManagerPreviousToCurrentCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerInfo.w, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+bool RAB_RestirLightManagerRABEnabled()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return RestirLightManagerControlInfo.x >= 0.5;
+#else
+    return false;
+#endif
+}
+
+#ifndef RB_PATH_TRACE_RESTIR_LIGHT_MANAGER_CONSTANTS
+#define RB_PATH_TRACE_RESTIR_LIGHT_MANAGER_CONSTANTS
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX = 0xffffffffu;
+static const uint PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE = 1u;
+static const uint PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC = 2u;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY = 1u << 0;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY = 1u << 2;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_PREVIOUS_ONLY = 1u << 3;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID = 1u << 4;
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY = 1u << 5;
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE = 1u << 6;
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE = 1u << 15;
+#endif
+
 int RAB_TranslateUnifiedLightIndex(uint lightIndex, bool currentToPrevious)
 {
     if (currentToPrevious)
@@ -87,8 +146,43 @@ int RAB_TranslateUnifiedLightIndex(uint lightIndex, bool currentToPrevious)
     return -1;
 }
 
+int RAB_TranslateRestirLightManagerIndex(uint lightIndex, bool currentToPrevious)
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    if (currentToPrevious)
+    {
+        if (lightIndex >= RAB_GetCurrentRestirLightManagerCount() ||
+            lightIndex >= RAB_GetRestirLightManagerCurrentToPreviousCount())
+        {
+            return -1;
+        }
+
+        const uint previousIndex = PathTraceRestirLightManagerCurrentToPrevious[lightIndex];
+        return previousIndex != PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX &&
+            previousIndex < RAB_GetPreviousRestirLightManagerCount() ? (int)previousIndex : -1;
+    }
+
+    if (lightIndex >= RAB_GetPreviousRestirLightManagerCount() ||
+        lightIndex >= RAB_GetRestirLightManagerPreviousToCurrentCount())
+    {
+        return -1;
+    }
+
+    const uint currentIndex = PathTraceRestirLightManagerPreviousToCurrent[lightIndex];
+    return currentIndex != PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX &&
+        currentIndex < RAB_GetCurrentRestirLightManagerCount() ? (int)currentIndex : -1;
+#else
+    return -1;
+#endif
+}
+
 int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
 {
+    if (RAB_RestirLightManagerRABEnabled())
+    {
+        return RAB_TranslateRestirLightManagerIndex(lightIndex, currentToPrevious);
+    }
+
     if (RAB_UnifiedLightLoadEnabled())
     {
         return RAB_TranslateUnifiedLightIndex(lightIndex, currentToPrevious);
@@ -193,6 +287,56 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
     return (int)(currentEmissiveTriangleCount + currentAnalyticIndex);
 }
 
+RAB_LightInfo RAB_BuildLightInfoFromEmissivePayload(PathTraceSmokeEmissiveTriangle emissiveTriangle, uint lightIndex)
+{
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+    lightInfo.lightIndex = lightIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+    lightInfo.materialIndex = emissiveTriangle.materialIndex;
+    lightInfo.flags = emissiveTriangle.flags | emissiveTriangle.padding0;
+    lightInfo.position = emissiveTriangle.centerAndArea.xyz;
+    lightInfo.radius = 0.0;
+    lightInfo.influenceRadius = 0.0;
+    lightInfo.normal = RAB_LightInfoSafeNormalize(emissiveTriangle.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
+    lightInfo.area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
+    lightInfo.radiance = max(emissiveTriangle.estimatedRadianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
+    const bool structurallyLoadableEmissive = emissiveTriangle.centerAndArea.w > 1.0e-6;
+    const float structuralWeightFallback = structurallyLoadableEmissive ? 1.0e-6 : 0.0;
+    lightInfo.weight = max(max(emissiveTriangle.sampleWeightAndPdf.x, emissiveTriangle.estimatedRadianceAndLuminance.w), structuralWeightFallback);
+    return lightInfo;
+}
+
+RAB_LightInfo RAB_BuildLightInfoFromDoomAnalyticPayload(PathTraceDoomAnalyticLightCandidate analyticLight, uint lightIndex)
+{
+    const float radius = max(analyticLight.originAndRadius.w, 0.01);
+    const float influenceRadius = max(analyticLight.doomRadiusAndArea.x, 1.0);
+    const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
+    const float3 radiance = max(analyticLight.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0)) * intensityScale;
+    if (!all(analyticLight.originAndRadius.xyz == analyticLight.originAndRadius.xyz) ||
+        !all(radiance == radiance) ||
+        radius <= 0.0 ||
+        influenceRadius <= 0.0)
+    {
+        return RAB_EmptyLightInfo();
+    }
+
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+    lightInfo.lightIndex = lightIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
+    lightInfo.flags = analyticLight.flags;
+    lightInfo.position = analyticLight.originAndRadius.xyz;
+    lightInfo.radius = radius;
+    lightInfo.influenceRadius = influenceRadius;
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
+    lightInfo.area = 4.0 * RTXDI_PI * radius * radius;
+    lightInfo.radiance = radiance;
+    lightInfo.weight = max(max(lightInfo.radiance.r, lightInfo.radiance.g), lightInfo.radiance.b) * lightInfo.area * influenceRadius;
+    return lightInfo;
+}
+
 RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
 {
     if (previousFrame)
@@ -220,22 +364,7 @@ RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
         {
             emissiveTriangle = SmokeEmissiveTriangles[index];
         }
-        RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
-        lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
-        lightInfo.lightIndex = index;
-        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
-        lightInfo.materialIndex = emissiveTriangle.materialIndex;
-        lightInfo.flags = emissiveTriangle.flags | emissiveTriangle.padding0;
-        lightInfo.position = emissiveTriangle.centerAndArea.xyz;
-        lightInfo.radius = 0.0;
-        lightInfo.influenceRadius = 0.0;
-        lightInfo.normal = RAB_LightInfoSafeNormalize(emissiveTriangle.normalAndLuminance.xyz, float3(0.0, 0.0, 1.0));
-        lightInfo.area = max(emissiveTriangle.centerAndArea.w, 1.0e-4);
-        lightInfo.radiance = max(emissiveTriangle.estimatedRadianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(ToyPathInfo.z, 0.0);
-        const bool structurallyLoadableEmissive = emissiveTriangle.centerAndArea.w > 1.0e-6;
-        const float structuralWeightFallback = structurallyLoadableEmissive ? 1.0e-6 : 0.0;
-        lightInfo.weight = max(max(emissiveTriangle.sampleWeightAndPdf.x, emissiveTriangle.estimatedRadianceAndLuminance.w), structuralWeightFallback);
-        return lightInfo;
+        return RAB_BuildLightInfoFromEmissivePayload(emissiveTriangle, index);
     }
 
     const uint analyticCount = previousFrame ? (uint)max(DoomAnalyticLightRemapInfo.y, 0.0) : RAB_GetCurrentDoomAnalyticLightCount();
@@ -266,35 +395,87 @@ RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
         {
             analyticLight = DoomAnalyticLights[analyticIndex];
         }
-        const float radius = max(analyticLight.originAndRadius.w, 0.01);
-        const float influenceRadius = max(analyticLight.doomRadiusAndArea.x, 1.0);
-        const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
-        const float3 radiance = max(analyticLight.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0)) * intensityScale;
-        if (!all(analyticLight.originAndRadius.xyz == analyticLight.originAndRadius.xyz) ||
-            !all(radiance == radiance) ||
-            radius <= 0.0 ||
-            influenceRadius <= 0.0)
+        return RAB_BuildLightInfoFromDoomAnalyticPayload(analyticLight, index);
+    }
+
+    return RAB_EmptyLightInfo();
+}
+
+RAB_LightInfo RAB_LoadRestirLightManagerLightInfo(uint index, bool previousFrame)
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    if (previousFrame)
+    {
+        if (index >= RAB_GetPreviousRestirLightManagerCount())
         {
             return RAB_EmptyLightInfo();
         }
 
-        RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
-        lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
-        lightInfo.lightIndex = index;
-        lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
-        lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
-        lightInfo.flags = analyticLight.flags;
-        lightInfo.position = analyticLight.originAndRadius.xyz;
-        lightInfo.radius = radius;
-        lightInfo.influenceRadius = influenceRadius;
-        lightInfo.normal = float3(0.0, 0.0, 1.0);
-        lightInfo.area = 4.0 * RTXDI_PI * radius * radius;
-        lightInfo.radiance = radiance;
-        lightInfo.weight = max(max(lightInfo.radiance.r, lightInfo.radiance.g), lightInfo.radiance.b) * lightInfo.area * influenceRadius;
-        return lightInfo;
+        const PathTraceRestirPreviousLightRecord record = PathTraceRestirLightManagerPrevious[index];
+        if (record.sourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
+        {
+            return RAB_EmptyLightInfo();
+        }
+        if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
+        {
+            if (record.sourceIndex >= RAB_GetPreviousEmissiveTriangleCount())
+            {
+                return RAB_EmptyLightInfo();
+            }
+            return RAB_BuildLightInfoFromEmissivePayload(SmokePreviousEmissiveTriangles[record.sourceIndex], index);
+        }
+        if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC)
+        {
+            if (record.sourceIndex >= (uint)max(DoomAnalyticLightRemapInfo.y, 0.0))
+            {
+                return RAB_EmptyLightInfo();
+            }
+            const PathTraceDoomAnalyticLightCandidateIdentity identity = DoomAnalyticPreviousIdentities[record.sourceIndex];
+            if (!RAB_DoomAnalyticIdentitySampleable(identity))
+            {
+                return RAB_EmptyLightInfo();
+            }
+            return RAB_BuildLightInfoFromDoomAnalyticPayload(DoomAnalyticPreviousLights[record.sourceIndex], index);
+        }
+        return RAB_EmptyLightInfo();
     }
 
+    if (index >= RAB_GetCurrentRestirLightManagerCount())
+    {
+        return RAB_EmptyLightInfo();
+    }
+
+    const PathTraceRestirCurrentLightRecord record = PathTraceRestirLightManagerCurrent[index];
+    if (record.sourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
+    {
+        return RAB_EmptyLightInfo();
+    }
+    if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
+    {
+        if (record.sourceIndex >= RAB_GetCurrentEmissiveTriangleCount())
+        {
+            return RAB_EmptyLightInfo();
+        }
+        return RAB_BuildLightInfoFromEmissivePayload(SmokeEmissiveTriangles[record.sourceIndex], index);
+    }
+    if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC)
+    {
+        if (record.sourceIndex >= RAB_GetCurrentDoomAnalyticLightCount() ||
+            record.sourceIndex >= (uint)max(DoomAnalyticLightRemapInfo.x, 0.0))
+        {
+            return RAB_EmptyLightInfo();
+        }
+        const PathTraceDoomAnalyticLightCandidateIdentity identity = DoomAnalyticCurrentIdentities[record.sourceIndex];
+        if (!RAB_DoomAnalyticIdentitySampleable(identity))
+        {
+            return RAB_EmptyLightInfo();
+        }
+        return RAB_BuildLightInfoFromDoomAnalyticPayload(DoomAnalyticLights[record.sourceIndex], index);
+    }
     return RAB_EmptyLightInfo();
+#else
+    return RAB_EmptyLightInfo();
+#endif
 }
 
 bool RAB_UnifiedDoomAnalyticRecordSampleable(PathTraceUnifiedLightRecord record)
@@ -392,6 +573,11 @@ RAB_LightInfo RAB_LoadUnifiedLightInfo(uint index, bool previousFrame)
 
 RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
 {
+    if (RAB_RestirLightManagerRABEnabled())
+    {
+        return RAB_LoadRestirLightManagerLightInfo(index, previousFrame);
+    }
+
     if (RAB_UnifiedLightLoadEnabled())
     {
         return RAB_LoadUnifiedLightInfo(index, previousFrame);

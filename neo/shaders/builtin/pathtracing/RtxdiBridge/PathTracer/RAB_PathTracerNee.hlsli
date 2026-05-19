@@ -150,10 +150,15 @@ bool RAB_UnifiedNeeProducerEnabled()
         RAB_UnifiedLightSampleEnabled();
 }
 
+uint RAB_GetCurrentUnifiedNeeLightCount()
+{
+    return RAB_RestirLightManagerRABEnabled() ? RAB_GetCurrentRestirLightManagerCount() : RAB_GetCurrentUnifiedLightCount();
+}
+
 RTXDI_DIInitialSamplingParameters RAB_BuildUnifiedNeeInitialSamplingParameters()
 {
     RTXDI_DIInitialSamplingParameters sampleParams = (RTXDI_DIInitialSamplingParameters)0;
-    sampleParams.numLocalLightSamples = min(RAB_GetCurrentUnifiedLightCount(), RAB_UNIFIED_NEE_SAMPLE_COUNT);
+    sampleParams.numLocalLightSamples = min(RAB_GetCurrentUnifiedNeeLightCount(), RAB_UNIFIED_NEE_SAMPLE_COUNT);
     sampleParams.numInfiniteLightSamples = 0u;
     sampleParams.numEnvironmentSamples = 0u;
     sampleParams.numBrdfSamples = 0u;
@@ -169,7 +174,7 @@ RTXDI_LightBufferParameters RAB_BuildUnifiedNeeLightBufferParameters()
 {
     RTXDI_LightBufferParameters lightBufferParams = (RTXDI_LightBufferParameters)0;
     lightBufferParams.localLightBufferRegion.firstLightIndex = 0u;
-    lightBufferParams.localLightBufferRegion.numLights = RAB_GetCurrentUnifiedLightCount();
+    lightBufferParams.localLightBufferRegion.numLights = RAB_GetCurrentUnifiedNeeLightCount();
     lightBufferParams.infiniteLightBufferRegion.firstLightIndex = 0u;
     lightBufferParams.infiniteLightBufferRegion.numLights = 0u;
     lightBufferParams.environmentLightParams.lightPresent = 0u;
@@ -180,7 +185,7 @@ RTXDI_LightBufferParameters RAB_BuildUnifiedNeeLightBufferParameters()
 bool RAB_RecordUnifiedNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
 {
     if (!RAB_UnifiedNeeProducerEnabled() ||
-        RAB_GetCurrentUnifiedLightCount() == 0u ||
+        RAB_GetCurrentUnifiedNeeLightCount() == 0u ||
         !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         return false;

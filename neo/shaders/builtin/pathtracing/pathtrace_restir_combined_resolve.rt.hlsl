@@ -193,6 +193,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RayReconstructionInfo;
     float4 UnifiedLightInfo;
     float4 RestirLightManagerInfo;
+    float4 RestirLightManagerControlInfo;
     float4 RestirPTDiDebugInfo;
     float4 RestirPTGiDebugInfo;
 };
@@ -388,6 +389,7 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 }
 
 float TraceSmokeShadowVisibility(float3 origin, float3 direction, float tMax, uint ignoreInstanceId, uint ignorePrimitiveIndex, uint ignoreMaterialId);
+#define RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB 1
 #include "RtxdiBridge/PathTraceRtxdiBridge.hlsli"
 
 float3 SafeNormalize(float3 value, float3 fallback)

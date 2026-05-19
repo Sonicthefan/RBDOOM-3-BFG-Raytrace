@@ -73,6 +73,7 @@ extern idCVar r_pathTracingLightAreaFilter;
 extern idCVar r_pathTracingLightAreaFilterApply;
 extern idCVar r_pathTracingLightAreaOverflowMax;
 extern idCVar r_pathTracingRestirLightManagerDump;
+extern idCVar r_pathTracingRestirLightManagerRAB;
 extern idCVar r_pathTracingLightDump;
 extern idCVar r_pathTracingDoomLightDump;
 extern idCVar r_pathTracingDoomLightProbeDump;

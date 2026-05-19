@@ -399,6 +399,12 @@ idCVar r_pathTracingRestirLightManagerDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump debug-only ReSTIR light-manager observation counts once" );
 
+idCVar r_pathTracingRestirLightManagerRAB(
+    "r_pathTracingRestirLightManagerRAB",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Opt-in ReSTIR RAB routing through the CPU light-manager current/previous domains; 0 preserves the existing RAB light path" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",
