@@ -863,9 +863,26 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.smokeAccumulationFrameCount = 0;
     }
     const int accumulationMaxFrames = idMath::ClampInt(1, 4096, r_pathTracingToyAccumMaxFrames.GetInteger());
-    const int accumulationFrameCount = debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0
+    const bool mode18AccumulationActive = debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0;
+    const bool mode56AccumulationActive = debugMode == 56 && r_pathTracingRestirPTMode56Accumulation.GetInteger() != 0;
+    uint64 mode56AccumulationSignature = accumulationSignature;
+    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(r_pathTracingRestirPTMode56Accumulation.GetInteger() != 0 ? 1 : 0));
+    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(1, 4096, r_pathTracingRestirPTMode56AccumulationMaxFrames.GetInteger())));
+    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 9, r_pathTracingDLSSRRGuideDebugView.GetInteger())));
+    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())));
+    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(restirPTDiDebugView));
+    if (!mode56AccumulationActive || mode56AccumulationSignature != m_frameResources.mode56AccumulationSignature)
+    {
+        m_frameResources.mode56AccumulationSignature = mode56AccumulationSignature;
+        m_frameResources.mode56AccumulationFrameCount = 0;
+    }
+    const int mode56AccumulationMaxFrames = idMath::ClampInt(1, 4096, r_pathTracingRestirPTMode56AccumulationMaxFrames.GetInteger());
+    const int accumulationFrameCount = mode18AccumulationActive
         ? Min(m_frameResources.smokeAccumulationFrameCount, accumulationMaxFrames - 1)
-        : 0;
+        : (mode56AccumulationActive
+            ? Min(m_frameResources.mode56AccumulationFrameCount, mode56AccumulationMaxFrames - 1)
+            : 0);
+    const bool accumulationTextureActive = mode18AccumulationActive || mode56AccumulationActive;
 
     uint64 reservoirDispatchSignature = 1469598103934665603ull;
     reservoirDispatchSignature = HashSmokeBytes(reservoirDispatchSignature, &m_frameResources.smokeReservoirSceneSignature, sizeof(m_frameResources.smokeReservoirSceneSignature));
@@ -1209,7 +1226,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTGiDebugInfo[0] = restirPTCombinedMode ? static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())) : 0.0f;
     constants.restirPTGiDebugInfo[1] = 0.0f;
     constants.restirPTGiDebugInfo[2] = 0.0f;
-    constants.restirPTGiDebugInfo[3] = 0.0f;
+    constants.restirPTGiDebugInfo[3] = mode56AccumulationActive ? 1.0f : 0.0f;
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] =
@@ -1601,7 +1618,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         commandList->clearTextureUInt(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, 0xffffffffu);
-        if (accumulationFrameCount == 0)
+        if (accumulationTextureActive && accumulationFrameCount == 0)
         {
             commandList->clearTextureFloat(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         }
@@ -1621,7 +1638,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         commandList->clearTextureUInt(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, 0xffffffffu);
-        if (accumulationFrameCount == 0)
+        if (accumulationTextureActive && accumulationFrameCount == 0)
         {
             commandList->clearTextureFloat(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
         }
@@ -2005,13 +2022,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (m_sceneInputs.geometry.previousTransformAvailable && m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
         m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
     }
-    if (debugMode == 18 && r_pathTracingToyAccumulation.GetInteger() != 0)
+    if (mode18AccumulationActive)
     {
         m_frameResources.smokeAccumulationFrameCount = Min(m_frameResources.smokeAccumulationFrameCount + 1, accumulationMaxFrames);
     }
     else
     {
         m_frameResources.smokeAccumulationFrameCount = 0;
+    }
+    if (mode56AccumulationActive)
+    {
+        m_frameResources.mode56AccumulationFrameCount = Min(m_frameResources.mode56AccumulationFrameCount + 1, mode56AccumulationMaxFrames);
+    }
+    else
+    {
+        m_frameResources.mode56AccumulationFrameCount = 0;
     }
     const bool forceOverlapReadback = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
     bool readbackQueuedThisFrame = false;

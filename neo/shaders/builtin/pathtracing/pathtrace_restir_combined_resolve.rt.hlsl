@@ -116,6 +116,7 @@ struct PathTraceRestirPreviousLightRecord
 #include "PathTracePrimarySurface.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeAccumulation : register(u15);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> RestirPTReflectionOutput : register(u47);
@@ -445,6 +446,45 @@ float3 RestirPTToneMapPreview(float3 contribution)
 float3 RestirPTSanitizeHdrRadiance(float3 radiance)
 {
     return RestirPTSanitizePreviewContribution(radiance);
+}
+
+float4 RestirPTSanitizeAccumulationColor(float4 color)
+{
+    if (!all(color == color) || any(abs(color) > 65504.0))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+    color.rgb = max(color.rgb, float3(0.0, 0.0, 0.0));
+    color.a = 1.0;
+    return color;
+}
+
+float4 RestirPTAccumulateMode56Output(uint2 pixel, float4 color)
+{
+    color = RestirPTSanitizeAccumulationColor(color);
+    if (RestirPTGiDebugInfo.w < 0.5)
+    {
+        return color;
+    }
+
+    const uint accumulationFrame = (uint)max(ToyPathInfo.w, 0.0);
+    if (accumulationFrame == 0u)
+    {
+        SmokeAccumulation[pixel] = color;
+        return color;
+    }
+
+    float4 history = SmokeAccumulation[pixel];
+    if (!all(history == history) || any(abs(history) > 65504.0))
+    {
+        history = color;
+    }
+    history = RestirPTSanitizeAccumulationColor(history);
+    const float weight = 1.0 / ((float)accumulationFrame + 1.0);
+    float4 accumulated = lerp(history, color, weight);
+    accumulated = RestirPTSanitizeAccumulationColor(accumulated);
+    SmokeAccumulation[pixel] = accumulated;
+    return accumulated;
 }
 
 struct RestirPTCombinedLighting
@@ -798,7 +838,7 @@ void RayGen()
     const uint guideDebugView = RayReconstructionGuideDebugView();
     if (guideDebugView != 0u)
     {
-        SmokeOutput[pixel] = EvaluateRayReconstructionGuideDebug(pixel, guideDebugView);
+        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRayReconstructionGuideDebug(pixel, guideDebugView));
         return;
     }
 
@@ -806,7 +846,7 @@ void RayGen()
     if (diDebugView != 0u)
     {
         const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
-        SmokeOutput[pixel] = EvaluateRestirPTDiDebugView(surface, pixel, diDebugView);
+        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRestirPTDiDebugView(surface, pixel, diDebugView));
         return;
     }
 
@@ -814,12 +854,12 @@ void RayGen()
     if (giDebugView != 0u)
     {
         const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
-        SmokeOutput[pixel] = EvaluateRestirPTGiDebugView(surface, pixel, giDebugView);
+        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRestirPTGiDebugView(surface, pixel, giDebugView));
         return;
     }
 
     const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
-    SmokeOutput[pixel] = EvaluateCombinedResolve(surface, pixel);
+    SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateCombinedResolve(surface, pixel));
 }
 
 [shader("miss")]
