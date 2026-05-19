@@ -307,6 +307,36 @@ Rules:
 RRX-04: RAB Light Bridge
 ------------------------
 
+Status:
+
+    Implemented as inactive shader contract headers under
+    neo/shaders/builtin/pathtracing/remix_bridge. RAB_LightBridge.hlsli defines
+    the Remix-shaped current/previous unified-light payload domain,
+    bidirectional light-index translation, invalid-sentinel rejection, and
+    direct previous-domain light loading. Temporal reuse must translate
+    previous-to-current separately before calling previous-frame loading; a
+    previous-frame load receives an already-previous-domain light index and
+    reads the previous payload directly. RAB_ReservoirBridge.hlsli defines DI
+    reservoir page addressing, packed DI load/store helpers, unpacked
+    RTXDI_DIReservoir load/store helpers, and callback-shaped
+    RAB_LoadReservoir / RAB_StoreReservoir functions against the RRX-03-owned
+    packed DI reservoir ABI. These headers are not routed into the existing
+    smoke/ReSTIR shaders yet.
+
+    Deferred:
+
+        binding the Remix light payload/map buffers from C++
+        binding the Remix DI reservoir buffer from C++
+        exporting these helpers as active RTXDI RAB callbacks in a dispatch
+        command-list reservoir clear execution
+        GI reservoir callbacks and GI final-shading bridge work
+
+    Validation:
+
+        cmake --build --preset win64-pt-dev-release
+        copied build-win64-pt-dev/Release/RBDoom3BFG.exe to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
 Goal:
 
     Add the shader bridge equivalent to Remix RtxdiApplicationBridge light
