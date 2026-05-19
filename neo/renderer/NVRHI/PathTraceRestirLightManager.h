@@ -50,7 +50,8 @@ enum PathTraceRestirLightInvalidReasonFlags : uint32_t
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA = 1u << 11,
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL = 1u << 12,
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE = 1u << 13,
-    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP = 1u << 14
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP = 1u << 14,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE = 1u << 15
 };
 
 struct PathTraceRestirCurrentLightRecord
@@ -59,6 +60,10 @@ struct PathTraceRestirCurrentLightRecord
     uint32_t sourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
     uint32_t stableKeyLo = 0;
     uint32_t stableKeyHi = 0;
+    uint32_t compatibilityKey0 = 0;
+    uint32_t compatibilityKey1 = 0;
+    uint32_t compatibilityKey2 = 0;
+    uint32_t compatibilityKey3 = 0;
     uint32_t payloadHashLo = 0;
     uint32_t payloadHashHi = 0;
     uint32_t flags = 0;
@@ -71,6 +76,10 @@ struct PathTraceRestirPreviousLightRecord
     uint32_t sourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
     uint32_t stableKeyLo = 0;
     uint32_t stableKeyHi = 0;
+    uint32_t compatibilityKey0 = 0;
+    uint32_t compatibilityKey1 = 0;
+    uint32_t compatibilityKey2 = 0;
+    uint32_t compatibilityKey3 = 0;
     uint32_t payloadHashLo = 0;
     uint32_t payloadHashHi = 0;
     uint32_t flags = 0;
@@ -94,6 +103,7 @@ struct PathTraceRestirLightInvalidReasonStats
     uint32_t disconnectedOrPortal = 0;
     uint32_t invalidShape = 0;
     uint32_t candidateCap = 0;
+    uint32_t incompatibleSource = 0;
 };
 
 struct PathTraceRestirLightManagerStats

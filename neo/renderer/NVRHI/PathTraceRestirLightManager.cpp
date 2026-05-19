@@ -105,6 +105,10 @@ void AccumulateInvalidReasonStats(
     {
         ++stats.candidateCap;
     }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE) != 0u)
+    {
+        ++stats.incompatibleSource;
+    }
 }
 
 uint32_t TranslateDoomAnalyticInvalidReasons(uint32_t doomInvalidReasonFlags)
@@ -164,6 +168,10 @@ PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurre
     previousRecord.sourceIndex = currentRecord.sourceIndex;
     previousRecord.stableKeyLo = currentRecord.stableKeyLo;
     previousRecord.stableKeyHi = currentRecord.stableKeyHi;
+    previousRecord.compatibilityKey0 = currentRecord.compatibilityKey0;
+    previousRecord.compatibilityKey1 = currentRecord.compatibilityKey1;
+    previousRecord.compatibilityKey2 = currentRecord.compatibilityKey2;
+    previousRecord.compatibilityKey3 = currentRecord.compatibilityKey3;
     previousRecord.payloadHashLo = currentRecord.payloadHashLo;
     previousRecord.payloadHashHi = currentRecord.payloadHashHi;
     previousRecord.flags = currentRecord.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
@@ -177,7 +185,8 @@ PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurre
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP);
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE);
     return previousRecord;
 }
 
@@ -222,6 +231,9 @@ PathTraceRestirCurrentLightRecord MakeEmissiveRecord(
     record.sourceIndex = sourceIndex;
     record.stableKeyLo = emissiveTriangle.identityHashLo;
     record.stableKeyHi = emissiveTriangle.identityHashHi;
+    record.compatibilityKey0 = emissiveTriangle.materialId;
+    record.compatibilityKey1 = emissiveTriangle.universeMaterialIndex;
+    record.compatibilityKey2 = emissiveTriangle.emissiveTextureIndex;
     const uint64 payloadHash = HashEmissivePayload(emissiveTriangle);
     record.payloadHashLo = static_cast<uint32_t>(payloadHash);
     record.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
@@ -281,6 +293,23 @@ bool PayloadChanged(
         currentRecord.payloadHashHi != previousRecord.payloadHashHi;
 }
 
+bool RecordsCompatible(
+    const PathTraceRestirCurrentLightRecord& currentRecord,
+    const PathTraceRestirPreviousLightRecord& previousRecord)
+{
+    if (currentRecord.sourceType != previousRecord.sourceType)
+    {
+        return false;
+    }
+    if (currentRecord.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
+    {
+        return currentRecord.compatibilityKey0 == previousRecord.compatibilityKey0 &&
+            currentRecord.compatibilityKey1 == previousRecord.compatibilityKey1 &&
+            currentRecord.compatibilityKey2 == previousRecord.compatibilityKey2;
+    }
+    return true;
+}
+
 PathTraceRestirPreviousLightRecord MakeMissingPreviousRecord(PathTraceRestirPreviousLightRecord previousRecord)
 {
     previousRecord.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
@@ -293,6 +322,18 @@ void MarkDuplicate(PathTraceRestirCurrentLightRecord& record)
 {
     record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
     record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE;
+}
+
+void MarkIncompatible(PathTraceRestirCurrentLightRecord& record)
+{
+    record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+    record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE;
+}
+
+void MarkIncompatible(PathTraceRestirPreviousLightRecord& record)
+{
+    record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+    record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE;
 }
 
 void MarkDuplicate(PathTraceRestirPreviousLightRecord& record)
@@ -487,6 +528,12 @@ void PathTraceRestirLightManager::RebuildCpuRemaps()
         previousMatched[previousIndex] = true;
         if (RecordRemapBlocked(currentRecord) || RecordRemapBlocked(previousRecord))
         {
+            continue;
+        }
+        if (!RecordsCompatible(currentRecord, previousRecord))
+        {
+            MarkIncompatible(currentRecord);
+            MarkIncompatible(previousRecord);
             continue;
         }
 
