@@ -59,7 +59,7 @@ float4 RestirPTLightManagerCurrentStatusColor(uint lightIndex)
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE;
     if (!RestirPTLightManagerRecordSourceSupported(record.sourceType) ||
-        record.sourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX ||
+        record.payloadSourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX ||
         (record.invalidReasonFlags & invalidMask) != 0u)
     {
         return RestirPTLightManagerUnsupportedColor();
@@ -100,7 +100,7 @@ float4 RestirPTLightManagerPreviousStatusColor(uint lightIndex)
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE;
     if (!RestirPTLightManagerRecordSourceSupported(record.sourceType) ||
-        record.sourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX ||
+        record.payloadSourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX ||
         (record.invalidReasonFlags & invalidMask) != 0u)
     {
         return RestirPTLightManagerUnsupportedColor();

@@ -82,13 +82,13 @@ struct PathTraceDoomAnalyticLightRemap
 struct PathTraceRestirCurrentLightRecord
 {
     uint sourceType;
-    uint sourceIndex;
-    uint stableKeyLo;
-    uint stableKeyHi;
+    uint payloadSourceIndex;
+    uint identityKeyLo;
+    uint identityKeyHi;
     uint compatibilityKey0;
     uint compatibilityKey1;
     uint compatibilityKey2;
-    uint compatibilityKey3;
+    uint continuityClass;
     uint payloadHashLo;
     uint payloadHashHi;
     uint flags;
@@ -98,13 +98,13 @@ struct PathTraceRestirCurrentLightRecord
 struct PathTraceRestirPreviousLightRecord
 {
     uint sourceType;
-    uint sourceIndex;
-    uint stableKeyLo;
-    uint stableKeyHi;
+    uint payloadSourceIndex;
+    uint identityKeyLo;
+    uint identityKeyHi;
     uint compatibilityKey0;
     uint compatibilityKey1;
     uint compatibilityKey2;
-    uint compatibilityKey3;
+    uint continuityClass;
     uint payloadHashLo;
     uint payloadHashHi;
     uint flags;

@@ -107,17 +107,9 @@ void AccumulateInvalidReasonStats(
     }
 }
 
-uint32_t TranslateDoomAnalyticInvalidReasons(uint32_t doomInvalidReasonFlags)
+uint32_t TranslateDoomAnalyticContinuityInvalidReasons(uint32_t doomInvalidReasonFlags)
 {
     uint32_t result = PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_MISSING_PREVIOUS) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_MISSING_LIGHT;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_MISSING_CURRENT) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_MISSING_LIGHT;
-    }
     if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_DUPLICATE_KEY) != 0u)
     {
         result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE;
@@ -129,30 +121,6 @@ uint32_t TranslateDoomAnalyticInvalidReasons(uint32_t doomInvalidReasonFlags)
     if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_UNPROVEN_CONTINUITY) != 0u)
     {
         result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNPROVEN_CONTINUITY;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_ZERO_RADIANCE) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_ZERO_RADIANCE;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_SUPPRESSED) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_SUPPRESSED;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_OUT_OF_SELECTED_AREA) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_OUT_OF_SELECTED_AREA;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_DISCONNECTED_OR_PORTAL) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL;
-    }
-    if ((doomInvalidReasonFlags & (DOOM_LIGHT_UNIVERSE_INVALID_NON_POINT_OR_PARALLEL | DOOM_LIGHT_UNIVERSE_INVALID_RADIUS_INVALID)) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE;
-    }
-    if ((doomInvalidReasonFlags & DOOM_LIGHT_UNIVERSE_INVALID_CANDIDATE_CAP_DROPPED) != 0u)
-    {
-        result |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP;
     }
     return result;
 }
@@ -229,9 +197,6 @@ PathTraceRestirLightObservation MakeEmissiveObservation(
     observation.payloadSourceIndex = payloadSourceIndex;
     observation.identityKeyLo = emissiveTriangle.identityHashLo;
     observation.identityKeyHi = emissiveTriangle.identityHashHi;
-    observation.compatibilityKey0 = emissiveTriangle.materialId;
-    observation.compatibilityKey1 = emissiveTriangle.universeMaterialIndex;
-    observation.compatibilityKey2 = emissiveTriangle.emissiveTextureIndex;
     const uint64 payloadHash = HashEmissivePayload(emissiveTriangle);
     observation.payloadHashLo = static_cast<uint32_t>(payloadHash);
     observation.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
@@ -263,11 +228,7 @@ PathTraceRestirLightObservation MakeDoomAnalyticObservation(
         observation.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
         if ((identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID) == 0u)
         {
-            observation.invalidReasonFlags |= TranslateDoomAnalyticInvalidReasons(identity->invalidReasonFlags);
-            if (observation.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
-            {
-                observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE;
-            }
+            observation.invalidReasonFlags |= TranslateDoomAnalyticContinuityInvalidReasons(identity->invalidReasonFlags);
         }
     }
     else
@@ -329,12 +290,6 @@ bool RecordsCompatible(
     if (currentRecord.sourceType != previousRecord.sourceType)
     {
         return false;
-    }
-    if (currentRecord.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
-    {
-        return currentRecord.compatibilityKey0 == previousRecord.compatibilityKey0 &&
-            currentRecord.compatibilityKey1 == previousRecord.compatibilityKey1 &&
-            currentRecord.compatibilityKey2 == previousRecord.compatibilityKey2;
     }
     return true;
 }
