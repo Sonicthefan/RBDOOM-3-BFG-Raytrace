@@ -33,6 +33,14 @@ enum PathTraceRestirLightRecordFlags : uint32_t
     PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID = 1u << 4
 };
 
+enum PathTraceRestirLightContinuityClass : uint32_t
+{
+    PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID = 0u,
+    PATH_TRACE_RESTIR_LIGHT_CONTINUITY_STABLE = 1u,
+    PATH_TRACE_RESTIR_LIGHT_CONTINUITY_CURRENT_ONLY = 2u,
+    PATH_TRACE_RESTIR_LIGHT_CONTINUITY_PREVIOUS_ONLY = 3u
+};
+
 enum PathTraceRestirLightInvalidReasonFlags : uint32_t
 {
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE = 0u,
@@ -51,19 +59,20 @@ enum PathTraceRestirLightInvalidReasonFlags : uint32_t
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL = 1u << 12,
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE = 1u << 13,
     PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP = 1u << 14,
-    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE = 1u << 15
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE = 1u << 15,
+    PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DELETED = 1u << 16
 };
 
 struct PathTraceRestirCurrentLightRecord
 {
     uint32_t sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
-    uint32_t sourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
-    uint32_t stableKeyLo = 0;
-    uint32_t stableKeyHi = 0;
+    uint32_t payloadSourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    uint32_t identityKeyLo = 0;
+    uint32_t identityKeyHi = 0;
     uint32_t compatibilityKey0 = 0;
     uint32_t compatibilityKey1 = 0;
     uint32_t compatibilityKey2 = 0;
-    uint32_t compatibilityKey3 = 0;
+    uint32_t continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID;
     uint32_t payloadHashLo = 0;
     uint32_t payloadHashHi = 0;
     uint32_t flags = 0;
@@ -76,13 +85,13 @@ static_assert((sizeof(PathTraceRestirCurrentLightRecord) % 16) == 0, "PathTraceR
 struct PathTraceRestirPreviousLightRecord
 {
     uint32_t sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
-    uint32_t sourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
-    uint32_t stableKeyLo = 0;
-    uint32_t stableKeyHi = 0;
+    uint32_t payloadSourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    uint32_t identityKeyLo = 0;
+    uint32_t identityKeyHi = 0;
     uint32_t compatibilityKey0 = 0;
     uint32_t compatibilityKey1 = 0;
     uint32_t compatibilityKey2 = 0;
-    uint32_t compatibilityKey3 = 0;
+    uint32_t continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID;
     uint32_t payloadHashLo = 0;
     uint32_t payloadHashHi = 0;
     uint32_t flags = 0;
@@ -91,6 +100,21 @@ struct PathTraceRestirPreviousLightRecord
 
 static_assert(sizeof(PathTraceRestirPreviousLightRecord) == 48, "PathTraceRestirPreviousLightRecord must match HLSL layout");
 static_assert((sizeof(PathTraceRestirPreviousLightRecord) % 16) == 0, "PathTraceRestirPreviousLightRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
+
+struct PathTraceRestirLightObservation
+{
+    uint32_t sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
+    uint32_t payloadSourceIndex = PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX;
+    uint32_t identityKeyLo = 0;
+    uint32_t identityKeyHi = 0;
+    uint32_t compatibilityKey0 = 0;
+    uint32_t compatibilityKey1 = 0;
+    uint32_t compatibilityKey2 = 0;
+    uint32_t payloadHashLo = 0;
+    uint32_t payloadHashHi = 0;
+    uint32_t flags = 0;
+    uint32_t invalidReasonFlags = PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
+};
 
 struct PathTraceRestirLightInvalidReasonStats
 {
@@ -110,6 +134,7 @@ struct PathTraceRestirLightInvalidReasonStats
     uint32_t invalidShape = 0;
     uint32_t candidateCap = 0;
     uint32_t incompatibleSource = 0;
+    uint32_t deleted = 0;
 };
 
 struct PathTraceRestirLightManagerStats
@@ -124,6 +149,8 @@ struct PathTraceRestirLightManagerStats
     uint32_t previousInvalidCount = 0;
     uint32_t stableIdentityCount = 0;
     uint32_t payloadChangedCount = 0;
+    uint32_t stableMappedCount = 0;
+    uint32_t payloadChangedMappedCount = 0;
     uint32_t currentOnlyCount = 0;
     uint32_t previousOnlyCount = 0;
     uint32_t remapValidCount = 0;
@@ -146,6 +173,10 @@ struct PathTraceRestirLightObservationStats
     uint32_t doomAnalyticObservationCount = 0;
     uint32_t doomAnalyticStableIdentityCount = 0;
     uint32_t doomAnalyticUnknownIdentityCount = 0;
+    uint32_t stableMappedReadyCount = 0;
+    uint32_t remapInvalidObservationCount = 0;
+    uint32_t unsupportedObservationCount = 0;
+    uint32_t payloadSourceValidCount = 0;
     uint32_t totalObservationCount = 0;
     uint32_t stableIdentityCount = 0;
     uint32_t unknownIdentityCount = 0;
@@ -157,9 +188,7 @@ public:
     void Clear();
     void BeginFrame();
     void UpdateFromObservations(
-        const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-        const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
-        const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities);
+        const std::vector<PathTraceRestirLightObservation>& observations);
     void EndFrame();
     PathTraceRestirLightManagerStats GetStats() const;
 
@@ -203,7 +232,10 @@ private:
     bool m_haveLastSignatures = false;
 };
 
-PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(
+std::vector<PathTraceRestirLightObservation> BuildPathTraceRestirLightManagerObservations(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
     const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities);
+
+PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(
+    const std::vector<PathTraceRestirLightObservation>& observations);

@@ -2042,11 +2042,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
     }
-    m_restirLightManager.BeginFrame();
-    m_restirLightManager.UpdateFromObservations(
+    const std::vector<PathTraceRestirLightObservation> restirLightManagerObservations =
+        BuildPathTraceRestirLightManagerObservations(
         emissiveTriangles,
         doomAnalyticLights,
         doomAnalyticRemap.currentCandidateIdentities);
+    m_restirLightManager.BeginFrame();
+    m_restirLightManager.UpdateFromObservations(restirLightManagerObservations);
     m_restirLightManager.EndFrame();
     const bool dumpRestirLightManager = r_pathTracingRestirLightManagerDump.GetInteger() != 0;
     const std::vector<PathTraceRestirCurrentLightRecord>& restirLightManagerCurrentRecords = m_restirLightManager.GetCurrentLightRecords();
@@ -2056,14 +2058,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (dumpRestirLightManager)
     {
         const PathTraceRestirLightObservationStats restirLightManagerStats = BuildPathTraceRestirLightManagerDebugObservations(
-            emissiveTriangles,
-            doomAnalyticLights,
-            doomAnalyticRemap.currentCandidateIdentities);
+            restirLightManagerObservations);
         const PathTraceRestirLightManagerStats restirLightManagerPersistentStats = m_restirLightManager.GetStats();
-        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset/unproven/zero/suppressed/outOfArea/disconnectedOrPortal/invalidShape/candidateCap/incompatible=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u payloadSourceValid=%u mappedReady=%u remapInvalid=%u unsupported=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u stableMapped=%u payloadChangedMapped=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset/unproven/zero/suppressed/outOfArea/disconnectedOrPortal/invalidShape/candidateCap/incompatible/deleted=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
             restirLightManagerStats.totalObservationCount,
             restirLightManagerStats.stableIdentityCount,
             restirLightManagerStats.unknownIdentityCount,
+            restirLightManagerStats.payloadSourceValidCount,
+            restirLightManagerStats.stableMappedReadyCount,
+            restirLightManagerStats.remapInvalidObservationCount,
+            restirLightManagerStats.unsupportedObservationCount,
             restirLightManagerStats.emissiveObservationCount,
             restirLightManagerStats.emissiveStableIdentityCount,
             restirLightManagerStats.emissiveUnknownIdentityCount,
@@ -2074,6 +2078,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.previousLightCount,
             restirLightManagerPersistentStats.stableIdentityCount,
             restirLightManagerPersistentStats.payloadChangedCount,
+            restirLightManagerPersistentStats.stableMappedCount,
+            restirLightManagerPersistentStats.payloadChangedMappedCount,
             restirLightManagerPersistentStats.currentOnlyCount,
             restirLightManagerPersistentStats.previousOnlyCount,
             restirLightManagerPersistentStats.remapValidCount,
@@ -2106,7 +2112,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.invalidReasons.disconnectedOrPortal,
             restirLightManagerPersistentStats.invalidReasons.invalidShape,
             restirLightManagerPersistentStats.invalidReasons.candidateCap,
-            restirLightManagerPersistentStats.invalidReasons.incompatibleSource);
+            restirLightManagerPersistentStats.invalidReasons.incompatibleSource,
+            restirLightManagerPersistentStats.invalidReasons.deleted);
     }
     emissiveDistribution = BuildSmokeEmissiveDistribution(emissiveTriangles);
     const PathTraceUnifiedLightBuild unifiedLights = BuildPathTraceUnifiedLights(

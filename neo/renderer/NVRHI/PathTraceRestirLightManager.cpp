@@ -101,6 +101,10 @@ void AccumulateInvalidReasonStats(
     {
         ++stats.incompatibleSource;
     }
+    if ((invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DELETED) != 0u)
+    {
+        ++stats.deleted;
+    }
 }
 
 uint32_t TranslateDoomAnalyticInvalidReasons(uint32_t doomInvalidReasonFlags)
@@ -157,13 +161,13 @@ PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurre
 {
     PathTraceRestirPreviousLightRecord previousRecord;
     previousRecord.sourceType = currentRecord.sourceType;
-    previousRecord.sourceIndex = currentRecord.sourceIndex;
-    previousRecord.stableKeyLo = currentRecord.stableKeyLo;
-    previousRecord.stableKeyHi = currentRecord.stableKeyHi;
+    previousRecord.payloadSourceIndex = currentRecord.payloadSourceIndex;
+    previousRecord.identityKeyLo = currentRecord.identityKeyLo;
+    previousRecord.identityKeyHi = currentRecord.identityKeyHi;
     previousRecord.compatibilityKey0 = currentRecord.compatibilityKey0;
     previousRecord.compatibilityKey1 = currentRecord.compatibilityKey1;
     previousRecord.compatibilityKey2 = currentRecord.compatibilityKey2;
-    previousRecord.compatibilityKey3 = currentRecord.compatibilityKey3;
+    previousRecord.continuityClass = currentRecord.continuityClass;
     previousRecord.payloadHashLo = currentRecord.payloadHashLo;
     previousRecord.payloadHashHi = currentRecord.payloadHashHi;
     previousRecord.flags = currentRecord.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
@@ -178,7 +182,8 @@ PathTraceRestirPreviousLightRecord MakePreviousRecord(const PathTraceRestirCurre
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DISCONNECTED_OR_PORTAL |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INVALID_SHAPE |
         PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_CANDIDATE_CAP |
-        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE);
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE |
+        PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DELETED);
     return previousRecord;
 }
 
@@ -215,66 +220,97 @@ uint64 HashDoomAnalyticPayload(const PathTraceDoomAnalyticLightCandidate& light)
     return hash;
 }
 
-PathTraceRestirCurrentLightRecord MakeEmissiveRecord(
+PathTraceRestirLightObservation MakeEmissiveObservation(
     const PathTraceSmokeEmissiveTriangle& emissiveTriangle,
-    uint32_t sourceIndex)
+    uint32_t payloadSourceIndex)
 {
-    PathTraceRestirCurrentLightRecord record;
-    record.sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE;
-    record.sourceIndex = sourceIndex;
-    record.stableKeyLo = emissiveTriangle.identityHashLo;
-    record.stableKeyHi = emissiveTriangle.identityHashHi;
-    record.compatibilityKey0 = emissiveTriangle.materialId;
-    record.compatibilityKey1 = emissiveTriangle.universeMaterialIndex;
-    record.compatibilityKey2 = emissiveTriangle.emissiveTextureIndex;
+    PathTraceRestirLightObservation observation;
+    observation.sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE;
+    observation.payloadSourceIndex = payloadSourceIndex;
+    observation.identityKeyLo = emissiveTriangle.identityHashLo;
+    observation.identityKeyHi = emissiveTriangle.identityHashHi;
+    observation.compatibilityKey0 = emissiveTriangle.materialId;
+    observation.compatibilityKey1 = emissiveTriangle.universeMaterialIndex;
+    observation.compatibilityKey2 = emissiveTriangle.emissiveTextureIndex;
     const uint64 payloadHash = HashEmissivePayload(emissiveTriangle);
-    record.payloadHashLo = static_cast<uint32_t>(payloadHash);
-    record.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
-    if (HasStableKey(record.stableKeyLo, record.stableKeyHi))
+    observation.payloadHashLo = static_cast<uint32_t>(payloadHash);
+    observation.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
+    if (HasStableKey(observation.identityKeyLo, observation.identityKeyHi))
     {
-        record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
+        observation.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
     }
     else
     {
-        record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY;
-        record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
+        observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
     }
-    return record;
+    return observation;
 }
 
-PathTraceRestirCurrentLightRecord MakeDoomAnalyticRecord(
+PathTraceRestirLightObservation MakeDoomAnalyticObservation(
     const PathTraceDoomAnalyticLightCandidate& light,
     const PathTraceDoomAnalyticLightCandidateIdentity* identity,
-    uint32_t sourceIndex)
+    uint32_t payloadSourceIndex)
 {
-    PathTraceRestirCurrentLightRecord record;
-    record.sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC;
-    record.sourceIndex = sourceIndex;
+    PathTraceRestirLightObservation observation;
+    observation.sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC;
+    observation.payloadSourceIndex = payloadSourceIndex;
     if (identity &&
         identity->universeIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
         (identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID) != 0u)
     {
-        record.stableKeyLo = identity->universeIndex;
-        record.stableKeyHi = 0u;
-        record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
+        observation.identityKeyLo = identity->universeIndex;
+        observation.identityKeyHi = 0u;
+        observation.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY;
         if ((identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID) == 0u)
         {
-            record.invalidReasonFlags |= TranslateDoomAnalyticInvalidReasons(identity->invalidReasonFlags);
-            if (record.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
+            observation.invalidReasonFlags |= TranslateDoomAnalyticInvalidReasons(identity->invalidReasonFlags);
+            if (observation.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
             {
-                record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE;
+                observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE;
             }
         }
     }
     else
     {
-        record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY;
-        record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
+        observation.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
     }
 
     const uint64 payloadHash = HashDoomAnalyticPayload(light);
-    record.payloadHashLo = static_cast<uint32_t>(payloadHash);
-    record.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
+    observation.payloadHashLo = static_cast<uint32_t>(payloadHash);
+    observation.payloadHashHi = static_cast<uint32_t>(payloadHash >> 32);
+    return observation;
+}
+
+PathTraceRestirCurrentLightRecord MakeCurrentRecordFromObservation(
+    const PathTraceRestirLightObservation& observation)
+{
+    PathTraceRestirCurrentLightRecord record;
+    record.sourceType = observation.sourceType;
+    record.payloadSourceIndex = observation.payloadSourceIndex;
+    record.identityKeyLo = observation.identityKeyLo;
+    record.identityKeyHi = observation.identityKeyHi;
+    record.compatibilityKey0 = observation.compatibilityKey0;
+    record.compatibilityKey1 = observation.compatibilityKey1;
+    record.compatibilityKey2 = observation.compatibilityKey2;
+    record.payloadHashLo = observation.payloadHashLo;
+    record.payloadHashHi = observation.payloadHashHi;
+    record.flags = observation.flags;
+    record.invalidReasonFlags = observation.invalidReasonFlags;
+    if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u)
+    {
+        record.continuityClass = record.invalidReasonFlags != PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE
+            ? PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID
+            : PATH_TRACE_RESTIR_LIGHT_CONTINUITY_STABLE;
+    }
+    else
+    {
+        record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY;
+        record.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_CURRENT_ONLY;
+        if (record.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
+        {
+            record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY;
+        }
+    }
     return record;
 }
 
@@ -307,6 +343,7 @@ PathTraceRestirPreviousLightRecord MakeMissingPreviousRecord(PathTraceRestirPrev
 {
     previousRecord.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
     previousRecord.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_PREVIOUS_ONLY;
+    previousRecord.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_PREVIOUS_ONLY;
     previousRecord.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_MISSING_LIGHT;
     return previousRecord;
 }
@@ -314,24 +351,28 @@ PathTraceRestirPreviousLightRecord MakeMissingPreviousRecord(PathTraceRestirPrev
 void MarkDuplicate(PathTraceRestirCurrentLightRecord& record)
 {
     record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+    record.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID;
     record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE;
 }
 
 void MarkIncompatible(PathTraceRestirCurrentLightRecord& record)
 {
     record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+    record.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID;
     record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE;
 }
 
 void MarkIncompatible(PathTraceRestirPreviousLightRecord& record)
 {
     record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+    record.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID;
     record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE;
 }
 
 void MarkDuplicate(PathTraceRestirPreviousLightRecord& record)
 {
     record.flags &= ~PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+    record.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_REMAP_INVALID;
     record.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_DUPLICATE;
 }
 
@@ -339,8 +380,8 @@ PathTraceRestirLightManager::StableKey MakeStableKey(const PathTraceRestirCurren
 {
     PathTraceRestirLightManager::StableKey key;
     key.sourceType = record.sourceType;
-    key.keyLo = record.stableKeyLo;
-    key.keyHi = record.stableKeyHi;
+    key.keyLo = record.identityKeyLo;
+    key.keyHi = record.identityKeyHi;
     return key;
 }
 
@@ -348,8 +389,8 @@ PathTraceRestirLightManager::StableKey MakeStableKey(const PathTraceRestirPrevio
 {
     PathTraceRestirLightManager::StableKey key;
     key.sourceType = record.sourceType;
-    key.keyLo = record.stableKeyLo;
-    key.keyHi = record.stableKeyHi;
+    key.keyLo = record.identityKeyLo;
+    key.keyHi = record.identityKeyHi;
     return key;
 }
 
@@ -416,12 +457,10 @@ void PathTraceRestirLightManager::BeginFrame()
 }
 
 void PathTraceRestirLightManager::UpdateFromObservations(
-    const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
-    const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
-    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities)
+    const std::vector<PathTraceRestirLightObservation>& observations)
 {
     m_currentLightRecords.clear();
-    m_currentLightRecords.reserve(emissiveTriangles.size() + doomAnalyticLights.size());
+    m_currentLightRecords.reserve(observations.size());
 
     std::unordered_map<StableKey, uint32_t, StableKeyHash> currentStableLookup;
 
@@ -449,16 +488,9 @@ void PathTraceRestirLightManager::UpdateFromObservations(
         m_currentLightRecords.push_back(record);
     };
 
-    for (size_t i = 0; i < emissiveTriangles.size(); ++i)
+    for (const PathTraceRestirLightObservation& observation : observations)
     {
-        addCurrentRecord(MakeEmissiveRecord(emissiveTriangles[i], static_cast<uint32_t>(i)));
-    }
-
-    for (size_t i = 0; i < doomAnalyticLights.size(); ++i)
-    {
-        const PathTraceDoomAnalyticLightCandidateIdentity* identity =
-            i < doomAnalyticIdentities.size() ? &doomAnalyticIdentities[i] : nullptr;
-        addCurrentRecord(MakeDoomAnalyticRecord(doomAnalyticLights[i], identity, static_cast<uint32_t>(i)));
+        addCurrentRecord(MakeCurrentRecordFromObservation(observation));
     }
 
     RebuildCpuRemaps();
@@ -515,6 +547,7 @@ void PathTraceRestirLightManager::RebuildCpuRemaps()
             if (!RecordRemapBlocked(currentRecord))
             {
                 currentRecord.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY;
+                currentRecord.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_CURRENT_ONLY;
                 currentRecord.invalidReasonFlags |= PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NEW_LIGHT;
             }
             continue;
@@ -536,6 +569,8 @@ void PathTraceRestirLightManager::RebuildCpuRemaps()
 
         currentRecord.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
         previousRecord.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+        currentRecord.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_STABLE;
+        previousRecord.continuityClass = PATH_TRACE_RESTIR_LIGHT_CONTINUITY_STABLE;
         m_currentToPreviousRemap[currentIndex] = previousIndex;
         m_previousToCurrentRemap[previousIndex] = static_cast<uint32_t>(currentIndex);
         if (PayloadChanged(currentRecord, previousRecord))
@@ -568,6 +603,8 @@ void PathTraceRestirLightManager::RebuildStats()
     m_stats.previousInvalidCount = 0;
     m_stats.stableIdentityCount = 0;
     m_stats.payloadChangedCount = 0;
+    m_stats.stableMappedCount = 0;
+    m_stats.payloadChangedMappedCount = 0;
     m_stats.currentOnlyCount = 0;
     m_stats.previousOnlyCount = 0;
     m_stats.remapValidCount = 0;
@@ -586,6 +623,15 @@ void PathTraceRestirLightManager::RebuildStats()
         if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED) != 0u)
         {
             ++m_stats.payloadChangedCount;
+        }
+        if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID) != 0u &&
+            record.continuityClass == PATH_TRACE_RESTIR_LIGHT_CONTINUITY_STABLE)
+        {
+            ++m_stats.stableMappedCount;
+            if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED) != 0u)
+            {
+                ++m_stats.payloadChangedMappedCount;
+            }
         }
         if ((record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY) != 0u)
         {
@@ -655,13 +701,12 @@ void PathTraceRestirLightManager::RebuildSignatures()
     for (const PathTraceRestirCurrentLightRecord& record : m_currentLightRecords)
     {
         mappingHash = HashLightManagerValue(mappingHash, record.sourceType);
-        mappingHash = HashLightManagerValue(mappingHash, record.sourceIndex);
-        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyLo);
-        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyHi);
+        mappingHash = HashLightManagerValue(mappingHash, record.identityKeyLo);
+        mappingHash = HashLightManagerValue(mappingHash, record.identityKeyHi);
         mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey0);
         mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey1);
         mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey2);
-        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey3);
+        mappingHash = HashLightManagerValue(mappingHash, record.continuityClass);
         mappingHash = HashLightManagerValue(mappingHash, record.flags & ~PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED);
         mappingHash = HashLightManagerValue(mappingHash, record.invalidReasonFlags);
     }
@@ -669,13 +714,12 @@ void PathTraceRestirLightManager::RebuildSignatures()
     for (const PathTraceRestirPreviousLightRecord& record : m_previousLightRecords)
     {
         mappingHash = HashLightManagerValue(mappingHash, record.sourceType);
-        mappingHash = HashLightManagerValue(mappingHash, record.sourceIndex);
-        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyLo);
-        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyHi);
+        mappingHash = HashLightManagerValue(mappingHash, record.identityKeyLo);
+        mappingHash = HashLightManagerValue(mappingHash, record.identityKeyHi);
         mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey0);
         mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey1);
         mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey2);
-        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey3);
+        mappingHash = HashLightManagerValue(mappingHash, record.continuityClass);
         mappingHash = HashLightManagerValue(mappingHash, record.flags & ~PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED);
         mappingHash = HashLightManagerValue(mappingHash, record.invalidReasonFlags);
     }
@@ -695,8 +739,8 @@ void PathTraceRestirLightManager::RebuildSignatures()
     for (const PathTraceRestirCurrentLightRecord& record : m_currentLightRecords)
     {
         payloadHash = HashLightManagerValue(payloadHash, record.sourceType);
-        payloadHash = HashLightManagerValue(payloadHash, record.stableKeyLo);
-        payloadHash = HashLightManagerValue(payloadHash, record.stableKeyHi);
+        payloadHash = HashLightManagerValue(payloadHash, record.identityKeyLo);
+        payloadHash = HashLightManagerValue(payloadHash, record.identityKeyHi);
         payloadHash = HashLightManagerValue(payloadHash, record.payloadHashLo);
         payloadHash = HashLightManagerValue(payloadHash, record.payloadHashHi);
     }
@@ -736,42 +780,77 @@ void PathTraceRestirLightManager::RebuildPreviousLookup()
     }
 }
 
-PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(
+std::vector<PathTraceRestirLightObservation> BuildPathTraceRestirLightManagerObservations(
     const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
     const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
     const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities)
 {
-    PathTraceRestirLightObservationStats stats;
-    stats.emissiveObservationCount = static_cast<uint32_t>(emissiveTriangles.size());
-    stats.doomAnalyticObservationCount = static_cast<uint32_t>(doomAnalyticLights.size());
+    std::vector<PathTraceRestirLightObservation> observations;
+    observations.reserve(emissiveTriangles.size() + doomAnalyticLights.size());
 
-    for (const PathTraceSmokeEmissiveTriangle& emissiveTriangle : emissiveTriangles)
+    for (size_t i = 0; i < emissiveTriangles.size(); ++i)
     {
-        if (emissiveTriangle.identityHashLo != 0u || emissiveTriangle.identityHashHi != 0u)
-        {
-            ++stats.emissiveStableIdentityCount;
-        }
-        else
-        {
-            ++stats.emissiveUnknownIdentityCount;
-        }
+        observations.push_back(MakeEmissiveObservation(emissiveTriangles[i], static_cast<uint32_t>(i)));
     }
 
-    for (size_t lightIndex = 0; lightIndex < doomAnalyticLights.size(); ++lightIndex)
+    for (size_t i = 0; i < doomAnalyticLights.size(); ++i)
     {
-        const bool hasIdentityRecord = lightIndex < doomAnalyticIdentities.size();
-        const PathTraceDoomAnalyticLightCandidateIdentity* identity = hasIdentityRecord ? &doomAnalyticIdentities[lightIndex] : nullptr;
-        const bool stableIdentity =
-            identity &&
-            identity->universeIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
-            (identity->flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID) != 0u;
-        if (stableIdentity)
+        const PathTraceDoomAnalyticLightCandidateIdentity* identity =
+            i < doomAnalyticIdentities.size() ? &doomAnalyticIdentities[i] : nullptr;
+        observations.push_back(MakeDoomAnalyticObservation(doomAnalyticLights[i], identity, static_cast<uint32_t>(i)));
+    }
+
+    return observations;
+}
+
+PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(
+    const std::vector<PathTraceRestirLightObservation>& observations)
+{
+    PathTraceRestirLightObservationStats stats;
+
+    for (const PathTraceRestirLightObservation& observation : observations)
+    {
+        if (observation.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
         {
-            ++stats.doomAnalyticStableIdentityCount;
+            ++stats.emissiveObservationCount;
+            if ((observation.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u)
+            {
+                ++stats.emissiveStableIdentityCount;
+            }
+            else if ((observation.invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY) != 0u)
+            {
+                ++stats.emissiveUnknownIdentityCount;
+            }
         }
-        else
+        else if (observation.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC)
         {
-            ++stats.doomAnalyticUnknownIdentityCount;
+            ++stats.doomAnalyticObservationCount;
+            if ((observation.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u)
+            {
+                ++stats.doomAnalyticStableIdentityCount;
+            }
+            else if ((observation.invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY) != 0u)
+            {
+                ++stats.doomAnalyticUnknownIdentityCount;
+            }
+        }
+
+        if ((observation.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u &&
+            observation.invalidReasonFlags == PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
+        {
+            ++stats.stableMappedReadyCount;
+        }
+        if (observation.invalidReasonFlags != PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE)
+        {
+            ++stats.remapInvalidObservationCount;
+        }
+        if ((observation.invalidReasonFlags & PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE) != 0u)
+        {
+            ++stats.unsupportedObservationCount;
+        }
+        if (observation.payloadSourceIndex != PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
+        {
+            ++stats.payloadSourceValidCount;
         }
     }
 
