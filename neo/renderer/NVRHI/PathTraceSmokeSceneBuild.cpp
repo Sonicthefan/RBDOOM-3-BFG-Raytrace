@@ -1220,6 +1220,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeDoomAnalyticCurrentIdentityBuffer = nullptr;
             m_smokeDoomAnalyticPreviousIdentityBuffer = nullptr;
             m_smokeDoomAnalyticRemapBuffer = nullptr;
+            m_smokeRestirLightManagerCurrentBuffer = nullptr;
+            m_smokeRestirLightManagerPreviousBuffer = nullptr;
+            m_smokeRestirLightManagerCurrentToPreviousBuffer = nullptr;
+            m_smokeRestirLightManagerPreviousToCurrentBuffer = nullptr;
             m_smokeRigidRouteVertexBuffer = nullptr;
             m_smokeRigidRouteIndexBuffer = nullptr;
             m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
@@ -2030,7 +2034,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         doomAnalyticLights,
         doomAnalyticRemap.currentCandidateIdentities);
     m_restirLightManager.EndFrame();
-    if (r_pathTracingRestirLightManagerDump.GetInteger() != 0)
+    const bool dumpRestirLightManager = r_pathTracingRestirLightManagerDump.GetInteger() != 0;
+    const std::vector<PathTraceRestirCurrentLightRecord>& restirLightManagerCurrentRecords = m_restirLightManager.GetCurrentLightRecords();
+    const std::vector<PathTraceRestirPreviousLightRecord>& restirLightManagerPreviousRecords = m_restirLightManager.GetPreviousLightRecords();
+    const std::vector<uint32_t>& restirLightManagerCurrentToPreviousRemap = m_restirLightManager.GetCurrentToPreviousRemap();
+    const std::vector<uint32_t>& restirLightManagerPreviousToCurrentRemap = m_restirLightManager.GetPreviousToCurrentRemap();
+    if (dumpRestirLightManager)
     {
         const PathTraceRestirLightObservationStats restirLightManagerStats = BuildPathTraceRestirLightManagerDebugObservations(
             emissiveTriangles,
@@ -2078,7 +2087,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.invalidReasons.invalidShape,
             restirLightManagerPersistentStats.invalidReasons.candidateCap,
             restirLightManagerPersistentStats.invalidReasons.incompatibleSource);
-        r_pathTracingRestirLightManagerDump.SetInteger(0);
     }
     emissiveDistribution = BuildSmokeEmissiveDistribution(emissiveTriangles);
     const PathTraceUnifiedLightBuild unifiedLights = BuildPathTraceUnifiedLights(
@@ -2399,6 +2407,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.unifiedLightBuffer = m_smokeUnifiedLightBuffer;
     bufferCreateDesc.existingBuffers.unifiedPreviousLightBuffer = m_smokeUnifiedPreviousLightBuffer;
     bufferCreateDesc.existingBuffers.unifiedLightRemapBuffer = m_smokeUnifiedLightRemapBuffer;
+    bufferCreateDesc.existingBuffers.restirLightManagerCurrentBuffer = m_smokeRestirLightManagerCurrentBuffer;
+    bufferCreateDesc.existingBuffers.restirLightManagerPreviousBuffer = m_smokeRestirLightManagerPreviousBuffer;
+    bufferCreateDesc.existingBuffers.restirLightManagerCurrentToPreviousBuffer = m_smokeRestirLightManagerCurrentToPreviousBuffer;
+    bufferCreateDesc.existingBuffers.restirLightManagerPreviousToCurrentBuffer = m_smokeRestirLightManagerPreviousToCurrentBuffer;
     bufferCreateDesc.existingBuffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
     bufferCreateDesc.existingBuffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
     bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
@@ -2440,6 +2452,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.unifiedLightBytes = unifiedLights.currentLights.size() * sizeof(PathTraceUnifiedLightRecord);
     bufferCreateDesc.unifiedPreviousLightBytes = unifiedLights.previousLights.size() * sizeof(PathTraceUnifiedLightRecord);
     bufferCreateDesc.unifiedLightRemapBytes = unifiedLights.currentToPreviousRemap.size() * sizeof(uint32_t);
+    bufferCreateDesc.restirLightManagerCurrentBytes = restirLightManagerCurrentRecords.size() * sizeof(PathTraceRestirCurrentLightRecord);
+    bufferCreateDesc.restirLightManagerPreviousBytes = restirLightManagerPreviousRecords.size() * sizeof(PathTraceRestirPreviousLightRecord);
+    bufferCreateDesc.restirLightManagerCurrentToPreviousBytes = restirLightManagerCurrentToPreviousRemap.size() * sizeof(uint32_t);
+    bufferCreateDesc.restirLightManagerPreviousToCurrentBytes = restirLightManagerPreviousToCurrentRemap.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteVertexBytes = rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex);
     bufferCreateDesc.rigidRouteIndexBytes = rigidRouteBuild.indexes.size() * sizeof(uint32_t);
     bufferCreateDesc.rigidRouteTriangleMaterialBytes = rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t);
@@ -2492,6 +2508,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeUnifiedLightBuffer = smokeBuffers.unifiedLightBuffer;
     nvrhi::BufferHandle smokeUnifiedPreviousLightBuffer = smokeBuffers.unifiedPreviousLightBuffer;
     nvrhi::BufferHandle smokeUnifiedLightRemapBuffer = smokeBuffers.unifiedLightRemapBuffer;
+    nvrhi::BufferHandle smokeRestirLightManagerCurrentBuffer = smokeBuffers.restirLightManagerCurrentBuffer;
+    nvrhi::BufferHandle smokeRestirLightManagerPreviousBuffer = smokeBuffers.restirLightManagerPreviousBuffer;
+    nvrhi::BufferHandle smokeRestirLightManagerCurrentToPreviousBuffer = smokeBuffers.restirLightManagerCurrentToPreviousBuffer;
+    nvrhi::BufferHandle smokeRestirLightManagerPreviousToCurrentBuffer = smokeBuffers.restirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle smokeRigidRouteVertexBuffer = smokeBuffers.rigidRouteVertexBuffer;
     nvrhi::BufferHandle smokeRigidRouteIndexBuffer = smokeBuffers.rigidRouteIndexBuffer;
     nvrhi::BufferHandle smokeRigidRouteTriangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
@@ -2759,6 +2779,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeUnifiedLightBuffer, unifiedLights.currentLights, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeUnifiedPreviousLightBuffer, unifiedLights.previousLights, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeUnifiedLightRemapBuffer, unifiedLights.currentToPreviousRemap, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRestirLightManagerCurrentBuffer, restirLightManagerCurrentRecords, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRestirLightManagerPreviousBuffer, restirLightManagerPreviousRecords, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRestirLightManagerCurrentToPreviousBuffer, restirLightManagerCurrentToPreviousRemap, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeRestirLightManagerPreviousToCurrentBuffer, restirLightManagerPreviousToCurrentRemap, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteVertexBuffer, rigidRouteBuild.vertices, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteIndexBuffer, rigidRouteBuild.indexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials, nvrhi::ResourceStates::ShaderResource, false),
@@ -2789,6 +2813,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     else
     {
         bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+    }
+    if (dumpRestirLightManager)
+    {
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager GPU debug buffers uploaded current=%u previous=%u currentToPrevious=%u previousToCurrent=%u bytes=%llu/%llu/%llu/%llu behavior=gpu-debug-only unbound=1\n",
+            static_cast<uint32_t>(restirLightManagerCurrentRecords.size()),
+            static_cast<uint32_t>(restirLightManagerPreviousRecords.size()),
+            static_cast<uint32_t>(restirLightManagerCurrentToPreviousRemap.size()),
+            static_cast<uint32_t>(restirLightManagerPreviousToCurrentRemap.size()),
+            static_cast<unsigned long long>(bufferCreateDesc.restirLightManagerCurrentBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.restirLightManagerPreviousBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.restirLightManagerCurrentToPreviousBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.restirLightManagerPreviousToCurrentBytes));
+        r_pathTracingRestirLightManagerDump.SetInteger(0);
     }
     if (skinnedGpuComputeReady)
     {
@@ -2973,8 +3010,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 13);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 29, 5);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 17);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 33, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;

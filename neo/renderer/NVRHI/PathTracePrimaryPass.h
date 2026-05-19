@@ -131,6 +131,10 @@ private:
     nvrhi::BufferHandle m_smokeUnifiedLightBuffer;
     nvrhi::BufferHandle m_smokeUnifiedPreviousLightBuffer;
     nvrhi::BufferHandle m_smokeUnifiedLightRemapBuffer;
+    nvrhi::BufferHandle m_smokeRestirLightManagerCurrentBuffer;
+    nvrhi::BufferHandle m_smokeRestirLightManagerPreviousBuffer;
+    nvrhi::BufferHandle m_smokeRestirLightManagerCurrentToPreviousBuffer;
+    nvrhi::BufferHandle m_smokeRestirLightManagerPreviousToCurrentBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteVertexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
