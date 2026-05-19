@@ -393,6 +393,12 @@ idCVar r_pathTracingLightAreaOverflowMax(
     CVAR_RENDERER | CVAR_INTEGER,
     "Connected-area overflow budget for RT smoke emissive light-area selection; high default keeps connected candidates greedy and mainly drops disconnected/unknown candidates" );
 
+idCVar r_pathTracingRestirLightManagerDump(
+    "r_pathTracingRestirLightManagerDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump debug-only ReSTIR light-manager observation counts once" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",

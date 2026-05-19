@@ -19,6 +19,7 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTracePrimaryPass.h"
+#include "PathTraceRestirLightManager.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
@@ -1189,6 +1190,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_sceneUniverse.Clear();
             m_instanceUniverse.Clear();
             m_smokeLightUniverse.Clear();
+            m_restirLightManager.Clear();
             m_smokeLightUniverseRenderWorld = nullptr;
             m_smokeStaticBlas = nullptr;
             m_smokeDynamicBlas = nullptr;
@@ -1254,6 +1256,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
     {
         m_smokeLightUniverse.Clear();
+        m_restirLightManager.Clear();
         m_smokeLightUniverseRenderWorld = viewDef->renderWorld;
     }
 
@@ -2020,6 +2023,54 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()));
         emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
         lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
+    }
+    m_restirLightManager.BeginFrame();
+    m_restirLightManager.UpdateFromObservations(
+        emissiveTriangles,
+        doomAnalyticLights,
+        doomAnalyticRemap.currentCandidateIdentities);
+    m_restirLightManager.EndFrame();
+    if (r_pathTracingRestirLightManagerDump.GetInteger() != 0)
+    {
+        const PathTraceRestirLightObservationStats restirLightManagerStats = BuildPathTraceRestirLightManagerDebugObservations(
+            emissiveTriangles,
+            doomAnalyticLights,
+            doomAnalyticRemap.currentCandidateIdentities);
+        const PathTraceRestirLightManagerStats restirLightManagerPersistentStats = m_restirLightManager.GetStats();
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset=%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
+            restirLightManagerStats.totalObservationCount,
+            restirLightManagerStats.stableIdentityCount,
+            restirLightManagerStats.unknownIdentityCount,
+            restirLightManagerStats.emissiveObservationCount,
+            restirLightManagerStats.emissiveStableIdentityCount,
+            restirLightManagerStats.emissiveUnknownIdentityCount,
+            restirLightManagerStats.doomAnalyticObservationCount,
+            restirLightManagerStats.doomAnalyticStableIdentityCount,
+            restirLightManagerStats.doomAnalyticUnknownIdentityCount,
+            restirLightManagerPersistentStats.currentLightCount,
+            restirLightManagerPersistentStats.previousLightCount,
+            restirLightManagerPersistentStats.stableIdentityCount,
+            restirLightManagerPersistentStats.payloadChangedCount,
+            restirLightManagerPersistentStats.currentOnlyCount,
+            restirLightManagerPersistentStats.previousOnlyCount,
+            restirLightManagerPersistentStats.remapValidCount,
+            restirLightManagerPersistentStats.remapInvalidCount,
+            restirLightManagerPersistentStats.currentToPreviousCount,
+            restirLightManagerPersistentStats.currentMappedCount,
+            restirLightManagerPersistentStats.currentInvalidCount,
+            restirLightManagerPersistentStats.previousToCurrentCount,
+            restirLightManagerPersistentStats.previousMappedCount,
+            restirLightManagerPersistentStats.previousInvalidCount,
+            restirLightManagerPersistentStats.mapSizeMismatchCount,
+            restirLightManagerPersistentStats.invalidReasons.newLight,
+            restirLightManagerPersistentStats.invalidReasons.missingLight,
+            restirLightManagerPersistentStats.invalidReasons.temporary,
+            restirLightManagerPersistentStats.invalidReasons.projectile,
+            restirLightManagerPersistentStats.invalidReasons.duplicate,
+            restirLightManagerPersistentStats.invalidReasons.unknownIdentity,
+            restirLightManagerPersistentStats.invalidReasons.unsupportedSource,
+            restirLightManagerPersistentStats.invalidReasons.structuralReset);
+        r_pathTracingRestirLightManagerDump.SetInteger(0);
     }
     emissiveDistribution = BuildSmokeEmissiveDistribution(emissiveTriangles);
     const PathTraceUnifiedLightBuild unifiedLights = BuildPathTraceUnifiedLights(
