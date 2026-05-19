@@ -2134,7 +2134,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.invalidReasons.candidateCap,
             restirLightManagerPersistentStats.invalidReasons.incompatibleSource,
             restirLightManagerPersistentStats.invalidReasons.deleted);
-        common->Printf("PathTracePrimaryPass: ReSTIR light manager active current/previous=%u/%u payload current/previous=%u/%u map currentToPrevious/previousToCurrent=%u/%u payloadMapTotal=%u mismatch=%u inactive current/previous=%u/%u inactive zero/suppressed=%u/%u ranges emissive offset/count=%u/%u doomAnalytic offset/count=%u/%u behavior=payload-upload-staged\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager active current/previous=%u/%u payload current/previous=%u/%u map currentToPrevious/previousToCurrent=%u/%u payloadMapTotal=%u mismatch=%u inactive current/previous=%u/%u inactive zero/suppressed=%u/%u ranges emissive offset/count=%u/%u doomAnalytic offset/count=%u/%u sampleContract emissive/doom/total/nonEmptyRanges=%u/%u/%u/%u behavior=payload-upload-staged\n",
             restirLightManagerPersistentStats.activeCurrentLightCount,
             restirLightManagerPersistentStats.activePreviousLightCount,
             restirLightManagerPersistentStats.activeCurrentPayloadCount,
@@ -2150,7 +2150,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.activeEmissiveCurrentRangeOffset,
             restirLightManagerPersistentStats.activeEmissiveCurrentRangeCount,
             restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeOffset,
-            restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount);
+            restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount,
+            restirLightManagerPersistentStats.activeEmissiveCurrentRangeCount,
+            restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount,
+            restirLightManagerPersistentStats.activeEmissiveCurrentRangeCount + restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount,
+            (restirLightManagerPersistentStats.activeEmissiveCurrentRangeCount > 0 ? 1u : 0u) +
+                (restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount > 0 ? 1u : 0u));
     }
     emissiveDistribution = BuildSmokeEmissiveDistribution(emissiveTriangles);
     const PathTraceUnifiedLightBuild unifiedLights = BuildPathTraceUnifiedLights(

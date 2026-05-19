@@ -145,9 +145,13 @@ static const uint RAB_UNIFIED_NEE_SAMPLE_COUNT = 32u;
 
 bool RAB_UnifiedNeeProducerEnabled()
 {
-    return (((uint)max(UnifiedLightInfo.z, 0.0)) & 4u) != 0u &&
-        RAB_UnifiedLightLoadEnabled() &&
-        RAB_UnifiedLightSampleEnabled();
+    if ((((uint)max(UnifiedLightInfo.z, 0.0)) & 4u) == 0u)
+    {
+        return false;
+    }
+
+    return RAB_RestirLightManagerRABEnabled() ||
+        (RAB_UnifiedLightLoadEnabled() && RAB_UnifiedLightSampleEnabled());
 }
 
 uint RAB_GetCurrentUnifiedNeeLightCount()
@@ -347,6 +351,10 @@ bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface sur
     if (RAB_UnifiedNeeProducerEnabled())
     {
         return RAB_RecordUnifiedNeeSample(ctx, surface, ptRandContext);
+    }
+    if (RAB_RestirLightManagerRABEnabled())
+    {
+        return false;
     }
     return RAB_RecordSmokeRisNeeSample(ctx, surface, ptRandContext);
 }

@@ -89,6 +89,60 @@ uint RAB_GetRestirLightManagerPreviousToCurrentCount()
 #endif
 }
 
+uint2 RAB_GetRestirLightManagerEmissiveRange()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return uint2((uint)max(RestirLightManagerRangeInfo.x, 0.0), (uint)max(RestirLightManagerRangeInfo.y, 0.0));
+#else
+    return uint2(0u, 0u);
+#endif
+}
+
+uint2 RAB_GetRestirLightManagerDoomAnalyticRange()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return uint2((uint)max(RestirLightManagerRangeInfo.z, 0.0), (uint)max(RestirLightManagerRangeInfo.w, 0.0));
+#else
+    return uint2(0u, 0u);
+#endif
+}
+
+uint RAB_GetRestirLightManagerEmissiveSampleCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerSampleInfo.x, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetRestirLightManagerDoomAnalyticSampleCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerSampleInfo.y, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetRestirLightManagerTotalSampleCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerSampleInfo.z, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetRestirLightManagerNonEmptyRangeCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerSampleInfo.w, 0.0);
+#else
+    return 0u;
+#endif
+}
+
 bool RAB_RestirLightManagerRABEnabled()
 {
 #ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB

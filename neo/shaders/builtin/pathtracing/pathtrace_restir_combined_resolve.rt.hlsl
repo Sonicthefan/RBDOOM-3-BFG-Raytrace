@@ -197,6 +197,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 UnifiedLightInfo;
     float4 RestirLightManagerInfo;
     float4 RestirLightManagerControlInfo;
+    float4 RestirLightManagerRangeInfo;
+    float4 RestirLightManagerSampleInfo;
     float4 RestirPTDiDebugInfo;
     float4 RestirPTGiDebugInfo;
 };
@@ -761,6 +763,7 @@ bool RestirPTTryEvaluateSpatialDirectLighting(RAB_Surface surface, uint2 pixel, 
 float4 EvaluateRestirPTReferenceTemporalReadinessView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferenceTemporalPageFlowView(uint2 pixel);
 float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTReferenceTemporalAcceptanceView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferenceInitialTemporalContributionSplitView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferenceInitialTemporalStateSplitView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTReferenceBrdfContractView(RAB_Surface surface);

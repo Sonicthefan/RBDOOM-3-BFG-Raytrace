@@ -308,6 +308,8 @@ struct PathTraceSmokeConstants
     float unifiedLightInfo[4];
     float restirLightManagerInfo[4];
     float restirLightManagerControlInfo[4];
+    float restirLightManagerRangeInfo[4];
+    float restirLightManagerSampleInfo[4];
     float restirPTDiDebugInfo[4];
     float restirPTGiDebugInfo[4];
 };
@@ -570,7 +572,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
-    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 57, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 58, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -1172,6 +1174,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirLightManagerControlInfo[1] = 0.0f;
     constants.restirLightManagerControlInfo[2] = 0.0f;
     constants.restirLightManagerControlInfo[3] = 0.0f;
+    constants.restirLightManagerRangeInfo[0] = static_cast<float>(restirLightManagerStats.activeEmissiveCurrentRangeOffset);
+    constants.restirLightManagerRangeInfo[1] = static_cast<float>(restirLightManagerStats.activeEmissiveCurrentRangeCount);
+    constants.restirLightManagerRangeInfo[2] = static_cast<float>(restirLightManagerStats.activeDoomAnalyticCurrentRangeOffset);
+    constants.restirLightManagerRangeInfo[3] = static_cast<float>(restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
+    constants.restirLightManagerSampleInfo[0] = static_cast<float>(restirLightManagerStats.activeEmissiveCurrentRangeCount);
+    constants.restirLightManagerSampleInfo[1] = static_cast<float>(restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
+    constants.restirLightManagerSampleInfo[2] = static_cast<float>(restirLightManagerStats.activeEmissiveCurrentRangeCount + restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
+    constants.restirLightManagerSampleInfo[3] =
+        (restirLightManagerStats.activeEmissiveCurrentRangeCount > 0 ? 1.0f : 0.0f) +
+        (restirLightManagerStats.activeDoomAnalyticCurrentRangeCount > 0 ? 1.0f : 0.0f);
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[2] = (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1.0f : 0.0f;

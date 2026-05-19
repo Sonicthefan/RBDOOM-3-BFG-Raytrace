@@ -241,6 +241,31 @@ uint RestirPTReferencePreviousNeeLightRemapFailureReason(RTXDI_PTReservoir reser
     }
 
     const uint lightIndex = RTXDI_SampledLightData_GetLightIndex(sampledLightData);
+    if (RAB_RestirLightManagerRABEnabled())
+    {
+        if (lightIndex >= RAB_GetPreviousRestirLightManagerCount())
+        {
+            return 12u;
+        }
+
+        const int currentLightIndex = RAB_TranslateLightIndex(lightIndex, false);
+        if (currentLightIndex < 0)
+        {
+            const RAB_LightInfo previousLightInfo = RAB_LoadLightInfo(lightIndex, true);
+            if (previousLightInfo.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+            {
+                return 31u;
+            }
+            if (previousLightInfo.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+            {
+                return 32u;
+            }
+            return 11u;
+        }
+
+        return (uint)currentLightIndex < RAB_GetCurrentRestirLightManagerCount() ? 0u : 15u;
+    }
+
     if (RAB_UnifiedLightLoadEnabled())
     {
         if (lightIndex >= RAB_GetPreviousUnifiedLightCount())
@@ -742,6 +767,95 @@ float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 
         return RestirPTReferenceTemporalNeighborColor(8u, history);
     }
     return RestirPTReferenceTemporalNeighborColor(7u, history);
+}
+
+float4 EvaluateRestirPTReferenceTemporalAcceptanceView(RAB_Surface surface, uint2 pixel)
+{
+    const float4 rejected = float4(0.0, 0.0, 0.0, 1.0);
+    const float4 accepted = float4(1.0, 0.0, 0.0, 1.0);
+    const uint2 reservoirPixel = PathTraceFullPixelToRestirDirectPixel(pixel);
+    surface = RestirPTReferenceLoadDirectDomainSurface(int2(reservoirPixel), false);
+    if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return rejected;
+    }
+
+    const RTXDI_PTReservoir initialReservoir = LoadRestirPTInitialDirectReservoir(reservoirPixel);
+    const RTXDI_PTReservoir temporalOutputReservoir = LoadRestirPTTemporalOutputReservoir(reservoirPixel);
+    if (!RTXDI_IsValidPTReservoir(initialReservoir) || !RTXDI_IsValidPTReservoir(temporalOutputReservoir))
+    {
+        return rejected;
+    }
+
+    const uint2 representativeFullPixel = PathTraceRestirDirectPixelToRepresentativeFullPixel(reservoirPixel);
+    const uint motionMask = PathTraceMotionVectorMask[representativeFullPixel];
+    float2 previousFullPixelFloat = float2(representativeFullPixel) + 0.5;
+    float expectedPrevLinearDepth = surface.linearDepth;
+    if ((motionMask & PT_MOTION_VECTOR_MASK_VALID) != 0u)
+    {
+        const float3 motionVector = PathTraceMotionVectors[representativeFullPixel].xyz;
+        previousFullPixelFloat += motionVector.xy;
+        expectedPrevLinearDepth = surface.linearDepth + motionVector.z;
+    }
+    else if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(
+        surface.worldPos, PathTraceFullOutputSize(), previousFullPixelFloat, expectedPrevLinearDepth))
+    {
+        return rejected;
+    }
+
+    const float2 previousDirectPixelFloat = PathTraceFullPixelFloatToRestirDirectPixelFloat(previousFullPixelFloat);
+    int2 previousDirectPixel = int2(floor(previousDirectPixelFloat));
+    if (PathTraceRestirSparsityEnabled() && previousDirectPixel.x >= 0 && previousDirectPixel.y >= 0)
+    {
+        previousDirectPixel = int2(PathTraceRestirSparseRepresentativePixel(uint2(previousDirectPixel), true));
+    }
+
+    RTXDI_PTReservoir acceptedReservoir = RTXDI_EmptyPTReservoir();
+    const int temporalSampleCount = 5;
+    const int sampleCount = temporalSampleCount + (RestirPTParams.temporalResampling.enableFallbackSampling != 0u ? 1 : 0);
+    const int radius = 1;
+    RTXDI_RuntimeParameters rtxdiRuntimeParams = (RTXDI_RuntimeParameters)0;
+    rtxdiRuntimeParams.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(reservoirPixel, rtxdiRuntimeParams.frameIndex, 0x51ed270bu);
+    const int temporalSampleStartIdx = int(RTXDI_GetNextRandom(rng) * 8.0);
+    for (int i = 0; i < sampleCount; ++i)
+    {
+        const bool isFallbackSample = i == temporalSampleCount;
+        int2 candidatePixel = isFallbackSample ? int2(reservoirPixel) : previousDirectPixel;
+        if (!isFallbackSample && i != 0)
+        {
+            candidatePixel += RestirPTReferenceTemporalOffset(temporalSampleStartIdx + i, radius);
+        }
+
+        RTXDI_PTReservoir candidateReservoir;
+        const uint candidateStatus = RestirPTReferenceClassifyTemporalCandidate(
+            surface, candidatePixel, isFallbackSample, expectedPrevLinearDepth, candidateReservoir);
+        if (candidateStatus == 7u)
+        {
+            acceptedReservoir = candidateReservoir;
+            break;
+        }
+    }
+
+    if (!RTXDI_IsValidPTReservoir(acceptedReservoir))
+    {
+        return rejected;
+    }
+
+    const uint remapFailureReason = RestirPTReferencePreviousNeeLightRemapFailureReason(acceptedReservoir);
+    if (remapFailureReason != 0u)
+    {
+        return rejected;
+    }
+
+    const float initialM = (float)initialReservoir.M;
+    const float outputM = (float)temporalOutputReservoir.M;
+    if (outputM <= initialM + 0.5)
+    {
+        return rejected;
+    }
+
+    return accepted;
 }
 
 bool RestirPTReferenceReservoirHasBadNumericState(RTXDI_PTReservoir reservoir)

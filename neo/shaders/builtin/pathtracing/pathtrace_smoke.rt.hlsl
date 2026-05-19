@@ -342,6 +342,12 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTIndirectInfo;
     float4 RayReconstructionInfo;
     float4 UnifiedLightInfo;
+    float4 RestirLightManagerInfo;
+    float4 RestirLightManagerControlInfo;
+    float4 RestirLightManagerRangeInfo;
+    float4 RestirLightManagerSampleInfo;
+    float4 RestirPTDiDebugInfo;
+    float4 RestirPTGiDebugInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
