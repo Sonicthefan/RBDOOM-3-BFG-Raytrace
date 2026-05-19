@@ -1164,11 +1164,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.doomAnalyticLightRemapInfo[2] = static_cast<float>(m_smokeDoomAnalyticRemapCount);
     constants.doomAnalyticLightRemapInfo[3] = static_cast<float>(m_smokePreviousEmissiveTriangleCount);
     const PathTraceRestirLightManagerStats restirLightManagerStats = m_restirLightManager.GetStats();
-    constants.restirLightManagerInfo[0] = static_cast<float>(restirLightManagerStats.currentLightCount);
-    constants.restirLightManagerInfo[1] = static_cast<float>(restirLightManagerStats.previousLightCount);
-    constants.restirLightManagerInfo[2] = static_cast<float>(restirLightManagerStats.currentToPreviousCount);
-    constants.restirLightManagerInfo[3] = static_cast<float>(restirLightManagerStats.previousToCurrentCount);
-    constants.restirLightManagerControlInfo[0] = r_pathTracingRestirLightManagerRAB.GetInteger() != 0 ? 1.0f : 0.0f;
+    constants.restirLightManagerInfo[0] = static_cast<float>(restirLightManagerStats.activeCurrentPayloadCount);
+    constants.restirLightManagerInfo[1] = static_cast<float>(restirLightManagerStats.activePreviousPayloadCount);
+    constants.restirLightManagerInfo[2] = static_cast<float>(restirLightManagerStats.activeCurrentToPreviousCount);
+    constants.restirLightManagerInfo[3] = static_cast<float>(restirLightManagerStats.activePreviousToCurrentCount);
+    constants.restirLightManagerControlInfo[0] = (r_pathTracingRestirLightManagerRAB.GetInteger() != 0 && restirLightManagerStats.activePayloadCountMismatch == 0) ? 1.0f : 0.0f;
     constants.restirLightManagerControlInfo[1] = 0.0f;
     constants.restirLightManagerControlInfo[2] = 0.0f;
     constants.restirLightManagerControlInfo[3] = 0.0f;

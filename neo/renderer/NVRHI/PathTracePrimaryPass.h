@@ -135,6 +135,8 @@ private:
     nvrhi::BufferHandle m_smokeRestirLightManagerPreviousBuffer;
     nvrhi::BufferHandle m_smokeRestirLightManagerCurrentToPreviousBuffer;
     nvrhi::BufferHandle m_smokeRestirLightManagerPreviousToCurrentBuffer;
+    nvrhi::BufferHandle m_smokeRestirLightManagerCurrentPayloadBuffer;
+    nvrhi::BufferHandle m_smokeRestirLightManagerPreviousPayloadBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteVertexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
@@ -199,6 +201,8 @@ private:
     int m_smokeUnifiedLightCount = 0;
     int m_smokeUnifiedPreviousLightCount = 0;
     int m_smokeUnifiedLightRemapCount = 0;
+    int m_smokeRestirLightManagerCurrentPayloadCount = 0;
+    int m_smokeRestirLightManagerPreviousPayloadCount = 0;
     nvrhi::ShaderLibraryHandle m_smokeShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirInitialShaderLibrary;

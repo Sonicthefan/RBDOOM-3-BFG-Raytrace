@@ -143,6 +143,8 @@ StructuredBuffer<PathTraceRestirCurrentLightRecord> PathTraceRestirLightManagerC
 StructuredBuffer<PathTraceRestirPreviousLightRecord> PathTraceRestirLightManagerPrevious : register(t63);
 StructuredBuffer<uint> PathTraceRestirLightManagerCurrentToPrevious : register(t64);
 StructuredBuffer<uint> PathTraceRestirLightManagerPreviousToCurrent : register(t65);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerCurrentPayload : register(t66);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerPreviousPayload : register(t67);
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);

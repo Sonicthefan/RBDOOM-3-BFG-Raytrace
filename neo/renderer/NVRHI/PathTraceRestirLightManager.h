@@ -1,15 +1,17 @@
 #pragma once
 
-// CPU-only scaffold for a future ReSTIR light-manager bridge.
+// CPU-owned ReSTIR light-manager bridge state.
 //
-// This file intentionally owns no GPU buffers and is not routed into RAB or
-// ReSTIR yet. It only defines the rbdoom-native domains, remaps, and counters
-// that later slices will populate.
+// The manager builds rbdoom-native current/previous domains, active remaps, and
+// payload records. PathTracePrimaryPass owns the corresponding GPU buffers and
+// exposes the active payload domain to the opt-in RAB path.
 
 #include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
+
+#include "PathTraceUnifiedLight.h"
 
 struct PathTraceDoomAnalyticLightCandidate;
 struct PathTraceDoomAnalyticLightCandidateIdentity;
@@ -137,12 +139,37 @@ struct PathTraceRestirLightInvalidReasonStats
     uint32_t deleted = 0;
 };
 
+struct PathTraceRestirLightActiveRange
+{
+    uint32_t sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
+    uint32_t offset = 0;
+    uint32_t count = 0;
+};
+
 struct PathTraceRestirLightManagerStats
 {
     uint32_t currentLightCount = 0;
     uint32_t previousLightCount = 0;
     uint32_t currentToPreviousCount = 0;
     uint32_t previousToCurrentCount = 0;
+    uint32_t activeCurrentLightCount = 0;
+    uint32_t activePreviousLightCount = 0;
+    uint32_t activeCurrentToPreviousCount = 0;
+    uint32_t activePreviousToCurrentCount = 0;
+    uint32_t activeCurrentPayloadCount = 0;
+    uint32_t activePreviousPayloadCount = 0;
+    uint32_t activePayloadMapCount = 0;
+    uint32_t activePayloadCountMismatch = 0;
+    uint32_t diagnosticCurrentLightCount = 0;
+    uint32_t diagnosticPreviousLightCount = 0;
+    uint32_t inactiveCurrentLightCount = 0;
+    uint32_t inactivePreviousLightCount = 0;
+    uint32_t inactiveZeroRadianceCount = 0;
+    uint32_t inactiveSuppressedCount = 0;
+    uint32_t activeEmissiveCurrentRangeOffset = 0;
+    uint32_t activeEmissiveCurrentRangeCount = 0;
+    uint32_t activeDoomAnalyticCurrentRangeOffset = 0;
+    uint32_t activeDoomAnalyticCurrentRangeCount = 0;
     uint32_t currentMappedCount = 0;
     uint32_t currentInvalidCount = 0;
     uint32_t previousMappedCount = 0;
@@ -198,6 +225,13 @@ public:
     void BeginFrame();
     void UpdateFromObservations(
         const std::vector<PathTraceRestirLightObservation>& observations);
+    void UpdateActivePayloadRecords(
+        const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+        const std::vector<PathTraceSmokeEmissiveTriangle>& previousEmissiveTriangles,
+        const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
+        const std::vector<PathTraceDoomAnalyticLightCandidate>& previousDoomAnalyticLights,
+        const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities,
+        const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& previousDoomAnalyticIdentities);
     void EndFrame();
     PathTraceRestirLightManagerStats GetStats() const;
 
@@ -205,6 +239,13 @@ public:
     const std::vector<PathTraceRestirPreviousLightRecord>& GetPreviousLightRecords() const;
     const std::vector<uint32_t>& GetCurrentToPreviousRemap() const;
     const std::vector<uint32_t>& GetPreviousToCurrentRemap() const;
+    const std::vector<PathTraceRestirCurrentLightRecord>& GetActiveCurrentLightRecords() const;
+    const std::vector<PathTraceRestirPreviousLightRecord>& GetActivePreviousLightRecords() const;
+    const std::vector<uint32_t>& GetActiveCurrentToPreviousRemap() const;
+    const std::vector<uint32_t>& GetActivePreviousToCurrentRemap() const;
+    const std::vector<PathTraceRestirLightActiveRange>& GetActiveCurrentLightRanges() const;
+    const std::vector<PathTraceUnifiedLightRecord>& GetActiveCurrentPayloadRecords() const;
+    const std::vector<PathTraceUnifiedLightRecord>& GetActivePreviousPayloadRecords() const;
 
     struct StableKey
     {
@@ -226,6 +267,14 @@ public:
 private:
     void RebuildStats();
     void RebuildCpuRemaps();
+    void RebuildActiveDomains();
+    void RebuildActivePayloadRecords(
+        const std::vector<PathTraceSmokeEmissiveTriangle>& emissiveTriangles,
+        const std::vector<PathTraceSmokeEmissiveTriangle>& previousEmissiveTriangles,
+        const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
+        const std::vector<PathTraceDoomAnalyticLightCandidate>& previousDoomAnalyticLights,
+        const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& doomAnalyticIdentities,
+        const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>& previousDoomAnalyticIdentities);
     void RebuildPreviousLookup();
     void RebuildSignatures();
 
@@ -233,6 +282,13 @@ private:
     std::vector<PathTraceRestirPreviousLightRecord> m_previousLightRecords;
     std::vector<uint32_t> m_currentToPreviousRemap;
     std::vector<uint32_t> m_previousToCurrentRemap;
+    std::vector<PathTraceRestirCurrentLightRecord> m_activeCurrentLightRecords;
+    std::vector<PathTraceRestirPreviousLightRecord> m_activePreviousLightRecords;
+    std::vector<uint32_t> m_activeCurrentToPreviousRemap;
+    std::vector<uint32_t> m_activePreviousToCurrentRemap;
+    std::vector<PathTraceRestirLightActiveRange> m_activeCurrentLightRanges;
+    std::vector<PathTraceUnifiedLightRecord> m_activeCurrentPayloadRecords;
+    std::vector<PathTraceUnifiedLightRecord> m_activePreviousPayloadRecords;
     std::unordered_map<StableKey, uint32_t, StableKeyHash> m_previousStableLookup;
     PathTraceRestirLightManagerStats m_stats;
     uint64_t m_lastStructuralSignature = 0;

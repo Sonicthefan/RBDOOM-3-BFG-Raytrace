@@ -241,6 +241,8 @@ struct RtPathTraceSceneInputLights
     nvrhi::BufferHandle unifiedLightBuffer;
     nvrhi::BufferHandle unifiedPreviousLightBuffer;
     nvrhi::BufferHandle unifiedLightRemapBuffer;
+    nvrhi::BufferHandle restirLightManagerCurrentPayloadBuffer;
+    nvrhi::BufferHandle restirLightManagerPreviousPayloadBuffer;
     int emissiveTriangleCount = 0;
     int emissiveDistributionCount = 0;
     int emissiveDistributionZeroPdfSkipped = 0;
@@ -259,6 +261,8 @@ struct RtPathTraceSceneInputLights
     int unifiedLightCount = 0;
     int unifiedPreviousLightCount = 0;
     int unifiedLightRemapCount = 0;
+    int restirLightManagerCurrentPayloadCount = 0;
+    int restirLightManagerPreviousPayloadCount = 0;
     float emissiveDistributionTotalPdf = 0.0f;
     float emissiveDistributionFallbackWeight = 0.0f;
     bool emissiveDistributionValid = false;

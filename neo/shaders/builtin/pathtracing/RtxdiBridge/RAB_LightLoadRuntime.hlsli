@@ -401,6 +401,8 @@ RAB_LightInfo RAB_LoadSplitLightInfo(uint index, bool previousFrame)
     return RAB_EmptyLightInfo();
 }
 
+RAB_LightInfo RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedLightRecord record, uint unifiedIndex);
+
 RAB_LightInfo RAB_LoadRestirLightManagerLightInfo(uint index, bool previousFrame)
 {
 #ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
@@ -410,69 +412,14 @@ RAB_LightInfo RAB_LoadRestirLightManagerLightInfo(uint index, bool previousFrame
         {
             return RAB_EmptyLightInfo();
         }
-
-        const PathTraceRestirPreviousLightRecord record = PathTraceRestirLightManagerPrevious[index];
-        if (record.payloadSourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
-        {
-            return RAB_EmptyLightInfo();
-        }
-        if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
-        {
-            if (record.payloadSourceIndex >= RAB_GetPreviousEmissiveTriangleCount())
-            {
-                return RAB_EmptyLightInfo();
-            }
-            return RAB_BuildLightInfoFromEmissivePayload(SmokePreviousEmissiveTriangles[record.payloadSourceIndex], index);
-        }
-        if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC)
-        {
-            if (record.payloadSourceIndex >= (uint)max(DoomAnalyticLightRemapInfo.y, 0.0))
-            {
-                return RAB_EmptyLightInfo();
-            }
-            const PathTraceDoomAnalyticLightCandidateIdentity identity = DoomAnalyticPreviousIdentities[record.payloadSourceIndex];
-            if (!RAB_DoomAnalyticIdentitySampleable(identity))
-            {
-                return RAB_EmptyLightInfo();
-            }
-            return RAB_BuildLightInfoFromDoomAnalyticPayload(DoomAnalyticPreviousLights[record.payloadSourceIndex], index);
-        }
-        return RAB_EmptyLightInfo();
+        return RAB_BuildLightInfoFromUnifiedRecord(PathTraceRestirLightManagerPreviousPayload[index], index);
     }
 
     if (index >= RAB_GetCurrentRestirLightManagerCount())
     {
         return RAB_EmptyLightInfo();
     }
-
-    const PathTraceRestirCurrentLightRecord record = PathTraceRestirLightManagerCurrent[index];
-    if (record.payloadSourceIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
-    {
-        return RAB_EmptyLightInfo();
-    }
-    if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE)
-    {
-        if (record.payloadSourceIndex >= RAB_GetCurrentEmissiveTriangleCount())
-        {
-            return RAB_EmptyLightInfo();
-        }
-        return RAB_BuildLightInfoFromEmissivePayload(SmokeEmissiveTriangles[record.payloadSourceIndex], index);
-    }
-    if (record.sourceType == PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC)
-    {
-        if (record.payloadSourceIndex >= RAB_GetCurrentDoomAnalyticLightCount() ||
-            record.payloadSourceIndex >= (uint)max(DoomAnalyticLightRemapInfo.x, 0.0))
-        {
-            return RAB_EmptyLightInfo();
-        }
-        const PathTraceDoomAnalyticLightCandidateIdentity identity = DoomAnalyticCurrentIdentities[record.payloadSourceIndex];
-        if (!RAB_DoomAnalyticIdentitySampleable(identity))
-        {
-            return RAB_EmptyLightInfo();
-        }
-        return RAB_BuildLightInfoFromDoomAnalyticPayload(DoomAnalyticLights[record.payloadSourceIndex], index);
-    }
-    return RAB_EmptyLightInfo();
+    return RAB_BuildLightInfoFromUnifiedRecord(PathTraceRestirLightManagerCurrentPayload[index], index);
 #else
     return RAB_EmptyLightInfo();
 #endif
