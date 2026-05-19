@@ -192,6 +192,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTIndirectInfo;
     float4 RayReconstructionInfo;
     float4 UnifiedLightInfo;
+    float4 RestirLightManagerInfo;
     float4 RestirPTDiDebugInfo;
     float4 RestirPTGiDebugInfo;
 };

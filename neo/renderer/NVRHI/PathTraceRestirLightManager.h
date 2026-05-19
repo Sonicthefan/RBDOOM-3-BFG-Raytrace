@@ -70,6 +70,9 @@ struct PathTraceRestirCurrentLightRecord
     uint32_t invalidReasonFlags = PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
 };
 
+static_assert(sizeof(PathTraceRestirCurrentLightRecord) == 48, "PathTraceRestirCurrentLightRecord must match HLSL layout");
+static_assert((sizeof(PathTraceRestirCurrentLightRecord) % 16) == 0, "PathTraceRestirCurrentLightRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
+
 struct PathTraceRestirPreviousLightRecord
 {
     uint32_t sourceType = PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
@@ -85,6 +88,9 @@ struct PathTraceRestirPreviousLightRecord
     uint32_t flags = 0;
     uint32_t invalidReasonFlags = PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_NONE;
 };
+
+static_assert(sizeof(PathTraceRestirPreviousLightRecord) == 48, "PathTraceRestirPreviousLightRecord must match HLSL layout");
+static_assert((sizeof(PathTraceRestirPreviousLightRecord) % 16) == 0, "PathTraceRestirPreviousLightRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
 struct PathTraceRestirLightInvalidReasonStats
 {

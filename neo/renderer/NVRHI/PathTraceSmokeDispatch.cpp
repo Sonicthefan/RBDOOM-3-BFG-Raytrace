@@ -306,6 +306,7 @@ struct PathTraceSmokeConstants
     float restirPTIndirectInfo[4];
     float rayReconstructionInfo[4];
     float unifiedLightInfo[4];
+    float restirLightManagerInfo[4];
     float restirPTDiDebugInfo[4];
     float restirPTGiDebugInfo[4];
 };
@@ -1144,6 +1145,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.doomAnalyticLightRemapInfo[1] = static_cast<float>(m_smokeDoomAnalyticPreviousIdentityCount);
     constants.doomAnalyticLightRemapInfo[2] = static_cast<float>(m_smokeDoomAnalyticRemapCount);
     constants.doomAnalyticLightRemapInfo[3] = static_cast<float>(m_smokePreviousEmissiveTriangleCount);
+    const PathTraceRestirLightManagerStats restirLightManagerStats = m_restirLightManager.GetStats();
+    constants.restirLightManagerInfo[0] = static_cast<float>(restirLightManagerStats.currentLightCount);
+    constants.restirLightManagerInfo[1] = static_cast<float>(restirLightManagerStats.previousLightCount);
+    constants.restirLightManagerInfo[2] = static_cast<float>(restirLightManagerStats.currentToPreviousCount);
+    constants.restirLightManagerInfo[3] = static_cast<float>(restirLightManagerStats.previousToCurrentCount);
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[2] = (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1.0f : 0.0f;

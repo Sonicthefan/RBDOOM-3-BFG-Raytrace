@@ -26,9 +26,29 @@ float4 RestirPTLightManagerUnsupportedColor()
     return float4(0.55, 0.05, 0.80, 1.0);
 }
 
+uint RestirPTLightManagerCurrentCount()
+{
+    return (uint)max(RestirLightManagerInfo.x, 0.0);
+}
+
+uint RestirPTLightManagerPreviousCount()
+{
+    return (uint)max(RestirLightManagerInfo.y, 0.0);
+}
+
+uint RestirPTLightManagerCurrentToPreviousCount()
+{
+    return (uint)max(RestirLightManagerInfo.z, 0.0);
+}
+
+uint RestirPTLightManagerPreviousToCurrentCount()
+{
+    return (uint)max(RestirLightManagerInfo.w, 0.0);
+}
+
 float4 RestirPTLightManagerCurrentStatusColor(uint lightIndex)
 {
-    if (lightIndex >= RAB_GetCurrentUnifiedLightCount())
+    if (lightIndex >= RestirPTLightManagerCurrentCount())
     {
         return float4(0.0, 0.0, 0.0, 1.0);
     }
@@ -52,14 +72,14 @@ float4 RestirPTLightManagerCurrentStatusColor(uint lightIndex)
 
     const bool remapValid = (record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID) != 0u;
     const bool stableIdentity = (record.flags & PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY) != 0u;
-    if (lightIndex >= RAB_GetUnifiedLightRemapCount() || !remapValid || !stableIdentity)
+    if (lightIndex >= RestirPTLightManagerCurrentToPreviousCount() || !remapValid || !stableIdentity)
     {
         return float4(1.0, 0.35, 0.0, 1.0);
     }
 
     const uint previousIndex = PathTraceRestirLightManagerCurrentToPrevious[lightIndex];
     if (previousIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX ||
-        previousIndex >= RAB_GetPreviousUnifiedLightCount())
+        previousIndex >= RestirPTLightManagerPreviousCount())
     {
         return float4(0.95, 0.05, 0.05, 1.0);
     }
@@ -69,7 +89,7 @@ float4 RestirPTLightManagerCurrentStatusColor(uint lightIndex)
 
 float4 RestirPTLightManagerPreviousStatusColor(uint lightIndex)
 {
-    if (lightIndex >= RAB_GetPreviousUnifiedLightCount())
+    if (lightIndex >= RestirPTLightManagerPreviousCount())
     {
         return float4(0.0, 0.0, 0.0, 1.0);
     }
@@ -91,12 +111,17 @@ float4 RestirPTLightManagerPreviousStatusColor(uint lightIndex)
         return float4(0.05, 0.18, 0.75, 1.0);
     }
 
+    if (lightIndex >= RestirPTLightManagerPreviousToCurrentCount())
+    {
+        return float4(1.0, 0.35, 0.0, 1.0);
+    }
+
     const uint currentIndex = PathTraceRestirLightManagerPreviousToCurrent[lightIndex];
     if (currentIndex == PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX)
     {
         return float4(0.05, 0.18, 0.75, 1.0);
     }
-    if (currentIndex >= RAB_GetCurrentUnifiedLightCount())
+    if (currentIndex >= RestirPTLightManagerCurrentCount())
     {
         return float4(0.95, 0.05, 0.05, 1.0);
     }
@@ -107,7 +132,7 @@ float4 RestirPTLightManagerPreviousStatusColor(uint lightIndex)
 float4 EvaluateRestirPTLightManagerMapStatusView(uint2 pixel)
 {
     const uint lightIndex = RestirPTDebugUnifiedGridIndex(pixel);
-    const uint lightCount = max(RAB_GetCurrentUnifiedLightCount(), RAB_GetPreviousUnifiedLightCount());
+    const uint lightCount = max(RestirPTLightManagerCurrentCount(), RestirPTLightManagerPreviousCount());
     if (lightIndex >= lightCount)
     {
         return float4(0.0, 0.0, 0.0, 1.0);
