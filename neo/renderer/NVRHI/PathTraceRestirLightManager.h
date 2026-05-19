@@ -129,6 +129,12 @@ struct PathTraceRestirLightManagerStats
     uint32_t remapValidCount = 0;
     uint32_t remapInvalidCount = 0;
     uint32_t mapSizeMismatchCount = 0;
+    uint32_t structuralSignatureChanged = 0;
+    uint32_t mappingIdentitySignatureChanged = 0;
+    uint32_t animatedPayloadSignatureChanged = 0;
+    uint64_t structuralSignature = 0;
+    uint64_t mappingIdentitySignature = 0;
+    uint64_t animatedPayloadSignature = 0;
     PathTraceRestirLightInvalidReasonStats invalidReasons;
 };
 
@@ -183,6 +189,7 @@ private:
     void RebuildStats();
     void RebuildCpuRemaps();
     void RebuildPreviousLookup();
+    void RebuildSignatures();
 
     std::vector<PathTraceRestirCurrentLightRecord> m_currentLightRecords;
     std::vector<PathTraceRestirPreviousLightRecord> m_previousLightRecords;
@@ -190,6 +197,10 @@ private:
     std::vector<uint32_t> m_previousToCurrentRemap;
     std::unordered_map<StableKey, uint32_t, StableKeyHash> m_previousStableLookup;
     PathTraceRestirLightManagerStats m_stats;
+    uint64_t m_lastStructuralSignature = 0;
+    uint64_t m_lastMappingIdentitySignature = 0;
+    uint64_t m_lastAnimatedPayloadSignature = 0;
+    bool m_haveLastSignatures = false;
 };
 
 PathTraceRestirLightObservationStats BuildPathTraceRestirLightManagerDebugObservations(

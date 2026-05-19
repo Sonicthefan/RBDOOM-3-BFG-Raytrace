@@ -23,6 +23,11 @@ uint64 HashLightManagerValue(uint64 hash, uint32_t value)
     return HashLightManagerBytes(hash, &value, sizeof(value));
 }
 
+uint64 HashLightManagerValue64(uint64 hash, uint64_t value)
+{
+    return HashLightManagerBytes(hash, &value, sizeof(value));
+}
+
 uint64 HashLightManagerFloatArray(uint64 hash, const float* values, size_t count)
 {
     return HashLightManagerBytes(hash, values, count * sizeof(values[0]));
@@ -387,6 +392,10 @@ void PathTraceRestirLightManager::Clear()
     m_previousToCurrentRemap.clear();
     m_previousStableLookup.clear();
     m_stats = {};
+    m_lastStructuralSignature = 0;
+    m_lastMappingIdentitySignature = 0;
+    m_lastAnimatedPayloadSignature = 0;
+    m_haveLastSignatures = false;
 }
 
 void PathTraceRestirLightManager::BeginFrame()
@@ -547,6 +556,8 @@ void PathTraceRestirLightManager::RebuildCpuRemaps()
 
 void PathTraceRestirLightManager::RebuildStats()
 {
+    RebuildSignatures();
+
     m_stats.currentLightCount = static_cast<uint32_t>(m_currentLightRecords.size());
     m_stats.previousLightCount = static_cast<uint32_t>(m_previousLightRecords.size());
     m_stats.currentToPreviousCount = static_cast<uint32_t>(m_currentToPreviousRemap.size());
@@ -627,6 +638,79 @@ void PathTraceRestirLightManager::RebuildStats()
             ++m_stats.previousMappedCount;
         }
     }
+}
+
+void PathTraceRestirLightManager::RebuildSignatures()
+{
+    const uint64_t structuralVersion = 1;
+    uint64_t structuralHash = 1469598103934665603ull;
+    structuralHash = HashLightManagerValue64(structuralHash, structuralVersion);
+    structuralHash = HashLightManagerValue(structuralHash, m_currentToPreviousRemap.size() == m_currentLightRecords.size() ? 0u : 1u);
+    structuralHash = HashLightManagerValue(structuralHash, m_previousToCurrentRemap.size() == m_previousLightRecords.size() ? 0u : 1u);
+
+    uint64_t mappingHash = 1469598103934665603ull;
+    const uint64_t currentCount = static_cast<uint64_t>(m_currentLightRecords.size());
+    const uint64_t previousCount = static_cast<uint64_t>(m_previousLightRecords.size());
+    mappingHash = HashLightManagerValue64(mappingHash, currentCount);
+    for (const PathTraceRestirCurrentLightRecord& record : m_currentLightRecords)
+    {
+        mappingHash = HashLightManagerValue(mappingHash, record.sourceType);
+        mappingHash = HashLightManagerValue(mappingHash, record.sourceIndex);
+        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyLo);
+        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyHi);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey0);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey1);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey2);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey3);
+        mappingHash = HashLightManagerValue(mappingHash, record.flags & ~PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED);
+        mappingHash = HashLightManagerValue(mappingHash, record.invalidReasonFlags);
+    }
+    mappingHash = HashLightManagerValue64(mappingHash, previousCount);
+    for (const PathTraceRestirPreviousLightRecord& record : m_previousLightRecords)
+    {
+        mappingHash = HashLightManagerValue(mappingHash, record.sourceType);
+        mappingHash = HashLightManagerValue(mappingHash, record.sourceIndex);
+        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyLo);
+        mappingHash = HashLightManagerValue(mappingHash, record.stableKeyHi);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey0);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey1);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey2);
+        mappingHash = HashLightManagerValue(mappingHash, record.compatibilityKey3);
+        mappingHash = HashLightManagerValue(mappingHash, record.flags & ~PATH_TRACE_RESTIR_LIGHT_RECORD_PAYLOAD_CHANGED);
+        mappingHash = HashLightManagerValue(mappingHash, record.invalidReasonFlags);
+    }
+    mappingHash = HashLightManagerValue64(mappingHash, static_cast<uint64_t>(m_currentToPreviousRemap.size()));
+    for (const uint32_t remapIndex : m_currentToPreviousRemap)
+    {
+        mappingHash = HashLightManagerValue(mappingHash, remapIndex);
+    }
+    mappingHash = HashLightManagerValue64(mappingHash, static_cast<uint64_t>(m_previousToCurrentRemap.size()));
+    for (const uint32_t remapIndex : m_previousToCurrentRemap)
+    {
+        mappingHash = HashLightManagerValue(mappingHash, remapIndex);
+    }
+
+    uint64_t payloadHash = 1469598103934665603ull;
+    payloadHash = HashLightManagerValue64(payloadHash, currentCount);
+    for (const PathTraceRestirCurrentLightRecord& record : m_currentLightRecords)
+    {
+        payloadHash = HashLightManagerValue(payloadHash, record.sourceType);
+        payloadHash = HashLightManagerValue(payloadHash, record.stableKeyLo);
+        payloadHash = HashLightManagerValue(payloadHash, record.stableKeyHi);
+        payloadHash = HashLightManagerValue(payloadHash, record.payloadHashLo);
+        payloadHash = HashLightManagerValue(payloadHash, record.payloadHashHi);
+    }
+
+    m_stats.structuralSignature = structuralHash;
+    m_stats.mappingIdentitySignature = mappingHash;
+    m_stats.animatedPayloadSignature = payloadHash;
+    m_stats.structuralSignatureChanged = !m_haveLastSignatures || structuralHash != m_lastStructuralSignature ? 1u : 0u;
+    m_stats.mappingIdentitySignatureChanged = !m_haveLastSignatures || mappingHash != m_lastMappingIdentitySignature ? 1u : 0u;
+    m_stats.animatedPayloadSignatureChanged = !m_haveLastSignatures || payloadHash != m_lastAnimatedPayloadSignature ? 1u : 0u;
+    m_lastStructuralSignature = structuralHash;
+    m_lastMappingIdentitySignature = mappingHash;
+    m_lastAnimatedPayloadSignature = payloadHash;
+    m_haveLastSignatures = true;
 }
 
 void PathTraceRestirLightManager::RebuildPreviousLookup()

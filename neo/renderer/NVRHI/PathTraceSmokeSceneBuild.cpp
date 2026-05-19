@@ -306,6 +306,20 @@ uint64 ComputeSmokePreviousStaticSnapshotUploadSignature(
     return hash;
 }
 
+uint64 ComputeSmokeReservoirStructuralSignature(
+    uint64 materialTableSignature,
+    uint64 staticBlasSignature,
+    uint64 restirLightManagerStructuralSignature)
+{
+    uint64 hash = 1469598103934665603ull;
+    const uint64 version = 1;
+    hash = HashSmokeBytes(hash, &version, sizeof(version));
+    hash = HashSmokeBytes(hash, &materialTableSignature, sizeof(materialTableSignature));
+    hash = HashSmokeBytes(hash, &staticBlasSignature, sizeof(staticBlasSignature));
+    hash = HashSmokeBytes(hash, &restirLightManagerStructuralSignature, sizeof(restirLightManagerStructuralSignature));
+    return hash;
+}
+
 struct RtSmokeStaticDrawSurfCounts
 {
     int surfaces = 0;
@@ -2046,7 +2060,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             doomAnalyticLights,
             doomAnalyticRemap.currentCandidateIdentities);
         const PathTraceRestirLightManagerStats restirLightManagerPersistentStats = m_restirLightManager.GetStats();
-        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset/unproven/zero/suppressed/outOfArea/disconnectedOrPortal/invalidShape/candidateCap/incompatible=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager observations total=%u stableIdentity=%u unknownIdentity=%u emissive total/stable/unknown=%u/%u/%u doomAnalytic total/stable/unknown=%u/%u/%u persistent current=%u previous=%u stable=%u payloadChanged=%u currentOnly=%u previousOnly=%u remap valid/invalid=%u/%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u mapSizeMismatches=%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u invalid new/missing/temp/projectile/duplicate/unknown/unsupported/reset/unproven/zero/suppressed/outOfArea/disconnectedOrPortal/invalidShape/candidateCap/incompatible=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u behavior=cpu-debug-only\n",
             restirLightManagerStats.totalObservationCount,
             restirLightManagerStats.stableIdentityCount,
             restirLightManagerStats.unknownIdentityCount,
@@ -2071,6 +2085,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.previousMappedCount,
             restirLightManagerPersistentStats.previousInvalidCount,
             restirLightManagerPersistentStats.mapSizeMismatchCount,
+            static_cast<unsigned long long>(restirLightManagerPersistentStats.structuralSignature),
+            static_cast<unsigned long long>(restirLightManagerPersistentStats.mappingIdentitySignature),
+            static_cast<unsigned long long>(restirLightManagerPersistentStats.animatedPayloadSignature),
+            restirLightManagerPersistentStats.structuralSignatureChanged,
+            restirLightManagerPersistentStats.mappingIdentitySignatureChanged,
+            restirLightManagerPersistentStats.animatedPayloadSignatureChanged,
             restirLightManagerPersistentStats.invalidReasons.newLight,
             restirLightManagerPersistentStats.invalidReasons.missingLight,
             restirLightManagerPersistentStats.invalidReasons.temporary,
@@ -2588,12 +2608,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const int staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
-    const uint64 reservoirSceneSignature = ComputeSmokeReservoirSceneSignature(
+    const PathTraceRestirLightManagerStats restirLightManagerSignatureStats = m_restirLightManager.GetStats();
+    const uint64 reservoirSceneSignature = ComputeSmokeReservoirStructuralSignature(
         materialTableSignature,
         staticSignature.hash,
-        emissiveTriangles,
-        lightCandidates,
-        doomAnalyticLights);
+        restirLightManagerSignatureStats.structuralSignature);
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
         m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
         !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;
