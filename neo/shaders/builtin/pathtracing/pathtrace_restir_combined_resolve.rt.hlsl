@@ -79,6 +79,38 @@ struct PathTraceDoomAnalyticLightRemap
     uint invalidReasonFlags;
 };
 
+struct PathTraceRestirCurrentLightRecord
+{
+    uint sourceType;
+    uint sourceIndex;
+    uint stableKeyLo;
+    uint stableKeyHi;
+    uint compatibilityKey0;
+    uint compatibilityKey1;
+    uint compatibilityKey2;
+    uint compatibilityKey3;
+    uint payloadHashLo;
+    uint payloadHashHi;
+    uint flags;
+    uint invalidReasonFlags;
+};
+
+struct PathTraceRestirPreviousLightRecord
+{
+    uint sourceType;
+    uint sourceIndex;
+    uint stableKeyLo;
+    uint stableKeyHi;
+    uint compatibilityKey0;
+    uint compatibilityKey1;
+    uint compatibilityKey2;
+    uint compatibilityKey3;
+    uint payloadHashLo;
+    uint payloadHashHi;
+    uint flags;
+    uint invalidReasonFlags;
+};
+
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
 #include "PathTracePrimarySurface.hlsli"
@@ -106,6 +138,10 @@ StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedLights : register(t59);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedPreviousLights : register(t60);
 StructuredBuffer<uint> PathTraceUnifiedLightRemap : register(t61);
+StructuredBuffer<PathTraceRestirCurrentLightRecord> PathTraceRestirLightManagerCurrent : register(t62);
+StructuredBuffer<PathTraceRestirPreviousLightRecord> PathTraceRestirLightManagerPrevious : register(t63);
+StructuredBuffer<uint> PathTraceRestirLightManagerCurrentToPrevious : register(t64);
+StructuredBuffer<uint> PathTraceRestirLightManagerPreviousToCurrent : register(t65);
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
@@ -712,6 +748,7 @@ float4 EvaluateRestirPTUnifiedLoadCurrentCompareView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedLoadPreviousCompareView(uint2 pixel);
 float4 EvaluateRestirPTUnifiedSampleCompareView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTUnifiedSampleNumericView(RAB_Surface surface, uint2 pixel);
+float4 EvaluateRestirPTLightManagerMapStatusView(uint2 pixel);
 float4 EvaluateRestirPTDiInitialSampleValidityView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTDiInitialContributionView(RAB_Surface surface, uint2 pixel);
 float4 EvaluateRestirPTDiInitialNumericView(RAB_Surface surface, uint2 pixel);
@@ -721,6 +758,8 @@ float4 EvaluateRestirPTNeeRecordVsDiInitialSampleCompareView(RAB_Surface surface
 float4 EvaluateRestirPTNeeRecordVsDiInitialContributionRatioView(RAB_Surface surface, uint2 pixel);
 
 #include "RtxdiBridge/Debug/RAB_UnifiedLightDebug.hlsli"
+
+#include "RtxdiBridge/Debug/RAB_RestirLightManagerDebug.hlsli"
 
 // LU-02A: debug-only RTXDI DI initial sampling views 47-50.
 #include "pathtrace_restir_di_initial_debug.hlsli"

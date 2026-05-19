@@ -27,7 +27,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 56u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 57u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -677,6 +677,10 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 56u)
     {
         return EvaluateRestirPTReferenceInitialTemporalStateSplitView(surface, pixel);
+    }
+    if (view == 57u)
+    {
+        return EvaluateRestirPTLightManagerMapStatusView(pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
