@@ -755,8 +755,89 @@ uint RestirPTRrxDiPackUv(float2 uv)
     return uint(saturate(uv.x) * 0xffff) | (uint(saturate(uv.y) * 0xffff) << 16);
 }
 
-RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(RAB_Surface surface, uint2 pixel)
+struct RestirPTRrxDiInitialDebugInfo
 {
+    uint previousBestSourceValid;
+    uint previousBestTranslationValid;
+    uint previousBestCandidateValid;
+    uint previousBestSelectedByCombine;
+};
+
+RestirPTRrxDiInitialDebugInfo RestirPTRrxDiEmptyInitialDebugInfo()
+{
+    RestirPTRrxDiInitialDebugInfo debugInfo = (RestirPTRrxDiInitialDebugInfo)0;
+    return debugInfo;
+}
+
+bool RestirPTRrxDiTryResolvePreviousBestCurrentLight(
+    RTXDI_DIReservoir previousReservoir,
+    bool previousReservoirValid,
+    out uint currentLightIndex)
+{
+    currentLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    if (!previousReservoirValid || !RTXDI_IsValidDIReservoir(previousReservoir))
+    {
+        return false;
+    }
+
+    const int translatedLightIndex = RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(previousReservoir), false);
+    if (translatedLightIndex < 0)
+    {
+        return false;
+    }
+
+    currentLightIndex = (uint)translatedLightIndex;
+    return true;
+}
+
+RTXDI_DIReservoir RestirPTRrxDiBuildPreviousBestReservoir(
+    inout RTXDI_RandomSamplerState rng,
+    RAB_Surface surface,
+    uint currentLightIndex)
+{
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(currentLightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+    const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    if (lightSample.valid != 0u && targetPdf > 0.0)
+    {
+        RTXDI_StreamSample(
+            reservoir,
+            currentLightIndex,
+            uv,
+            RTXDI_GetNextRandom(rng),
+            targetPdf,
+            1.0);
+    }
+
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M);
+    reservoir.M = 1.0;
+    reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+    reservoir.spatialDistance = int2(0, 0);
+    reservoir.age = 0u;
+    reservoir.canonicalWeight = 1.0;
+    return reservoir;
+}
+
+RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
+    RAB_Surface surface,
+    uint2 pixel,
+    RTXDI_DIReservoir previousBestReservoir,
+    bool previousBestReservoirValid,
+    out RestirPTRrxDiInitialDebugInfo initialDebugInfo)
+{
+    initialDebugInfo = RestirPTRrxDiEmptyInitialDebugInfo();
     if (!RAB_RestirLightManagerRABEnabled())
     {
         return RTXDI_EmptyDIReservoir();
@@ -771,12 +852,29 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(RAB_Surface surface, uint2 
     const uint sampleCount = min(currentCount, 32u);
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0x52525805u);
+    uint previousBestCurrentLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    initialDebugInfo.previousBestSourceValid = previousBestReservoirValid ? 1u : 0u;
+    const bool previousBestCurrentLightValid = RestirPTRrxDiTryResolvePreviousBestCurrentLight(
+        previousBestReservoir,
+        previousBestReservoirValid,
+        previousBestCurrentLightIndex);
+    initialDebugInfo.previousBestTranslationValid = previousBestCurrentLightValid ? 1u : 0u;
     float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)currentCount;
     const float stride = max(1.0, (float)currentCount / (float)sampleCount);
-    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    RTXDI_DIReservoir randomReservoir = RTXDI_EmptyDIReservoir();
     for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
     {
         const uint lightIndex = min((uint)lightIndexInRange, currentCount - 1u);
+        if (previousBestCurrentLightValid && lightIndex == previousBestCurrentLightIndex)
+        {
+            lightIndexInRange += stride;
+            if (lightIndexInRange >= (float)currentCount)
+            {
+                lightIndexInRange -= (float)currentCount;
+            }
+            continue;
+        }
+
         const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
         if (!RAB_IsLightInfoValid(lightInfo))
         {
@@ -794,7 +892,7 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(RAB_Surface surface, uint2 
         if (lightSample.valid != 0u && targetPdf > 0.0)
         {
             RTXDI_StreamSample(
-                reservoir,
+                randomReservoir,
                 lightIndex,
                 uv,
                 RTXDI_GetNextRandom(rng),
@@ -809,13 +907,47 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(RAB_Surface surface, uint2 
         }
     }
 
+    if (RTXDI_IsValidDIReservoir(randomReservoir))
+    {
+        RTXDI_FinalizeResampling(randomReservoir, 1.0, randomReservoir.M);
+        randomReservoir.M = 1.0;
+    }
+
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    if (RTXDI_IsValidDIReservoir(randomReservoir))
+    {
+        RTXDI_CombineDIReservoirs(
+            reservoir,
+            randomReservoir,
+            RTXDI_GetNextRandom(rng),
+            randomReservoir.targetPdf);
+        reservoir.M = 1.0;
+    }
+
+    if (previousBestCurrentLightValid)
+    {
+        const RTXDI_DIReservoir previousBestCandidate = RestirPTRrxDiBuildPreviousBestReservoir(
+            rng,
+            surface,
+            previousBestCurrentLightIndex);
+        if (RTXDI_IsValidDIReservoir(previousBestCandidate))
+        {
+            initialDebugInfo.previousBestCandidateValid = 1u;
+            const bool selectedPreviousBest = RTXDI_CombineDIReservoirs(
+                reservoir,
+                previousBestCandidate,
+                RTXDI_GetNextRandom(rng),
+                previousBestCandidate.targetPdf);
+            initialDebugInfo.previousBestSelectedByCombine = selectedPreviousBest ? 1u : 0u;
+            reservoir.M = 1.0;
+        }
+    }
+
     if (!RTXDI_IsValidDIReservoir(reservoir))
     {
         return RTXDI_EmptyDIReservoir();
     }
 
-    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M);
-    reservoir.M = 1.0;
     reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
     reservoir.spatialDistance = int2(0, 0);
     reservoir.age = 0u;
@@ -865,6 +997,10 @@ struct RestirPTRrxDiTemporalDebugInfo
     uint currentToPreviousIndexEncoded;
     uint previousLightIndexEncoded;
     uint previousToCurrentIndexEncoded;
+    uint previousBestSourceValid;
+    uint previousBestTranslationValid;
+    uint previousBestCandidateValid;
+    uint previousBestSelectedByCombine;
 };
 
 RestirPTRrxDiTemporalDebugInfo RestirPTRrxDiEmptyTemporalDebugInfo()
@@ -953,9 +1089,10 @@ float4 RestirPTRrxDiTemporalCauseColor(
 {
     const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
     const uint leftWidth = max(dimensions.x / 2u, 1u);
-    const uint bandWidth = max(leftWidth / 5u, 1u);
+    const uint bandCount = 9u;
+    const uint bandWidth = max(leftWidth / bandCount, 1u);
     const uint bandPixel = pixel.x % bandWidth;
-    const uint band = min((pixel.x * 5u) / leftWidth, 4u);
+    const uint band = min((pixel.x * bandCount) / leftWidth, bandCount - 1u);
     if (pixel.x < leftWidth && (bandPixel < 8u || bandPixel >= bandWidth - 2u))
     {
         return float4(1.0, 1.0, 1.0, 1.0);
@@ -966,7 +1103,11 @@ float4 RestirPTRrxDiTemporalCauseColor(
         if (band == 1u) return float4(0.0, 0.85, 0.25, 1.0);
         if (band == 2u) return float4(1.0, 0.85, 0.0, 1.0);
         if (band == 3u) return float4(1.0, 0.40, 0.0, 1.0);
-        return float4(0.70, 0.0, 1.0, 1.0);
+        if (band == 4u) return float4(0.70, 0.0, 1.0, 1.0);
+        if (band == 5u) return float4(0.00, 0.95, 0.95, 1.0);
+        if (band == 6u) return float4(0.75, 0.95, 0.00, 1.0);
+        if (band == 7u) return float4(0.95, 0.35, 0.75, 1.0);
+        return float4(0.35, 0.95, 0.55, 1.0);
     }
 
     if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_GLOBAL_CLEAR_PENDING ||
@@ -998,7 +1139,29 @@ float4 RestirPTRrxDiTemporalCauseColor(
             debugInfo.currentToPreviousValid != 0u,
             debugInfo.currentValid != 0u);
     }
-    return RestirPTRrxDiTemporalSelectedStabilityColor(debugInfo);
+    if (band == 4u)
+    {
+        return RestirPTRrxDiTemporalSelectedStabilityColor(debugInfo);
+    }
+    if (band == 5u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(debugInfo.previousBestSourceValid != 0u, debugInfo.projected != 0u);
+    }
+    if (band == 6u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(
+            debugInfo.previousBestTranslationValid != 0u,
+            debugInfo.previousBestSourceValid != 0u);
+    }
+    if (band == 7u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(
+            debugInfo.previousBestCandidateValid != 0u,
+            debugInfo.previousBestTranslationValid != 0u);
+    }
+    return RestirPTRrxDiTemporalBooleanColor(
+        debugInfo.previousBestSelectedByCombine != 0u,
+        debugInfo.previousBestCandidateValid != 0u);
 }
 
 bool RestirPTRrxDiTryGenerateTemporalReservoir(
@@ -1023,7 +1186,31 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
         return false;
     }
 
-    const RTXDI_DIReservoir currentReservoir = RestirPTRrxDiBuildInitialReservoir(surface, pixel);
+    int2 previousPixel;
+    float2 motionPixels;
+    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
+    debugInfo.projected = projected ? 1u : 0u;
+
+    RTXDI_DIReservoir projectedPreviousReservoir = RTXDI_EmptyDIReservoir();
+    if (projected)
+    {
+        // Proof-slice approximation: Remix reads RtxdiBestLights here. The
+        // active rbdoom path has no bound best-light feedback buffer yet.
+        projectedPreviousReservoir = LoadRestirPTRrxDiReservoir(uint2(previousPixel), RestirPTRemixDiReservoirPageInfo.y);
+    }
+    const bool projectedPreviousValid = projected && RTXDI_IsValidDIReservoir(projectedPreviousReservoir);
+
+    RestirPTRrxDiInitialDebugInfo initialDebugInfo;
+    const RTXDI_DIReservoir currentReservoir = RestirPTRrxDiBuildInitialReservoir(
+        surface,
+        pixel,
+        projectedPreviousReservoir,
+        projectedPreviousValid,
+        initialDebugInfo);
+    debugInfo.previousBestSourceValid = initialDebugInfo.previousBestSourceValid;
+    debugInfo.previousBestTranslationValid = initialDebugInfo.previousBestTranslationValid;
+    debugInfo.previousBestCandidateValid = initialDebugInfo.previousBestCandidateValid;
+    debugInfo.previousBestSelectedByCombine = initialDebugInfo.previousBestSelectedByCombine;
     StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, currentReservoir);
     const bool currentValid = RTXDI_IsValidDIReservoir(currentReservoir);
     debugInfo.currentValid = currentValid ? 1u : 0u;
@@ -1047,10 +1234,6 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
         debugInfo.currentToPreviousIndexEncoded = (uint)currentToPrevious + 1u;
     }
 
-    int2 previousPixel;
-    float2 motionPixels;
-    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
-    debugInfo.projected = projected ? 1u : 0u;
     if (!projected)
     {
         temporalReservoir = currentReservoir;

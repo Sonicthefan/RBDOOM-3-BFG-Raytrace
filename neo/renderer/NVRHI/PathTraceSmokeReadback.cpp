@@ -16,6 +16,7 @@ extern DeviceManager* deviceManager;
 namespace {
 
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
+const int RESTIR_PT_VIEW68_BAND_COUNT = 9;
 int g_smokeLastReadbackTimingLogMs = -1000000;
 int g_view68LastInactiveLogFrame = -1000000;
 int g_view68LastWaitingLogFrame = -1000000;
@@ -126,6 +127,10 @@ const char* RestirPTView68BandName(int band)
         case 2: return "previousToCurrent";
         case 3: return "currentToPrevious";
         case 4: return "selectedStability";
+        case 5: return "previousBestSource";
+        case 6: return "previousBestTranslate";
+        case 7: return "previousBestCandidate";
+        case 8: return "previousBestSelected";
         default: return "outsideLeftHalf";
     }
 }
@@ -389,8 +394,8 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     const int view68MinY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), view68SampleY - view68Radius);
     const int view68MaxY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), view68SampleY + view68Radius);
     RestirPTView68Counts view68RoiCounts;
-    RestirPTView68Counts view68BandCounts[5];
-    int view68BandPixels[5] = {};
+    RestirPTView68Counts view68BandCounts[RESTIR_PT_VIEW68_BAND_COUNT];
+    int view68BandPixels[RESTIR_PT_VIEW68_BAND_COUNT] = {};
     std::vector<RestirPTView69TupleCount> view69TupleCounts;
     int view68RoiPixels = 0;
     int view68LeftPixels = 0;
@@ -464,7 +469,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
                 AccumulateRestirPTView68Bucket(view68RoiCounts, bucket);
                 if (x < view68LeftWidth)
                 {
-                    const int band = idMath::ClampInt(0, 4, (x * 5) / view68LeftWidth);
+                    const int band = idMath::ClampInt(0, RESTIR_PT_VIEW68_BAND_COUNT - 1, (x * RESTIR_PT_VIEW68_BAND_COUNT) / view68LeftWidth);
                     AccumulateRestirPTView68Bucket(view68BandCounts[band], bucket);
                     ++view68BandPixels[band];
                     ++view68LeftPixels;
@@ -580,7 +585,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
         {
         const RestirPTView68Bucket sampleBucket = ClassifyRestirPTView68Color(view68SampleRgba);
         const int sampleBand = view68SampleX < view68LeftWidth
-            ? idMath::ClampInt(0, 4, (view68SampleX * 5) / view68LeftWidth)
+            ? idMath::ClampInt(0, RESTIR_PT_VIEW68_BAND_COUNT - 1, (view68SampleX * RESTIR_PT_VIEW68_BAND_COUNT) / view68LeftWidth)
             : -1;
         const int roiPixels = Max(1, view68RoiPixels);
         common->Printf("PathTracePrimaryPass: PT mode56 view68 dump sample=(%d,%d) radius=%d roi=%dx%d pixels=%d leftCausePixels=%d rightOutputPixels=%d sampleBand=%s sampleBucket=%s rgba=(%.3f, %.3f, %.3f, %.3f)\n",
@@ -602,7 +607,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Dark), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Dark)) / static_cast<float>(roiPixels),
             RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Black), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Black)) / static_cast<float>(roiPixels),
             RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Other), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Other)) / static_cast<float>(roiPixels));
-        for (int band = 0; band < 5; ++band)
+        for (int band = 0; band < RESTIR_PT_VIEW68_BAND_COUNT; ++band)
         {
             const int bandPixels = Max(1, view68BandPixels[band]);
             const RestirPTView68Counts& bandCounts = view68BandCounts[band];

@@ -1,0 +1,362 @@
+RRX-CF-05 Active DI Previous-Best Initial Sampling
+==================================================
+
+Purpose
+-------
+
+Fix the active RRX DI runtime path so it follows the RTX Remix DI contract for
+previous-best light reuse during initial sampling.
+
+The current debug evidence from mode 56 views 68 and 69 shows that the active
+reservoir storage can survive, but the current selected light often disagrees
+with the previous reservoir light after previous->current translation. This is
+not a new rejection policy problem. RTX Remix prevents much of this mismatch by
+feeding the previous best light into current-frame initial sampling before
+temporal reuse runs.
+
+This task is required conformance work. Do not treat it as optional quality
+tuning.
+
+
+Authoritative Reference
+-----------------------
+
+RTX Remix files to inspect before editing:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+RTXDI helper-math files to inspect before editing:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+rbdoom active runtime files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+rbdoom diagnostics to preserve:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTraceSmokeReadback.cpp
+
+
+Reference Behavior To Match
+---------------------------
+
+RTX Remix DI initial sampling does this:
+
+    load current surface
+    project current pixel to previous frame using screen-space motion
+    read previous best light for the projected previous pixel
+    reject invalid previous best light or invalid portal domain
+    translate previous best light from previous-domain to current-domain with
+    RAB_TranslateLightIndex(previousBestLight, false)
+    pass that translated current-domain light to random-light sampling
+    pass that translated current-domain light to single-light sampling
+    combine the single-light reservoir into the random-light reservoir through
+    RTXDI helper reservoir math
+    set M = 1
+    store the result to the temporal output page
+
+RTX Remix temporal reuse then loads that already-seeded current reservoir and
+runs RTXDI temporal resampling. It does not repair a fresh unrelated current
+random winner after the fact.
+
+
+Current rbdoom Failure Shape
+----------------------------
+
+The active rbdoom function:
+
+    RestirPTRrxDiBuildInitialReservoir(RAB_Surface surface, uint2 pixel)
+
+currently samples the current light set directly and returns a fresh initial
+reservoir. The active temporal path later compares this fresh current selected
+light against the previous reservoir light after previous->current mapping.
+
+This creates a common mismatch:
+
+    current random winner != translated previous winner
+
+Mode 56 view 68 exposes this as orange/current-prev mismatch and
+purple/remap-invalid strobing. View 69 exposes it as tuple mismatches between:
+
+    current selected light
+    current->previous translated light
+    previous stored light
+    previous->current translated light
+
+
+Owned Writes
+------------
+
+Primary owned write:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+
+Allowed support writes only if strictly required:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    docs/restir_remix_rebuild/rrx_cf_05_active_di_previous_best_initial_sampling.txt
+
+Do not edit C++ dispatch or resource binding unless the shader already has a
+compile-time parameter or binding gap that prevents the exact task. If that
+happens, stop and report the missing binding instead of widening the task.
+
+
+Required Procedure
+------------------
+
+1. Before editing, write a short plan in the worker response naming:
+
+       Remix file-equivalent
+       rbdoom file being edited
+       exact input contract
+       exact output contract
+       forbidden areas
+
+2. Inspect the active rbdoom DI temporal path and identify where the current
+   initial reservoir is built and stored.
+
+       RestirPTRrxDiBuildInitialReservoir
+       RestirPTRrxDiGenerateTemporalReservoir
+       StoreRestirPTRrxDiReservoir
+       LoadRestirPTRrxDiReservoir
+
+3. Identify the active previous-best source.
+
+   Preferred for this narrow active slice:
+
+       use the selected light from the projected previous reservoir page that
+       the temporal path already reads for debug/temporal reuse
+
+   This is acceptable only as the active rbdoom equivalent of Remix's
+   RtxdiBestLights previous-best record. It must still go through
+   previous->current translation before it becomes a current-frame candidate.
+
+   Conformance note:
+
+       This is a proof-slice approximation, not full RTX Remix parity. Remix
+       reads RtxdiBestLights, which is written by the gradients/spatial-output
+       feedback path and CPU-gated to the previous frame. The current active
+       rbdoom slice does not yet have that bound best-light feedback buffer, so
+       it uses the selected light from the projected previous temporal reservoir
+       as the previous-best source. A later parity slice must add the real
+       RtxdiBestLights-equivalent producer/consumer path before CF-05 can be
+       called fully Remix-conformant.
+
+   Do not create a new best-light policy. If no valid projected previous
+   reservoir source exists in the active path, stop and report that a separate
+   best-light-buffer slice is required.
+
+4. Add an explicit previous-best input to active initial sampling.
+
+   The active initial builder should receive, or be able to resolve, these
+   values:
+
+       previous best light index in previous-frame light domain
+       previous best portal index, or invalid portal if unsupported
+       translated current-frame light index
+       valid/invalid flag
+
+   Translation must use:
+
+       RAB_TranslateLightIndex(previousBestLight, false)
+
+5. Build the previous-best candidate as a normal single-light reservoir.
+
+   It must:
+
+       reject invalid previous light indices
+       reject failed previous->current translation
+       reject unsupported non-invalid portal indices unless real portal handling
+       already exists in the active path
+       load the translated current-frame light
+       sample UV with the same RTXDI/RAB helper style as other candidates
+       compute target PDF through the existing RAB light sample target-PDF path
+       stream/combine through RTXDI helper reservoir math
+
+6. Combine the previous-best reservoir into the current initial reservoir.
+
+   Use RTXDI reservoir helper combine/finalize behavior. Do not force the
+   previous light to replace the current reservoir. Do not add a new acceptance
+   or rejection policy based on view 68 colors.
+
+7. Avoid double-counting if the previous-best light also appears in the random
+   candidate sweep.
+
+   If practical in the active loop, skip that exact current light index in the
+   random sweep and let the single-light path represent it. If this cannot be
+   done cleanly in the current active loop, document the limitation and keep
+   the change narrow.
+
+8. Preserve existing debug views.
+
+   Do not remove or reinterpret mode 56 views 68 and 69. They are the primary
+   validation tools for this task.
+
+
+Forbidden
+---------
+
+Do not:
+
+    copy/paste RTX Remix source text
+    invent new ReSTIR math
+    invent new light acceptance or rejection policy
+    force the previous light as the selected result
+    clear the whole reservoir domain on mismatch
+    suppress dynamic lights globally
+    change light-manager identity matching in this slice
+    change GI, spatial reuse, DLSS RR, motion vectors, or final shading
+    route the active path through old smoke reservoir clear behavior
+    remove legacy split outputs
+    claim success from storage-only views 65/66
+
+
+Validation
+----------
+
+Build and deploy after shader changes unless the user explicitly asks for a
+code-only review.
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders:
+
+    copy the changed shader binaries from
+    E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    into
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.
+
+Runtime CVars:
+
+    r_pathTracingRestirPTUnifiedLightLoad 1
+    r_pathTracingRestirPTUnifiedLightSample 1
+    r_pathTracingRestirPTDiDebugView 68
+    r_pathTracingRestirPTView68Dump 2
+    r_pathTracingRestirPTView68DumpRadius 64
+
+View 68 band meanings after the active proof instrumentation:
+
+    band 0 projected
+    band 1 temporal previous-sample used
+    band 2 temporal previous->current translation
+    band 3 current->previous translation for current selected light
+    band 4 selected-light stability against temporal previous
+    band 5 previous-best source valid for initial sampling
+    band 6 previous-best previous->current translation valid
+    band 7 previous-best single-light candidate valid
+    band 8 previous-best selected by the combine step
+
+Optional tuple view:
+
+    r_pathTracingRestirPTDiDebugView 69
+    r_pathTracingRestirPTView68Dump 2
+
+Expected validation result:
+
+    view 68 band 3/currentToPrevious should remain mostly green in good spots
+    view 68 band 4/selectedStability should show less orange strobing in the
+    same bad spots that previously failed
+    view 69 should show fewer valid previous/current tuple disagreements
+    storage-only views 65/66 are not sufficient proof
+
+Stop if:
+
+    previous->current translation fails for most valid previous samples
+    the active path has no reliable previous reservoir/best-light source
+    fixing this requires a separate best-light buffer or gradient pass
+    the worker would need to invent target-PDF, combine, or finalization math
+
+
+Paste-Ready Worker Prompt
+-------------------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-CF-05 only. Fix the active RRX DI runtime path so previous-best light
+    is injected into current-frame DI initial sampling before temporal reuse,
+    matching RTX Remix behavior. Do not work on inactive shader-only contract
+    files unless they are useful only as local reference.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/rrx_cf_05_active_di_previous_best_initial_sampling.txt
+
+Authoritative source roots:
+
+    RTX Remix: E:/prog/references/dxvk-remix-git
+    RTXDI:     E:/prog/references/RTXDI-main
+
+Authoritative reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Primary owned write:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+
+Allowed support write only if strictly required:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Required behavior:
+
+    1. Locate the active current DI initial reservoir builder.
+    2. Locate the active projected previous reservoir/best-light source.
+    3. Translate previous best light to current domain with
+       RAB_TranslateLightIndex(previousBestLight, false).
+    4. Build that translated light as a normal single-light reservoir candidate.
+    5. Combine it with the current initial reservoir using RTXDI helper math.
+    6. Do not force selection, do not clear the reservoir domain, and do not
+       invent a new mismatch policy.
+    7. Preserve views 68 and 69 for validation.
+
+Forbidden:
+
+    Do not copy/paste RTX Remix source.
+    Do not invent reservoir math.
+    Do not change GI, spatial reuse, DLSS RR, motion vectors, final shading, or
+    light-manager identity matching in this slice.
+    Do not route through old smoke reservoir clear behavior.
+    Do not claim success from storage-only probes.
+
+Verification:
+
+    Build with cmake --build --preset win64-pt-dev-release from neo.
+    Deploy exe and changed shader binaries to E:/prog/rbdoom-3-BFG-prebuilt.
+    Report view 68/69 CVars and the expected reduction in orange selected
+    mismatch. Stop for user visual testing.
