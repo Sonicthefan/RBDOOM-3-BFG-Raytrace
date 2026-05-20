@@ -6,6 +6,8 @@
 // This file is intentionally inactive until a later dispatch/binding slice
 // supplies real surface, neighbor-offset, light, reservoir, and clear bindings.
 // Spatial reuse math is delegated to RTXDI_DISpatialResampling.
+// Ray-traced spatial bias correction is explicitly deferred; this inactive
+// contract clamps requested bias correction to RTXDI_BIAS_CORRECTION_BASIC.
 
 #define RTXDI_ALLOWED_BIAS_CORRECTION RTXDI_BIAS_CORRECTION_BASIC
 
@@ -15,6 +17,7 @@
 #include "../remix_bridge/RAB_LightBridge.hlsli"
 #include "../remix_bridge/RAB_LightSamplingBridge.hlsli"
 #include "../remix_bridge/RAB_ReservoirBridge.hlsli"
+#include "../remix_bridge/RAB_TemporalOutputBridge.hlsli"
 
 #include "Rtxdi/DI/SpatialResampling.hlsli"
 
@@ -30,6 +33,8 @@ struct RemixRtxdiSpatialReuseDesc
     uint neighborOffsetMask;
     uint numSamples;
     uint numDisocclusionBoostSamples;
+    uint disocclusionBoostFrameThreshold;
+    uint reprojectionConfidenceHistoryLength;
     float samplingRadius;
     uint biasCorrectionMode;
     float depthThreshold;
@@ -58,13 +63,35 @@ RTXDI_RuntimeParameters RemixRtxdiSpatialRuntimeParameters(RemixRtxdiSpatialReus
     return params;
 }
 
+uint RemixRtxdiSpatialSampleCountFromConfidence(RemixRtxdiSpatialReuseDesc desc)
+{
+    const int filterRadius = 1;
+    const float filterArea = float((filterRadius * 2 + 1) * (filterRadius * 2 + 1));
+    float sumConfidence = 0.0;
+
+    for (int yy = -filterRadius; yy <= filterRadius; ++yy)
+    {
+        for (int xx = -filterRadius; xx <= filterRadius; ++xx)
+        {
+            sumConfidence += RemixRAB_LoadReprojectionConfidence(int2(desc.pixel) + int2(xx, yy));
+        }
+    }
+
+    const float historyLength =
+        sumConfidence * (float(desc.reprojectionConfidenceHistoryLength) / max(filterArea, 1.0));
+
+    return historyLength < float(desc.disocclusionBoostFrameThreshold)
+        ? desc.numDisocclusionBoostSamples
+        : desc.numSamples;
+}
+
 RTXDI_DISpatialResamplingParameters RemixRtxdiSpatialParameters(RemixRtxdiSpatialReuseDesc desc)
 {
     RTXDI_DISpatialResamplingParameters params = (RTXDI_DISpatialResamplingParameters)0;
-    params.numSamples = desc.numSamples;
+    params.numSamples = RemixRtxdiSpatialSampleCountFromConfidence(desc);
     params.numDisocclusionBoostSamples = desc.numDisocclusionBoostSamples;
     params.samplingRadius = desc.samplingRadius;
-    params.biasCorrectionMode = desc.biasCorrectionMode;
+    params.biasCorrectionMode = min(desc.biasCorrectionMode, uint(RTXDI_BIAS_CORRECTION_BASIC));
     params.depthThreshold = desc.depthThreshold;
     params.normalThreshold = desc.normalThreshold;
     params.targetHistoryLength = desc.targetHistoryLength;

@@ -572,6 +572,7 @@ Status:
     Added rbdoom targets:
 
         neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightSamplingBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_GradientBridge.hlsli
         neo/shaders/builtin/pathtracing/remix_bridge/RAB_SpatialBridge.hlsli
         neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
         neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_gradients.rt.hlsl
@@ -584,7 +585,12 @@ Status:
             to the spatial output page through the frozen RAB reservoir bridge.
             Surface loading, light loading, target PDF, and material-similarity
             checks route through the RAB bridge contracts instead of old smoke
-            reservoirs.
+            reservoirs. It also consumes the RRX-06 reprojection-confidence
+            output through RAB_TemporalOutputBridge and derives the spatial
+            sample count from Remix's 3x3 confidence-history neighborhood
+            contract before applying disocclusion boost. Requested spatial bias
+            correction is clamped to RTXDI_BIAS_CORRECTION_BASIC because the
+            inactive contract does not provide ray-traced spatial visibility.
 
         RAB_LightSamplingBridge.hlsli
             provides Remix-owned polymorphic light sampling and light-target
@@ -596,11 +602,16 @@ Status:
         rtxdi_compute_gradients.comp.slang
         rtxdi_filter_gradients.comp.slang
         rtxdi_compute_confidence.comp.slang
-            rtxdi_gradients.rt.hlsl freezes the rbdoom payload contract for
-            best-light, gradient, filtered-gradient, and confidence consumers.
-            It intentionally does not reimplement Remix gradient math in this
-            slice; it only defines the data handoff expected before GI
-            validation consumes gradients.
+            rtxdi_gradients.rt.hlsl and RAB_GradientBridge.hlsli freeze the
+            rbdoom producer/consumer contract for best-light, raw gradients,
+            filtered gradients, and confidence. These helpers are contract-only:
+            they do not implement gradient sample selection, current/previous
+            reservoir mapping, visibility re-evaluation, A-trous filtering, or
+            confidence conversion. A future corrective implementation slice must
+            wire rtxdi_compute_gradients.comp.slang,
+            rtxdi_filter_gradients.comp.slang,
+            rtxdi_compute_confidence.comp.slang, and ConfidenceFunctions.slangh
+            instead of inventing local gradient/confidence math.
 
     Inputs:
 
@@ -614,6 +625,8 @@ Status:
         RTXDI spatial parameters:
             sample counts
             disocclusion boost sample count
+            disocclusion boost frame threshold
+            reprojection confidence history length
             sampling radius
             bias correction mode
             normal/depth thresholds
@@ -623,6 +636,10 @@ Status:
         RAB light payload/current light index space
         neighbor offset table and sample-position clamp callback
         Remix-owned light sampling and target-PDF bridge
+        temporal reprojection confidence output from RRX-06
+        current/previous illuminance inputs for gradients
+        current hit distance input
+        previous confidence input
 
     Outputs:
 
@@ -633,9 +650,10 @@ Status:
             portal index placeholder
         gradient payload contract:
             normalized gradient
-            reference illuminance
+            reference hit distance
         confidence payload contract:
             confidence scalar
+        explicit best-light/gradient/confidence bridge callbacks
 
     Deferred:
 
@@ -645,7 +663,11 @@ Status:
         gradient texture allocation and binding
         best-light history texture allocation and binding
         confidence texture allocation and binding
-        Remix-equivalent gradient compute/filter/confidence algorithms
+        exact Remix gradient sample selection
+        current/previous reservoir and light translation for gradients
+        exact Remix gradient visibility re-evaluation
+        A-trous gradient filtering helper binding
+        RTXDI_ConvertGradientsToConfidence binding
         BSDF detail enhancement factor output
         ray-traced spatial bias correction
         denoiser and DLSS RR consumption
