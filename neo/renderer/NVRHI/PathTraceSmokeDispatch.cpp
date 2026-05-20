@@ -15,6 +15,7 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
+#include "PathTraceRemixRtxdiResourceGate.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceDLSSRRBridge.h"
 #include "../RenderBackend.h"
@@ -574,7 +575,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
-    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 67, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 68, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -1652,9 +1653,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const bool remixRtxdiDiClearRequested =
-        !disableReservoirWrites &&
-        restirPTCombinedMode &&
-        (restirPTDiDebugView == 60 || (restirPTDiDebugView >= 63 && restirPTDiDebugView <= 66)) &&
+        PathTraceRemixRtxdiResourceGateRequestsDiClear(PathTraceRemixRtxdiResourceGateDesc{
+            restirPTCombinedMode,
+            restirPTDiDebugView,
+            r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0,
+            disableReservoirWrites }) &&
         m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).clearPending;
     if (remixRtxdiDiClearRequested)
     {

@@ -55,3 +55,30 @@ Do not:
     use the callbacks as proof that explicit visibility is implemented
     convert the facing/geometry test into reservoir visibility
 
+view 68 quirks
+
+    View 68 writes a clean RRX DI current-page seed from the active Remix/RAB light manager before temporal reuse. If no valid
+    RRX DI initial seed can be produced, the view reports local rejection instead of fabricating input from old PT/spatial output.
+    The view-68 current seed follows the Remix-shaped initial sampling pattern: frame-indexed RTXDI RNG, strided traversal of
+    the active light-manager range, random local-light UVs, all candidates streamed, and one final RTXDI_FinalizeResampling call.
+    When reprojection is not eligible, the active temporal path keeps the current RRX DI seed as current-only output instead
+    of calling the temporal core with zero motion or clearing the reservoir.
+    The left-half green status is previous-light translation valid for the selected previous candidate; it is not assigned from
+    M/history growth. Right-half green still visualizes output M/history as a numeric heat channel.
+    PathTraceRemixRtxdiResourceGate.* is only the resource/clear predicate owner. It is not a standalone Remix RTXDI
+    temporal dispatch boundary.
+    The RRX DI clear gate must include normal mode 56 when r_pathTracingRemixRtxdiResourcesEnable is set; otherwise the
+    initial clearPending state keeps RestirPTRrxDiReservoirAvailable false and prevents the active consumer from starting.
+    Normal mode 56 now consumes the RRX DI temporal reservoir as the direct-lighting contribution when that path produces a
+    valid reservoir, and falls back to the old spatial direct-lighting path only when RRX DI is unavailable or invalid.
+    The RRX DI consumer is still rbdoom's local preview/final resolve bridge, not full Remix DI parity. It applies rbdoom
+    preview visibility via TraceSmokeShadowVisibility, not the RAB selected-light visibility callback or reference-equivalent
+    final-shading contract.
+
+
+limited impact fix later
+P2: The contribution path still uses rbdoom-local visibility via TraceSmokeShadowVisibility, not RAB_GetSelectedNeeVisibility.
+ It is documented in obscure_issue_log.txt, so I would not block testing on it, but don’t call this full Remix/RAB final-shading parity yet.
+P2: r_pathTracingRemixRtxdiResourcesEnable now changes output behavior, not just resource ownership.
+That is okay for this experimental path, but the cvar name is misleading if it survives beyond the test slice.
+A later cleanup should split “allocate RRX resources” from “use RRX DI for mode 56 direct lighting.”

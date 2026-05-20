@@ -80,15 +80,17 @@ RestirPTCombinedLighting RestirPTEvaluateCombinedLightingNoReflection(RAB_Surfac
     }
 
     const float3 surfaceBase = RestirPTVisibleSurfaceBase(surface);
+    float3 rrxDiContribution = float3(0.0, 0.0, 0.0);
+    const bool rrxDiValid = RestirPTRrxDiTryEvaluateTemporalContribution(surface, pixel, rrxDiContribution);
     float3 directContribution = float3(0.0, 0.0, 0.0);
-    const bool directValid = RestirPTTryEvaluateSpatialDirectLighting(surface, pixel, directContribution);
+    const bool directValid = rrxDiValid || RestirPTTryEvaluateSpatialDirectLighting(surface, pixel, directContribution);
     const RTXDI_PTReservoir giReservoir = LoadRestirPTInitialReservoir(pixel);
     const bool giValid = RestirPTReservoirHasUsefulSample(giReservoir);
     const float giVisibility = (RestirPTInfo.z >= 0.5 && giValid) ? RestirPTTraceReservoirVisibility(surface, giReservoir) : 1.0;
     const bool giVisible = giValid && giVisibility > 0.0;
     const float3 giContribution = giVisible ? RestirPTReservoirPreviewContribution(giReservoir) * giVisibility : float3(0.0, 0.0, 0.0);
     const float3 lightingRadiance =
-        (directValid ? directContribution : float3(0.0, 0.0, 0.0)) +
+        (rrxDiValid ? rrxDiContribution : (directValid ? directContribution : float3(0.0, 0.0, 0.0))) +
         (giVisible ? giContribution : float3(0.0, 0.0, 0.0));
     result.hdrRadiance = RestirPTSanitizeHdrRadiance(emissiveRadiance + lightingRadiance);
     if (!directValid && !giVisible)

@@ -20,6 +20,10 @@
 
 #ifndef RB_PATH_TRACING_RESTIR_LOCAL_DEBUG_RESERVOIRS_HLSLI
 #define RB_PATH_TRACING_RESTIR_LOCAL_DEBUG_RESERVOIRS_HLSLI
+
+#define REMIX_RTXDI_TEMPORAL_REUSE_EXTERNAL_BINDINGS 1
+#include "remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl"
+
 uint RestirPTGiDebugView()
 {
     return clamp((uint)max(RestirPTGiDebugInfo.x, 0.0), 0u, 4u);
@@ -27,7 +31,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 67u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 68u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -645,6 +649,11 @@ bool RestirPTRrxDiReservoirAvailable()
         RestirPTRemixDiReservoirInfo.z >= 2u;
 }
 
+bool RestirPTRrxDiTemporalActive()
+{
+    return RAB_RestirLightManagerRABEnabled() && RestirPTRrxDiReservoirAvailable();
+}
+
 RTXDI_ReservoirBufferParameters RestirPTRrxDiReservoirParams()
 {
     RTXDI_ReservoirBufferParameters params;
@@ -724,6 +733,11 @@ bool RestirPTRrxDiReservoirHasProbeMagic(RTXDI_DIReservoir reservoir)
     return reservoir.uvData == RESTIR_PT_RRX_DI_PROBE_MAGIC_UV;
 }
 
+bool RestirPTRrxDiReservoirClearPending()
+{
+    return (RestirPTRemixDiReservoirInfo.w & RESTIR_PT_RRX_DI_RESERVOIR_CLEAR_PENDING) != 0u;
+}
+
 bool RestirPTRrxPackedDiReservoirNonZero(RTXDI_PackedDIReservoir reservoir)
 {
     return reservoir.lightData != 0u ||
@@ -732,6 +746,328 @@ bool RestirPTRrxPackedDiReservoirNonZero(RTXDI_PackedDIReservoir reservoir)
         reservoir.distanceAge != 0u ||
         reservoir.targetPdf != 0.0 ||
         reservoir.weight != 0.0;
+}
+
+float4 RestirPTRrxDiRawFieldQuadrantColor(uint2 pixel, RTXDI_PackedDIReservoir packedReservoir, RTXDI_DIReservoir reservoir);
+
+uint RestirPTRrxDiPackUv(float2 uv)
+{
+    return uint(saturate(uv.x) * 0xffff) | (uint(saturate(uv.y) * 0xffff) << 16);
+}
+
+RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    const uint currentCount = RAB_GetCurrentRestirLightManagerCount();
+    if (currentCount == 0u)
+    {
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    const uint sampleCount = min(currentCount, 32u);
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0x52525805u);
+    float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)currentCount;
+    const float stride = max(1.0, (float)currentCount / (float)sampleCount);
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    {
+        const uint lightIndex = min((uint)lightIndexInRange, currentCount - 1u);
+        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+        if (!RAB_IsLightInfoValid(lightInfo))
+        {
+            lightIndexInRange += stride;
+            if (lightIndexInRange >= (float)currentCount)
+            {
+                lightIndexInRange -= (float)currentCount;
+            }
+            continue;
+        }
+
+        const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
+        const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+        const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+        if (lightSample.valid != 0u && targetPdf > 0.0)
+        {
+            RTXDI_StreamSample(
+                reservoir,
+                lightIndex,
+                uv,
+                RTXDI_GetNextRandom(rng),
+                targetPdf,
+                (float)currentCount);
+        }
+
+        lightIndexInRange += stride;
+        if (lightIndexInRange >= (float)currentCount)
+        {
+            lightIndexInRange -= (float)currentCount;
+        }
+    }
+
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M);
+    reservoir.M = 1.0;
+    reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+    reservoir.spatialDistance = int2(0, 0);
+    reservoir.age = 0u;
+    reservoir.canonicalWeight = 1.0;
+    return reservoir;
+}
+
+RemixRtxdiTemporalReuseDesc RestirPTRrxDiTemporalDesc(uint2 pixel, float2 motionPixels)
+{
+    RemixRtxdiTemporalReuseDesc desc = (RemixRtxdiTemporalReuseDesc)0;
+    desc.pixel = pixel;
+    desc.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    desc.screenSpaceMotion = float3(motionPixels, 0.0);
+    desc.temporalInputPage = RestirPTRemixDiReservoirPageInfo.y;
+    desc.temporalOutputPage = RestirPTRemixDiReservoirPageInfo.x;
+    desc.activeCheckerboardField = 0u;
+    desc.maxHistoryLength = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    desc.biasCorrectionMode = RTXDI_BIAS_CORRECTION_BASIC;
+    desc.depthThreshold = RestirPTParams.temporalResampling.depthThreshold;
+    desc.normalThreshold = RestirPTParams.temporalResampling.normalThreshold;
+    desc.enablePermutationSampling = 0u;
+    desc.uniformRandomNumber = 0u;
+    desc.reprojectionConfidenceHistoryLength = desc.maxHistoryLength;
+    return desc;
+}
+
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_UNAVAILABLE = 0u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_GLOBAL_CLEAR_PENDING = 1u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_ABSENT = 2u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_VALID = 3u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_INVALID = 4u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_TO_PREVIOUS_INVALID = 5u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED = 6u;
+static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY = 7u;
+
+float4 RestirPTRrxDiTemporalStatusColor(uint status, RTXDI_DIReservoir reservoir)
+{
+    const float history = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_VALID)
+    {
+        return float4(0.02, 0.25 + 0.75 * history, 0.08, 1.0);
+    }
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_ABSENT)
+    {
+        return float4(0.05, 0.24, 0.82, 1.0);
+    }
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY)
+    {
+        return float4(0.05, 0.46, 0.92, 1.0);
+    }
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_INVALID)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_TO_PREVIOUS_INVALID)
+    {
+        return float4(0.95, 0.55, 0.04, 1.0);
+    }
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED)
+    {
+        return float4(0.90, 0.18, 0.02, 1.0);
+    }
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_GLOBAL_CLEAR_PENDING)
+    {
+        return float4(0.95, 0.95, 0.05, 1.0);
+    }
+    return float4(0.85, 0.02, 0.02, 1.0);
+}
+
+float4 RestirPTRrxDiTemporalOutputColor(uint2 pixel, RTXDI_DIReservoir reservoir)
+{
+    const bool valid = RTXDI_IsValidDIReservoir(reservoir);
+    const float history = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    if (!valid)
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const float pdfHeat = saturate(reservoir.targetPdf / (1.0 + reservoir.targetPdf));
+    const float weightHeat = saturate(reservoir.weightSum / (1.0 + reservoir.weightSum));
+    return float4(max(pdfHeat, 0.05), max(history, 0.10), max(weightHeat, 0.05), 1.0);
+}
+
+bool RestirPTRrxDiTryGenerateTemporalReservoir(
+    RAB_Surface surface,
+    uint2 pixel,
+    out RTXDI_DIReservoir temporalReservoir,
+    out uint status)
+{
+    temporalReservoir = RTXDI_EmptyDIReservoir();
+    status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY;
+
+    if (RestirPTRrxDiReservoirClearPending())
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_GLOBAL_CLEAR_PENDING;
+        return false;
+    }
+    if (!RestirPTRrxDiReservoirAvailable() || !RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_UNAVAILABLE;
+        return false;
+    }
+
+    const RTXDI_DIReservoir currentReservoir = RestirPTRrxDiBuildInitialReservoir(surface, pixel);
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, currentReservoir);
+    const bool currentValid = RTXDI_IsValidDIReservoir(currentReservoir);
+    if (!currentValid)
+    {
+        StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RTXDI_EmptyDIReservoir());
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED;
+        return false;
+    }
+
+    const int currentToPrevious = currentValid
+        ? RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(currentReservoir), true)
+        : -1;
+
+    int2 previousPixel;
+    float2 motionPixels;
+    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
+    if (!projected)
+    {
+        temporalReservoir = currentReservoir;
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY;
+        return true;
+    }
+
+    const RemixRtxdiTemporalReuseCoreResult temporalResult = RemixRtxdiRunTemporalReuseCore(
+        surface,
+        currentReservoir,
+        RestirPTRrxDiTemporalDesc(pixel, motionPixels),
+        RestirPTRrxDiReservoirParams());
+    temporalReservoir = temporalResult.reservoir;
+    const int2 temporalSamplePixel = temporalResult.temporalSamplePixel;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, temporalReservoir);
+
+    const bool outputValid = RTXDI_IsValidDIReservoir(temporalReservoir);
+    const bool outputSelectedCurrent =
+        outputValid &&
+        currentValid &&
+        RTXDI_GetDIReservoirLightIndex(temporalReservoir) == RTXDI_GetDIReservoirLightIndex(currentReservoir);
+    const bool previousSampleUsed = temporalSamplePixel.x >= 0 && temporalSamplePixel.y >= 0;
+    RTXDI_DIReservoir usedPreviousReservoir = RTXDI_EmptyDIReservoir();
+    if (previousSampleUsed)
+    {
+        usedPreviousReservoir = LoadRestirPTRrxDiReservoir(uint2(temporalSamplePixel), RestirPTRemixDiReservoirPageInfo.y);
+    }
+    const bool usedPreviousValid = RTXDI_IsValidDIReservoir(usedPreviousReservoir);
+    const int usedPreviousToCurrent = usedPreviousValid
+        ? RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(usedPreviousReservoir), false)
+        : -1;
+
+    const bool previousTranslationValid = previousSampleUsed && usedPreviousValid && usedPreviousToCurrent >= 0;
+    if (!outputValid)
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED;
+    }
+    else if (previousSampleUsed && usedPreviousValid && usedPreviousToCurrent < 0)
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_INVALID;
+    }
+    else if (outputSelectedCurrent && currentToPrevious < 0)
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_TO_PREVIOUS_INVALID;
+    }
+    else if (previousTranslationValid)
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_VALID;
+    }
+    else if (!previousSampleUsed)
+    {
+        status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_ABSENT;
+    }
+
+    return outputValid;
+}
+
+bool RestirPTRrxDiTryEvaluateTemporalContribution(RAB_Surface surface, uint2 pixel, out float3 contribution)
+{
+    contribution = float3(0.0, 0.0, 0.0);
+    if (!RestirPTRrxDiTemporalActive())
+    {
+        return false;
+    }
+
+    RTXDI_DIReservoir reservoir;
+    uint status;
+    if (!RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, reservoir, status) ||
+        !RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return false;
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+        lightInfo,
+        surface,
+        RTXDI_GetDIReservoirSampleUV(reservoir));
+    if (lightSample.valid == 0u || lightSample.solidAnglePdf <= 1.0e-6)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float ndotl = saturate(dot(normal, lightDir));
+    if (ndotl <= 0.0)
+    {
+        return false;
+    }
+
+    if (!PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY))
+    {
+        const float normalOffsetSign = dot(normal, lightDir) >= 0.0 ? 1.0 : -1.0;
+        const float3 shadowOrigin = surface.worldPos + normal * (normalOffsetSign * 0.75) + lightDir * 0.25;
+        const float shadowTMax = max(lightDistance - 0.5, 0.01);
+        if (TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, 0xffffffffu, 0xffffffffu, 0xffffffffu) <= 0.0)
+        {
+            return false;
+        }
+    }
+
+    contribution = RestirPTSanitizePreviewContribution(
+        RAB_GetReflectedBsdfRadianceForSurface(
+            lightSample.position,
+            lightSample.radiance,
+            surface) *
+        RTXDI_GetDIReservoirInvPdf(reservoir) /
+        max(lightSample.solidAnglePdf, 1.0e-6));
+    return RAB_Luminance(contribution) > 0.0;
+}
+
+float4 EvaluateRestirPTRrxDiTemporalLocalInvalidationView(RAB_Surface surface, uint2 pixel)
+{
+    RTXDI_DIReservoir temporalReservoir;
+    uint status;
+    RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, temporalReservoir, status);
+
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    if (pixel.x >= dimensions.x / 2u)
+    {
+        return RestirPTRrxDiTemporalOutputColor(pixel, temporalReservoir);
+    }
+    return RestirPTRrxDiTemporalStatusColor(status, temporalReservoir);
 }
 
 float4 EvaluateRestirPTRrxDiRawReservoirHeartbeatView(uint2 pixel)
@@ -1234,6 +1570,10 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 67u)
     {
         return EvaluateRestirPTActiveRabTranslationParityView(pixel);
+    }
+    if (view == 68u)
+    {
+        return EvaluateRestirPTRrxDiTemporalLocalInvalidationView(surface, pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))

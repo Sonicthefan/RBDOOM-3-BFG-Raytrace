@@ -21,6 +21,7 @@
 #include "PathTracePrimaryPass.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
+#include "PathTraceRemixRtxdiResourceGate.h"
 #include "PathTraceRemixRtxdiResources.h"
 #include "PathTraceRestirLightManager.h"
 #include "PathTraceRestirPasses.h"
@@ -2224,9 +2225,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRemixLightManagerDump.SetInteger(0);
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
-    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 67, r_pathTracingRestirPTDiDebugView.GetInteger());
-    const bool requestRemixRtxdiDiProbe = requestedDebugMode == 56 && (requestedRestirPTDiDebugView == 60 || (requestedRestirPTDiDebugView >= 63 && requestedRestirPTDiDebugView <= 66));
-    const bool useRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 || dumpRemixRtxdiResources || requestRemixRtxdiDiProbe;
+    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 68, r_pathTracingRestirPTDiDebugView.GetInteger());
+    PathTraceRemixRtxdiResourceGateDesc remixRtxdiResourceGateDesc;
+    remixRtxdiResourceGateDesc.restirPTCombinedMode = requestedDebugMode == 56;
+    remixRtxdiResourceGateDesc.restirPTDiDebugView = requestedRestirPTDiDebugView;
+    remixRtxdiResourceGateDesc.remixRtxdiResourcesEnabled = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0;
+    const bool useRemixRtxdiResources =
+        r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 ||
+        dumpRemixRtxdiResources ||
+        PathTraceRemixRtxdiResourceGateRequestsDiResources(remixRtxdiResourceGateDesc);
     bool remixRtxdiResourcesReady = false;
     if (useRemixRtxdiResources)
     {
