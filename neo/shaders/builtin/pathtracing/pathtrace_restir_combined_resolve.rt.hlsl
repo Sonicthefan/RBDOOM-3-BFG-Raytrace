@@ -470,6 +470,10 @@ float4 RestirPTSanitizeAccumulationColor(float4 color)
 
 float4 RestirPTAccumulateMode56Output(uint2 pixel, float4 color)
 {
+    if (clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 69u) == 69u)
+    {
+        return color;
+    }
     color = RestirPTSanitizeAccumulationColor(color);
     if (RestirPTGiDebugInfo.w < 0.5)
     {

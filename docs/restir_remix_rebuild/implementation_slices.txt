@@ -9,6 +9,37 @@ Remix file-equivalent contract in rbdoom-native code. Do not treat this as a
 general redesign, tuning pass, or opportunity to keep old smoke behavior because
 it looks close.
 
+Important correction:
+
+    RRX-01 through RRX-08 created useful scaffolding and probes, but they must
+    not be treated as complete RTX Remix parity until the conformance
+    correction tasks are accepted.
+
+    Use these files before commissioning further activation work:
+
+        docs/restir_remix_rebuild/conformance_correction_overview.txt
+        docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+        docs/restir_remix_rebuild/worker_prompt_rrx_conformance.txt
+
+    The current missing acceptance boundary is active producer-to-consumer
+    parity: the Remix manager outputs must feed the active shader-visible RAB
+    light domains, and the RRX DI temporal consumer must locally reject failed
+    light translations instead of relying on broad smoke/ReSTIR clears.
+
+
+Debug Probe Slices
+------------------
+
+RRX-PROBE-01 through RRX-PROBE-03 are documented separately in:
+
+    docs/restir_remix_rebuild/rrx_probe_reservoir_persistence.txt
+
+These are not ReSTIR feature slices. They exist only to bind and stress-test
+the new PathTraceRemixRtxdiResources DI reservoir owner without running initial
+sampling, temporal reuse, spatial reuse, visibility, final shading, or DLSS RR.
+Run these before deeper DI activation if the current question is whether the
+new reservoir domain is still being broadly flushed by dynamic light churn.
+
 
 RRX-00: File Graph And Contract Freeze
 --------------------------------------
@@ -818,6 +849,117 @@ Status:
         Static contract checks only until the shader is registered. Runtime
         behavior should remain unchanged: no shader routes, no binding handoffs,
         and no old mode-56 GI reservoir dependency from these inactive files.
+
+
+RRX-08C: GI Initial Producer And Temporal Activation Contract
+------------------------------------------------------------
+
+Status:
+
+    Planned only. This slice must be completed before RRX-08 becomes a real
+    temporal GI pass. Detailed worker plan:
+
+        docs/restir_remix_rebuild/rrx_08c_gi_temporal_activation.txt
+
+Goal:
+
+    Define and then implement the exact producer/binding work required to turn
+    the inactive RRX-08 contracts into a real temporal GI pass without inventing
+    ReSTIR GI math.
+
+Remix file-equivalent responsibilities:
+
+    restir_gi_temporal_reuse.comp.slang:
+        load current surface
+        consume RestirGIRadiance equivalent
+        consume RestirGIHitGeometry equivalent
+        build/store GI init reservoir
+        consume motion/reprojection and previous surface data
+        run RTXDI GI temporal resampling
+        store GI temporal output reservoir
+
+    integrate_nee.comp.slang and integrator_indirect.slangh:
+        provide the producer-side GI initial inputs that feed the temporal pass
+
+Owned files for a future implementation worker:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GIInitialSampleBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GITemporalValidationBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+
+Likely later binding/dispatch files:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.cpp
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp only for an explicit binding
+    handoff if no narrower Remix resource handoff exists
+
+Required inputs:
+
+    current and previous RAB surfaces
+    RestirGIRadiance equivalent:
+        radiance
+        indirect path length / hit distance
+        selected-surface validity
+        non-opaque-hit state
+    RestirGIHitGeometry equivalent:
+        hit position
+        hit normal
+        portal index or invalid portal sentinel
+    prepared RTXDI_GIReservoir initial sample
+    GI init/temporal reservoir pages and RTXDI addressing params
+    screen-space motion vector with depth component
+    temporal parameters:
+        depth threshold
+        normal threshold
+        max history length
+        fallback sampling toggle
+        bias correction mode
+        max reservoir age
+        permutation sampling toggle
+        uniform random number
+
+Required outputs:
+
+    GI init page
+    GI temporal output page
+    diagnostics/debug flags:
+        producer input valid/invalid
+        prepared reservoir valid/invalid
+        target-PDF bridge available/unavailable
+        temporal pass dispatched/skipped
+        old smoke GI path consulted count, expected zero
+
+First allowed implementation slice:
+
+    RRX-08C.1: GI Initial Producer Binding And Prepared Reservoir.
+
+    Create/bind the real prepared GI initial reservoir producer using RTXDI
+    helper shape only. Implement the target-PDF bridge only if exact
+    reference-equivalent material, normal, view, roughness, demodulation, and
+    subsurface inputs are available. Do not invent radiance factoring, MIS,
+    target PDF, Jacobian, or finalization math.
+
+Stop conditions:
+
+    stop if the exact Remix producer input cannot be identified
+    stop if only the old rbdoom smoke GI reservoir path is available
+    stop if implementation would require approximating Remix GI math
+    stop if RAB_Surface lacks exact fields required by the target-PDF bridge
+    stop if the worker cannot keep GI temporal output isolated from normal
+    mode-56, DLSS RR, spatial GI, and final GI shading
+
+Deferred:
+
+    portal GI transforms
+    virtual sample construction
+    reflection reprojection
+    DLSS RR temporal randomization
+    RTXDI-gradient stale-sample validation
+    ray-traced temporal visibility
+    RRX-09 spatial/final shading
 
 Goal:
 

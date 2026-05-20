@@ -17,6 +17,8 @@ namespace {
 
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 int g_smokeLastReadbackTimingLogMs = -1000000;
+int g_view68LastInactiveLogFrame = -1000000;
+int g_view68LastWaitingLogFrame = -1000000;
 
 enum class RigidRouteOverlapBucket
 {
@@ -43,6 +45,156 @@ struct RigidRouteOverlapCounts
     int neither = 0;
     int unknown = 0;
 };
+
+enum class RestirPTView68Bucket
+{
+    Green,
+    Red,
+    Blue,
+    Cyan,
+    Purple,
+    Orange,
+    Yellow,
+    Dark,
+    Black,
+    Other,
+    Count
+};
+
+struct RestirPTView68Counts
+{
+    int buckets[static_cast<int>(RestirPTView68Bucket::Count)] = {};
+};
+
+struct RestirPTView69TupleKey
+{
+    int current = -1;
+    int currentToPrevious = -1;
+    int previous = -1;
+    int previousToCurrent = -1;
+};
+
+struct RestirPTView69TupleCount
+{
+    RestirPTView69TupleKey key;
+    int count = 0;
+};
+
+struct RestirPTView68ReferenceColor
+{
+    RestirPTView68Bucket bucket;
+    float r;
+    float g;
+    float b;
+};
+
+const RestirPTView68ReferenceColor VIEW68_REFERENCE_COLORS[] =
+{
+    { RestirPTView68Bucket::Green, 0.02f, 0.85f, 0.10f },
+    { RestirPTView68Bucket::Red, 0.95f, 0.18f, 0.02f },
+    { RestirPTView68Bucket::Blue, 0.05f, 0.24f, 0.82f },
+    { RestirPTView68Bucket::Cyan, 0.05f, 0.46f, 0.92f },
+    { RestirPTView68Bucket::Purple, 0.55f, 0.05f, 0.80f },
+    { RestirPTView68Bucket::Orange, 0.95f, 0.55f, 0.04f },
+    { RestirPTView68Bucket::Yellow, 0.95f, 0.95f, 0.05f },
+    { RestirPTView68Bucket::Dark, 0.04f, 0.08f, 0.18f },
+};
+
+const char* RestirPTView68BucketName(RestirPTView68Bucket bucket)
+{
+    switch (bucket)
+    {
+        case RestirPTView68Bucket::Green: return "green/pass";
+        case RestirPTView68Bucket::Red: return "red/rejected";
+        case RestirPTView68Bucket::Blue: return "blue/noPrevious";
+        case RestirPTView68Bucket::Cyan: return "cyan/currentOnly";
+        case RestirPTView68Bucket::Purple: return "purple/prevRemapInvalid";
+        case RestirPTView68Bucket::Orange: return "orange/currentPrevMismatch";
+        case RestirPTView68Bucket::Yellow: return "yellow/globalClear";
+        case RestirPTView68Bucket::Dark: return "dark/notApplicable";
+        case RestirPTView68Bucket::Black: return "black/invalid";
+        default: return "other";
+    }
+}
+
+const char* RestirPTView68BandName(int band)
+{
+    switch (band)
+    {
+        case 0: return "projected";
+        case 1: return "previousSample";
+        case 2: return "previousToCurrent";
+        case 3: return "currentToPrevious";
+        case 4: return "selectedStability";
+        default: return "outsideLeftHalf";
+    }
+}
+
+RestirPTView68Bucket ClassifyRestirPTView68Color(const float* rgba)
+{
+    if (rgba[0] < 0.03f && rgba[1] < 0.03f && rgba[2] < 0.03f)
+    {
+        return RestirPTView68Bucket::Black;
+    }
+
+    float bestDistance = 1000.0f;
+    RestirPTView68Bucket bestBucket = RestirPTView68Bucket::Other;
+    for (const RestirPTView68ReferenceColor& referenceColor : VIEW68_REFERENCE_COLORS)
+    {
+        const float dr = rgba[0] - referenceColor.r;
+        const float dg = rgba[1] - referenceColor.g;
+        const float db = rgba[2] - referenceColor.b;
+        const float distance = dr * dr + dg * dg + db * db;
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            bestBucket = referenceColor.bucket;
+        }
+    }
+
+    return bestDistance <= 0.35f ? bestBucket : RestirPTView68Bucket::Other;
+}
+
+void AccumulateRestirPTView68Bucket(RestirPTView68Counts& counts, RestirPTView68Bucket bucket)
+{
+    ++counts.buckets[static_cast<int>(bucket)];
+}
+
+int RestirPTView68BucketCount(const RestirPTView68Counts& counts, RestirPTView68Bucket bucket)
+{
+    return counts.buckets[static_cast<int>(bucket)];
+}
+
+int DecodeRestirPTView69Index(float value)
+{
+    const int encoded = idMath::Ftoi(value + 0.5f);
+    return encoded > 0 ? encoded - 1 : -1;
+}
+
+bool RestirPTView69TupleEquals(const RestirPTView69TupleKey& lhs, const RestirPTView69TupleKey& rhs)
+{
+    return lhs.current == rhs.current &&
+        lhs.currentToPrevious == rhs.currentToPrevious &&
+        lhs.previous == rhs.previous &&
+        lhs.previousToCurrent == rhs.previousToCurrent;
+}
+
+void AccumulateRestirPTView69Tuple(std::vector<RestirPTView69TupleCount>& counts, const RestirPTView69TupleKey& key)
+{
+    for (RestirPTView69TupleCount& entry : counts)
+    {
+        if (RestirPTView69TupleEquals(entry.key, key))
+        {
+            ++entry.count;
+            return;
+        }
+    }
+
+    RestirPTView69TupleCount entry;
+    entry.key = key;
+    entry.count = 1;
+    counts.push_back(entry);
+}
 
 RigidRouteOverlapBucket ClassifyRigidRouteOverlapColor(const float* rgba)
 {
@@ -127,7 +279,30 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     const int debugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
-    if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested)
+    const int restirPTDiDebugView = idMath::ClampInt(0, 69, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const int view68DumpMode = r_pathTracingRestirPTView68Dump.GetInteger();
+    const bool view68DumpRequested = debugMode == 56 && (restirPTDiDebugView == 68 || restirPTDiDebugView == 69) && view68DumpMode != 0;
+    const bool view69TupleDumpRequested = view68DumpRequested && restirPTDiDebugView == 69;
+    if (view68DumpMode != 0)
+    {
+        common->Printf("PathTracePrimaryPass: PT mode56 view68 readback entry rawDebug=%d debugMode=%d rawDiView=%d diView=%d requested=%d queued=%d delay=%d cooldown=%d texture=%d\n",
+            r_pathTracingDebugMode.GetInteger(),
+            debugMode,
+            r_pathTracingRestirPTDiDebugView.GetInteger(),
+            restirPTDiDebugView,
+            view68DumpRequested ? 1 : 0,
+            m_frameResources.readbackQueued ? 1 : 0,
+            m_frameResources.readbackDelayFrames,
+            m_frameResources.readbackCooldownFrames,
+            m_frameResources.readbackTexture ? 1 : 0);
+    }
+    if (view68DumpMode != 0 && !view68DumpRequested && m_frameResources.restirPTFrameIndex - g_view68LastInactiveLogFrame >= 60)
+    {
+        g_view68LastInactiveLogFrame = m_frameResources.restirPTFrameIndex;
+        common->Printf("PathTracePrimaryPass: PT mode56 view68/69 dump requested but inactive debugMode=%d diView=%d; use r_pathTracingDebugMode 56 and r_pathTracingRestirPTDiDebugView 68 or 69\n",
+            debugMode, restirPTDiDebugView);
+    }
+    if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested && !view68DumpRequested)
     {
         m_frameResources.readbackQueued = false;
         m_frameResources.readbackDelayFrames = 0;
@@ -137,6 +312,14 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     if (!m_frameResources.readbackQueued || !m_frameResources.readbackTexture)
     {
+        if (view68DumpRequested && view68DumpMode > 1 && m_frameResources.restirPTFrameIndex - g_view68LastWaitingLogFrame >= 60)
+        {
+            g_view68LastWaitingLogFrame = m_frameResources.restirPTFrameIndex;
+            common->Printf("PathTracePrimaryPass: PT mode56 view68 dump waiting for queued readback queued=%d texture=%d cooldown=%d\n",
+                m_frameResources.readbackQueued ? 1 : 0,
+                m_frameResources.readbackTexture ? 1 : 0,
+                m_frameResources.readbackCooldownFrames);
+        }
         if (m_frameResources.readbackCooldownFrames > 0)
         {
             --m_frameResources.readbackCooldownFrames;
@@ -146,6 +329,11 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 
     if (m_frameResources.readbackDelayFrames > 0)
     {
+        if (view68DumpRequested && view68DumpMode > 1)
+        {
+            common->Printf("PathTracePrimaryPass: PT mode56 view68 dump readback delay=%d\n",
+                m_frameResources.readbackDelayFrames);
+        }
         --m_frameResources.readbackDelayFrames;
         return;
     }
@@ -186,6 +374,32 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     const int centerRegionMaxX = idMath::ClampInt(0, Max(0, m_frameResources.width - 1), sampleX + centerRegionRadius);
     const int centerRegionMinY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), sampleY - centerRegionRadius);
     const int centerRegionMaxY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), sampleY + centerRegionRadius);
+    const int view68LeftWidth = Max(1, m_frameResources.width / 2);
+    const int view68DumpX = r_pathTracingRestirPTView68DumpX.GetInteger() >= 0
+        ? r_pathTracingRestirPTView68DumpX.GetInteger()
+        : view68LeftWidth / 2;
+    const int view68DumpY = r_pathTracingRestirPTView68DumpY.GetInteger() >= 0
+        ? r_pathTracingRestirPTView68DumpY.GetInteger()
+        : m_frameResources.height / 2;
+    const int view68SampleX = idMath::ClampInt(0, Max(0, m_frameResources.width - 1), view68DumpX);
+    const int view68SampleY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), view68DumpY);
+    const int view68Radius = idMath::ClampInt(0, 256, r_pathTracingRestirPTView68DumpRadius.GetInteger());
+    const int view68MinX = idMath::ClampInt(0, Max(0, m_frameResources.width - 1), view68SampleX - view68Radius);
+    const int view68MaxX = idMath::ClampInt(0, Max(0, m_frameResources.width - 1), view68SampleX + view68Radius);
+    const int view68MinY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), view68SampleY - view68Radius);
+    const int view68MaxY = idMath::ClampInt(0, Max(0, m_frameResources.height - 1), view68SampleY + view68Radius);
+    RestirPTView68Counts view68RoiCounts;
+    RestirPTView68Counts view68BandCounts[5];
+    int view68BandPixels[5] = {};
+    std::vector<RestirPTView69TupleCount> view69TupleCounts;
+    int view68RoiPixels = 0;
+    int view68LeftPixels = 0;
+    int view68RightPixels = 0;
+    int view69CurrentToPreviousInvalid = 0;
+    int view69PreviousToCurrentInvalid = 0;
+    int view69SelectedLightChanged = 0;
+    int view69PreviousAbsent = 0;
+    int view69BothDirectionsValid = 0;
     for (int y = 0; y < m_frameResources.height; ++y)
     {
         const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
@@ -209,6 +423,55 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
                 {
                     AccumulateRigidRouteOverlapBucket(centerRegionOverlap, bucket);
                     ++centerRegionPixels;
+                }
+            }
+
+            if (view68DumpRequested && x >= view68MinX && x <= view68MaxX && y >= view68MinY && y <= view68MaxY)
+            {
+                ++view68RoiPixels;
+                if (view69TupleDumpRequested)
+                {
+                    RestirPTView69TupleKey key;
+                    key.current = DecodeRestirPTView69Index(rgba[0]);
+                    key.currentToPrevious = DecodeRestirPTView69Index(rgba[1]);
+                    key.previous = DecodeRestirPTView69Index(rgba[2]);
+                    key.previousToCurrent = DecodeRestirPTView69Index(rgba[3]);
+                    AccumulateRestirPTView69Tuple(view69TupleCounts, key);
+                    if (key.current >= 0 && key.currentToPrevious < 0)
+                    {
+                        ++view69CurrentToPreviousInvalid;
+                    }
+                    if (key.previous >= 0 && key.previousToCurrent < 0)
+                    {
+                        ++view69PreviousToCurrentInvalid;
+                    }
+                    if (key.previous < 0)
+                    {
+                        ++view69PreviousAbsent;
+                    }
+                    if (key.current >= 0 && key.currentToPrevious >= 0 && key.previous >= 0 && key.previousToCurrent >= 0)
+                    {
+                        ++view69BothDirectionsValid;
+                    }
+                    if (key.current >= 0 && key.previousToCurrent >= 0 && key.previousToCurrent != key.current)
+                    {
+                        ++view69SelectedLightChanged;
+                    }
+                    continue;
+                }
+
+                const RestirPTView68Bucket bucket = ClassifyRestirPTView68Color(rgba);
+                AccumulateRestirPTView68Bucket(view68RoiCounts, bucket);
+                if (x < view68LeftWidth)
+                {
+                    const int band = idMath::ClampInt(0, 4, (x * 5) / view68LeftWidth);
+                    AccumulateRestirPTView68Bucket(view68BandCounts[band], bucket);
+                    ++view68BandPixels[band];
+                    ++view68LeftPixels;
+                }
+                else
+                {
+                    ++view68RightPixels;
                 }
             }
         }
@@ -254,6 +517,111 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             centerRegionOverlap.neither, 100.0f * static_cast<float>(centerRegionOverlap.neither) / static_cast<float>(regionPixels),
             centerRegionOverlap.unknown, 100.0f * static_cast<float>(centerRegionOverlap.unknown) / static_cast<float>(regionPixels));
         r_pathTracingRigidRouteOverlapDump.SetInteger(0);
+    }
+    if (view68DumpRequested)
+    {
+        const float* view68SampleRgba = reinterpret_cast<const float*>(readbackBytes + rowPitch * view68SampleY + sizeof(float) * 4 * view68SampleX);
+        if (view69TupleDumpRequested)
+        {
+            std::sort(view69TupleCounts.begin(), view69TupleCounts.end(),
+                [](const RestirPTView69TupleCount& lhs, const RestirPTView69TupleCount& rhs)
+                {
+                    return lhs.count > rhs.count;
+                });
+
+            RestirPTView69TupleKey sampleKey;
+            sampleKey.current = DecodeRestirPTView69Index(view68SampleRgba[0]);
+            sampleKey.currentToPrevious = DecodeRestirPTView69Index(view68SampleRgba[1]);
+            sampleKey.previous = DecodeRestirPTView69Index(view68SampleRgba[2]);
+            sampleKey.previousToCurrent = DecodeRestirPTView69Index(view68SampleRgba[3]);
+            const int roiPixels = Max(1, view68RoiPixels);
+            common->Printf("PathTracePrimaryPass: PT mode56 view69 raw tuple dump sample=(%d,%d) radius=%d roi=%dx%d pixels=%d unique=%d sample cur=%d c2p=%d prev=%d p2c=%d rgba=(%.3f, %.3f, %.3f, %.3f)\n",
+                view68SampleX, view68SampleY, view68Radius,
+                view68MaxX - view68MinX + 1,
+                view68MaxY - view68MinY + 1,
+                view68RoiPixels,
+                static_cast<int>(view69TupleCounts.size()),
+                sampleKey.current,
+                sampleKey.currentToPrevious,
+                sampleKey.previous,
+                sampleKey.previousToCurrent,
+                view68SampleRgba[0], view68SampleRgba[1], view68SampleRgba[2], view68SampleRgba[3]);
+            common->Printf("PathTracePrimaryPass: PT mode56 view69 raw tuple summary currentToPreviousInvalid=%d(%.2f%%) previousToCurrentInvalid=%d(%.2f%%) selectedLightChanged=%d(%.2f%%) previousAbsent=%d(%.2f%%) bothDirectionsValid=%d(%.2f%%)\n",
+                view69CurrentToPreviousInvalid, 100.0f * static_cast<float>(view69CurrentToPreviousInvalid) / static_cast<float>(roiPixels),
+                view69PreviousToCurrentInvalid, 100.0f * static_cast<float>(view69PreviousToCurrentInvalid) / static_cast<float>(roiPixels),
+                view69SelectedLightChanged, 100.0f * static_cast<float>(view69SelectedLightChanged) / static_cast<float>(roiPixels),
+                view69PreviousAbsent, 100.0f * static_cast<float>(view69PreviousAbsent) / static_cast<float>(roiPixels),
+                view69BothDirectionsValid, 100.0f * static_cast<float>(view69BothDirectionsValid) / static_cast<float>(roiPixels));
+            const int topTupleCount = Min(12, static_cast<int>(view69TupleCounts.size()));
+            for (int i = 0; i < topTupleCount; ++i)
+            {
+                const RestirPTView69TupleCount& tuple = view69TupleCounts[i];
+                const bool c2pInvalid = tuple.key.current >= 0 && tuple.key.currentToPrevious < 0;
+                const bool p2cInvalid = tuple.key.previous >= 0 && tuple.key.previousToCurrent < 0;
+                const bool selectedChanged = tuple.key.current >= 0 && tuple.key.previousToCurrent >= 0 && tuple.key.previousToCurrent != tuple.key.current;
+                common->Printf("PathTracePrimaryPass: PT mode56 view69 tuple top%d count=%d(%.2f%%) cur=%d c2p=%d prev=%d p2c=%d c2pInvalid=%d p2cInvalid=%d selectedChanged=%d\n",
+                    i,
+                    tuple.count,
+                    100.0f * static_cast<float>(tuple.count) / static_cast<float>(roiPixels),
+                    tuple.key.current,
+                    tuple.key.currentToPrevious,
+                    tuple.key.previous,
+                    tuple.key.previousToCurrent,
+                    c2pInvalid ? 1 : 0,
+                    p2cInvalid ? 1 : 0,
+                    selectedChanged ? 1 : 0);
+            }
+            if (view68DumpMode == 1)
+            {
+                r_pathTracingRestirPTView68Dump.SetInteger(0);
+            }
+        }
+        else
+        {
+        const RestirPTView68Bucket sampleBucket = ClassifyRestirPTView68Color(view68SampleRgba);
+        const int sampleBand = view68SampleX < view68LeftWidth
+            ? idMath::ClampInt(0, 4, (view68SampleX * 5) / view68LeftWidth)
+            : -1;
+        const int roiPixels = Max(1, view68RoiPixels);
+        common->Printf("PathTracePrimaryPass: PT mode56 view68 dump sample=(%d,%d) radius=%d roi=%dx%d pixels=%d leftCausePixels=%d rightOutputPixels=%d sampleBand=%s sampleBucket=%s rgba=(%.3f, %.3f, %.3f, %.3f)\n",
+            view68SampleX, view68SampleY, view68Radius,
+            view68MaxX - view68MinX + 1,
+            view68MaxY - view68MinY + 1,
+            view68RoiPixels, view68LeftPixels, view68RightPixels,
+            RestirPTView68BandName(sampleBand),
+            RestirPTView68BucketName(sampleBucket),
+            view68SampleRgba[0], view68SampleRgba[1], view68SampleRgba[2], view68SampleRgba[3]);
+        common->Printf("PathTracePrimaryPass: PT mode56 view68 roi buckets green/pass=%d(%.2f%%) red/rejected=%d(%.2f%%) blue/noPrevious=%d(%.2f%%) cyan/currentOnly=%d(%.2f%%) purple/prevRemapInvalid=%d(%.2f%%) orange/currentPrevMismatch=%d(%.2f%%) yellow/globalClear=%d(%.2f%%) dark/notApplicable=%d(%.2f%%) black/invalid=%d(%.2f%%) other=%d(%.2f%%)\n",
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Green), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Green)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Red), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Red)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Blue), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Blue)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Cyan), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Cyan)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Purple), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Purple)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Orange), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Orange)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Yellow), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Yellow)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Dark), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Dark)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Black), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Black)) / static_cast<float>(roiPixels),
+            RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Other), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Other)) / static_cast<float>(roiPixels));
+        for (int band = 0; band < 5; ++band)
+        {
+            const int bandPixels = Max(1, view68BandPixels[band]);
+            const RestirPTView68Counts& bandCounts = view68BandCounts[band];
+            common->Printf("PathTracePrimaryPass: PT mode56 view68 band %d %s pixels=%d green/pass=%d(%.2f%%) red/rejected=%d(%.2f%%) blue/noPrevious=%d(%.2f%%) purple/prevRemapInvalid=%d(%.2f%%) orange/currentPrevMismatch=%d(%.2f%%) yellow/globalClear=%d(%.2f%%) dark/notApplicable=%d(%.2f%%) other=%d(%.2f%%)\n",
+                band, RestirPTView68BandName(band), view68BandPixels[band],
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Green), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Green)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Red), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Red)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Blue), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Blue)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Purple), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Purple)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Orange), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Orange)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Yellow), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Yellow)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Dark), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Dark)) / static_cast<float>(bandPixels),
+                RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Other), 100.0f * static_cast<float>(RestirPTView68BucketCount(bandCounts, RestirPTView68Bucket::Other)) / static_cast<float>(bandPixels));
+        }
+        if (view68DumpMode == 1)
+        {
+            r_pathTracingRestirPTView68Dump.SetInteger(0);
+        }
+        }
     }
 
     device->unmapStagingTexture(m_frameResources.readbackTexture);

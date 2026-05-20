@@ -42,6 +42,40 @@ before editing. Do not replace a Remix responsibility with an rbdoom smoke
 reservoir equivalent.
 
 
+Compliance Review Gate
+----------------------
+
+Structural resemblance is not compliance.
+
+Do not accept a worker result because it creates similarly named objects,
+similar buffers, plausible maps, successful dumps, or a non-crashing build.
+Those are only scaffolding checks.
+
+Every implementation or review that claims RTX Remix / RTXDI conformance must
+prove all three items below for the assigned slice:
+
+    active consumer proof
+        exact file/line evidence that the new producer output is consumed by
+        the next active rbdoom module, shader binding, RAB callback, or
+        dispatch path. A diagnostic dump, inactive shader, or unbound buffer is
+        not active consumption.
+
+    negative-path proof
+        exact behavior when the reference path encounters the important failure
+        case. For light/reservoir work this means failed light translation
+        rejects only the selected candidate/sample, not the whole reservoir
+        domain. If the negative path is deferred, the slice is not full
+        conformance.
+
+    runtime diagnostic proof
+        a dump or debug view that distinguishes storage survival, mapping
+        failure, payload change, global clear, and inactive consumer state. A
+        green/raw storage view alone is not proof of temporal correctness.
+
+If any of these proofs are missing, mark the review P1 for incomplete
+conformance unless the task was explicitly documented as diagnostic-only.
+
+
 Forbidden Patterns
 ------------------
 
@@ -54,6 +88,8 @@ Workers must not:
     use Doom analytic count changes as temporal validity
     remove legacy outputs unless explicitly commissioned
     claim DLSS RR validation before DI/GI temporal debug views are sane
+    claim feature parity for diagnostic-only scaffolding
+    claim reservoir correctness from storage-only probes
 
 
 Required Review Output
@@ -64,6 +100,9 @@ Every worker final response must include:
     files changed
     Remix file-equivalent matched
     exact contract added
+    active consumer proof, with file/line evidence
+    negative-path proof, or explicit statement that it is deferred
+    runtime diagnostic proof, or explicit statement that no runtime path exists
     any remaining old-smoke dependency
     build result or "not built"
     runtime CVars to test, if applicable

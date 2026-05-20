@@ -49,11 +49,20 @@ Read Order
 ----------
 
 1. docs/restir_remix_rebuild/README.txt
-2. docs/restir_remix_rebuild/remix_file_graph.txt
-3. docs/restir_remix_rebuild/implementation_slices.txt
-4. docs/restir_remix_rebuild/worker_protocol.txt
-5. docs/restir_remix_rebuild/worker_prompt_rrx_00.txt
-6. docs/restir_light_manager/session_recovery_dynamic_analytic_bug_2026_05_19.txt
+2. docs/restir_remix_rebuild/conformance_correction_overview.txt
+3. docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+4. docs/restir_remix_rebuild/worker_prompt_rrx_conformance.txt
+5. docs/restir_remix_rebuild/remix_file_graph.txt
+6. docs/restir_remix_rebuild/implementation_slices.txt
+7. docs/restir_remix_rebuild/worker_protocol.txt
+8. docs/restir_remix_rebuild/worker_prompt_rrx_00.txt
+9. docs/restir_remix_rebuild/rrx_probe_reservoir_persistence.txt
+10. docs/restir_light_manager/session_recovery_dynamic_analytic_bug_2026_05_19.txt
+
+The conformance correction files supersede any older task wording that treats
+diagnostic-only manager/resource scaffolding as complete RTX Remix parity.
+Future workers must prove active producer-to-consumer behavior, not only object
+existence or dump output.
 
 Use older docs/restir_light_manager material only as evidence of the failed
 path and current scaffolding. Do not continue old LM/LU prompt sequences unless
@@ -109,6 +118,28 @@ Non-Negotiable Rules
    Color, intensity, radius, position, and on/off payload changes update light
    payload/mapping state. They do not clear the whole reservoir domain.
 
-6. User visual testing remains required.
+6. Active consumer parity is required.
+
+   A task is not complete because a Remix-shaped object exists or prints a
+   dump. The next active rbdoom consumer must read that object's outputs. For
+   light-manager work, shader-visible current/previous light records and maps
+   must come from the Remix manager in the commissioned opt-in path. For
+   reservoir work, failed light translation must reject only the selected
+   candidate/sample in the temporal consumer.
+
+   Reviews must require three proofs:
+
+       active consumer proof:
+           exact file/line evidence for the active consumer
+
+       negative-path proof:
+           exact local failure behavior for invalid mappings or incompatible
+           samples
+
+       runtime diagnostic proof:
+           diagnostics separating storage survival, mapping failure, payload
+           churn, global clear, and inactive consumer state
+
+7. User visual testing remains required.
 
    Renderer-facing slices stop after build/deploy and report exact test CVars.

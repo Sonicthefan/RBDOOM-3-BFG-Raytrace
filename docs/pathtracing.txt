@@ -1002,10 +1002,21 @@ Ray dispatch safety diagnostics:
   heartbeat. Views `63`-`66` inspect RRX DI reservoir persistence/raw field
   behavior across same-dispatch, same-page, and previous-page cases. View `67`
   checks active RAB translation parity. View `68` is the RRX DI temporal local
-  invalidation view: left half classifies previous/current translation and
-  local rejection, and right half shows temporal output target-PDF/history/
-  weight heat. This is not full Remix final-shading parity; it is a
-  mode-56/preview consumer for the RRX DI temporal reservoir path. Views 6-11 are the
+  invalidation view: the left half is split into five vertical cause bands
+  from left to right: projected, previous sample used, previous-to-current
+  translation valid, current-to-previous translation valid, and selected-light
+  stability. Green means pass/stable, red means failed, blue means no previous
+  sample, purple means previous remap invalid, orange means current/previous
+  selected-light mismatch, yellow means global clear pending, and dark means not
+  applicable.
+  The right half shows temporal output target-PDF/history/weight heat. This is
+  not full Remix final-shading parity; it is a
+  mode-56/preview consumer for the RRX DI temporal reservoir path. View `69`
+  outputs raw RRX DI temporal light-index tuples for terminal readback:
+  current light, current-to-previous translation, previous stored light, and
+  previous-to-current translation, each encoded as `index + 1` with `0` meaning
+  invalid or absent. View 69 bypasses mode-56 accumulation so the tuple readback
+  is not averaged across frames. Views 6-11 are the
   reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
   producer output and avoid the custom DI scratch reservoir math. View 2 does
   not multiply brightness by reservoir `M`; view 3 runs a
@@ -1014,6 +1025,30 @@ Ray dispatch safety diagnostics:
   temporal DI neighbors. The temporal debug path can carry validated previous
   DI temporal history when the current raw DI sample is missing. These views
   write only the debug output, not RR input.
+
+- r_pathTracingRestirPTView68Dump
+  Mode 56 / DI view 68 or 69 terminal readback. `1` prints one dump then resets to
+  `0`; `2` keeps dumping. The dump forces the existing smoke output readback and
+  classifies a square neighborhood. In view 68 it buckets the visible cause
+  colors, so it is meant for capturing noisy/strobed failure clusters rather
+  than single pixels. In view 69 it aggregates exact raw tuples and reports top
+  `cur/c2p/prev/p2c` combinations plus counts for current-to-previous invalid,
+  previous-to-current invalid, selected-light changed, previous absent, and both
+  directions valid. Use
+  `r_pathTracingRestirPTView68DumpX` and `r_pathTracingRestirPTView68DumpY` to
+  choose the screen pixel; `-1` defaults to the center of the left diagnostic
+  half for X and screen center for Y. `r_pathTracingRestirPTView68DumpRadius`
+  controls the neighborhood radius and defaults to `32`.
+
+- r_pathTracingRestirPTView68DumpX / r_pathTracingRestirPTView68DumpY /
+  r_pathTracingRestirPTView68DumpRadius
+  Coordinate and radius controls for `r_pathTracingRestirPTView68Dump`. To
+  capture a specific bad spot, keep `r_pathTracingDebugMode 56` and
+  `r_pathTracingRestirPTDiDebugView 68`, place the spot inside the left half's
+  cause-band view, set X/Y near it, then set
+  `r_pathTracingRestirPTView68Dump 1`. The terminal output reports total ROI
+  buckets plus per-band buckets for `projected`, `previousSample`,
+  `previousToCurrent`, `currentToPrevious`, and `selectedStability`.
 
 - r_pathTracingRestirPTGiDebugView
   Mode 56 GI comparison view. `0` keeps normal mode 56 output, `1` shows raw GI
@@ -1219,13 +1254,15 @@ Denoise/upscale/Ray Reconstruction reservation:
   the uploaded mode 20 candidate list.
 
 - r_pathTracingRemixFramePrepareDump
-  One-shot dump of the CPU-only RTX Remix-shaped frame-preparation scaffold.
+  Defaults to 0. One-shot dump of the CPU-only RTX Remix-shaped
+  frame-preparation scaffold.
   Reports frame ordering, output size, reset flags, light/emissive observation
   counts, and explicit zero counts for resource allocation, shader routing, and
   old smoke reservoir signature consultation.
 
 - r_pathTracingRemixLightManagerDump
-  One-shot dump of the CPU-only RTX Remix-shaped light manager contract.
+  Defaults to 0. One-shot dump of the CPU-only RTX Remix-shaped light manager
+  contract.
   Reports current/previous unified light payload counts, current-to-previous
   and previous-to-current map counts, per-type ranges and sample counts, and
   structural/mapping/payload signatures. Structural signature changes are
@@ -1252,20 +1289,21 @@ Denoise/upscale/Ray Reconstruction reservation:
   not the reference RAB selected-light visibility callback.
 
 - r_pathTracingRemixRtxdiResourcesDump
-  One-shot dump of the RTX Remix-shaped RTXDI reservoir resource owner. The
-  dump allocates for one validation frame even when
+  Defaults to 0. One-shot dump of the RTX Remix-shaped RTXDI reservoir
+  resource owner. The dump allocates for one validation frame even when
   `r_pathTracingRemixRtxdiResourcesEnable` is 0, then reports DI/GI
   recreate/reuse/clearPending state, reservoir array/stride/byte metadata,
-  light signatures, and explicit zero counts for old smoke reservoir
-  consultation, shader routes, and binding handoffs. `clearPending` means GPU
-  reservoir contents still require a command-list clear before shader
-  availability reports true.
+  allowed versus ignored reset flags, old smoke clear flags, light signatures,
+  payload-only change state, active DI clear source/request state, and explicit
+  zero counts for old smoke reservoir consultation, shader routes, and binding
+  handoffs. `clearPending` means GPU reservoir contents still require a
+  command-list clear before shader availability reports true.
 
 - r_pathTracingRestirLightManagerDump
-  One-shot dump of the ReSTIR light-manager bridge. Reports observation counts
-  plus active current/previous/map/payload counts when those domains are built.
-  Use this to verify the manager-side contract before enabling the RAB routing
-  gate.
+  Defaults to 0. One-shot dump of the ReSTIR light-manager bridge. Reports
+  observation counts plus active current/previous/map/payload counts when those
+  domains are built. Use this to verify the manager-side contract before
+  enabling the RAB routing gate.
 
 - r_pathTracingRestirLightManagerRAB
   Defaults to 0. Opt-in routing gate that makes the ReSTIR RAB light-load path

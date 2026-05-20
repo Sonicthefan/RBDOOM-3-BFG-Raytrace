@@ -31,7 +31,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 68u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 69u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -851,6 +851,28 @@ static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_TO_PREVIOUS_INVALID =
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED = 6u;
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY = 7u;
 
+struct RestirPTRrxDiTemporalDebugInfo
+{
+    uint projected;
+    uint previousSampleUsed;
+    uint previousTranslationValid;
+    uint currentToPreviousValid;
+    uint selectedLightChanged;
+    uint currentValid;
+    uint previousValid;
+    uint outputValid;
+    uint currentLightIndexEncoded;
+    uint currentToPreviousIndexEncoded;
+    uint previousLightIndexEncoded;
+    uint previousToCurrentIndexEncoded;
+};
+
+RestirPTRrxDiTemporalDebugInfo RestirPTRrxDiEmptyTemporalDebugInfo()
+{
+    RestirPTRrxDiTemporalDebugInfo debugInfo = (RestirPTRrxDiTemporalDebugInfo)0;
+    return debugInfo;
+}
+
 float4 RestirPTRrxDiTemporalStatusColor(uint status, RTXDI_DIReservoir reservoir)
 {
     const float history = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
@@ -899,14 +921,96 @@ float4 RestirPTRrxDiTemporalOutputColor(uint2 pixel, RTXDI_DIReservoir reservoir
     return float4(max(pdfHeat, 0.05), max(history, 0.10), max(weightHeat, 0.05), 1.0);
 }
 
+float4 RestirPTRrxDiTemporalBooleanColor(bool condition, bool applicable)
+{
+    if (!applicable)
+    {
+        return float4(0.04, 0.08, 0.18, 1.0);
+    }
+    return condition ? float4(0.02, 0.85, 0.10, 1.0) : float4(0.95, 0.18, 0.02, 1.0);
+}
+
+float4 RestirPTRrxDiTemporalSelectedStabilityColor(RestirPTRrxDiTemporalDebugInfo debugInfo)
+{
+    if (debugInfo.previousSampleUsed == 0u || debugInfo.previousValid == 0u)
+    {
+        return float4(0.05, 0.24, 0.82, 1.0);
+    }
+    if (debugInfo.previousTranslationValid == 0u)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+    return debugInfo.selectedLightChanged != 0u
+        ? float4(0.95, 0.55, 0.04, 1.0)
+        : float4(0.02, 0.85, 0.10, 1.0);
+}
+
+float4 RestirPTRrxDiTemporalCauseColor(
+    uint2 pixel,
+    uint status,
+    RTXDI_DIReservoir reservoir,
+    RestirPTRrxDiTemporalDebugInfo debugInfo)
+{
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const uint leftWidth = max(dimensions.x / 2u, 1u);
+    const uint bandWidth = max(leftWidth / 5u, 1u);
+    const uint bandPixel = pixel.x % bandWidth;
+    const uint band = min((pixel.x * 5u) / leftWidth, 4u);
+    if (pixel.x < leftWidth && (bandPixel < 8u || bandPixel >= bandWidth - 2u))
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+    if (pixel.x < leftWidth && pixel.y < 24u)
+    {
+        if (band == 0u) return float4(0.15, 0.45, 1.0, 1.0);
+        if (band == 1u) return float4(0.0, 0.85, 0.25, 1.0);
+        if (band == 2u) return float4(1.0, 0.85, 0.0, 1.0);
+        if (band == 3u) return float4(1.0, 0.40, 0.0, 1.0);
+        return float4(0.70, 0.0, 1.0, 1.0);
+    }
+
+    if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_GLOBAL_CLEAR_PENDING ||
+        status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_UNAVAILABLE ||
+        status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED)
+    {
+        return RestirPTRrxDiTemporalStatusColor(status, reservoir);
+    }
+
+    if (band == 0u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(debugInfo.projected != 0u, true);
+    }
+    if (band == 1u)
+    {
+        return debugInfo.previousSampleUsed != 0u
+            ? float4(0.02, 0.85, 0.10, 1.0)
+            : float4(0.05, 0.24, 0.82, 1.0);
+    }
+    if (band == 2u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(
+            debugInfo.previousTranslationValid != 0u,
+            debugInfo.previousSampleUsed != 0u && debugInfo.previousValid != 0u);
+    }
+    if (band == 3u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(
+            debugInfo.currentToPreviousValid != 0u,
+            debugInfo.currentValid != 0u);
+    }
+    return RestirPTRrxDiTemporalSelectedStabilityColor(debugInfo);
+}
+
 bool RestirPTRrxDiTryGenerateTemporalReservoir(
     RAB_Surface surface,
     uint2 pixel,
     out RTXDI_DIReservoir temporalReservoir,
-    out uint status)
+    out uint status,
+    out RestirPTRrxDiTemporalDebugInfo debugInfo)
 {
     temporalReservoir = RTXDI_EmptyDIReservoir();
     status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY;
+    debugInfo = RestirPTRrxDiEmptyTemporalDebugInfo();
 
     if (RestirPTRrxDiReservoirClearPending())
     {
@@ -922,6 +1026,11 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     const RTXDI_DIReservoir currentReservoir = RestirPTRrxDiBuildInitialReservoir(surface, pixel);
     StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, currentReservoir);
     const bool currentValid = RTXDI_IsValidDIReservoir(currentReservoir);
+    debugInfo.currentValid = currentValid ? 1u : 0u;
+    if (currentValid)
+    {
+        debugInfo.currentLightIndexEncoded = RTXDI_GetDIReservoirLightIndex(currentReservoir) + 1u;
+    }
     if (!currentValid)
     {
         StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RTXDI_EmptyDIReservoir());
@@ -932,13 +1041,20 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     const int currentToPrevious = currentValid
         ? RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(currentReservoir), true)
         : -1;
+    debugInfo.currentToPreviousValid = currentToPrevious >= 0 ? 1u : 0u;
+    if (currentToPrevious >= 0)
+    {
+        debugInfo.currentToPreviousIndexEncoded = (uint)currentToPrevious + 1u;
+    }
 
     int2 previousPixel;
     float2 motionPixels;
     const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
+    debugInfo.projected = projected ? 1u : 0u;
     if (!projected)
     {
         temporalReservoir = currentReservoir;
+        debugInfo.outputValid = 1u;
         status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY;
         return true;
     }
@@ -958,17 +1074,35 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
         currentValid &&
         RTXDI_GetDIReservoirLightIndex(temporalReservoir) == RTXDI_GetDIReservoirLightIndex(currentReservoir);
     const bool previousSampleUsed = temporalSamplePixel.x >= 0 && temporalSamplePixel.y >= 0;
+    debugInfo.previousSampleUsed = previousSampleUsed ? 1u : 0u;
     RTXDI_DIReservoir usedPreviousReservoir = RTXDI_EmptyDIReservoir();
     if (previousSampleUsed)
     {
         usedPreviousReservoir = LoadRestirPTRrxDiReservoir(uint2(temporalSamplePixel), RestirPTRemixDiReservoirPageInfo.y);
     }
     const bool usedPreviousValid = RTXDI_IsValidDIReservoir(usedPreviousReservoir);
+    debugInfo.previousValid = usedPreviousValid ? 1u : 0u;
+    if (usedPreviousValid)
+    {
+        debugInfo.previousLightIndexEncoded = RTXDI_GetDIReservoirLightIndex(usedPreviousReservoir) + 1u;
+    }
     const int usedPreviousToCurrent = usedPreviousValid
         ? RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(usedPreviousReservoir), false)
         : -1;
+    if (usedPreviousToCurrent >= 0)
+    {
+        debugInfo.previousToCurrentIndexEncoded = (uint)usedPreviousToCurrent + 1u;
+    }
 
     const bool previousTranslationValid = previousSampleUsed && usedPreviousValid && usedPreviousToCurrent >= 0;
+    debugInfo.outputValid = outputValid ? 1u : 0u;
+    debugInfo.previousTranslationValid = previousTranslationValid ? 1u : 0u;
+    debugInfo.selectedLightChanged =
+        previousTranslationValid &&
+        currentValid &&
+        usedPreviousToCurrent != int(RTXDI_GetDIReservoirLightIndex(currentReservoir))
+            ? 1u
+            : 0u;
     if (!outputValid)
     {
         status = RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED;
@@ -1003,7 +1137,8 @@ bool RestirPTRrxDiTryEvaluateTemporalContribution(RAB_Surface surface, uint2 pix
 
     RTXDI_DIReservoir reservoir;
     uint status;
-    if (!RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, reservoir, status) ||
+    RestirPTRrxDiTemporalDebugInfo debugInfo;
+    if (!RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, reservoir, status, debugInfo) ||
         !RTXDI_IsValidDIReservoir(reservoir))
     {
         return false;
@@ -1060,14 +1195,28 @@ float4 EvaluateRestirPTRrxDiTemporalLocalInvalidationView(RAB_Surface surface, u
 {
     RTXDI_DIReservoir temporalReservoir;
     uint status;
-    RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, temporalReservoir, status);
+    RestirPTRrxDiTemporalDebugInfo debugInfo;
+    RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, temporalReservoir, status, debugInfo);
 
     const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
     if (pixel.x >= dimensions.x / 2u)
     {
         return RestirPTRrxDiTemporalOutputColor(pixel, temporalReservoir);
     }
-    return RestirPTRrxDiTemporalStatusColor(status, temporalReservoir);
+    return RestirPTRrxDiTemporalCauseColor(pixel, status, temporalReservoir, debugInfo);
+}
+
+float4 EvaluateRestirPTRrxDiTemporalRawTupleView(RAB_Surface surface, uint2 pixel)
+{
+    RTXDI_DIReservoir temporalReservoir;
+    uint status;
+    RestirPTRrxDiTemporalDebugInfo debugInfo;
+    RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, temporalReservoir, status, debugInfo);
+    return float4(
+        (float)debugInfo.currentLightIndexEncoded,
+        (float)debugInfo.currentToPreviousIndexEncoded,
+        (float)debugInfo.previousLightIndexEncoded,
+        (float)debugInfo.previousToCurrentIndexEncoded);
 }
 
 float4 EvaluateRestirPTRrxDiRawReservoirHeartbeatView(uint2 pixel)
@@ -1574,6 +1723,10 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 68u)
     {
         return EvaluateRestirPTRrxDiTemporalLocalInvalidationView(surface, pixel);
+    }
+    if (view == 69u)
+    {
+        return EvaluateRestirPTRrxDiTemporalRawTupleView(surface, pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))

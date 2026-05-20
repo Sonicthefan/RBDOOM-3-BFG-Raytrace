@@ -17,7 +17,7 @@ enum PathTraceRemixRtxdiDiClearSource : uint32_t
 
 inline bool PathTraceRemixRtxdiResourceGateUsesProbeView(int view)
 {
-    return view == 60 || (view >= 63 && view <= 66) || view == 68;
+    return view == 60 || (view >= 63 && view <= 66) || view == 68 || view == 69;
 }
 
 inline bool PathTraceRemixRtxdiResourceGateRequestsDiResources(const PathTraceRemixRtxdiResourceGateDesc& desc)

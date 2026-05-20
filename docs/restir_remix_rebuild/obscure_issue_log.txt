@@ -63,8 +63,10 @@ view 68 quirks
     the active light-manager range, random local-light UVs, all candidates streamed, and one final RTXDI_FinalizeResampling call.
     When reprojection is not eligible, the active temporal path keeps the current RRX DI seed as current-only output instead
     of calling the temporal core with zero motion or clearing the reservoir.
-    The left-half green status is previous-light translation valid for the selected previous candidate; it is not assigned from
-    M/history growth. Right-half green still visualizes output M/history as a numeric heat channel.
+    The left half is now split into five vertical cause bands: projected, previous sample used, previous-to-current
+    translation valid, current-to-previous translation valid, and selected-light stability. Green means pass/stable, red
+    means failed, blue means no previous sample, purple means previous remap invalid, and dark means not applicable.
+    Right-half green still visualizes output M/history as a numeric heat channel.
     PathTraceRemixRtxdiResourceGate.* is only the resource/clear predicate owner. It is not a standalone Remix RTXDI
     temporal dispatch boundary.
     The RRX DI clear gate must include normal mode 56 when r_pathTracingRemixRtxdiResourcesEnable is set; otherwise the

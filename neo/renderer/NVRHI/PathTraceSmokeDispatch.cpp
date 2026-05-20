@@ -519,6 +519,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     OPTICK_EVENT("PT Dispatch");
 
     const uint64 executeStartUs = Sys_Microseconds();
+    if (r_pathTracingRestirPTView68Dump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: PT mode56 view68 dispatch entry rawDebug=%d rawDiView=%d sceneBuilt=%d output=%d readback=%d primaryHistory=%d\n",
+            r_pathTracingDebugMode.GetInteger(),
+            r_pathTracingRestirPTDiDebugView.GetInteger(),
+            m_smokeSceneBuilt ? 1 : 0,
+            m_frameResources.outputTexture ? 1 : 0,
+            m_frameResources.readbackTexture ? 1 : 0,
+            m_frameResources.primarySurfaceHistoryBuffers.current ? 1 : 0);
+    }
     if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.restirPTReflectionTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.readbackTexture || !m_smokeConstantsBuffer || !m_restirPTConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
         !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
         !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokePreviousEmissiveTriangleBuffer || !m_smokeEmissiveRemapBuffer || !m_smokeEmissiveDistributionBuffer || !m_smokeLightCandidateBuffer || !m_smokeDoomAnalyticLightBuffer || !m_smokeDoomAnalyticPreviousLightBuffer ||
@@ -575,7 +585,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
-    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 68, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 69, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -2117,9 +2127,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.mode56AccumulationFrameCount = 0;
     }
     const bool forceOverlapReadback = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
+    const bool forceView68Readback = debugMode == 56 && (restirPTDiDebugView == 68 || restirPTDiDebugView == 69) && r_pathTracingRestirPTView68Dump.GetInteger() != 0;
     bool readbackQueuedThisFrame = false;
     const uint64 readbackCopyStartUs = historyCopyCompleteUs;
-    if ((r_pathTracingReadbackEnable.GetInteger() != 0 || forceOverlapReadback) && !m_frameResources.readbackQueued && (m_frameResources.readbackCooldownFrames <= 0 || forceOverlapReadback))
+    if (forceView68Readback && r_pathTracingRestirPTView68Dump.GetInteger() > 1)
+    {
+        common->Printf("PathTracePrimaryPass: PT mode56 view68 readback active queued=%d cooldown=%d delay=%d texture=%d\n",
+            m_frameResources.readbackQueued ? 1 : 0,
+            m_frameResources.readbackCooldownFrames,
+            m_frameResources.readbackDelayFrames,
+            m_frameResources.readbackTexture ? 1 : 0);
+    }
+    if ((r_pathTracingReadbackEnable.GetInteger() != 0 || forceOverlapReadback || forceView68Readback) && !m_frameResources.readbackQueued && (m_frameResources.readbackCooldownFrames <= 0 || forceOverlapReadback || forceView68Readback))
     {
         if (optickGpuMarkers)
         {
@@ -2138,7 +2157,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.readbackDelayFrames = 2;
         m_frameResources.RecordReadbackQueued();
         readbackQueuedThisFrame = true;
-        if (r_pathTracingSmokeLog.GetInteger() != 0)
+        if (r_pathTracingSmokeLog.GetInteger() != 0 || forceView68Readback)
         {
             common->Printf("PathTracePrimaryPass: queued RT smoke UAV readback\n");
         }
