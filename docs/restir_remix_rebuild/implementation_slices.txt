@@ -682,6 +682,143 @@ Status:
 RRX-08: ReSTIR GI Temporal Contract
 -----------------------------------
 
+Status:
+
+    RRX-08 contract implemented as inactive shader contracts only. This
+    completes the file-equivalent contract surface for the temporal GI pass, but
+    it is not a functional dispatched GI temporal implementation.
+
+    Added rbdoom targets:
+
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_GIReservoirBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_GIInitialSampleBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_GITemporalValidationBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+
+    Remix equivalent covered:
+
+        restir_gi_temporal_reuse.comp.slang
+
+    RRX-08A is a math-boundary freeze, not a functional GI temporal pass.
+    The contract exposes the packed RTXDI GI reservoir page ABI, GI init /
+    temporal page indices, current-surface input, screen-space motion input,
+    prepared initial-reservoir input, RTXDI runtime parameters, and RTXDI GI
+    temporal parameters. The only temporal-resampling math path it permits is
+    RTXDI_GITemporalResampling.
+
+    RRX-08B freezes the initial-sample input boundary consumed by that temporal
+    pass. It exposes the raw Remix input shape from RestirGIRadiance and
+    RestirGIHitGeometry without constructing the final GI reservoir locally.
+    The bridge separates:
+
+        raw selected-integration-surface sample evidence
+        radiance and indirect path length
+        non-opaque hit flag
+        GI hit position and normal
+        portal index
+        firefly-filtering controls
+        virtual-sample controls
+        externally prepared RTXDI_GIReservoir handoff
+
+    The final RRX-08 contract pass moves target-PDF, Jacobian validation,
+    temporal conservative visibility, and gradient-based stale-sample rejection
+    into RAB_GITemporalValidationBridge.hlsli. The default bridge returns zero
+    target PDF, rejects Jacobian/visibility, and performs no stale-sample
+    substitution. This is intentional: those callbacks are Remix application
+    policy, and enabling them with rbdoom approximations would silently change
+    temporal GI math.
+
+    The contract deliberately does not recreate Remix-specific math or policy
+    until the exact producer/consumer inputs are available. In particular, it
+    does not approximate:
+
+        ReSTIR GI radiance factoring from the indirect integrator
+        firefly filtering policy
+        virtual sample position/normal construction
+        portal hit geometry transforms
+        temporal search-radius policy
+        reflection reprojection
+        DLSS RR temporal randomization compatibility
+        exact GI target-PDF policy
+        Jacobian acceptance policy
+        ray-traced GI temporal visibility
+        RTXDI-gradient stale-sample validation
+
+    The shader accepts only a prepared GI initial reservoir supplied by an exact
+    Remix-shaped initial-sample bridge. This avoids inventing the
+    radiance/target-PDF/MIS/finalization path inside RRX-08. It stores the
+    prepared initial reservoir to the init page, calls RTXDI_GITemporalResampling
+    when temporal reuse is enabled, and stores the temporal output page. If no
+    exact prepared initial reservoir is provided, the default bridge returns an
+    invalid/empty GI reservoir through the explicit GI page contract.
+
+    Inputs:
+
+        RAB_Surface currentSurface
+        raw GI initial sample contract:
+            selected integration surface flag
+            radiance
+            indirect path length / hit distance
+            hit position
+            hit normal
+            non-opaque hit flag
+            portal index
+        prepared RTXDI_GIReservoir initial sample
+        GI initial-sample page index
+        GI temporal input page index
+        GI temporal output page index
+        RTXDI_ReservoirBufferParameters for GI reservoirs
+        pixel coordinate
+        frame index
+        screen-space motion vector
+        active checkerboard field
+        temporal depth/normal thresholds
+        max history length
+        fallback sampling toggle
+        bias correction mode, clamped to BASIC
+        max reservoir age
+        permutation sampling toggle and uniform random number
+        deferred feature toggles for validation/reflection/virtual/portal paths
+        temporal validation contract:
+            lighting-validation enable and threshold
+            gradient depth tolerance
+            ray-traced visibility request
+            active portal count
+
+    Outputs:
+
+        GI init-sample reservoir page
+        GI temporal output reservoir page
+        deferred-feature mask for contract diagnostics
+        stale-sample-rejected flag, currently always zero because exact Remix
+        gradient validation is deferred
+        visibility-updated flag in the validation bridge, currently always zero
+
+    Deferred:
+
+        shader registration and dispatch
+        C++ binding handoff
+        command-list clear execution before first GI use
+        exact initial-sample reservoir construction from indirect radiance and
+        hit geometry
+        real current/previous surface bindings for GI
+        GI target-PDF bridge
+        exact Jacobian validation bridge
+        ray-traced GI temporal visibility bridge
+        RTXDI gradient validation from functional RRX-07 outputs
+        temporal search-radius and reflection-reprojection bridge
+        portal GI transforms
+        reflection reprojection
+        DLSS RR compatibility behavior
+        debug view outputs
+        spatial GI and final GI shading
+
+    Validation:
+
+        Static contract checks only until the shader is registered. Runtime
+        behavior should remain unchanged: no shader routes, no binding handoffs,
+        and no old mode-56 GI reservoir dependency from these inactive files.
+
 Goal:
 
     Start GI only after DI temporal reuse is stable. Use the same light bridge

@@ -233,6 +233,9 @@ rbdoom replacement targets:
 
     neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
     neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GIReservoirBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GIInitialSampleBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GITemporalValidationBridge.hlsli
     neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
     neo/shaders/builtin/pathtracing/remix_bridge/RAB_VisibilityBridge.hlsli
 
@@ -255,7 +258,9 @@ Outputs:
     current/previous light load equivalent
     light range and count callbacks
     DI reservoir load/store equivalent
-    GI reservoir load/store equivalent, deferred
+    GI reservoir load/store equivalent
+    GI initial-sample input contract
+    GI target-PDF and temporal-validation callback contract
     invalid mapping sentinel behavior
     local selected-light rejection on failed translation
     surface, target-pdf, and visibility callbacks needed by RTXDI helpers
@@ -264,7 +269,8 @@ Deferred:
 
     portal transforms and cross-portal light sampling
     volume ReSTIR callbacks
-    full GI reservoir callbacks until RRX-08+
+    functional GI target-PDF, visibility, temporal search-radius, and
+    final-shading callbacks
     old RtxdiBridge files remain legacy/reference until a slice explicitly
     migrates them into the remix_bridge target
 
