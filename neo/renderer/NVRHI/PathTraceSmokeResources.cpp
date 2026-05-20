@@ -816,6 +816,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, desc.rrInputColorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(55, desc.restirPTGiReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(56, desc.restirPTDiReservoirBuffers.reservoirs));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(68, desc.remixRtxdiDiReservoirBuffer ? desc.remixRtxdiDiReservoirBuffer : desc.restirPTDiReservoirBuffers.reservoirs));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, desc.sampler));
     }
 
@@ -1150,6 +1151,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(55));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(56));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(68));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
     m_smokeBindingLayout = device->createBindingLayout(bindingLayoutDesc);
 

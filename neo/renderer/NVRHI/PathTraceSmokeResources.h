@@ -158,6 +158,7 @@ struct RtSmokeBindingBuildDesc
     RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
     RtRestirPTReservoirBufferHandles restirPTDiReservoirBuffers;
     RtRestirPTReservoirBufferHandles restirPTGiReservoirBuffers;
+    nvrhi::BufferHandle remixRtxdiDiReservoirBuffer;
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;

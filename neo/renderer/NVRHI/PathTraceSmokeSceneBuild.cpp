@@ -2155,7 +2155,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRemixLightManagerDump.SetInteger(0);
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
-    const bool useRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 || dumpRemixRtxdiResources;
+    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 66, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const bool requestRemixRtxdiDiProbe = requestedDebugMode == 56 && (requestedRestirPTDiDebugView == 60 || (requestedRestirPTDiDebugView >= 63 && requestedRestirPTDiDebugView <= 66));
+    const bool useRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 || dumpRemixRtxdiResources || requestRemixRtxdiDiProbe;
     bool remixRtxdiResourcesReady = false;
     if (useRemixRtxdiResources)
     {
@@ -3200,6 +3202,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.restirPTReservoirBuffers = m_frameResources.restirPTReservoirBuffers;
     bindingBuildDesc.restirPTDiReservoirBuffers = m_frameResources.restirPTDiReservoirBuffers;
     bindingBuildDesc.restirPTGiReservoirBuffers = m_frameResources.restirPTGiReservoirBuffers;
+    bindingBuildDesc.remixRtxdiDiReservoirBuffer = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs;
     bindingBuildDesc.primarySurfaceHistoryBuffers = m_frameResources.primarySurfaceHistoryBuffers;
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;

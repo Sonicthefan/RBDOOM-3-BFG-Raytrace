@@ -284,6 +284,34 @@ bool PathTraceRemixRtxdiResources::PrepareOutputSizedResources(const PathTraceRe
     return diReady && giReady;
 }
 
+bool PathTraceRemixRtxdiResources::ClearPendingDomain(nvrhi::ICommandList* commandList, PathTraceRemixRtxdiReservoirDomainKind kind)
+{
+    const uint32_t index = static_cast<uint32_t>(kind);
+    if (!commandList || index >= PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_COUNT)
+    {
+        return false;
+    }
+
+    PathTraceRemixRtxdiReservoirDomain& domain = m_domains[index];
+    if (!domain.reservoirs || !domain.clearPending)
+    {
+        return false;
+    }
+
+    commandList->clearBufferUInt(domain.reservoirs, 0);
+    domain.clearPending = false;
+    domain.resetReasonFlags = RT_FRAME_RESET_NONE;
+    if (kind == PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI)
+    {
+        m_stats.diClearPending = 0u;
+    }
+    else if (kind == PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_GI)
+    {
+        m_stats.giClearPending = 0u;
+    }
+    return true;
+}
+
 const PathTraceRemixRtxdiReservoirDomain& PathTraceRemixRtxdiResources::GetDomain(PathTraceRemixRtxdiReservoirDomainKind kind) const
 {
     const uint32_t index = static_cast<uint32_t>(kind);

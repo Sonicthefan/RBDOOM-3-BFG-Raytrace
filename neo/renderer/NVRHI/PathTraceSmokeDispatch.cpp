@@ -311,6 +311,8 @@ struct PathTraceSmokeConstants
     float restirLightManagerRangeInfo[4];
     float restirLightManagerSampleInfo[4];
     float restirPTDiDebugInfo[4];
+    uint32_t restirPTRemixDiReservoirInfo[4];
+    uint32_t restirPTRemixDiReservoirPageInfo[4];
     float restirPTGiDebugInfo[4];
 };
 
@@ -572,7 +574,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
-    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 58, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 66, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -1235,6 +1237,36 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTDiDebugInfo[1] = 0.0f;
     constants.restirPTDiDebugInfo[2] = 0.0f;
     constants.restirPTDiDebugInfo[3] = 0.0f;
+    auto updateRemixDiReservoirProbeConstants = [&]()
+    {
+        const PathTraceRemixRtxdiReservoirDomain& remixDiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
+        const bool remixDiValid = remixDiDomain.IsValidFor(
+            static_cast<uint32_t>(Max(0, m_frameResources.width)),
+            static_cast<uint32_t>(Max(0, m_frameResources.height)),
+            rtxdi::CheckerboardMode::Off,
+            rtxdi::c_NumReSTIRDIReservoirBuffers,
+            static_cast<uint32_t>(sizeof(RTXDI_PackedDIReservoir)));
+        uint32_t remixDiFlags = remixDiValid ? 1u : 0u;
+        if (remixDiDomain.clearPending || disableReservoirWrites)
+        {
+            remixDiFlags |= 2u;
+        }
+        if (!remixDiValid)
+        {
+            remixDiFlags |= 4u;
+        }
+        const uint32_t currentDiagnosticPage = static_cast<uint32_t>(restirPTFrameIndex & 1u);
+        const uint32_t previousDiagnosticPage = currentDiagnosticPage ^ 1u;
+        constants.restirPTRemixDiReservoirInfo[0] = remixDiDomain.reservoirParams.reservoirBlockRowPitch;
+        constants.restirPTRemixDiReservoirInfo[1] = remixDiDomain.reservoirParams.reservoirArrayPitch;
+        constants.restirPTRemixDiReservoirInfo[2] = remixDiDomain.reservoirArrayCount;
+        constants.restirPTRemixDiReservoirInfo[3] = remixDiFlags;
+        constants.restirPTRemixDiReservoirPageInfo[0] = currentDiagnosticPage;
+        constants.restirPTRemixDiReservoirPageInfo[1] = previousDiagnosticPage;
+        constants.restirPTRemixDiReservoirPageInfo[2] = currentDiagnosticPage;
+        constants.restirPTRemixDiReservoirPageInfo[3] = previousDiagnosticPage;
+    };
+    updateRemixDiReservoirProbeConstants();
     constants.restirPTGiDebugInfo[0] = restirPTCombinedMode ? static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())) : 0.0f;
     constants.restirPTGiDebugInfo[1] = 0.0f;
     constants.restirPTGiDebugInfo[2] = 0.0f;
@@ -1466,6 +1498,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_frameResources.restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.restirPTDiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.restirPTGiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        if (m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs)
+        {
+            commandList->setBufferState(m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        }
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
@@ -1524,6 +1560,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_frameResources.restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.restirPTDiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.restirPTGiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        if (m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs)
+        {
+            commandList->setBufferState(m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+        }
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
@@ -1601,6 +1641,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.restirPTGiReservoirNeedsClear = false;
             ++m_frameResources.restirPTGiReservoirClearCount;
         }
+    }
+    const bool remixRtxdiDiClearRequested =
+        !disableReservoirWrites &&
+        restirPTCombinedMode &&
+        (restirPTDiDebugView == 60 || (restirPTDiDebugView >= 63 && restirPTDiDebugView <= 66)) &&
+        m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).clearPending;
+    if (remixRtxdiDiClearRequested)
+    {
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU Clear RRX DI Reservoirs");
+        }
+        m_remixRtxdiResources.ClearPendingDomain(commandList, PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
+        updateRemixDiReservoirProbeConstants();
     }
     const uint64 restirPTReservoirClearCompleteUs = Sys_Microseconds();
     const bool primaryHistoryClearRequested = !disablePrimarySurfaceHistory && m_frameResources.primarySurfaceHistoryNeedsClear;

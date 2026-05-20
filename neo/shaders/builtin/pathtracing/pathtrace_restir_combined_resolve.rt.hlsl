@@ -151,9 +151,12 @@ RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent :
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTGiReservoirs : register(u55);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTDiReservoirs : register(u56);
+RWStructuredBuffer<RTXDI_PackedDIReservoir> RemixRtxdiDiReservoirs : register(u68);
 
 #define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
 #include "Rtxdi/PT/Reservoir.hlsli"
+#define RTXDI_LIGHT_RESERVOIR_BUFFER RemixRtxdiDiReservoirs
+#include "Rtxdi/DI/ReservoirStorage.hlsli"
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -200,6 +203,8 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirLightManagerRangeInfo;
     float4 RestirLightManagerSampleInfo;
     float4 RestirPTDiDebugInfo;
+    uint4 RestirPTRemixDiReservoirInfo;
+    uint4 RestirPTRemixDiReservoirPageInfo;
     float4 RestirPTGiDebugInfo;
 };
 

@@ -27,7 +27,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 58u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 66u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -381,6 +381,387 @@ float4 RestirPTDiSpatialStatusColor(RTXDI_PTReservoir reservoir, uint status)
     return float4(0.04, 0.10 + 0.35 * history, 0.75, 1.0);
 }
 
+uint RestirPTLightManagerReservoirProbeHash(uint2 pixel, uint salt)
+{
+    uint h = pixel.x * 747796405u + pixel.y * 2891336453u + salt;
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    h *= 3266489917u;
+    h ^= h >> 16;
+    return h;
+}
+
+bool RestirPTLightManagerReservoirProbeSelectLight(uint2 pixel, out uint selectedLightIndex)
+{
+    selectedLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return false;
+    }
+
+    const uint currentCount = RAB_GetCurrentRestirLightManagerCount();
+    if (currentCount == 0u)
+    {
+        return false;
+    }
+
+    const uint start = RestirPTLightManagerReservoirProbeHash(pixel, 0x52525859u) % currentCount;
+    const uint probeCount = min(currentCount, 16u);
+    for (uint probe = 0u; probe < probeCount; ++probe)
+    {
+        const uint lightIndex = (start + probe) % currentCount;
+        const RAB_LightInfo lightInfo = RAB_LoadRestirLightManagerLightInfo(lightIndex, false);
+        if (RAB_IsLightInfoValid(lightInfo))
+        {
+            selectedLightIndex = lightIndex;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+RTXDI_PTReservoir RestirPTBuildLightManagerReservoirProbe(uint lightIndex, uint m)
+{
+    RTXDI_PTReservoir reservoir = RTXDI_EmptyPTReservoir();
+    reservoir.M = max(m, 1u);
+    reservoir.WeightSum = 1.0;
+    reservoir.TargetFunction = float3(0.0, 1.0, 0.0);
+    reservoir.Radiance = float3(asfloat(0x7f800000u), asfloat(RTXDI_LightIndexToLightData(lightIndex)), 0.0);
+    reservoir.PathLength = 1u;
+    reservoir.RcVertexLength = 1u;
+    return reservoir;
+}
+
+uint RestirPTLightManagerReservoirProbeStoredLight(RTXDI_PTReservoir reservoir)
+{
+    if (!RTXDI_IsValidPTReservoir(reservoir) || !RTXDI_ConnectsToNeeLight(reservoir))
+    {
+        return PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    }
+    return RTXDI_SampledLightData_GetLightIndex(RTXDI_GetSampledLightData(reservoir));
+}
+
+float4 EvaluateRestirPTLightManagerReservoirProbeView(uint2 pixel)
+{
+    const uint currentPage = RestirPTGiTemporalCurrentBufferIndex();
+    const uint previousPage = RestirPTGiTemporalPreviousBufferIndex();
+
+    uint currentLightIndex;
+    if (!RestirPTLightManagerReservoirProbeSelectLight(pixel, currentLightIndex))
+    {
+        StoreRestirPTDiTemporalReservoir(pixel, currentPage, RTXDI_EmptyPTReservoir());
+        return RAB_RestirLightManagerRABEnabled()
+            ? float4(0.25, 0.05, 0.45, 1.0)
+            : float4(0.45, 0.02, 0.02, 1.0);
+    }
+
+    const int previousIndex = RAB_TranslateRestirLightManagerIndex(currentLightIndex, true);
+    if (previousIndex < 0)
+    {
+        StoreRestirPTDiTemporalReservoir(pixel, currentPage, RestirPTBuildLightManagerReservoirProbe(currentLightIndex, 1u));
+        return float4(0.90, 0.16, 0.04, 1.0);
+    }
+
+    const RTXDI_PTReservoir previousReservoir = LoadRestirPTDiTemporalReservoir(pixel, previousPage);
+    const uint previousStoredLight = RestirPTLightManagerReservoirProbeStoredLight(previousReservoir);
+    bool acceptedPrevious = false;
+    if (previousStoredLight != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+    {
+        const int remappedCurrent = RAB_TranslateRestirLightManagerIndex(previousStoredLight, false);
+        acceptedPrevious = remappedCurrent == int(currentLightIndex);
+    }
+
+    const uint previousM = RTXDI_IsValidPTReservoir(previousReservoir) ? (uint)previousReservoir.M : 0u;
+    const uint maxHistory = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    const uint nextM = acceptedPrevious ? min(previousM + 1u, maxHistory) : 1u;
+    StoreRestirPTDiTemporalReservoir(pixel, currentPage, RestirPTBuildLightManagerReservoirProbe(currentLightIndex, nextM));
+
+    const float history = saturate((float)nextM / (float)maxHistory);
+    if (acceptedPrevious)
+    {
+        return float4(0.02, 0.22 + 0.78 * history, 0.08, 1.0);
+    }
+    if (previousM == 0u)
+    {
+        return float4(0.05, 0.24, 0.82, 1.0);
+    }
+    return float4(0.95, 0.62, 0.04, 1.0);
+}
+
+static const uint RESTIR_PT_RRX_DI_RESERVOIR_AVAILABLE = 1u << 0;
+static const uint RESTIR_PT_RRX_DI_RESERVOIR_CLEAR_PENDING = 1u << 1;
+static const uint RESTIR_PT_RRX_DI_RESERVOIR_BAD_DIMENSIONS = 1u << 2;
+static const uint RESTIR_PT_RRX_DI_PROBE_MAGIC_UV = 0x6a5cc35au;
+
+bool RestirPTRrxDiReservoirAvailable()
+{
+    const uint flags = RestirPTRemixDiReservoirInfo.w;
+    return (flags & RESTIR_PT_RRX_DI_RESERVOIR_AVAILABLE) != 0u &&
+        (flags & (RESTIR_PT_RRX_DI_RESERVOIR_CLEAR_PENDING | RESTIR_PT_RRX_DI_RESERVOIR_BAD_DIMENSIONS)) == 0u &&
+        RestirPTRemixDiReservoirInfo.x > 0u &&
+        RestirPTRemixDiReservoirInfo.y > 0u &&
+        RestirPTRemixDiReservoirInfo.z >= 2u;
+}
+
+RTXDI_ReservoirBufferParameters RestirPTRrxDiReservoirParams()
+{
+    RTXDI_ReservoirBufferParameters params;
+    params.reservoirBlockRowPitch = RestirPTRemixDiReservoirInfo.x;
+    params.reservoirArrayPitch = RestirPTRemixDiReservoirInfo.y;
+    params.pad1 = 0u;
+    params.pad2 = 0u;
+    return params;
+}
+
+uint RestirPTRrxDiReservoirPointer(uint2 pixel, uint reservoirArrayIndex)
+{
+    return RTXDI_ReservoirPositionToPointer(RestirPTRrxDiReservoirParams(), pixel, reservoirArrayIndex);
+}
+
+RTXDI_DIReservoir LoadRestirPTRrxDiReservoir(uint2 pixel, uint reservoirArrayIndex)
+{
+    return RTXDI_UnpackDIReservoir(RemixRtxdiDiReservoirs[RestirPTRrxDiReservoirPointer(pixel, reservoirArrayIndex)]);
+}
+
+RTXDI_PackedDIReservoir LoadRestirPTRrxPackedDiReservoir(uint2 pixel, uint reservoirArrayIndex)
+{
+    return RemixRtxdiDiReservoirs[RestirPTRrxDiReservoirPointer(pixel, reservoirArrayIndex)];
+}
+
+void StoreRestirPTRrxDiReservoir(uint2 pixel, uint reservoirArrayIndex, RTXDI_DIReservoir reservoir)
+{
+    RemixRtxdiDiReservoirs[RestirPTRrxDiReservoirPointer(pixel, reservoirArrayIndex)] = RTXDI_PackDIReservoir(reservoir);
+}
+
+bool RestirPTRrxDiProbeSelectSingleLight(out uint selectedLightIndex)
+{
+    selectedLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return false;
+    }
+
+    const uint currentCount = RAB_GetCurrentRestirLightManagerCount();
+    const uint probeCount = min(currentCount, 4096u);
+    for (uint lightIndex = 0u; lightIndex < probeCount; ++lightIndex)
+    {
+        const int previousIndex = RAB_TranslateRestirLightManagerIndex(lightIndex, true);
+        if (previousIndex < 0)
+        {
+            continue;
+        }
+
+        const RAB_LightInfo lightInfo = RAB_LoadRestirLightManagerLightInfo(lightIndex, false);
+        if (RAB_IsLightInfoValid(lightInfo))
+        {
+            selectedLightIndex = lightIndex;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+RTXDI_DIReservoir RestirPTBuildRrxDiReservoirProbe(uint lightIndex, uint m)
+{
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    reservoir.lightData = (lightIndex & RTXDI_DIReservoir_LightIndexMask) | RTXDI_DIReservoir_LightValidBit;
+    reservoir.uvData = RESTIR_PT_RRX_DI_PROBE_MAGIC_UV;
+    reservoir.weightSum = 1.0;
+    reservoir.targetPdf = 1.0;
+    reservoir.M = (float)max(m, 1u);
+    reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+    reservoir.spatialDistance = int2(0, 0);
+    reservoir.age = 0u;
+    reservoir.canonicalWeight = 1.0;
+    return reservoir;
+}
+
+bool RestirPTRrxDiReservoirHasProbeMagic(RTXDI_DIReservoir reservoir)
+{
+    return reservoir.uvData == RESTIR_PT_RRX_DI_PROBE_MAGIC_UV;
+}
+
+bool RestirPTRrxPackedDiReservoirNonZero(RTXDI_PackedDIReservoir reservoir)
+{
+    return reservoir.lightData != 0u ||
+        reservoir.uvData != 0u ||
+        reservoir.mVisibility != 0u ||
+        reservoir.distanceAge != 0u ||
+        reservoir.targetPdf != 0.0 ||
+        reservoir.weight != 0.0;
+}
+
+float4 EvaluateRestirPTRrxDiRawReservoirHeartbeatView(uint2 pixel)
+{
+    if (!RestirPTRrxDiReservoirAvailable())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    const RTXDI_PackedDIReservoir previousPackedReservoir = LoadRestirPTRrxPackedDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.y);
+    const RTXDI_DIReservoir previousReservoir = RTXDI_UnpackDIReservoir(previousPackedReservoir);
+    const bool previousNonZero = RestirPTRrxPackedDiReservoirNonZero(previousPackedReservoir);
+    const bool previousProbeValid =
+        RTXDI_IsValidDIReservoir(previousReservoir) &&
+        previousReservoir.M > 0.0 &&
+        RestirPTRrxDiReservoirHasProbeMagic(previousReservoir);
+
+    const uint previousM = previousProbeValid ? (uint)previousReservoir.M : 0u;
+    const uint maxHistory = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    const uint nextM = previousProbeValid ? min(previousM + 1u, maxHistory) : 1u;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(0u, nextM));
+
+    if (previousProbeValid)
+    {
+        const float history = saturate((float)nextM / (float)maxHistory);
+        return float4(0.02, 0.22 + 0.78 * history, 0.08, 1.0);
+    }
+    if (!previousNonZero)
+    {
+        return float4(0.05, 0.24, 0.82, 1.0);
+    }
+    return float4(0.95, 0.50, 0.04, 1.0);
+}
+
+float4 EvaluateRestirPTRrxDiSameDispatchEchoView(uint2 pixel)
+{
+    if (!RestirPTRrxDiReservoirAvailable())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    const uint echoM = 11u;
+    const uint echoLightIndex = 0u;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(echoLightIndex, echoM));
+
+    const RTXDI_DIReservoir echoedReservoir = LoadRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x);
+    const bool echoValid =
+        RTXDI_IsValidDIReservoir(echoedReservoir) &&
+        RestirPTRrxDiReservoirHasProbeMagic(echoedReservoir) &&
+        RTXDI_GetDIReservoirLightIndex(echoedReservoir) == echoLightIndex &&
+        ((uint)echoedReservoir.M) == echoM &&
+        echoedReservoir.weightSum == 1.0 &&
+        echoedReservoir.targetPdf == 1.0;
+
+    return echoValid
+        ? float4(0.02, 0.95, 0.08, 1.0)
+        : float4(0.95, 0.50, 0.04, 1.0);
+}
+
+float4 RestirPTRrxDiRawFieldQuadrantColor(uint2 pixel, RTXDI_PackedDIReservoir packedReservoir, RTXDI_DIReservoir reservoir)
+{
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const bool right = pixel.x >= dimensions.x / 2u;
+    const bool bottom = pixel.y >= dimensions.y / 2u;
+
+    if (!bottom && !right)
+    {
+        const bool packedNonZero = RestirPTRrxPackedDiReservoirNonZero(packedReservoir);
+        return packedNonZero ? float4(1.0, 1.0, 1.0, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    if (!bottom && right)
+    {
+        const bool valid = RTXDI_IsValidDIReservoir(reservoir);
+        const bool lightDataPresent = packedReservoir.lightData != 0u;
+        const float lightIndexBand = valid ? frac((float)RTXDI_GetDIReservoirLightIndex(reservoir) / 17.0) : 0.0;
+        return float4(valid ? 1.0 : 0.0, lightDataPresent ? 1.0 : 0.0, lightIndexBand, 1.0);
+    }
+
+    if (bottom && !right)
+    {
+        if (RestirPTRrxDiReservoirHasProbeMagic(reservoir))
+        {
+            return float4(0.05, 0.35, 1.0, 1.0);
+        }
+        return packedReservoir.uvData != 0u ? float4(0.95, 0.50, 0.04, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const float m = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    return float4(reservoir.weightSum > 0.0 ? 1.0 : 0.0, m, reservoir.targetPdf > 0.0 ? 1.0 : 0.0, 1.0);
+}
+
+float4 EvaluateRestirPTRrxDiSamePageRawFieldsView(uint2 pixel)
+{
+    if (!RestirPTRrxDiReservoirAvailable())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    const uint echoM = 11u;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(0u, echoM));
+
+    const RTXDI_PackedDIReservoir packedReservoir = LoadRestirPTRrxPackedDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x);
+    const RTXDI_DIReservoir reservoir = RTXDI_UnpackDIReservoir(packedReservoir);
+    return RestirPTRrxDiRawFieldQuadrantColor(pixel, packedReservoir, reservoir);
+}
+
+float4 EvaluateRestirPTRrxDiPreviousPageRawFieldsView(uint2 pixel)
+{
+    if (!RestirPTRrxDiReservoirAvailable())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    const RTXDI_PackedDIReservoir packedReservoir = LoadRestirPTRrxPackedDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.y);
+    const RTXDI_DIReservoir reservoir = RTXDI_UnpackDIReservoir(packedReservoir);
+    const uint nextM = RTXDI_IsValidDIReservoir(reservoir) && RestirPTRrxDiReservoirHasProbeMagic(reservoir)
+        ? min((uint)reservoir.M + 1u, max(RestirPTParams.temporalResampling.maxHistoryLength, 1u))
+        : 1u;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(0u, nextM));
+    return RestirPTRrxDiRawFieldQuadrantColor(pixel, packedReservoir, reservoir);
+}
+
+float4 EvaluateRestirPTRrxDiSingleLightHeartbeatView(uint2 pixel)
+{
+    if (!RestirPTRrxDiReservoirAvailable())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    const RTXDI_DIReservoir previousReservoir = LoadRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.y);
+    const bool previousValid =
+        RTXDI_IsValidDIReservoir(previousReservoir) &&
+        previousReservoir.M > 0.0 &&
+        RestirPTRrxDiReservoirHasProbeMagic(previousReservoir);
+
+    uint currentLightIndex;
+    if (!RestirPTRrxDiProbeSelectSingleLight(currentLightIndex))
+    {
+        StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RTXDI_EmptyDIReservoir());
+        return RAB_RestirLightManagerRABEnabled()
+            ? float4(0.25, 0.05, 0.45, 1.0)
+            : float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    bool acceptedPrevious = false;
+    if (previousValid)
+    {
+        const uint previousLightIndex = RTXDI_GetDIReservoirLightIndex(previousReservoir);
+        const int remappedCurrent = RAB_TranslateRestirLightManagerIndex(previousLightIndex, false);
+        acceptedPrevious = remappedCurrent == int(currentLightIndex);
+    }
+
+    const uint previousM = previousValid ? (uint)previousReservoir.M : 0u;
+    const uint maxHistory = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    const uint nextM = acceptedPrevious ? min(previousM + 1u, maxHistory) : 1u;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(currentLightIndex, nextM));
+
+    const float history = saturate((float)nextM / (float)maxHistory);
+    if (acceptedPrevious && nextM > previousM)
+    {
+        return float4(0.02, 0.22 + 0.78 * history, 0.08, 1.0);
+    }
+    if (!previousValid)
+    {
+        return float4(0.05, 0.24, 0.82, 1.0);
+    }
+    return float4(0.95, 0.50, 0.04, 1.0);
+}
+
 RTXDI_PTReservoir GenerateRestirPTDiSpatialReservoir(RAB_Surface surface, uint2 pixel, out uint status)
 {
     status = 0u;
@@ -685,6 +1066,30 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 58u)
     {
         return EvaluateRestirPTReferenceTemporalAcceptanceView(surface, pixel);
+    }
+    if (view == 59u)
+    {
+        return EvaluateRestirPTLightManagerReservoirProbeView(pixel);
+    }
+    if (view == 60u)
+    {
+        return EvaluateRestirPTRrxDiSingleLightHeartbeatView(pixel);
+    }
+    if (view == 63u)
+    {
+        return EvaluateRestirPTRrxDiRawReservoirHeartbeatView(pixel);
+    }
+    if (view == 64u)
+    {
+        return EvaluateRestirPTRrxDiSameDispatchEchoView(pixel);
+    }
+    if (view == 65u)
+    {
+        return EvaluateRestirPTRrxDiSamePageRawFieldsView(pixel);
+    }
+    if (view == 66u)
+    {
+        return EvaluateRestirPTRrxDiPreviousPageRawFieldsView(pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))

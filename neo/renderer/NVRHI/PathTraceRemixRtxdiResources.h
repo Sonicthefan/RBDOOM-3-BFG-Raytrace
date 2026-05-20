@@ -85,6 +85,7 @@ class PathTraceRemixRtxdiResources
 public:
     void Clear();
     bool PrepareOutputSizedResources(const PathTraceRemixRtxdiResourcePrepareDesc& desc);
+    bool ClearPendingDomain(nvrhi::ICommandList* commandList, PathTraceRemixRtxdiReservoirDomainKind kind);
 
     const PathTraceRemixRtxdiReservoirDomain& GetDomain(PathTraceRemixRtxdiReservoirDomainKind kind) const;
     const PathTraceRemixRtxdiResourceStats& GetStats() const;
