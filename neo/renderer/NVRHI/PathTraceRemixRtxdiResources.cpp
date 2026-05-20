@@ -244,11 +244,16 @@ bool PathTraceRemixRtxdiResources::PrepareOutputSizedResources(const PathTraceRe
     m_stats.outputWidth = static_cast<uint32_t>(desc.framePackage.outputWidth > 0 ? desc.framePackage.outputWidth : 0);
     m_stats.outputHeight = static_cast<uint32_t>(desc.framePackage.outputHeight > 0 ? desc.framePackage.outputHeight : 0);
     m_stats.checkerboardMode = static_cast<uint32_t>(desc.checkerboardMode);
+    m_stats.resetReasonFlags = desc.framePackage.resetReasonFlags;
     m_stats.allowedResetReasonFlags = RemixRtxdiAllowedResetReasons(desc.framePackage.resetReasonFlags);
     m_stats.ignoredSmokeResetReasonFlags = RemixRtxdiIgnoredSmokeResetReasons(desc.framePackage.resetReasonFlags);
     m_stats.lightStructuralSignature = desc.lightManagerStats.structuralSignature;
     m_stats.lightMappingSignature = desc.lightManagerStats.mappingSignature;
     m_stats.lightPayloadSignature = desc.lightManagerStats.payloadSignature;
+    m_stats.lightStructuralSignatureChanged = desc.lightManagerStats.structuralSignatureChanged;
+    m_stats.lightMappingSignatureChanged = desc.lightManagerStats.mappingSignatureChanged;
+    m_stats.lightPayloadSignatureChanged = desc.lightManagerStats.payloadSignatureChanged;
+    m_stats.lightPayloadOnlyChange = desc.lightManagerStats.payloadOnlyChange;
 
     if (!desc.device)
     {

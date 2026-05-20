@@ -1653,11 +1653,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const bool remixRtxdiDiClearRequested =
-        PathTraceRemixRtxdiResourceGateRequestsDiClear(PathTraceRemixRtxdiResourceGateDesc{
+        PathTraceRemixRtxdiResourceGateDiClearSource(PathTraceRemixRtxdiResourceGateDesc{
             restirPTCombinedMode,
             restirPTDiDebugView,
             r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0,
-            disableReservoirWrites }) &&
+            disableReservoirWrites }) != PATH_TRACE_REMIX_RTXDI_DI_CLEAR_SOURCE_NONE &&
         m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).clearPending;
     if (remixRtxdiDiClearRequested)
     {

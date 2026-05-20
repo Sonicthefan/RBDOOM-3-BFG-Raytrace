@@ -991,7 +991,21 @@ Ray dispatch safety diagnostics:
   spatial output, and bottom-right is final-shading input. View `58` is the
   binary temporal keep-mask view: black = rejected and red = temporal history
   accepted. It is a debug visualization only and should not be interpreted as
-  a change to reservoir finalization. Views 6-11 are the
+  a change to reservoir finalization. View `59` is a temporary light-manager
+  reservoir persistence probe: it selects stable lights through the ReSTIR
+  light-manager RAB path, stores a simple full-screen diagnostic probe in the
+  DI temporal reservoir pages, and shows whether the probe can retain history.
+  Green means the previous probe mapped back to the same current light and
+  history grew; blue means first/no previous probe; orange means previous probe
+  existed but did not remap to the same current light; red means current to
+  previous light-manager remap failed. View `60` is the RRX DI single-light
+  heartbeat. Views `63`-`66` inspect RRX DI reservoir persistence/raw field
+  behavior across same-dispatch, same-page, and previous-page cases. View `67`
+  checks active RAB translation parity. View `68` is the RRX DI temporal local
+  invalidation view: left half classifies previous/current translation and
+  local rejection, and right half shows temporal output target-PDF/history/
+  weight heat. This is not full Remix final-shading parity; it is a
+  mode-56/preview consumer for the RRX DI temporal reservoir path. Views 6-11 are the
   reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
   producer output and avoid the custom DI scratch reservoir math. View 2 does
   not multiply brightness by reservoir `M`; view 3 runs a
@@ -1218,11 +1232,24 @@ Denoise/upscale/Ray Reconstruction reservation:
   reserved for the stable light-domain schema/ABI; active payload/range/sample
   churn belongs to payload or mapping state.
 
+- r_pathTracingRemixLightManagerRAB
+  Defaults to 0. Opt-in active shader-visible RAB light source switch for the
+  Remix-shaped light manager. When enabled, RAB light loads, translation, and
+  the RRX DI seed/temporal path use the Remix manager's current/previous
+  light domains and payload buffers. `0` preserves the legacy ReSTIR manager
+  source. This is a routing/conformance gate, not a claim that final Remix
+  DI parity is complete.
+
 - r_pathTracingRemixRtxdiResourcesEnable
-  Defaults to 0. Opt-in persistent allocation gate for the RTX Remix-shaped
-  RTXDI DI/GI reservoir resource owner. Keep this disabled during normal runs
-  while shader binding and command-list clear execution are deferred, so the
-  scaffold does not add baseline DI/GI memory pressure.
+  Defaults to 0. Opt-in persistent allocation and active mode-56 RRX DI
+  consumer gate for the RTX Remix-shaped RTXDI DI/GI reservoir resource owner.
+  When enabled in mode 56, the DI domain is allocated, initial clear-pending
+  state is cleared by the command list, and the local combined preview/final
+  resolve consumes the RRX DI temporal reservoir for the direct-lighting term
+  when it produces a valid reservoir. The path falls back to the old spatial
+  direct-lighting contribution when RRX DI is unavailable or invalid. This
+  currently uses rbdoom preview visibility through `TraceSmokeShadowVisibility`,
+  not the reference RAB selected-light visibility callback.
 
 - r_pathTracingRemixRtxdiResourcesDump
   One-shot dump of the RTX Remix-shaped RTXDI reservoir resource owner. The
@@ -1231,7 +1258,8 @@ Denoise/upscale/Ray Reconstruction reservation:
   recreate/reuse/clearPending state, reservoir array/stride/byte metadata,
   light signatures, and explicit zero counts for old smoke reservoir
   consultation, shader routes, and binding handoffs. `clearPending` means GPU
-  reservoir contents still require a future command-list clear before binding.
+  reservoir contents still require a command-list clear before shader
+  availability reports true.
 
 - r_pathTracingRestirLightManagerDump
   One-shot dump of the ReSTIR light-manager bridge. Reports observation counts

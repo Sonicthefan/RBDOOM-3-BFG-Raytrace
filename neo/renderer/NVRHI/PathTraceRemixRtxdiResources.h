@@ -55,6 +55,7 @@ struct PathTraceRemixRtxdiResourceStats
     uint32_t outputWidth = 0;
     uint32_t outputHeight = 0;
     uint32_t checkerboardMode = 0;
+    uint32_t resetReasonFlags = RT_FRAME_RESET_NONE;
     uint32_t allowedResetReasonFlags = RT_FRAME_RESET_NONE;
     uint32_t ignoredSmokeResetReasonFlags = RT_FRAME_RESET_NONE;
     uint32_t diRecreated = 0;
@@ -74,6 +75,10 @@ struct PathTraceRemixRtxdiResourceStats
     uint64_t lightStructuralSignature = 0;
     uint64_t lightMappingSignature = 0;
     uint64_t lightPayloadSignature = 0;
+    uint32_t lightStructuralSignatureChanged = 0;
+    uint32_t lightMappingSignatureChanged = 0;
+    uint32_t lightPayloadSignatureChanged = 0;
+    uint32_t lightPayloadOnlyChange = 0;
     uint32_t oldSmokeReservoirSignatureConsulted = 0;
     uint32_t smokeDoomAnalyticLightCountConsulted = 0;
     uint32_t shaderRouteCount = 0;
