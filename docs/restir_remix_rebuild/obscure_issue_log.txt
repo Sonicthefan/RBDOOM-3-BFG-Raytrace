@@ -1,0 +1,57 @@
+Obscure Issue Log
+=================
+
+Purpose
+-------
+
+This file records semi-obscure ReSTIR/RTXDI/Remix rebuild issues that are worth
+preserving for future agents, but do not currently justify a dedicated fix
+slice. These notes are guardrails. Do not treat them as permission to widen a
+worker task.
+
+
+RRX-05A: Conservative Visibility Callback Names
+-----------------------------------------------
+
+Status:
+
+    Recorded only. No required fix while DI initial visibility remains deferred.
+
+Files:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+Issue:
+
+    Rtxdi/DI/InitialSampling.hlsli expects RAB conservative visibility callback
+    symbols to exist. The inactive rbdoom Remix DI initial shader currently
+    keeps RAB_GetConservativeVisibility callbacks backed by a facing/geometry
+    test.
+
+Risk:
+
+    Future agents may mistake these callbacks for RTX Remix explicit selected
+    light visibility and route them into the initial-visibility path. That would
+    silently reintroduce the earlier bug where a geometry-facing test is treated
+    as real shadow visibility.
+
+Current safe state:
+
+    RRX-05A defers initial visibility through RemixRtxdiDeferInitialVisibility.
+    The conservative callbacks are therefore callback-compatibility scaffolding,
+    not the active visibility implementation.
+
+Preferred future handling:
+
+    Keep the callbacks only as RTXDI symbol compatibility until a real rbdoom
+    visibility/shadow bridge exists. If a later slice enables explicit initial
+    visibility, it must call a real selected-light visibility path equivalent to
+    Remix RTXDI_UpdateSelectedReservoirVisibility behavior, not this geometry
+    test.
+
+Do not:
+
+    remove the callbacks without checking RTXDI header compile requirements
+    use the callbacks as proof that explicit visibility is implemented
+    convert the facing/geometry test into reservoir visibility
+

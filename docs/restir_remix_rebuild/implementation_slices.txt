@@ -369,6 +369,34 @@ Forbidden:
 RRX-05: DI Initial Sampling
 ---------------------------
 
+Status:
+
+    Partially implemented as an inactive shader contract in
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl,
+    but not accepted as complete. The current version no longer stores only an
+    empty reservoir for every valid path, but review found Remix-shape
+    correctness failures that must be fixed by RRX-05A before dispatch hookup:
+
+        previous-best light can be sampled twice
+        explicit initial visibility is not real visibility
+        random-light sampling is not the Remix per-type strided loop shape
+        portal index is carried but ignored
+
+    Deferred:
+
+        C++ dispatch owner and shader library registration
+        binding the Remix light payload/map buffers from C++
+        binding and clearing the Remix DI reservoir buffer from C++
+        current G-buffer/surface bridge for the Remix pass
+        best-light history texture binding
+        exact shadow-ray initial visibility binding
+
+    Validation:
+
+        Current RRX-05A correction is contract-only unless the shader becomes
+        registered in the active build. Do not claim runtime validation for this
+        inactive shader.
+
 Goal:
 
     Implement the rbdoom equivalent of Remix DI initial sampling against the
@@ -390,8 +418,110 @@ Forbidden:
     no DLSS RR validation
 
 
+RRX-05A: DI Initial Sampling Correction
+---------------------------------------
+
+Status:
+
+    Commission this before treating RRX-05 as complete. The current inactive
+    RRX-05 shader no longer stores only an empty reservoir, but review found it
+    still fails important Remix-shape requirements:
+
+        previous-best light can be sampled by both random-light sampling and
+        the single previous-best path
+
+        explicit initial visibility is represented by a facing/geometry test,
+        not real selected-light visibility
+
+        random-light sampling delegates to RTXDI SDK range sampling instead of
+        matching Remix's per-type strided random-light loop shape
+
+        previous-best portal index is carried in the contract but ignored
+
+    Detailed task and paste-ready worker prompt:
+
+        docs/restir_remix_rebuild/rrx_05a_di_initial_sampling_correction.txt
+
+Goal:
+
+    Repair the inactive DI initial sampling shader so it is a clean-room
+    direct-port equivalent of Remix initial sampling pass shape before DI
+    dispatch hookup work begins.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+Forbidden:
+
+    no C++ dispatch hookup
+    no temporal reuse
+    no spatial reuse
+    no GI
+    no old smoke reservoir path
+
+
 RRX-06: DI Temporal Reuse
 -------------------------
+
+Status:
+
+    Implemented as inactive shader contracts in
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    and these bridge headers:
+
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_TemporalOutputBridge.hlsli
+
+    The temporal shader consumes the RRX-04 light and reservoir bridges, loads
+    the current DI reservoir from the temporal-output page, calls RTXDI
+    RTXDI_DITemporalResampling with rbdoom/Remix parameters, and stores the
+    resulting RTXDI_DIReservoir back through RAB_StoreReservoir. It also stores
+    the temporal sample position and reprojection confidence through the
+    RAB_TemporalOutputBridge contract, because spatial reuse, gradients, and GI
+    validation consume those products.
+
+    Temporal output contract:
+
+        Inputs:
+
+            RTXDI temporal sample pixel returned by RTXDI_DITemporalResampling
+            previous reprojection confidence at the temporal sample pixel
+            reprojection confidence history length
+
+        Outputs:
+
+            validTemporalSample
+            temporalSamplePixel
+            reprojectionConfidence
+
+        Note:
+
+            The current RTXDI helper returns temporalSamplePixel but not Remix's
+            separate isGBufferSimilar flag. This contract treats a valid
+            temporal sample pixel as the confidence carry source. The dispatch
+            hookup must preserve this output bridge and may tighten the
+            confidence policy if it restores the exact Remix similarity signal.
+
+    Surface loading is a separate bridge contract; the default implementation
+    returns invalid surfaces until a later dispatch/binding slice supplies real
+    current and previous primary-surface data.
+
+    Deferred:
+
+        C++ dispatch owner and shader library registration
+        real current/previous surface bridge bindings
+        motion-vector source binding
+        temporal-position/debug output binding implementation
+        reprojection-confidence texture allocation and binding implementation
+        command-list clear execution before first use
+        ray-traced temporal visibility bias correction
+
+    Validation:
+
+        cmake --build --preset win64-pt-dev-release
+        copied build-win64-pt-dev/Release/RBDoom3BFG.exe to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
 
 Goal:
 
@@ -434,6 +564,97 @@ Forbidden:
     no GI work in this slice
     no denoiser tuning
     no DLSS RR claims until debug views are sane
+
+Status:
+
+    Implemented as inactive shader contracts only.
+
+    Added rbdoom targets:
+
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightSamplingBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_bridge/RAB_SpatialBridge.hlsli
+        neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+        neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_gradients.rt.hlsl
+
+    Remix equivalents covered:
+
+        rtxdi_spatial_reuse.comp.slang
+            rtxdi_spatial_reuse.rt.hlsl now loads the spatial input DI
+            reservoir, calls RTXDI_DISpatialResampling, and stores the result
+            to the spatial output page through the frozen RAB reservoir bridge.
+            Surface loading, light loading, target PDF, and material-similarity
+            checks route through the RAB bridge contracts instead of old smoke
+            reservoirs.
+
+        RAB_LightSamplingBridge.hlsli
+            provides Remix-owned polymorphic light sampling and light-target
+            PDF helpers for the inactive Remix RTXDI contracts. The initial,
+            temporal, and spatial contracts no longer include the shared
+            RAB_LightSamplingCore.hlsli or RAB_LightTarget.hlsli headers,
+            because those still depend on old smoke globals and runtime policy.
+
+        rtxdi_compute_gradients.comp.slang
+        rtxdi_filter_gradients.comp.slang
+        rtxdi_compute_confidence.comp.slang
+            rtxdi_gradients.rt.hlsl freezes the rbdoom payload contract for
+            best-light, gradient, filtered-gradient, and confidence consumers.
+            It intentionally does not reimplement Remix gradient math in this
+            slice; it only defines the data handoff expected before GI
+            validation consumes gradients.
+
+    Inputs:
+
+        RAB_Surface currentSurface
+        DI reservoir input page
+        DI reservoir output page
+        RTXDI runtime parameters:
+            frame index
+            active checkerboard field
+            neighbor offset mask
+        RTXDI spatial parameters:
+            sample counts
+            disocclusion boost sample count
+            sampling radius
+            bias correction mode
+            normal/depth thresholds
+            target history length
+            material similarity toggle
+            naive-sample discount toggle
+        RAB light payload/current light index space
+        neighbor offset table and sample-position clamp callback
+        Remix-owned light sampling and target-PDF bridge
+
+    Outputs:
+
+        DI spatial output reservoir page
+        selected light sample returned from RTXDI spatial reuse
+        best-light payload contract:
+            light index
+            portal index placeholder
+        gradient payload contract:
+            normalized gradient
+            reference illuminance
+        confidence payload contract:
+            confidence scalar
+
+    Deferred:
+
+        C++ dispatch owner and shader registration
+        real neighbor-offset buffer allocation and binding
+        real viewport clamp implementation
+        gradient texture allocation and binding
+        best-light history texture allocation and binding
+        confidence texture allocation and binding
+        Remix-equivalent gradient compute/filter/confidence algorithms
+        BSDF detail enhancement factor output
+        ray-traced spatial bias correction
+        denoiser and DLSS RR consumption
+
+    Validation:
+
+        Build-only until the shader contracts are registered. Runtime behavior
+        should remain unchanged: no shader routes, no binding handoffs, and no
+        old smoke reservoir dependency from these inactive files.
 
 
 RRX-08: ReSTIR GI Temporal Contract

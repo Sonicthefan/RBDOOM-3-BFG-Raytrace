@@ -1,0 +1,313 @@
+RRX-05A DI Initial Sampling Corrective Slice
+============================================
+
+Purpose
+-------
+
+Correct the inactive rbdoom Remix-style DI initial sampling shader so it
+matches the RTX Remix initial sampling pass shape more closely. This is a
+correction slice for RRX-05, not a new feature slice.
+
+The previous worker removed the empty placeholder, but the implementation still
+has important contract failures:
+
+    P1: the previous-best light can be sampled twice
+    P1: explicit initial visibility is represented by a facing/geometry test,
+        not real selected-light visibility
+    P2: random-light sampling is still RTXDI SDK-style range delegation, not the
+        RTX Remix per-type strided loop shape
+    P2: portal index is carried in the contract but silently ignored
+
+Do not use the existing rbdoom shader as proof that these choices are correct.
+Use it only as the file to repair.
+
+
+Authoritative Files
+-------------------
+
+RTX Remix file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+
+RTXDI helper-math contract:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+
+rbdoom target:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+Allowed support headers only if required:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightSamplingBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+
+
+Owned Writes
+------------
+
+Primary owned write:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+Documentation write only if needed:
+
+    docs/restir_remix_rebuild/implementation_slices.txt
+    docs/restir_remix_rebuild/rrx_05a_di_initial_sampling_correction.txt
+
+Do not edit C++ dispatch or resource binding in this slice.
+
+
+Required Correction Procedure
+-----------------------------
+
+1. Before editing, inspect the Remix initial pass and write down its exact pass
+   shape in the worker response:
+
+       load current surface
+       use motion vector to find previous best-light source pixel
+       translate previous best-light from previous-domain to current-domain
+       build random-light reservoir
+       build single previous-best-light reservoir
+       combine best-light reservoir into random-light reservoir
+       optionally update selected reservoir visibility
+       force M = 1
+       store to temporal output reservoir page
+
+2. Inspect RTXDI helper functions before writing reservoir code. Use helper
+   primitives such as:
+
+       RTXDI_StreamSample
+       RTXDI_CombineDIReservoirs
+       RTXDI_FinalizeResampling
+       RTXDI_StreamLocalLightAtUVIntoReservoir
+       RTXDI_StoreVisibilityInDIReservoir
+
+   Do not hand-roll RIS weights, target PDF math, MIS math, or finalization.
+
+3. Replace the current random-light range delegation with a Remix-shaped loop:
+
+       iterate the rbdoom light ranges by light type
+       skip empty ranges
+       create one local reservoir per range
+       choose a random starting light inside that range
+       advance by a deterministic stride based on range count and sample count
+       wrap inside the range
+       sample a light UV per candidate
+       stream candidates through RTXDI helper primitives
+       finalize the local reservoir with the local reservoir M
+       set local reservoir M to 1
+       combine the local reservoir into the pass reservoir
+
+   The rbdoom ranges are:
+
+       RemixRAB_GetEmissiveRange()
+       RemixRAB_GetDoomAnalyticRange()
+
+   The rbdoom sample counts are:
+
+       RemixRAB_GetEmissiveSampleCount()
+       RemixRAB_GetDoomAnalyticSampleCount()
+
+4. Exclude the translated previous-best light from the random-light pass.
+
+   If previous-best translation succeeds, the random-light loop must not also
+   stream the same current light with the same portal domain. Remix does this so
+   the previous-best light is represented by the single-light reservoir path,
+   not double-counted by both paths.
+
+5. Implement the single previous-best-light reservoir with RTXDI helper math.
+
+   It must:
+
+       reject invalid translated light indices
+       sample the selected light once
+       compute target PDF through the RAB light-sampling bridge
+       stream/build the reservoir using RTXDI helper primitives
+       set M = 1
+
+   It must not be mixed into the random-light loop.
+
+6. Fix initial visibility semantics.
+
+   If real selected-light visibility tracing is not available in this inactive
+   slice, do not claim explicit initial visibility is implemented. Either:
+
+       add a clearly named deferred-visibility path that leaves visibility
+       unchanged and documents that exact shadow visibility is deferred, or
+
+       wire an existing rbdoom-compatible real visibility callback if one
+       already exists in the allowed bridge layer.
+
+   A facing/geometry check may be used only as candidate validity or target-PDF
+   gating. It must not be presented as RTX Remix explicit selected-reservoir
+   visibility.
+
+7. Fix portal-index handling.
+
+   Current rbdoom portal-domain support is not implemented in this inactive
+   shader. Therefore:
+
+       reject non-invalid previous-best portal indices with an explicit comment,
+       or implement the matching surface/light transform path if the bridge
+       already supports it.
+
+   Do not silently carry a portal index and ignore it during sampling.
+
+8. Keep the shader inactive unless the user separately commissions dispatch
+   hookup. This slice corrects the shader contract only.
+
+
+Forbidden
+---------
+
+Do not:
+
+    copy/paste RTX Remix source text
+    invent new ReSTIR math
+    include RAB_LightSamplingCore.hlsli
+    include RAB_LightTarget.hlsli
+    use old smoke reservoir globals
+    use old TextureInfo / DoomAnalyticLightInfo globals
+    route through pathtrace_smoke.rt.hlsl
+    edit temporal reuse, spatial reuse, GI, DLSS RR, or C++ dispatch
+    claim runtime validation if the shader remains unregistered/inactive
+
+
+Acceptance Checklist
+--------------------
+
+The slice is acceptable only if:
+
+    valid surfaces with valid light ranges no longer store only an empty
+    reservoir
+
+    previous-best translated light is excluded from random-light candidates
+
+    previous-best single-light reservoir is separate and combined afterward
+
+    random lights use per-range strided sampling rather than a flat or delegated
+    all-range approximation
+
+    visibility behavior is accurately represented as real visibility or
+    explicitly deferred
+
+    non-invalid portal indices are rejected or actually handled
+
+    final pass reservoir is finalized through RTXDI helpers and M is forced to 1
+
+    no old smoke sampling/reservoir headers or globals are introduced
+
+
+Validation
+----------
+
+Run static checks:
+
+    rg -n "RAB_LightSamplingCore|RAB_LightTarget|TextureInfo|DoomAnalyticLightInfo|pathtrace_smoke" neo/shaders/builtin/pathtracing/remix_rtxdi neo/shaders/builtin/pathtracing/remix_bridge
+
+    rg -n "RTXDI_EmptyDIReservoir|RTXDI_StreamSample|RTXDI_CombineDIReservoirs|RTXDI_FinalizeResampling|RTXDI_StoreVisibilityInDIReservoir|portal|previousBest" neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+If the shader remains unregistered/inactive, state clearly:
+
+    not compiled by the current CMake shader list
+    not runtime-tested
+    contract-only correction
+
+Only run a build if the edited files are currently registered in the build or
+the user explicitly asks for build validation.
+
+
+Paste-Ready Worker Prompt
+-------------------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-05A only: correct DI initial sampling contract flaws from RRX-05.
+
+Read first:
+
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/implementation_slices.txt
+    docs/restir_remix_rebuild/rrx_05a_di_initial_sampling_correction.txt
+
+Authoritative source roots:
+
+    RTX Remix: E:/prog/references/dxvk-remix-git
+    RTXDI:     E:/prog/references/RTXDI-main
+
+Authoritative files to inspect before editing:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+
+Owned write:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+
+Allowed support writes only if strictly required:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightSamplingBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+
+Required fix:
+
+    Correct the current RRX-05 implementation. It currently still fails because
+    previous-best light can be sampled twice, explicit initial visibility is
+    only a facing/geometry test, random-light sampling is not Remix-shaped, and
+    portal index is carried but ignored.
+
+Required procedure:
+
+    1. Write a short plan before editing naming the Remix file-equivalent,
+       rbdoom file, exact inputs, exact outputs, and forbidden areas.
+    2. Replace random-light range delegation with a Remix-shaped per-range
+       strided sampling loop using RTXDI helper primitives.
+    3. Exclude translated previous-best light from the random-light loop.
+    4. Build the previous-best light through a separate single-light reservoir
+       and combine it afterward.
+    5. Use RTXDI helper functions for streaming, combining, and finalization.
+    6. Force final reservoir M to 1.
+    7. Do not present facing/geometry checks as real explicit visibility. If
+       real visibility is unavailable, make initial visibility explicitly
+       deferred in this shader.
+    8. Reject non-invalid portal indices or implement real portal handling from
+       an existing bridge. Do not silently ignore portal indices.
+    9. Keep this shader inactive; do not wire C++ dispatch in this task.
+
+Forbidden:
+
+    Do not copy/paste RTX Remix source.
+    Do not invent reservoir math.
+    Do not include RAB_LightSamplingCore.hlsli.
+    Do not include RAB_LightTarget.hlsli.
+    Do not use old smoke globals or pathtrace_smoke routing.
+    Do not edit temporal reuse, spatial reuse, GI, DLSS RR, or C++ dispatch.
+
+Validation:
+
+    Run the static rg checks from rrx_05a_di_initial_sampling_correction.txt.
+    If the shader is still inactive/unregistered, say "not compiled by current
+    CMake shader list; contract-only correction" in the final report. Do not
+    claim runtime validation.
+
+Final response must include:
+
+    files changed
+    exact Remix behavior matched
+    whether previous-best exclusion is implemented
+    whether visibility is real or deferred
+    whether portal indices are rejected or handled
+    any remaining old-smoke dependency
+    validation result
