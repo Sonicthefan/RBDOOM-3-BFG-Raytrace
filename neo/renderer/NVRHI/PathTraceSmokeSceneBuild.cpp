@@ -65,6 +65,75 @@ bool SmokeUploadElementRangeValid(int elementOffset, int elementCount, size_t el
         static_cast<size_t>(elementCount) <= elementTotal - static_cast<size_t>(elementOffset);
 }
 
+uint32_t RestirSourceTypeFromUnifiedLightType(uint32_t type)
+{
+    if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE;
+    }
+    if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC;
+    }
+    return PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
+}
+
+std::vector<PathTraceRestirCurrentLightRecord> BuildRestirRecordsFromRemixCurrentLights(
+    const std::vector<PathTraceUnifiedLightRecord>& records,
+    const std::vector<uint32_t>& currentToPrevious)
+{
+    std::vector<PathTraceRestirCurrentLightRecord> result;
+    result.reserve(records.size());
+    for (size_t i = 0; i < records.size(); ++i)
+    {
+        const PathTraceUnifiedLightRecord& source = records[i];
+        PathTraceRestirCurrentLightRecord record;
+        record.sourceType = RestirSourceTypeFromUnifiedLightType(source.type);
+        record.payloadSourceIndex = source.sourceIndex;
+        record.identityKeyLo = source.identityA;
+        record.identityKeyHi = source.identityB;
+        record.flags = record.sourceType != PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID ? PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY : 0u;
+        if (i < currentToPrevious.size() && currentToPrevious[i] != PATH_TRACE_REMIX_LIGHT_INVALID_INDEX)
+        {
+            record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+        }
+        else
+        {
+            record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY;
+        }
+        result.push_back(record);
+    }
+    return result;
+}
+
+std::vector<PathTraceRestirPreviousLightRecord> BuildRestirRecordsFromRemixPreviousLights(
+    const std::vector<PathTraceUnifiedLightRecord>& records,
+    const std::vector<uint32_t>& previousToCurrent)
+{
+    std::vector<PathTraceRestirPreviousLightRecord> result;
+    result.reserve(records.size());
+    for (size_t i = 0; i < records.size(); ++i)
+    {
+        const PathTraceUnifiedLightRecord& source = records[i];
+        PathTraceRestirPreviousLightRecord record;
+        record.sourceType = RestirSourceTypeFromUnifiedLightType(source.type);
+        record.payloadSourceIndex = source.sourceIndex;
+        record.identityKeyLo = source.identityA;
+        record.identityKeyHi = source.identityB;
+        record.flags = record.sourceType != PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID ? PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY : 0u;
+        if (i < previousToCurrent.size() && previousToCurrent[i] != PATH_TRACE_REMIX_LIGHT_INVALID_INDEX)
+        {
+            record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID;
+        }
+        else
+        {
+            record.flags |= PATH_TRACE_RESTIR_LIGHT_RECORD_PREVIOUS_ONLY;
+        }
+        result.push_back(record);
+    }
+    return result;
+}
+
 template< typename T >
 RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
     nvrhi::BufferHandle buffer,
@@ -2155,7 +2224,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRemixLightManagerDump.SetInteger(0);
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
-    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 66, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 67, r_pathTracingRestirPTDiDebugView.GetInteger());
     const bool requestRemixRtxdiDiProbe = requestedDebugMode == 56 && (requestedRestirPTDiDebugView == 60 || (requestedRestirPTDiDebugView >= 63 && requestedRestirPTDiDebugView <= 66));
     const bool useRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0 || dumpRemixRtxdiResources || requestRemixRtxdiDiProbe;
     bool remixRtxdiResourcesReady = false;
@@ -2218,12 +2287,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         doomAnalyticRemap.previousCandidateIdentities);
     m_restirLightManager.EndFrame();
     const bool dumpRestirLightManager = r_pathTracingRestirLightManagerDump.GetInteger() != 0;
-    const std::vector<PathTraceRestirCurrentLightRecord>& restirLightManagerCurrentRecords = m_restirLightManager.GetActiveCurrentLightRecords();
-    const std::vector<PathTraceRestirPreviousLightRecord>& restirLightManagerPreviousRecords = m_restirLightManager.GetActivePreviousLightRecords();
-    const std::vector<uint32_t>& restirLightManagerCurrentToPreviousRemap = m_restirLightManager.GetActiveCurrentToPreviousRemap();
-    const std::vector<uint32_t>& restirLightManagerPreviousToCurrentRemap = m_restirLightManager.GetActivePreviousToCurrentRemap();
-    const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerCurrentPayloadRecords = m_restirLightManager.GetActiveCurrentPayloadRecords();
-    const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords = m_restirLightManager.GetActivePreviousPayloadRecords();
+    const bool useRemixLightManagerRabSource = r_pathTracingRemixLightManagerRAB.GetInteger() != 0;
+    const PathTraceRemixLightManagerStats& remixLightManagerActiveStats = m_remixLightManager.GetStats();
+    const std::vector<PathTraceRestirCurrentLightRecord> remixRestirCurrentRecords =
+        BuildRestirRecordsFromRemixCurrentLights(m_remixLightManager.GetCurrentLightPayloads(), m_remixLightManager.GetCurrentToPreviousMap());
+    const std::vector<PathTraceRestirPreviousLightRecord> remixRestirPreviousRecords =
+        BuildRestirRecordsFromRemixPreviousLights(m_remixLightManager.GetPreviousLightPayloads(), m_remixLightManager.GetPreviousToCurrentMap());
+    const std::vector<PathTraceRestirCurrentLightRecord>& restirLightManagerCurrentRecords =
+        useRemixLightManagerRabSource ? remixRestirCurrentRecords : m_restirLightManager.GetActiveCurrentLightRecords();
+    const std::vector<PathTraceRestirPreviousLightRecord>& restirLightManagerPreviousRecords =
+        useRemixLightManagerRabSource ? remixRestirPreviousRecords : m_restirLightManager.GetActivePreviousLightRecords();
+    const std::vector<uint32_t>& restirLightManagerCurrentToPreviousRemap =
+        useRemixLightManagerRabSource ? m_remixLightManager.GetCurrentToPreviousMap() : m_restirLightManager.GetActiveCurrentToPreviousRemap();
+    const std::vector<uint32_t>& restirLightManagerPreviousToCurrentRemap =
+        useRemixLightManagerRabSource ? m_remixLightManager.GetPreviousToCurrentMap() : m_restirLightManager.GetActivePreviousToCurrentRemap();
+    const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerCurrentPayloadRecords =
+        useRemixLightManagerRabSource ? m_remixLightManager.GetCurrentLightPayloads() : m_restirLightManager.GetActiveCurrentPayloadRecords();
+    const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
+        useRemixLightManagerRabSource ? m_remixLightManager.GetPreviousLightPayloads() : m_restirLightManager.GetActivePreviousPayloadRecords();
     if (dumpRestirLightManager)
     {
         const PathTraceRestirLightObservationStats restirLightManagerStats = BuildPathTraceRestirLightManagerDebugObservations(
@@ -2314,6 +2395,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             restirLightManagerPersistentStats.activeEmissiveCurrentRangeCount + restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount,
             (restirLightManagerPersistentStats.activeEmissiveCurrentRangeCount > 0 ? 1u : 0u) +
                 (restirLightManagerPersistentStats.activeDoomAnalyticCurrentRangeCount > 0 ? 1u : 0u));
+        common->Printf("PathTracePrimaryPass: ReSTIR light manager active RAB source activeLightSource=%s current=%u previous=%u currentToPrevious mapped/invalid=%u/%u previousToCurrent mapped/invalid=%u/%u payloadOnlyChange=%u structuralSignatureChanged=%u mappingSignatureChanged=%u payloadSignatureChanged=%u behavior=active-rab-source\n",
+            useRemixLightManagerRabSource ? "remix-light-manager" : "legacy-restir-manager",
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.currentLightCount : restirLightManagerPersistentStats.activeCurrentLightCount,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.previousLightCount : restirLightManagerPersistentStats.activePreviousLightCount,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.currentMappedCount : restirLightManagerPersistentStats.currentMappedCount,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.currentInvalidCount : restirLightManagerPersistentStats.currentInvalidCount,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.previousMappedCount : restirLightManagerPersistentStats.previousMappedCount,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.previousInvalidCount : restirLightManagerPersistentStats.previousInvalidCount,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.payloadOnlyChange : 0u,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.structuralSignatureChanged : restirLightManagerPersistentStats.structuralSignatureChanged,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.mappingSignatureChanged : restirLightManagerPersistentStats.mappingIdentitySignatureChanged,
+            useRemixLightManagerRabSource ? remixLightManagerActiveStats.payloadSignatureChanged : restirLightManagerPersistentStats.animatedPayloadSignatureChanged);
     }
     emissiveDistribution = BuildSmokeEmissiveDistribution(emissiveTriangles);
     const PathTraceUnifiedLightBuild unifiedLights = BuildPathTraceUnifiedLights(

@@ -27,7 +27,7 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 66u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 67u);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
@@ -420,6 +420,146 @@ bool RestirPTLightManagerReservoirProbeSelectLight(uint2 pixel, out uint selecte
     }
 
     return false;
+}
+
+bool RestirPTActiveRabTranslationParitySelectLight(uint2 pixel, out uint selectedLightIndex)
+{
+    selectedLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return false;
+    }
+
+    const uint currentCount = RAB_GetCurrentRestirLightManagerCount();
+    if (currentCount == 0u)
+    {
+        return false;
+    }
+
+    const uint start = RestirPTLightManagerReservoirProbeHash(pixel, 0x43504633u) % currentCount;
+    const uint probeCount = min(currentCount, 16u);
+    for (uint probe = 0u; probe < probeCount; ++probe)
+    {
+        const uint lightIndex = (start + probe) % currentCount;
+        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+        if (RAB_IsLightInfoValid(lightInfo))
+        {
+            selectedLightIndex = lightIndex;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+float3 RestirPTLightManagerParityIndexColor(uint index)
+{
+    uint h = index * 747796405u + 0x9e3779b9u;
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    return float3(
+        0.18 + 0.78 * (float)(h & 255u) / 255.0,
+        0.18 + 0.78 * (float)((h >> 8) & 255u) / 255.0,
+        0.18 + 0.78 * (float)((h >> 16) & 255u) / 255.0);
+}
+
+float4 RestirPTLightManagerParityStatusColor(
+    bool currentLoadValid,
+    int previousIndex,
+    bool previousLoadValid,
+    int roundTripCurrentIndex,
+    uint currentLightIndex)
+{
+    if (!currentLoadValid)
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (previousIndex < 0)
+    {
+        return float4(0.05, 0.24, 0.82, 1.0);
+    }
+    if (!previousLoadValid)
+    {
+        return float4(0.55, 0.05, 0.80, 1.0);
+    }
+    if (roundTripCurrentIndex != int(currentLightIndex))
+    {
+        return float4(0.95, 0.55, 0.04, 1.0);
+    }
+    return float4(0.05, 0.75, 0.12, 1.0);
+}
+
+float4 EvaluateRestirPTActiveRabTranslationParityView(uint2 pixel)
+{
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    uint currentLightIndex;
+    if (!RestirPTActiveRabTranslationParitySelectLight(pixel, currentLightIndex))
+    {
+        return float4(0.85, 0.02, 0.02, 1.0);
+    }
+
+    const RAB_LightInfo currentLightInfo = RAB_LoadLightInfo(currentLightIndex, false);
+    const bool currentLoadValid = RAB_IsLightInfoValid(currentLightInfo);
+    const int previousIndex = currentLoadValid ? RAB_TranslateLightIndex(currentLightIndex, true) : -1;
+    RAB_LightInfo previousLightInfo = RAB_EmptyLightInfo();
+    if (previousIndex >= 0)
+    {
+        previousLightInfo = RAB_LoadLightInfo((uint)previousIndex, true);
+    }
+    const bool previousLoadValid = previousIndex >= 0 && RAB_IsLightInfoValid(previousLightInfo);
+    const int roundTripCurrentIndex = previousLoadValid ? RAB_TranslateLightIndex((uint)previousIndex, false) : -1;
+
+    const uint cellSize = 12u;
+    const uint2 localPixel = pixel % cellSize;
+    const uint paneX = min(localPixel.x / 4u, 2u);
+    const uint paneY = localPixel.y >= (cellSize / 2u) ? 1u : 0u;
+    if (paneY == 0u && paneX == 0u)
+    {
+        return currentLoadValid
+            ? float4(RestirPTLightManagerParityIndexColor(currentLightIndex), 1.0)
+            : float4(0.85, 0.02, 0.02, 1.0);
+    }
+    if (paneY == 0u && paneX == 1u)
+    {
+        return previousIndex >= 0
+            ? float4(RestirPTLightManagerParityIndexColor((uint)previousIndex), 1.0)
+            : float4(0.05, 0.24, 0.82, 1.0);
+    }
+    if (paneY == 0u)
+    {
+        if (previousIndex >= 0 && !previousLoadValid)
+        {
+            return float4(0.55, 0.05, 0.80, 1.0);
+        }
+        return previousLoadValid
+            ? float4(0.05, 0.75, 0.12, 1.0)
+            : float4(0.05, 0.24, 0.82, 1.0);
+    }
+    if (paneX == 0u)
+    {
+        return roundTripCurrentIndex >= 0
+            ? float4(RestirPTLightManagerParityIndexColor((uint)roundTripCurrentIndex), 1.0)
+            : float4(0.95, 0.55, 0.04, 1.0);
+    }
+    if (paneX == 1u)
+    {
+        return RestirPTLightManagerParityStatusColor(
+            currentLoadValid,
+            previousIndex,
+            previousLoadValid,
+            roundTripCurrentIndex,
+            currentLightIndex);
+    }
+    return float4(
+        currentLoadValid ? 0.05 : 0.85,
+        previousLoadValid ? 0.75 : 0.05,
+        roundTripCurrentIndex == int(currentLightIndex) ? 0.12 : 0.82,
+        1.0);
 }
 
 RTXDI_PTReservoir RestirPTBuildLightManagerReservoirProbe(uint lightIndex, uint m)
@@ -1090,6 +1230,10 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 66u)
     {
         return EvaluateRestirPTRrxDiPreviousPageRawFieldsView(pixel);
+    }
+    if (view == 67u)
+    {
+        return EvaluateRestirPTActiveRabTranslationParityView(pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))

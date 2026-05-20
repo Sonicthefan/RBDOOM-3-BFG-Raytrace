@@ -74,6 +74,7 @@ extern idCVar r_pathTracingLightAreaFilterApply;
 extern idCVar r_pathTracingLightAreaOverflowMax;
 extern idCVar r_pathTracingRemixFramePrepareDump;
 extern idCVar r_pathTracingRemixLightManagerDump;
+extern idCVar r_pathTracingRemixLightManagerRAB;
 extern idCVar r_pathTracingRemixRtxdiResourcesEnable;
 extern idCVar r_pathTracingRemixRtxdiResourcesDump;
 extern idCVar r_pathTracingRestirLightManagerDump;
