@@ -22,6 +22,8 @@
 #include "../RenderCommon.h"
 #include "../../sys/DeviceManager.h"
 
+#include <algorithm>
+
 #include <nvrhi/utils.h>
 
 extern idCVar r_forceAmbient;
@@ -31,6 +33,33 @@ namespace {
 
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 int g_smokeLastDispatchTimingLogMs = -1000000;
+
+uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
+{
+    const uint64_t requestedTotal =
+        static_cast<uint64_t>(emissiveSampleCount) + static_cast<uint64_t>(doomAnalyticSampleCount);
+    if (requestedTotal == 0)
+    {
+        return 0;
+    }
+
+    return static_cast<uint32_t>(std::min<uint64_t>(requestedTotal, 32ull));
+}
+
+uint32_t RrxDiBoundedRangeSampleCount(uint32_t rangeCount, uint32_t totalLightCount, uint32_t requestedTotal)
+{
+    if (rangeCount == 0 || totalLightCount == 0 || requestedTotal == 0)
+    {
+        return 0;
+    }
+
+    const uint64_t roundedSamples =
+        (static_cast<uint64_t>(rangeCount) * static_cast<uint64_t>(requestedTotal) +
+            static_cast<uint64_t>(totalLightCount / 2u)) /
+        static_cast<uint64_t>(totalLightCount);
+    const uint32_t nonEmptyRangeSamples = static_cast<uint32_t>(std::max<uint64_t>(1ull, roundedSamples));
+    return std::min(rangeCount, nonEmptyRangeSamples);
+}
 
 enum PathTraceGpuTimingStage
 {
@@ -1200,12 +1229,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirLightManagerRangeInfo[1] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.emissiveRangeCount : restirLightManagerStats.activeEmissiveCurrentRangeCount);
     constants.restirLightManagerRangeInfo[2] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticRangeOffset : restirLightManagerStats.activeDoomAnalyticCurrentRangeOffset);
     constants.restirLightManagerRangeInfo[3] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticRangeCount : restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
-    constants.restirLightManagerSampleInfo[0] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.emissiveSampleCount : restirLightManagerStats.activeEmissiveCurrentRangeCount);
-    constants.restirLightManagerSampleInfo[1] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticSampleCount : restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
-    constants.restirLightManagerSampleInfo[2] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.totalSampleCount : restirLightManagerStats.activeEmissiveCurrentRangeCount + restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
-    constants.restirLightManagerSampleInfo[3] = static_cast<float>(useRemixLightManagerRabSource
-        ? remixLightManagerStats.nonEmptyRangeCount
-        : (restirLightManagerStats.activeEmissiveCurrentRangeCount > 0 ? 1u : 0u) + (restirLightManagerStats.activeDoomAnalyticCurrentRangeCount > 0 ? 1u : 0u));
+    const uint32_t activeEmissiveRangeCount = useRemixLightManagerRabSource ? remixLightManagerStats.emissiveRangeCount : restirLightManagerStats.activeEmissiveCurrentRangeCount;
+    const uint32_t activeDoomAnalyticRangeCount = useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticRangeCount : restirLightManagerStats.activeDoomAnalyticCurrentRangeCount;
+    const uint32_t activeTotalRangeCount = activeEmissiveRangeCount + activeDoomAnalyticRangeCount;
+    const uint32_t legacyRequestedTotal = RrxDiRequestedInitialSampleBudget(
+        restirLightManagerStats.activeEmissiveCurrentRangeCount,
+        restirLightManagerStats.activeDoomAnalyticCurrentRangeCount);
+    const uint32_t boundedEmissiveSampleCount = useRemixLightManagerRabSource
+        ? remixLightManagerStats.emissiveSampleCount
+        : RrxDiBoundedRangeSampleCount(activeEmissiveRangeCount, activeTotalRangeCount, legacyRequestedTotal);
+    const uint32_t boundedDoomAnalyticSampleCount = useRemixLightManagerRabSource
+        ? remixLightManagerStats.doomAnalyticSampleCount
+        : RrxDiBoundedRangeSampleCount(activeDoomAnalyticRangeCount, activeTotalRangeCount, legacyRequestedTotal);
+    constants.restirLightManagerSampleInfo[0] = static_cast<float>(boundedEmissiveSampleCount);
+    constants.restirLightManagerSampleInfo[1] = static_cast<float>(boundedDoomAnalyticSampleCount);
+    constants.restirLightManagerSampleInfo[2] = static_cast<float>(boundedEmissiveSampleCount + boundedDoomAnalyticSampleCount);
+    constants.restirLightManagerSampleInfo[3] = static_cast<float>(
+        (activeEmissiveRangeCount > 0 ? 1u : 0u) +
+        (activeDoomAnalyticRangeCount > 0 ? 1u : 0u));
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[2] = (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1.0f : 0.0f;

@@ -1294,6 +1294,12 @@ Denoise/upscale/Ray Reconstruction reservation:
   structural/mapping/payload signatures. Structural signature changes are
   reserved for the stable light-domain schema/ABI; active payload/range/sample
   churn belongs to payload or mapping state.
+  The RRX DI initial-sampling range contract uses these sample counts as
+  bounded per-pixel proposal counts, not raw authored range sizes. Non-empty
+  emissive and Doom analytic ranges each receive at least one sample when the
+  requested total is non-zero; the temporary total budget remains capped at 32.
+  In active Remix-manager RAB mode, this dump is the authoritative proof for
+  the shader-visible `offset/count/samples` contract.
 
 - r_pathTracingRemixLightManagerRAB
   Defaults to 0. Opt-in active shader-visible RAB light source switch for the
@@ -1329,7 +1335,11 @@ Denoise/upscale/Ray Reconstruction reservation:
   Defaults to 0. One-shot dump of the ReSTIR light-manager bridge. Reports
   observation counts plus active current/previous/map/payload counts when those
   domains are built. Use this to verify the manager-side contract before
-  enabling the RAB routing gate.
+  enabling the RAB routing gate. When `r_pathTracingRemixLightManagerRAB 1`
+  selects the Remix-shaped manager as the active RAB source, this dump still
+  prints the legacy persistent manager's staged range counts; use
+  `r_pathTracingRemixLightManagerDump 1` to verify the bounded active range
+  sample counts consumed by the RRX DI initial reservoir.
 
 - r_pathTracingRestirLightManagerRAB
   Defaults to 0. Opt-in routing gate that makes the ReSTIR RAB light-load path

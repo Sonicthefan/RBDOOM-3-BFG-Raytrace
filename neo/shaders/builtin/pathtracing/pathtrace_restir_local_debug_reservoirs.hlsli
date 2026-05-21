@@ -912,6 +912,70 @@ RTXDI_DIReservoir RestirPTRrxDiBuildPreviousBestReservoir(
     return reservoir;
 }
 
+uint2 RestirPTRrxDiClampLightRange(uint2 lightRange, uint currentCount)
+{
+    if (lightRange.x >= currentCount)
+    {
+        return uint2(lightRange.x, 0u);
+    }
+
+    lightRange.y = min(lightRange.y, currentCount - lightRange.x);
+    return lightRange;
+}
+
+void RestirPTRrxDiStreamLightRangeIntoReservoir(
+    inout RTXDI_DIReservoir randomReservoir,
+    inout RTXDI_RandomSamplerState rng,
+    RAB_Surface surface,
+    uint2 lightRange,
+    uint sampleCount,
+    uint totalSampleCount,
+    bool previousBestCurrentLightValid,
+    uint previousBestCurrentLightIndex)
+{
+    if (lightRange.y == 0u || sampleCount == 0u || totalSampleCount == 0u)
+    {
+        return;
+    }
+
+    const uint boundedSampleCount = min(sampleCount, lightRange.y);
+    float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)lightRange.y;
+    const float stride = max(1.0, (float)lightRange.y / (float)boundedSampleCount);
+    const float invSourcePdf =
+        ((float)lightRange.y * (float)totalSampleCount) / max((float)boundedSampleCount, 1.0);
+
+    for (uint sampleIndex = 0u; sampleIndex < boundedSampleCount; ++sampleIndex)
+    {
+        const uint lightIndex = lightRange.x + min((uint)lightIndexInRange, lightRange.y - 1u);
+        if (!(previousBestCurrentLightValid && lightIndex == previousBestCurrentLightIndex))
+        {
+            const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+            if (RAB_IsLightInfoValid(lightInfo))
+            {
+                const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
+                const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+                const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+                if (lightSample.valid != 0u && targetPdf > 0.0)
+                {
+                    RTXDI_StreamSample(
+                        randomReservoir,
+                        lightIndex,
+                        uv,
+                        RTXDI_GetNextRandom(rng),
+                        targetPdf,
+                        invSourcePdf);
+                }
+            }
+        }
+
+        lightIndexInRange += stride;
+        if (lightIndexInRange >= (float)lightRange.y)
+        {
+            lightIndexInRange -= (float)lightRange.y;
+        }
+    }
+}
+
 RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
     RAB_Surface surface,
     uint2 pixel,
@@ -931,7 +995,6 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
         return RTXDI_EmptyDIReservoir();
     }
 
-    const uint sampleCount = min(currentCount, 32u);
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0x52525805u);
     uint previousBestCurrentLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
@@ -941,53 +1004,36 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
         previousBestReservoirValid,
         previousBestCurrentLightIndex);
     initialDebugInfo.previousBestTranslationValid = previousBestCurrentLightValid ? 1u : 0u;
-    float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)currentCount;
-    const float stride = max(1.0, (float)currentCount / (float)sampleCount);
+
+    const uint2 emissiveRange = RestirPTRrxDiClampLightRange(
+        RAB_GetRestirLightManagerEmissiveRange(),
+        currentCount);
+    const uint2 doomAnalyticRange = RestirPTRrxDiClampLightRange(
+        RAB_GetRestirLightManagerDoomAnalyticRange(),
+        currentCount);
+    const uint emissiveSampleCount = min(RAB_GetRestirLightManagerEmissiveSampleCount(), emissiveRange.y);
+    const uint doomAnalyticSampleCount = min(RAB_GetRestirLightManagerDoomAnalyticSampleCount(), doomAnalyticRange.y);
+    const uint totalSampleCount = emissiveSampleCount + doomAnalyticSampleCount;
+
     RTXDI_DIReservoir randomReservoir = RTXDI_EmptyDIReservoir();
-    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
-    {
-        const uint lightIndex = min((uint)lightIndexInRange, currentCount - 1u);
-        if (previousBestCurrentLightValid && lightIndex == previousBestCurrentLightIndex)
-        {
-            lightIndexInRange += stride;
-            if (lightIndexInRange >= (float)currentCount)
-            {
-                lightIndexInRange -= (float)currentCount;
-            }
-            continue;
-        }
-
-        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
-        if (!RAB_IsLightInfoValid(lightInfo))
-        {
-            lightIndexInRange += stride;
-            if (lightIndexInRange >= (float)currentCount)
-            {
-                lightIndexInRange -= (float)currentCount;
-            }
-            continue;
-        }
-
-        const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
-        const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
-        const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
-        if (lightSample.valid != 0u && targetPdf > 0.0)
-        {
-            RTXDI_StreamSample(
-                randomReservoir,
-                lightIndex,
-                uv,
-                RTXDI_GetNextRandom(rng),
-                targetPdf,
-                (float)currentCount);
-        }
-
-        lightIndexInRange += stride;
-        if (lightIndexInRange >= (float)currentCount)
-        {
-            lightIndexInRange -= (float)currentCount;
-        }
-    }
+    RestirPTRrxDiStreamLightRangeIntoReservoir(
+        randomReservoir,
+        rng,
+        surface,
+        emissiveRange,
+        emissiveSampleCount,
+        totalSampleCount,
+        previousBestCurrentLightValid,
+        previousBestCurrentLightIndex);
+    RestirPTRrxDiStreamLightRangeIntoReservoir(
+        randomReservoir,
+        rng,
+        surface,
+        doomAnalyticRange,
+        doomAnalyticSampleCount,
+        totalSampleCount,
+        previousBestCurrentLightValid,
+        previousBestCurrentLightIndex);
 
     if (RTXDI_IsValidDIReservoir(randomReservoir))
     {

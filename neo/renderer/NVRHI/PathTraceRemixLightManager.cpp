@@ -56,6 +56,33 @@ bool RemixDoomAnalyticRemapValid(const PathTraceDoomAnalyticLightRemap& remap)
     return (remap.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID) != 0u;
 }
 
+uint32_t RemixRrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
+{
+    const uint64_t requestedTotal =
+        static_cast<uint64_t>(emissiveSampleCount) + static_cast<uint64_t>(doomAnalyticSampleCount);
+    if (requestedTotal == 0)
+    {
+        return 0;
+    }
+
+    return static_cast<uint32_t>(std::min<uint64_t>(requestedTotal, 32ull));
+}
+
+uint32_t RemixRrxDiBoundedRangeSampleCount(uint32_t rangeCount, uint32_t totalLightCount, uint32_t requestedTotal)
+{
+    if (rangeCount == 0 || totalLightCount == 0 || requestedTotal == 0)
+    {
+        return 0;
+    }
+
+    const uint64_t roundedSamples =
+        (static_cast<uint64_t>(rangeCount) * static_cast<uint64_t>(requestedTotal) +
+            static_cast<uint64_t>(totalLightCount / 2u)) /
+        static_cast<uint64_t>(totalLightCount);
+    const uint32_t nonEmptyRangeSamples = static_cast<uint32_t>(std::max<uint64_t>(1ull, roundedSamples));
+    return std::min(rangeCount, nonEmptyRangeSamples);
+}
+
 }
 
 void PathTraceRemixLightManager::Clear()
@@ -204,14 +231,30 @@ void PathTraceRemixLightManager::RebuildLightRanges(
     m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].firstLightIndex = 0;
     m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount =
         std::min(currentEmissiveCount, static_cast<uint32_t>(m_currentLightPayloads.size()));
-    m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].sampleCount = emissiveSampleCount;
 
     m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].firstLightIndex =
         m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount;
     m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].lightCount =
         std::min(currentAnalyticCount, static_cast<uint32_t>(m_currentLightPayloads.size()) -
             m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].firstLightIndex);
-    m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].sampleCount = doomAnalyticSampleCount;
+
+    const uint32_t totalLightCount =
+        m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount +
+        m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].lightCount;
+    const uint32_t requestedTotal = RemixRrxDiRequestedInitialSampleBudget(
+        emissiveSampleCount,
+        doomAnalyticSampleCount);
+
+    m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].sampleCount =
+        RemixRrxDiBoundedRangeSampleCount(
+            m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount,
+            totalLightCount,
+            requestedTotal);
+    m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].sampleCount =
+        RemixRrxDiBoundedRangeSampleCount(
+            m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].lightCount,
+            totalLightCount,
+            requestedTotal);
 }
 
 void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareObservationPackage& framePackage)
