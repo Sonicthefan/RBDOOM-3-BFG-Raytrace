@@ -77,7 +77,11 @@ The current RT/PT path is still an experimental "smoke" path:
   the reusable rigid route is enabled. Mode 56 depends on this gate for clean
   primary-surface producer motion export; otherwise the same rigid object can
   be present as both a routed rigid TLAS instance and an `instanceId == 1`
-  dynamic fallback copy.
+  dynamic fallback copy. This gate is a temporary workaround: the current
+  route-ready classification can also remove chunks of level airlocks and some
+  doors from the fallback path. Replace it with a proper object and geometry
+  classification system tied to Doom 3's render-world/game geometry before
+  treating routed-rigid removal as final production policy.
 - r_pathTracingMode20TestPreset: one-shot helper for the current mode 20 source3
   routed-rigid/static-preload/rigid-residency stack. The stack is already
   default-on; the preset remains a convenience/debug shortcut for mode 20 and
@@ -440,7 +444,11 @@ PathTraceDrawSurfCapture.cpp
     predicate in `PathTraceSmokeSceneBuild.cpp`: old motion-vector diagnostics,
     mode 18/20 integration, ReSTIR PT modes including mode 56, and integrator
     diagnostics all remove route-ready rigid surfaces from the fallback when
-    `r_pathTracingRigidRouteRemoveDynamic 1` is set.
+    `r_pathTracingRigidRouteRemoveDynamic 1` is set. The predicate is known to
+    be too coarse for final shipping behavior: when chunks of level airlocks or
+    some doors disappear, this fallback-removal gate is the first suspect. The
+    durable replacement is a real Doom 3 object/geometry classifier, not a
+    broader material-name or visibility heuristic.
 
 PathTraceInstanceUniverse.h
     Per-frame and lifetime instance-universe diagnostic declarations. This is
@@ -1181,7 +1189,10 @@ Typical flow:
    both copies in the TLAS makes the primary producer nondeterministically hit
    either the routed rigid (`instanceId >= 2`, `RIGID_ENTITY`) or the dynamic
    fallback (`instanceId == 1`), which poisons the exported motion-vector
-   source/mask/vector classification. Rigid residency now keeps only
+   source/mask/vector classification. The removal path is still a temporary
+   compromise and can remove level airlock chunks or some doors when the
+   current route-ready classifier overreaches; this is why a future object and
+   geometry classification rebuild is required. Rigid residency now keeps only
    current-frame revalidated resident instances. Its selected-area portal walk
    supplements previously visible emissive/signage/glow rigids, but does not
    discover or preserve arbitrary opaque rigid props from raw area refs because

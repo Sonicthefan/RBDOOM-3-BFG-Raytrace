@@ -1162,6 +1162,13 @@ Denoise/upscale/Ray Reconstruction reservation:
   fallback/source-mismatch result. With default
   `r_pathTracingRigidRouteRemoveDynamic 1`, mode 56 treats routed rigid as a
   replacement for route-ready dynamic fallback geometry, not an overlap layer.
+  This is still a temporary workaround, not a final object/geometry ownership
+  solution. The current routed-ready classification can remove visible chunks
+  of level airlocks and some doors from the fallback path when those surfaces
+  are classified too coarsely as route-ready rigid. If an airlock section or
+  door suddenly goes invisible, remember this gate first: the long-term fix is
+  a proper Doom 3 object and geometry classification system tied to the
+  underlying render-world/game geometry, not more ad hoc fallback removal.
 - `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
   roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
@@ -1579,6 +1586,12 @@ Denoise/upscale/Ray Reconstruction reservation:
   the old motion-vector diagnostics and to the mode-56 primary-surface
   producer path, so routed rigid does not z-fight with a fallback copy or feed
   mixed source classifications into `PathTraceMotionVectors`/`PathTraceMotionVectorMask`.
+  This is not final production geometry policy: the current route-ready test is
+  coarse enough to remove chunks of level airlocks and some doors from the
+  fallback path. Use that failure as the reminder that routed rigid needs a
+  real object/geometry classifier connected to Doom 3's underlying geometry and
+  entity data. If airlock geometry vanishes, check this CVar/gate before
+  chasing shader-side visibility or motion-vector bugs.
   Set to 0 only for overlap/emergency comparison with the old dynamic fallback
   still present.
 
