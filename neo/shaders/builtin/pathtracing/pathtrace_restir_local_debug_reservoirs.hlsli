@@ -141,10 +141,10 @@ static const uint RESTIR_PT_TEMPORAL_UNSAFE_RESET_MASK =
     RT_RR_RESET_STOCHASTIC_TRANSLUCENT |
     RT_RR_RESET_OTHER_INVALID;
 
-bool RestirPTTryProjectMotionVectorToPreviousPixel(uint2 pixel, out int2 previousPixel, out float2 motionPixels)
+bool RestirPTTryProjectMotionVectorToPreviousPixelFull(uint2 pixel, out int2 previousPixel, out float3 motionVector)
 {
     previousPixel = int2(-1, -1);
-    motionPixels = float2(0.0, 0.0);
+    motionVector = float3(0.0, 0.0, 0.0);
 
     const uint2 dimensions = PathTraceFullOutputSize();
     const uint resetMask = PathTraceRRGuideResetMask[pixel];
@@ -166,12 +166,20 @@ bool RestirPTTryProjectMotionVectorToPreviousPixel(uint2 pixel, out int2 previou
         return false;
     }
 
-    motionPixels = PathTraceMotionVectors[pixel].xy;
-    const float2 previousPixelFloat = float2(pixel) + 0.5 + motionPixels;
+    motionVector = PathTraceMotionVectors[pixel].xyz;
+    const float2 previousPixelFloat = float2(pixel) + 0.5 + motionVector.xy;
     previousPixel = int2(floor(previousPixelFloat));
 
     return previousPixel.x >= 0 && previousPixel.y >= 0 &&
         (uint)previousPixel.x < dimensions.x && (uint)previousPixel.y < dimensions.y;
+}
+
+bool RestirPTTryProjectMotionVectorToPreviousPixel(uint2 pixel, out int2 previousPixel, out float2 motionPixels)
+{
+    float3 motionVector;
+    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixelFull(pixel, previousPixel, motionVector);
+    motionPixels = motionVector.xy;
+    return projected;
 }
 
 bool RestirPTRrxPrimarySurfacesAreSimilar(RAB_Surface surface, RAB_Surface previousSurface, out uint similarityStatus)
@@ -1029,12 +1037,12 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
     return reservoir;
 }
 
-RemixRtxdiTemporalReuseDesc RestirPTRrxDiTemporalDesc(uint2 pixel, float2 motionPixels)
+RemixRtxdiTemporalReuseDesc RestirPTRrxDiTemporalDesc(uint2 pixel, float3 motionVector)
 {
     RemixRtxdiTemporalReuseDesc desc = (RemixRtxdiTemporalReuseDesc)0;
     desc.pixel = pixel;
     desc.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
-    desc.screenSpaceMotion = float3(motionPixels, 0.0);
+    desc.screenSpaceMotion = motionVector;
     desc.temporalInputPage = RestirPTRemixDiReservoirPageInfo.y;
     desc.temporalOutputPage = RestirPTRemixDiReservoirPageInfo.x;
     desc.activeCheckerboardField = 0u;
@@ -1283,8 +1291,8 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     }
 
     int2 previousPixel;
-    float2 motionPixels;
-    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixel(pixel, previousPixel, motionPixels);
+    float3 motionVector;
+    const bool projected = RestirPTTryProjectMotionVectorToPreviousPixelFull(pixel, previousPixel, motionVector);
     debugInfo.projected = projected ? 1u : 0u;
 
     RTXDI_DIReservoir projectedPreviousReservoir = RTXDI_EmptyDIReservoir();
@@ -1341,7 +1349,7 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     const RemixRtxdiTemporalReuseCoreResult temporalResult = RemixRtxdiRunTemporalReuseCore(
         surface,
         currentReservoir,
-        RestirPTRrxDiTemporalDesc(pixel, motionPixels),
+        RestirPTRrxDiTemporalDesc(pixel, motionVector),
         RestirPTRrxDiReservoirParams());
     temporalReservoir = temporalResult.reservoir;
     const int2 temporalSamplePixel = temporalResult.temporalSamplePixel;
@@ -1600,10 +1608,160 @@ float4 RestirPTRrxTemporalInputNormalPassColor(bool pass, bool applicable, float
         : float4(0.95, 0.18 * heat, 0.02, 1.0);
 }
 
+uint RestirPTRrxMotionVectorSourceKindFromSurface(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return 0u;
+    }
+    if (surface.instanceId == 0u && surface.surfaceClass == 0u)
+    {
+        return PT_MOTION_VECTOR_SOURCE_STATIC;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED)
+    {
+        return PT_MOTION_VECTOR_SOURCE_SKINNED;
+    }
+    if (surface.surfaceClass == RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY && surface.instanceId >= 2u)
+    {
+        return PT_MOTION_VECTOR_SOURCE_RIGID;
+    }
+    return 4u;
+}
+
+bool RestirPTRrxTryLoadCurrentPrimarySurfaceRecord(uint2 pixel, out PathTracePrimarySurfaceRecord record)
+{
+    record = (PathTracePrimarySurfaceRecord)0;
+    const int2 loadPixel = PathTracePrimarySurfaceLoadPixel(int2(pixel), false);
+    if (loadPixel.x < 0 || loadPixel.y < 0)
+    {
+        return false;
+    }
+
+    const uint2 dimensions = PathTraceFullOutputSize();
+    if ((uint)loadPixel.x >= dimensions.x || (uint)loadPixel.y >= dimensions.y)
+    {
+        return false;
+    }
+
+    const uint index = (uint)loadPixel.y * dimensions.x + (uint)loadPixel.x;
+    if (index >= PathTracePrimarySurfaceHistoryCount())
+    {
+        return false;
+    }
+
+    record = PrimarySurfaceHistoryCurrent[index];
+    return true;
+}
+
+bool RestirPTRrxTryPackedObjectExpectedMotion(RAB_Surface surface, uint2 pixel, out float3 expectedMotion, out uint debugStatus)
+{
+    expectedMotion = float3(0.0, 0.0, 0.0);
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_OK;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    if (!RestirPTRrxTryLoadCurrentPrimarySurfaceRecord(pixel, record))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+
+    if (!PathTracePrimarySurfaceRecordHasObjectMotion(record))
+    {
+        debugStatus = PathTracePrimarySurfaceMissingPackedObjectMotionStatus(surface, record.header.z);
+        return false;
+    }
+
+    float2 previousPixelFloat;
+    float previousLinearDepth;
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(record.previousPositionOrMotion.xyz, PathTraceFullOutputSize(), previousPixelFloat, previousLinearDepth, debugStatus))
+    {
+        return false;
+    }
+
+    expectedMotion.xy = previousPixelFloat - (float2(pixel) + 0.5);
+    expectedMotion.z = previousLinearDepth - RAB_GetSurfaceLinearDepth(surface);
+    return true;
+}
+
+float4 RestirPTRrxTemporalInputCombinedExportSourceColor(uint2 pixel)
+{
+    const uint motionMask = PathTraceMotionVectorMask[pixel];
+    return RestirPTRrxTemporalInputMotionSourceColor(motionMask);
+}
+
+float4 RestirPTRrxTemporalInputCombinedExportMotionColor(uint2 pixel)
+{
+    const uint motionMask = PathTraceMotionVectorMask[pixel];
+    if ((motionMask & PT_MOTION_VECTOR_MASK_VALID) == 0u)
+    {
+        return float4(0.95, 0.18, 0.02, 1.0);
+    }
+
+    const float3 exportedMotion = PathTraceMotionVectors[pixel].xyz;
+    return RestirPTRrxTemporalInputMotionVectorColor(exportedMotion.xy);
+}
+
+uint RestirPTRrxTemporalInputMotionMaskFromStatus(bool valid, uint sourceKind, uint debugStatus)
+{
+    const uint sourceBits = (sourceKind & 0x0fu) << PT_MOTION_VECTOR_MASK_SOURCE_SHIFT;
+    if (valid)
+    {
+        return PT_MOTION_VECTOR_MASK_VALID | sourceBits;
+    }
+    return sourceBits | ((debugStatus & 0xffu) << 5u);
+}
+
+float4 RestirPTRrxTemporalInputCombinedHelperSourceColor(RAB_Surface surface, uint2 pixel)
+{
+    float3 expectedMotion;
+    uint debugStatus;
+    const uint sourceKind = RestirPTRrxMotionVectorSourceKindFromSurface(surface);
+    const bool projected = RestirPTRrxTryPackedObjectExpectedMotion(surface, pixel, expectedMotion, debugStatus);
+    return RestirPTRrxTemporalInputMotionSourceColor(RestirPTRrxTemporalInputMotionMaskFromStatus(projected, sourceKind, debugStatus));
+}
+
+float4 RestirPTRrxTemporalInputCombinedHelperMotionColor(RAB_Surface surface, uint2 pixel)
+{
+    float3 expectedMotion;
+    uint debugStatus;
+    if (!RestirPTRrxTryPackedObjectExpectedMotion(surface, pixel, expectedMotion, debugStatus))
+    {
+        return float4(0.95, 0.18, 0.02, 1.0);
+    }
+    return RestirPTRrxTemporalInputMotionVectorColor(expectedMotion.xy);
+}
+
+float4 RestirPTRrxTemporalInputCurrentRecordSourceColor(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    const uint sourceKind = RestirPTRrxMotionVectorSourceKindFromSurface(surface);
+    return RestirPTRrxTemporalInputMotionSourceColor(RestirPTRrxTemporalInputMotionMaskFromStatus(true, sourceKind, RT_PRIMARY_SURFACE_DEBUG_OK));
+}
+
+float4 RestirPTRrxTemporalInputCurrentRecordStatusColor(RAB_Surface surface, uint2 pixel)
+{
+    PathTracePrimarySurfaceRecord record;
+    if (!RestirPTRrxTryLoadCurrentPrimarySurfaceRecord(pixel, record))
+    {
+        return PathTracePrimarySurfaceDebugColor(RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT, surface);
+    }
+    return PathTracePrimarySurfaceDebugColor(record.header.z, surface);
+}
+
 float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2 pixel)
 {
     const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
-    const uint bandCount = 10u;
+    const uint bandCount = 14u;
     const uint bandWidth = max(dimensions.x / bandCount, 1u);
     const uint bandPixel = pixel.x % bandWidth;
     const uint band = min((pixel.x * bandCount) / dimensions.x, bandCount - 1u);
@@ -1622,7 +1780,11 @@ float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2
         if (band == 6u) return float4(0.10, 0.95, 0.65, 1.0);
         if (band == 7u) return float4(0.80, 0.30, 0.95, 1.0);
         if (band == 8u) return float4(0.20, 0.55, 0.95, 1.0);
-        return float4(0.95, 0.35, 0.75, 1.0);
+        if (band == 9u) return float4(0.95, 0.35, 0.75, 1.0);
+        if (band == 10u) return float4(0.50, 0.95, 0.20, 1.0);
+        if (band == 11u) return float4(0.95, 0.90, 0.20, 1.0);
+        if (band == 12u) return float4(0.00, 0.85, 0.95, 1.0);
+        return float4(0.62, 0.48, 0.02, 1.0);
     }
 
     if (!RAB_IsSurfaceValid(surface))
@@ -1644,13 +1806,13 @@ float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2
     }
     const bool previousSurfaceValid = RAB_IsSurfaceValid(previousSurface);
     const uint resetMask = PathTraceRRGuideResetMask[pixel];
-    const float activeExpectedDepth = RAB_GetSurfaceLinearDepth(surface);
-    const float suppliedExpectedDepth = RAB_GetSurfaceLinearDepth(surface) + motion.z;
+    const float legacyZeroZExpectedDepth = RAB_GetSurfaceLinearDepth(surface);
+    const float activeExpectedDepth = RAB_GetSurfaceLinearDepth(surface) + motion.z;
     const float previousDepth = RAB_GetSurfaceLinearDepth(previousSurface);
+    const bool legacyZeroZDepthPass = previousSurfaceValid &&
+        RTXDI_CompareRelativeDifference(legacyZeroZExpectedDepth, previousDepth, RestirPTParams.temporalResampling.depthThreshold);
     const bool activeDepthPass = previousSurfaceValid &&
         RTXDI_CompareRelativeDifference(activeExpectedDepth, previousDepth, RestirPTParams.temporalResampling.depthThreshold);
-    const bool suppliedDepthPass = previousSurfaceValid &&
-        RTXDI_CompareRelativeDifference(suppliedExpectedDepth, previousDepth, RestirPTParams.temporalResampling.depthThreshold);
     const float3 currentNormal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 previousNormal = previousSurfaceValid
         ? RAB_SafeNormalize(RAB_GetSurfaceNormal(previousSurface), RAB_GetSurfaceGeoNormal(previousSurface))
@@ -1665,11 +1827,11 @@ float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2
 
     if (band == 0u)
     {
-        return RestirPTRrxTemporalInputMotionSourceColor(motionMask);
+        return RestirPTRrxTemporalInputCombinedHelperSourceColor(surface, pixel);
     }
     if (band == 1u)
     {
-        return motionValid ? RestirPTRrxTemporalInputMotionVectorColor(motion.xy) : float4(0.95, 0.18, 0.02, 1.0);
+        return RestirPTRrxTemporalInputCombinedHelperMotionColor(surface, pixel);
     }
     if (band == 2u)
     {
@@ -1681,11 +1843,11 @@ float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2
     }
     if (band == 4u)
     {
-        return RestirPTRrxTemporalInputDepthPassColor(activeDepthPass, previousSurfaceValid, activeExpectedDepth, previousDepth);
+        return RestirPTRrxTemporalInputDepthPassColor(legacyZeroZDepthPass, previousSurfaceValid, legacyZeroZExpectedDepth, previousDepth);
     }
     if (band == 5u)
     {
-        return RestirPTRrxTemporalInputDepthPassColor(suppliedDepthPass, previousSurfaceValid, suppliedExpectedDepth, previousDepth);
+        return RestirPTRrxTemporalInputDepthPassColor(activeDepthPass, previousSurfaceValid, activeExpectedDepth, previousDepth);
     }
     if (band == 6u)
     {
@@ -1699,11 +1861,31 @@ float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2
     {
         return RestirPTRrxTemporalInputBoolColor(debugInfo.outputValid != 0u, true);
     }
-    if (debugInfo.outputValid == 0u)
+    if (band == 9u)
     {
-        return float4(0.04, 0.08, 0.18, 1.0);
+        if (debugInfo.outputValid == 0u)
+        {
+            return float4(0.04, 0.08, 0.18, 1.0);
+        }
+        return RestirPTRrxHashColor(RTXDI_GetDIReservoirLightIndex(temporalReservoir) + 1u);
     }
-    return RestirPTRrxHashColor(RTXDI_GetDIReservoirLightIndex(temporalReservoir) + 1u);
+    if (band == 10u)
+    {
+        return RestirPTRrxTemporalInputCombinedExportSourceColor(pixel);
+    }
+    if (band == 11u)
+    {
+        return RestirPTRrxTemporalInputCombinedExportMotionColor(pixel);
+    }
+    if (band == 12u)
+    {
+        return RestirPTRrxTemporalInputCurrentRecordSourceColor(surface);
+    }
+    if (band == 13u)
+    {
+        return RestirPTRrxTemporalInputCurrentRecordStatusColor(surface, pixel);
+    }
+    return float4(0.0, 0.0, 0.0, 1.0);
 }
 
 float4 EvaluateRestirPTRrxDiRawReservoirHeartbeatView(uint2 pixel)

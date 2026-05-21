@@ -8,6 +8,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinning.h"
@@ -668,8 +669,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
     const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
     const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
+    const bool routeRestirPTMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
+    const bool routeIntegratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
     const bool removeRoutedRigidDynamic =
-        (requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18 || routeMode20) &&
+        (requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18 || routeMode20 || routeRestirPTMode || routeIntegratorDebugMode) &&
         r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&

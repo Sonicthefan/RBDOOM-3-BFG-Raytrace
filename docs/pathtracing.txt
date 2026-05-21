@@ -1016,7 +1016,20 @@ Ray dispatch safety diagnostics:
   current light, current-to-previous translation, previous stored light, and
   previous-to-current translation, each encoded as `index + 1` with `0` meaning
   invalid or absent. View 69 bypasses mode-56 accumulation so the tuple readback
-  is not averaged across frames. Views 6-11 are the
+  is not averaged across frames. View `70` is the RRX DI temporal input evidence
+  view and bypasses mode-56 accumulation. It displays fourteen vertical bands:
+  producer-record expected motion source, producer-record expected motion XY,
+  reset-mask safety, previous-surface validity at the RTXDI reprojected pixel,
+  same-depth baseline pass, exported motion-vector Z expected-depth pass,
+  normal-dot pass, RTXDI previous-sample use, temporal output validity,
+  selected-light hash, exported `PathTraceMotionVectorMask` source/validity,
+  exported `PathTraceMotionVectors.xy`, current producer-record source
+  classification, and current producer-record packed-motion status. The final
+  source-classification band only reports routed rigid when the producer record
+  has both `instanceId >= 2` and `surfaceClass == RIGID_ENTITY`; cyan across a
+  moving rigid object proves the primary producer is hitting the routed rigid
+  TLAS copy rather than the legacy dynamic fallback. It is an input evidence
+  view, not a final lighting-quality view. Views 6-11 are the
   reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
   producer output and avoid the custom DI scratch reservoir math. View 2 does
   not multiply brightness by reservoir `M`; view 3 runs a
@@ -1139,10 +1152,16 @@ Denoise/upscale/Ray Reconstruction reservation:
 - Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
   scaffold when needed even if `r_pathTracingGpuSkinning` is `0`; that CVar
   still controls the diagnostic GPU skinning compute path.
-- Mode 56 keeps the legacy dynamic rigid fallback even when a routed rigid TLAS
-  route exists. A short-lived change that pruned the fallback made a known
-  routed-geometry disappearance visible in mode 56; keep this conservative
-  until the routed-rigid missing-geometry case is fixed at the source.
+- Mode 56 now removes routed-ready rigid candidates from the legacy dynamic
+  fallback when the routed rigid TLAS path is enabled, matching modes 47/49.
+  This is required for clean primary-surface producer motion export: if both
+  copies remain in the TLAS, the primary ray can split the same object between
+  the routed rigid instance (`instanceId >= 2`, `RIGID_ENTITY`) and the old
+  dynamic fallback (`instanceId == 1`). View 70 then shows patchy rigid motion
+  because some pixels export the routed rigid vector and others export the
+  fallback/source-mismatch result. With default
+  `r_pathTracingRigidRouteRemoveDynamic 1`, mode 56 treats routed rigid as a
+  replacement for route-ready dynamic fallback geometry, not an overlap layer.
 - `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
   roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
@@ -1362,6 +1381,13 @@ Denoise/upscale/Ray Reconstruction reservation:
   sentinel. No current consumer reads either texture, so normal PT output is
   unchanged.
 
+- r_pathTracingMotionVectorDisableRigid
+  Defaults to 0. Debug-only quarantine for routed-rigid motion vectors. When
+  enabled, routed-rigid primary hits are marked as invalid motion instead of
+  exporting rigid object-motion vectors, while static and skinned motion export
+  remains unchanged. Use with mode 56 / DI view 70 to test whether poisoned
+  rigid vectors are degrading temporal reuse.
+
 - r_pathTracingPortalTransitionDump
   Diagnostic logging for suspected PT scene-resource lifetime hazards. When a
   committed scene transition changes source, portal area/set counts, selected
@@ -1527,10 +1553,11 @@ Denoise/upscale/Ray Reconstruction reservation:
 - r_pathTracingRigidTlasRoute
   Defaults to 1. Source3 route gate for rigid BLAS instances. It is active in
   debug modes 23, 24, and 25, mode 18 when `r_pathTracingRigidRouteMode18 1`
-  is set, and mode 20 when `r_pathTracingRigidRouteMode20 1` is set. Mode 23
-  traces routed rigid instances only. Mode 24 traces fallback-only and
-  routed-rigid-only rays
-  separately and color-codes their hit-distance agreement.
+  is set, mode 20 when `r_pathTracingRigidRouteMode20 1` is set, ReSTIR PT
+  modes 26-33/50/51/53-56, and integrator debug modes 34-37. Mode 23 traces
+  routed rigid instances only. Mode 24 traces fallback-only and
+  routed-rigid-only rays separately and color-codes their hit-distance
+  agreement.
 
 - r_pathTracingRigidRouteMode18
   Defaults to 1. Mode 18 integration gate for routed rigid TLAS instances. Set
@@ -1548,8 +1575,12 @@ Denoise/upscale/Ray Reconstruction reservation:
 
 - r_pathTracingRigidRouteRemoveDynamic
   Defaults to 1. When enabled with the rigid route gates, source3 skips
-  routed-ready rigid mesh candidates from the dynamic fallback. Set to 0 for
-  overlap/emergency comparison with the old dynamic fallback still present.
+  routed-ready rigid mesh candidates from the dynamic fallback. This applies to
+  the old motion-vector diagnostics and to the mode-56 primary-surface
+  producer path, so routed rigid does not z-fight with a fallback copy or feed
+  mixed source classifications into `PathTraceMotionVectors`/`PathTraceMotionVectorMask`.
+  Set to 0 only for overlap/emergency comparison with the old dynamic fallback
+  still present.
 
 - r_pathTracingRigidRouteEmissiveCards
   Defaults to 1. When enabled, source3 may promote safe entity-attached

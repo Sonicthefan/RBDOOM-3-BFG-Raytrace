@@ -47,6 +47,75 @@ struct PathTracePrimarySurfaceRecord
 
 #endif
 
+#if defined(RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_PROJECTION_HELPERS) || defined(RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_HELPERS)
+#ifndef RB_PATH_TRACE_PRIMARY_SURFACE_PROJECTION_HELPERS
+#define RB_PATH_TRACE_PRIMARY_SURFACE_PROJECTION_HELPERS
+
+uint PathTracePrimarySurfacePreviousProjectionStatus(float3 worldPosition, uint2 dimensions, out float2 projectedPixelFloat, out float previousLinearDepth)
+{
+    projectedPixelFloat = float2(-1.0, -1.0);
+    previousLinearDepth = 0.0;
+    if (PrevCameraOriginAndValid.w < 0.5)
+    {
+        return RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS_CAMERA;
+    }
+
+    const float3 delta = worldPosition - PrevCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, PrevCameraForwardAndTanX.xyz);
+    if (forwardDistance <= 0.05)
+    {
+        return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_BEHIND_CAMERA;
+    }
+    previousLinearDepth = length(delta);
+
+    const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
+    projectedPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
+    if (!all(projectedPixelFloat == projectedPixelFloat))
+    {
+        return RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
+    }
+    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
+    {
+        return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME;
+    }
+    if (projectedPixelFloat.x < 0.0 || projectedPixelFloat.y < 0.0 ||
+        projectedPixelFloat.x >= (float)dimensions.x || projectedPixelFloat.y >= (float)dimensions.y)
+    {
+        return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME;
+    }
+
+    return RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR;
+}
+
+bool ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat, out float previousLinearDepth, out uint debugStatus)
+{
+    debugStatus = PathTracePrimarySurfacePreviousProjectionStatus(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
+    if (debugStatus != RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR &&
+        debugStatus != RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME)
+    {
+        previousPixelFloat = float2(-1.0, -1.0);
+        return false;
+    }
+
+    return true;
+}
+
+bool ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat, out float previousLinearDepth)
+{
+    uint debugStatus;
+    return ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(worldPosition, dimensions, previousPixelFloat, previousLinearDepth, debugStatus);
+}
+
+bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat)
+{
+    float previousLinearDepth;
+    return ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
+}
+
+#endif
+#endif
+
 #ifdef RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_HELPERS
 #ifndef RB_PATH_TRACE_PRIMARY_SURFACE_HELPERS
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HELPERS
@@ -221,68 +290,6 @@ RAB_Surface RAB_GetGBufferSurface(int2 pixelPosition, bool previousFrame)
 RAB_Material RAB_GetGBufferMaterial(int2 pixelPosition, bool previousFrame)
 {
     return RAB_GetGBufferSurface(pixelPosition, previousFrame).material;
-}
-
-uint PathTracePrimarySurfacePreviousProjectionStatus(float3 worldPosition, uint2 dimensions, out float2 projectedPixelFloat, out float previousLinearDepth)
-{
-    projectedPixelFloat = float2(-1.0, -1.0);
-    previousLinearDepth = 0.0;
-    if (PrevCameraOriginAndValid.w < 0.5)
-    {
-        return RT_PRIMARY_SURFACE_DEBUG_MISSING_PREVIOUS_CAMERA;
-    }
-
-    const float3 delta = worldPosition - PrevCameraOriginAndValid.xyz;
-    const float forwardDistance = dot(delta, PrevCameraForwardAndTanX.xyz);
-    if (forwardDistance <= 0.05)
-    {
-        return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_BEHIND_CAMERA;
-    }
-    previousLinearDepth = length(delta);
-
-    const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
-    const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
-    projectedPixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(dimensions);
-    if (!all(projectedPixelFloat == projectedPixelFloat))
-    {
-        return RT_PRIMARY_SURFACE_DEBUG_REJECTED_PREVIOUS;
-    }
-    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
-    {
-        return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME;
-    }
-    if (projectedPixelFloat.x < 0.0 || projectedPixelFloat.y < 0.0 ||
-        projectedPixelFloat.x >= (float)dimensions.x || projectedPixelFloat.y >= (float)dimensions.y)
-    {
-        return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME;
-    }
-
-    return RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR;
-}
-
-bool ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat, out float previousLinearDepth, out uint debugStatus)
-{
-    debugStatus = PathTracePrimarySurfacePreviousProjectionStatus(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
-    if (debugStatus != RT_PRIMARY_SURFACE_DEBUG_VALID_VECTOR &&
-        debugStatus != RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME)
-    {
-        previousPixelFloat = float2(-1.0, -1.0);
-        return false;
-    }
-
-    return true;
-}
-
-bool ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat, out float previousLinearDepth)
-{
-    uint debugStatus;
-    return ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(worldPosition, dimensions, previousPixelFloat, previousLinearDepth, debugStatus);
-}
-
-bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, uint2 dimensions, out float2 previousPixelFloat)
-{
-    float previousLinearDepth;
-    return ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
 }
 
 bool ProjectPathTracePrimarySurfaceToPreviousPixel(float3 worldPosition, uint2 dimensions, out int2 previousPixel)

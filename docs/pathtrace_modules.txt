@@ -71,9 +71,13 @@ The current RT/PT path is still an experimental "smoke" path:
   source3 routed-rigid/static-preload/rigid-residency mode 18 stack. The stack
   is already default-on; the preset remains a convenience/debug shortcut.
 - r_pathTracingRigidRouteRemoveDynamic: default-on subtraction gate used by
-  routed-rigid validation/integration modes, including mode 18 and mode 20. It
+  routed-rigid validation/integration modes, including mode 18, mode 20,
+  ReSTIR PT modes 26-33/50/51/53-56, and integrator debug modes 34-37. It
   skips routed-ready rigid candidates from the source3 dynamic fallback after
-  the reusable rigid route is enabled.
+  the reusable rigid route is enabled. Mode 56 depends on this gate for clean
+  primary-surface producer motion export; otherwise the same rigid object can
+  be present as both a routed rigid TLAS instance and an `instanceId == 1`
+  dynamic fallback copy.
 - r_pathTracingMode20TestPreset: one-shot helper for the current mode 20 source3
   routed-rigid/static-preload/rigid-residency stack. The stack is already
   default-on; the preset remains a convenience/debug shortcut for mode 20 and
@@ -431,7 +435,12 @@ PathTraceDrawSurfCapture.cpp
     debug modes 21/22. It also contains the conservative source3 promotion gate
     for stable entity-attached translucent signage/glow cards, so such cards can
     travel with routed rigid residency instead of remaining raster-visible-only
-    particle/alpha drawSurfs.
+    particle/alpha drawSurfs. The same file owns routed-ready dynamic fallback
+    removal. Its predicate must stay in sync with the routed rigid enablement
+    predicate in `PathTraceSmokeSceneBuild.cpp`: old motion-vector diagnostics,
+    mode 18/20 integration, ReSTIR PT modes including mode 56, and integrator
+    diagnostics all remove route-ready rigid surfaces from the fallback when
+    `r_pathTracingRigidRouteRemoveDynamic 1` is set.
 
 PathTraceInstanceUniverse.h
     Per-frame and lifetime instance-universe diagnostic declarations. This is
@@ -1167,8 +1176,12 @@ Typical flow:
    CPU rigid BLAS plans/input descriptors, default-on GPU scaffold records for
    local-space rigid mesh buffers/standalone BLAS builds, rigid residency
    records, and rigid TLAS instance plans. In gated validation/integration
-   modes, routed-ready rigid triangles can be removed from the dynamic fallback
-   and traced through the reusable rigid route. Rigid residency now keeps only
+   modes, routed-ready rigid triangles are removed from the dynamic fallback
+   and traced through the reusable rigid route. This includes mode 56. Keeping
+   both copies in the TLAS makes the primary producer nondeterministically hit
+   either the routed rigid (`instanceId >= 2`, `RIGID_ENTITY`) or the dynamic
+   fallback (`instanceId == 1`), which poisons the exported motion-vector
+   source/mask/vector classification. Rigid residency now keeps only
    current-frame revalidated resident instances. Its selected-area portal walk
    supplements previously visible emissive/signage/glow rigids, but does not
    discover or preserve arbitrary opaque rigid props from raw area refs because
@@ -1296,10 +1309,10 @@ surface still matches. The reset mask is written even when motion-vector export
 is disabled so history validity can be inspected independently. Mode 56 builds
 the skinned previous-position scaffold for this guide export even when
 `r_pathTracingGpuSkinning` is `0`; that CVar still controls the diagnostic GPU
-skinning compute path. Mode 56 currently keeps the legacy dynamic rigid fallback
-even when a routed rigid TLAS route exists. This is deliberately conservative
-after pruning the fallback exposed a known routed-geometry disappearance in mode
-56; fix the routed path before removing the fallback again.
+skinning compute path. Mode 56 removes routed-ready rigid surfaces from the
+legacy dynamic fallback when the routed rigid TLAS route exists. This matches
+the mode-47/49 diagnostic contract and prevents duplicate rigid geometry from
+feeding mixed producer classifications into `u39/u40`.
 The local bridge still differs from the RTXDI PT reference motion-vector
 contract: `u39` is xy pixel motion only, while the reference carries xy plus a
 depth delta for temporal validation.

@@ -1,0 +1,563 @@
+Exported RRX Motion Alignment Tasks
+===================================
+Date: 2026-05-21
+
+Purpose
+-------
+
+This file is the worker-facing plan for the current motion-vector failure:
+the older rbdoom motion-vector debug modes can look solved, while the active
+RRX/RTXDI path still sees holes or bad data in the exported
+PathTraceMotionVectors / PathTraceMotionVectorMask inputs.
+
+This is not a ReSTIR math task. Do not alter reservoir finalization, sampling,
+light selection, temporal thresholds, or visibility policy.
+
+
+Observed Problem
+----------------
+
+The user verified that mode 56 / DI view 70 exposes routed-rigid and large
+object regions with bad temporal input coverage:
+
+    column 0: motion source / validity
+    column 1: raw exported motion xy
+    column 2: reset-mask safety
+    column 3: previous-surface validity at RTXDI reprojected pixel
+
+Some large routed-rigid objects show:
+
+    column 0 valid routed-rigid motion
+    column 1 unstable or gapped exported vector visualization
+    column 2 unsafe reset-mask regions
+    column 3 missing/not-applicable previous surface
+
+Disabling rigid motion-vector export with r_pathTracingMotionVectorDisableRigid
+does not solve accumulation quality. That CVar is a proof/quarantine tool only:
+it converts bad rigid motion into missing rigid motion. Missing temporal input
+still leaves holes.
+
+
+Core Diagnosis
+--------------
+
+The old debug modes and the active RRX input path do not prove the same
+contract.
+
+Old diagnostics:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+Relevant modes:
+
+    40 = routed-rigid primary object-motion vector diagnostic
+    41 = combined skinned/routed-rigid object-motion vector diagnostic
+    47 = combined static/skinned/routed-rigid motion-vector diagnostic
+    48 = combined geometry reprojection-match diagnostic
+    49 = combined geometry motion-source diagnostic
+
+Active RRX input:
+
+    producer:
+        neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+
+    exported buffers:
+        PathTraceMotionVectors
+        PathTraceMotionVectorMask
+        PathTraceRRGuideResetMask
+
+    consumer/probe:
+        neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+        mode 56 / r_pathTracingRestirPTDiDebugView 70
+
+Concrete divergence found by audit:
+
+1. Old mode 47 draws motion from helper results. It is diagnostic-only and does
+   not prove the exported PathTraceMotionVectors UAV is usable by RTXDI.
+
+2. pathtrace_primary_surface_producer.rt.hlsl has a local projection helper:
+
+       ProjectPrimarySurfaceToPreviousPixelFloatAndDepth
+
+   That helper rejects previous NDC outside the frame as a producer failure.
+
+3. The shared/status-aware helper in PathTracePrimarySurface.hlsli:
+
+       ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus
+
+   distinguishes previous xy outside the frame as a diagnostic status. The
+   reference contract expects finite offscreen previous xy to remain a produced
+   motion vector; consumer bounds checks decide whether previous history can be
+   read.
+
+4. Active RRX DI temporal currently builds:
+
+       desc.screenSpaceMotion = float3(motionPixels, 0.0)
+
+   RTXDI expects motion.z to be:
+
+       expectedPreviousLinearDepth - currentLinearDepth
+
+   Passing 0.0 makes RTXDI compare previous depth as though expected previous
+   depth equals current depth. This is especially suspicious for forward/back
+   movement and "short reach" motion-vector behavior.
+
+
+Reference Constraints
+---------------------
+
+Use these as structural references only; do not copy/paste source:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/GBufferHelpers.hlsli
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/geometry_resolver.slangh
+
+Required contract:
+
+    motion.xy = previousPixelCenter - currentPixelCenter
+    motion.z  = expectedPreviousLinearDepth - currentLinearDepth
+
+Producer may reject:
+
+    missing previous camera
+    previous position behind previous camera
+    non-finite projection
+    genuinely missing previous transform/previous vertices
+
+Producer must not reject solely because:
+
+    finite previous xy is outside the previous frame
+
+Consumer owns:
+
+    previous-pixel bounds
+    previous-surface validity
+    depth/normal similarity
+    reservoir validity
+    temporal reuse acceptance
+
+
+Task MV-RRX-01: Exported Producer Parity
+----------------------------------------
+
+Mission:
+
+    Make the primary-surface producer's exported motion-vector path use the
+    same status-aware projection contract as the old diagnostics, so mode 47
+    and mode 56 view 70 are testing compatible data.
+
+Owned write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    docs/restir_friendly/motion_vectors/exported_rrx_motion_alignment_tasks.txt
+
+Forbidden changes:
+
+    Do not change ReSTIR reservoir math.
+    Do not change light sampling.
+    Do not change temporal thresholds.
+    Do not clamp offscreen previous xy to the frame edge.
+    Do not turn offscreen previous xy into zero motion.
+    Do not disable routed-rigid motion as the fix.
+    Do not remove r_pathTracingMotionVectorDisableRigid; it is a debug tool.
+    Do not copy/paste RTXDI or RTX Remix code.
+    Do not revert edits made by others.
+
+Implementation checklist:
+
+1. Compare the producer-local helper:
+
+       pathtrace_primary_surface_producer.rt.hlsl
+       ProjectPrimarySurfaceToPreviousPixelFloatAndDepth
+
+   against the shared helper:
+
+       PathTracePrimarySurface.hlsli
+       ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus
+
+2. Remove or narrow the producer-local divergence. The exported path should use
+   the same status-aware projection behavior as the diagnostics.
+
+3. Preserve rejection for missing previous camera, behind-camera previous
+   positions, and non-finite projections.
+
+4. Preserve finite offscreen previous xy as produced motion data. Keep the
+   diagnostic status available, but do not treat it as export failure.
+
+5. Ensure StoreRayReconstructionMotionGuides still writes:
+
+       PathTraceMotionVectors[pixel] = float4(motionPixels, depthDelta, 0)
+       PathTraceMotionVectorMask[pixel] = valid | sourceKind
+
+   when the vector is finite, even if previous xy is outside frame.
+
+6. Keep PathTraceRRGuideResetMask honest. Do not clear reset bits by fiat to
+   make the image look better.
+
+7. Build:
+
+       cd E:/prog/rbdoom-3-bfg-rt/neo
+       cmake --build --preset win64-pt-dev-release
+
+Stop condition:
+
+    Stop after build. Do not continue into RRX temporal or ReSTIR changes.
+
+Implemented behavior:
+
+    MV-RRX-01 replaced the producer-local projection rejection path with a
+    thin call to
+    ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus.
+    Finite previous xy outside the frame now remains in previousPixelFloat and
+    produces the exported PathTraceMotionVectors xy/depth-delta value. The
+    status remains RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME, but the
+    exported motion-vector mask stays valid with the original source kind so
+    consumers own previous-pixel bounds and history rejection.
+
+    Missing previous camera, previous positions behind the previous camera,
+    and non-finite projections still return false from the producer and still
+    set PathTraceMotionVectorMask invalid plus PathTraceRRGuideResetMask
+    according to the failure status.
+
+User visual test after deploy:
+
+    r_pathTracingMotionVectorDisableRigid 0
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTDiDebugView 70
+
+Expected evidence:
+
+    View 70 column 1 should align more closely with old mode 47 motion-vector
+    behavior on large routed-rigid objects. Column 3 may still show consumer
+    bounds/history holes; that is not this task's failure.
+
+
+Task MV-RRX-02: Feed Motion Z To RRX Temporal
+---------------------------------------------
+
+Use this only after MV-RRX-01 is reviewed.
+
+Mission:
+
+    Pass the exported motion-vector z depth delta into the active RRX DI
+    temporal reuse descriptor.
+
+Owned write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    docs/restir_friendly/motion_vectors/exported_rrx_motion_alignment_tasks.txt
+
+Forbidden changes:
+
+    Do not change RTXDI temporal math.
+    Do not change depth/normal thresholds.
+    Do not change reservoir finalization.
+    Do not alter light identity/remap.
+    Do not change the producer in this task.
+    Do not copy/paste RTXDI or RTX Remix code.
+
+Implementation checklist:
+
+1. Locate:
+
+       RestirPTTryProjectMotionVectorToPreviousPixel
+       RestirPTRrxDiTemporalDesc
+
+2. Change the local RRX path so it carries the full float3 motion vector:
+
+       xy = exported screen-space motion
+       z  = exported expectedPreviousLinearDepth - currentLinearDepth
+
+3. Build RestirPTRrxDiTemporalDesc with:
+
+       desc.screenSpaceMotion = fullMotionVector
+
+   not float3(motionPixels, 0.0).
+
+4. Preserve existing previous-pixel bounds behavior.
+
+5. Preserve existing debug bypass behavior. If motion bypass is enabled, the
+   debug replacement may use xy = 0 and z = 0, but only for that bypass.
+
+6. Keep view 70 columns 4 and 5 meaningful:
+
+       column 4 = current active expected-depth behavior
+       column 5 = supplied motion.z expected-depth behavior
+
+   After this task, update labels if column 4 and 5 need to become
+   before/after or active/reference.
+
+7. Build:
+
+       cd E:/prog/rbdoom-3-bfg-rt/neo
+       cmake --build --preset win64-pt-dev-release
+
+Stop condition:
+
+    Stop after build. Do not tune thresholds or add new temporal policy.
+
+Implemented behavior:
+
+    MV-RRX-02 changed only the active RRX DI temporal descriptor path. The
+    previous-pixel projection still uses exported motion.xy and keeps the same
+    bounds/reset-mask/motion-mask checks, but the value passed to
+    RemixRtxdiTemporalReuseDesc.screenSpaceMotion is now the full exported
+    PathTraceMotionVectors.xyz. That means motion.z is the producer-supplied:
+
+        expectedPreviousLinearDepth - currentLinearDepth
+
+    The debug motion bypass still supplies zero motion only when the bypass is
+    enabled.
+
+    In view 70, column 4 remains the legacy zero-z expected-depth comparison
+    and column 5 is now the active motion-z expected-depth comparison.
+
+Follow-up alignment:
+
+    The active primary_surface_producer export path must classify the same hit
+    the same way as the old mode 47/49 helper path. Static snapshot range
+    failures must report RT_PRIMARY_SURFACE_DEBUG_STATIC_RANGE_MISMATCH,
+    static class/material/index failures must report
+    RT_PRIMARY_SURFACE_DEBUG_STATIC_MATERIAL_CLASS_MISMATCH, and valid
+    offscreen static projection must keep
+    RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_XY_OUTSIDE_FRAME instead of collapsing
+    back to OK. Unsupported packed-object motion must use the same
+    PathTracePrimarySurfaceMissingPackedObjectMotionStatus-style classification
+    as the old helper path.
+
+User visual test after deploy:
+
+    r_pathTracingMotionVectorDisableRigid 0
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTDiDebugView 70
+
+Expected evidence:
+
+    During forward/back movement, depth evidence should improve where the
+    producer supplies a real depth delta. If selected-light hash still churns,
+    that becomes a separate light/remap issue.
+
+
+Paste-Ready Worker Prompt For MV-RRX-01
+---------------------------------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Slice:
+
+    MV-RRX-01
+
+Mission:
+
+    Make the primary-surface producer's exported motion-vector path use the
+    same status-aware projection contract as the old motion-vector diagnostics.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+    docs/restir_friendly/motion_vectors/README.txt
+    docs/restir_friendly/motion_vectors/motion_vector_reference_guide.txt
+    docs/restir_friendly/motion_vectors/worker_launch_protocol.txt
+    docs/restir_friendly/motion_vectors/exported_rrx_motion_alignment_tasks.txt
+
+Reference files:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/GBufferHelpers.hlsli
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/geometry_resolver.slangh
+
+Owned write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    docs/restir_friendly/motion_vectors/exported_rrx_motion_alignment_tasks.txt
+
+Context:
+
+    Old debug modes 40/41/47 can look solved while mode 56 / DI view 70 still
+    shows holes in the actual exported PathTraceMotionVectors input consumed by
+    RRX/RTXDI. The audit found that the active producer has a local projection
+    helper that rejects finite previous xy outside the frame, while the
+    status-aware helper used by diagnostics preserves that as diagnostic state.
+
+Forbidden changes:
+
+    Do not change ReSTIR reservoir math.
+    Do not change light sampling.
+    Do not change temporal thresholds.
+    Do not clamp offscreen previous xy to the frame edge.
+    Do not turn offscreen previous xy into zero motion.
+    Do not disable routed-rigid motion as the fix.
+    Do not remove r_pathTracingMotionVectorDisableRigid; it is a debug tool.
+    Do not copy/paste RTXDI or RTX Remix code.
+    Do not revert edits made by others.
+
+Implementation checklist:
+
+    1. Compare pathtrace_primary_surface_producer.rt.hlsl
+       ProjectPrimarySurfaceToPreviousPixelFloatAndDepth against
+       PathTracePrimarySurface.hlsli
+       ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus.
+    2. Remove or narrow the producer-local divergence so exported motion uses
+       the status-aware projection contract.
+    3. Preserve rejection for missing previous camera, behind-camera previous
+       positions, and non-finite projections.
+    4. Preserve finite offscreen previous xy as produced motion data with a
+       diagnostic status, not export failure.
+    5. Keep PathTraceMotionVectors xy/z convention unchanged:
+           xy = previousPixelCenter - currentPixelCenter
+           z  = expectedPreviousLinearDepth - currentLinearDepth
+    6. Keep PathTraceRRGuideResetMask honest; do not clear reset bits as a
+       visual workaround.
+    7. Build from E:/prog/rbdoom-3-bfg-rt/neo:
+           cmake --build --preset win64-pt-dev-release
+
+Final response:
+
+    List changed files.
+    State exactly how finite offscreen previous xy is represented.
+    State whether build passed.
+    State what the coordinator should ask the user to test.
+
+Shared-worktree warning:
+
+    You are not alone in the codebase. Do not revert edits made by others.
+    Work with existing changes and list any conflict.
+
+
+Follow-up: Mode 47/49 As Export Contract
+----------------------------------------
+
+Coordinator finding:
+
+    The canonical output to copy is debug mode 47 for full combined motion
+    vector data and debug mode 49 for the full combined object/source mask:
+    level/static, skinned, and rigid must classify through the same helper
+    path before export.
+
+Implemented producer alignment:
+
+    pathtrace_primary_surface_producer.rt.hlsl no longer carries its own
+    independent copies of the combined geometry motion helper, source-kind
+    classifier, mask encoder, static snapshot helper, or packed-object motion
+    export helper.
+
+    The producer now includes pathtrace_smoke_rab_motion_supplier.hlsli and
+    StoreRayReconstructionMotionGuides calls
+    TryPathTraceCombinedGeometryMotionPixelsAndDepth plus
+    PathTraceMotionVectorMaskFromStatus from that shared supplier. That makes
+    the exported PathTraceMotionVectors.xy, PathTraceMotionVectors.z, and
+    PathTraceMotionVectorMask source/valid/invalid bits use the same combined
+    level/skinned/rigid contract as debug modes 47 and 49.
+
+Preserved debug behavior:
+
+    r_pathTracingMotionVectorDisableRigid still short-circuits rigid motion
+    before the shared export helper. It remains a debug tool and is not the fix.
+
+Validation:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Passed after switching the producer export call to the supplier's
+    depth-aware combined helper.
+
+View 70 diagnostic correction:
+
+    The final two view-70 stripes were previously still named and implemented
+    as packed-object export checks. That made them reject level/static motion
+    even though debug mode 47's full combined helper legitimately accepts
+    level/static through the previous-static snapshot path.
+
+    The combined resolve shader does not bind the static, skinned, and routed
+    rigid geometry buffers required to recompute debug mode 47's full combined
+    helper result. The honest diagnostic contract for those final stripes is
+    therefore the exported data itself:
+
+        stripe 10 = exported PathTraceMotionVectorMask source/valid color
+        stripe 11 = exported PathTraceMotionVectors.xy color
+
+    These correspond to the mode-49 source-mask contract and mode-47
+    full-combined motion-vector contract as exported by the primary-surface
+    producer.
+
+
+Follow-up: Smoke Raygen / Producer Primary Export Parity
+-------------------------------------------------------
+
+Coordinator finding:
+
+    The producer pipeline and shader table use the same smoke RT pipeline
+    helper and the same RayGen/Miss/HitGroup/ShadowHitGroup entry names as the
+    old smoke raygen path. The producer dispatch also uses the same smoke
+    binding set; routed-rigid buffers t22-t26, skinned previous buffers
+    t32/t33/t41, previous-static buffers t34-t38, primary-surface history
+    u30/u31, motion export u39/u40, and RR reset mask u52 are present in the
+    binding layout and binding set.
+
+Implemented parity corrections:
+
+    pathtrace_primary_surface_producer.rt.hlsl now builds its current
+    RAB_Surface through RAB_BuildSurfaceFromSmokePayload, the same helper used
+    by pathtrace_smoke.rt.hlsl primary raygen/export paths. The producer keeps
+    the smoke-compatible primary ray TMin/TMax and skips GUI-screen payloads
+    instead of writing them as usable primary surfaces.
+
+    View 70 now separates expected producer-record object motion from exported
+    motion. Stripe 0/1 are the packed object motion represented by the current
+    primary-surface record. Stripe 0 only reports rigid/cyan when that record
+    has both instanceId >= 2 and surfaceClass == RIGID_ENTITY. Stripe 10/11
+    remain the exported
+    PathTraceMotionVectorMask and PathTraceMotionVectors.xy. Stripe 12 reports
+    current producer-record source classification; for a known routed-rigid
+    door it must be rigid/cyan, which proves instanceId >= 2 and
+    surfaceClass == RIGID_ENTITY reached the producer record. Stripe 13 reports
+    the current producer-record packed-motion status. For rigid doors, stripe
+    0/1 and stripe 10/11 should match. If stripe 0/1 are good while 10/11 are
+    broken, the export write is wrong. If both are broken in the same places,
+    the producer primary-surface record/packed previous position is already
+    wrong before export.
+
+Validation:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Passed after the shared-surface-builder and view-70 comparison changes.
+
+Follow-up: Mode-56 Rigid Duplicate Root Cause
+--------------------------------------------
+
+Coordinator finding:
+
+    The old motion-vector debug modes and mode 56 both enabled routed rigid
+    TLAS instances, but only the old debug modes were included in the dynamic
+    fallback removal predicate in PathTraceDrawSurfCapture.cpp. That meant a
+    route-ready rigid surface could appear twice in mode 56: once as routed
+    rigid with instanceId >= 2, and once as the legacy dynamic fallback with
+    instanceId 1. View 70 then split the same object between cyan routed-rigid
+    stripes and non-cyan/broken fallback stripes, matching the observed
+    z-fighting-style instability.
+
+Implemented correction:
+
+    The routed-rigid dynamic fallback removal predicate now includes ReSTIR PT
+    debug modes, including mode 56, and the integrator debug modes that also
+    enable routed rigid. This preserves the old mode-47/49 behavior: once a
+    rigid mesh is route-ready, the dynamic fallback copy is skipped for every
+    routed-rigid path, not just the old diagnostics.
