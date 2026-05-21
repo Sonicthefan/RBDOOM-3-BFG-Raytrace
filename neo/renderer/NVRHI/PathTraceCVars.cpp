@@ -913,7 +913,49 @@ idCVar r_pathTracingRestirPTDiDebugView(
     "r_pathTracingRestirPTDiDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DI comparison view: 0 = normal output, 1 = raw DI reservoir estimate, 2 = DI temporal accumulator, 3 = DI spatial candidate, 4 = DI reservoir validity/M/WeightSum, 5 = DI spatial/temporal status, 6 = RTXDI final-shading input as TargetFunction*WeightSum, 7 = RTXDI final-shading input validity/target/weight/M, 8 = RTXDI page-chain state quadrants, 9 = RTXDI page-chain contribution quadrants, 10 = RTXDI temporal readiness/rejection proxy, 11 = RTXDI temporal page-flow classifier, 12 = RTXDI temporal neighbor classifier, 13 = RAB BRDF contract classifier, 14 = RTXDI initial NEE sampled-light payload classifier, 15 = RTXDI initial path metadata classifier, 16 = RTXDI final-shading input contract classifier, 17 = RTXDI final-shading target replay classifier, 18 = environment MIS contract classifier, 19 = RTXDI final-shading sampled-light payload classifier, 20 = RTXDI final-shading path metadata classifier, 21 = RTXDI final-shading random-replay metadata classifier, 22 = RAB random sampler bridge classifier, 23 = RAB path-tracer user-data bridge classifier, 24 = RAB visibility policy classifier, 25 = RAB light-sample numeric contract classifier, 26 = emissive hit-to-light map classifier, 27 = RAB light-domain load classifier, 28 = RAB light-domain sample classifier, 29 = RAB light-domain visibility classifier, 30 = initial NEE record scalar classifier, 31 = RAB path-tracer entry contract classifier, 32 = PSR denoiser payload classifier, 33 = RAB path continuation policy classifier, 34 = final shading output contract classifier, 35 = remaining supplier gap summary, 36 = unified light type/validity, 37 = unified light radiance heat, 38 = unified light current-to-previous remap, 39 = unified light source numeric sanity, 40 = CPU unified light type/validity, 41 = CPU unified versus virtual compare, 42 = CPU unified remap classifier, 43 = unified RAB load current A/B, 44 = unified RAB load previous A/B, 45 = unified RAB sample A/B, 46 = unified RAB sample numeric, 47 = RTXDI DI initial sample validity/type, 48 = RTXDI DI initial contribution preview, 49 = RTXDI DI initial reservoir numeric state, 50 = RTXDI DI initial visibility state, 51 = old NEE record versus RTXDI DI contribution split, 52 = old NEE record versus RTXDI DI selected-light compare, 53 = old NEE record versus RTXDI DI contribution ratio, 54 = PT initial versus final-shading-input contribution split, 55 = PT initial versus temporal-output contribution split, 56 = PT initial versus temporal-output state/history split, 57 = ReSTIR light-manager CPU map status, 58 = binary temporal keep mask, 59 = light-manager reservoir persistence probe, 60 = RRX DI reservoir single-light heartbeat, 63 = RRX DI raw reservoir heartbeat, 64 = RRX DI same-dispatch echo, 65 = RRX DI same-page raw fields, 66 = RRX DI previous-page raw fields, 67 = active RAB translation parity, 68 = RRX DI temporal local invalidation, 69 = RRX DI temporal raw light-index tuple" );
+    "Mode 56 DI comparison view: 0 = normal output, 1 = raw DI reservoir estimate, 2 = DI temporal accumulator, 3 = DI spatial candidate, 4 = DI reservoir validity/M/WeightSum, 5 = DI spatial/temporal status, 6 = RTXDI final-shading input as TargetFunction*WeightSum, 7 = RTXDI final-shading input validity/target/weight/M, 8 = RTXDI page-chain state quadrants, 9 = RTXDI page-chain contribution quadrants, 10 = RTXDI temporal readiness/rejection proxy, 11 = RTXDI temporal page-flow classifier, 12 = RTXDI temporal neighbor classifier, 13 = RAB BRDF contract classifier, 14 = RTXDI initial NEE sampled-light payload classifier, 15 = RTXDI initial path metadata classifier, 16 = RTXDI final-shading input contract classifier, 17 = RTXDI final-shading target replay classifier, 18 = environment MIS contract classifier, 19 = RTXDI final-shading sampled-light payload classifier, 20 = RTXDI final-shading path metadata classifier, 21 = RTXDI final-shading random-replay metadata classifier, 22 = RAB random sampler bridge classifier, 23 = RAB path-tracer user-data bridge classifier, 24 = RAB visibility policy classifier, 25 = RAB light-sample numeric contract classifier, 26 = emissive hit-to-light map classifier, 27 = RAB light-domain load classifier, 28 = RAB light-domain sample classifier, 29 = RAB light-domain visibility classifier, 30 = initial NEE record scalar classifier, 31 = RAB path-tracer entry contract classifier, 32 = PSR denoiser payload classifier, 33 = RAB path continuation policy classifier, 34 = final shading output contract classifier, 35 = remaining supplier gap summary, 36 = unified light type/validity, 37 = unified light radiance heat, 38 = unified light current-to-previous remap, 39 = unified light source numeric sanity, 40 = CPU unified light type/validity, 41 = CPU unified versus virtual compare, 42 = CPU unified remap classifier, 43 = unified RAB load current A/B, 44 = unified RAB load previous A/B, 45 = unified RAB sample A/B, 46 = unified RAB sample numeric, 47 = RTXDI DI initial sample validity/type, 48 = RTXDI DI initial contribution preview, 49 = RTXDI DI initial reservoir numeric state, 50 = RTXDI DI initial visibility state, 51 = old NEE record versus RTXDI DI contribution split, 52 = old NEE record versus RTXDI DI selected-light compare, 53 = old NEE record versus RTXDI DI contribution ratio, 54 = PT initial versus final-shading-input contribution split, 55 = PT initial versus temporal-output contribution split, 56 = PT initial versus temporal-output state/history split, 57 = ReSTIR light-manager CPU map status, 58 = binary temporal keep mask, 59 = light-manager reservoir persistence probe, 60 = RRX DI reservoir single-light heartbeat, 63 = RRX DI raw reservoir heartbeat, 64 = RRX DI same-dispatch echo, 65 = RRX DI same-page raw fields, 66 = RRX DI previous-page raw fields, 67 = active RAB translation parity, 68 = RRX DI temporal local invalidation, 69 = RRX DI temporal raw light-index tuple, 70 = RRX DI temporal input evidence" );
+
+idCVar r_pathTracingRestirPTRrxDebugBypassMotion(
+    "r_pathTracingRestirPTRrxDebugBypassMotion",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only RRX DI temporal probe: force previous pixel to current pixel and ignore motion-vector availability" );
+
+idCVar r_pathTracingRestirPTRrxDebugBypassDepth(
+    "r_pathTracingRestirPTRrxDebugBypassDepth",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only RRX DI temporal probe: relax RTXDI temporal depth similarity threshold" );
+
+idCVar r_pathTracingRestirPTRrxDebugBypassNormal(
+    "r_pathTracingRestirPTRrxDebugBypassNormal",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only RRX DI temporal probe: relax RTXDI temporal shading-normal similarity threshold" );
+
+idCVar r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity(
+    "r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only local ReSTIR helpers: bypass rbdoom primary-surface material/geometry-normal similarity checks" );
+
+idCVar r_pathTracingRestirPTRrxDebugBypassResetMask(
+    "r_pathTracingRestirPTRrxDebugBypassResetMask",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only RRX DI temporal probe: ignore primary-surface RR reset-mask rejection before temporal reuse" );
+
+idCVar r_pathTracingRestirPTRrxDebugBypassPortal(
+    "r_pathTracingRestirPTRrxDebugBypassPortal",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only RRX DI temporal probe: reserved portal-space bypass bit; current rbdoom RRX DI surface bridge carries no portal index" );
+
+idCVar r_pathTracingRestirPTRrxDebugFlatContribution(
+    "r_pathTracingRestirPTRrxDebugFlatContribution",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only RRX DI combined output: replace valid temporal DI lighting with a fixed color after reservoir generation" );
 
 idCVar r_pathTracingRestirPTView68Dump(
     "r_pathTracingRestirPTView68Dump",
@@ -1214,6 +1256,12 @@ idCVar r_pathTracingMotionVectorExport(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "PT private motion-vector export writer: 0 disabled, 1 write combined geometry current-to-previous pixel motion plus validity/source mask into private PT UAVs" );
+
+idCVar r_pathTracingMotionVectorDisableRigid(
+    "r_pathTracingMotionVectorDisableRigid",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Debug-only PT motion-vector quarantine: mark routed rigid surfaces as invalid motion instead of exporting rigid object-motion vectors" );
 
 idCVar r_pathTracingRestirPTDirectLighting(
     "r_pathTracingRestirPTDirectLighting",

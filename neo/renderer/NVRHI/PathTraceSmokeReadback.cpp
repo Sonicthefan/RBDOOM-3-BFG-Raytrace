@@ -284,7 +284,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     const int debugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
-    const int restirPTDiDebugView = idMath::ClampInt(0, 69, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const int restirPTDiDebugView = idMath::ClampInt(0, 70, r_pathTracingRestirPTDiDebugView.GetInteger());
     const int view68DumpMode = r_pathTracingRestirPTView68Dump.GetInteger();
     const bool view68DumpRequested = debugMode == 56 && (restirPTDiDebugView == 68 || restirPTDiDebugView == 69) && view68DumpMode != 0;
     const bool view69TupleDumpRequested = view68DumpRequested && restirPTDiDebugView == 69;
@@ -596,6 +596,14 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             RestirPTView68BandName(sampleBand),
             RestirPTView68BucketName(sampleBucket),
             view68SampleRgba[0], view68SampleRgba[1], view68SampleRgba[2], view68SampleRgba[3]);
+        common->Printf("PathTracePrimaryPass: PT mode56 view68 RRX debug bypass motion/depth/normal/surfaceSimilarity/resetMask/portal flatContribution=%d/%d/%d/%d/%d/%d %d\n",
+            r_pathTracingRestirPTRrxDebugBypassMotion.GetInteger(),
+            r_pathTracingRestirPTRrxDebugBypassDepth.GetInteger(),
+            r_pathTracingRestirPTRrxDebugBypassNormal.GetInteger(),
+            r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity.GetInteger(),
+            r_pathTracingRestirPTRrxDebugBypassResetMask.GetInteger(),
+            r_pathTracingRestirPTRrxDebugBypassPortal.GetInteger(),
+            r_pathTracingRestirPTRrxDebugFlatContribution.GetInteger());
         common->Printf("PathTracePrimaryPass: PT mode56 view68 roi buckets green/pass=%d(%.2f%%) red/rejected=%d(%.2f%%) blue/noPrevious=%d(%.2f%%) cyan/currentOnly=%d(%.2f%%) purple/prevRemapInvalid=%d(%.2f%%) orange/currentPrevMismatch=%d(%.2f%%) yellow/globalClear=%d(%.2f%%) dark/notApplicable=%d(%.2f%%) black/invalid=%d(%.2f%%) other=%d(%.2f%%)\n",
             RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Green), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Green)) / static_cast<float>(roiPixels),
             RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Red), 100.0f * static_cast<float>(RestirPTView68BucketCount(view68RoiCounts, RestirPTView68Bucket::Red)) / static_cast<float>(roiPixels),

@@ -1304,6 +1304,17 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
     }
 
     uint sourceKind = PathTraceMotionVectorSourceKind(surface);
+    if (RestirPTSurfaceInfo.w >= 0.5 && sourceKind == PT_MOTION_VECTOR_SOURCE_RIGID)
+    {
+        if (motionVectorExportEnabled)
+        {
+            PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+            PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION);
+        }
+        PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, false, RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION);
+        return;
+    }
+
     int2 previousPixel;
     float2 previousPixelFloat;
     float2 motionPixels;

@@ -585,7 +585,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool restirPTSpatialShadingMode = debugMode == 50;
     const bool restirPTSpatialAttributionMode = debugMode == 51;
     const bool restirPTCombinedMode = debugMode == 56;
-    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 69, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
+    const int restirPTDiDebugView = restirPTCombinedMode ? idMath::ClampInt(0, 70, r_pathTracingRestirPTDiDebugView.GetInteger()) : 0;
     const uint32_t safetyDisableMask = BuildPathTraceSafetyDisableMask();
     const bool disableSelectedLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP);
     const bool disableAnalyticLightLoop = PathTraceSafetyDisabled(safetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
@@ -1229,7 +1229,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 5, r_pathTracingRestirPTMaterialSimilarityMode.GetInteger()));
     constants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPTTemporalNeighborDebugMode.GetInteger()));
     constants.restirPTSurfaceInfo[2] = r_pathTracingRestirPTUnifiedPrevToCurrentScan.GetBool() ? 1.0f : 0.0f;
-    constants.restirPTSurfaceInfo[3] = 0.0f;
+    constants.restirPTSurfaceInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
     constants.restirPTDirectInfo[0] = static_cast<float>(restirPTDirectWidth);
     constants.restirPTDirectInfo[1] = static_cast<float>(restirPTDirectHeight);
     constants.restirPTDirectInfo[2] = 0.0f;
@@ -1255,8 +1255,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.unifiedLightInfo[3] = static_cast<float>(Max(0, m_smokeUnifiedLightRemapCount));
     constants.restirPTDiDebugInfo[0] = static_cast<float>(restirPTDiDebugView);
     constants.restirPTDiDebugInfo[1] = 0.0f;
-    constants.restirPTDiDebugInfo[2] = 0.0f;
-    constants.restirPTDiDebugInfo[3] = 0.0f;
+    uint32_t rrxDebugBypassFlags = 0u;
+    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassMotion.GetBool() ? (1u << 0) : 0u;
+    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassDepth.GetBool() ? (1u << 1) : 0u;
+    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassNormal.GetBool() ? (1u << 2) : 0u;
+    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity.GetBool() ? (1u << 3) : 0u;
+    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassResetMask.GetBool() ? (1u << 4) : 0u;
+    rrxDebugBypassFlags |= r_pathTracingRestirPTRrxDebugBypassPortal.GetBool() ? (1u << 5) : 0u;
+    constants.restirPTDiDebugInfo[2] = static_cast<float>(rrxDebugBypassFlags);
+    constants.restirPTDiDebugInfo[3] = r_pathTracingRestirPTRrxDebugFlatContribution.GetBool() ? 1.0f : 0.0f;
     auto updateRemixDiReservoirProbeConstants = [&]()
     {
         const PathTraceRemixRtxdiReservoirDomain& remixDiDomain = m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI);
@@ -1667,6 +1674,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTCombinedMode,
             restirPTDiDebugView,
             r_pathTracingRemixRtxdiResourcesEnable.GetInteger() != 0,
+            r_pathTracingRestirPTRrxDebugFlatContribution.GetInteger() != 0,
             disableReservoirWrites }) != PATH_TRACE_REMIX_RTXDI_DI_CLEAR_SOURCE_NONE &&
         m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).clearPending;
     if (remixRtxdiDiClearRequested)
