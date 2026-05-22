@@ -1118,6 +1118,25 @@ Ray dispatch safety diagnostics:
   distinguish a valid current producer/final-consumer path from temporal reuse
   or history state that later suppresses the contribution.
 
+- r_pathTracingRestirPTRrxDebugBypassMotion /
+  r_pathTracingRestirPTRrxDebugBypassDepth /
+  r_pathTracingRestirPTRrxDebugBypassNormal /
+  r_pathTracingRestirPTRrxDebugBypassSurfaceSimilarity /
+  r_pathTracingRestirPTRrxDebugBypassResetMask /
+  r_pathTracingRestirPTRrxDebugBypassPortal
+  Debug-only RRX DI temporal validation bypasses. Defaults to 0. Set one of
+  these to 1 only to isolate which temporal acceptance gate is rejecting
+  previous-frame reuse. They do not change current-frame initial sampling or the
+  RAB light sampling contract, and they should stay off for normal validation.
+  DI debug view `68` shows the active bypass state in its top bands.
+
+- r_pathTracingRestirPTRrxDebugFlatContribution
+  Debug-only RRX DI combined-output probe. Defaults to 0. Set to 1 to replace a
+  valid temporal DI contribution with a fixed color after reservoir generation.
+  This proves the mode-56 output route and accumulation path can display an RRX
+  DI result, but it is not a lighting-quality view and should not be used as
+  evidence that sampled light contribution is correct.
+
 - r_pathTracingRestirPTRrxTemporalPermutation
   RRX DI temporal reuse switch. Defaults to 0. Enables RTXDI temporal
   permutation sampling with a frame-varying uniform random number, matching the
