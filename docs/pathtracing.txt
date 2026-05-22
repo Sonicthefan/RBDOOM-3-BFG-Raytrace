@@ -1015,9 +1015,10 @@ Ray dispatch safety diagnostics:
   outputs raw RRX DI temporal light-index tuples for terminal readback:
   current light, current-to-previous translation, previous stored light, and
   previous-to-current translation, each encoded as `index + 1` with `0` meaning
-  invalid or absent. View 69 bypasses mode-56 accumulation so the tuple readback
-  is not averaged across frames. View `70` is the RRX DI temporal input evidence
-  view and bypasses mode-56 accumulation. It displays fourteen vertical bands:
+  invalid or absent. Views `60`-`76` bypass mode-56 accumulation so RRX DI
+  heartbeat, raw storage, temporal, final-consumer, and weight-audit proofs are
+  not stabilized by the old `SmokeAccumulation` path. View `70` is the RRX DI
+  temporal input evidence view. It displays fourteen vertical bands:
   producer-record expected motion source, producer-record expected motion XY,
   reset-mask safety, previous-surface validity at the RTXDI reprojected pixel,
   same-depth baseline pass, exported motion-vector Z expected-depth pass,
@@ -1068,10 +1069,10 @@ Ray dispatch safety diagnostics:
   sampled-light invalid, yellow means zero solid angle, amber means zero
   reservoir weight, red means zero target PDF, blue means facing/NdotL rejection,
   dark red means visibility rejection, pink means zero final contribution, and
-  black below the strip means the selected sample did not contribute. Unlike the
-  classifier/audit views, view `72` participates in
-  `r_pathTracingRestirPTMode56Accumulation` so the raw DI contribution can be
-  checked for convergence. View `73`
+  black below the strip means the selected sample did not contribute. Like the
+  other RRX proof views, view `72` bypasses
+  `r_pathTracingRestirPTMode56Accumulation`; use it to inspect the raw per-frame
+  final-consumer result, not old accumulator convergence. View `73`
   shows the same final-consumer result across the full screen: the left half is
   the per-pixel status color and the right half is contribution magnitude for
   successful samples, tinted by selected light type. View `74` visualizes the
@@ -1112,9 +1113,9 @@ Ray dispatch safety diagnostics:
   `r_pathTracingRemixLightManagerRAB 1` and internally enables the unified
   light load/sample shape needed by manager payloads, so the old unified
   load/sample CVars are legacy/debug comparison switches rather than required
-  activation steps. It participates in
-  `r_pathTracingRestirPTMode56Accumulation`; it should not be treated as a
-  classifier-only bypass view.
+  activation steps. It bypasses `r_pathTracingRestirPTMode56Accumulation` so
+  normal view-0 final-consumer proof is not stabilized by the old mode-56
+  accumulator.
 
 - r_pathTracingRestirPTRrxFinalConsumerCurrentOnly
   Debug-only RRX DI final-consumer switch. Defaults to 0. Set to 1 to consume
@@ -1216,8 +1217,10 @@ Ray dispatch safety diagnostics:
 - r_pathTracingRestirPTMode56Accumulation
   Temporary diagnostic accumulator for debug mode 56 final/subview output.
   Defaults to 0. Set to 1 only when isolating whether a mode 56 view can hold
-  history once its input is otherwise stable. This is not a ReSTIR reservoir
-  fix and should not be treated as final accumulation policy.
+  history once its input is otherwise stable. RRX DI proof views `60`-`76` and
+  `r_pathTracingRestirPTRrxFinalConsumerOutput 1` bypass this accumulator. This
+  is not a ReSTIR reservoir fix and should not be treated as final accumulation
+  policy.
 
 - r_pathTracingRestirPTMode56AccumulationMaxFrames
   Defaults to 256. Caps the temporary debug-mode-56 accumulator frame count

@@ -468,10 +468,19 @@ float4 RestirPTSanitizeAccumulationColor(float4 color)
     return color;
 }
 
-float4 RestirPTAccumulateMode56Output(uint2 pixel, float4 color)
+bool RestirPTDiDebugViewBypassesMode56Accumulation(uint view)
 {
-    const uint diDebugView = clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 76u);
-    if (diDebugView == 69u || diDebugView == 70u || diDebugView == 73u || diDebugView == 74u || diDebugView == 75u || diDebugView == 76u)
+    return view >= 60u && view <= 76u;
+}
+
+bool RestirPTFinalConsumerOutputBypassesMode56Accumulation()
+{
+    return RestirPTGiDebugInfo.z >= 0.5;
+}
+
+float4 RestirPTAccumulateMode56Output(uint2 pixel, float4 color, bool bypassMode56Accumulation)
+{
+    if (bypassMode56Accumulation)
     {
         return color;
     }
@@ -853,7 +862,7 @@ void RayGen()
     const uint guideDebugView = RayReconstructionGuideDebugView();
     if (guideDebugView != 0u)
     {
-        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRayReconstructionGuideDebug(pixel, guideDebugView));
+        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRayReconstructionGuideDebug(pixel, guideDebugView), false);
         return;
     }
 
@@ -861,7 +870,10 @@ void RayGen()
     if (diDebugView != 0u)
     {
         const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
-        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRestirPTDiDebugView(surface, pixel, diDebugView));
+        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(
+            pixel,
+            EvaluateRestirPTDiDebugView(surface, pixel, diDebugView),
+            RestirPTDiDebugViewBypassesMode56Accumulation(diDebugView));
         return;
     }
 
@@ -869,12 +881,15 @@ void RayGen()
     if (giDebugView != 0u)
     {
         const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
-        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRestirPTGiDebugView(surface, pixel, giDebugView));
+        SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateRestirPTGiDebugView(surface, pixel, giDebugView), false);
         return;
     }
 
     const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
-    SmokeOutput[pixel] = RestirPTAccumulateMode56Output(pixel, EvaluateCombinedResolve(surface, pixel));
+    SmokeOutput[pixel] = RestirPTAccumulateMode56Output(
+        pixel,
+        EvaluateCombinedResolve(surface, pixel),
+        RestirPTFinalConsumerOutputBypassesMode56Accumulation());
 }
 
 [shader("miss")]
