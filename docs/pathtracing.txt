@@ -961,8 +961,10 @@ Ray dispatch safety diagnostics:
   Do not use this view as proof that direct temporal/spatial reuse is complete.
 
 - r_pathTracingRestirPTDiDebugView
-  Mode 56 DI comparison view. `0` keeps normal mode 56 output, `1` shows the
-  raw DI reservoir estimate, `2` shows the debug-only DI temporal reservoir
+  Mode 56 DI comparison view. Defaults to `72`, the active RRX DI
+  final-consumer proof path. `0` keeps legacy normal mode-56 view 0 for
+  comparison only, `1` shows the raw DI reservoir estimate, `2` shows the
+  debug-only DI temporal reservoir
   as a direct-light preview with temporal reservoir history, `3` shows the
   debug-only DI spatial candidate, `4` shows raw DI reservoir
   validity/M/WeightSum, `5` shows DI spatial/temporal status colors, `6` shows
@@ -1050,15 +1052,16 @@ Ray dispatch safety diagnostics:
   audit and bypasses mode-56 accumulation. It mirrors the normal
   combined-resolve decision path, then displays eight bands: surface lighting
   gate, selected direct source, RRX replay status, unscaled RRX contribution,
-  old spatial-direct fallback contribution, GI contribution, raw reflected BSDF
-  radiance, and final no-reflection view-0 preview output. In band 0, green
-  means the surface can take opaque diffuse lighting, purple means view 0 would
-  return only base/emissive because the surface fails that gate, and dark red
-  means invalid surface. In band 1, cyan/green follows the selected RRX light
-  type, yellow means view 0 fell back to the old spatial-direct reservoir, and
-  red/dark means no direct contribution. Use it when flat RRX contribution
-  proves the temporal path is active but real mode-56 view 0 lighting is
-  visually absent. View `72` is the RRX DI final-consumer bridge. It bypasses
+  legacy spatial-direct comparison contribution, GI comparison contribution,
+  raw reflected BSDF radiance, and final no-reflection view-0 preview output.
+  In band 0, green
+  means the surface can take opaque diffuse lighting, purple means legacy view
+  0 would return only base/emissive because the surface fails that gate, and
+  dark red means invalid surface. In band 1, cyan/green follows the selected
+  RRX light type, yellow means only the legacy comparison branch found an old
+  spatial-direct reservoir, and red/dark means no direct contribution. Use it
+  only as a branch audit; it is not the active view-0 acceptance path. View
+  `72` is the default RRX DI final-consumer bridge. It bypasses
   the old combined-resolve preview, consumes the current RRX DI reservoir
   selected light, samples that light through RAB, checks target PDF and
   `solidAnglePdf * reservoir.weightSum`, traces local visibility, and displays
@@ -1105,11 +1108,12 @@ Ray dispatch safety diagnostics:
   write only the debug output, not RR input.
 
 - r_pathTracingRestirPTRrxFinalConsumerOutput
-  Mode 56 view-0 output switch. Defaults to 0. Set to 1 to replace the old
-  combined-resolve preview lighting with the same RRX DI final-consumer bridge
-  used by DI debug view `72`. This keeps the normal view-0 output route but
-  removes GI, reflection, old spatial-direct fallback, and old combined-preview
-  contribution mixing from the result. The normal RRX route now defaults to
+  Legacy/debug mode-56 view-0 replacement switch. Defaults to 0. The active RRX
+  proof path is DI debug view `72`, selected by
+  `r_pathTracingRestirPTDiDebugView 72` by default. Set this to 1 only when
+  explicitly comparing whether view 0 can be replaced by the same RRX DI
+  final-consumer bridge; do not use it as the default acceptance path. The
+  normal RRX route now defaults to
   `r_pathTracingRemixLightManagerRAB 1` and internally enables the unified
   light load/sample shape needed by manager payloads, so the old unified
   load/sample CVars are legacy/debug comparison switches rather than required
@@ -3615,11 +3619,15 @@ at bounceDepth 2 and records secondary-surface NEE as pathLength 4; keeping the
 default initial max of 3 makes indirect analytic NEE disappear while emissive
 secondary hits can still appear. The override is scoped to the GI debug modes.
 
-Mode 56 is the combined direct + GI debug preview. Direct/DI is raw
-initial-reservoir output, and GI initial is the normal-mode-56 baseline. The 01C
-GI temporal candidate exists only in `r_pathTracingRestirPTGiDebugView 2`; it
-does not feed normal mode 56 or RR input yet. The mode-56 primary-prepass route
-now forces motion-vector export because the DI/GI temporal debug reservoirs use
+Mode 56 now defaults to DI debug view `72`, the active RRX DI final-consumer
+proof path. It consumes the RRX DI temporal reservoir through the Remix-manager
+RAB light records and does not mix the old spatial-direct, GI preview,
+reflection preview, or combined-preview fallback into the result. Set
+`r_pathTracingRestirPTDiDebugView 0` only for legacy mode-56 view-0 comparison.
+The 01C GI temporal candidate exists only in
+`r_pathTracingRestirPTGiDebugView 2`; it does not feed normal mode 56 or RR input
+yet. The mode-56 primary-prepass route now forces motion-vector export because
+the DI/GI temporal debug reservoirs use
 the primary-surface producer's motion-vector mask, xy motion, and reset mask for
 previous-pixel lookup. Same-pixel DI history fallback is restricted to valid
 near-zero exported motion, plus a debug-scoped ordinary-rigid fallback when the

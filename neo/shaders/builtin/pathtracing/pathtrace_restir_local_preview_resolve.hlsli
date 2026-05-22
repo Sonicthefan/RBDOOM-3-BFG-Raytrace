@@ -74,12 +74,22 @@ RestirPTCombinedLighting RestirPTEvaluateCombinedLightingNoReflection(RAB_Surfac
     const float3 emissiveRadiance = RestirPTSanitizeHdrRadiance(surface.material.emissiveRadiance);
     if (RestirPTRrxFinalConsumerOutputEnabled())
     {
+        const float3 surfaceBase = RestirPTVisibleSurfaceBase(surface);
+        if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+        {
+            result.preview = surfaceBase;
+            result.hdrRadiance = emissiveRadiance;
+            return result;
+        }
+
         const RestirPTRrxDiFinalConsumerResult rrxDiResult = RestirPTRrxDiEvaluateFinalConsumer(surface, pixel);
-        const float3 directRadiance = rrxDiResult.status == RESTIR_PT_RRX_DI_FINAL_EVALUATED
-            ? rrxDiResult.contribution
-            : float3(0.0, 0.0, 0.0);
+        const bool rrxDiEvaluated = rrxDiResult.status == RESTIR_PT_RRX_DI_FINAL_EVALUATED;
+        const float3 directRadiance = rrxDiEvaluated ? rrxDiResult.contribution : float3(0.0, 0.0, 0.0);
+        const float3 statusColor = RestirPTRrxDiFinalConsumerStatusColor(rrxDiResult.status, rrxDiResult.lightType).rgb;
         result.hdrRadiance = RestirPTSanitizeHdrRadiance(emissiveRadiance + directRadiance);
-        result.preview = saturate(RestirPTVisibleSurfaceBase(surface) + RestirPTToneMapPreview(directRadiance));
+        result.preview = rrxDiEvaluated
+            ? saturate(surfaceBase + RestirPTToneMapPreview(directRadiance))
+            : (pixel.y < 24u ? statusColor : saturate(surfaceBase * 0.35 + statusColor * 0.15));
         return result;
     }
 
@@ -206,6 +216,12 @@ float3 RestirPTScreenSpaceReflectionPreview(RAB_Surface surface, uint2 pixel)
 float4 EvaluateCombinedResolve(RAB_Surface surface, uint2 pixel)
 {
     const RestirPTCombinedLighting lighting = RestirPTEvaluateCombinedLightingNoReflection(surface, pixel);
+    if (RestirPTRrxFinalConsumerOutputEnabled())
+    {
+        PathTraceRRInputColor[pixel] = float4(lighting.hdrRadiance, 1.0);
+        return float4(lighting.preview, 1.0);
+    }
+
     if (!RestirPTSurfaceSupportsReflectionPreview(surface, RestirPTReflectionPreviewMode()))
     {
         PathTraceRRInputColor[pixel] = float4(lighting.hdrRadiance, 1.0);
