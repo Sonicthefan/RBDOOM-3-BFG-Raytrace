@@ -549,7 +549,7 @@ bool RestirPTActiveRabTranslationParitySelectLight(uint2 pixel, out uint selecte
     for (uint probe = 0u; probe < probeCount; ++probe)
     {
         const uint lightIndex = (start + probe) % currentCount;
-        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+        const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
         if (RAB_IsLightInfoValid(lightInfo))
         {
             selectedLightIndex = lightIndex;
@@ -611,16 +611,16 @@ float4 EvaluateRestirPTActiveRabTranslationParityView(uint2 pixel)
         return float4(0.85, 0.02, 0.02, 1.0);
     }
 
-    const RAB_LightInfo currentLightInfo = RAB_LoadLightInfo(currentLightIndex, false);
+    const RAB_LightInfo currentLightInfo = RAB_LoadActiveRrxLightInfo(currentLightIndex, false);
     const bool currentLoadValid = RAB_IsLightInfoValid(currentLightInfo);
-    const int previousIndex = currentLoadValid ? RAB_TranslateLightIndex(currentLightIndex, true) : -1;
+    const int previousIndex = currentLoadValid ? RAB_TranslateActiveRrxLightIndex(currentLightIndex, true) : -1;
     RAB_LightInfo previousLightInfo = RAB_EmptyLightInfo();
     if (previousIndex >= 0)
     {
-        previousLightInfo = RAB_LoadLightInfo((uint)previousIndex, true);
+        previousLightInfo = RAB_LoadActiveRrxLightInfo((uint)previousIndex, true);
     }
     const bool previousLoadValid = previousIndex >= 0 && RAB_IsLightInfoValid(previousLightInfo);
-    const int roundTripCurrentIndex = previousLoadValid ? RAB_TranslateLightIndex((uint)previousIndex, false) : -1;
+    const int roundTripCurrentIndex = previousLoadValid ? RAB_TranslateActiveRrxLightIndex((uint)previousIndex, false) : -1;
 
     const uint cellSize = 12u;
     const uint2 localPixel = pixel % cellSize;
@@ -926,7 +926,7 @@ bool RestirPTRrxDiTryResolvePreviousBestCurrentLight(
         return false;
     }
 
-    const int translatedLightIndex = RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(previousReservoir), false);
+    const int translatedLightIndex = RAB_TranslateActiveRrxLightIndex(RTXDI_GetDIReservoirLightIndex(previousReservoir), false);
     if (translatedLightIndex < 0)
     {
         return false;
@@ -964,7 +964,7 @@ uint RestirPTRrxDiLightTypeFromReservoir(RTXDI_DIReservoir reservoir)
     {
         return PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID;
     }
-    return RestirPTRrxDiLightTypeFromInfo(RAB_LoadLightInfo(RTXDI_GetDIReservoirLightIndex(reservoir), false));
+    return RestirPTRrxDiLightTypeFromInfo(RAB_LoadActiveRrxLightInfo(RTXDI_GetDIReservoirLightIndex(reservoir), false));
 }
 
 RTXDI_DIReservoir RestirPTRrxDiBuildPreviousBestReservoir(
@@ -972,7 +972,7 @@ RTXDI_DIReservoir RestirPTRrxDiBuildPreviousBestReservoir(
     RAB_Surface surface,
     uint currentLightIndex)
 {
-    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(currentLightIndex, false);
+    const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(currentLightIndex, false);
     if (!RAB_IsLightInfoValid(lightInfo))
     {
         return RTXDI_EmptyDIReservoir();
@@ -980,7 +980,7 @@ RTXDI_DIReservoir RestirPTRrxDiBuildPreviousBestReservoir(
 
     RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
     const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+    const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, uv);
     const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
     if (lightSample.valid != 0u && targetPdf > 0.0)
     {
@@ -1063,7 +1063,7 @@ void RestirPTRrxDiStreamLightRangeIntoReservoir(
                 ++initialDebugInfo.doomAnalyticCandidateCount;
             }
 
-            const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+            const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
             if (!RAB_IsLightInfoValid(lightInfo))
             {
                 if (rangeLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
@@ -1078,7 +1078,7 @@ void RestirPTRrxDiStreamLightRangeIntoReservoir(
             else
             {
                 const float2 uv = RTXDI_RandomlySelectLocalLightUV(rng);
-                const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+                const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, uv);
                 const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
                 if (lightSample.valid != 0u)
                 {
@@ -1681,7 +1681,7 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     }
 
     const int currentToPrevious = currentValid
-        ? RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(currentReservoir), true)
+        ? RAB_TranslateActiveRrxLightIndex(RTXDI_GetDIReservoirLightIndex(currentReservoir), true)
         : -1;
     debugInfo.currentToPreviousValid = currentToPrevious >= 0 ? 1u : 0u;
     if (currentToPrevious >= 0)
@@ -1740,7 +1740,7 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
         debugInfo.previousUsedTargetPdf = usedPreviousReservoir.targetPdf;
     }
     const int usedPreviousToCurrent = usedPreviousValid
-        ? RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(usedPreviousReservoir), false)
+        ? RAB_TranslateActiveRrxLightIndex(RTXDI_GetDIReservoirLightIndex(usedPreviousReservoir), false)
         : -1;
     if (usedPreviousToCurrent >= 0)
     {
@@ -1804,13 +1804,13 @@ bool RestirPTRrxDiTryEvaluateTemporalContribution(RAB_Surface surface, uint2 pix
     }
 
     const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
-    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
     if (!RAB_IsLightInfoValid(lightInfo))
     {
         return false;
     }
 
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+    const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(
         lightInfo,
         surface,
         RTXDI_GetDIReservoirSampleUV(reservoir));
@@ -1943,14 +1943,14 @@ uint RestirPTRrxDiClassifyTemporalReplay(RAB_Surface surface, RTXDI_DIReservoir 
     }
 
     const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
-    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
     lightType = RestirPTRrxDiLightTypeFromInfo(lightInfo);
     if (!RAB_IsLightInfoValid(lightInfo))
     {
         return RESTIR_PT_RRX_DI_REPLAY_LIGHT_INFO_INVALID;
     }
 
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+    const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(
         lightInfo,
         surface,
         RTXDI_GetDIReservoirSampleUV(reservoir));
@@ -2157,7 +2157,7 @@ RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumer(RAB_Surface 
 
     const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
     result.lightIndexEncoded = lightIndex + 1u;
-    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
     result.lightType = RestirPTRrxDiLightTypeFromInfo(lightInfo);
     if (!RAB_IsLightInfoValid(lightInfo))
     {
@@ -2165,7 +2165,7 @@ RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumer(RAB_Surface 
         return result;
     }
 
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+    const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(
         lightInfo,
         surface,
         RTXDI_GetDIReservoirSampleUV(reservoir));
@@ -2671,10 +2671,10 @@ float4 EvaluateRestirPTRrxDiView0ContributionView(RAB_Surface surface, uint2 pix
     if (temporalValid)
     {
         const uint lightIndex = RTXDI_GetDIReservoirLightIndex(temporalReservoir);
-        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+        const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
         if (RAB_IsLightInfoValid(lightInfo))
         {
-            const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(
+            const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(
                 lightInfo,
                 surface,
                 RTXDI_GetDIReservoirSampleUV(temporalReservoir));

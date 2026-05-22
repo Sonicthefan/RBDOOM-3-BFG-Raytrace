@@ -195,11 +195,20 @@ RAB_LightSample RAB_SampleUnifiedPolymorphicLight(RAB_LightInfo lightInfo, RAB_S
 
 RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
 {
-    if (RAB_UnifiedLightSampleEnabled())
+    if (RAB_RestirLightManagerRABEnabled() || RAB_UnifiedLightSampleEnabled())
     {
         return RAB_SampleUnifiedPolymorphicLight(lightInfo, surface, uv);
     }
     return RAB_SampleSplitPolymorphicLight(lightInfo, surface, uv);
+}
+
+RAB_LightSample RAB_SampleActiveRrxPolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
+{
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return RAB_EmptyLightSample();
+    }
+    return RAB_SampleUnifiedPolymorphicLight(lightInfo, surface, uv);
 }
 
 #endif

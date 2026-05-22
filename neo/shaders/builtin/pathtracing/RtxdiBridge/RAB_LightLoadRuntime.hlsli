@@ -598,4 +598,22 @@ RAB_LightInfo RAB_LoadLightInfo(uint index, bool previousFrame)
     return RAB_LoadSplitLightInfo(index, previousFrame);
 }
 
+int RAB_TranslateActiveRrxLightIndex(uint lightIndex, bool currentToPrevious)
+{
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return -1;
+    }
+    return RAB_TranslateRestirLightManagerIndex(lightIndex, currentToPrevious);
+}
+
+RAB_LightInfo RAB_LoadActiveRrxLightInfo(uint index, bool previousFrame)
+{
+    if (!RAB_RestirLightManagerRABEnabled())
+    {
+        return RAB_EmptyLightInfo();
+    }
+    return RAB_LoadRestirLightManagerLightInfo(index, previousFrame);
+}
+
 #endif
