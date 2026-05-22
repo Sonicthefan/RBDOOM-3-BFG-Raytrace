@@ -471,7 +471,7 @@ float4 RestirPTSanitizeAccumulationColor(float4 color)
 float4 RestirPTAccumulateMode56Output(uint2 pixel, float4 color)
 {
     const uint diDebugView = clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 76u);
-    if (diDebugView == 69u || diDebugView == 70u || diDebugView == 73u || diDebugView == 74u || diDebugView == 75u || diDebugView == 76u || RestirPTGiDebugInfo.z >= 0.5)
+    if (diDebugView == 69u || diDebugView == 70u || diDebugView == 73u || diDebugView == 74u || diDebugView == 75u || diDebugView == 76u)
     {
         return color;
     }

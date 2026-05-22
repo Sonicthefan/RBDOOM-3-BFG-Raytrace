@@ -1112,7 +1112,9 @@ Ray dispatch safety diagnostics:
   `r_pathTracingRestirPTUnifiedLightLoad 1`,
   `r_pathTracingRestirPTUnifiedLightSample 1`, and
   `r_pathTracingRemixLightManagerRAB 1` when validating analytic-light DI
-  contribution without the `72` status strip.
+  contribution without the `72` status strip. It participates in
+  `r_pathTracingRestirPTMode56Accumulation`; it should not be treated as a
+  classifier-only bypass view.
 
 - r_pathTracingRestirPTRrxFinalConsumerCurrentOnly
   Debug-only RRX DI final-consumer switch. Defaults to 0. Set to 1 to consume
