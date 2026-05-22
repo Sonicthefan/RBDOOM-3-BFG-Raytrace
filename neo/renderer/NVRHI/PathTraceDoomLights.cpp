@@ -8,6 +8,7 @@
 #include "../../d3xp/Game_local.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -24,6 +25,11 @@ const int RT_PT_DOOM_LIGHT_MAX_AREA_REFS = 32;
 const int RT_PT_DOOM_DYNAMIC_LIGHT_PRUNE_MISSING_FRAMES = 300;
 const uint32_t RT_PT_DOOM_LIGHT_INVALID_INDEX = 0xffffffffu;
 const uint32_t RT_PT_DOOM_LIGHT_INVALID_ENTITY_NUMBER = 0xffffffffu;
+
+float FinitePositiveOrZero(float value)
+{
+    return std::isfinite(value) && value > 0.0f ? value : 0.0f;
+}
 
 enum DoomAnalyticLightUniverseTemporalState : uint32_t
 {
@@ -1682,16 +1688,18 @@ PathTraceDoomAnalyticLightCandidateIdentity MakeInvalidDoomAnalyticCandidateIden
 PathTraceDoomAnalyticLightCandidate MakeDoomAnalyticLightCandidateFromUniverseEntry(const DoomAnalyticLightUniverseEntry& entry)
 {
     PathTraceDoomAnalyticLightCandidate gpuLight = {};
+    const float sphereRadius = FinitePositiveOrZero(entry.sphereRadius);
+    const float doomRadius = FinitePositiveOrZero(entry.doomRadius);
     gpuLight.originAndRadius[0] = entry.origin.x;
     gpuLight.originAndRadius[1] = entry.origin.y;
     gpuLight.originAndRadius[2] = entry.origin.z;
-    gpuLight.originAndRadius[3] = Max(entry.sphereRadius, 0.01f);
+    gpuLight.originAndRadius[3] = sphereRadius;
     gpuLight.colorAndIntensity[0] = Max(entry.color.x, 0.0f);
     gpuLight.colorAndIntensity[1] = Max(entry.color.y, 0.0f);
     gpuLight.colorAndIntensity[2] = Max(entry.color.z, 0.0f);
     gpuLight.colorAndIntensity[3] = Max(entry.color.w, 0.0f);
-    gpuLight.doomRadiusAndArea[0] = Max(entry.doomRadius, 1.0f);
-    gpuLight.doomRadiusAndArea[1] = 12.56637061f * gpuLight.originAndRadius[3] * gpuLight.originAndRadius[3];
+    gpuLight.doomRadiusAndArea[0] = doomRadius;
+    gpuLight.doomRadiusAndArea[1] = 12.56637061f * sphereRadius * sphereRadius;
     gpuLight.doomRadiusAndArea[2] = static_cast<float>(entry.portalDepth);
     gpuLight.doomRadiusAndArea[3] = static_cast<float>(entry.selectionArea);
     gpuLight.flags = entry.flags;
@@ -2173,16 +2181,18 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
     {
         const DoomLightRecord& light = candidates[i];
         PathTraceDoomAnalyticLightCandidate gpuLight = {};
+        const float sphereRadius = FinitePositiveOrZero(light.sphereRadius);
+        const float doomRadius = FinitePositiveOrZero(light.radiusMax);
         gpuLight.originAndRadius[0] = light.origin.x;
         gpuLight.originAndRadius[1] = light.origin.y;
         gpuLight.originAndRadius[2] = light.origin.z;
-        gpuLight.originAndRadius[3] = Max(light.sphereRadius, 0.01f);
+        gpuLight.originAndRadius[3] = sphereRadius;
         gpuLight.colorAndIntensity[0] = Max(light.color.x, 0.0f);
         gpuLight.colorAndIntensity[1] = Max(light.color.y, 0.0f);
         gpuLight.colorAndIntensity[2] = Max(light.color.z, 0.0f);
         gpuLight.colorAndIntensity[3] = Max(light.color.w, 0.0f);
-        gpuLight.doomRadiusAndArea[0] = Max(light.radiusMax, 1.0f);
-        gpuLight.doomRadiusAndArea[1] = 12.56637061f * gpuLight.originAndRadius[3] * gpuLight.originAndRadius[3];
+        gpuLight.doomRadiusAndArea[0] = doomRadius;
+        gpuLight.doomRadiusAndArea[1] = 12.56637061f * sphereRadius * sphereRadius;
         gpuLight.doomRadiusAndArea[2] = static_cast<float>(light.portalDepth);
         gpuLight.doomRadiusAndArea[3] = static_cast<float>(light.selectionArea >= 0 ? light.selectionArea : light.area);
         if (light.castsShadows)

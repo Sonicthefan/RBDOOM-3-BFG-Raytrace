@@ -72,6 +72,17 @@ RestirPTCombinedLighting RestirPTEvaluateCombinedLightingNoReflection(RAB_Surfac
     }
 
     const float3 emissiveRadiance = RestirPTSanitizeHdrRadiance(surface.material.emissiveRadiance);
+    if (RestirPTRrxFinalConsumerOutputEnabled())
+    {
+        const RestirPTRrxDiFinalConsumerResult rrxDiResult = RestirPTRrxDiEvaluateFinalConsumer(surface, pixel);
+        const float3 directRadiance = rrxDiResult.status == RESTIR_PT_RRX_DI_FINAL_EVALUATED
+            ? rrxDiResult.contribution
+            : float3(0.0, 0.0, 0.0);
+        result.hdrRadiance = RestirPTSanitizeHdrRadiance(emissiveRadiance + directRadiance);
+        result.preview = saturate(RestirPTVisibleSurfaceBase(surface) + RestirPTToneMapPreview(directRadiance));
+        return result;
+    }
+
     if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         result.preview = RestirPTVisibleSurfaceBase(surface);

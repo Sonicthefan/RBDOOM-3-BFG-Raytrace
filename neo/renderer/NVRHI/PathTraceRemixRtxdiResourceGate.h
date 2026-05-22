@@ -6,6 +6,7 @@ struct PathTraceRemixRtxdiResourceGateDesc
     int restirPTDiDebugView = 0;
     bool remixRtxdiResourcesEnabled = false;
     bool debugFlatContribution = false;
+    bool rrxFinalConsumerOutput = false;
     bool reservoirWritesDisabled = false;
 };
 
@@ -18,7 +19,7 @@ enum PathTraceRemixRtxdiDiClearSource : uint32_t
 
 inline bool PathTraceRemixRtxdiResourceGateUsesProbeView(int view)
 {
-    return view == 60 || (view >= 63 && view <= 66) || view == 68 || view == 69 || view == 70;
+    return view == 60 || view == 61 || view == 62 || (view >= 63 && view <= 66) || view == 68 || view == 69 || view == 70 || view == 72 || view == 73 || view == 74 || view == 75 || view == 76;
 }
 
 inline bool PathTraceRemixRtxdiResourceGateRequestsDiResources(const PathTraceRemixRtxdiResourceGateDesc& desc)
@@ -30,6 +31,7 @@ inline bool PathTraceRemixRtxdiResourceGateRequestsDiResources(const PathTraceRe
 
     return desc.remixRtxdiResourcesEnabled ||
         desc.debugFlatContribution ||
+        desc.rrxFinalConsumerOutput ||
         PathTraceRemixRtxdiResourceGateUsesProbeView(desc.restirPTDiDebugView);
 }
 
@@ -44,7 +46,7 @@ inline PathTraceRemixRtxdiDiClearSource PathTraceRemixRtxdiResourceGateDiClearSo
     {
         return PATH_TRACE_REMIX_RTXDI_DI_CLEAR_SOURCE_NONE;
     }
-    if (desc.remixRtxdiResourcesEnabled || desc.debugFlatContribution)
+    if (desc.remixRtxdiResourcesEnabled || desc.debugFlatContribution || desc.rrxFinalConsumerOutput)
     {
         return PATH_TRACE_REMIX_RTXDI_DI_CLEAR_SOURCE_ACTIVE_RESOURCES;
     }

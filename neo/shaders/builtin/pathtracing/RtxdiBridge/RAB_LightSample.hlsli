@@ -21,6 +21,9 @@ struct RAB_LightSample
     float areaPdf;
 };
 
+static const uint RAB_LIGHT_SAMPLE_FLAG_DOOM_OUTSIDE_INFLUENCE = 0x40000000u;
+static const uint RAB_LIGHT_SAMPLE_FLAG_DOOM_NONFINITE_PAYLOAD = 0x80000000u;
+
 RAB_LightSample RAB_EmptyLightSample()
 {
     RAB_LightSample lightSample = (RAB_LightSample)0;

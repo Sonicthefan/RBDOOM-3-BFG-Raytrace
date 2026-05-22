@@ -37,6 +37,11 @@ bool EmissiveRemapValid(const PathTraceEmissiveLightRemap& remap)
     return (remap.flags & RT_SMOKE_EMISSIVE_REMAP_VALID) != 0u;
 }
 
+bool Finite3(const float value[3])
+{
+    return std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+}
+
 float DoomAnalyticLightColorMagnitude(const PathTraceDoomAnalyticLightCandidate& light)
 {
     return Max3(
@@ -139,13 +144,16 @@ PathTraceUnifiedLightRecord BuildUnifiedDoomAnalyticLightRecord(
     const PathTraceDoomAnalyticLightCandidateIdentity* identity,
     uint32_t sourceIndex)
 {
-    const float radius = std::max(analyticLight.originAndRadius[3], 0.01f);
-    const float influenceRadius = std::max(analyticLight.doomRadiusAndArea[0], 1.0f);
+    const float rawRadius = analyticLight.originAndRadius[3];
+    const float rawInfluenceRadius = analyticLight.doomRadiusAndArea[0];
+    const float radius = std::isfinite(rawRadius) && rawRadius > 0.0f ? rawRadius : 0.0f;
+    const float influenceRadius = std::isfinite(rawInfluenceRadius) && rawInfluenceRadius > 0.0f ? rawInfluenceRadius : 0.0f;
+    const bool finitePosition = Finite3(analyticLight.originAndRadius);
 
     PathTraceUnifiedLightRecord record;
-    record.positionAndRadius[0] = analyticLight.originAndRadius[0];
-    record.positionAndRadius[1] = analyticLight.originAndRadius[1];
-    record.positionAndRadius[2] = analyticLight.originAndRadius[2];
+    record.positionAndRadius[0] = finitePosition ? analyticLight.originAndRadius[0] : 0.0f;
+    record.positionAndRadius[1] = finitePosition ? analyticLight.originAndRadius[1] : 0.0f;
+    record.positionAndRadius[2] = finitePosition ? analyticLight.originAndRadius[2] : 0.0f;
     record.positionAndRadius[3] = radius;
     record.normalAndArea[0] = 0.0f;
     record.normalAndArea[1] = 0.0f;
@@ -156,7 +164,7 @@ PathTraceUnifiedLightRecord BuildUnifiedDoomAnalyticLightRecord(
     record.radianceAndLuminance[2] = std::max(analyticLight.colorAndIntensity[2], 0.0f);
     record.radianceAndLuminance[3] = Luminance(record.radianceAndLuminance);
     record.uvOrDoomParams[0] = influenceRadius;
-    record.uvOrDoomParams[1] = analyticLight.doomRadiusAndArea[1];
+    record.uvOrDoomParams[1] = record.normalAndArea[3];
     record.uvOrDoomParams[2] = analyticLight.doomRadiusAndArea[2];
     record.uvOrDoomParams[3] = analyticLight.doomRadiusAndArea[3];
     record.type = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
@@ -168,7 +176,18 @@ PathTraceUnifiedLightRecord BuildUnifiedDoomAnalyticLightRecord(
     record.identityA = analyticLight.renderLightIndex;
     record.identityB = analyticLight.entityNumber;
     record.sourcePdf = 0.0f;
-    record.sourceWeight = Max3(record.radianceAndLuminance[0], record.radianceAndLuminance[1], record.radianceAndLuminance[2]) * record.normalAndArea[3] * influenceRadius;
+    const bool positiveRadiance = record.radianceAndLuminance[3] > 0.0f &&
+        std::isfinite(record.radianceAndLuminance[0]) &&
+        std::isfinite(record.radianceAndLuminance[1]) &&
+        std::isfinite(record.radianceAndLuminance[2]);
+    const bool sampleablePayload = finitePosition && radius > 0.0f && influenceRadius > 0.0f && positiveRadiance;
+    if (!sampleablePayload)
+    {
+        record.flags &= ~PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE;
+    }
+    record.sourceWeight = sampleablePayload
+        ? Max3(record.radianceAndLuminance[0], record.radianceAndLuminance[1], record.radianceAndLuminance[2]) * record.normalAndArea[3] * influenceRadius
+        : 0.0f;
     return record;
 }
 

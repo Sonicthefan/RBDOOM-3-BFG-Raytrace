@@ -10,6 +10,12 @@ float RAB_GetLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Sur
     {
         return 0.0;
     }
+    if (!all(lightSample.radiance == lightSample.radiance) ||
+        !all(abs(lightSample.radiance) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
+        RAB_Luminance(lightSample.radiance) <= 0.0)
+    {
+        return 0.0;
+    }
 
     float3 lightDir;
     float lightDistance;

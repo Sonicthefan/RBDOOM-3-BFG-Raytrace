@@ -363,14 +363,20 @@ RAB_LightInfo RAB_BuildLightInfoFromEmissivePayload(PathTraceSmokeEmissiveTriang
 
 RAB_LightInfo RAB_BuildLightInfoFromDoomAnalyticPayload(PathTraceDoomAnalyticLightCandidate analyticLight, uint lightIndex)
 {
-    const float radius = max(analyticLight.originAndRadius.w, 0.01);
-    const float influenceRadius = max(analyticLight.doomRadiusAndArea.x, 1.0);
+    const float radius = analyticLight.originAndRadius.w;
+    const float influenceRadius = analyticLight.doomRadiusAndArea.x;
     const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
     const float3 radiance = max(analyticLight.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0)) * intensityScale;
+    const float radianceLuminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
     if (!all(analyticLight.originAndRadius.xyz == analyticLight.originAndRadius.xyz) ||
+        !all(abs(analyticLight.originAndRadius.xyz) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
         !all(radiance == radiance) ||
+        !all(abs(radiance) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
+        radianceLuminance <= 0.0 ||
         radius <= 0.0 ||
-        influenceRadius <= 0.0)
+        radius >= 3.402823e+38 ||
+        influenceRadius <= 0.0 ||
+        influenceRadius >= 3.402823e+38)
     {
         return RAB_EmptyLightInfo();
     }
@@ -387,7 +393,7 @@ RAB_LightInfo RAB_BuildLightInfoFromDoomAnalyticPayload(PathTraceDoomAnalyticLig
     lightInfo.normal = float3(0.0, 0.0, 1.0);
     lightInfo.area = 4.0 * RTXDI_PI * radius * radius;
     lightInfo.radiance = radiance;
-    lightInfo.weight = max(max(lightInfo.radiance.r, lightInfo.radiance.g), lightInfo.radiance.b) * lightInfo.area * influenceRadius;
+    lightInfo.weight = radianceLuminance * lightInfo.area * influenceRadius;
     return lightInfo;
 }
 
@@ -515,15 +521,21 @@ RAB_LightInfo RAB_BuildLightInfoFromUnifiedRecord(PathTraceUnifiedLightRecord re
 
     if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
     {
-        const float radius = max(record.positionAndRadius.w, 0.01);
-        const float influenceRadius = max(record.uvOrDoomParams.x, 1.0);
+        const float radius = record.positionAndRadius.w;
+        const float influenceRadius = record.uvOrDoomParams.x;
         const float intensityScale = max(DoomAnalyticLightInfo.z, 0.0);
         const float3 radiance = max(record.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * intensityScale;
+        const float radianceLuminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
         if (!RAB_UnifiedDoomAnalyticRecordSampleable(record) ||
             !all(record.positionAndRadius.xyz == record.positionAndRadius.xyz) ||
+            !all(abs(record.positionAndRadius.xyz) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
             !all(radiance == radiance) ||
+            !all(abs(radiance) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
+            radianceLuminance <= 0.0 ||
             radius <= 0.0 ||
+            radius >= 3.402823e+38 ||
             influenceRadius <= 0.0 ||
+            influenceRadius >= 3.402823e+38 ||
             record.sourceWeight <= 0.0)
         {
             return RAB_EmptyLightInfo();

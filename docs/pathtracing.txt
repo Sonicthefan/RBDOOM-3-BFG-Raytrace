@@ -1029,7 +1029,68 @@ Ray dispatch safety diagnostics:
   has both `instanceId >= 2` and `surfaceClass == RIGID_ENTITY`; cyan across a
   moving rigid object proves the primary producer is hitting the routed rigid
   TLAS copy rather than the legacy dynamic fallback. It is an input evidence
-  view, not a final lighting-quality view. Views 6-11 are the
+  view, not a final lighting-quality view. View `61` is the RRX DI initial
+  survivor/replay attribution view and bypasses mode-56 accumulation. It shows
+  eight vertical bands: selected initial reservoir light type, selected
+  temporal-output light type, final/preview replay status, emissive candidate
+  survival, Doom analytic candidate survival, light-info-invalid rejection
+  presence, `RAB_SamplePolymorphicLight` invalid-sample rejection presence, and
+  zero-target-PDF rejection presence. Green means emissive, cyan means Doom
+  analytic, yellow means both types in a rejection band, purple means selected
+  light-info invalid, orange means sampled-light invalid, red means zero
+  target PDF, blue in the sample-invalid band means a Doom analytic sample is
+  outside the authored Doom influence radius, pink in that band means a
+  non-finite analytic payload reached sampling, blue in replay means
+  normal/facing rejection, dark red means preview visibility rejection, and
+  black/dark means invalid or absent. Use this view after the range dumps prove
+  non-zero bounded emissive and Doom analytic samples; it localizes whether
+  analytic candidates die at load, polymorphic sampling, target PDF, reservoir
+  selection, or preview replay. View `62` is the RRX DI mode-56 view-0 branch
+  audit and bypasses mode-56 accumulation. It mirrors the normal
+  combined-resolve decision path, then displays eight bands: surface lighting
+  gate, selected direct source, RRX replay status, unscaled RRX contribution,
+  old spatial-direct fallback contribution, GI contribution, raw reflected BSDF
+  radiance, and final no-reflection view-0 preview output. In band 0, green
+  means the surface can take opaque diffuse lighting, purple means view 0 would
+  return only base/emissive because the surface fails that gate, and dark red
+  means invalid surface. In band 1, cyan/green follows the selected RRX light
+  type, yellow means view 0 fell back to the old spatial-direct reservoir, and
+  red/dark means no direct contribution. Use it when flat RRX contribution
+  proves the temporal path is active but real mode-56 view 0 lighting is
+  visually absent. View `72` is the RRX DI final-consumer bridge. It bypasses
+  mode-56 accumulation and the old combined-resolve preview, consumes the
+  current RRX DI reservoir selected light, samples that light through RAB, checks
+  target PDF and `solidAnglePdf * reservoir.weightSum`, traces local visibility,
+  and displays only direct DI contribution as
+  `BRDF * radiance * NdotL * reservoir.weightSum / solidAnglePdf`. The top 24
+  pixels are a status strip: green means emissive success, cyan means Doom
+  analytic success, purple means light-info/resource failure, orange means
+  sampled-light invalid, yellow means zero solid angle, amber means zero
+  reservoir weight, red means zero target PDF, blue means facing/NdotL rejection,
+  dark red means visibility rejection, pink means zero final contribution, and
+  black below the strip means the selected sample did not contribute. View `73`
+  shows the same final-consumer result across the full screen: the left half is
+  the per-pixel status color and the right half is contribution magnitude for
+  successful samples, tinted by selected light type. View `74` visualizes the
+  selected final-consumer light identity: the left half is a stable hash color
+  for the selected light index, mixed slightly with light type; the right half
+  uses the same identity color but darkens successful samples by contribution
+  magnitude and shows failure status colors for rejected samples. Large same-
+  colored regions in overlapping-light areas indicate selection locking onto
+  one source. View `75` is the RRX DI weight-chain audit. It shows eight bands:
+  max target PDF by light range, source-PDF scale by range, RIS weight sum after
+  `RTXDI_StreamSample`, random-reservoir inverse PDF after
+  `RTXDI_FinalizeResampling`, combined pre-finalize weight sum, final initial
+  inverse PDF after finalization, previous-best pressure versus current random
+  candidates, and temporal current/previous/output weight heat. View `76` is
+  the selected-light weight audit. It shows eight bands for the final initial
+  selected light: selected source (emissive, Doom analytic, or previous-best),
+  selected light-index hash, selected target PDF, selected invSourcePdf or
+  effective source weight, selected RIS/effective weight, combined
+  pre-finalize weight sum, final inverse selection PDF, and previous-best
+  pressure versus current random candidates. Use these views for DI-only
+  validation with GI, reflections, DLSS RR, and legacy mode-56
+  fallback behavior out of the result. Views 6-11 are the
   reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
   producer output and avoid the custom DI scratch reservoir math. View 2 does
   not multiply brightness by reservoir `M`; view 3 runs a
@@ -1038,6 +1099,39 @@ Ray dispatch safety diagnostics:
   temporal DI neighbors. The temporal debug path can carry validated previous
   DI temporal history when the current raw DI sample is missing. These views
   write only the debug output, not RR input.
+
+- r_pathTracingRestirPTRrxFinalConsumerOutput
+  Mode 56 view-0 output switch. Defaults to 0. Set to 1 to replace the old
+  combined-resolve preview lighting with the same RRX DI final-consumer bridge
+  used by DI debug view `72`. This keeps the normal view-0 output route but
+  removes GI, reflection, old spatial-direct fallback, and old combined-preview
+  contribution mixing from the result. Use it with
+  `r_pathTracingRestirPTUnifiedLightLoad 1`,
+  `r_pathTracingRestirPTUnifiedLightSample 1`, and
+  `r_pathTracingRemixLightManagerRAB 1` when validating analytic-light DI
+  contribution without the `72` status strip.
+
+- r_pathTracingRestirPTRrxFinalConsumerCurrentOnly
+  Debug-only RRX DI final-consumer switch. Defaults to 0. Set to 1 to consume
+  the current-frame RRX DI reservoir before temporal reuse. Use it with
+  `r_pathTracingRestirPTRrxFinalConsumerOutput 1` or DI debug view `72` to
+  distinguish a valid current producer/final-consumer path from temporal reuse
+  or history state that later suppresses the contribution.
+
+- r_pathTracingRestirPTRrxTemporalPermutation
+  RRX DI temporal reuse switch. Defaults to 0. Enables RTXDI temporal
+  permutation sampling with a frame-varying uniform random number, matching the
+  reference purpose of adding temporal variation to previous-frame reuse and
+  making the output friendlier to denoising. Keep it off for DLSS RR validation
+  when overlapping Doom analytic lights are visibly fighting; set it to 1 only
+  for A/B testing selected-light lock-in against temporal jitter.
+
+- r_pathTracingRestirPTRrxDisablePreviousBest
+  Debug-only RRX DI initial-reservoir switch. Defaults to 0. Set to 1 to prevent
+  the translated previous selected light from being injected as a previous-best
+  candidate during initial reservoir construction. This does not disable RTXDI
+  temporal reuse; it only isolates whether the previous-best candidate path is
+  poisoning initial selection before temporal reuse runs.
 
 - r_pathTracingRestirPTView68Dump
   Mode 56 / DI view 68 or 69 terminal readback. `1` prints one dump then resets to
@@ -1945,6 +2039,14 @@ term when r_pathTracingUseEmissiveMaps is 1.
 
 - r_pathTracingAnalyticSphereLightRadiusMin / r_pathTracingAnalyticSphereLightRadiusMax
   Clamp the diagnostic sphere emitter radius.
+
+- r_pathTracingAnalyticLightDoomRadiusCutoff
+  Debug-only Doom analytic RAB sphere-light switch. Defaults to 0. When 0, the
+  Doom authored radius remains uploaded as explicit influence/proposal metadata
+  but does not hard-reject or attenuate sampled sphere-light radiance. When 1,
+  the RAB sampler restores the old hard Doom-radius cutoff/falloff mask, which
+  is useful for diagnosing selected-light ownership but is not the default RRX
+  analytic-light path.
 
 - r_pathTracingSmokeLog
   Enables or disables periodic RT smoke logging.

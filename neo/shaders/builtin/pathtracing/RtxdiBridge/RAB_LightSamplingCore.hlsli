@@ -43,6 +43,27 @@ float RAB_RaySphereHitT(float3 rayOrigin, float3 rayDirection, float3 sphereCent
     return nearT > 0.01 ? nearT : fallbackT;
 }
 
+float RAB_DoomAnalyticInfluence(float centerDistance, float influenceRadius)
+{
+    if (influenceRadius <= 0.0 || centerDistance > influenceRadius)
+    {
+        return 0.0;
+    }
+
+    const float radiusFraction = saturate(centerDistance / influenceRadius);
+    return saturate(1.0 - radiusFraction * radiusFraction);
+}
+
+bool RAB_DoomAnalyticHardInfluenceCutoffEnabled()
+{
+    return (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 4u) != 0u;
+}
+
+bool RAB_AllFinite3(float3 value)
+{
+    return all(value == value) && all(abs(value) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38));
+}
+
 RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Surface surface)
 {
     RAB_LightSample lightSample = RAB_EmptyLightSample();
@@ -80,8 +101,22 @@ RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Sur
 RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
 {
     RAB_LightSample lightSample = RAB_EmptyLightSample();
+    lightSample.lightType = lightInfo.lightType;
+    lightSample.lightIndex = lightInfo.lightIndex;
+    lightSample.flags = lightInfo.flags;
     if (!RAB_IsLightInfoValid(lightInfo) || !RAB_IsSurfaceValid(surface))
     {
+        return lightSample;
+    }
+
+    if (!RAB_AllFinite3(lightInfo.position) ||
+        !RAB_AllFinite3(lightInfo.radiance) ||
+        lightInfo.radius <= 0.0 ||
+        lightInfo.radius >= 3.402823e+38 ||
+        lightInfo.influenceRadius <= 0.0 ||
+        lightInfo.influenceRadius >= 3.402823e+38)
+    {
+        lightSample.flags |= RAB_LIGHT_SAMPLE_FLAG_DOOM_NONFINITE_PAYLOAD;
         return lightSample;
     }
 
@@ -89,13 +124,32 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     const float centerDistanceSquared = max(dot(toCenter, toCenter), 1.0e-4);
     const float centerDistance = sqrt(centerDistanceSquared);
     const float3 centerDir = toCenter / centerDistance;
-    const float doomRadius = max(lightInfo.influenceRadius, 1.0);
+    const float doomRadius = lightInfo.influenceRadius;
+    const bool hardInfluenceCutoff = RAB_DoomAnalyticHardInfluenceCutoffEnabled();
+    const float doomInfluence = hardInfluenceCutoff ? RAB_DoomAnalyticInfluence(centerDistance, doomRadius) : 1.0;
+    if (hardInfluenceCutoff && doomInfluence <= 0.0)
+    {
+        lightSample.flags |= RAB_LIGHT_SAMPLE_FLAG_DOOM_OUTSIDE_INFLUENCE;
+        return lightSample;
+    }
+
+    const float centerNdotL = saturate(dot(RAB_GetSurfaceNormal(surface), centerDir));
+    if (centerNdotL <= 0.0)
+    {
+        return lightSample;
+    }
 
     const float sphereRadius = clamp(lightInfo.radius, 0.01, doomRadius);
     const float sinThetaMax = saturate(sphereRadius / centerDistance);
     const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
     const float solidAngle = max(2.0 * RTXDI_PI * (1.0 - cosThetaMax), 1.0e-5);
     const float3 sampledDir = RAB_SampleDirectionCone(centerDir, cosThetaMax, uv);
+    const float sampledNdotL = saturate(dot(RAB_GetSurfaceNormal(surface), sampledDir));
+    if (sampledNdotL <= 0.0)
+    {
+        return lightSample;
+    }
+
     const float hitT = RAB_RaySphereHitT(surface.worldPos, sampledDir, lightInfo.position, sphereRadius, centerDistance);
     const float3 samplePosition = surface.worldPos + sampledDir * hitT;
     const float3 sampleNormal = RAB_SafeNormalize(samplePosition - lightInfo.position, -sampledDir);
@@ -107,7 +161,7 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     lightSample.position = samplePosition;
     lightSample.normal = sampleNormal;
     lightSample.distance = hitT;
-    lightSample.radiance = lightInfo.radiance;
+    lightSample.radiance = lightInfo.radiance * doomInfluence;
     lightSample.areaPdf = 1.0 / max(lightInfo.area, 1.0e-4);
     lightSample.solidAnglePdf = 1.0 / solidAngle;
     return lightSample;
