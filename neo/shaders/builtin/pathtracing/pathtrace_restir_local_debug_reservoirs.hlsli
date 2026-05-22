@@ -1232,7 +1232,7 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
     if (RTXDI_IsValidDIReservoir(randomReservoir))
     {
         RTXDI_FinalizeResampling(randomReservoir, 1.0, (float)max(totalSampleCount, 1u));
-        randomReservoir.M = (float)max(totalSampleCount, 1u);
+        randomReservoir.M = 1.0;
         initialDebugInfo.randomFinalWeightSum = randomReservoir.weightSum;
         initialDebugInfo.randomSelectedLightType = RestirPTRrxDiLightTypeFromReservoir(randomReservoir);
     }
@@ -1284,7 +1284,7 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
         return RTXDI_EmptyDIReservoir();
     }
 
-    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M);
+    RTXDI_FinalizeResampling(reservoir, 1.0, 1.0);
     reservoir.M = 1.0;
     initialDebugInfo.finalInitialWeightSum = reservoir.weightSum;
     initialDebugInfo.finalInitialTargetPdf = reservoir.targetPdf;
