@@ -284,7 +284,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
 {
     const int debugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     const bool overlapDumpRequested = debugMode == 24 && r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
-    const int restirPTDiDebugView = idMath::ClampInt(0, 76, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const int restirPTDiDebugView = idMath::ClampInt(0, 77, r_pathTracingRestirPTDiDebugView.GetInteger());
     const int view68DumpMode = r_pathTracingRestirPTView68Dump.GetInteger();
     const bool view68DumpRequested = debugMode == 56 && (restirPTDiDebugView == 68 || restirPTDiDebugView == 69) && view68DumpMode != 0;
     const bool view69TupleDumpRequested = view68DumpRequested && restirPTDiDebugView == 69;

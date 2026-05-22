@@ -942,14 +942,14 @@ Ray dispatch safety diagnostics:
   strobe/animated-light phases without globally clearing unrelated reservoirs.
 
 - r_pathTracingRestirPTSpatialSamples
-  Mode 50/51 RTXDI_PTSpatialResampling neighbor samples per pixel. Defaults to 1
-  for early Vulkan/device-removal stability and clamps to 1..32. The temporary
-  debug path ties disocclusion boost samples to this same value to avoid hidden
-  workload jumps.
+  Mode 50/51 RTXDI_PTSpatialResampling and active RRX DI spatial-resampling
+  neighbor samples per pixel. Defaults to 1 for early Vulkan/device-removal
+  stability and clamps to 1..32. The temporary debug path ties disocclusion
+  boost samples to this same value to avoid hidden workload jumps.
 
 - r_pathTracingRestirPTSpatialRadius
-  Mode 50/51 RTXDI_PTSpatialResampling neighbor sampling radius in pixels.
-  Defaults to 16 and clamps to 1..128.
+  Mode 50/51 RTXDI_PTSpatialResampling and active RRX DI spatial-resampling
+  neighbor sampling radius in pixels. Defaults to 16 and clamps to 1..128.
 
 - r_pathTracingRestirPTCombinedSpatialRadius
   Legacy direct-spatial radius control. Do not use this CVar as evidence that
@@ -1017,7 +1017,7 @@ Ray dispatch safety diagnostics:
   outputs raw RRX DI temporal light-index tuples for terminal readback:
   current light, current-to-previous translation, previous stored light, and
   previous-to-current translation, each encoded as `index + 1` with `0` meaning
-  invalid or absent. Views `60`-`76` bypass mode-56 accumulation so RRX DI
+  invalid or absent. Views `60`-`77` bypass mode-56 accumulation so RRX DI
   heartbeat, raw storage, temporal, final-consumer, and weight-audit proofs are
   not stabilized by the old `SmokeAccumulation` path. View `70` is the RRX DI
   temporal input evidence view. It displays fourteen vertical bands:
@@ -1062,7 +1062,7 @@ Ray dispatch safety diagnostics:
   spatial-direct reservoir, and red/dark means no direct contribution. Use it
   only as a branch audit; it is not the active view-0 acceptance path. View
   `72` is the default RRX DI final-consumer bridge. It bypasses
-  the old combined-resolve preview, consumes the current RRX DI reservoir
+  the old combined-resolve preview, consumes the RRX DI spatial-output reservoir
   selected light, samples that light through RAB, checks target PDF and
   `solidAnglePdf * reservoir.weightSum`, traces local visibility, and displays
   only direct DI contribution as
@@ -1076,13 +1076,15 @@ Ray dispatch safety diagnostics:
   other RRX proof views, view `72` bypasses
   `r_pathTracingRestirPTMode56Accumulation`; use it to inspect the raw per-frame
   final-consumer result, not old accumulator convergence. View `73`
-  shows the same final-consumer result across the full screen: the left half is
-  the per-pixel status color and the right half is contribution magnitude for
-  successful samples, tinted by selected light type. View `74` visualizes the
-  selected final-consumer light identity: the left half is a stable hash color
-  for the selected light index, mixed slightly with light type; the right half
-  uses the same identity color but darkens successful samples by contribution
-  magnitude and shows failure status colors for rejected samples. Large same-
+  is the temporal-output final-consumer comparator kept for checking temporal
+  reservoir history while the active view-72 path consumes spatial output. Its
+  left half is the per-pixel status color and the right half is contribution
+  magnitude for successful samples, tinted by selected light type. View `74`
+  visualizes the temporal-output final-consumer light identity: the left half
+  is a stable hash color for the selected light index, mixed slightly with
+  light type; the right half uses the same identity color but darkens
+  successful samples by contribution magnitude and shows failure status colors
+  for rejected samples. Large same-
   colored regions in overlapping-light areas indicate selection locking onto
   one source. View `75` is the RRX DI weight-chain audit. It shows eight bands:
   max target PDF by light range, source-PDF scale by range, RIS weight sum after
@@ -1095,7 +1097,15 @@ Ray dispatch safety diagnostics:
   selected light-index hash, selected target PDF, selected invSourcePdf or
   effective source weight, selected RIS/effective weight, combined
   pre-finalize weight sum, final inverse selection PDF, and previous-best
-  pressure versus current random candidates. Use these views for DI-only
+  pressure versus current random candidates. View `77` is the RRX DI spatial
+  proof view. It shows eight bands: temporal input valid, spatial output valid,
+  RTXDI spatial sample count, spatial selected light type, spatial selected
+  light identity, spatial output weight, spatial target PDF, and final-consumer
+  source. The final-source band should be green for spatial; blue/cyan means a
+  temporal/current-only debug route is active, and red means no valid final
+  source. Active RRX spatial uses the RTXDI DI spatial helper with a
+  conservative reprojection-confidence default until real Remix confidence
+  textures are bound. Use these views for DI-only
   validation with GI, reflections, DLSS RR, and legacy mode-56
   fallback behavior out of the result. Views 6-11 are the
   reference-shaped DI baseline: they consume the existing RTXDI temporal/spatial
@@ -1155,12 +1165,14 @@ Ray dispatch safety diagnostics:
   reuse and making the output friendlier to denoising. Set it to 0 only for
   debug comparison when isolating selected-light lock-in or temporal jitter.
 
-- r_pathTracingRestirPTRrxDisablePreviousBest
-  Debug-only RRX DI initial-reservoir switch. Defaults to 0. Set to 1 to prevent
-  the translated previous selected light from being injected as a previous-best
-  candidate during initial reservoir construction. This does not disable RTXDI
-  temporal reuse; it only isolates whether the previous-best candidate path is
-  poisoning initial selection before temporal reuse runs.
+- r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest
+  Debug-only non-Remix RRX DI A/B switch. Defaults to 0/off. Set to 1 only to
+  restore the old approximation that feeds the projected previous temporal
+  reservoir as the previous-best candidate during initial reservoir
+  construction. Default RRX DI has no previous-best source until a real
+  RtxdiBestLights-equivalent input is bound. This does not disable RTXDI
+  temporal reuse; it only isolates whether the old fake previous-best candidate
+  path was poisoning initial selection before temporal reuse runs.
 
 - r_pathTracingRestirPTView68Dump
   Mode 56 / DI view 68 or 69 terminal readback. `1` prints one dump then resets to
@@ -1221,7 +1233,7 @@ Ray dispatch safety diagnostics:
 - r_pathTracingRestirPTMode56Accumulation
   Temporary diagnostic accumulator for debug mode 56 final/subview output.
   Defaults to 0. Set to 1 only when isolating whether a mode 56 view can hold
-  history once its input is otherwise stable. RRX DI proof views `60`-`76` and
+  history once its input is otherwise stable. RRX DI proof views `60`-`77` and
   `r_pathTracingRestirPTRrxFinalConsumerOutput 1` bypass this accumulator. This
   is not a ReSTIR reservoir fix and should not be treated as final accumulation
   policy.

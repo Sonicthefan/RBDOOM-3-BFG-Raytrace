@@ -9,8 +9,11 @@
 // Ray-traced spatial bias correction is explicitly deferred; this inactive
 // contract clamps requested bias correction to RTXDI_BIAS_CORRECTION_BASIC.
 
+#ifndef RTXDI_ALLOWED_BIAS_CORRECTION
 #define RTXDI_ALLOWED_BIAS_CORRECTION RTXDI_BIAS_CORRECTION_BASIC
+#endif
 
+#ifndef REMIX_RTXDI_SPATIAL_REUSE_EXTERNAL_BINDINGS
 #include "../remix_bridge/RAB_SurfaceBridge.hlsli"
 #include "../remix_bridge/RAB_SpatialBridge.hlsli"
 #define REMIX_RAB_EXPORT_RAB_NAMES 1
@@ -18,6 +21,7 @@
 #include "../remix_bridge/RAB_LightSamplingBridge.hlsli"
 #include "../remix_bridge/RAB_ReservoirBridge.hlsli"
 #include "../remix_bridge/RAB_TemporalOutputBridge.hlsli"
+#endif
 
 #include "Rtxdi/DI/SpatialResampling.hlsli"
 
@@ -45,6 +49,12 @@ struct RemixRtxdiSpatialReuseDesc
 };
 
 struct RemixRtxdiSpatialReuseResult
+{
+    RTXDI_DIReservoir reservoir;
+    RAB_LightSample selectedLightSample;
+};
+
+struct RemixRtxdiSpatialReuseCoreResult
 {
     RTXDI_DIReservoir reservoir;
     RAB_LightSample selectedLightSample;
@@ -100,6 +110,40 @@ RTXDI_DISpatialResamplingParameters RemixRtxdiSpatialParameters(RemixRtxdiSpatia
     return params;
 }
 
+RemixRtxdiSpatialReuseCoreResult RemixRtxdiRunSpatialReuseCore(
+    RAB_Surface currentSurface,
+    RTXDI_DIReservoir centerSample,
+    RemixRtxdiSpatialReuseDesc desc,
+    RTXDI_ReservoirBufferParameters reservoirParams)
+{
+    RemixRtxdiSpatialReuseCoreResult result = (RemixRtxdiSpatialReuseCoreResult)0;
+    result.reservoir = centerSample;
+    result.selectedLightSample = RAB_EmptyLightSample();
+
+    if (!RAB_IsSurfaceValid(currentSurface))
+    {
+        return result;
+    }
+
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(
+        desc.pixel,
+        desc.frameIndex,
+        REMIX_RTXDI_SPATIAL_RNG_PASS);
+
+    result.reservoir = RTXDI_DISpatialResampling(
+        desc.pixel,
+        currentSurface,
+        centerSample,
+        rng,
+        RemixRtxdiSpatialRuntimeParameters(desc),
+        reservoirParams,
+        desc.spatialInputPage,
+        RemixRtxdiSpatialParameters(desc),
+        result.selectedLightSample);
+    return result;
+}
+
+#ifndef REMIX_RTXDI_SPATIAL_REUSE_EXTERNAL_BINDINGS
 RemixRtxdiSpatialReuseResult RemixRtxdiRunSpatialReuse(
     RAB_Surface currentSurface,
     RemixRtxdiSpatialReuseDesc desc)
@@ -115,25 +159,17 @@ RemixRtxdiSpatialReuseResult RemixRtxdiRunSpatialReuse(
     }
 
     RTXDI_DIReservoir centerSample = RAB_LoadReservoir(int2(desc.pixel), int(desc.spatialInputPage));
-
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(
-        desc.pixel,
-        desc.frameIndex,
-        REMIX_RTXDI_SPATIAL_RNG_PASS);
-
-    result.reservoir = RTXDI_DISpatialResampling(
-        desc.pixel,
+    const RemixRtxdiSpatialReuseCoreResult coreResult = RemixRtxdiRunSpatialReuseCore(
         currentSurface,
         centerSample,
-        rng,
-        RemixRtxdiSpatialRuntimeParameters(desc),
-        RemixRAB_DIReservoirParams,
-        desc.spatialInputPage,
-        RemixRtxdiSpatialParameters(desc),
-        result.selectedLightSample);
+        desc,
+        RemixRAB_DIReservoirParams);
+    result.reservoir = coreResult.reservoir;
+    result.selectedLightSample = coreResult.selectedLightSample;
 
     RAB_StoreReservoir(result.reservoir, int2(desc.pixel), int(desc.spatialOutputPage));
     return result;
 }
+#endif
 
 #endif

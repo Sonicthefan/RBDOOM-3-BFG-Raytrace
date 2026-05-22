@@ -23,6 +23,18 @@
 
 #define REMIX_RTXDI_TEMPORAL_REUSE_EXTERNAL_BINDINGS 1
 #include "remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl"
+#define REMIX_RTXDI_SPATIAL_REUSE_EXTERNAL_BINDINGS 1
+#define REMIX_RAB_SPATIAL_BRIDGE_EXTERNAL_CALLBACKS 1
+#include "remix_bridge/RAB_SpatialBridge.hlsli"
+#include "remix_bridge/RAB_TemporalOutputBridge.hlsli"
+
+int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
+{
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    return clamp(pixelPosition, int2(0, 0), int2(dimensions) - int2(1, 1));
+}
+
+#include "remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl"
 
 uint RestirPTGiDebugView()
 {
@@ -31,12 +43,22 @@ uint RestirPTGiDebugView()
 
 uint RestirPTDiDebugView()
 {
-    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 76u);
+    return clamp((uint)max(RestirPTDiDebugInfo.x, 0.0), 0u, 77u);
+}
+
+uint RestirPTDiTemporalPrepassMode()
+{
+    return (uint)max(RestirPTDiDebugInfo.y, 0.0);
 }
 
 bool RestirPTDiTemporalPrepassEnabled()
 {
-    return RestirPTDiDebugInfo.y >= 0.5;
+    return RestirPTDiTemporalPrepassMode() == 1u;
+}
+
+bool RestirPTRrxDiTemporalPrepassEnabled()
+{
+    return RestirPTDiTemporalPrepassMode() == 2u;
 }
 
 static const uint RESTIR_PT_RRX_DEBUG_BYPASS_MOTION = 0x00000001u;
@@ -46,7 +68,7 @@ static const uint RESTIR_PT_RRX_DEBUG_BYPASS_SURFACE_SIMILARITY = 0x00000008u;
 static const uint RESTIR_PT_RRX_DEBUG_BYPASS_RESET_MASK = 0x00000010u;
 static const uint RESTIR_PT_RRX_DEBUG_BYPASS_PORTAL = 0x00000020u;
 static const uint RESTIR_PT_RRX_DEBUG_ENABLE_TEMPORAL_PERMUTATION = 0x00000040u;
-static const uint RESTIR_PT_RRX_DEBUG_DISABLE_PREVIOUS_BEST = 0x00000080u;
+static const uint RESTIR_PT_RRX_DEBUG_USE_PROJECTED_TEMPORAL_AS_PREVIOUS_BEST = 0x00000080u;
 
 uint RestirPTRrxDebugBypassFlags()
 {
@@ -68,9 +90,9 @@ bool RestirPTRrxTemporalPermutationEnabled()
     return RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_ENABLE_TEMPORAL_PERMUTATION);
 }
 
-bool RestirPTRrxDisablePreviousBest()
+bool RestirPTRrxUseProjectedTemporalAsPreviousBest()
 {
-    return RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_DISABLE_PREVIOUS_BEST);
+    return RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_USE_PROJECTED_TEMPORAL_AS_PREVIOUS_BEST);
 }
 
 bool RestirPTRrxFinalConsumerOutputEnabled()
@@ -1188,7 +1210,7 @@ RTXDI_DIReservoir RestirPTRrxDiBuildInitialReservoir(
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0x52525805u);
     uint previousBestCurrentLightIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
     initialDebugInfo.previousBestSourceValid = previousBestReservoirValid ? 1u : 0u;
-    const bool previousBestCurrentLightValid = !RestirPTRrxDisablePreviousBest() && RestirPTRrxDiTryResolvePreviousBestCurrentLight(
+    const bool previousBestCurrentLightValid = RestirPTRrxDiTryResolvePreviousBestCurrentLight(
         previousBestReservoir,
         previousBestReservoirValid,
         previousBestCurrentLightIndex);
@@ -1329,6 +1351,33 @@ RemixRtxdiTemporalReuseDesc RestirPTRrxDiTemporalDesc(uint2 pixel, float3 motion
     return desc;
 }
 
+RemixRtxdiSpatialReuseDesc RestirPTRrxDiSpatialDesc(uint2 pixel)
+{
+    RemixRtxdiSpatialReuseDesc desc = (RemixRtxdiSpatialReuseDesc)0;
+    desc.pixel = pixel;
+    desc.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    desc.spatialInputPage = RestirPTRemixDiReservoirPageInfo.x;
+    desc.spatialOutputPage = RestirPTRemixDiReservoirPageInfo.z;
+    desc.activeCheckerboardField = 0u;
+    desc.neighborOffsetMask = 31u;
+    desc.numSamples = clamp(RestirPTParams.spatialResampling.numSpatialSamples, 1u, 32u);
+    desc.numDisocclusionBoostSamples = desc.numSamples;
+    desc.disocclusionBoostFrameThreshold = 0u;
+    desc.reprojectionConfidenceHistoryLength = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    desc.samplingRadius = max(RestirPTParams.spatialResampling.samplingRadius, 1.0);
+    desc.biasCorrectionMode = RTXDI_BIAS_CORRECTION_BASIC;
+    desc.depthThreshold = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_DEPTH)
+        ? 1.0e6
+        : RestirPTParams.temporalResampling.depthThreshold;
+    desc.normalThreshold = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_NORMAL)
+        ? -1.0
+        : RestirPTParams.temporalResampling.normalThreshold;
+    desc.targetHistoryLength = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    desc.enableMaterialSimilarityTest = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_SURFACE_SIMILARITY) ? 0u : 1u;
+    desc.discountNaiveSamples = 0u;
+    return desc;
+}
+
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_UNAVAILABLE = 0u;
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_GLOBAL_CLEAR_PENDING = 1u;
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_ABSENT = 2u;
@@ -1337,6 +1386,16 @@ static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_INVALID 
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_TO_PREVIOUS_INVALID = 5u;
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_LOCAL_REJECTED = 6u;
 static const uint RESTIR_PT_RRX_DI_TEMPORAL_STATUS_CURRENT_ONLY = 7u;
+
+static const uint RESTIR_PT_RRX_DI_SPATIAL_STATUS_UNAVAILABLE = 0u;
+static const uint RESTIR_PT_RRX_DI_SPATIAL_STATUS_TEMPORAL_INVALID = 1u;
+static const uint RESTIR_PT_RRX_DI_SPATIAL_STATUS_OUTPUT_INVALID = 2u;
+static const uint RESTIR_PT_RRX_DI_SPATIAL_STATUS_EVALUATED = 3u;
+
+static const uint RESTIR_PT_RRX_DI_FINAL_SOURCE_NONE = 0u;
+static const uint RESTIR_PT_RRX_DI_FINAL_SOURCE_CURRENT_ONLY = 1u;
+static const uint RESTIR_PT_RRX_DI_FINAL_SOURCE_TEMPORAL = 2u;
+static const uint RESTIR_PT_RRX_DI_FINAL_SOURCE_SPATIAL = 3u;
 
 struct RestirPTRrxDiTemporalDebugInfo
 {
@@ -1399,6 +1458,19 @@ struct RestirPTRrxDiTemporalDebugInfo
     float temporalTargetPdf;
     float previousUsedWeightSum;
     float previousUsedTargetPdf;
+};
+
+struct RestirPTRrxDiSpatialDebugInfo
+{
+    uint temporalInputValid;
+    uint spatialOutputValid;
+    uint spatialSampleCount;
+    uint spatialSelectedLightIndexEncoded;
+    uint spatialSelectedLightType;
+    uint finalConsumerSource;
+    float temporalWeightSum;
+    float spatialWeightSum;
+    float spatialTargetPdf;
 };
 
 RestirPTRrxDiTemporalDebugInfo RestirPTRrxDiEmptyTemporalDebugInfo()
@@ -1607,21 +1679,22 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     const bool projected = RestirPTTryProjectMotionVectorToPreviousPixelFull(pixel, previousPixel, motionVector);
     debugInfo.projected = projected ? 1u : 0u;
 
-    RTXDI_DIReservoir projectedPreviousReservoir = RTXDI_EmptyDIReservoir();
-    if (projected)
+    RTXDI_DIReservoir previousBestReservoir = RTXDI_EmptyDIReservoir();
+    bool previousBestReservoirValid = false;
+    if (projected && RestirPTRrxUseProjectedTemporalAsPreviousBest())
     {
-        // Proof-slice approximation: Remix reads RtxdiBestLights here. The
-        // active rbdoom path has no bound best-light feedback buffer yet.
-        projectedPreviousReservoir = LoadRestirPTRrxDiReservoir(uint2(previousPixel), RestirPTRemixDiReservoirPageInfo.y);
+        // Debug-only non-Remix A/B path: Remix reads RtxdiBestLights here.
+        // rbdoom keeps the projected temporal-reservoir shortcut opt-in only.
+        previousBestReservoir = LoadRestirPTRrxDiReservoir(uint2(previousPixel), RestirPTRemixDiReservoirPageInfo.y);
+        previousBestReservoirValid = RTXDI_IsValidDIReservoir(previousBestReservoir);
     }
-    const bool projectedPreviousValid = projected && RTXDI_IsValidDIReservoir(projectedPreviousReservoir);
 
     RestirPTRrxDiInitialDebugInfo initialDebugInfo;
     const RTXDI_DIReservoir currentReservoir = RestirPTRrxDiBuildInitialReservoir(
         surface,
         pixel,
-        projectedPreviousReservoir,
-        projectedPreviousValid,
+        previousBestReservoir,
+        previousBestReservoirValid,
         initialDebugInfo);
     debugInfo.previousBestSourceValid = initialDebugInfo.previousBestSourceValid;
     debugInfo.previousBestTranslationValid = initialDebugInfo.previousBestTranslationValid;
@@ -1778,6 +1851,78 @@ bool RestirPTRrxDiTryGenerateTemporalReservoir(
     }
 
     return outputValid;
+}
+
+bool RestirPTRrxDiTryGenerateSpatialReservoir(
+    RAB_Surface surface,
+    uint2 pixel,
+    out RTXDI_DIReservoir spatialReservoir,
+    out uint status,
+    out RestirPTRrxDiSpatialDebugInfo debugInfo)
+{
+    spatialReservoir = RTXDI_EmptyDIReservoir();
+    status = RESTIR_PT_RRX_DI_SPATIAL_STATUS_UNAVAILABLE;
+    debugInfo = (RestirPTRrxDiSpatialDebugInfo)0;
+
+    if (!RestirPTRrxDiTemporalActive() || !RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    const RTXDI_DIReservoir temporalReservoir = LoadRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x);
+    const bool temporalValid = RTXDI_IsValidDIReservoir(temporalReservoir);
+    debugInfo.temporalInputValid = temporalValid ? 1u : 0u;
+    if (temporalValid)
+    {
+        debugInfo.temporalWeightSum = temporalReservoir.weightSum;
+    }
+    if (!temporalValid)
+    {
+        StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.z, RTXDI_EmptyDIReservoir());
+        status = RESTIR_PT_RRX_DI_SPATIAL_STATUS_TEMPORAL_INVALID;
+        return false;
+    }
+
+    const RemixRtxdiSpatialReuseDesc spatialDesc = RestirPTRrxDiSpatialDesc(pixel);
+    debugInfo.spatialSampleCount = RemixRtxdiSpatialParameters(spatialDesc).numSamples;
+    const RemixRtxdiSpatialReuseCoreResult spatialResult = RemixRtxdiRunSpatialReuseCore(
+        surface,
+        temporalReservoir,
+        spatialDesc,
+        RestirPTRrxDiReservoirParams());
+    spatialReservoir = spatialResult.reservoir;
+    StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.z, spatialReservoir);
+
+    const bool spatialValid = RTXDI_IsValidDIReservoir(spatialReservoir);
+    debugInfo.spatialOutputValid = spatialValid ? 1u : 0u;
+    if (spatialValid)
+    {
+        const uint selectedLightIndex = RTXDI_GetDIReservoirLightIndex(spatialReservoir);
+        debugInfo.spatialSelectedLightIndexEncoded = selectedLightIndex + 1u;
+        debugInfo.spatialSelectedLightType = RestirPTRrxDiLightTypeFromReservoir(spatialReservoir);
+        debugInfo.spatialWeightSum = spatialReservoir.weightSum;
+        debugInfo.spatialTargetPdf = spatialReservoir.targetPdf;
+    }
+
+    status = spatialValid
+        ? RESTIR_PT_RRX_DI_SPATIAL_STATUS_EVALUATED
+        : RESTIR_PT_RRX_DI_SPATIAL_STATUS_OUTPUT_INVALID;
+    return spatialValid;
+}
+
+bool RestirPTRrxDiTryLoadTemporalOutputReservoir(
+    RAB_Surface surface,
+    uint2 pixel,
+    out RTXDI_DIReservoir temporalReservoir)
+{
+    temporalReservoir = RTXDI_EmptyDIReservoir();
+    if (!RestirPTRrxDiTemporalActive() || !RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    temporalReservoir = LoadRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x);
+    return RTXDI_IsValidDIReservoir(temporalReservoir);
 }
 
 bool RestirPTRrxDiTryEvaluateTemporalContribution(RAB_Surface surface, uint2 pixel, out float3 contribution)
@@ -2073,6 +2218,7 @@ struct RestirPTRrxDiFinalConsumerResult
     uint status;
     uint lightType;
     uint lightIndexEncoded;
+    uint consumerSource;
     float3 contribution;
     float3 reflectedRadiance;
     float inverseSelectionPdf;
@@ -2127,7 +2273,7 @@ float RestirPTRrxDiFinalVisibility(RAB_Surface surface, RAB_LightSample lightSam
     return TraceSmokeShadowVisibility(shadowOrigin, lightDir, shadowTMax, ignoreInstanceId, ignorePrimitiveIndex, ignoreMaterialId);
 }
 
-RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumer(RAB_Surface surface, uint2 pixel)
+RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumerFromSource(RAB_Surface surface, uint2 pixel, uint requestedSource)
 {
     if (!RestirPTRrxDiTemporalActive())
     {
@@ -2138,16 +2284,40 @@ RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumer(RAB_Surface 
         return RestirPTRrxDiEmptyFinalConsumerResult(RESTIR_PT_RRX_DI_FINAL_SURFACE_INVALID);
     }
 
-    RTXDI_DIReservoir reservoir;
-    uint temporalStatus;
-    RestirPTRrxDiTemporalDebugInfo temporalDebugInfo;
-    if (!RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, reservoir, temporalStatus, temporalDebugInfo) ||
-        !RTXDI_IsValidDIReservoir(reservoir))
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    uint producerStatus;
+    uint consumerSource = RESTIR_PT_RRX_DI_FINAL_SOURCE_NONE;
+    if (RestirPTRrxFinalConsumerCurrentOnly())
+    {
+        RestirPTRrxDiTemporalDebugInfo temporalDebugInfo;
+        if (RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, reservoir, producerStatus, temporalDebugInfo))
+        {
+            consumerSource = RESTIR_PT_RRX_DI_FINAL_SOURCE_CURRENT_ONLY;
+        }
+    }
+    else if (requestedSource == RESTIR_PT_RRX_DI_FINAL_SOURCE_TEMPORAL)
+    {
+        if (RestirPTRrxDiTryLoadTemporalOutputReservoir(surface, pixel, reservoir))
+        {
+            consumerSource = RESTIR_PT_RRX_DI_FINAL_SOURCE_TEMPORAL;
+        }
+    }
+    else
+    {
+        RestirPTRrxDiSpatialDebugInfo spatialDebugInfo;
+        if (RestirPTRrxDiTryGenerateSpatialReservoir(surface, pixel, reservoir, producerStatus, spatialDebugInfo))
+        {
+            consumerSource = RESTIR_PT_RRX_DI_FINAL_SOURCE_SPATIAL;
+        }
+    }
+
+    if (!RTXDI_IsValidDIReservoir(reservoir))
     {
         return RestirPTRrxDiEmptyFinalConsumerResult(RESTIR_PT_RRX_DI_FINAL_RESERVOIR_INVALID);
     }
 
     RestirPTRrxDiFinalConsumerResult result = RestirPTRrxDiEmptyFinalConsumerResult(RESTIR_PT_RRX_DI_FINAL_ZERO_CONTRIBUTION);
+    result.consumerSource = consumerSource;
     result.inverseSelectionPdf = max(reservoir.weightSum, 0.0);
     if (result.inverseSelectionPdf <= 0.0)
     {
@@ -2216,6 +2386,11 @@ RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumer(RAB_Surface 
         ? RESTIR_PT_RRX_DI_FINAL_EVALUATED
         : RESTIR_PT_RRX_DI_FINAL_ZERO_CONTRIBUTION;
     return result;
+}
+
+RestirPTRrxDiFinalConsumerResult RestirPTRrxDiEvaluateFinalConsumer(RAB_Surface surface, uint2 pixel)
+{
+    return RestirPTRrxDiEvaluateFinalConsumerFromSource(surface, pixel, RESTIR_PT_RRX_DI_FINAL_SOURCE_SPATIAL);
 }
 
 float4 RestirPTRrxDiFinalConsumerStatusColor(uint status, uint lightType)
@@ -2294,7 +2469,7 @@ float4 RestirPTRrxDiFinalConsumerMagnitudeColor(RestirPTRrxDiFinalConsumerResult
 
 float4 EvaluateRestirPTRrxDiFinalConsumerClassifierView(RAB_Surface surface, uint2 pixel)
 {
-    const RestirPTRrxDiFinalConsumerResult result = RestirPTRrxDiEvaluateFinalConsumer(surface, pixel);
+    const RestirPTRrxDiFinalConsumerResult result = RestirPTRrxDiEvaluateFinalConsumerFromSource(surface, pixel, RESTIR_PT_RRX_DI_FINAL_SOURCE_TEMPORAL);
     const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
     if (pixel.x < dimensions.x / 2u)
     {
@@ -2316,7 +2491,7 @@ float4 RestirPTRrxDiSelectedLightIdentityColor(uint lightIndexEncoded, uint ligh
 
 float4 EvaluateRestirPTRrxDiSelectedLightIdentityView(RAB_Surface surface, uint2 pixel)
 {
-    const RestirPTRrxDiFinalConsumerResult result = RestirPTRrxDiEvaluateFinalConsumer(surface, pixel);
+    const RestirPTRrxDiFinalConsumerResult result = RestirPTRrxDiEvaluateFinalConsumerFromSource(surface, pixel, RESTIR_PT_RRX_DI_FINAL_SOURCE_TEMPORAL);
     if (result.lightIndexEncoded == 0u)
     {
         return RestirPTRrxDiFinalConsumerStatusColor(result.status, result.lightType);
@@ -2335,6 +2510,69 @@ float4 EvaluateRestirPTRrxDiSelectedLightIdentityView(RAB_Surface surface, uint2
     }
     const float heat = saturate(log2(1.0 + RAB_Luminance(result.contribution) * max(RestirPTInfo.w, 0.0)) / 8.0);
     return float4(identityColor.rgb * (0.15 + heat * 0.85), 1.0);
+}
+
+float4 RestirPTRrxDiFinalSourceColor(uint source)
+{
+    if (source == RESTIR_PT_RRX_DI_FINAL_SOURCE_SPATIAL)
+    {
+        return float4(0.02, 0.62, 0.14, 1.0);
+    }
+    if (source == RESTIR_PT_RRX_DI_FINAL_SOURCE_TEMPORAL)
+    {
+        return float4(0.04, 0.30, 0.88, 1.0);
+    }
+    if (source == RESTIR_PT_RRX_DI_FINAL_SOURCE_CURRENT_ONLY)
+    {
+        return float4(0.06, 0.58, 0.95, 1.0);
+    }
+    return float4(0.72, 0.04, 0.04, 1.0);
+}
+
+float4 EvaluateRestirPTRrxDiSpatialProofView(RAB_Surface surface, uint2 pixel)
+{
+    RTXDI_DIReservoir spatialReservoir;
+    uint spatialStatus;
+    RestirPTRrxDiSpatialDebugInfo debugInfo;
+    RestirPTRrxDiTryGenerateSpatialReservoir(surface, pixel, spatialReservoir, spatialStatus, debugInfo);
+
+    const RestirPTRrxDiFinalConsumerResult finalResult = RestirPTRrxDiEvaluateFinalConsumer(surface, pixel);
+    debugInfo.finalConsumerSource = finalResult.consumerSource;
+
+    const uint2 dimensions = max(PathTraceFullOutputSize(), uint2(1u, 1u));
+    const uint band = min((pixel.x * 8u) / dimensions.x, 7u);
+    if (band == 0u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(debugInfo.temporalInputValid != 0u, true);
+    }
+    if (band == 1u)
+    {
+        return RestirPTRrxDiTemporalBooleanColor(debugInfo.spatialOutputValid != 0u, debugInfo.temporalInputValid != 0u);
+    }
+    if (band == 2u)
+    {
+        const float heat = saturate((float)debugInfo.spatialSampleCount / 32.0);
+        return float4(0.05 + heat * 0.15, 0.10 + heat * 0.70, 0.18 + heat * 0.25, 1.0);
+    }
+    if (band == 3u)
+    {
+        return RestirPTRrxDiLightTypeColor(debugInfo.spatialSelectedLightType);
+    }
+    if (band == 4u)
+    {
+        return RestirPTRrxDiSelectedLightIdentityColor(debugInfo.spatialSelectedLightIndexEncoded, debugInfo.spatialSelectedLightType);
+    }
+    if (band == 5u)
+    {
+        const float heat = saturate(log2(1.0 + max(debugInfo.spatialWeightSum, 0.0)) / 12.0);
+        return float4(heat, heat * 0.62, 0.04, 1.0);
+    }
+    if (band == 6u)
+    {
+        const float heat = saturate(log2(1.0 + max(debugInfo.spatialTargetPdf, 0.0)) / 12.0);
+        return float4(0.04, heat, heat * 0.75, 1.0);
+    }
+    return RestirPTRrxDiFinalSourceColor(debugInfo.finalConsumerSource);
 }
 
 float RestirPTRrxDiPositiveLogHeat(float value)
@@ -3713,6 +3951,10 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
     if (view == 76u)
     {
         return EvaluateRestirPTRrxDiSelectedWeightAuditView(surface, pixel);
+    }
+    if (view == 77u)
+    {
+        return EvaluateRestirPTRrxDiSpatialProofView(surface, pixel);
     }
 
     if (!RAB_IsSurfaceValid(surface) || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))

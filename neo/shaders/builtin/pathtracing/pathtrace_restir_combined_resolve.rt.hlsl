@@ -470,7 +470,7 @@ float4 RestirPTSanitizeAccumulationColor(float4 color)
 
 bool RestirPTDiDebugViewBypassesMode56Accumulation(uint view)
 {
-    return view >= 60u && view <= 76u;
+    return view >= 60u && view <= 77u;
 }
 
 bool RestirPTFinalConsumerOutputBypassesMode56Accumulation()
@@ -848,6 +848,16 @@ void RayGen()
     const uint2 dimensions = PathTraceFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
+        return;
+    }
+
+    if (RestirPTRrxDiTemporalPrepassEnabled())
+    {
+        const RAB_Surface surface = LoadPathTracePrimarySurfaceRecord(int2(pixel), false);
+        RTXDI_DIReservoir temporalReservoir;
+        uint temporalStatus;
+        RestirPTRrxDiTemporalDebugInfo debugInfo;
+        RestirPTRrxDiTryGenerateTemporalReservoir(surface, pixel, temporalReservoir, temporalStatus, debugInfo);
         return;
     }
 
