@@ -977,9 +977,9 @@ idCVar r_pathTracingRestirPTRrxFinalConsumerCurrentOnly(
 
 idCVar r_pathTracingRestirPTRrxTemporalPermutation(
     "r_pathTracingRestirPTRrxTemporalPermutation",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "RRX DI temporal reuse: enable RTXDI permutation sampling to add temporal variation to previous-frame reuse" );
+    "RRX DI temporal reuse: enable RTXDI permutation sampling by default for active Remix-style temporal descriptors; set 0 for debug comparison" );
 
 idCVar r_pathTracingRestirPTRrxDisablePreviousBest(
     "r_pathTracingRestirPTRrxDisablePreviousBest",

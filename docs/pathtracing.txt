@@ -1148,12 +1148,12 @@ Ray dispatch safety diagnostics:
   evidence that sampled light contribution is correct.
 
 - r_pathTracingRestirPTRrxTemporalPermutation
-  RRX DI temporal reuse switch. Defaults to 0. Enables RTXDI temporal
-  permutation sampling with a frame-varying uniform random number, matching the
-  reference purpose of adding temporal variation to previous-frame reuse and
-  making the output friendlier to denoising. Keep it off for DLSS RR validation
-  when overlapping Doom analytic lights are visibly fighting; set it to 1 only
-  for A/B testing selected-light lock-in against temporal jitter.
+  RRX DI temporal reuse switch. Defaults to 1 because the active RRX temporal
+  path feeds the Remix-style RTXDI temporal descriptor. It enables RTXDI
+  temporal permutation sampling with a frame-varying uniform random number,
+  matching the reference purpose of adding temporal variation to previous-frame
+  reuse and making the output friendlier to denoising. Set it to 0 only for
+  debug comparison when isolating selected-light lock-in or temporal jitter.
 
 - r_pathTracingRestirPTRrxDisablePreviousBest
   Debug-only RRX DI initial-reservoir switch. Defaults to 0. Set to 1 to prevent
