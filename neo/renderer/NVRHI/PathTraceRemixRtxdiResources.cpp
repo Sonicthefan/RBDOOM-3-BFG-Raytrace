@@ -116,6 +116,16 @@ bool PrepareDomain(
     bool isDiDomain)
 {
     const bool wasValid = domain.IsValidFor(width, height, checkerboardMode, arrayCount, structStride);
+    const bool hadPendingClear = domain.clearPending;
+    const bool resetRequested = allowedResetFlags != RT_FRAME_RESET_NONE;
+    const bool clearPending = hadPendingClear || !wasValid || resetRequested;
+    const uint32_t clearReason = !wasValid
+        ? PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_RESOURCE_INCOMPATIBLE
+        : (resetRequested
+            ? PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_ALLOWED_RESET
+            : (hadPendingClear
+                ? PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_PENDING
+                : PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_NONE));
 
     domain.width = RemixRtxdiReservoirDimension(width);
     domain.height = RemixRtxdiReservoirDimension(height);
@@ -124,7 +134,6 @@ bool PrepareDomain(
     domain.reservoirStructStride = structStride;
 
     const uint64_t elementCount = RemixRtxdiReservoirElementCount64(width, height, checkerboardMode, arrayCount);
-    const bool clearPending = !wasValid || allowedResetFlags != RT_FRAME_RESET_NONE;
     if (elementCount > UINT32_MAX)
     {
         common->Printf("PathTraceRemixRtxdiResources: %s element count exceeds 32-bit metadata (%llu)\n",
@@ -166,6 +175,7 @@ bool PrepareDomain(
         stats.diReused = wasValid ? 1u : 0u;
         stats.diRecreated = wasValid ? 0u : 1u;
         stats.diClearPending = domain.clearPending ? 1u : 0u;
+        stats.diClearReason = clearReason;
         stats.diArrayCount = domain.reservoirArrayCount;
         stats.diStructStride = domain.reservoirStructStride;
         stats.diElementCount = domain.reservoirElementCount;
@@ -176,6 +186,7 @@ bool PrepareDomain(
         stats.giReused = wasValid ? 1u : 0u;
         stats.giRecreated = wasValid ? 0u : 1u;
         stats.giClearPending = domain.clearPending ? 1u : 0u;
+        stats.giClearReason = clearReason;
         stats.giArrayCount = domain.reservoirArrayCount;
         stats.giStructStride = domain.reservoirStructStride;
         stats.giElementCount = domain.reservoirElementCount;
@@ -309,10 +320,12 @@ bool PathTraceRemixRtxdiResources::ClearPendingDomain(nvrhi::ICommandList* comma
     if (kind == PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI)
     {
         m_stats.diClearPending = 0u;
+        m_stats.diClearReason = PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_NONE;
     }
     else if (kind == PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_GI)
     {
         m_stats.giClearPending = 0u;
+        m_stats.giClearReason = PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_NONE;
     }
     return true;
 }

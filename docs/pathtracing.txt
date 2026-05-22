@@ -1445,12 +1445,17 @@ Denoise/upscale/Ray Reconstruction reservation:
   resource owner. With the default RRX resource owner enabled, the dump reports
   the active persistent owner; if the owner is disabled for comparison, the dump
   still allocates for one validation frame. It reports DI/GI
-  recreate/reuse/clearPending state, reservoir array/stride/byte metadata,
-  allowed versus ignored reset flags, old smoke clear flags, light signatures,
+  recreate/reuse/clearPending/clearReason state, reservoir array/stride/byte
+  metadata, allowed versus ignored reset flags, old smoke clear flags, light
+  signatures, structural/mapping/payload signature-change flags,
   payload-only change state, active DI clear source/request state, and explicit
   zero counts for old smoke reservoir consultation, shader routes, and binding
   handoffs. `clearPending` means GPU reservoir contents still require a
-  command-list clear before shader availability reports true.
+  command-list clear before shader availability reports true. `clearReason`
+  is limited to none, resource incompatibility, allowed reset, or a still
+  pending previous RRX clear; payload-only light changes and old smoke
+  reservoir signatures are diagnostic fields only and must not trigger an RRX
+  DI/GI resource clear.
 
 - r_pathTracingRestirLightManagerDump
   Defaults to 0. One-shot dump of the ReSTIR light-manager bridge. Reports

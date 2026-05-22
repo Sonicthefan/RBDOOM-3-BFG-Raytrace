@@ -24,6 +24,14 @@ enum PathTraceRemixRtxdiReservoirDomainKind : uint32_t
     PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_COUNT = 2u
 };
 
+enum PathTraceRemixRtxdiReservoirClearReason : uint32_t
+{
+    PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_NONE = 0u,
+    PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_RESOURCE_INCOMPATIBLE = 1u,
+    PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_ALLOWED_RESET = 2u,
+    PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_PENDING = 3u
+};
+
 struct PathTraceRemixRtxdiReservoirDomain
 {
     nvrhi::BufferHandle reservoirs;
@@ -61,9 +69,11 @@ struct PathTraceRemixRtxdiResourceStats
     uint32_t diRecreated = 0;
     uint32_t diReused = 0;
     uint32_t diClearPending = 0;
+    uint32_t diClearReason = PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_NONE;
     uint32_t giRecreated = 0;
     uint32_t giReused = 0;
     uint32_t giClearPending = 0;
+    uint32_t giClearReason = PATH_TRACE_REMIX_RTXDI_RESERVOIR_CLEAR_REASON_NONE;
     uint32_t diArrayCount = 0;
     uint32_t giArrayCount = 0;
     uint32_t diStructStride = 0;
