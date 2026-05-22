@@ -1058,17 +1058,20 @@ Ray dispatch safety diagnostics:
   red/dark means no direct contribution. Use it when flat RRX contribution
   proves the temporal path is active but real mode-56 view 0 lighting is
   visually absent. View `72` is the RRX DI final-consumer bridge. It bypasses
-  mode-56 accumulation and the old combined-resolve preview, consumes the
-  current RRX DI reservoir selected light, samples that light through RAB, checks
-  target PDF and `solidAnglePdf * reservoir.weightSum`, traces local visibility,
-  and displays only direct DI contribution as
+  the old combined-resolve preview, consumes the current RRX DI reservoir
+  selected light, samples that light through RAB, checks target PDF and
+  `solidAnglePdf * reservoir.weightSum`, traces local visibility, and displays
+  only direct DI contribution as
   `BRDF * radiance * NdotL * reservoir.weightSum / solidAnglePdf`. The top 24
   pixels are a status strip: green means emissive success, cyan means Doom
   analytic success, purple means light-info/resource failure, orange means
   sampled-light invalid, yellow means zero solid angle, amber means zero
   reservoir weight, red means zero target PDF, blue means facing/NdotL rejection,
   dark red means visibility rejection, pink means zero final contribution, and
-  black below the strip means the selected sample did not contribute. View `73`
+  black below the strip means the selected sample did not contribute. Unlike the
+  classifier/audit views, view `72` participates in
+  `r_pathTracingRestirPTMode56Accumulation` so the raw DI contribution can be
+  checked for convergence. View `73`
   shows the same final-consumer result across the full screen: the left half is
   the per-pixel status color and the right half is contribution magnitude for
   successful samples, tinted by selected light type. View `74` visualizes the
