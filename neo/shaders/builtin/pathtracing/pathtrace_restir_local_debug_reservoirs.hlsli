@@ -1091,6 +1091,7 @@ void RestirPTRrxDiStreamLightRangeIntoReservoir(
                         initialDebugInfo.doomAnalyticMaxTargetPdf = max(initialDebugInfo.doomAnalyticMaxTargetPdf, targetPdf);
                     }
                 }
+                const bool positiveCandidate = lightSample.valid != 0u && targetPdf > 0.0;
                 if (lightSample.valid == 0u)
                 {
                     if (rangeLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
@@ -1121,15 +1122,16 @@ void RestirPTRrxDiStreamLightRangeIntoReservoir(
                         ++initialDebugInfo.doomAnalyticZeroTargetPdfCount;
                     }
                 }
-                else
+
+                const bool selectedCandidate = RTXDI_StreamSample(
+                    randomReservoir,
+                    lightIndex,
+                    uv,
+                    RTXDI_GetNextRandom(rng),
+                    positiveCandidate ? targetPdf : 0.0,
+                    invSourcePdf);
+                if (positiveCandidate)
                 {
-                    const bool selectedCandidate = RTXDI_StreamSample(
-                        randomReservoir,
-                        lightIndex,
-                        uv,
-                        RTXDI_GetNextRandom(rng),
-                        targetPdf,
-                        invSourcePdf);
                     if (selectedCandidate)
                     {
                         initialDebugInfo.randomSelectedLightIndexEncoded = lightIndex + 1u;
