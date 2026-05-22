@@ -1212,16 +1212,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const PathTraceRemixLightManagerStats remixLightManagerStats = m_remixLightManager.GetStats();
     const bool useRemixLightManagerRabSource = r_pathTracingRemixLightManagerRAB.GetInteger() != 0;
     const bool restirLightManagerPayloadsMatch = restirLightManagerStats.activePayloadCountMismatch == 0;
-    const bool remixLightManagerPayloadsMatch =
-        remixLightManagerStats.currentLightCount == remixLightManagerStats.currentToPreviousCount &&
-        remixLightManagerStats.previousLightCount == remixLightManagerStats.previousToCurrentCount;
     constants.restirLightManagerInfo[0] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.currentLightCount : restirLightManagerStats.activeCurrentPayloadCount);
     constants.restirLightManagerInfo[1] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.previousLightCount : restirLightManagerStats.activePreviousPayloadCount);
     constants.restirLightManagerInfo[2] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.currentToPreviousCount : restirLightManagerStats.activeCurrentToPreviousCount);
     constants.restirLightManagerInfo[3] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.previousToCurrentCount : restirLightManagerStats.activePreviousToCurrentCount);
     constants.restirLightManagerControlInfo[0] =
         useRemixLightManagerRabSource
-            ? (remixLightManagerPayloadsMatch ? 1.0f : 0.0f)
+            ? 1.0f
             : (r_pathTracingRestirLightManagerRAB.GetInteger() != 0 && restirLightManagerPayloadsMatch ? 1.0f : 0.0f);
     constants.restirLightManagerControlInfo[1] = 0.0f;
     constants.restirLightManagerControlInfo[2] = 0.0f;
@@ -1291,8 +1288,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.unifiedLightInfo[0] = static_cast<float>(Max(0, m_smokeUnifiedLightCount));
     constants.unifiedLightInfo[1] = static_cast<float>(Max(0, m_smokeUnifiedPreviousLightCount));
     constants.unifiedLightInfo[2] =
-        (r_pathTracingRestirPTUnifiedLightLoad.GetInteger() != 0 ? 1.0f : 0.0f) +
-        (r_pathTracingRestirPTUnifiedLightSample.GetInteger() != 0 ? 2.0f : 0.0f) +
+        (useRemixLightManagerRabSource || r_pathTracingRestirPTUnifiedLightLoad.GetInteger() != 0 ? 1.0f : 0.0f) +
+        (useRemixLightManagerRabSource || r_pathTracingRestirPTUnifiedLightSample.GetInteger() != 0 ? 2.0f : 0.0f) +
         (r_pathTracingRestirPTUnifiedNee.GetInteger() != 0 ? 4.0f : 0.0f);
     constants.unifiedLightInfo[3] = static_cast<float>(Max(0, m_smokeUnifiedLightRemapCount));
     constants.restirPTDiDebugInfo[0] = static_cast<float>(restirPTDiDebugView);

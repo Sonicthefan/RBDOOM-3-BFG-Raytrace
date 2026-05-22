@@ -407,15 +407,15 @@ idCVar r_pathTracingRemixLightManagerDump(
 
 idCVar r_pathTracingRemixLightManagerRAB(
     "r_pathTracingRemixLightManagerRAB",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Opt in to using the Remix-shaped light manager as the active shader-visible RAB light source; 0 preserves the legacy ReSTIR manager source" );
+    "Active RRX RAB light source: 1 uses the Remix-shaped light manager by default, 0 selects the legacy ReSTIR manager comparison/debug source" );
 
 idCVar r_pathTracingRemixRtxdiResourcesEnable(
     "r_pathTracingRemixRtxdiResourcesEnable",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Opt in to persistent allocation of the Remix-shaped RTXDI reservoir resource owner; dump requests allocate for one validation frame" );
+    "Enable the Remix-shaped RTXDI reservoir resource owner for the normal active RRX route; 0 disables it except explicit dump/probe allocation" );
 
 idCVar r_pathTracingRemixRtxdiResourcesDump(
     "r_pathTracingRemixRtxdiResourcesDump",
@@ -859,13 +859,13 @@ idCVar r_pathTracingRestirPTUnifiedLightLoad(
     "r_pathTracingRestirPTUnifiedLightLoad",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Opt-in RAB_LoadLightInfo unified light-buffer path: 0 legacy split buffers, 1 unified current/previous buffers" );
+    "Legacy/debug RAB_LoadLightInfo comparison switch: 0 split buffers, 1 unified current/previous buffers; the active Remix-manager RRX route does not require this opt-in" );
 
 idCVar r_pathTracingRestirPTUnifiedLightSample(
     "r_pathTracingRestirPTUnifiedLightSample",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Opt-in RAB_SamplePolymorphicLight unified type-switch path: 0 legacy RAB light-type switch, 1 unified light-record type switch" );
+    "Legacy/debug RAB_SamplePolymorphicLight comparison switch: 0 split light-type switch, 1 unified light-record type switch; the active Remix-manager RRX route uses the unified sample path internally" );
 
 idCVar r_pathTracingRestirPTUnifiedNee(
     "r_pathTracingRestirPTUnifiedNee",

@@ -1108,11 +1108,11 @@ Ray dispatch safety diagnostics:
   combined-resolve preview lighting with the same RRX DI final-consumer bridge
   used by DI debug view `72`. This keeps the normal view-0 output route but
   removes GI, reflection, old spatial-direct fallback, and old combined-preview
-  contribution mixing from the result. Use it with
-  `r_pathTracingRestirPTUnifiedLightLoad 1`,
-  `r_pathTracingRestirPTUnifiedLightSample 1`, and
-  `r_pathTracingRemixLightManagerRAB 1` when validating analytic-light DI
-  contribution without the `72` status strip. It participates in
+  contribution mixing from the result. The normal RRX route now defaults to
+  `r_pathTracingRemixLightManagerRAB 1` and internally enables the unified
+  light load/sample shape needed by manager payloads, so the old unified
+  load/sample CVars are legacy/debug comparison switches rather than required
+  activation steps. It participates in
   `r_pathTracingRestirPTMode56Accumulation`; it should not be treated as a
   classifier-only bypass view.
 
@@ -1420,28 +1420,28 @@ Denoise/upscale/Ray Reconstruction reservation:
   the shader-visible `offset/count/samples` contract.
 
 - r_pathTracingRemixLightManagerRAB
-  Defaults to 0. Opt-in active shader-visible RAB light source switch for the
-  Remix-shaped light manager. When enabled, RAB light loads, translation, and
-  the RRX DI seed/temporal path use the Remix manager's current/previous
-  light domains and payload buffers. `0` preserves the legacy ReSTIR manager
-  source. This is a routing/conformance gate, not a claim that final Remix
-  DI parity is complete.
+  Defaults to 1. Active shader-visible RAB light source switch for the
+  Remix-shaped light manager. With the default enabled, RAB light loads,
+  translation, and the RRX DI seed/temporal path use the Remix manager's
+  current/previous light domains and payload buffers. `0` selects the legacy
+  ReSTIR manager comparison/debug source. This is a routing/conformance gate,
+  not a claim that final Remix DI parity is complete.
 
 - r_pathTracingRemixRtxdiResourcesEnable
-  Defaults to 0. Opt-in persistent allocation and active mode-56 RRX DI
-  consumer gate for the RTX Remix-shaped RTXDI DI/GI reservoir resource owner.
-  When enabled in mode 56, the DI domain is allocated, initial clear-pending
+  Defaults to 1. Persistent allocation and active mode-56 RRX DI consumer gate
+  for the RTX Remix-shaped RTXDI DI/GI reservoir resource owner. With the
+  default enabled in mode 56, the DI domain is allocated, initial clear-pending
   state is cleared by the command list, and the local combined preview/final
   resolve consumes the RRX DI temporal reservoir for the direct-lighting term
-  when it produces a valid reservoir. The path falls back to the old spatial
-  direct-lighting contribution when RRX DI is unavailable or invalid. This
-  currently uses rbdoom preview visibility through `TraceSmokeShadowVisibility`,
-  not the reference RAB selected-light visibility callback.
+  when it produces a valid reservoir. This currently uses rbdoom preview
+  visibility through `TraceSmokeShadowVisibility`, not the reference RAB
+  selected-light visibility callback.
 
 - r_pathTracingRemixRtxdiResourcesDump
   Defaults to 0. One-shot dump of the RTX Remix-shaped RTXDI reservoir
-  resource owner. The dump allocates for one validation frame even when
-  `r_pathTracingRemixRtxdiResourcesEnable` is 0, then reports DI/GI
+  resource owner. With the default RRX resource owner enabled, the dump reports
+  the active persistent owner; if the owner is disabled for comparison, the dump
+  still allocates for one validation frame. It reports DI/GI
   recreate/reuse/clearPending state, reservoir array/stride/byte metadata,
   allowed versus ignored reset flags, old smoke clear flags, light signatures,
   payload-only change state, active DI clear source/request state, and explicit
