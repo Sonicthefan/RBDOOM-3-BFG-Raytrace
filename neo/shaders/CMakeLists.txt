@@ -70,6 +70,7 @@ set(PATH_TRACING_RESTIR_COMBINED_RESOLVE_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DI
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
 option(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS "Build legacy monolithic ReSTIR PT diagnostic RT shader libraries that are not used by the mode 56 primary-prepass path." OFF)
+option(PATH_TRACING_BUILD_DXIL_RT_SHADERS "Build DirectX DXIL path tracing RT shader libraries. Disable for Vulkan-only PT debug iteration." ON)
 set(PATH_TRACING_SHADER_OUTPUT_BASE ${CMAKE_CURRENT_SOURCE_DIR}/../../base/renderprogs2)
 set(PATH_TRACING_SHADER_OUTPUTS)
 set(PATH_TRACING_RTXDI_INCLUDE_ARGS)
@@ -77,7 +78,7 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/PT/R
     list(APPEND PATH_TRACING_RTXDI_INCLUDE_ARGS -I "${RTXDI_RUNTIME_DIR}/Include")
 endif()
 
-if(USE_DX12 AND USE_DXIL_ON_DX12)
+if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     set(PATH_TRACING_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke.rt.bin)
     set(PATH_TRACING_MODE18_RESTIR_HYBRID_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke_mode18_restir_hybrid.rt.bin)
     set(PATH_TRACING_RESTIR_INITIAL_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_smoke_restir_initial.rt.bin)

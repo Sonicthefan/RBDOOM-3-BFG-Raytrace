@@ -1,0 +1,331 @@
+Clean-Room DI I/O Whitelist
+===========================
+
+Purpose
+-------
+
+The clean-room Remix DI path may only consume and produce explicitly approved
+data. This prevents fallback images, old RRX probes, old smoke reservoirs, or
+unrelated ReSTIR stages from being mistaken for raw DI temporal proof.
+
+Every worker must list the whitelist entries it consumes and writes before
+editing.
+
+
+Allowed Input Classes
+---------------------
+
+The clean-room path may read only these data classes.
+
+
+I-01: Current Primary Surface
+
+    Meaning:
+        Current-frame primary hit/surface data needed by the DI pass.
+
+    Allowed use:
+        DI initial pass
+        DI temporal pass
+        reservoir-only debug resolve for surface validity/status
+
+    rbdoom sources:
+        primary surface history current page
+        PathTracePrimarySurface.hlsli surface load helpers
+
+    Forbidden use:
+        no fallback shading from material albedo
+        no beauty lighting from the surface
+
+
+I-02: Previous Primary Surface
+
+    Meaning:
+        Previous-frame primary hit/surface data used for temporal validation.
+
+    Allowed use:
+        DI temporal pass only
+
+    rbdoom sources:
+        primary surface history previous page
+        previous-frame projection helpers
+
+    Forbidden use:
+        not allowed in DI initial
+        not allowed to fabricate previous surfaces
+
+
+I-03: Motion / Projection Data
+
+    Meaning:
+        Current-to-previous pixel mapping and related validity data.
+
+    Allowed use:
+        DI temporal pass only
+
+    rbdoom sources:
+        motion vector texture
+        motion vector mask texture
+        primary-surface reprojection helpers
+
+    Forbidden use:
+        no bypass-to-same-pixel as proof
+        no threshold tuning to hide failure
+
+
+I-04: Current Light Universe
+
+    Meaning:
+        Current-frame rbdoom unified light records.
+
+    Allowed use:
+        DI initial pass
+        DI temporal pass for current-surface targetPdf/replay
+        debug resolve for selected-light identity/type
+
+    rbdoom sources:
+        unified light manager buffers
+        Doom analytic light records
+        future emissive records after analytic proof
+
+    Required initial policy:
+        Doom analytic only
+
+
+I-05: Previous Light Universe / Light Remap
+
+    Meaning:
+        Previous-frame light records and current/previous index mappings.
+
+    Allowed use:
+        DI temporal pass only
+
+    rbdoom sources:
+        unified current-to-previous remap
+        unified previous-to-current remap
+        previous light buffer
+
+    Forbidden use:
+        not allowed in DI initial
+        failed translation rejects only previous sample
+
+
+I-06: Clean-Room DI Reservoir Pages
+
+    Meaning:
+        Reservoir storage owned by the clean-room DI path.
+
+    Allowed use:
+        DI initial writes current reservoir page
+        DI temporal reads current + previous and writes temporal output
+        debug resolve reads temporal or current-only page
+
+    Forbidden use:
+        no old smoke reservoir pages
+        no existing RRX synthetic reservoir pages as proof
+        no spatial pages before temporal proof
+
+
+I-07: RTXDI / Remix-Style Parameters
+
+    Meaning:
+        Runtime/static parameters needed by DI initial and temporal stages.
+
+    Allowed use:
+        DI initial
+        DI temporal
+        debug output for reporting parameter state
+
+    Forbidden use:
+        no hidden parameter overrides to make a scene look better
+        no undocumented threshold changes
+
+
+I-08: Visibility Ray API
+
+    Meaning:
+        rbdoom ray query / trace path used to test light visibility.
+
+    Allowed use:
+        DI initial if initial visibility is enabled
+        DI final/debug replay only when explicitly testing visibility
+
+    Forbidden use:
+        no fallback direct lighting accumulation
+        no beauty shading
+
+
+I-09: Shared Low-Level Direct-Light Helpers
+
+    Meaning:
+        Existing rbdoom helper functions that sample a light, compute targetPdf,
+        evaluate the target function/BRDF terms needed by DI, or trace
+        visibility.
+
+    Allowed use:
+        DI initial stage as the clean-room NEE-equivalent adapter
+        DI temporal replay/revalidation when required by RTXDI temporal
+
+    Examples:
+        active RAB light sampling helper
+        light-sample targetPdf helper
+        visibility ray helper
+        surface target-function/BRDF helper
+
+    Forbidden use:
+        no old NEE selected-light records
+        no old NEE reservoirs
+        no old NEE contribution output
+        no old NEE fallback shading
+        no old NEE debug views as proof
+
+
+Allowed Output Classes
+----------------------
+
+The clean-room path may write only these data classes.
+
+
+O-01: Clean-Room Current DI Reservoir Page
+
+    Written by:
+        DI initial pass
+
+    Read by:
+        DI temporal pass
+        current-only debug view when temporal is disabled
+
+
+O-02: Clean-Room Temporal DI Reservoir Page
+
+    Written by:
+        DI temporal pass
+
+    Read by:
+        reservoir-only debug resolve
+
+
+O-03: Clean-Room Debug Output
+
+    Written by:
+        reservoir-only debug resolve
+        route sentinel view
+        adapter proof views
+
+    Requirements:
+        every pixel is explicitly written
+        invalid states are explicit colors
+        no fallback scene lighting
+
+
+O-04: One-Shot CPU Dump
+
+    Written by:
+        clean-room dump CVar only
+
+    Allowed contents:
+        CVar states
+        route state
+        resource/page roles
+        dispatch dimensions
+        light mode
+        counts and adapter validity
+
+    Forbidden contents:
+        no claims of visual compliance
+        no derived proof from names alone
+
+
+Forbidden Input Classes
+-----------------------
+
+The clean-room path must not read:
+
+    SmokeOutput
+    SmokeAccumulation
+    mode-56 fallback or combined preview output
+    old smoke reservoirs
+    existing RRX DI reservoir/debug pages as proof
+    RRX synthetic primary patch output
+    RRX previous-temporal-as-best path
+    spatial reservoir pages
+    GI reservoir pages
+    reflection reservoir pages
+    DLSS/denoiser confidence or gradient buffers
+    best-light buffers
+    debug albedo/base-lighting buffers
+    path-traced beauty output
+    old ReSTIR NEE selected-light records
+    old ReSTIR NEE contribution output
+    old ReSTIR NEE debug views as proof
+
+
+Stage Connectivity
+------------------
+
+DI Initial Stage:
+
+    may read:
+        I-01 current primary surface
+        I-04 current light universe
+        I-07 RTXDI/Remix-style parameters
+        I-08 visibility ray API, only if explicitly enabled
+        I-09 shared low-level direct-light helpers
+
+    must write:
+        O-01 clean-room current DI reservoir page
+
+    mandatory role:
+        this is the clean-room NEE-equivalent direct-light sampling stage
+
+    must not read:
+        previous surface
+        previous reservoir
+        previous light universe
+        spatial reservoir
+        fallback output
+        old NEE records or old NEE contribution output
+
+
+DI Temporal Stage:
+
+    may read:
+        I-01 current primary surface
+        I-02 previous primary surface
+        I-03 motion/projection data
+        I-04 current light universe
+        I-05 previous light universe / light remap
+        I-06 clean-room current and previous DI reservoir pages
+        I-07 RTXDI/Remix-style parameters
+
+    must write:
+        O-02 clean-room temporal DI reservoir page
+
+    must not read:
+        spatial reservoir
+        best-light buffer
+        fallback output
+        denoiser/confidence buffers
+
+
+Reservoir-Only Debug Resolve:
+
+    may read:
+        I-01 current primary surface for status only
+        I-04 current light universe for selected-light identity/type only
+        I-06 clean-room DI reservoir page
+
+    must write:
+        O-03 clean-room debug output
+
+    must not read:
+        albedo for fallback shading
+        GI/direct lighting fallback
+        path-traced beauty output
+        SmokeAccumulation
+
+
+Review Rule
+-----------
+
+Reject any worker result that reads from a forbidden input class or cannot
+state the whitelist entry for every consumed input and written output.

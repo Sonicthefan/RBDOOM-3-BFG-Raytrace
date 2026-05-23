@@ -2525,6 +2525,13 @@ float4 EvaluateRestirPTIndirectPathAttribution(float3 rayOrigin, float3 rayDirec
 #ifdef RB_PT_RESTIR_COMBINED_SHADING
 float4 EvaluateRestirPTCombinedDirectGiPreviewFromSurface(RAB_Surface surface, uint2 pixel, bool traceDirectVisibility)
 {
+    const uint diDebugView = (uint)max(RestirPTDiDebugInfo.x, 0.0);
+    if (diDebugView >= 60u && diDebugView <= 77u)
+    {
+        const bool checker = ((pixel.x >> 4u) ^ (pixel.y >> 4u)) & 1u;
+        return checker ? float4(1.0, 0.0, 1.0, 1.0) : float4(1.0, 0.85, 0.0, 1.0);
+    }
+
     if (!RAB_IsSurfaceValid(surface))
     {
         return float4(0.0, 0.0, 0.0, 1.0);

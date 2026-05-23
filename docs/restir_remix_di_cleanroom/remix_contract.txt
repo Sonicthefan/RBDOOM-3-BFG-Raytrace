@@ -1,0 +1,205 @@
+RTX Remix DI Contract
+=====================
+
+Use this file as the behavioral contract for the clean-room rbdoom DI rebuild.
+
+
+Reference Files
+---------------
+
+Pass scheduling and binding:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+
+Remix shader passes:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_reuse_bindings.slangh
+
+Remix bridge:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/rtxdi.slangh
+
+RTXDI SDK math reference:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/ReservoirStorage.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/ReSTIRDIParameters.h
+
+
+Clean-Room Boundary
+-------------------
+
+The reference files define behavior and contracts. They are not source text to
+copy into rbdoom.
+
+Allowed outputs from reference reading:
+
+    pass order
+    resource role table
+    parameter role table
+    required RAB adapter functions
+    required input/output invariants
+    feature toggle behavior
+
+Forbidden outputs from reference reading:
+
+    copied function bodies
+    copied formulas rewritten by hand from memory without adapter proof
+    renamed Remix source pasted into rbdoom
+    "equivalent" new math
+
+
+Minimum Remix Behavior To Reproduce
+-----------------------------------
+
+The first rbdoom implementation must reproduce only this Remix mode:
+
+    initial DI sampling enabled
+    temporal reuse enabled
+    spatial reuse disabled
+    best-light sampling disabled
+    gradients disabled
+    confidence disabled
+    denoiser disabled
+    fallback scene lighting disabled in proof output
+
+This must work with flat/textured primary surfaces and Doom analytic lights
+first. Emissive lights are added only after analytic temporal proof is visible.
+
+
+Pass Contract
+-------------
+
+Stage 1: DI Initial
+-------------------
+
+This stage is mandatory.
+
+It is the clean-room path's NEE-equivalent direct-light sampling stage. It must
+exist as an owned clean-room producer before temporal reuse can be implemented.
+
+It is not allowed to consume old rbdoom ReSTIR NEE records, old selected-light
+records, old NEE reservoir state, or old direct-light contribution output.
+
+It may call shared rbdoom low-level helpers for surface/light sampling,
+targetPdf evaluation, BRDF/target-function evaluation, and visibility, provided
+those helpers are used only as adapters and do not route through old NEE stage
+state.
+
+    input:
+        current primary surface
+        current light universe
+        rbdoom visibility ray API, if initial visibility is enabled
+        RTXDI DI runtime/static parameters
+
+    output:
+        current-frame DI reservoir page
+
+    forbidden:
+        no previous reservoir read
+        no previous-temporal-as-best
+        no spatial neighbor read
+        no fallback lighting
+        no synthetic reservoir construction
+        no old rbdoom NEE records or old selected-light records
+
+
+Stage 2: DI Temporal
+
+    input:
+        current primary surface
+        previous primary surface / previous frame surface data
+        motion vectors or projection data
+        current DI reservoir page from Stage 1
+        previous DI reservoir page
+        current-to-previous and previous-to-current light mapping
+        RTXDI DI temporal parameters
+
+    output:
+        temporal DI reservoir page for the current frame
+
+    required behavior:
+        failed previous surface projection rejects only the previous sample
+        failed previous light translation rejects only the previous sample
+        current reservoir remains valid if current sampling was valid
+        history/M follows RTXDI semantics
+        targetPdf is evaluated for the current surface
+
+    forbidden:
+        no spatial fallback
+        no best-light fallback
+        no broad light suppression
+        no history brightness ramp
+        no fake previous surface writes
+        no synthetic previous reservoir as active proof
+
+
+Stage 3: Reservoir-Only Debug Resolve
+
+    input:
+        temporal DI reservoir page
+        current primary surface, only for validity/type checks
+        current light universe, only for selected-light type/identity checks
+
+    output:
+        full-screen debug color
+
+    required output ownership:
+        every pixel must be written
+        invalid surface is explicit dark status color
+        no current light is explicit red/magenta status color
+        current-only reservoir is explicit orange/cold status color
+        temporal-reused reservoir is explicit cyan/green/status color
+        selected light identity is shown with stable hash colors
+        M/history/weight fields are shown in separate bands or subviews
+
+    forbidden:
+        no albedo fallback
+        no GI fallback
+        no direct-light beauty shading
+        no tone-mapped scene lighting
+        no using mode-56 accumulation as proof
+
+
+rbdoom Adapter Boundary
+-----------------------
+
+Workers may write rbdoom adapters for:
+
+    loading current primary surface
+    loading previous primary surface
+    projecting current pixel to previous pixel
+    loading current light info
+    loading previous light info
+    translating light indices current-to-previous
+    translating light indices previous-to-current
+    sampling a Doom analytic light
+    computing targetPdf for a sampled light on the current surface
+    tracing a visibility ray
+    storing/loading DI reservoirs
+
+Workers may not change the ReSTIR algorithm to fit an adapter. If the adapter
+cannot satisfy the contract, report the adapter gap.
+
+
+First-Light Policy
+------------------
+
+Start with Doom analytic lights only.
+
+Reason:
+
+    Portal RTX raw DI + temporal accumulation can be validated against simple
+    visible direct lights. rbdoom Doom analytic lights are cheaper and more
+    stable than emissive triangle lights for the first proof.
+
+After analytic temporal proof:
+
+    add emissive triangles as a second adapter task
+    do not change temporal math when adding emissives
+    do not use emissive overlap failure to alter analytic proof math

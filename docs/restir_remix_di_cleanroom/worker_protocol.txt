@@ -1,0 +1,178 @@
+Worker Protocol
+===============
+
+This protocol is mandatory for every clean-room Remix DI worker.
+
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact Remix reference file-equivalent
+    exact RTXDI SDK math reference file, if math is involved
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact clean-room CVars from cvar_contract.txt
+    exact io_whitelist.txt input entries consumed
+    exact io_whitelist.txt output entries written
+    active input contract
+    active output contract
+    forbidden files/functions
+    expected runtime proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Clean-Room Conduct
+------------------
+
+Workers may read reference files and summarize contracts.
+
+Workers must not copy source text from RTX Remix or RTXDI SDK into rbdoom.
+
+Workers must not invent replacement math. The only allowed implementation is a
+rbdoom-owned expression of the documented contract through rbdoom adapters.
+
+If a worker believes code must differ from Remix/RTXDI behavior, it must stop
+and ask for manager review before editing.
+
+
+Allowed Edits
+-------------
+
+Allowed only when the task explicitly names the files:
+
+    new clean-room DI shader files
+    new clean-room DI C++ dispatch/resource files
+    new clean-room DI CVars
+    minimal build-system additions for those new files
+    documentation in this folder
+
+
+Forbidden Edits
+---------------
+
+Do not edit unless a task explicitly says so:
+
+    existing RRX synthetic primary patch code
+    existing previous-temporal-as-best fallback
+    existing spatial proof path
+    existing GI/ReSTIR PT path
+    denoiser/confidence/gradient code
+    unrelated smoke integrator code
+    unrelated material/geometry/light-universe systems
+    mode-56 debug routing
+    r_pathTracingRestirPTDiDebugView routing
+
+Do not add:
+
+    synthetic reservoir builders
+    history-to-brightness display ramps
+    fallback albedo or fallback GI output
+    broad light suppression
+    threshold hacks to hide reprojection failure
+    spatial activation
+    best-light feedback
+    denoiser/confidence dependencies
+    activation through r_pathTracingDebugMode 56
+    activation through existing RRX debug CVars
+
+
+Math Lock
+---------
+
+Workers may not change:
+
+    reservoir finalization semantics
+    targetPdf semantics
+    sourcePdf / inverse sourcePdf semantics
+    M/history semantics
+    temporal reuse bias correction semantics
+    selected-light weighting
+    current/previous reservoir page roles
+
+If a worker cannot identify the exact RTXDI/Remix contract for one of these,
+the task is blocked.
+
+
+Proof Requirements
+------------------
+
+Every implementation report must include:
+
+    producer-to-consumer proof
+        where the producer writes
+        where the next stage reads
+        exact resource/page index role
+
+    negative-path proof
+        no light input
+        invalid current surface
+        invalid previous surface/projection
+        failed light translation
+        zero targetPdf
+
+    output ownership proof
+        whitelist entries used
+        every pixel written
+        no fallback albedo
+        no fallback GI/direct lighting
+        invalid status is visible and loud
+
+    DI initial / NEE-equivalent proof
+        owned clean-room initial producer exists before temporal
+        old NEE records are not consumed
+        current reservoir page producer is identified
+
+    runtime proof
+        exact cvars
+    exact expected colors
+    exact r_pathTracingCleanRtxdiDi* CVars
+    what the user should see with temporal on
+        what the user should see with temporal off
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    a proof view shows albedo or normal scene lighting
+    temporal proof requires spatial
+    temporal proof requires best lights
+    previous-temporal-as-best is needed for accumulation
+    invalid pixels are hidden by fallback output
+    clean-room DI depends on mode 56 or r_pathTracingRestirPTDiDebugView
+    a consumed input or written output is not listed in io_whitelist.txt
+    temporal reuse is implemented without an owned clean-room DI initial /
+        NEE-equivalent producer
+    any reference math is unclear
+    the exact active producer-to-consumer path is not provable
+
+
+Build And Deploy
+----------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders:
+
+    copy contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    -> E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not create:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/renderprogs2

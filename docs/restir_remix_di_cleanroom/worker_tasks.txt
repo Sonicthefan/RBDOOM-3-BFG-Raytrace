@@ -1,0 +1,317 @@
+Worker Tasks
+============
+
+Use these tasks in order. Do not skip ahead.
+
+
+RDI-00: Remix Raw DI Contract Audit
+-----------------------------------
+
+Type:
+
+    read-only audit
+
+Goal:
+
+    Produce the exact Remix raw DI initial + temporal contract for the mode
+    where spatial, best lights, gradients, confidence, and denoising are off.
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_reuse_bindings.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+rbdoom files to inspect:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResourceGate.h
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Visibility.hlsli
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+Required output:
+
+    Remix pass order for raw DI initial + temporal
+    Remix feature toggles that must be off
+    Remix input resource table
+    Remix output resource table
+    rbdoom equivalent resource table
+    io_whitelist.txt allowed input/output mapping
+    forbidden input classes that resemble existing rbdoom resources
+    missing rbdoom adapters
+    exact clean-room CVar implementation plan from cvar_contract.txt
+    exact first implementation write set recommendation
+
+Forbidden:
+
+    no edits
+    no build
+    no code proposal beyond the contract table
+
+
+RDI-01: New Clean-Room Path Scaffold
+------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add a new isolated rbdoom clean-room DI path that can write a full-screen
+    sentinel output and cannot fall back to existing RRX/smoke output.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+
+Allowed rbdoom write set:
+
+    new shader file(s) under neo/shaders/builtin/pathtracing/cleanroom_rtxdi/
+    new C++ dispatch/resource file(s), if needed, under neo/renderer/NVRHI/
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/shaders/CMakeLists.txt
+    minimal CVar declarations from cvar_contract.txt
+
+Requirements:
+
+    new path is not the existing RRX path
+    new path is not activated through r_pathTracingDebugMode 56
+    new path is controlled by r_pathTracingCleanRtxdiDiEnable and
+        r_pathTracingCleanRtxdiDiView
+    new path reads no forbidden input from io_whitelist.txt
+    output writes every pixel
+    sentinel color has no albedo, no GI, no direct lighting
+    route can be enabled/disabled by a CVar
+    build/deploy succeeds
+
+Forbidden:
+
+    no reservoir math
+    no light sampling
+    no temporal reuse
+    no edits to existing synthetic patch logic
+    no mode-56 route
+
+
+RDI-02: Primary Surface Adapter Proof
+-------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Connect current primary surface input to the clean-room path and prove
+    every pixel has explicit status output.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Allowed rbdoom write set:
+
+    clean-room DI shader files only
+
+Requirements:
+
+    valid opaque diffuse surface = one explicit color
+    invalid surface = one explicit color
+    unsupported surface = one explicit color
+    no fallback lighting
+    no reservoir logic yet
+
+Forbidden:
+
+    no light sampling
+    no temporal reuse
+    no BRDF/beauty shading
+
+
+RDI-03: Analytic Light Adapter Proof
+------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Prove clean-room path can load and sample Doom analytic lights using the
+    rbdoom light universe.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Allowed rbdoom write set:
+
+    clean-room DI shader files only
+
+Requirements:
+
+    Doom analytic light range is read
+    selected analytic light identity is visible as hash color
+    invalid/no-light state is loud
+    targetPdf zero state is loud
+    visibility accepted/rejected state is visible
+
+Forbidden:
+
+    no reservoir temporal reuse
+    no spatial
+    no best lights
+    no broad light suppression
+    no fallback lighting
+
+
+RDI-04: DI Initial Reservoir Producer
+-------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Build the first clean-room DI initial reservoir stage for Doom analytic
+    lights only.
+
+    This task is mandatory. It is the clean-room path's NEE-equivalent
+    direct-light sampling stage. Workers must not skip it, replace it with old
+    rbdoom NEE records, or consume old selected-light/direct-light output.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+RTXDI math reference:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+
+Allowed rbdoom write set:
+
+    clean-room DI shader files
+    clean-room DI resource/dispatch files only if needed
+
+Requirements:
+
+    current reservoir page is written
+    current reservoir page is clean-room owned
+    producer samples candidate lights from the current light universe
+    producer evaluates targetPdf for the current surface
+    producer optionally uses the rbdoom visibility helper if initial visibility
+        is enabled
+    every pixel writes either valid reservoir or explicit invalid state
+    reservoir-only debug shows selected-light identity and fields
+    no previous reservoir is read
+    no previous-best input is used
+
+Forbidden:
+
+    no temporal reuse
+    no spatial
+    no best lights
+    no synthetic reservoir builder
+    no new weighting formula
+    no old NEE selected-light records
+    no old NEE reservoirs
+    no old NEE direct-light contribution output
+
+
+RDI-05: DI Temporal Reservoir Producer
+--------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Add clean-room DI temporal reuse over the RDI-04 current reservoir and
+    previous frame reservoir page.
+
+    RDI-05 is blocked unless RDI-04 produced an owned clean-room DI initial /
+    NEE-equivalent current reservoir page.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+
+RTXDI math reference:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/ReservoirStorage.hlsli
+
+Allowed rbdoom write set:
+
+    clean-room DI shader files
+    clean-room DI dispatch/resource files only if page scheduling is required
+
+Requirements:
+
+    temporal input page is previous frame reservoir page
+    temporal output page is current frame temporal page
+    both pages are clean-room owned
+    current reservoir is preserved when previous projection fails
+    failed previous light translation rejects only previous sample
+    debug output shows current-only vs temporal-reused
+    temporal can be disabled to produce current-only noisy output
+
+Forbidden:
+
+    no spatial
+    no best lights
+    no fallback albedo
+    no history brightness ramp
+    no threshold tuning as a fix
+    no previous-temporal-as-best
+
+
+RDI-06: Reservoir-Only User Validation Build
+--------------------------------------------
+
+Type:
+
+    build/deploy stop
+
+Goal:
+
+    Produce a runtime build for user visual testing of clean-room raw DI initial
+    + temporal only.
+
+Requirements:
+
+    build succeeds
+    exe copied
+    shader contents copied without nesting
+    hashes verified
+    exact cvars provided
+    no commit until user confirms visual behavior
+
+Stop:
+
+    stop after build/deploy for user visual testing
+
+
+Deferred Tasks
+--------------
+
+Do not start before RDI-06 user confirmation:
+
+    emissive triangle adapter
+    spatial reuse
+    best-light feedback
+    gradients/confidence
+    denoiser integration
+    beauty-output integration

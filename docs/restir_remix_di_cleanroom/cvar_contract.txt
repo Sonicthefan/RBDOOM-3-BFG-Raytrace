@@ -1,0 +1,249 @@
+Clean-Room DI CVar Contract
+===========================
+
+Purpose
+-------
+
+The clean-room Remix DI path must have its own CVar namespace.
+
+It must not be hidden behind, overloaded into, or implicitly activated by:
+
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTDiDebugView
+    existing RRX debug CVars
+    existing mode-56 fallback/combined preview CVars
+
+Reason:
+
+    The previous RRX work became ambiguous because workers routed new behavior
+    through mode 56 and existing debug views. That allowed fallback lighting,
+    old ReSTIR PT preview output, and synthetic RRX code to masquerade as DI
+    temporal proof.
+
+
+Required CVar Namespace
+-----------------------
+
+All new controls must begin with:
+
+    r_pathTracingCleanRtxdiDi
+
+Workers may not invent another prefix.
+
+
+Required CVars
+--------------
+
+These names are reserved for the first implementation. Workers must use these
+exact names unless the manager updates this file.
+
+
+r_pathTracingCleanRtxdiDiEnable
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Enables the clean-room Remix DI path.
+
+    Rule:
+        When 0, the new clean-room path must not run.
+        When 1, the clean-room path may run only through its own explicit route.
+
+
+r_pathTracingCleanRtxdiDiView
+
+    Type:
+        integer
+
+    Default:
+        0
+
+    Meaning:
+        Selects clean-room DI debug output.
+
+    Initial values:
+        0 = disabled / no clean-room debug output
+        1 = full-screen route sentinel
+        2 = primary-surface adapter status
+        3 = analytic-light adapter status
+        4 = initial-reservoir fields
+        5 = temporal-reservoir fields
+        6 = selected-light identity
+        7 = reservoir M/history
+        8 = reservoir weight/targetPdf
+
+    Rule:
+        Views must write every pixel and may not show fallback lighting.
+
+
+r_pathTracingCleanRtxdiDiTemporal
+
+    Type:
+        integer/bool
+
+    Default:
+        1
+
+    Meaning:
+        Enables the clean-room DI temporal reuse stage.
+
+    Rule:
+        When 0, output must be current-only initial reservoir diagnostics.
+        When 1, output may use previous-frame reservoir data.
+
+
+r_pathTracingCleanRtxdiDiSpatial
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Reserved for future spatial reuse.
+
+    Rule:
+        For tasks RDI-00 through RDI-06, this must remain forced off. Workers
+        must not implement spatial behavior behind this CVar during the first
+        milestone.
+
+
+r_pathTracingCleanRtxdiDiBestLights
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Reserved for future Remix best-light feedback.
+
+    Rule:
+        For tasks RDI-00 through RDI-06, this must remain forced off. Workers
+        must not implement or depend on best-light feedback during the first
+        milestone.
+
+
+r_pathTracingCleanRtxdiDiDenoiser
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Reserved for future denoiser/confidence/gradient integration.
+
+    Rule:
+        For tasks RDI-00 through RDI-06, this must remain forced off.
+
+
+r_pathTracingCleanRtxdiDiFallbackLighting
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Reserved for future beauty integration fallback.
+
+    Rule:
+        For proof/debug views, this must remain 0. Invalid or missing reservoir
+        data must produce explicit status colors, not albedo, GI, direct light,
+        or mode-56 fallback output.
+
+
+r_pathTracingCleanRtxdiDiLightMode
+
+    Type:
+        integer
+
+    Default:
+        1
+
+    Initial values:
+        0 = no lights, negative-path test
+        1 = Doom analytic lights only
+        2 = emissive lights only, deferred until after analytic proof
+        3 = analytic + emissive, deferred until after both isolated proofs
+
+    Rule:
+        RDI-03 through RDI-06 must use value 1 unless explicitly testing the
+        no-light negative path with value 0.
+
+
+r_pathTracingCleanRtxdiDiDump
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Emits one-shot CPU diagnostics for the clean-room DI route.
+
+    Required dump fields:
+        enable state
+        view id
+        temporal/spatial/best-lights/denoiser/fallback states
+        light mode
+        reservoir page roles
+        dispatch dimensions
+        active shader route
+
+
+Forbidden CVar Coupling
+-----------------------
+
+Workers must not require:
+
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTDiDebugView 72
+    r_pathTracingRestirPTRrxSyntheticPrimaryPatch 1
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 1
+    r_pathTracingRestirPTMode56Accumulation 1
+
+Workers may use existing global path-tracing infrastructure CVars only when the
+task names them, for example build/runtime toggles that already control Vulkan
+or path tracing generally.
+
+
+Runtime Baseline
+----------------
+
+The intended clean-room validation baseline is:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 5
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiSpatial 0
+    r_pathTracingCleanRtxdiDiBestLights 0
+    r_pathTracingCleanRtxdiDiDenoiser 0
+    r_pathTracingCleanRtxdiDiFallbackLighting 0
+    r_pathTracingCleanRtxdiDiLightMode 1
+
+Temporal-off comparison:
+
+    r_pathTracingCleanRtxdiDiTemporal 0
+
+No-light negative path:
+
+    r_pathTracingCleanRtxdiDiLightMode 0
+
+
+Review Rule
+-----------
+
+Reject any worker result that activates clean-room DI through mode 56 or an
+existing RRX debug view instead of this CVar namespace.
+

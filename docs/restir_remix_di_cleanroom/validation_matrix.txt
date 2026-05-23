@@ -1,0 +1,165 @@
+Validation Matrix
+=================
+
+All runtime validation is performed in:
+
+    E:/prog/rbdoom-3-BFG-prebuilt
+
+
+Ground Truth Comparison
+-----------------------
+
+Use Portal RTX / RTX Remix as behavior reference with:
+
+    raw RTXDI DI enabled
+    temporal reuse enabled
+    spatial reuse disabled
+    best-light sampling disabled
+    denoiser/confidence disabled
+    flat/textured primary surfaces acceptable
+
+The target is not identical visual content. The target is matching temporal
+behavior:
+
+    current-only raw DI is noisy
+    temporal reuse visibly reduces noise over frames
+    camera motion shows expected reservoir reprojection behavior
+    disocclusion/current-only areas do not show fallback scene lighting
+
+
+Hard Pass For RDI-06
+--------------------
+
+Pass only if all are true:
+
+    clean-room path owns every pixel
+    invalid pixels are explicit colors
+    no albedo or fallback scene lighting is visible in proof view
+    temporal off produces current-only noisy/unstable reservoir output
+    temporal on produces visible temporal settling/accumulation
+    spatial is off
+    best lights are off
+    previous-temporal-as-best is off and unused
+    analytic lights work first
+    clean-room path is activated by r_pathTracingCleanRtxdiDi* CVars, not
+        r_pathTracingDebugMode 56
+    every consumed input and written output is allowed by io_whitelist.txt
+    clean-room DI initial / NEE-equivalent producer writes the current
+        reservoir page before temporal reuse
+
+
+Hard Fail
+---------
+
+Fail if any are true:
+
+    output looks like base albedo or normal lit game image
+    empty reservoir pixels reveal a rendered scene underneath
+    temporal proof requires spatial
+    temporal proof requires best lights
+    temporal proof requires denoiser/confidence
+    previous-temporal-as-best is needed
+    invalid pixels are dark/hidden instead of explicit
+    worker changed reservoir/weight/targetPdf/history math
+    worker added a synthetic reservoir builder
+    worker added a history brightness ramp
+    worker routed clean-room proof through mode 56 or r_pathTracingRestirPTDiDebugView
+    worker consumed a forbidden input class from io_whitelist.txt
+    temporal reuse exists but no owned clean-room DI initial / NEE-equivalent
+        producer writes the current reservoir page
+    worker replaces clean-room DI initial with old rbdoom NEE records or old
+        selected-light/direct-light output
+
+
+Required Runtime Toggles
+------------------------
+
+The implementation must provide the exact CVars defined in:
+
+    docs/restir_remix_di_cleanroom/cvar_contract.txt
+
+Required controls:
+
+    clean-room DI path enable
+    temporal reuse enable/disable
+    spatial forced off
+    best lights forced off
+    fallback lighting forced off in proof view
+    analytic-only first-light mode
+    reservoir-only debug view
+
+Exact names are assigned by the implementation task, but they must be reported
+in the worker result only if cvar_contract.txt is updated first. Otherwise use
+the exact r_pathTracingCleanRtxdiDi* names.
+
+
+Visual Status Colors
+--------------------
+
+The proof view must document exact colors for:
+
+    invalid surface
+    unsupported surface
+    no light range
+    invalid light info
+    zero targetPdf
+    current-only reservoir
+    temporal-reused reservoir
+    failed previous projection
+    failed previous light translation
+    selected light identity
+    reservoir M/history band
+    reservoir weight band
+
+Colors must be loud enough that fallback lighting cannot be mistaken for a
+status.
+
+
+Negative-Path Tests
+-------------------
+
+Every worker implementation result must include these tests:
+
+    Disable analytic light input:
+        expected: no-light status, not albedo
+
+    Disable temporal:
+        expected: current-only reservoir status/noisy output
+
+    Enable temporal:
+        expected: temporal-reused status in stable pixels
+
+    Rapid camera pan:
+        expected: current-only/disocclusion status at reprojection misses
+
+    Static camera:
+        expected: temporal settling over frames
+
+    Zero/invalid targetPdf diagnostic, if available:
+        expected: explicit zero-target status
+
+
+Build And Deploy
+----------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders:
+
+    copy contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    -> E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not create:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/renderprogs2

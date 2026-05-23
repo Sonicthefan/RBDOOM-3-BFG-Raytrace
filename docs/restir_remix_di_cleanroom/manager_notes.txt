@@ -1,0 +1,107 @@
+Manager Notes
+=============
+
+Why This Folder Exists
+----------------------
+
+The existing RRX path has produced repeated false positives:
+
+    fallback/base lighting visible under proof views
+    synthetic selectors masking real producer failure
+    synthetic reservoirs masking current/previous page ownership
+    previous-temporal-as-best acting as a fake accumulation path
+    display logic creating apparent accumulation from brightness ramps
+
+Do not ask workers to "fix accumulation" in that path.
+
+
+Recommended Dispatch Order
+--------------------------
+
+Start with:
+
+    RDI-00
+
+Do not dispatch implementation until RDI-00 produces a concrete contract table.
+
+Implementation order:
+
+    RDI-01
+    RDI-02
+    RDI-03
+    RDI-04
+    RDI-05
+    RDI-06
+
+RDI-04 is mandatory. It is the clean-room path's NEE-equivalent direct-light
+sampling stage. Reject any attempt to skip it and start temporal reuse from old
+NEE records, old selected-light output, or a synthetic reservoir.
+
+Stop after RDI-06 build/deploy for user visual testing.
+
+
+Worker Prompt Template
+----------------------
+
+Paste this into a new worker after filling in TASK_ID:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Branch:
+        codex/restir-rab-reference-audit-experiment
+
+    Reference roots:
+        RTX Remix: E:/prog/references/dxvk-remix-git
+        RTXDI:     E:/prog/references/RTXDI-main
+
+    Read first:
+        docs/restir_remix_di_cleanroom/README.txt
+        docs/restir_remix_di_cleanroom/remix_contract.txt
+        docs/restir_remix_di_cleanroom/cvar_contract.txt
+        docs/restir_remix_di_cleanroom/io_whitelist.txt
+        docs/restir_remix_di_cleanroom/worker_protocol.txt
+        docs/restir_remix_di_cleanroom/worker_tasks.txt
+        docs/restir_remix_di_cleanroom/validation_matrix.txt
+
+    Task:
+        TASK_ID from worker_tasks.txt
+
+    Rules:
+        Clean-room implementation only.
+        Do not copy NVIDIA source text.
+        Do not change ReSTIR math.
+        Use only the r_pathTracingCleanRtxdiDi* CVars from cvar_contract.txt.
+        Consume and write only the entries allowed by io_whitelist.txt.
+        Implement the clean-room DI initial / NEE-equivalent producer before
+        temporal reuse; do not consume old rbdoom NEE records.
+        Do not activate clean-room DI through r_pathTracingDebugMode 56 or
+        r_pathTracingRestirPTDiDebugView.
+        Do not use spatial, best lights, denoiser, confidence, or fallback
+        lighting for proof.
+        Do not edit existing RRX synthetic patch code unless the task names it.
+        Do not claim success from visually plausible output.
+        Output must be reservoir-owned and every invalid path must be explicit.
+
+    Before editing, report:
+        exact Remix reference file-equivalent
+        exact RTXDI math reference file, if math is involved
+        exact rbdoom write set
+        active input/output contract
+        forbidden areas
+
+
+Review Checklist
+----------------
+
+Reject a worker result if it:
+
+    changes math without an explicit approved contract
+    uses "looks right" as proof
+    hides invalid pixels with albedo/fallback lighting
+    enables spatial or best lights before temporal proof
+    edits outside the declared write set
+    reads or writes data outside io_whitelist.txt
+    omits the owned DI initial / NEE-equivalent producer
+    cannot identify producer write and consumer read
+    cannot explain no-light, no-previous, and zero-target behavior
