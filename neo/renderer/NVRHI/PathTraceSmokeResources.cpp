@@ -1063,6 +1063,19 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BufferDesc cleanRtxdiDiSentinelConstantsDesc;
+    cleanRtxdiDiSentinelConstantsDesc.byteSize = 48;
+    cleanRtxdiDiSentinelConstantsDesc.debugName = "PathTraceCleanRtxdiDiSentinelConstants";
+    cleanRtxdiDiSentinelConstantsDesc.isConstantBuffer = true;
+    cleanRtxdiDiSentinelConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    cleanRtxdiDiSentinelConstantsDesc.keepInitialState = true;
+    m_smokeCleanRtxdiDiSentinelConstantsBuffer = device->createBuffer(cleanRtxdiDiSentinelConstantsDesc);
+    if (!m_smokeCleanRtxdiDiSentinelConstantsBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI sentinel constants buffer\n");
+        return;
+    }
+
     nvrhi::BufferDesc boundsOverlayDesc;
     boundsOverlayDesc.byteSize = sizeof(RtPathTraceBoundsOverlayLine) * RT_PT_BOUNDS_OVERLAY_MAX_LINES;
     boundsOverlayDesc.debugName = "PathTraceSmokeBoundsOverlayLines";
@@ -1161,6 +1174,26 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BindingLayoutDesc cleanRtxdiDiSentinelBindingLayoutDesc;
+    cleanRtxdiDiSentinelBindingLayoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+    cleanRtxdiDiSentinelBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
+    m_smokeCleanRtxdiDiSentinelBindingLayout = device->createBindingLayout(cleanRtxdiDiSentinelBindingLayoutDesc);
+    if (!m_smokeCleanRtxdiDiSentinelBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI sentinel binding layout\n");
+        return;
+    }
+
     nvrhi::BindingLayoutDesc skinningBindingLayoutDesc;
     skinningBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     skinningBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
@@ -1240,14 +1273,16 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
         nvrhi::rt::ShaderTableHandle& shaderTable,
         const char* label,
         const char* dxilShaderPath,
-        const char* spirvShaderPath) -> bool
+        const char* spirvShaderPath,
+        nvrhi::BindingLayoutHandle bindingLayoutOverride = nullptr) -> bool
     {
         if (shaderTable)
         {
             return true;
         }
 
-        if (!m_smokeTestInitialized || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout)
+        nvrhi::BindingLayoutHandle bindingLayout = bindingLayoutOverride ? bindingLayoutOverride : m_smokeBindingLayout;
+        if (!m_smokeTestInitialized || !bindingLayout || !m_smokeTextureBindlessLayout)
         {
             return false;
         }
@@ -1282,7 +1317,7 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
         if (!CreatePathTraceSmokeRayTracingPipeline(
             device,
             shaderLibrary,
-            m_smokeBindingLayout,
+            bindingLayout,
             m_smokeTextureBindlessLayout,
             label,
             pipeline,
@@ -1420,6 +1455,15 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "ReSTIR reflection producer",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin");
+    case 15:
+        return initLibrary(
+            m_smokeCleanRtxdiDiSentinelShaderLibrary,
+            m_smokeCleanRtxdiDiSentinelPipeline,
+            m_smokeCleanRtxdiDiSentinelShaderTable,
+            "clean-room RTXDI DI sentinel",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
     default:
         return false;
     }

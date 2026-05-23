@@ -158,6 +158,10 @@ private:
     nvrhi::BufferHandle m_smokeConstantsBuffer;
     nvrhi::BufferHandle m_restirPTConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
+    nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;
+    uint32_t m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
+    uint64_t m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
+    uint32_t m_smokeCleanRtxdiDiFrameIndex = 0;
     std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;
     int m_smokeBoundsOverlayLineCount = 0;
     bool m_smokeBoundsOverlayViewValid = false;
@@ -177,12 +181,14 @@ private:
     nvrhi::rt::AccelStructHandle m_smokeDynamicBlas;
     nvrhi::rt::AccelStructHandle m_smokeTlas;
     nvrhi::BindingLayoutHandle m_smokeBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiSentinelBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::BindingSetHandle m_smokeSkinnedGpuSkinningBindingSet;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningOutputBuffer;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningPreviousPositionBuffer;
+    nvrhi::BufferHandle m_smokeCleanRtxdiDiSentinelConstantsBuffer;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
@@ -225,6 +231,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeRestirDirectSpatialReservoirProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirReflectionProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirCombinedResolveShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSentinelShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
@@ -243,6 +250,7 @@ private:
     nvrhi::rt::PipelineHandle m_smokeRestirDirectSpatialReservoirProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirReflectionProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirCombinedResolvePipeline;
+    nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSentinelPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirInitialShaderTable;
@@ -259,4 +267,5 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeRestirDirectSpatialReservoirProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirReflectionProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirCombinedResolveShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSentinelShaderTable;
 };

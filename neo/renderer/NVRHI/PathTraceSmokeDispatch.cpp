@@ -34,6 +34,22 @@ namespace {
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 
+struct PathTraceCleanRtxdiDiSentinelConstants
+{
+    uint32_t view = 0;
+    uint32_t status = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t analyticLightCount = 0;
+    uint32_t analyticIdentityCount = 0;
+    uint32_t lightMode = 0;
+    uint32_t frameIndex = 0;
+    uint32_t reservoirCount = 0;
+    uint32_t candidateCount = 0;
+    uint32_t flags = 0;
+    uint32_t padding0 = 0;
+};
+
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
 {
     const uint64_t requestedTotal =
@@ -558,32 +574,188 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.readbackTexture ? 1 : 0,
             m_frameResources.primarySurfaceHistoryBuffers.current ? 1 : 0);
     }
-    if (!viewDef || !m_smokeSceneBuilt || !m_smokeShaderTable || !m_smokeBindingSet || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.restirPTReflectionTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.readbackTexture || !m_smokeConstantsBuffer || !m_restirPTConstantsBuffer || !m_smokeBoundsOverlayLineBuffer ||
-        !m_smokeStaticVertexBuffer || !m_smokeStaticIndexBuffer || !m_smokeStaticTriangleClassBuffer || !m_smokeStaticTriangleMaterialBuffer || !m_smokeStaticTriangleMaterialIndexBuffer ||
-        !m_smokeDynamicVertexBuffer || !m_smokeDynamicIndexBuffer || !m_smokeDynamicTriangleClassBuffer || !m_smokeDynamicTriangleMaterialBuffer || !m_smokeDynamicTriangleMaterialIndexBuffer || !m_smokeMaterialTableBuffer || !m_smokeEmissiveTriangleBuffer || !m_smokePreviousEmissiveTriangleBuffer || !m_smokeEmissiveRemapBuffer || !m_smokeEmissiveDistributionBuffer || !m_smokeLightCandidateBuffer || !m_smokeDoomAnalyticLightBuffer || !m_smokeDoomAnalyticPreviousLightBuffer ||
-        !m_smokeDoomAnalyticCurrentIdentityBuffer || !m_smokeDoomAnalyticPreviousIdentityBuffer || !m_smokeDoomAnalyticRemapBuffer ||
-        !m_smokeRigidRouteVertexBuffer || !m_smokeRigidRouteIndexBuffer || !m_smokeRigidRouteTriangleMaterialBuffer || !m_smokeRigidRouteTriangleMaterialIndexBuffer || !m_smokeRigidRouteInstanceBuffer)
+    const bool cleanRtxdiDiDumpRequested = r_pathTracingCleanRtxdiDiDump.GetInteger() != 0;
+    auto cleanRtxdiDiRouteLabel = [](int view) -> const char*
     {
+        if (view == 1)
+        {
+            return "sentinel";
+        }
+        if (view == 2)
+        {
+            return "primary-surface";
+        }
+        if (view == 3)
+        {
+            return "analytic-light";
+        }
+        if (view == 4)
+        {
+            return "initial-reservoir";
+        }
+        if (view == 5)
+        {
+            return "deferred";
+        }
+        if (view == 6)
+        {
+            return "deferred";
+        }
+        if (view == 7)
+        {
+            return "initial-reservoir";
+        }
+        if (view == 8)
+        {
+            return "initial-reservoir";
+        }
+        return "disabled";
+    };
+    auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
+    {
+        if (view == 1)
+        {
+            return "sentinel";
+        }
+        if (view == 2)
+        {
+            return "primary-surface-status";
+        }
+        if (view == 3)
+        {
+            return "analytic-light-status";
+        }
+        if (view == 4)
+        {
+            return "raw-flat-current";
+        }
+        if (view == 5)
+        {
+            return "deferred-raw-flat-temporal";
+        }
+        if (view == 6)
+        {
+            return "deferred-raw-flat-split";
+        }
+        if (view == 7)
+        {
+            return "selected-light-m-history";
+        }
+        if (view == 8)
+        {
+            return "reservoir-weight-target-pdf";
+        }
+        return "none";
+    };
+    const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
+    const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? idMath::ClampInt(0, 8, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 8;
+    auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
+    {
+        const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
+        const int cleanViewNow = cleanEnabledNow ? idMath::ClampInt(0, 8, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
+        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 8;
+        const int bindingSetReady = cleanRouteNow
+            ? (m_smokeCleanRtxdiDiSentinelBindingLayout && m_frameResources.outputTexture ? 1 : 0)
+            : (m_smokeBindingSet ? 1 : 0);
+        common->Printf(
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d route=%s behavior=%s output=%dx%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanCurrentReservoir=%d commandList=%d pages current=%s temporal=none previous=none spatial=none\n",
+            stage ? stage : "unknown",
+            earlyReturn ? earlyReturn : "none",
+            cleanEnabledNow ? 1 : 0,
+            cleanViewNow,
+            r_pathTracingCleanRtxdiDiTemporal.GetInteger(),
+            r_pathTracingCleanRtxdiDiSpatial.GetInteger(),
+            r_pathTracingCleanRtxdiDiBestLights.GetInteger(),
+            r_pathTracingCleanRtxdiDiDenoiser.GetInteger(),
+            r_pathTracingCleanRtxdiDiFallbackLighting.GetInteger(),
+            r_pathTracingCleanRtxdiDiLightMode.GetInteger(),
+            cleanRtxdiDiRouteLabel(cleanViewNow),
+            cleanRtxdiDiBehaviorLabel(cleanViewNow),
+            m_frameResources.width,
+            m_frameResources.height,
+            m_smokeSceneBuilt ? 1 : 0,
+            m_smokeShaderTable ? 1 : 0,
+            m_smokeCleanRtxdiDiSentinelShaderTable ? 1 : 0,
+            selectedCleanShaderTable,
+            bindingSetReady,
+            m_smokeTextureDescriptorTable ? 1 : 0,
+            m_frameResources.outputTexture ? 1 : 0,
+            m_frameResources.accumulationTexture ? 1 : 0,
+            m_frameResources.readbackTexture ? 1 : 0,
+            m_smokeDoomAnalyticLightBuffer ? m_smokeDoomAnalyticLightCount : 0,
+            m_smokeDoomAnalyticCurrentIdentityBuffer ? m_smokeDoomAnalyticCurrentIdentityCount : 0,
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer ? 1 : 0,
+            (m_backend && m_backend->GL_GetCommandList()) ? 1 : 0,
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer ? "u69" : "none");
+    };
+    const bool cleanRtxdiDiSentinelResourcesValid =
+        viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
+        m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture && m_frameResources.primarySurfaceHistoryBuffers.current &&
+        m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticCurrentIdentityBuffer;
+    const bool smokeBaseResourcesValid =
+        viewDef && m_smokeSceneBuilt && m_smokeShaderTable && m_smokeBindingSet && m_smokeTextureDescriptorTable &&
+        m_frameResources.outputTexture && m_frameResources.accumulationTexture && m_frameResources.restirPTReflectionTexture &&
+        m_frameResources.rrInputColorTexture && m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
+        m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture && m_frameResources.rrGuideHitDistanceTexture &&
+        m_frameResources.rrGuideResetMaskTexture && m_frameResources.readbackTexture && m_smokeConstantsBuffer && m_restirPTConstantsBuffer &&
+        m_smokeBoundsOverlayLineBuffer && m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
+        m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicVertexBuffer &&
+        m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer && m_smokeDynamicTriangleMaterialBuffer &&
+        m_smokeDynamicTriangleMaterialIndexBuffer && m_smokeMaterialTableBuffer && m_smokeEmissiveTriangleBuffer &&
+        m_smokePreviousEmissiveTriangleBuffer && m_smokeEmissiveRemapBuffer && m_smokeEmissiveDistributionBuffer &&
+        m_smokeLightCandidateBuffer && m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticPreviousLightBuffer &&
+        m_smokeDoomAnalyticCurrentIdentityBuffer && m_smokeDoomAnalyticPreviousIdentityBuffer && m_smokeDoomAnalyticRemapBuffer &&
+        m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer && m_smokeRigidRouteTriangleMaterialBuffer &&
+        m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
+    if (!(cleanRtxdiDiRouteRequested ? cleanRtxdiDiSentinelResourcesValid : smokeBaseResourcesValid))
+    {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", "base-resource", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
         return;
     }
-    if (!m_frameResources.smokeReservoirBuffers.IsValidFor(m_frameResources.width, m_frameResources.height))
+    if (!cleanRtxdiDiRouteRequested && !m_frameResources.smokeReservoirBuffers.IsValidFor(m_frameResources.width, m_frameResources.height))
     {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", "smoke-reservoir", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
         return;
     }
-    if (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
-        !m_frameResources.restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
-        !m_frameResources.restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off))
+    if (!cleanRtxdiDiRouteRequested &&
+        (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
+            !m_frameResources.restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
+            !m_frameResources.restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off)))
     {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", "restir-reservoir", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
         return;
     }
-    if (!m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)))
+    if (!cleanRtxdiDiRouteRequested && !m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)))
     {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", "primary-history", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
         return;
     }
 
     nvrhi::ICommandList* commandList = m_backend ? m_backend->GL_GetCommandList() : nullptr;
     if (!commandList)
     {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", "command-list", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
         return;
     }
     PollPathTraceGpuTimingResults();
@@ -592,6 +764,314 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     if (optickGpuMarkers)
     {
         OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
+    }
+    if (cleanRtxdiDiRouteRequested)
+    {
+        if (!m_smokeCleanRtxdiDiSentinelShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(15);
+        }
+        if (!m_smokeCleanRtxdiDiSentinelShaderTable)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-shader", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+
+        nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
+        if (!device)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "device", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+
+        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8)
+        {
+            if (!m_smokePrimarySurfaceProducerShaderTable)
+            {
+                InitRayTracingSmokeRestirPipeline(9);
+            }
+            if (!m_smokePrimarySurfaceProducerShaderTable)
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "primary-surface-shader", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+
+            const bool primarySurfaceAdapterResourcesValid =
+                m_smokeSceneBuilt && m_smokeBindingSet && m_smokeTextureDescriptorTable && m_smokeConstantsBuffer &&
+                m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
+                m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
+                m_smokeDynamicVertexBuffer && m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer &&
+                m_smokeDynamicTriangleMaterialBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
+                m_smokeMaterialTableBuffer && m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer &&
+                m_smokeRigidRouteTriangleMaterialBuffer && m_smokeRigidRouteTriangleMaterialIndexBuffer &&
+                m_smokeRigidRouteInstanceBuffer && m_smokePreviousStaticVertexBuffer && m_smokePreviousStaticIndexBuffer &&
+                m_smokePreviousStaticTriangleClassBuffer && m_smokePreviousStaticTriangleMaterialBuffer &&
+                m_smokePreviousStaticTriangleMaterialIndexBuffer &&
+                m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)) &&
+                m_frameResources.motionVectorTexture && m_frameResources.motionVectorMaskTexture &&
+                m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
+                m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture &&
+                m_frameResources.rrGuideHitDistanceTexture && m_frameResources.rrGuideResetMaskTexture;
+            if (!primarySurfaceAdapterResourcesValid)
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "primary-surface-input", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+
+            idVec3 cleanCameraOrigin = viewDef->renderView.vieworg;
+            idVec3 cleanCameraForward = viewDef->renderView.viewaxis[0];
+            idVec3 cleanCameraLeft = viewDef->renderView.viewaxis[1];
+            idVec3 cleanCameraUp = viewDef->renderView.viewaxis[2];
+            cleanCameraForward.Normalize();
+            cleanCameraLeft.Normalize();
+            cleanCameraUp.Normalize();
+
+            PathTraceSmokeConstants primarySurfaceConstants = {};
+            primarySurfaceConstants.cameraOriginAndTMax[0] = cleanCameraOrigin.x;
+            primarySurfaceConstants.cameraOriginAndTMax[1] = cleanCameraOrigin.y;
+            primarySurfaceConstants.cameraOriginAndTMax[2] = cleanCameraOrigin.z;
+            primarySurfaceConstants.cameraOriginAndTMax[3] = 100000.0f;
+            primarySurfaceConstants.cameraForwardAndTanX[0] = cleanCameraForward.x;
+            primarySurfaceConstants.cameraForwardAndTanX[1] = cleanCameraForward.y;
+            primarySurfaceConstants.cameraForwardAndTanX[2] = cleanCameraForward.z;
+            primarySurfaceConstants.cameraForwardAndTanX[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
+            primarySurfaceConstants.cameraLeftAndTanY[0] = cleanCameraLeft.x;
+            primarySurfaceConstants.cameraLeftAndTanY[1] = cleanCameraLeft.y;
+            primarySurfaceConstants.cameraLeftAndTanY[2] = cleanCameraLeft.z;
+            primarySurfaceConstants.cameraLeftAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+            primarySurfaceConstants.cameraUpAndDebugMode[0] = cleanCameraUp.x;
+            primarySurfaceConstants.cameraUpAndDebugMode[1] = cleanCameraUp.y;
+            primarySurfaceConstants.cameraUpAndDebugMode[2] = cleanCameraUp.z;
+            primarySurfaceConstants.cameraUpAndDebugMode[3] = 0.0f;
+            primarySurfaceConstants.textureInfo[0] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
+            primarySurfaceConstants.textureInfo[1] = r_pathTracingTextureSampleEnable.GetInteger() != 0
+                ? static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()))
+                : 0.0f;
+            primarySurfaceConstants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
+            uint32_t primarySurfaceTextureFlags =
+                (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
+                (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
+                (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
+                (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
+                (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u);
+            primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
+            primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
+            primarySurfaceConstants.safetyInfo[1] = primarySurfaceConstants.textureInfo[0];
+            primarySurfaceConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
+            primarySurfaceConstants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
+            primarySurfaceConstants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
+            primarySurfaceConstants.geometryInfo0[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicVertexCount));
+            primarySurfaceConstants.geometryInfo1[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicIndexCount));
+            primarySurfaceConstants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
+            primarySurfaceConstants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
+            primarySurfaceConstants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
+            primarySurfaceConstants.geometryInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
+            primarySurfaceConstants.geometryInfo2[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
+            primarySurfaceConstants.geometryInfo2[2] = static_cast<float>(m_frameResources.primarySurfaceHistoryBuffers.surfaceCount);
+            primarySurfaceConstants.geometryInfo3[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedPreviousPositionCount));
+            primarySurfaceConstants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
+            primarySurfaceConstants.geometryInfo3[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedTriangleDispatchIndexCount));
+            primarySurfaceConstants.geometryInfo4[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticVertexCount));
+            primarySurfaceConstants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
+            primarySurfaceConstants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));
+            primarySurfaceConstants.geometryInfo4[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticMaterialIndexCount));
+            primarySurfaceConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
+            primarySurfaceConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
+            primarySurfaceConstants.motionVectorInfo[0] = r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
+            primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
+            primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
+
+            commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokePreviousStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokePreviousStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokePreviousStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokePreviousStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokePreviousStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+            for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
+            {
+                if (texture)
+                {
+                    commandList->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                }
+            }
+            commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            commandList->writeBuffer(m_smokeConstantsBuffer, &primarySurfaceConstants, sizeof(primarySurfaceConstants));
+
+            nvrhi::rt::State primarySurfaceState;
+            primarySurfaceState.shaderTable = m_smokePrimarySurfaceProducerShaderTable;
+            primarySurfaceState.bindings = { m_smokeBindingSet, m_smokeTextureDescriptorTable };
+            commandList->setRayTracingState(primarySurfaceState);
+
+            nvrhi::rt::DispatchRaysArguments primarySurfaceArgs;
+            primarySurfaceArgs.width = m_frameResources.width;
+            primarySurfaceArgs.height = m_frameResources.height;
+            primarySurfaceArgs.depth = 1;
+            commandList->dispatchRays(primarySurfaceArgs);
+
+            nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+        }
+
+        const uint64 cleanReservoirCount64 = static_cast<uint64>(Max(1, m_frameResources.width)) * static_cast<uint64>(Max(1, m_frameResources.height));
+        if (cleanReservoirCount64 > 0xffffffffull)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-current-reservoir-size", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+        const uint32_t cleanReservoirCount = static_cast<uint32_t>(cleanReservoirCount64);
+        const uint64_t cleanReservoirBytes = cleanReservoirCount64 * static_cast<uint64_t>(sizeof(RTXDI_PackedDIReservoir));
+        const bool cleanReservoirValid =
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer &&
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer->getDesc().structStride == sizeof(RTXDI_PackedDIReservoir) &&
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer->getDesc().byteSize >= cleanReservoirBytes;
+        if (!cleanReservoirValid)
+        {
+            nvrhi::BufferDesc cleanReservoirDesc;
+            cleanReservoirDesc.debugName = "PathTraceCleanRtxdiDiCurrentReservoirs";
+            cleanReservoirDesc.byteSize = cleanReservoirBytes;
+            cleanReservoirDesc.structStride = sizeof(RTXDI_PackedDIReservoir);
+            cleanReservoirDesc.canHaveUAVs = true;
+            cleanReservoirDesc.canHaveTypedViews = false;
+            cleanReservoirDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+            cleanReservoirDesc.keepInitialState = true;
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer = device->createBuffer(cleanReservoirDesc);
+            m_smokeCleanRtxdiDiCurrentReservoirCount = m_smokeCleanRtxdiDiCurrentReservoirBuffer ? cleanReservoirCount : 0u;
+            m_smokeCleanRtxdiDiCurrentReservoirBytes = m_smokeCleanRtxdiDiCurrentReservoirBuffer ? cleanReservoirBytes : 0ull;
+        }
+        if (!m_smokeCleanRtxdiDiCurrentReservoirBuffer)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-current-reservoir", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+
+        nvrhi::BindingSetDesc cleanBindingSetDesc;
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeCleanRtxdiDiSentinelConstantsBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, m_smokeDoomAnalyticCurrentIdentityBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer));
+        nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
+        if (!cleanBindingSet)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-binding-set", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+
+        nvrhi::rt::State cleanState;
+        cleanState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
+        cleanState.bindings = { cleanBindingSet, m_smokeTextureDescriptorTable };
+
+        commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+        const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
+        const uint32_t cleanAnalyticLightCount = cleanRtxdiDiLightMode == 1
+            ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount))
+            : 0u;
+        const uint32_t cleanAnalyticIdentityCount = cleanRtxdiDiLightMode == 1
+            ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticCurrentIdentityCount))
+            : 0u;
+        const PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {
+            static_cast<uint32_t>(cleanRtxdiDiView),
+            cleanRtxdiDiView == 1 ? 1u : 2u,
+            static_cast<uint32_t>(Max(0, m_frameResources.width)),
+            static_cast<uint32_t>(Max(0, m_frameResources.height)),
+            cleanAnalyticLightCount,
+            cleanAnalyticIdentityCount,
+            static_cast<uint32_t>(cleanRtxdiDiLightMode),
+            m_smokeCleanRtxdiDiFrameIndex++,
+            cleanReservoirCount,
+            1u,
+            0u,
+            0u
+        };
+        commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
+        commandList->setRayTracingState(cleanState);
+
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("route-ready", "none", 1);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
+
+        nvrhi::rt::DispatchRaysArguments cleanArgs;
+        cleanArgs.width = m_frameResources.width;
+        cleanArgs.height = m_frameResources.height;
+        cleanArgs.depth = 1;
+        commandList->dispatchRays(cleanArgs);
+        nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
+        nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+        if (!m_smokeTestDispatched)
+        {
+            common->Printf("PathTracePrimaryPass: dispatched clean-room RTXDI DI sentinel raygen (%dx%d, view=%d)\n", m_frameResources.width, m_frameResources.height, cleanRtxdiDiView);
+        }
+        m_smokeTestDispatched = true;
+        return;
     }
 
     int debugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());

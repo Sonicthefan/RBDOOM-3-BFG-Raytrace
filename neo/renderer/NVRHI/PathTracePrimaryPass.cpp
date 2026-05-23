@@ -218,6 +218,10 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeConstantsBuffer = nullptr;
     m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
+    m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
+    m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
+    m_smokeCleanRtxdiDiFrameIndex = 0;
     m_smokeTlas = nullptr;
     m_smokeRestirCombinedShaderTable = nullptr;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;
@@ -225,6 +229,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirDirectTemporalProducerShaderTable = nullptr;
     m_smokeRestirDirectSpatialReservoirProducerShaderTable = nullptr;
     m_smokeRestirCombinedResolveShaderTable = nullptr;
+    m_smokeCleanRtxdiDiSentinelShaderTable = nullptr;
     m_smokeRestirAttributionShaderTable = nullptr;
     m_smokeRestirSpatialShaderTable = nullptr;
     m_smokeRestirSpatialAttributionShaderTable = nullptr;
@@ -235,6 +240,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
+    m_smokeCleanRtxdiDiSentinelConstantsBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPipeline = nullptr;
     m_smokeSkinnedGpuSkinningShader = nullptr;
     m_smokeRestirCombinedPipeline = nullptr;
@@ -243,6 +249,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirDirectTemporalProducerPipeline = nullptr;
     m_smokeRestirDirectSpatialReservoirProducerPipeline = nullptr;
     m_smokeRestirCombinedResolvePipeline = nullptr;
+    m_smokeCleanRtxdiDiSentinelPipeline = nullptr;
     m_smokeRestirAttributionPipeline = nullptr;
     m_smokeRestirSpatialPipeline = nullptr;
     m_smokeRestirSpatialAttributionPipeline = nullptr;
@@ -252,6 +259,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokePipeline = nullptr;
     m_smokeTextureDescriptorTable = nullptr;
     m_smokeSkinnedGpuSkinningBindingLayout = nullptr;
+    m_smokeCleanRtxdiDiSentinelBindingLayout = nullptr;
     m_smokeBindingLayout = nullptr;
     m_smokeTextureBindlessLayout = nullptr;
     m_smokeRestirCombinedShaderLibrary = nullptr;
@@ -260,6 +268,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirDirectTemporalProducerShaderLibrary = nullptr;
     m_smokeRestirDirectSpatialReservoirProducerShaderLibrary = nullptr;
     m_smokeRestirCombinedResolveShaderLibrary = nullptr;
+    m_smokeCleanRtxdiDiSentinelShaderLibrary = nullptr;
     m_smokeRestirAttributionShaderLibrary = nullptr;
     m_smokeRestirSpatialShaderLibrary = nullptr;
     m_smokeRestirSpatialAttributionShaderLibrary = nullptr;
