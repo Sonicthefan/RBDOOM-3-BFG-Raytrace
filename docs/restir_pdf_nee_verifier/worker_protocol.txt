@@ -1,0 +1,145 @@
+PDF + NEE Verifier Worker Protocol
+==================================
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact reference file-equivalent
+    exact RTXDI SDK math reference
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact verifier CVars
+    exact whitelist inputs consumed
+    exact whitelist outputs written
+    active light domain
+    source PDF contract
+    target PDF contract
+    final contribution contract
+    visibility policy
+    forbidden files/functions
+    expected runtime proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Allowed Edits
+-------------
+
+Only when a task explicitly names them:
+
+    standalone PDF + NEE verifier shader or mode
+    standalone verifier dispatch/resource code
+    verifier CVars
+    minimal build-system additions
+    documentation in this folder
+
+
+Forbidden Edits
+---------------
+
+Do not edit:
+
+    known-good synthetic temporal accumulator
+    existing temporal reuse code
+    spatial reuse code
+    best-light code
+    denoiser/confidence/gradient code
+    mode-56 debug routing
+    old NEE record producers as a shortcut
+    unrelated material/geometry systems
+    broad light-universe filters
+
+
+Math Lock
+---------
+
+Workers may not invent or alter:
+
+    source PDF semantics
+    target PDF semantics
+    solidAnglePdf semantics
+    reservoir finalization semantics
+    selected sample replay
+    final contribution formula
+
+Required final contribution shape:
+
+    reflectedRadiance *
+    RTXDI_GetDIReservoirInvPdf(reservoir) /
+    max(lightSample.solidAnglePdf, epsilon) *
+    visibility
+
+Required target PDF shape:
+
+    luminance(reflectedRadiance) /
+    max(lightSample.solidAnglePdf, epsilon)
+
+If the worker believes a different expression is required, stop for manager
+review.
+
+
+Proof Report Format
+-------------------
+
+Every implementation report must include:
+
+    source route
+        CPU producer
+        shader light domain
+        active RAB load path
+
+    estimator table
+        lightSelectionPdf
+        solidAnglePdf
+        targetPdf
+        reservoir inverse PDF / weight
+        reflectedRadiance
+        finalContribution
+
+    negative paths
+        no lights
+        invalid surface
+        invalid light info
+        zero source PDF
+        zero solidAnglePdf
+        zero targetPdf
+        visibility rejected
+
+    visual proof
+        exact CVars
+        expected output
+        observed output
+        why it is not fallback albedo/beauty
+
+
+Diagnostic Limits
+-----------------
+
+The following are diagnostic only:
+
+    status colors
+    identity colors
+    scalar heat maps
+    CPU dumps
+    non-crashing builds
+    resource allocation
+
+They cannot prove viable PDF + NEE output without raw flat-diffuse direct-light
+validation.
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    source PDF cannot be stated
+    source PDF does not sum to 1.0 for the proposal domain
+    targetPdf and final contribution use different light samples
+    solidAnglePdf is missing
+    output uses fallback albedo/beauty
+    temporal is required to make the current-frame estimator look correct
+    broad light suppression is proposed as the fix

@@ -20,39 +20,7 @@
 #define PATHTRACE_SMOKE_RAB_SURFACE_SUPPLIER_HLSLI
 
 #ifndef RB_PT_ENABLE_RESTIR
-struct RAB_Surface
-{
-    uint valid;
-    float3 worldPos;
-    float linearDepth;
-    float3 geometryNormal;
-    uint materialId;
-    float3 shadingNormal;
-    uint materialIndex;
-    float3 viewDir;
-    uint instanceId;
-    uint primitiveIndex;
-    uint surfaceClass;
-    uint flags;
-    RAB_Material material;
-};
-
-RAB_Surface RAB_EmptySurface()
-{
-    RAB_Surface surface = (RAB_Surface)0;
-    surface.material = RAB_EmptyMaterial();
-    return surface;
-}
-
-bool RAB_IsSurfaceValid(RAB_Surface surface)
-{
-    return surface.valid != 0u;
-}
-
-float3 RAB_GetSurfaceNormal(RAB_Surface surface)
-{
-    return surface.shadingNormal;
-}
+#include "RtxdiBridge/RAB_SurfaceCore.hlsli"
 #endif
 
 RAB_Surface RAB_BuildSurfaceFromSmokePayload(PathTraceSmokePayload payload, float3 rayOrigin, float3 rayDirection, bool useNormalMap)

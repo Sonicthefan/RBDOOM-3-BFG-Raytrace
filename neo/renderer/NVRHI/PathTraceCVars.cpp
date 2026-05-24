@@ -993,6 +993,48 @@ idCVar r_pathTracingRestirPTRrxDisablePreviousBest(
     CVAR_RENDERER | CVAR_BOOL,
     "Debug-only non-Remix RRX DI A/B: feed the projected previous temporal reservoir as the previous-best candidate; off by default" );
 
+idCVar r_pathTracingRestirPdfNeeVerifierEnable(
+    "r_pathTracingRestirPdfNeeVerifierEnable",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Standalone ReSTIR PDF + NEE verifier: route owned current-frame verifier output; does not enable temporal, spatial, mode 56, or fallback lighting" );
+
+idCVar r_pathTracingRestirPdfNeeVerifierView(
+    "r_pathTracingRestirPdfNeeVerifierView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReSTIR PDF + NEE verifier view: 0 disabled, 1 route/status sentinel, 2 raw flat direct-light, 3 selected light identity, 4 PDF scalar view, 5 final contribution scalar, 6 invalid-state classifier, 7 one-light helper, 8 overlap helper" );
+
+idCVar r_pathTracingRestirPdfNeeVerifierLightMode(
+    "r_pathTracingRestirPdfNeeVerifierLightMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReSTIR PDF + NEE verifier light mode: 0 no lights, 1 one synthetic calibration light, 2 two synthetic overlapping lights, 3 N synthetic overlapping lights, 4 one real analytic light, 5 two real overlapping analytic lights, 6 full real analytic domain, 7 emissive domain, 8 unified/light-manager domain" );
+
+idCVar r_pathTracingRestirPdfNeeVerifierSamples(
+    "r_pathTracingRestirPdfNeeVerifierSamples",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReSTIR PDF + NEE verifier current-frame candidate proposals per pixel; reserved for estimator proof, clamped 1..32" );
+
+idCVar r_pathTracingRestirPdfNeeVerifierVisibility(
+    "r_pathTracingRestirPdfNeeVerifierVisibility",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReSTIR PDF + NEE verifier visibility: 0 forced visible for calibration, 1 traced visibility for real-light validation" );
+
+idCVar r_pathTracingRestirPdfNeeVerifierDomain(
+    "r_pathTracingRestirPdfNeeVerifierDomain",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReSTIR PDF + NEE verifier domain: 0 split RAB domain, 1 unified RAB domain, 2 ReSTIR light-manager RAB domain" );
+
+idCVar r_pathTracingRestirPdfNeeVerifierDump(
+    "r_pathTracingRestirPdfNeeVerifierDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the standalone PDF + NEE verifier route, active light counts, and first missing contract once" );
+
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "0",

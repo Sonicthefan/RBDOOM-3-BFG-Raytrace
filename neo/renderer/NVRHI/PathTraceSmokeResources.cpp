@@ -1064,7 +1064,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::BufferDesc cleanRtxdiDiSentinelConstantsDesc;
-    cleanRtxdiDiSentinelConstantsDesc.byteSize = 48;
+    cleanRtxdiDiSentinelConstantsDesc.byteSize = 128;
     cleanRtxdiDiSentinelConstantsDesc.debugName = "PathTraceCleanRtxdiDiSentinelConstants";
     cleanRtxdiDiSentinelConstantsDesc.isConstantBuffer = true;
     cleanRtxdiDiSentinelConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
@@ -1185,8 +1185,16 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(43));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(44));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(45));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(70));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(71));
     m_smokeCleanRtxdiDiSentinelBindingLayout = device->createBindingLayout(cleanRtxdiDiSentinelBindingLayoutDesc);
     if (!m_smokeCleanRtxdiDiSentinelBindingLayout)
     {
@@ -1464,6 +1472,14 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
+    case 16:
+        return initLibrary(
+            m_smokePdfNeeVerifierShaderLibrary,
+            m_smokePdfNeeVerifierPipeline,
+            m_smokePdfNeeVerifierShaderTable,
+            "PDF+NEE verifier",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin");
     default:
         return false;
     }
@@ -1788,6 +1804,16 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
+    m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
+    m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
+    m_smokeCleanRtxdiDiPreviousReservoirCount = 0;
+    m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
+    m_smokeCleanRtxdiDiTemporalReservoirBytes = 0;
+    m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
+    m_smokeCleanRtxdiDiPreviousReservoirValid = false;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;

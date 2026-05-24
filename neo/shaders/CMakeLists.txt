@@ -69,6 +69,7 @@ set(PATH_TRACING_RESTIR_DIRECT_TEMPORAL_PRODUCER_SHADER_SOURCE ${CMAKE_CURRENT_S
 set(PATH_TRACING_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.hlsl)
 set(PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.hlsl)
 set(PATH_TRACING_RESTIR_COMBINED_RESOLVE_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl)
+set(PATH_TRACING_PDF_NEE_VERIFIER_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl)
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
@@ -81,8 +82,16 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
 if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/Reservoir.hlsli")
     list(APPEND PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/Reservoir.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/InitialSampling.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/ReSTIRDIParameters.h
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/TemporalResampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/ReservoirStorage.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/RtxdiParameters.h)
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/RtxdiParameters.h
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Checkerboard.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerState.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
 endif()
 option(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS "Build legacy monolithic ReSTIR PT diagnostic RT shader libraries that are not used by the mode 56 primary-prepass path." OFF)
 option(PATH_TRACING_BUILD_DXIL_RT_SHADERS "Build DirectX DXIL path tracing RT shader libraries. Disable for Vulkan-only PT debug iteration." ON)
@@ -110,6 +119,7 @@ if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     set(PATH_TRACING_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.bin)
     set(PATH_TRACING_RESTIR_REFLECTION_PRODUCER_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin)
     set(PATH_TRACING_RESTIR_COMBINED_RESOLVE_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.bin)
+    set(PATH_TRACING_PDF_NEE_VERIFIER_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin)
     add_custom_command(
         OUTPUT ${PATH_TRACING_DXIL_OUTPUT}
@@ -224,6 +234,13 @@ if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
         COMMENT "Compiling path tracing ReSTIR combined resolve RT shader library (DXIL)"
         VERBATIM)
     add_custom_command(
+        OUTPUT ${PATH_TRACING_PDF_NEE_VERIFIER_DXIL_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing
+        COMMAND ${DXC_PATH} -T lib_6_6 ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_PDF_NEE_VERIFIER_DXIL_OUTPUT} ${PATH_TRACING_PDF_NEE_VERIFIER_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_PDF_NEE_VERIFIER_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
+        COMMENT "Compiling path tracing PDF+NEE verifier RT shader library (DXIL)"
+        VERBATIM)
+    add_custom_command(
         OUTPUT ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_DXIL_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/cleanroom_rtxdi
         COMMAND ${DXC_PATH} -T lib_6_6 ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_DXIL_OUTPUT} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE}
@@ -237,6 +254,7 @@ if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_REFLECTION_PRODUCER_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_COMBINED_RESOLVE_DXIL_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_PDF_NEE_VERIFIER_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_DXIL_OUTPUT})
     if(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS)
         list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_MODE18_RESTIR_HYBRID_DXIL_OUTPUT})
@@ -268,6 +286,7 @@ if(USE_VULKAN)
     set(PATH_TRACING_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.bin)
     set(PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin)
     set(PATH_TRACING_RESTIR_COMBINED_RESOLVE_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.bin)
+    set(PATH_TRACING_PDF_NEE_VERIFIER_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin)
     add_custom_command(
         OUTPUT ${PATH_TRACING_SPIRV_OUTPUT}
@@ -382,6 +401,13 @@ if(USE_VULKAN)
         COMMENT "Compiling path tracing ReSTIR combined resolve RT shader library (SPIR-V)"
         VERBATIM)
     add_custom_command(
+        OUTPUT ${PATH_TRACING_PDF_NEE_VERIFIER_SPIRV_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
+        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_PDF_NEE_VERIFIER_SPIRV_OUTPUT} ${PATH_TRACING_PDF_NEE_VERIFIER_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_PDF_NEE_VERIFIER_SHADER_SOURCE} ${PATH_TRACING_SHADER_INCLUDES}
+        COMMENT "Compiling path tracing PDF+NEE verifier RT shader library (SPIR-V)"
+        VERBATIM)
+    add_custom_command(
         OUTPUT ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi
         COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE}
@@ -395,6 +421,7 @@ if(USE_VULKAN)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_REFLECTION_PRODUCER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_COMBINED_RESOLVE_SPIRV_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_PDF_NEE_VERIFIER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT})
     if(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS)
         list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_MODE18_RESTIR_HYBRID_SPIRV_OUTPUT})

@@ -159,9 +159,16 @@ private:
     nvrhi::BufferHandle m_restirPTConstantsBuffer;
     nvrhi::BufferHandle m_smokeBoundsOverlayLineBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;
+    nvrhi::BufferHandle m_smokeCleanRtxdiDiTemporalReservoirBuffer;
+    nvrhi::BufferHandle m_smokeCleanRtxdiDiPreviousReservoirBuffer;
     uint32_t m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
+    uint32_t m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
+    uint32_t m_smokeCleanRtxdiDiPreviousReservoirCount = 0;
     uint64_t m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
+    uint64_t m_smokeCleanRtxdiDiTemporalReservoirBytes = 0;
+    uint64_t m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
     uint32_t m_smokeCleanRtxdiDiFrameIndex = 0;
+    bool m_smokeCleanRtxdiDiPreviousReservoirValid = false;
     std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;
     int m_smokeBoundsOverlayLineCount = 0;
     bool m_smokeBoundsOverlayViewValid = false;
@@ -231,6 +238,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeRestirDirectSpatialReservoirProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirReflectionProducerShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeRestirCombinedResolveShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokePdfNeeVerifierShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSentinelShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
@@ -250,6 +258,7 @@ private:
     nvrhi::rt::PipelineHandle m_smokeRestirDirectSpatialReservoirProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirReflectionProducerPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirCombinedResolvePipeline;
+    nvrhi::rt::PipelineHandle m_smokePdfNeeVerifierPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSentinelPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirShaderTable;
@@ -267,5 +276,6 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokeRestirDirectSpatialReservoirProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirReflectionProducerShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirCombinedResolveShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokePdfNeeVerifierShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSentinelShaderTable;
 };

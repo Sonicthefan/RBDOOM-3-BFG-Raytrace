@@ -1,0 +1,236 @@
+PDF + NEE Verifier Validation Matrix
+====================================
+
+All runtime validation is performed in:
+
+    E:/prog/rbdoom-3-BFG-prebuilt
+
+
+Proof Standard
+--------------
+
+Success is raw current-frame direct lighting, not temporal accumulation.
+
+Required visual behavior:
+
+    current-frame only
+    raw flat diffuse direct-light estimate
+    one sampled candidate per pixel unless a rung explicitly raises samples
+    noisy but correct mean
+    no albedo or beauty fallback
+    no temporal smoothing
+    no denoiser
+
+Required numeric evidence:
+
+    lightSelectionPdf
+    solidAnglePdf
+    targetPdf
+    reservoir inverse PDF / weight
+    reflectedRadiance
+    finalContribution
+
+
+Rung V-01: One Synthetic Calibration Light
+------------------------------------------
+
+Purpose:
+
+    Prove the verifier route and final contribution shape without real light
+    payload uncertainty.
+
+Expected:
+
+    source PDF = 1.0
+    positive solidAnglePdf
+    positive targetPdf
+    final contribution visible on front-facing surfaces
+    invalid/back-facing surfaces are explicit
+
+Pass:
+
+    raw direct-light output is stable in mean and matches the documented
+    synthetic contribution
+
+Fail:
+
+    output needs temporal to look valid
+    output shows albedo/beauty underneath
+
+
+Rung V-02: Two Synthetic Overlapping Lights
+-------------------------------------------
+
+Purpose:
+
+    Prove overlap handling with known equal proposal probabilities.
+
+Expected:
+
+    light A source PDF = 0.5
+    light B source PDF = 0.5
+    both lights selected over time
+    final average equals sum of both contributions
+
+Pass:
+
+    no strobe between light identities in the mean
+    turning one light off removes only that contribution
+
+Fail:
+
+    output brightness follows selected-light identity without PDF compensation
+
+
+Rung V-03: N Synthetic Overlapping Lights
+-----------------------------------------
+
+Purpose:
+
+    Stress proposal-domain normalization before using real rbdoom payloads.
+
+Expected:
+
+    each uniform light source PDF = 1/N
+    source PDF sum = 1.0
+    mean contribution matches brute-force synthetic reference
+
+Pass:
+
+    correct average brightness under overlap
+
+Fail:
+
+    brightness scales incorrectly with N
+
+
+Rung V-04: One Fixed Real Analytic Light Payload
+------------------------------------------------
+
+Purpose:
+
+    Introduce Doom analytic payload load while keeping proposal domain trivial.
+
+Expected:
+
+    source PDF = 1.0
+    RAB_LoadLightInfo returns the real analytic payload
+    RAB_SamplePolymorphicLight replays a valid sample
+    targetPdf and finalContribution use the same sample
+
+Pass:
+
+    matches brute-force single-light direct evaluation within expected noise
+
+Fail:
+
+    invalid light info
+    zero solidAnglePdf
+    zero targetPdf
+    wrong mean brightness
+
+
+Rung V-05: Two Fixed Real Overlapping Analytic Lights
+-----------------------------------------------------
+
+Purpose:
+
+    Prove the first real overlap case.
+
+Expected:
+
+    explicit proposal domain of two lights
+    source PDF = 0.5 for each if uniform
+    both lights replay valid samples
+    final mean is the sum of both real direct-light estimates
+
+Pass:
+
+    output is noisy but correct in mean
+    no identity strobe that changes average brightness
+
+Fail:
+
+    one light dominates without matching target/PDF reason
+    broad suppression is used to hide overlap
+
+
+Rung V-06: Full Real Analytic Domain
+------------------------------------
+
+Purpose:
+
+    Validate the real overlapping Doom analytic domain.
+
+Expected:
+
+    source PDF covers all active proposal lights
+    invalid candidates are explicit
+    zero-contribution candidates do not corrupt reservoir weights
+    output remains noisy but plausible in mean
+
+Pass:
+
+    dense overlapping analytic lights do not collapse into flicker, black, or
+    identity strobe
+
+Fail:
+
+    current-frame direct-light output is wrong before temporal is attached
+
+
+Rung V-07: Emissive Domain
+--------------------------
+
+Purpose:
+
+    Compare against the historically more functional emissive path.
+
+Expected:
+
+    emissive source PDF uses uploaded emissive proposal data or a documented
+    fallback
+    emissive sample replay uses shared RAB bridge
+
+Pass:
+
+    emissive overlap follows expected direct-light estimate
+
+Fail:
+
+    emissives work only through a separate old NEE path
+
+
+Rung V-08: Unified / ReSTIR Light-Manager Domain
+------------------------------------------------
+
+Purpose:
+
+    Verify manager/unified payloads through the shared shader RAB bridge.
+
+Expected:
+
+    active domain is named
+    RAB_LoadLightInfo resolves manager/unified records
+    source weights and proposal PDF are explicitly documented
+
+Pass:
+
+    output matches the equivalent split-domain test in mean
+
+Fail:
+
+    manager records are treated as if they contain full analytic source PDFs
+    when sourcePdf is zero
+
+
+Hard Stop
+---------
+
+Stop at the first failing rung.
+
+Do not connect the verifier to temporal until V-01 through the required real
+domain rung pass.
+
+Do not continue to temporal to make a wrong current-frame estimator look
+stable.

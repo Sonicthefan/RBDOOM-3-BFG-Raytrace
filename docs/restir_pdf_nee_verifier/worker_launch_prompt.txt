@@ -1,0 +1,99 @@
+Paste-Ready Worker Launch Prompt
+================================
+
+Use this prompt for a new agent.
+
+
+Prompt
+------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/restir-rab-reference-audit-experiment
+
+Task:
+
+    Work on the standalone ReSTIR PDF + NEE verifier. Do not edit temporal
+    accumulation code unless explicitly instructed in a later task.
+
+Read first:
+
+    docs/restir_pdf_nee_verifier/README.txt
+    docs/restir_pdf_nee_verifier/contract_matrix.txt
+    docs/restir_pdf_nee_verifier/cvar_contract.txt
+    docs/restir_pdf_nee_verifier/io_whitelist.txt
+    docs/restir_pdf_nee_verifier/validation_matrix.txt
+    docs/restir_pdf_nee_verifier/worker_protocol.txt
+    docs/restir_pdf_nee_verifier/worker_tasks.txt
+
+Known state:
+
+    The clean synthetic DI temporal mode can visibly accumulate. Treat that as
+    the known-good accumulator control. Do not modify it.
+
+    The current risk is the current-frame estimator: source PDF, solidAnglePdf,
+    targetPdf, selected-light replay, visibility, and final NEE/direct-light
+    contribution under overlapping lights.
+
+Standing restrictions:
+
+    no temporal proof for this task
+    no spatial
+    no best lights
+    no denoiser/confidence/gradient path
+    no fallback albedo or beauty output
+    no mode-56 route
+    no old rbdoom NEE records as proof
+    no broad light suppression as a fix
+    no invented ReSTIR math
+    no local duplicate RAB helpers unless exact equivalence is proven first
+
+Required bridge:
+
+    Use or exactly match:
+
+        RAB_LoadLightInfo
+        RAB_SamplePolymorphicLight
+        RAB_GetLightSampleTargetPdfForSurface
+        RAB_GetReflectedBsdfRadianceForSurface
+
+First action:
+
+    Start with PDFNEE-00 only as a read-only bridge audit. No code changes.
+
+    Report:
+
+        exact CPU producer domain
+        exact shader RAB consumer path
+        where source PDF is produced for emissives
+        where analytic source PDF must be computed
+        where solidAnglePdf is produced
+        where targetPdf is produced
+        where final contribution is produced
+        first missing or ambiguous contract
+
+Build lane if later implementation is approved:
+
+    From E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy:
+
+        E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Copy contents of:
+
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+    to:
+
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.

@@ -219,9 +219,16 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_restirPTConstantsBuffer = nullptr;
     m_smokeBoundsOverlayLineBuffer = nullptr;
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
+    m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
+    m_smokeCleanRtxdiDiPreviousReservoirCount = 0;
     m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
+    m_smokeCleanRtxdiDiTemporalReservoirBytes = 0;
+    m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
     m_smokeCleanRtxdiDiFrameIndex = 0;
+    m_smokeCleanRtxdiDiPreviousReservoirValid = false;
     m_smokeTlas = nullptr;
     m_smokeRestirCombinedShaderTable = nullptr;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;
@@ -229,6 +236,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirDirectTemporalProducerShaderTable = nullptr;
     m_smokeRestirDirectSpatialReservoirProducerShaderTable = nullptr;
     m_smokeRestirCombinedResolveShaderTable = nullptr;
+    m_smokePdfNeeVerifierShaderTable = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderTable = nullptr;
     m_smokeRestirAttributionShaderTable = nullptr;
     m_smokeRestirSpatialShaderTable = nullptr;
@@ -249,6 +257,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirDirectTemporalProducerPipeline = nullptr;
     m_smokeRestirDirectSpatialReservoirProducerPipeline = nullptr;
     m_smokeRestirCombinedResolvePipeline = nullptr;
+    m_smokePdfNeeVerifierPipeline = nullptr;
     m_smokeCleanRtxdiDiSentinelPipeline = nullptr;
     m_smokeRestirAttributionPipeline = nullptr;
     m_smokeRestirSpatialPipeline = nullptr;
@@ -268,6 +277,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirDirectTemporalProducerShaderLibrary = nullptr;
     m_smokeRestirDirectSpatialReservoirProducerShaderLibrary = nullptr;
     m_smokeRestirCombinedResolveShaderLibrary = nullptr;
+    m_smokePdfNeeVerifierShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderLibrary = nullptr;
     m_smokeRestirAttributionShaderLibrary = nullptr;
     m_smokeRestirSpatialShaderLibrary = nullptr;
@@ -300,6 +310,15 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
 
     if (!m_rayTracingSupported)
     {
+        if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: PDFNEE verifier execute earlyReturn=rt-unsupported enable=%d view=%d r_pathTracing=%d output=none temporal=0 spatial=0 mode56=0 task=PDFNEE-01\n",
+                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
+                idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger()),
+                r_pathTracing.GetInteger());
+            r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+        }
         return;
     }
 
@@ -314,6 +333,17 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     m_frameResources.settings.frameIndex = m_frameResources.restirPTFrameIndex;
     if (!ResizeRayTracingSmokeOutput(outputWidth, outputHeight))
     {
+        if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
+        {
+            common->Printf(
+                "PathTracePrimaryPass: PDFNEE verifier execute earlyReturn=resize-output enable=%d view=%d r_pathTracing=%d requestedOutput=%dx%d output=none temporal=0 spatial=0 mode56=0 task=PDFNEE-01\n",
+                r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
+                idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger()),
+                r_pathTracing.GetInteger(),
+                outputWidth,
+                outputHeight);
+            r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+        }
         return;
     }
 

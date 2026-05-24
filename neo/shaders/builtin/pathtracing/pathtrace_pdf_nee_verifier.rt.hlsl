@@ -429,6 +429,379 @@ uint PathTracePreviousStaticIndexCount() { return (uint)max(GeometryInfo4.y, 0.0
 uint PathTracePreviousStaticTriangleCount() { return (uint)max(GeometryInfo4.z, 0.0); }
 uint PathTracePreviousStaticMaterialIndexCount() { return (uint)max(GeometryInfo4.w, 0.0); }
 
+bool PathTracePdfNeeVerifierEnabled()
+{
+    return RestirPdfNeeVerifierInfo.x >= 0.5 && (uint)max(RestirPdfNeeVerifierInfo.y, 0.0) > 0u;
+}
+
+bool PathTracePdfNeeVerifierRequiresPrimarySurface()
+{
+    const uint view = clamp((uint)max(RestirPdfNeeVerifierInfo.y, 0.0), 0u, 8u);
+    const uint lightMode = clamp((uint)max(RestirPdfNeeVerifierInfo.z, 0.0), 0u, 8u);
+    return view != 1u && lightMode >= 4u && lightMode <= 7u;
+}
+
+uint PathTracePdfNeeVerifierActiveLightCount()
+{
+    const uint lightMode = (uint)max(RestirPdfNeeVerifierInfo.z, 0.0);
+    if (lightMode == 0u)
+    {
+        return 0u;
+    }
+    if (lightMode == 1u)
+    {
+        return 1u;
+    }
+    if (lightMode == 2u)
+    {
+        return 2u;
+    }
+    if (lightMode == 3u)
+    {
+        return 4u;
+    }
+    if (lightMode == 4u)
+    {
+        const uint analyticUploaded = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
+        const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+        const uint analyticCount = (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u ? min(analyticUploaded, analyticTraceCap) : 0u;
+        return analyticCount > 0u ? 1u : 0u;
+    }
+    if (lightMode == 5u)
+    {
+        const uint analyticUploaded = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
+        const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+        const uint analyticCount = (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u ? min(analyticUploaded, analyticTraceCap) : 0u;
+        return analyticCount >= 2u ? 2u : 0u;
+    }
+    if (lightMode == 6u)
+    {
+        const uint analyticUploaded = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
+        const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+        return (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u ? min(analyticUploaded, analyticTraceCap) : 0u;
+    }
+    if (lightMode == 7u)
+    {
+        return PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
+    }
+
+    const uint domain = clamp((uint)max(RestirPdfNeeVerifierInfo.w, 0.0), 0u, 2u);
+    if (domain == 0u)
+    {
+        const uint emissiveCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
+        const uint analyticUploaded = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP) ? 0u : (uint)max(DoomAnalyticLightInfo.x, 0.0);
+        const uint analyticTraceCap = (uint)max(DoomAnalyticLightInfo.y, 0.0);
+        const uint analyticCount = (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 1u) != 0u ? min(analyticUploaded, analyticTraceCap) : 0u;
+        return emissiveCount + analyticCount;
+    }
+
+    if (domain == 1u)
+    {
+        return (uint)max(UnifiedLightInfo.x, 0.0);
+    }
+
+    return (uint)max(RestirLightManagerInfo.x, 0.0);
+}
+
+struct PathTracePdfNeeSyntheticResult
+{
+    uint valid;
+    uint selectedLightIndex;
+    uint invalidReason;
+    float sourcePdf;
+    float solidAnglePdf;
+    float targetPdf;
+    float reservoirInvPdf;
+    float visibility;
+    float3 reflectedRadiance;
+    float3 finalContribution;
+};
+
+float PathTracePdfNeeLuminance(float3 value)
+{
+    return dot(max(value, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
+}
+
+uint PathTracePdfNeeHash(uint2 pixel, uint frameIndex, uint salt)
+{
+    uint h = pixel.x * 1973u + pixel.y * 9277u + frameIndex * 26699u + salt * 59393u + 0x68bc21ebu;
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    h *= 3266489917u;
+    h ^= h >> 16;
+    return h;
+}
+
+float PathTracePdfNeeHashToUnitFloat(uint hash)
+{
+    return ((hash >> 8) & 0x00ffffffu) * (1.0 / 16777215.0);
+}
+
+uint PathTracePdfNeeSyntheticLightCount(uint lightMode)
+{
+    if (lightMode == 1u)
+    {
+        return 1u;
+    }
+    if (lightMode == 2u)
+    {
+        return 2u;
+    }
+    if (lightMode == 3u)
+    {
+        return 4u;
+    }
+    return 0u;
+}
+
+float3 PathTracePdfNeeSyntheticLightPosition(uint lightIndex, uint lightCount)
+{
+    if (lightCount <= 1u)
+    {
+        return float3(0.0, 0.0, 4.0);
+    }
+    if (lightCount == 2u)
+    {
+        return lightIndex == 0u ? float3(-1.2, 0.0, 4.0) : float3(1.2, 0.0, 4.0);
+    }
+    if (lightIndex == 0u)
+    {
+        return float3(-1.5, 0.0, 4.0);
+    }
+    if (lightIndex == 1u)
+    {
+        return float3(1.5, 0.0, 4.0);
+    }
+    if (lightIndex == 2u)
+    {
+        return float3(0.0, -1.0, 4.0);
+    }
+    return float3(0.0, 1.0, 4.0);
+}
+
+float3 PathTracePdfNeeSyntheticDirectContribution(uint2 pixel, uint2 dimensions, uint lightIndex, uint lightCount, out float targetPdf)
+{
+    const float2 uv = (float2(pixel) + 0.5) / max(float2(dimensions), float2(1.0, 1.0));
+    const float3 surfaceWorldPos = float3((uv.x - 0.5) * 12.0, (0.5 - uv.y) * 6.75, 0.0);
+    const float3 surfaceNormal = float3(0.0, 0.0, 1.0);
+    const float3 surfaceViewDir = float3(0.0, 0.0, 1.0);
+    const float3 diffuseAlbedo = float3(1.0, 1.0, 1.0);
+    const float3 lightPosition = PathTracePdfNeeSyntheticLightPosition(lightIndex, lightCount);
+    const float syntheticRadiance = lightCount == 1u ? 1.0 : 0.5;
+    const float3 lightRadiance = float3(syntheticRadiance, syntheticRadiance, syntheticRadiance);
+    const float3 toLight = lightPosition - surfaceWorldPos;
+    const float distanceSquared = max(dot(toLight, toLight), 1.0e-6);
+    const float3 lightDir = toLight * rsqrt(distanceSquared);
+    const float ndotl = saturate(dot(surfaceNormal, lightDir));
+    const float ndotv = saturate(dot(surfaceNormal, surfaceViewDir));
+    if (ndotl <= 0.0 || ndotv <= 0.0)
+    {
+        targetPdf = 0.0;
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 reflectedRadiance = diffuseAlbedo * (1.0 / 3.14159265358979323846) * lightRadiance * ndotl;
+    targetPdf = PathTracePdfNeeLuminance(reflectedRadiance);
+    return reflectedRadiance;
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateSyntheticLights(uint2 pixel, uint2 dimensions, uint lightMode)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    const uint lightCount = PathTracePdfNeeSyntheticLightCount(lightMode);
+    if (lightCount == 0u)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const float selection = PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, lightMode));
+    result.selectedLightIndex = min((uint)(selection * (float)lightCount), lightCount - 1u);
+    result.sourcePdf = 1.0 / (float)lightCount;
+    result.visibility = 1.0;
+
+    result.solidAnglePdf = 1.0;
+    float targetPdf = 0.0;
+    result.reflectedRadiance = PathTracePdfNeeSyntheticDirectContribution(pixel, dimensions, result.selectedLightIndex, lightCount, targetPdf);
+    result.targetPdf = targetPdf / max(result.solidAnglePdf, 1.0e-6);
+    if (result.targetPdf <= 0.0)
+    {
+        result.invalidReason = 3u;
+        return result;
+    }
+
+    // One RTXDI stream sample normalizes to invSourcePdf:
+    // (targetPdf * invSourcePdf) / (targetPdf * M), with M = 1.
+    result.reservoirInvPdf = 1.0 / result.sourcePdf;
+    if (result.reservoirInvPdf <= 0.0)
+    {
+        result.invalidReason = 4u;
+        return result;
+    }
+
+    result.finalContribution =
+        result.reflectedRadiance *
+        result.reservoirInvPdf /
+        max(result.solidAnglePdf, 1.0e-6) *
+        result.visibility;
+    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
+    {
+        result.invalidReason = 5u;
+        return result;
+    }
+
+    result.valid = 1u;
+    return result;
+}
+
+float3 PathTracePdfNeeSyntheticExpectedMeanContribution(uint2 pixel, uint2 dimensions, uint lightMode)
+{
+    const uint lightCount = PathTracePdfNeeSyntheticLightCount(lightMode);
+    float3 sumContribution = float3(0.0, 0.0, 0.0);
+    [unroll]
+    for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
+    {
+        if (lightIndex >= lightCount)
+        {
+            continue;
+        }
+        float targetPdf = 0.0;
+        sumContribution += PathTracePdfNeeSyntheticDirectContribution(pixel, dimensions, lightIndex, lightCount, targetPdf);
+    }
+    return sumContribution;
+}
+
+float3 PathTracePdfNeeHeat(float value, float scale)
+{
+    const float t = saturate(value * scale);
+    return lerp(float3(0.02, 0.04, 0.08), float3(1.0, 0.88, 0.28), t);
+}
+
+float4 PathTracePdfNeeInvalidColor(uint invalidReason)
+{
+    if (invalidReason == 1u)
+    {
+        return float4(0.90, 0.00, 0.12, 1.0);
+    }
+    if (invalidReason == 2u)
+    {
+        return float4(1.00, 0.35, 0.00, 1.0);
+    }
+    if (invalidReason == 3u)
+    {
+        return float4(0.95, 0.90, 0.00, 1.0);
+    }
+    if (invalidReason == 4u)
+    {
+        return float4(0.60, 0.00, 1.00, 1.0);
+    }
+    if (invalidReason == 5u)
+    {
+        return float4(0.00, 0.60, 1.00, 1.0);
+    }
+    return float4(1.0, 0.05, 0.0, 1.0);
+}
+
+float3 PathTracePdfNeeIdentityColor(uint lightIndex)
+{
+    if (lightIndex == 0u)
+    {
+        return float3(0.05, 0.55, 1.0);
+    }
+    if (lightIndex == 1u)
+    {
+        return float3(1.0, 0.20, 0.12);
+    }
+    if (lightIndex == 2u)
+    {
+        return float3(0.15, 0.95, 0.25);
+    }
+    return float3(0.95, 0.20, 1.0);
+}
+
+float3 PathTracePdfNeePdfBandColor(float value, uint band)
+{
+    const float t = saturate(value);
+    if (band == 0u)
+    {
+        return float3(t, 0.02, 0.02);
+    }
+    if (band == 1u)
+    {
+        return float3(0.02, t, 0.02);
+    }
+    return float3(0.02, 0.02, saturate(value * 6.0));
+}
+
+float4 EvaluatePathTracePdfNeeVerifierRoute(uint2 pixel, uint2 dimensions)
+{
+    const uint view = clamp((uint)max(RestirPdfNeeVerifierInfo.y, 0.0), 0u, 8u);
+    const uint lightMode = clamp((uint)max(RestirPdfNeeVerifierInfo.z, 0.0), 0u, 8u);
+    const uint domain = clamp((uint)max(RestirPdfNeeVerifierInfo.w, 0.0), 0u, 2u);
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
+    const uint activeLightCount = PathTracePdfNeeVerifierActiveLightCount();
+    const uint checker = ((pixel.x >> 4) ^ (pixel.y >> 4)) & 1u;
+
+    if (view == 1u)
+    {
+        const float routeReady = activeLightCount > 0u ? 1.0 : 0.0;
+        const float3 a = float3(0.02, 0.52, 0.92);
+        const float3 b = float3(0.92, 0.08, 0.65);
+        const float3 base = checker != 0u ? a : b;
+        const float domainBand = ((pixel.y / max(dimensions.y / 8u, 1u)) & 1u) != 0u ? 0.18 : 0.0;
+        return float4(saturate(base + float3(routeReady * 0.10, domainBand + (float)domain * 0.12, (float)sampleCount / 64.0)), 1.0);
+    }
+
+    if (lightMode == 0u || activeLightCount == 0u)
+    {
+        const float stripe = ((pixel.x + pixel.y) & 16u) != 0u ? 0.25 : 0.0;
+        return float4(1.0, 0.05 + stripe, 0.0, 1.0);
+    }
+
+    if (lightMode >= 1u && lightMode <= 3u)
+    {
+        const PathTracePdfNeeSyntheticResult result = PathTracePdfNeeEvaluateSyntheticLights(pixel, dimensions, lightMode);
+        if (view == 6u || result.valid == 0u)
+        {
+            return result.valid != 0u ? float4(0.05, 0.85, 0.25, 1.0) : PathTracePdfNeeInvalidColor(result.invalidReason);
+        }
+        if (view == 2u || view == 7u)
+        {
+            return float4(saturate(result.finalContribution), 1.0);
+        }
+        if (view == 8u)
+        {
+            return float4(saturate(PathTracePdfNeeSyntheticExpectedMeanContribution(pixel, dimensions, lightMode)), 1.0);
+        }
+        if (view == 3u)
+        {
+            return float4(PathTracePdfNeeIdentityColor(result.selectedLightIndex), 1.0);
+        }
+        if (view == 4u)
+        {
+            const uint band = pixel.y < dimensions.y / 3u ? 0u :
+                (pixel.y < (dimensions.y * 2u) / 3u ? 1u : 2u);
+            const float sourceBand = band == 0u ? result.sourcePdf :
+                (band == 1u ? result.solidAnglePdf : result.targetPdf);
+            return float4(PathTracePdfNeePdfBandColor(sourceBand, band), 1.0);
+        }
+        if (view == 5u)
+        {
+            return float4(PathTracePdfNeeHeat(PathTracePdfNeeLuminance(result.finalContribution), 6.0), 1.0);
+        }
+    }
+
+    if (view == 6u)
+    {
+        return float4(1.0, 0.55, 0.0, 1.0);
+    }
+
+    const float x = (float)pixel.x / max((float)dimensions.x, 1.0);
+    const float y = (float)pixel.y / max((float)dimensions.y, 1.0);
+    return float4(0.55 + 0.25 * x, 0.08 + 0.20 * y, 0.78, 1.0);
+}
+
 uint2 PathTraceDispatchTileOffset()
 {
     return uint2((uint)max(DispatchTileInfo.x, 0.0), (uint)max(DispatchTileInfo.y, 0.0));
@@ -2660,6 +3033,572 @@ float4 EvaluateRestirPTCombinedDirectGiPreviewFromSurface(RAB_Surface surface, u
 #include "RtxdiBridge/RAB_Visibility.hlsli"
 #include "RtxdiBridge/RAB_LocalLightPdf.hlsli"
 
+bool PathTracePdfNeeFindOneRealAnalyticLightIndex(RAB_Surface surface, uint2 pixel, out uint lightIndex, out RAB_LightSample selectedSample, out float selectedTargetPdf)
+{
+    lightIndex = 0xffffffffu;
+    selectedSample = RAB_EmptyLightSample();
+    selectedTargetPdf = 0.0;
+    const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+    const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const float2 sampleUv = float2(
+        PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x41u)),
+        PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x42u)));
+    const uint verifierAnalyticScanLimit = min(analyticCount, 512u);
+    [loop]
+    for (uint analyticIndex = 0u; analyticIndex < verifierAnalyticScanLimit; ++analyticIndex)
+    {
+        const uint candidateIndex = emissiveCount + analyticIndex;
+        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(candidateIndex, false);
+        if (RAB_IsLightInfoValid(lightInfo) && lightInfo.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+        {
+            const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
+            if (RAB_IsReplayableLightSample(lightSample))
+            {
+                const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+                if (targetPdf > 0.0)
+                {
+                    lightIndex = candidateIndex;
+                    selectedSample = lightSample;
+                    selectedTargetPdf = targetPdf;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool PathTracePdfNeeBuildRealAnalyticCandidate(RAB_Surface surface, uint candidateIndex, float2 sampleUv, out RAB_LightSample selectedSample, out float selectedTargetPdf)
+{
+    selectedSample = RAB_EmptyLightSample();
+    selectedTargetPdf = 0.0;
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(candidateIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo) || lightInfo.lightType != RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
+    if (!RAB_IsReplayableLightSample(lightSample))
+    {
+        return false;
+    }
+
+    const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    if (targetPdf <= 0.0)
+    {
+        return false;
+    }
+
+    selectedSample = lightSample;
+    selectedTargetPdf = targetPdf;
+    return true;
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateRealAnalyticCandidate(RAB_Surface surface, uint lightIndex, RAB_LightSample lightSample, float targetPdf, float sourcePdf)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    result.sourcePdf = sourcePdf;
+    result.selectedLightIndex = lightIndex;
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo) || lightInfo.lightType != RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    result.solidAnglePdf = lightSample.solidAnglePdf;
+    if (result.solidAnglePdf <= 0.0)
+    {
+        result.invalidReason = 4u;
+        return result;
+    }
+    if (!RAB_IsReplayableLightSample(lightSample))
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    result.targetPdf = targetPdf;
+    if (result.targetPdf <= 0.0)
+    {
+        result.invalidReason = 3u;
+        return result;
+    }
+
+    if (result.sourcePdf <= 0.0)
+    {
+        result.invalidReason = 4u;
+        return result;
+    }
+
+    result.reservoirInvPdf = 1.0 / result.sourcePdf;
+    result.visibility = RestirPdfNeeVerifierControlInfo.y < 0.5 ? 1.0 :
+        (RAB_GetStrictLightSampleVisibility(surface, lightSample) ? 1.0 : 0.0);
+    result.reflectedRadiance = RAB_GetReflectedBsdfRadianceForSurface(
+        lightSample.position,
+        lightSample.radiance,
+        surface);
+    result.finalContribution =
+        result.reflectedRadiance *
+        result.reservoirInvPdf /
+        max(lightSample.solidAnglePdf, 1.0e-6) *
+        result.visibility;
+    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
+    {
+        result.invalidReason = result.visibility <= 0.0 ? 6u : 5u;
+        return result;
+    }
+
+    result.valid = 1u;
+    return result;
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateOneRealAnalyticLight(RAB_Surface surface, uint2 pixel)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    result.sourcePdf = 1.0;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        result.invalidReason = 1u;
+        return result;
+    }
+
+    uint lightIndex = 0xffffffffu;
+    RAB_LightSample lightSample = RAB_EmptyLightSample();
+    float targetPdf = 0.0;
+    if (!PathTracePdfNeeFindOneRealAnalyticLightIndex(surface, pixel, lightIndex, lightSample, targetPdf))
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, targetPdf, 1.0);
+}
+
+bool PathTracePdfNeeFindTwoRealAnalyticLightCandidates(
+    RAB_Surface surface,
+    uint2 pixel,
+    out uint2 lightIndices,
+    out RAB_LightSample lightSample0,
+    out RAB_LightSample lightSample1,
+    out float2 targetPdfs)
+{
+    lightIndices = uint2(0xffffffffu, 0xffffffffu);
+    lightSample0 = RAB_EmptyLightSample();
+    lightSample1 = RAB_EmptyLightSample();
+    targetPdfs = float2(0.0, 0.0);
+
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return false;
+    }
+
+    const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+    const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const float2 sampleUv = float2(
+        PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x51u)),
+        PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x52u)));
+    const uint verifierAnalyticScanLimit = min(analyticCount, 512u);
+    uint acceptedCount = 0u;
+
+    [loop]
+    for (uint analyticIndex = 0u; analyticIndex < verifierAnalyticScanLimit; ++analyticIndex)
+    {
+        const uint candidateIndex = emissiveCount + analyticIndex;
+        RAB_LightSample candidateSample = RAB_EmptyLightSample();
+        float candidateTargetPdf = 0.0;
+        if (!PathTracePdfNeeBuildRealAnalyticCandidate(surface, candidateIndex, sampleUv, candidateSample, candidateTargetPdf))
+        {
+            continue;
+        }
+
+        if (acceptedCount == 0u)
+        {
+            lightIndices.x = candidateIndex;
+            lightSample0 = candidateSample;
+            targetPdfs.x = candidateTargetPdf;
+            acceptedCount = 1u;
+        }
+        else
+        {
+            lightIndices.y = candidateIndex;
+            lightSample1 = candidateSample;
+            targetPdfs.y = candidateTargetPdf;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateTwoRealAnalyticLights(RAB_Surface surface, uint2 pixel)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    result.sourcePdf = 0.5;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        result.invalidReason = 1u;
+        return result;
+    }
+
+    uint2 lightIndices = uint2(0xffffffffu, 0xffffffffu);
+    RAB_LightSample lightSample0 = RAB_EmptyLightSample();
+    RAB_LightSample lightSample1 = RAB_EmptyLightSample();
+    float2 targetPdfs = float2(0.0, 0.0);
+    if (!PathTracePdfNeeFindTwoRealAnalyticLightCandidates(surface, pixel, lightIndices, lightSample0, lightSample1, targetPdfs))
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const float selection = PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x53u));
+    if (selection < 0.5)
+    {
+        return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndices.x, lightSample0, targetPdfs.x, 0.5);
+    }
+    return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndices.y, lightSample1, targetPdfs.y, 0.5);
+}
+
+float3 PathTracePdfNeeRealAnalyticAveragedContribution(RAB_Surface surface, uint lightIndex)
+{
+    float3 sumContribution = float3(0.0, 0.0, 0.0);
+    static const uint sampleCount = 16u;
+    [unroll]
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    {
+        const float2 sampleUv = float2(
+            ((float)sampleIndex + 0.5) * (1.0 / (float)sampleCount),
+            frac((float)(sampleIndex * 5u + 1u) * (1.0 / (float)sampleCount)));
+        RAB_LightSample lightSample = RAB_EmptyLightSample();
+        float targetPdf = 0.0;
+        if (!PathTracePdfNeeBuildRealAnalyticCandidate(surface, lightIndex, sampleUv, lightSample, targetPdf))
+        {
+            continue;
+        }
+
+        const PathTracePdfNeeSyntheticResult sampleResult =
+            PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, targetPdf, 1.0);
+        sumContribution += sampleResult.valid != 0u ? sampleResult.finalContribution : float3(0.0, 0.0, 0.0);
+    }
+
+    return sumContribution * (1.0 / (float)sampleCount);
+}
+
+float3 PathTracePdfNeeTwoRealAnalyticExpectedMean(RAB_Surface surface, uint2 pixel)
+{
+    uint2 lightIndices = uint2(0xffffffffu, 0xffffffffu);
+    RAB_LightSample lightSample0 = RAB_EmptyLightSample();
+    RAB_LightSample lightSample1 = RAB_EmptyLightSample();
+    float2 targetPdfs = float2(0.0, 0.0);
+    if (!PathTracePdfNeeFindTwoRealAnalyticLightCandidates(surface, pixel, lightIndices, lightSample0, lightSample1, targetPdfs))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    return PathTracePdfNeeRealAnalyticAveragedContribution(surface, lightIndices.x) +
+        PathTracePdfNeeRealAnalyticAveragedContribution(surface, lightIndices.y);
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateFullRealAnalyticDomain(RAB_Surface surface, uint2 pixel)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        result.invalidReason = 1u;
+        return result;
+    }
+
+    const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+    const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
+    if (analyticCount == 0u)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const float selection = PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x63u));
+    const uint analyticIndex = min((uint)(selection * (float)analyticCount), analyticCount - 1u);
+    const uint lightIndex = emissiveCount + analyticIndex;
+    result.selectedLightIndex = lightIndex;
+    result.sourcePdf = 1.0 / (float)analyticCount;
+    result.reservoirInvPdf = (float)analyticCount;
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo) || lightInfo.lightType != RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    const float2 sampleUv = float2(
+        PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x61u)),
+        PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x62u)));
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
+    if (!RAB_IsReplayableLightSample(lightSample))
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    result.solidAnglePdf = lightSample.solidAnglePdf;
+    if (result.solidAnglePdf <= 0.0)
+    {
+        result.invalidReason = 4u;
+        return result;
+    }
+
+    result.targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    if (result.targetPdf <= 0.0)
+    {
+        result.invalidReason = 3u;
+        return result;
+    }
+
+    result.visibility = RestirPdfNeeVerifierControlInfo.y < 0.5 ? 1.0 :
+        (RAB_GetStrictLightSampleVisibility(surface, lightSample) ? 1.0 : 0.0);
+    result.reflectedRadiance = RAB_GetReflectedBsdfRadianceForSurface(
+        lightSample.position,
+        lightSample.radiance,
+        surface);
+    result.finalContribution =
+        result.reflectedRadiance *
+        result.reservoirInvPdf /
+        max(result.solidAnglePdf, 1.0e-6) *
+        result.visibility;
+    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
+    {
+        result.invalidReason = result.visibility <= 0.0 ? 6u : 5u;
+        return result;
+    }
+
+    result.valid = 1u;
+    return result;
+}
+
+float3 PathTracePdfNeeFullRealAnalyticExpectedMean(RAB_Surface surface, uint2 pixel)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+    const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
+    const uint verifierAnalyticScanLimit = min(analyticCount, 512u);
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    float3 sumContribution = float3(0.0, 0.0, 0.0);
+
+    [loop]
+    for (uint analyticIndex = 0u; analyticIndex < verifierAnalyticScanLimit; ++analyticIndex)
+    {
+        const uint lightIndex = emissiveCount + analyticIndex;
+        const float2 sampleUv = float2(
+            PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(uint2(pixel.x + analyticIndex, pixel.y), frameIndex, 0x71u)),
+            PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(uint2(pixel.x, pixel.y + analyticIndex), frameIndex, 0x72u)));
+        RAB_LightSample lightSample = RAB_EmptyLightSample();
+        float targetPdf = 0.0;
+        if (!PathTracePdfNeeBuildRealAnalyticCandidate(surface, lightIndex, sampleUv, lightSample, targetPdf))
+        {
+            continue;
+        }
+
+        const PathTracePdfNeeSyntheticResult sampleResult =
+            PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, targetPdf, 1.0);
+        sumContribution += sampleResult.valid != 0u ? sampleResult.finalContribution : float3(0.0, 0.0, 0.0);
+    }
+
+    return sumContribution;
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateEmissiveCandidate(RAB_Surface surface, uint lightIndex, float sourcePdf)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    result.sourcePdf = sourcePdf;
+    result.selectedLightIndex = lightIndex;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        result.invalidReason = 1u;
+        return result;
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo) || lightInfo.lightType != RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, float2(0.5, 0.5));
+    if (!RAB_IsReplayableLightSample(lightSample))
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    result.solidAnglePdf = lightSample.solidAnglePdf;
+    if (result.solidAnglePdf <= 0.0)
+    {
+        result.invalidReason = 4u;
+        return result;
+    }
+
+    result.targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    if (result.targetPdf <= 0.0)
+    {
+        result.invalidReason = 3u;
+        return result;
+    }
+
+    if (result.sourcePdf <= 0.0)
+    {
+        result.invalidReason = 4u;
+        return result;
+    }
+
+    result.reservoirInvPdf = 1.0 / result.sourcePdf;
+    result.visibility = RestirPdfNeeVerifierControlInfo.y < 0.5 ? 1.0 :
+        (RAB_GetStrictLightSampleVisibility(surface, lightSample) ? 1.0 : 0.0);
+    result.reflectedRadiance = RAB_GetReflectedBsdfRadianceForSurface(
+        lightSample.position,
+        lightSample.radiance,
+        surface);
+    result.finalContribution =
+        result.reflectedRadiance *
+        result.reservoirInvPdf /
+        max(result.solidAnglePdf, 1.0e-6) *
+        result.visibility;
+    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
+    {
+        result.invalidReason = result.visibility <= 0.0 ? 6u : 5u;
+        return result;
+    }
+
+    result.valid = 1u;
+    return result;
+}
+
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateEmissiveDomain(RAB_Surface surface, uint2 pixel)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        result.invalidReason = 1u;
+        return result;
+    }
+
+    const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+    if (emissiveCount == 0u)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const float selection = PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x83u));
+    const uint lightIndex = SelectSmokeWeightedEmissiveTriangle(emissiveCount, selection);
+    if (lightIndex >= emissiveCount)
+    {
+        result.invalidReason = 2u;
+        return result;
+    }
+
+    const float sourcePdf = RAB_EvaluateLocalLightSourcePdf(lightIndex);
+    return PathTracePdfNeeEvaluateEmissiveCandidate(surface, lightIndex, sourcePdf);
+}
+
+float3 PathTracePdfNeeEmissiveExpectedMean(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+    const uint verifierEmissiveScanLimit = min(emissiveCount, 512u);
+    float3 sumContribution = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint lightIndex = 0u; lightIndex < verifierEmissiveScanLimit; ++lightIndex)
+    {
+        const PathTracePdfNeeSyntheticResult sampleResult =
+            PathTracePdfNeeEvaluateEmissiveCandidate(surface, lightIndex, 1.0);
+        sumContribution += sampleResult.valid != 0u ? sampleResult.finalContribution : float3(0.0, 0.0, 0.0);
+    }
+
+    return sumContribution;
+}
+
+float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uint2 dimensions)
+{
+    const uint view = clamp((uint)max(RestirPdfNeeVerifierInfo.y, 0.0), 0u, 8u);
+    const uint lightMode = clamp((uint)max(RestirPdfNeeVerifierInfo.z, 0.0), 0u, 8u);
+    if (lightMode != 4u && lightMode != 5u && lightMode != 6u && lightMode != 7u)
+    {
+        return float4(1.0, 0.55, 0.0, 1.0);
+    }
+
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    if (lightMode == 7u)
+    {
+        result = PathTracePdfNeeEvaluateEmissiveDomain(surface, pixel);
+    }
+    else if (lightMode == 6u)
+    {
+        result = PathTracePdfNeeEvaluateFullRealAnalyticDomain(surface, pixel);
+    }
+    else if (lightMode == 5u)
+    {
+        result = PathTracePdfNeeEvaluateTwoRealAnalyticLights(surface, pixel);
+    }
+    else
+    {
+        result = PathTracePdfNeeEvaluateOneRealAnalyticLight(surface, pixel);
+    }
+    if (view == 6u || (result.valid == 0u && lightMode != 6u && lightMode != 7u))
+    {
+        return result.valid != 0u ? float4(0.05, 0.85, 0.25, 1.0) : PathTracePdfNeeInvalidColor(result.invalidReason);
+    }
+    if (view == 2u || view == 7u)
+    {
+        return float4(saturate(result.finalContribution), 1.0);
+    }
+    if (view == 8u && lightMode == 6u)
+    {
+        return float4(saturate(PathTracePdfNeeFullRealAnalyticExpectedMean(surface, pixel)), 1.0);
+    }
+    if (view == 8u && lightMode == 7u)
+    {
+        return float4(saturate(PathTracePdfNeeEmissiveExpectedMean(surface)), 1.0);
+    }
+    if (view == 8u && lightMode == 5u)
+    {
+        return float4(saturate(PathTracePdfNeeTwoRealAnalyticExpectedMean(surface, pixel)), 1.0);
+    }
+    if (view == 3u)
+    {
+        return float4(PathTracePdfNeeIdentityColor(result.selectedLightIndex & 3u), 1.0);
+    }
+    if (view == 4u)
+    {
+        const uint band = pixel.y < dimensions.y / 3u ? 0u :
+            (pixel.y < (dimensions.y * 2u) / 3u ? 1u : 2u);
+        const float sourceBand = band == 0u ? result.sourcePdf :
+            (band == 1u ? result.solidAnglePdf : result.targetPdf);
+        return float4(PathTracePdfNeePdfBandColor(sourceBand, band), 1.0);
+    }
+    if (view == 5u)
+    {
+        return float4(PathTracePdfNeeHeat(PathTracePdfNeeLuminance(result.finalContribution), 6.0), 1.0);
+    }
+    return float4(saturate(result.finalContribution), 1.0);
+}
+
 uint LoadSmokeTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
 {
     const uint materialCount = (uint)TextureInfo.z;
@@ -3437,6 +4376,16 @@ void RayGen()
     {
         return;
     }
+    if (PathTracePdfNeeVerifierEnabled() &&
+        !PathTracePdfNeeVerifierRequiresPrimarySurface() &&
+        !restirDirectDispatch &&
+        !restirIndirectProducerDispatch &&
+        !primarySurfaceProducerDispatch &&
+        !consumePrimarySurfaceHistory)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePdfNeeVerifierRoute(pixel, dimensions);
+        return;
+    }
     if (debugMode == 21u)
     {
         SmokeOutput[pixel] = RenderSmokeBoundsBoxes(ray.Origin, ray.Direction);
@@ -3517,6 +4466,16 @@ void RayGen()
         {
             primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
         }
+    }
+    if (PathTracePdfNeeVerifierEnabled() &&
+        PathTracePdfNeeVerifierRequiresPrimarySurface() &&
+        !restirDirectDispatch &&
+        !restirIndirectProducerDispatch &&
+        !primarySurfaceProducerDispatch &&
+        !consumePrimarySurfaceHistory)
+    {
+        SmokeOutput[pixel] = EvaluatePathTracePdfNeeRealRabRoute(primaryHistorySurface, pixel, dimensions);
+        return;
     }
 #ifndef RB_PT_RESTIR_SPATIAL_PRODUCER
     if (!consumePrimarySurfaceHistory)

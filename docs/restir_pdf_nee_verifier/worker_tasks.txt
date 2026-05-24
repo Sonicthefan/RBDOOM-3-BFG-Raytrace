@@ -1,0 +1,232 @@
+PDF + NEE Verifier Worker Tasks
+===============================
+
+Run one task at a time. Stop after the first failing task or after build/deploy
+for user visual testing.
+
+
+PDFNEE-00: Read-Only Bridge Audit
+---------------------------------
+
+Goal:
+
+    Produce a producer-consumer map from Doom/emissive payloads to the shared
+    RAB PDF + NEE helpers.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+RTXDI math reference:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+
+rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracerNee.hlsli
+
+Allowed write set:
+
+    none
+
+Required output:
+
+    exact active domains available
+    where source PDF exists
+    where analytic source PDF must be computed
+    where solidAnglePdf is produced
+    where targetPdf is produced
+    where final contribution is produced
+    first missing/ambiguous contract
+
+
+PDFNEE-01: Verifier CVar And Route Skeleton
+-------------------------------------------
+
+Goal:
+
+    Add an isolated verifier route that owns every pixel and cannot use
+    temporal/spatial/denoiser/fallback output.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Allowed rbdoom write set:
+
+    verifier CVar definitions
+    standalone verifier shader or mode
+    minimal dispatch/resource binding for verifier output
+    CMake shader registration if needed
+
+Forbidden:
+
+    no temporal
+    no spatial
+    no best lights
+    no existing clean synthetic accumulator edits
+    no mode-56 route
+
+Acceptance:
+
+    route sentinel visible
+    invalid/no-light output is loud
+    verifier does not expose fallback scene lighting
+
+
+PDFNEE-02: One Synthetic Light Estimator Proof
+----------------------------------------------
+
+Goal:
+
+    Prove the final contribution formula with one known light.
+
+Required:
+
+    source PDF = 1.0
+    positive solidAnglePdf
+    positive targetPdf
+    raw flat-diffuse current-frame output
+    no temporal
+
+Acceptance:
+
+    output matches documented expected contribution
+    estimator table is included in report
+
+
+PDFNEE-03: Synthetic Overlap Estimator Proof
+--------------------------------------------
+
+Goal:
+
+    Prove source-PDF normalization and contribution under two and N overlapping
+    lights.
+
+Required:
+
+    two-light source PDF table
+    N-light source PDF table
+    source PDF sums to 1.0
+    selected light identity changes do not alter mean brightness incorrectly
+
+Acceptance:
+
+    noisy one-sample output has correct mean
+    no strobe from light identity weighting errors
+
+
+PDFNEE-04: One Real Analytic Light Through Shared RAB
+-----------------------------------------------------
+
+Goal:
+
+    Use one real Doom analytic payload with the shared RAB bridge.
+
+Required:
+
+    RAB_LoadLightInfo
+    RAB_SamplePolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+
+Forbidden:
+
+    no duplicate local RAB implementation
+    no broad light filtering
+
+Acceptance:
+
+    single real analytic light matches brute-force direct-light reference in
+    mean
+
+
+PDFNEE-05: Two Real Overlapping Analytic Lights
+-----------------------------------------------
+
+Goal:
+
+    Prove the first real overlapping analytic-light estimator case.
+
+Required:
+
+    explicit proposal domain of exactly two lights
+    source PDF table
+    both lights selectable
+    final contribution table for both lights
+
+Acceptance:
+
+    output matches sum of both direct-light estimates in mean
+    turning off one light removes only that contribution
+
+
+PDFNEE-06: Full Real Analytic Domain
+------------------------------------
+
+Goal:
+
+    Validate the full overlapping Doom analytic domain.
+
+Required:
+
+    active domain count
+    source PDF contract
+    invalid-candidate policy
+    targetPdf and final contribution proof
+
+Acceptance:
+
+    dense overlapping lights produce a noisy but correct current-frame direct
+    estimate
+
+
+PDFNEE-07: Emissive Domain Cross-Check
+--------------------------------------
+
+Goal:
+
+    Verify emissive lights through the same verifier route.
+
+Required:
+
+    uploaded emissive source PDF or documented fallback
+    shared RAB replay
+    final contribution table
+
+Acceptance:
+
+    emissive output does not depend on old NEE output or temporal smoothing
+
+
+PDFNEE-08: Integration Handoff Plan Only
+----------------------------------------
+
+Goal:
+
+    Write a plan for connecting the verified current-frame reservoir to the
+    known-good temporal accumulator.
+
+Allowed write set:
+
+    docs/restir_pdf_nee_verifier only
+
+Forbidden:
+
+    no implementation
+    no temporal edits
+
+Acceptance:
+
+    exact resource handoff
+    exact producer writes
+    exact accumulator reads
+    negative-path handling
+    first runtime proof after integration

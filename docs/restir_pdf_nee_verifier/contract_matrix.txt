@@ -1,0 +1,254 @@
+PDF + NEE Verifier Contract Matrix
+==================================
+
+Goal
+----
+
+Verify that rbdoom can produce a correct current-frame direct-light reservoir
+estimate before temporal accumulation is attached.
+
+
+Contract C-01: CPU Light Payload Domain
+---------------------------------------
+
+Producer:
+
+    PathTraceDoomLights.cpp
+    PathTraceRestirLightManager.cpp
+    PathTraceUnifiedLight.cpp
+
+Required output:
+
+    current light records
+    optional previous light records for later integration only
+    light type
+    position/radius
+    area
+    radiance/luminance
+    identity/remap metadata
+    sourceWeight
+    emissive sourcePdf when available
+
+Not owned here:
+
+    full analytic source PDF
+    solidAnglePdf
+    targetPdf
+    final NEE contribution
+
+Pass:
+
+    worker identifies which CPU domain is used
+    worker states whether it is split, unified, or ReSTIR light-manager RAB
+    worker proves the active light count and proposal domain
+
+Fail:
+
+    worker assumes CPU manager alone provides full PDF + NEE
+    worker shrinks authored light universe as a fix
+
+
+Contract C-02: Light Load Adapter
+---------------------------------
+
+Reference rbdoom file:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Required call:
+
+    RAB_LoadLightInfo(lightIndex, false)
+
+Pass:
+
+    every sampled lightIndex resolves to valid RAB_LightInfo or a loud invalid
+    current domain count matches the proposal domain
+    one-light and overlap tests name the exact domain count
+
+Fail:
+
+    verifier defines a duplicate RAB_LoadLightInfo without proving exact
+    equivalence
+    previous-frame load is used in current-frame proof
+
+
+Contract C-03: Light Sampling And Replay
+----------------------------------------
+
+Reference rbdoom file:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+
+Required call:
+
+    RAB_SamplePolymorphicLight(lightInfo, surface, uv)
+
+Required output:
+
+    valid flag
+    sample position
+    light direction/distance
+    radiance
+    solidAnglePdf
+
+Pass:
+
+    selected sample can be replayed from reservoir lightIndex + uv
+    solidAnglePdf is positive for valid selected samples
+    invalid replay is loud
+
+Fail:
+
+    selected sample position is reconstructed differently in resolve than in
+    targetPdf
+    solidAnglePdf is omitted or replaced by a debug scalar
+
+
+Contract C-04: Source PDF
+-------------------------
+
+Reference math:
+
+    RTXDI DI InitialSampling.hlsli
+    RTXDI DI Reservoir.hlsli
+
+Required proof:
+
+    lightSelectionPdf or invSourcePdf for every candidate proposal
+    sum of active source probabilities equals 1.0 for the proposal domain
+    invalid or zero-contribution lights are either excluded from the proposal
+        domain or included with documented zero contribution
+
+Pass:
+
+    one light: source PDF is 1.0
+    two uniform lights: each source PDF is 0.5
+    N uniform lights: source PDF is 1/N
+    weighted emissive proposals use uploaded emissive PDF and document fallback
+
+Fail:
+
+    analytic source PDF is read from manager sourcePdf when that value is zero
+    source PDF changes after sampling without matching reservoir weight
+    broad light suppression is used to make overlap easier
+
+
+Contract C-05: Target PDF
+-------------------------
+
+Reference rbdoom file:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+
+Required call:
+
+    RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+
+Required shape:
+
+    luminance(reflected BSDF radiance) / solidAnglePdf
+
+Pass:
+
+    targetPdf is positive for visible front-facing contributing samples
+    zero targetPdf is loud and does not resolve as black albedo
+    targetPdf uses the same lightSample replayed by final contribution
+
+Fail:
+
+    targetPdf is luminance(radiance * diffuse * ndotl) without division by
+    solidAnglePdf
+    targetPdf is a status or brightness ramp
+
+
+Contract C-06: Final Direct-Light / NEE Contribution
+----------------------------------------------------
+
+Reference rbdoom file:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracerNee.hlsli
+
+Required shape:
+
+    reflectedRadiance *
+    RTXDI_GetDIReservoirInvPdf(reservoir) /
+    max(lightSample.solidAnglePdf, epsilon) *
+    visibility
+
+Pass:
+
+    one-light output matches brute-force direct-light reference within expected
+        sample noise
+    two-overlap output converges to the sum of both lights over repeated frames
+        or manual averaging
+    N-overlap output remains stable in mean and does not strobe between light
+        identities
+
+Fail:
+
+    resolve omits division by solidAnglePdf
+    resolve uses albedo/beauty fallback
+    resolve uses a temporal or luminance average to hide current-frame error
+
+
+Contract C-07: Visibility
+-------------------------
+
+Reference rbdoom files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Visibility.hlsli
+    pathtrace visibility helper used by the selected pass
+
+Required proof:
+
+    visibility policy is stated for each rung
+
+Pass:
+
+    one-light proof may use forced-visible only if explicitly marked
+    real-light proof must have a visible mode and a traced-visibility mode
+    visibility rejection is loud and separable from PDF failure
+
+Fail:
+
+    hidden fallback lighting fills rejected samples
+    visibility failure is reported as PDF success
+
+
+Contract C-08: Verifier Output Ownership
+----------------------------------------
+
+Required output:
+
+    every pixel is written by the verifier
+    invalid state is explicit
+    no fallback scene lighting underneath
+    no temporal accumulation
+
+Pass:
+
+    temporal off noisy output is current-frame direct lighting
+    black/invalid pixels are explainable by explicit invalid states
+
+Fail:
+
+    empty samples reveal base game lighting or albedo
+    status colors are treated as estimator proof
+
+
+Contract C-09: Handoff To Accumulator
+-------------------------------------
+
+Only after verifier passes:
+
+    feed verified current reservoir and replay contract into known-good
+    synthetic temporal accumulator lane
+
+Pass:
+
+    temporal off preserves verified current-frame mean
+    temporal on reduces noise without changing mean brightness
+
+Fail:
+
+    temporal integration begins before C-01 through C-08 pass
