@@ -60,6 +60,7 @@ extern idCVar r_pathTracingPortalBruteforceFullMap;
 extern idCVar r_pathTracingSceneUniverseVerbose;
 extern idCVar r_pathTracingWorldStaticEmissives;
 extern idCVar r_pathTracingWorldStaticEmissiveMaxTriangles;
+extern idCVar r_pathTracingEmissiveBridgeDump;
 extern idCVar r_pathTracingDynamicOccluderRadius;
 extern idCVar r_pathTracingDynamicOccluderMaxSurfaces;
 extern idCVar r_pathTracingLightUniverseDump;

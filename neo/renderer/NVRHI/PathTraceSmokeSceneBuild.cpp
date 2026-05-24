@@ -1237,7 +1237,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int requestedDebugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     const bool restirPTDebugMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
     const bool integratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || restirPTDebugMode || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
+    const int pdfNeeVerifierSceneBuildView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
+    const int pdfNeeVerifierSceneBuildLightMode = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
+    const bool pdfNeeVerifierStaticEmissiveProducerPolicy =
+        requestedDebugMode == 0 &&
+        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 &&
+        pdfNeeVerifierSceneBuildView > 0 &&
+        pdfNeeVerifierSceneBuildLightMode == 7;
+    const bool currentFrameStaticEmissiveProducerPolicy =
+        restirPTDebugMode || pdfNeeVerifierStaticEmissiveProducerPolicy;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -3399,7 +3408,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.signatures.lightMembership = sceneInputLightSignature;
     sceneInputs.signatures.outputResolution = (static_cast<uint64>(m_frameResources.width) << 32) | static_cast<uint32_t>(m_frameResources.height);
     sceneInputs.signatures.cameraProjection = sceneInputCameraSignature;
-    sceneInputs.signatures.debugFeaturePolicy = static_cast<uint64>(requestedDebugMode);
+    uint64 debugFeaturePolicy = static_cast<uint64>(requestedDebugMode);
+    if (pdfNeeVerifierStaticEmissiveProducerPolicy)
+    {
+        debugFeaturePolicy |= 1ull << 32;
+    }
+    sceneInputs.signatures.debugFeaturePolicy = debugFeaturePolicy;
     sceneInputs.signatures.cpuUploadGeneration = m_smokeGeometryFrameIndex;
     sceneInputs.signatures.reservoirScene = reservoirSceneSignature;
 
@@ -3688,6 +3702,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.lights.emissiveDistributionValid = emissiveDistribution.valid;
     sceneInputs.lights.lightUniverseGeneration = lightUniverseStats.generation;
     sceneInputs.lights.capabilityFlags = RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED;
+    if (r_pathTracingEmissiveBridgeDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke emissive bridge producerPolicy pdfNeeStaticEmissive=%d restirPT=%d enableTextureProbe=%d staticAreaPreloadCvar=%d portalFullMapCvar=%d fullWorldStaticEmissivesCvar=%d fullWorldAppended=%d rigidRouteEnabled=%d routedRigidAppended=%d captured=%d static=%d dynamic=%d distribution=%d unifiedCurrent=%d managerCurrentPayload=%d lightUniverseGeneration=%llu behavior=current-frame-producer-diagnostics-only\n",
+            pdfNeeVerifierStaticEmissiveProducerPolicy ? 1 : 0,
+            restirPTDebugMode ? 1 : 0,
+            enableTextureProbe ? 1 : 0,
+            r_pathTracingStaticAreaPreload.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingPortalBruteforceFullMap.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingWorldStaticEmissives.GetInteger() != 0 ? 1 : 0,
+            emissiveInventoryStats.fullLevelStaticTriangles,
+            enableRigidRouteForMode ? 1 : 0,
+            emissiveInventoryStats.routedRigidTriangles,
+            emissiveInventoryStats.capturedTriangles,
+            emissiveInventoryStats.staticTriangles,
+            emissiveInventoryStats.dynamicTriangles,
+            static_cast<int>(emissiveDistribution.entries.size()),
+            static_cast<int>(unifiedLights.currentLights.size()),
+            static_cast<int>(restirLightManagerCurrentPayloadRecords.size()),
+            static_cast<unsigned long long>(lightUniverseStats.generation));
+        r_pathTracingEmissiveBridgeDump.SetInteger(0);
+    }
 
     sceneInputs.diagnostics.geometryUploadBytes = staticUploadBytes + previousStaticUploadBytes + dynamicUploadBytes + rigidRouteUploadBytes;
     sceneInputs.diagnostics.staticUploadBytes = staticUploadBytes;

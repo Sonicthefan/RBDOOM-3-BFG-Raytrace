@@ -321,6 +321,12 @@ idCVar r_pathTracingWorldStaticEmissiveMaxTriangles(
     CVAR_RENDERER | CVAR_INTEGER,
     "Maximum full-level static world emissive triangles to append when r_pathTracingWorldStaticEmissives is enabled" );
 
+idCVar r_pathTracingEmissiveBridgeDump(
+    "r_pathTracingEmissiveBridgeDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump diagnostics-only scene-universe to RT smoke emissive bridge counts once" );
+
 idCVar r_pathTracingDynamicOccluderRadius(
     "r_pathTracingDynamicOccluderRadius",
     "0",
