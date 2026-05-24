@@ -621,6 +621,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "synthetic-temporal";
         }
+        if (view == 10)
+        {
+            return "synthetic-analytic-temporal";
+        }
         return "disabled";
     };
     auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
@@ -661,16 +665,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "synthetic-constant-light-temporal";
         }
+        if (view == 10)
+        {
+            return "synthetic-one-analytic-payload-temporal";
+        }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
-    const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? idMath::ClampInt(0, 9, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 9;
+    const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 10;
     auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
-        const int cleanViewNow = cleanEnabledNow ? idMath::ClampInt(0, 9, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
-        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 9;
+        const int cleanViewNow = cleanEnabledNow ? idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
+        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 10;
         const int bindingSetReady = cleanRouteNow
             ? (m_smokeCleanRtxdiDiSentinelBindingLayout && m_frameResources.outputTexture ? 1 : 0)
             : (m_smokeBindingSet ? 1 : 0);
@@ -815,7 +823,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9)
+        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9 || cleanRtxdiDiView == 10)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -1005,7 +1013,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
 
         const bool cleanRtxdiDiNeedsPrimarySurface = cleanRtxdiDiView >= 2;
-        const bool cleanRtxdiDiNeedsCurrentAnalytic = cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8;
+        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10;
         const bool cleanRtxdiDiNeedsAnalyticTemporalInputs = cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
         const bool cleanRtxdiDiBindingInputsValid =
