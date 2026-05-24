@@ -47,7 +47,15 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t reservoirCount = 0;
     uint32_t candidateCount = 0;
     uint32_t flags = 0;
+    uint32_t previousAnalyticLightCount = 0;
+    uint32_t previousAnalyticIdentityCount = 0;
+    uint32_t analyticRemapCount = 0;
+    uint32_t temporalFlags = 0;
     uint32_t padding0 = 0;
+    float prevCameraOriginAndValid[4] = {};
+    float prevCameraForwardAndTanX[4] = {};
+    float prevCameraLeftAndTanY[4] = {};
+    float prevCameraUpAndTanY[4] = {};
 };
 
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
@@ -595,11 +603,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 5)
         {
-            return "deferred";
+            return "temporal-reservoir";
         }
         if (view == 6)
         {
-            return "deferred";
+            return "temporal-reservoir";
         }
         if (view == 7)
         {
@@ -607,7 +615,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 8)
         {
-            return "initial-reservoir";
+            return "reservoir-diagnostics";
+        }
+        if (view == 9)
+        {
+            return "synthetic-temporal";
         }
         return "disabled";
     };
@@ -631,11 +643,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 5)
         {
-            return "deferred-raw-flat-temporal";
+            return "raw-flat-temporal";
         }
         if (view == 6)
         {
-            return "deferred-raw-flat-split";
+            return "raw-flat-current-vs-temporal";
         }
         if (view == 7)
         {
@@ -643,23 +655,27 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 8)
         {
-            return "reservoir-weight-target-pdf";
+            return "reservoir-weight-target-pdf-or-temporal-gates";
+        }
+        if (view == 9)
+        {
+            return "synthetic-constant-light-temporal";
         }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
-    const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? idMath::ClampInt(0, 8, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 8;
+    const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? idMath::ClampInt(0, 9, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 9;
     auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
-        const int cleanViewNow = cleanEnabledNow ? idMath::ClampInt(0, 8, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
-        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 8;
+        const int cleanViewNow = cleanEnabledNow ? idMath::ClampInt(0, 9, r_pathTracingCleanRtxdiDiView.GetInteger()) : 0;
+        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 9;
         const int bindingSetReady = cleanRouteNow
             ? (m_smokeCleanRtxdiDiSentinelBindingLayout && m_frameResources.outputTexture ? 1 : 0)
             : (m_smokeBindingSet ? 1 : 0);
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d route=%s behavior=%s output=%dx%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanCurrentReservoir=%d commandList=%d pages current=%s temporal=none previous=none spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d route=%s behavior=%s output=%dx%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
@@ -685,14 +701,21 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.readbackTexture ? 1 : 0,
             m_smokeDoomAnalyticLightBuffer ? m_smokeDoomAnalyticLightCount : 0,
             m_smokeDoomAnalyticCurrentIdentityBuffer ? m_smokeDoomAnalyticCurrentIdentityCount : 0,
+            m_smokeDoomAnalyticPreviousLightBuffer ? m_smokeDoomAnalyticPreviousLightCount : 0,
+            m_smokeDoomAnalyticPreviousIdentityBuffer ? m_smokeDoomAnalyticPreviousIdentityCount : 0,
+            m_smokeDoomAnalyticRemapBuffer ? m_smokeDoomAnalyticRemapCount : 0,
             m_smokeCleanRtxdiDiCurrentReservoirBuffer ? 1 : 0,
+            m_smokeCleanRtxdiDiTemporalReservoirBuffer ? 1 : 0,
+            m_smokeCleanRtxdiDiPreviousReservoirBuffer ? 1 : 0,
+            m_smokeCleanRtxdiDiPreviousReservoirValid ? 1 : 0,
             (m_backend && m_backend->GL_GetCommandList()) ? 1 : 0,
-            m_smokeCleanRtxdiDiCurrentReservoirBuffer ? "u69" : "none");
+            m_smokeCleanRtxdiDiCurrentReservoirBuffer ? "u69" : "none",
+            m_smokeCleanRtxdiDiTemporalReservoirBuffer ? "u70" : "none",
+            m_smokeCleanRtxdiDiPreviousReservoirBuffer ? "u71" : "none");
     };
-    const bool cleanRtxdiDiSentinelResourcesValid =
+    const bool cleanRtxdiDiBaseResourcesValid =
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
-        m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture && m_frameResources.primarySurfaceHistoryBuffers.current &&
-        m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticCurrentIdentityBuffer;
+        m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture;
     const bool smokeBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokeShaderTable && m_smokeBindingSet && m_smokeTextureDescriptorTable &&
         m_frameResources.outputTexture && m_frameResources.accumulationTexture && m_frameResources.restirPTReflectionTexture &&
@@ -708,7 +731,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeDoomAnalyticCurrentIdentityBuffer && m_smokeDoomAnalyticPreviousIdentityBuffer && m_smokeDoomAnalyticRemapBuffer &&
         m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer && m_smokeRigidRouteTriangleMaterialBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
-    if (!(cleanRtxdiDiRouteRequested ? cleanRtxdiDiSentinelResourcesValid : smokeBaseResourcesValid))
+    if (!(cleanRtxdiDiRouteRequested ? cleanRtxdiDiBaseResourcesValid : smokeBaseResourcesValid))
     {
         if (cleanRtxdiDiDumpRequested)
         {
@@ -792,7 +815,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8)
+        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -859,6 +882,27 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.cameraUpAndDebugMode[1] = cleanCameraUp.y;
             primarySurfaceConstants.cameraUpAndDebugMode[2] = cleanCameraUp.z;
             primarySurfaceConstants.cameraUpAndDebugMode[3] = 0.0f;
+            const bool cleanPreviousHistoryViewValid =
+                m_frameResources.primarySurfaceHistoryView.valid &&
+                m_frameResources.primarySurfaceHistoryView.width == m_frameResources.width &&
+                m_frameResources.primarySurfaceHistoryView.height == m_frameResources.height &&
+                !m_frameResources.primarySurfaceHistoryNeedsClear;
+            primarySurfaceConstants.prevCameraOriginAndValid[0] = m_frameResources.primarySurfaceHistoryView.origin.x;
+            primarySurfaceConstants.prevCameraOriginAndValid[1] = m_frameResources.primarySurfaceHistoryView.origin.y;
+            primarySurfaceConstants.prevCameraOriginAndValid[2] = m_frameResources.primarySurfaceHistoryView.origin.z;
+            primarySurfaceConstants.prevCameraOriginAndValid[3] = cleanPreviousHistoryViewValid ? 1.0f : 0.0f;
+            primarySurfaceConstants.prevCameraForwardAndTanX[0] = m_frameResources.primarySurfaceHistoryView.forward.x;
+            primarySurfaceConstants.prevCameraForwardAndTanX[1] = m_frameResources.primarySurfaceHistoryView.forward.y;
+            primarySurfaceConstants.prevCameraForwardAndTanX[2] = m_frameResources.primarySurfaceHistoryView.forward.z;
+            primarySurfaceConstants.prevCameraForwardAndTanX[3] = m_frameResources.primarySurfaceHistoryView.tanX;
+            primarySurfaceConstants.prevCameraLeftAndTanY[0] = m_frameResources.primarySurfaceHistoryView.left.x;
+            primarySurfaceConstants.prevCameraLeftAndTanY[1] = m_frameResources.primarySurfaceHistoryView.left.y;
+            primarySurfaceConstants.prevCameraLeftAndTanY[2] = m_frameResources.primarySurfaceHistoryView.left.z;
+            primarySurfaceConstants.prevCameraLeftAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
+            primarySurfaceConstants.prevCameraUpAndTanY[0] = m_frameResources.primarySurfaceHistoryView.up.x;
+            primarySurfaceConstants.prevCameraUpAndTanY[1] = m_frameResources.primarySurfaceHistoryView.up.y;
+            primarySurfaceConstants.prevCameraUpAndTanY[2] = m_frameResources.primarySurfaceHistoryView.up.z;
+            primarySurfaceConstants.prevCameraUpAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
             primarySurfaceConstants.textureInfo[0] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
             primarySurfaceConstants.textureInfo[1] = r_pathTracingTextureSampleEnable.GetInteger() != 0
                 ? static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()))
@@ -893,7 +937,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.geometryInfo4[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticMaterialIndexCount));
             primarySurfaceConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
             primarySurfaceConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
-            primarySurfaceConstants.motionVectorInfo[0] = r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
+            primarySurfaceConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
 
@@ -960,7 +1004,32 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
         }
 
-        const uint64 cleanReservoirCount64 = static_cast<uint64>(Max(1, m_frameResources.width)) * static_cast<uint64>(Max(1, m_frameResources.height));
+        const bool cleanRtxdiDiNeedsPrimarySurface = cleanRtxdiDiView >= 2;
+        const bool cleanRtxdiDiNeedsCurrentAnalytic = cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8;
+        const bool cleanRtxdiDiNeedsAnalyticTemporalInputs = cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 ||
+            (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
+        const bool cleanRtxdiDiBindingInputsValid =
+            (!cleanRtxdiDiNeedsPrimarySurface ||
+                (m_frameResources.primarySurfaceHistoryBuffers.current && m_frameResources.primarySurfaceHistoryBuffers.previous &&
+                    m_frameResources.motionVectorTexture && m_frameResources.motionVectorMaskTexture)) &&
+            (!cleanRtxdiDiNeedsCurrentAnalytic ||
+                (m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticCurrentIdentityBuffer)) &&
+            (!cleanRtxdiDiNeedsAnalyticTemporalInputs ||
+                (m_smokeDoomAnalyticPreviousLightBuffer && m_smokeDoomAnalyticPreviousIdentityBuffer && m_smokeDoomAnalyticRemapBuffer));
+        if (!cleanRtxdiDiBindingInputsValid)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", cleanRtxdiDiNeedsAnalyticTemporalInputs ? "clean-temporal-input" : (cleanRtxdiDiNeedsCurrentAnalytic ? "clean-analytic-input" : "clean-primary-input"), 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+
+        const uint64 cleanReservoirBlockSize = 16;
+        const uint64 cleanReservoirBlocksX = (static_cast<uint64>(Max(1, m_frameResources.width)) + cleanReservoirBlockSize - 1ull) / cleanReservoirBlockSize;
+        const uint64 cleanReservoirBlocksY = (static_cast<uint64>(Max(1, m_frameResources.height)) + cleanReservoirBlockSize - 1ull) / cleanReservoirBlockSize;
+        const uint64 cleanReservoirCount64 = cleanReservoirBlocksX * cleanReservoirBlocksY * cleanReservoirBlockSize * cleanReservoirBlockSize;
         if (cleanReservoirCount64 > 0xffffffffull)
         {
             if (cleanRtxdiDiDumpRequested)
@@ -972,29 +1041,38 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         const uint32_t cleanReservoirCount = static_cast<uint32_t>(cleanReservoirCount64);
         const uint64_t cleanReservoirBytes = cleanReservoirCount64 * static_cast<uint64_t>(sizeof(RTXDI_PackedDIReservoir));
-        const bool cleanReservoirValid =
-            m_smokeCleanRtxdiDiCurrentReservoirBuffer &&
-            m_smokeCleanRtxdiDiCurrentReservoirBuffer->getDesc().structStride == sizeof(RTXDI_PackedDIReservoir) &&
-            m_smokeCleanRtxdiDiCurrentReservoirBuffer->getDesc().byteSize >= cleanReservoirBytes;
-        if (!cleanReservoirValid)
+        auto ensureCleanReservoir = [&](nvrhi::BufferHandle& buffer, uint32_t& count, uint64_t& bytes, const char* debugName) -> bool
         {
+            const bool valid =
+                buffer &&
+                buffer->getDesc().structStride == sizeof(RTXDI_PackedDIReservoir) &&
+                buffer->getDesc().byteSize >= cleanReservoirBytes;
+            if (valid)
+            {
+                return true;
+            }
+
             nvrhi::BufferDesc cleanReservoirDesc;
-            cleanReservoirDesc.debugName = "PathTraceCleanRtxdiDiCurrentReservoirs";
+            cleanReservoirDesc.debugName = debugName;
             cleanReservoirDesc.byteSize = cleanReservoirBytes;
             cleanReservoirDesc.structStride = sizeof(RTXDI_PackedDIReservoir);
             cleanReservoirDesc.canHaveUAVs = true;
             cleanReservoirDesc.canHaveTypedViews = false;
             cleanReservoirDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
             cleanReservoirDesc.keepInitialState = true;
-            m_smokeCleanRtxdiDiCurrentReservoirBuffer = device->createBuffer(cleanReservoirDesc);
-            m_smokeCleanRtxdiDiCurrentReservoirCount = m_smokeCleanRtxdiDiCurrentReservoirBuffer ? cleanReservoirCount : 0u;
-            m_smokeCleanRtxdiDiCurrentReservoirBytes = m_smokeCleanRtxdiDiCurrentReservoirBuffer ? cleanReservoirBytes : 0ull;
-        }
-        if (!m_smokeCleanRtxdiDiCurrentReservoirBuffer)
+            buffer = device->createBuffer(cleanReservoirDesc);
+            count = buffer ? cleanReservoirCount : 0u;
+            bytes = buffer ? cleanReservoirBytes : 0ull;
+            m_smokeCleanRtxdiDiPreviousReservoirValid = false;
+            return buffer != nullptr;
+        };
+        if (!ensureCleanReservoir(m_smokeCleanRtxdiDiCurrentReservoirBuffer, m_smokeCleanRtxdiDiCurrentReservoirCount, m_smokeCleanRtxdiDiCurrentReservoirBytes, "PathTraceCleanRtxdiDiCurrentReservoirs") ||
+            !ensureCleanReservoir(m_smokeCleanRtxdiDiTemporalReservoirBuffer, m_smokeCleanRtxdiDiTemporalReservoirCount, m_smokeCleanRtxdiDiTemporalReservoirBytes, "PathTraceCleanRtxdiDiTemporalReservoirs") ||
+            !ensureCleanReservoir(m_smokeCleanRtxdiDiPreviousReservoirBuffer, m_smokeCleanRtxdiDiPreviousReservoirCount, m_smokeCleanRtxdiDiPreviousReservoirBytes, "PathTraceCleanRtxdiDiPreviousReservoirs"))
         {
             if (cleanRtxdiDiDumpRequested)
             {
-                printCleanRtxdiDiDump("dispatch-entry", "clean-current-reservoir", 0);
+                printCleanRtxdiDiDump("dispatch-entry", "clean-reservoir-pages", 0);
                 r_pathTracingCleanRtxdiDiDump.SetInteger(0);
             }
             return;
@@ -1006,8 +1084,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeCleanRtxdiDiSentinelConstantsBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, m_frameResources.primarySurfaceHistoryBuffers.previous));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, m_smokeDoomAnalyticCurrentIdentityBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, m_smokeDoomAnalyticPreviousIdentityBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(44, m_smokeDoomAnalyticRemapBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
         if (!cleanBindingSet)
         {
@@ -1026,8 +1112,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
         const uint32_t cleanAnalyticLightCount = cleanRtxdiDiLightMode == 1
@@ -1036,20 +1130,55 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanAnalyticIdentityCount = cleanRtxdiDiLightMode == 1
             ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticCurrentIdentityCount))
             : 0u;
-        const PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {
-            static_cast<uint32_t>(cleanRtxdiDiView),
-            cleanRtxdiDiView == 1 ? 1u : 2u,
-            static_cast<uint32_t>(Max(0, m_frameResources.width)),
-            static_cast<uint32_t>(Max(0, m_frameResources.height)),
-            cleanAnalyticLightCount,
-            cleanAnalyticIdentityCount,
-            static_cast<uint32_t>(cleanRtxdiDiLightMode),
-            m_smokeCleanRtxdiDiFrameIndex++,
-            cleanReservoirCount,
-            1u,
-            0u,
-            0u
-        };
+        const uint32_t cleanPreviousAnalyticLightCount = cleanRtxdiDiLightMode == 1
+            ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount))
+            : 0u;
+        const uint32_t cleanPreviousAnalyticIdentityCount = cleanRtxdiDiLightMode == 1
+            ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousIdentityCount))
+            : 0u;
+        const uint32_t cleanAnalyticRemapCount = cleanRtxdiDiLightMode == 1
+            ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticRemapCount))
+            : 0u;
+        uint32_t cleanTemporalFlags = 0u;
+        if (r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0)
+        {
+            cleanTemporalFlags |= 1u;
+        }
+        if (m_smokeCleanRtxdiDiPreviousReservoirValid)
+        {
+            cleanTemporalFlags |= 2u;
+        }
+        PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {};
+        cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
+        cleanConstants.status = cleanRtxdiDiView == 1 ? 1u : 2u;
+        cleanConstants.width = static_cast<uint32_t>(Max(0, m_frameResources.width));
+        cleanConstants.height = static_cast<uint32_t>(Max(0, m_frameResources.height));
+        cleanConstants.analyticLightCount = cleanAnalyticLightCount;
+        cleanConstants.analyticIdentityCount = cleanAnalyticIdentityCount;
+        cleanConstants.lightMode = static_cast<uint32_t>(cleanRtxdiDiLightMode);
+        cleanConstants.frameIndex = m_smokeCleanRtxdiDiFrameIndex++;
+        cleanConstants.reservoirCount = cleanReservoirCount;
+        cleanConstants.candidateCount = 1u;
+        cleanConstants.previousAnalyticLightCount = cleanPreviousAnalyticLightCount;
+        cleanConstants.previousAnalyticIdentityCount = cleanPreviousAnalyticIdentityCount;
+        cleanConstants.analyticRemapCount = cleanAnalyticRemapCount;
+        cleanConstants.temporalFlags = cleanTemporalFlags;
+        cleanConstants.prevCameraOriginAndValid[0] = m_frameResources.primarySurfaceHistoryView.origin.x;
+        cleanConstants.prevCameraOriginAndValid[1] = m_frameResources.primarySurfaceHistoryView.origin.y;
+        cleanConstants.prevCameraOriginAndValid[2] = m_frameResources.primarySurfaceHistoryView.origin.z;
+        cleanConstants.prevCameraOriginAndValid[3] = m_frameResources.primarySurfaceHistoryView.valid ? 1.0f : 0.0f;
+        cleanConstants.prevCameraForwardAndTanX[0] = m_frameResources.primarySurfaceHistoryView.forward.x;
+        cleanConstants.prevCameraForwardAndTanX[1] = m_frameResources.primarySurfaceHistoryView.forward.y;
+        cleanConstants.prevCameraForwardAndTanX[2] = m_frameResources.primarySurfaceHistoryView.forward.z;
+        cleanConstants.prevCameraForwardAndTanX[3] = m_frameResources.primarySurfaceHistoryView.tanX;
+        cleanConstants.prevCameraLeftAndTanY[0] = m_frameResources.primarySurfaceHistoryView.left.x;
+        cleanConstants.prevCameraLeftAndTanY[1] = m_frameResources.primarySurfaceHistoryView.left.y;
+        cleanConstants.prevCameraLeftAndTanY[2] = m_frameResources.primarySurfaceHistoryView.left.z;
+        cleanConstants.prevCameraLeftAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
+        cleanConstants.prevCameraUpAndTanY[0] = m_frameResources.primarySurfaceHistoryView.up.x;
+        cleanConstants.prevCameraUpAndTanY[1] = m_frameResources.primarySurfaceHistoryView.up.y;
+        cleanConstants.prevCameraUpAndTanY[2] = m_frameResources.primarySurfaceHistoryView.up.z;
+        cleanConstants.prevCameraUpAndTanY[3] = m_frameResources.primarySurfaceHistoryView.tanY;
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
         commandList->setRayTracingState(cleanState);
 
@@ -1065,7 +1194,57 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanArgs.depth = 1;
         commandList->dispatchRays(cleanArgs);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
+        nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+        const bool cleanRtxdiDiTemporalProofView = cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 ||
+            (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
+        if (cleanRtxdiDiView >= 4 && !cleanRtxdiDiTemporalProofView)
+        {
+            commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_smokeCleanRtxdiDiPreviousReservoirBuffer,
+                0,
+                m_smokeCleanRtxdiDiTemporalReservoirBuffer,
+                0,
+                cleanReservoirBytes);
+            m_smokeCleanRtxdiDiPreviousReservoirValid = true;
+        }
+        if (cleanRtxdiDiView >= 2)
+        {
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_frameResources.primarySurfaceHistoryBuffers.previous,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.current,
+                0,
+                m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes);
+
+            idVec3 cleanHistoryForward = viewDef->renderView.viewaxis[0];
+            idVec3 cleanHistoryLeft = viewDef->renderView.viewaxis[1];
+            idVec3 cleanHistoryUp = viewDef->renderView.viewaxis[2];
+            cleanHistoryForward.Normalize();
+            cleanHistoryLeft.Normalize();
+            cleanHistoryUp.Normalize();
+
+            RtPathTraceFrameCameraState currentHistoryView;
+            currentHistoryView.valid = true;
+            currentHistoryView.width = m_frameResources.width;
+            currentHistoryView.height = m_frameResources.height;
+            currentHistoryView.origin = viewDef->renderView.vieworg;
+            currentHistoryView.forward = cleanHistoryForward;
+            currentHistoryView.left = cleanHistoryLeft;
+            currentHistoryView.up = cleanHistoryUp;
+            currentHistoryView.tanX = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
+            currentHistoryView.tanY = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+            const bool objectMotionAvailable =
+                (m_sceneInputs.geometry.skinnedPreviousPositionBufferAvailable && m_sceneInputs.geometry.skinnedSurfaceDispatchCount > 0) ||
+                (m_sceneInputs.geometry.previousTransformAvailable && m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
+            m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
+        }
         if (!m_smokeTestDispatched)
         {
             common->Printf("PathTracePrimaryPass: dispatched clean-room RTXDI DI sentinel raygen (%dx%d, view=%d)\n", m_frameResources.width, m_frameResources.height, cleanRtxdiDiView);
