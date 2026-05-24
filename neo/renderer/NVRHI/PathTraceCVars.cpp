@@ -775,7 +775,7 @@ idCVar r_pathTracingReservoirTwoSidedEmissives(
     "r_pathTracingReservoirTwoSidedEmissives",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Treat mode 20 reservoir emissive triangle samples as two-sided for diagnostics" );
+    "Treat mode 20 and PDFNEE lightmode 7 emissive triangle samples as two-sided for diagnostics" );
 
 idCVar r_pathTracingReservoirCandidateTrials(
     "r_pathTracingReservoirCandidateTrials",
