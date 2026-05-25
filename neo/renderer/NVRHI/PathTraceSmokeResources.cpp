@@ -1213,6 +1213,25 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BindingLayoutDesc regirDebugBindingLayoutDesc;
+    regirDebugBindingLayoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+    regirDebugBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(72));
+    m_smokeReGIRDebugBindingLayout = device->createBindingLayout(regirDebugBindingLayoutDesc);
+    if (!m_smokeReGIRDebugBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create ReGIR debug binding layout\n");
+        return;
+    }
+
     nvrhi::BindingLayoutDesc skinningBindingLayoutDesc;
     skinningBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     skinningBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
@@ -1492,6 +1511,15 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
             m_smokePdfNeeVerifierBindingLayout);
+    case 17:
+        return initLibrary(
+            m_smokeReGIRDebugShaderLibrary,
+            m_smokeReGIRDebugPipeline,
+            m_smokeReGIRDebugShaderTable,
+            "ReGIR debug",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_regir_debug.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_regir_debug.rt.bin",
+            m_smokeReGIRDebugBindingLayout);
     default:
         return false;
     }
@@ -1826,6 +1854,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
+    m_smokeReGIRState.Clear();
     m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
     m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
     m_smokeCleanRtxdiDiPreviousReservoirCount = 0;

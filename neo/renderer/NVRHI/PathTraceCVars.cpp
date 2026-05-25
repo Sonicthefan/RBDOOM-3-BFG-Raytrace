@@ -441,6 +441,78 @@ idCVar r_pathTracingRestirLightManagerRAB(
     CVAR_RENDERER | CVAR_INTEGER,
     "Opt-in ReSTIR RAB routing through the CPU light-manager current/previous domains; 0 preserves the existing RAB light path" );
 
+idCVar r_pathTracingReGIREnable(
+    "r_pathTracingReGIREnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable the standalone clean-room ReGIR resource shell; does not route PDFNEE, temporal, spatial, RRX, best-light, or mode 56" );
+
+idCVar r_pathTracingReGIRDebugView(
+    "r_pathTracingReGIRDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR debug view selector: 0 disabled, 1 status, 2 cells, 3 validity, 4 occupancy, 5 analytic identity, 6 emissive identity, 7 sourcePdf, 8 empty reason" );
+
+idCVar r_pathTracingReGIRMode(
+    "r_pathTracingReGIRMode",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR layout mode: 0 disabled, 1 grid, 2 onion" );
+
+idCVar r_pathTracingReGIRCellSize(
+    "r_pathTracingReGIRCellSize",
+    "256",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Standalone ReGIR smallest cell size in Doom world units" );
+
+idCVar r_pathTracingReGIRGridX(
+    "r_pathTracingReGIRGridX",
+    "16",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR grid cells along world X for the initial debug shell" );
+
+idCVar r_pathTracingReGIRGridY(
+    "r_pathTracingReGIRGridY",
+    "16",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR grid cells along world Y for the initial debug shell" );
+
+idCVar r_pathTracingReGIRGridZ(
+    "r_pathTracingReGIRGridZ",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR grid cells along world Z for the initial debug shell" );
+
+idCVar r_pathTracingReGIRLightsPerCell(
+    "r_pathTracingReGIRLightsPerCell",
+    "64",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR candidate slots stored per cell" );
+
+idCVar r_pathTracingReGIRBuildSamples(
+    "r_pathTracingReGIRBuildSamples",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR light proposals streamed per cell candidate slot; clamped to 1..64" );
+
+idCVar r_pathTracingReGIRLightDomain(
+    "r_pathTracingReGIRLightDomain",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR light domain: 0 analytic only, 1 emissive only, 2 analytic plus emissive split domains" );
+
+idCVar r_pathTracingReGIRCenterMode(
+    "r_pathTracingReGIRCenterMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Standalone ReGIR center mode: 0 camera-centered, 1 map/static bounds centered, 2 manager-provided manual center" );
+
+idCVar r_pathTracingReGIRDump(
+    "r_pathTracingReGIRDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump standalone ReGIR mode, cells, domain counts, resource size, dispatch slots, and first missing contract once" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",
