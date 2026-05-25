@@ -901,14 +901,13 @@ cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
     own initial reservoir.
 
     `r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1` switches the sentinel to
-    consume an existing PDFNEE-produced current page at u69 instead of
-    overwriting it. That consume path is intentionally limited to the analytic
-    clean-domain reservoir indices written by PDFNEE lightModes 4-6. It is a
-    two-step same-camera diagnostic until dispatch has an explicit same-frame
-    PDFNEE producer plus clean consumer orchestration. If current-only consume
-    works but temporal accumulation fails to track, debug the clean page
-    rotation, previous-valid state, primary-surface history, motion vectors, and
-    analytic identity remap rather than changing the PDFNEE estimator.
+    run a same-frame PDFNEE producer prepass, barrier u69, and consume the
+    freshly produced current page instead of overwriting it. That consume path
+    is intentionally limited to the analytic clean-domain reservoir indices
+    written by PDFNEE lightModes 4-6. If current-only consume works but temporal
+    accumulation fails to track, debug the clean page rotation, previous-valid
+    state, primary-surface history, motion vectors, and analytic identity remap
+    rather than changing the PDFNEE estimator.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE

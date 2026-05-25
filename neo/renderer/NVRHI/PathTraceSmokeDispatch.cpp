@@ -903,6 +903,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     if (cleanRtxdiDiRouteRequested)
     {
+        const bool cleanExternalPdfNeeCurrent = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
         if (!m_smokeCleanRtxdiDiSentinelShaderTable)
         {
             InitRayTracingSmokeRestirPipeline(15);
@@ -912,6 +913,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             if (cleanRtxdiDiDumpRequested)
             {
                 printCleanRtxdiDiDump("dispatch-entry", "clean-shader", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
+        if (cleanExternalPdfNeeCurrent && !m_smokePdfNeeVerifierShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(16);
+        }
+        if (cleanExternalPdfNeeCurrent && !m_smokePdfNeeVerifierShaderTable)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "pdfnee-producer-shader", 0);
                 r_pathTracingCleanRtxdiDiDump.SetInteger(0);
             }
             return;
@@ -1189,6 +1203,284 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 r_pathTracingCleanRtxdiDiDump.SetInteger(0);
             }
             return;
+        }
+
+        if (cleanExternalPdfNeeCurrent)
+        {
+            const nvrhi::TextureHandle pdfNeeFallbackTexture = !m_smokeActiveTextureTable.empty() ? m_smokeActiveTextureTable[0] : nullptr;
+            if (!pdfNeeFallbackTexture)
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "pdfnee-producer-fallback-texture", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+
+            nvrhi::BindingSetDesc pdfNeePrepassBindingSetDesc;
+            pdfNeePrepassBindingSetDesc.bindings = {
+                nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
+                nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture),
+                nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_smokeStaticVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_smokeStaticIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(5, m_smokeStaticTriangleClassBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_smokeDynamicVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(7, m_smokeDynamicIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(8, m_smokeDynamicTriangleClassBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(9, m_smokeStaticTriangleMaterialBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(10, m_smokeDynamicTriangleMaterialBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(11, m_smokeStaticTriangleMaterialIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(12, m_smokeDynamicTriangleMaterialIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(13, m_smokeMaterialTableBuffer),
+                nvrhi::BindingSetItem::Texture_SRV(14, pdfNeeFallbackTexture),
+                nvrhi::BindingSetItem::Texture_UAV(15, m_frameResources.accumulationTexture),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(16, m_smokeEmissiveTriangleBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(57, m_smokePreviousEmissiveTriangleBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(58, m_smokeEmissiveRemapBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(46, m_smokeEmissiveDistributionBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(17, m_smokeLightCandidateBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(18, m_frameResources.smokeReservoirBuffers.current),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(19, m_frameResources.smokeReservoirBuffers.previous),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(20, m_frameResources.smokeReservoirBuffers.spatialScratch),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(21, m_smokeBoundsOverlayLineBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(22, m_smokeRigidRouteVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(23, m_smokeRigidRouteIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(24, m_smokeRigidRouteTriangleMaterialBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer),
+                nvrhi::BindingSetItem::ConstantBuffer(28, m_restirPTConstantsBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(29, m_frameResources.restirPTReservoirBuffers.reservoirs),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(30, m_frameResources.primarySurfaceHistoryBuffers.current),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(31, m_frameResources.primarySurfaceHistoryBuffers.previous),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(32, m_smokeSkinnedPreviousPositionBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(33, m_smokeSkinnedSurfaceDispatchBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(34, m_smokePreviousStaticVertexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(35, m_smokePreviousStaticIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(36, m_smokePreviousStaticTriangleClassBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(37, m_smokePreviousStaticTriangleMaterialBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(38, m_smokePreviousStaticTriangleMaterialIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(42, m_smokeDoomAnalyticCurrentIdentityBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(43, m_smokeDoomAnalyticPreviousIdentityBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(44, m_smokeDoomAnalyticRemapBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(59, m_smokeUnifiedLightBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(60, m_smokeUnifiedPreviousLightBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(61, m_smokeUnifiedLightRemapBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(62, m_smokeRestirLightManagerCurrentBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(63, m_smokeRestirLightManagerPreviousBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(64, m_smokeRestirLightManagerCurrentToPreviousBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(66, m_smokeRestirLightManagerCurrentPayloadBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(67, m_smokeRestirLightManagerPreviousPayloadBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(41, m_smokeSkinnedTriangleDispatchIndexBuffer),
+                nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture),
+                nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture),
+                nvrhi::BindingSetItem::Texture_UAV(47, m_frameResources.restirPTReflectionTexture),
+                nvrhi::BindingSetItem::Texture_UAV(48, m_frameResources.rrGuideAlbedoTexture),
+                nvrhi::BindingSetItem::Texture_UAV(49, m_frameResources.rrGuideNormalRoughnessTexture),
+                nvrhi::BindingSetItem::Texture_UAV(50, m_frameResources.rrGuideDepthTexture),
+                nvrhi::BindingSetItem::Texture_UAV(51, m_frameResources.rrGuideHitDistanceTexture),
+                nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture),
+                nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture),
+                nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(55, m_frameResources.restirPTGiReservoirBuffers.reservoirs),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(56, m_frameResources.restirPTDiReservoirBuffers.reservoirs),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(68, m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs ? m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs : m_frameResources.restirPTDiReservoirBuffers.reservoirs),
+                nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer)
+            };
+            nvrhi::BindingSetHandle pdfNeePrepassBindingSet = device->createBindingSet(pdfNeePrepassBindingSetDesc, m_smokePdfNeeVerifierBindingLayout);
+            if (!pdfNeePrepassBindingSet)
+            {
+                if (cleanRtxdiDiDumpRequested)
+                {
+                    printCleanRtxdiDiDump("dispatch-entry", "pdfnee-producer-binding-set", 0);
+                    r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+                }
+                return;
+            }
+
+            idVec3 pdfNeeCameraOrigin = viewDef->renderView.vieworg;
+            idVec3 pdfNeeCameraForward = viewDef->renderView.viewaxis[0];
+            idVec3 pdfNeeCameraLeft = viewDef->renderView.viewaxis[1];
+            idVec3 pdfNeeCameraUp = viewDef->renderView.viewaxis[2];
+            pdfNeeCameraForward.Normalize();
+            pdfNeeCameraLeft.Normalize();
+            pdfNeeCameraUp.Normalize();
+
+            const uint32_t pdfNeeSafetyDisableMask = BuildPathTraceSafetyDisableMask();
+            const bool pdfNeeDisableEmissiveTriangleSampling = PathTraceSafetyDisabled(pdfNeeSafetyDisableMask, RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING);
+            const bool pdfNeeDisableAnalyticLightLoop = PathTraceSafetyDisabled(pdfNeeSafetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
+            const int requestedPdfNeeLightMode = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
+            const int pdfNeeProducerLightMode = requestedPdfNeeLightMode >= 4 && requestedPdfNeeLightMode <= 6 ? requestedPdfNeeLightMode : 6;
+
+            PathTraceSmokeConstants pdfNeeProducerConstants = {};
+            pdfNeeProducerConstants.cameraOriginAndTMax[0] = pdfNeeCameraOrigin.x;
+            pdfNeeProducerConstants.cameraOriginAndTMax[1] = pdfNeeCameraOrigin.y;
+            pdfNeeProducerConstants.cameraOriginAndTMax[2] = pdfNeeCameraOrigin.z;
+            pdfNeeProducerConstants.cameraOriginAndTMax[3] = 100000.0f;
+            pdfNeeProducerConstants.cameraForwardAndTanX[0] = pdfNeeCameraForward.x;
+            pdfNeeProducerConstants.cameraForwardAndTanX[1] = pdfNeeCameraForward.y;
+            pdfNeeProducerConstants.cameraForwardAndTanX[2] = pdfNeeCameraForward.z;
+            pdfNeeProducerConstants.cameraForwardAndTanX[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_x * 0.5f));
+            pdfNeeProducerConstants.cameraLeftAndTanY[0] = pdfNeeCameraLeft.x;
+            pdfNeeProducerConstants.cameraLeftAndTanY[1] = pdfNeeCameraLeft.y;
+            pdfNeeProducerConstants.cameraLeftAndTanY[2] = pdfNeeCameraLeft.z;
+            pdfNeeProducerConstants.cameraLeftAndTanY[3] = idMath::Tan(DEG2RAD(viewDef->renderView.fov_y * 0.5f));
+            pdfNeeProducerConstants.cameraUpAndDebugMode[0] = pdfNeeCameraUp.x;
+            pdfNeeProducerConstants.cameraUpAndDebugMode[1] = pdfNeeCameraUp.y;
+            pdfNeeProducerConstants.cameraUpAndDebugMode[2] = pdfNeeCameraUp.z;
+            pdfNeeProducerConstants.cameraUpAndDebugMode[3] = 0.0f;
+            pdfNeeProducerConstants.textureInfo[0] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
+            pdfNeeProducerConstants.textureInfo[1] = r_pathTracingTextureSampleEnable.GetInteger() != 0
+                ? static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger()))
+                : 0.0f;
+            pdfNeeProducerConstants.textureInfo[2] = static_cast<float>(Max(0, m_smokeMaterialTableEntryCount));
+            const uint32_t pdfNeeTextureFlags =
+                (r_pathTracingTextureBindlessEnable.GetInteger() != 0 ? 1u : 0u) |
+                (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
+                (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
+                (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
+                (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
+                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 ? 32u : 0u) |
+                (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 ? 64u : 0u);
+            pdfNeeProducerConstants.textureInfo[3] = static_cast<float>(pdfNeeTextureFlags);
+            pdfNeeProducerConstants.emissiveInfo[0] = static_cast<float>(pdfNeeDisableEmissiveTriangleSampling ? 0 : m_smokeEmissiveTriangleCount);
+            pdfNeeProducerConstants.emissiveInfo[1] = static_cast<float>(pdfNeeDisableEmissiveTriangleSampling ? 0 : m_smokeEmissiveStaticTriangleCount);
+            pdfNeeProducerConstants.emissiveInfo[2] = static_cast<float>(idMath::ClampInt(1, 16, r_pathTracingReservoirCandidateTrials.GetInteger()));
+            pdfNeeProducerConstants.emissiveInfo[3] = static_cast<float>(pdfNeeDisableEmissiveTriangleSampling ? 0 : m_smokeLightCandidateCount);
+            const int pdfNeeEmissiveDistributionCount = !pdfNeeDisableEmissiveTriangleSampling && r_pathTracingEmissiveDistribution.GetInteger() != 0 && m_sceneInputs.lights.emissiveDistributionValid
+                ? m_sceneInputs.lights.emissiveDistributionCount
+                : 0;
+            pdfNeeProducerConstants.emissiveDistributionInfo[0] = static_cast<float>(Max(0, pdfNeeEmissiveDistributionCount));
+            pdfNeeProducerConstants.emissiveDistributionInfo[1] = pdfNeeEmissiveDistributionCount > 0 ? 1.0f : 0.0f;
+            pdfNeeProducerConstants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
+            pdfNeeProducerConstants.doomAnalyticLightInfo[0] = static_cast<float>(pdfNeeDisableAnalyticLightLoop ? 0 : m_smokeDoomAnalyticLightCount);
+            pdfNeeProducerConstants.doomAnalyticLightInfo[1] = static_cast<float>(idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger()));
+            pdfNeeProducerConstants.doomAnalyticLightInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat());
+            pdfNeeProducerConstants.doomAnalyticLightInfo[3] =
+                (!pdfNeeDisableAnalyticLightLoop && m_smokeDoomAnalyticLightCount > 0 ? 1.0f : 0.0f) +
+                (r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 4.0f : 0.0f);
+            pdfNeeProducerConstants.doomAnalyticLightRemapInfo[0] = static_cast<float>(m_smokeDoomAnalyticCurrentIdentityCount);
+            pdfNeeProducerConstants.doomAnalyticLightRemapInfo[1] = static_cast<float>(m_smokeDoomAnalyticPreviousIdentityCount);
+            pdfNeeProducerConstants.doomAnalyticLightRemapInfo[2] = static_cast<float>(m_smokeDoomAnalyticRemapCount);
+            pdfNeeProducerConstants.doomAnalyticLightRemapInfo[3] = static_cast<float>(m_smokePreviousEmissiveTriangleCount);
+            pdfNeeProducerConstants.restirPTInfo[0] = static_cast<float>(m_smokeCleanRtxdiDiFrameIndex);
+            pdfNeeProducerConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
+            pdfNeeProducerConstants.unifiedLightInfo[0] = static_cast<float>(Max(0, m_smokeUnifiedLightCount));
+            pdfNeeProducerConstants.unifiedLightInfo[1] = static_cast<float>(Max(0, m_smokeUnifiedPreviousLightCount));
+            pdfNeeProducerConstants.unifiedLightInfo[3] = static_cast<float>(Max(0, m_smokeUnifiedLightRemapCount));
+            pdfNeeProducerConstants.restirPdfNeeVerifierInfo[0] = 1.0f;
+            pdfNeeProducerConstants.restirPdfNeeVerifierInfo[1] = 2.0f;
+            pdfNeeProducerConstants.restirPdfNeeVerifierInfo[2] = static_cast<float>(pdfNeeProducerLightMode);
+            pdfNeeProducerConstants.restirPdfNeeVerifierInfo[3] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierDomain.GetInteger()));
+            pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[0] = static_cast<float>(idMath::ClampInt(1, 32, r_pathTracingRestirPdfNeeVerifierSamples.GetInteger()));
+            pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[1] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger()));
+            pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[2] = 0.0f;
+            pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[3] = 1.0f;
+            pdfNeeProducerConstants.safetyInfo[0] = static_cast<float>(pdfNeeSafetyDisableMask);
+            pdfNeeProducerConstants.safetyInfo[1] = pdfNeeProducerConstants.textureInfo[0];
+            pdfNeeProducerConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
+            pdfNeeProducerConstants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
+            pdfNeeProducerConstants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
+            pdfNeeProducerConstants.geometryInfo0[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicVertexCount));
+            pdfNeeProducerConstants.geometryInfo1[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicIndexCount));
+            pdfNeeProducerConstants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
+            pdfNeeProducerConstants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
+            pdfNeeProducerConstants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
+            pdfNeeProducerConstants.geometryInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
+            pdfNeeProducerConstants.geometryInfo2[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
+            pdfNeeProducerConstants.geometryInfo2[2] = static_cast<float>(m_frameResources.primarySurfaceHistoryBuffers.surfaceCount);
+            pdfNeeProducerConstants.geometryInfo2[3] = static_cast<float>(m_frameResources.smokeReservoirBuffers.reservoirCount);
+            pdfNeeProducerConstants.geometryInfo3[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedPreviousPositionCount));
+            pdfNeeProducerConstants.geometryInfo3[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedSurfaceDispatchCount));
+            pdfNeeProducerConstants.geometryInfo3[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.skinnedTriangleDispatchIndexCount));
+            pdfNeeProducerConstants.geometryInfo4[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticVertexCount));
+            pdfNeeProducerConstants.geometryInfo4[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticIndexCount));
+            pdfNeeProducerConstants.geometryInfo4[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticTriangleCount));
+            pdfNeeProducerConstants.geometryInfo4[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.previousStaticMaterialIndexCount));
+            pdfNeeProducerConstants.dispatchTileInfo[2] = static_cast<float>(Max(0, m_frameResources.width));
+            pdfNeeProducerConstants.dispatchTileInfo[3] = static_cast<float>(Max(0, m_frameResources.height));
+            pdfNeeProducerConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
+
+            commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeEmissiveRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeEmissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.smokeReservoirBuffers.spatialScratch, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.restirPTReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.restirPTDiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.restirPTGiReservoirBuffers.reservoirs, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
+            {
+                if (texture)
+                {
+                    commandList->setTextureState(texture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                }
+            }
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            commandList->writeBuffer(m_smokeConstantsBuffer, &pdfNeeProducerConstants, sizeof(pdfNeeProducerConstants));
+
+            nvrhi::rt::State pdfNeePrepassState;
+            pdfNeePrepassState.shaderTable = m_smokePdfNeeVerifierShaderTable;
+            pdfNeePrepassState.bindings = { pdfNeePrepassBindingSet, m_smokeTextureDescriptorTable };
+            commandList->setRayTracingState(pdfNeePrepassState);
+
+            nvrhi::rt::DispatchRaysArguments pdfNeePrepassArgs;
+            pdfNeePrepassArgs.width = m_frameResources.width;
+            pdfNeePrepassArgs.height = m_frameResources.height;
+            pdfNeePrepassArgs.depth = 1;
+            commandList->dispatchRays(pdfNeePrepassArgs);
+            nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
+            nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
         }
 
         nvrhi::BindingSetDesc cleanBindingSetDesc;

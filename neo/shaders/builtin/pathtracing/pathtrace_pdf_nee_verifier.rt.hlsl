@@ -4554,6 +4554,10 @@ void RayGen()
         !primarySurfaceProducerDispatch &&
         !consumePrimarySurfaceHistory)
     {
+#ifndef RB_PT_RESTIR_SPATIAL_PRODUCER
+        StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
+        StorePathTraceMotionVectorExport(pixel, primaryHistorySurface);
+#endif
         SmokeOutput[pixel] = EvaluatePathTracePdfNeeRealRabRoute(primaryHistorySurface, pixel, dimensions);
         return;
     }

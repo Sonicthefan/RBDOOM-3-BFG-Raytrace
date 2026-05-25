@@ -1523,17 +1523,15 @@ Denoise/upscale/Ray Reconstruction reservation:
 
 - r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent
   Defaults to 0. Clean-room RTXDI DI consume-mode switch. When enabled, the
-  clean sentinel reads the existing `CleanRtxdiDiCurrentReservoirs` page at
-  `u69` instead of rebuilding its own initial reservoir, then replays that
-  selected analytic light through its clean RAB consumer. This is a
-  PDFNEE-09 handoff diagnostic for analytic PDFNEE current pages only. It does
-  not run the PDFNEE producer in the same dispatch, does not enable mode 56,
-  and does not make lightMode 7 emissive reservoirs consumable by the clean
-  accumulator. The current workflow is still a two-step same-camera proof:
-  produce `u69` with the PDFNEE verifier, then switch to the clean route with
-  this CVar enabled. Accumulation failures after a correct current-only clean
-  view should be investigated in clean history/page rotation/reprojection,
-  not treated as current-frame PDFNEE estimator proof.
+  clean route first dispatches a same-frame PDFNEE producer prepass that writes
+  `CleanRtxdiDiCurrentReservoirs` at `u69`, barriers that page, then dispatches
+  the clean sentinel to consume it instead of rebuilding its own initial
+  reservoir. This is a PDFNEE-09 handoff diagnostic for analytic PDFNEE current
+  pages only. It does not enable mode 56, and it does not make lightMode 7
+  emissive reservoirs consumable by the clean accumulator. Accumulation
+  failures after a correct current-only clean view should be investigated in
+  clean history/page rotation/reprojection, not treated as current-frame PDFNEE
+  estimator proof.
 
 - r_pathTracingReservoirDump
   One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized

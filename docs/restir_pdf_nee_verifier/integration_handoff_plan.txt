@@ -186,13 +186,15 @@ PDFNEE-09 external consume note:
 
         r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
 
-    In that mode the clean sentinel reads the existing u69 current reservoir
-    page instead of rebuilding its own initial reservoir. The first consume
-    slice is intentionally limited to PDFNEE lightMode 6 analytic reservoirs.
-    PDFNEE still uses split-domain indices internally for verified RAB replay,
-    but the u69 handoff page is written in the clean sentinel's zero-based Doom
-    analytic light domain so the accumulator consumes a stable clean-domain
-    identity instead of a frame-local emissive-offset identity.
+    In that mode the clean route first dispatches a same-frame PDFNEE
+    producer-only prepass that writes u69, barriers that page, and then
+    dispatches the clean sentinel to consume it instead of rebuilding its own
+    initial reservoir. The first consume slice is intentionally limited to
+    PDFNEE lightMode 6 analytic reservoirs. PDFNEE still uses split-domain
+    indices internally for verified RAB replay, but the u69 handoff page is
+    written in the clean sentinel's zero-based Doom analytic light domain so
+    the accumulator consumes a stable clean-domain identity instead of a
+    frame-local emissive-offset identity.
 
     This is current-frame static analytic consume proof only. It does not claim
     mode 56 parity, does not enable mode 56 dispatch, does not enable spatial
@@ -325,21 +327,20 @@ Producer prerequisite dump for emissives:
 Integration temporal-off proof:
 
     first consume slice:
-        produce u69 with PDFNEE lightMode 6/view 2 at the same camera
-        then enable r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
+        enable r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
         with the clean route
+        clean dispatch runs the PDFNEE producer-only prepass before consuming u69
 
     clean temporal disabled
-    same camera
     same analytic split-domain light mode/domain
     output mean matches the standalone PDFNEE current-frame view
 
 Integration temporal-on proof:
 
     first consume slice:
-        produce u69 with PDFNEE lightMode 6/view 2 at the same camera
-        then enable r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
+        enable r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
         with the clean route
+        clean dispatch runs the PDFNEE producer-only prepass before consuming u69
 
     clean temporal enabled
     first frame falls back to current-frame
