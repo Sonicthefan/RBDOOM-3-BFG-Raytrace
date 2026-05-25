@@ -1,0 +1,279 @@
+Standalone ReGIR Worker Tasks
+=============================
+
+Run tasks in order. Do not skip ahead.
+
+
+REGIR-00: Read-Only Contract Audit
+----------------------------------
+
+Goal:
+
+    Audit the rbdoom light producers, resource/binding code, and shader bridge
+    points needed for a standalone ReGIR module.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRParameters.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Source/ReGIR.cpp
+    E:/prog/references/RTXDI-main/Samples/FullSample/Source/RenderPasses/LightingPasses/LightingPasses.cpp
+
+Allowed write set:
+
+    docs/restir_regir_cleanroom only
+
+Forbidden:
+
+    no code changes
+    no build
+
+Acceptance:
+
+    report exact CPU producer domain
+    report exact proposed ReGIR write set
+    report exact shader read/write resources
+    report exact CVars
+    report first missing contract
+
+
+REGIR-01: CPU Parameter And Resource Shell
+------------------------------------------
+
+Goal:
+
+    Add a standalone ReGIR CPU/resource shell with no candidate lighting yet.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Source/ReGIR.cpp
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    docs/restir_regir_cleanroom
+
+Required:
+
+    CVars from cvar_contract.txt
+    parameter struct
+    resource size calculation
+    disabled state
+    one-shot dump
+
+Forbidden:
+
+    no shader candidate build
+    no PDFNEE consume
+    no temporal edits
+
+Acceptance:
+
+    build/deploy succeeds
+    dump proves resource sizes and disabled/enabled state
+
+
+REGIR-02: World-Space Cell Debug View
+-------------------------------------
+
+Goal:
+
+    Add a standalone debug shader route that visualizes ReGIR cells from
+    current world position.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+
+Required rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    docs/restir_regir_cleanroom
+
+Required:
+
+    debugView 1 route/status
+    debugView 2 cell id / boundaries
+    debugView 3 valid / out-of-volume
+    no candidate cache reads yet
+
+Acceptance:
+
+    user can visually confirm world-space cells are stable while moving
+
+
+REGIR-03: Analytic Candidate Cache Build
+----------------------------------------
+
+Goal:
+
+    Populate ReGIR cells from current Doom analytic lights and visualize
+    occupancy, selected identity, and source PDF.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/LocalLightSelection.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/RISBuffer.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/Presampling/PresampleReGIR.hlsl
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    docs/restir_regir_cleanroom
+
+Required:
+
+    analytic-only domain
+    candidate buffer write
+    debugView 4 occupancy
+    debugView 5 selected analytic identity
+    debugView 7 sourcePdf / invSourcePdf
+    explicit empty-cell reason
+
+Acceptance:
+
+    analytic-only cells populate and selected identities are stable
+
+
+REGIR-04: Emissive Candidate Cache Build
+----------------------------------------
+
+Goal:
+
+    Populate ReGIR cells from current emissive lights and visualize selected
+    emissive identity.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/LocalLightSelection.hlsli
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    docs/restir_regir_cleanroom
+
+Required:
+
+    emissive-only domain
+    debugView 6 selected emissive identity
+    sourcePdf / invSourcePdf proof
+    empty-cell reason
+
+Acceptance:
+
+    emissive-only cells populate from a cold load without activating PDFNEE,
+    mode 56, view 72, or RRX first
+
+
+REGIR-05: Split-Domain Debug Proof
+----------------------------------
+
+Goal:
+
+    Prove analytic and emissive candidates can coexist without identity or PDF
+    confusion.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/LocalLightSelection.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    docs/restir_regir_cleanroom
+
+Required:
+
+    r_pathTracingReGIRLightDomain 2
+    debug identity labels distinguish analytic vs emissive
+    selected global identity is replayable through RAB
+    sourcePdf / invSourcePdf is stated per domain/source distribution
+
+Acceptance:
+
+    mixed-domain debug views are visually coherent and do not rely on broad
+    light suppression
+
+
+REGIR-06: PDFNEE Handoff Plan Only
+----------------------------------
+
+Goal:
+
+    Document how PDFNEE may consume ReGIR as an optional source distribution
+    after standalone debug views pass.
+
+Allowed write set:
+
+    docs/restir_regir_cleanroom
+    docs/restir_pdf_nee_verifier
+
+Forbidden:
+
+    no implementation
+    no temporal edits
+    no PDFNEE shader edits
+
+Acceptance:
+
+    exact ReGIR producer output
+    exact PDFNEE consumer input
+    exact negative path
+    exact first runtime proof CVars
+    stop before build/deploy

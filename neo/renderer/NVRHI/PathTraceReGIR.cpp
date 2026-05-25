@@ -55,6 +55,20 @@ bool BufferMatches(const nvrhi::BufferHandle& buffer, const PathTraceReGIRResour
         bufferDesc.canHaveUAVs;
 }
 
+bool PlaceholderBufferMatches(const nvrhi::BufferHandle& buffer)
+{
+    if (!buffer)
+    {
+        return false;
+    }
+
+    const nvrhi::BufferDesc& bufferDesc = buffer->getDesc();
+    return
+        bufferDesc.byteSize >= 256 &&
+        bufferDesc.structStride == sizeof(uint32_t) &&
+        !bufferDesc.canHaveUAVs;
+}
+
 }
 
 PathTraceReGIRSettings BuildPathTraceReGIRSettingsFromCVars()
@@ -71,6 +85,9 @@ PathTraceReGIRSettings BuildPathTraceReGIRSettingsFromCVars()
     settings.buildSamples = ClampCVarUInt(r_pathTracingReGIRBuildSamples, 1, 64);
     settings.lightDomain = idMath::ClampInt(0, 2, r_pathTracingReGIRLightDomain.GetInteger());
     settings.centerMode = idMath::ClampInt(0, 2, r_pathTracingReGIRCenterMode.GetInteger());
+    settings.manualCenter[0] = r_pathTracingReGIRManualCenterX.GetFloat();
+    settings.manualCenter[1] = r_pathTracingReGIRManualCenterY.GetFloat();
+    settings.manualCenter[2] = r_pathTracingReGIRManualCenterZ.GetFloat();
     if (!settings.enabled)
     {
         settings.debugView = 0;
@@ -128,11 +145,11 @@ PathTraceReGIRResourceDesc BuildPathTraceReGIRResourceDesc(const PathTraceReGIRS
     desc.candidateBytes = bytes64;
     desc.structuralValid = true;
 
-    if (settings.debugView == 5 && settings.lightDomain != 0)
+    if (settings.debugView == 5 && settings.lightDomain == 1)
     {
         desc.firstMissingContract = "analytic-domain-required-regir-03";
     }
-    else if (settings.debugView == 6 && settings.lightDomain != 1)
+    else if (settings.debugView == 6 && settings.lightDomain == 0)
     {
         desc.firstMissingContract = "emissive-domain-required-regir-04";
     }
@@ -162,7 +179,22 @@ PathTraceReGIRResourceDesc BuildPathTraceReGIRResourceDesc(const PathTraceReGIRS
         }
         else
         {
-            desc.firstMissingContract = "split-domain-debug-not-implemented-regir-05";
+            if (lightCounts.analyticCount == 0 && lightCounts.emissiveCount == 0)
+            {
+                desc.firstMissingContract = "no-current-light-domain";
+            }
+            else if (lightCounts.analyticCount == 0)
+            {
+                desc.firstMissingContract = "split-domain-missing-analytic";
+            }
+            else if (lightCounts.emissiveCount == 0)
+            {
+                desc.firstMissingContract = "split-domain-missing-emissive";
+            }
+            else
+            {
+                desc.firstMissingContract = "none";
+            }
         }
     }
     else if (settings.debugView >= 1 && settings.debugView <= 3)
@@ -226,6 +258,7 @@ const char* PathTraceReGIRCenterModeName(int centerMode)
 void PathTraceReGIRState::Clear()
 {
     candidateCacheBuffer = nullptr;
+    placeholderSrvBuffer = nullptr;
     settings = PathTraceReGIRSettings();
     resourceDesc = PathTraceReGIRResourceDesc();
     allocationSerial = 0;
@@ -239,32 +272,56 @@ bool PathTraceReGIRState::EnsureResources(nvrhi::IDevice* device, const PathTrac
     if (!nextDesc.requested || !nextDesc.structuralValid || nextDesc.candidateBytes == 0)
     {
         candidateCacheBuffer = nullptr;
+        placeholderSrvBuffer = nullptr;
         return true;
     }
 
-    if (BufferMatches(candidateCacheBuffer, nextDesc))
+    if (BufferMatches(candidateCacheBuffer, nextDesc) && PlaceholderBufferMatches(placeholderSrvBuffer))
     {
         return true;
     }
 
-    candidateCacheBuffer = nullptr;
     if (!device)
     {
+        candidateCacheBuffer = nullptr;
+        placeholderSrvBuffer = nullptr;
         return false;
     }
 
-    nvrhi::BufferDesc candidateDesc;
-    candidateDesc.debugName = "PathTraceReGIRCandidateCache";
-    candidateDesc.byteSize = nextDesc.candidateBytes;
-    candidateDesc.structStride = nextDesc.candidateStride;
-    candidateDesc.canHaveUAVs = true;
-    candidateDesc.canHaveTypedViews = false;
-    candidateDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
-    candidateDesc.keepInitialState = true;
-    candidateCacheBuffer = device->createBuffer(candidateDesc);
-    if (candidateCacheBuffer)
+    bool allocated = false;
+    if (!BufferMatches(candidateCacheBuffer, nextDesc))
+    {
+        candidateCacheBuffer = nullptr;
+        nvrhi::BufferDesc candidateDesc;
+        candidateDesc.debugName = "PathTraceReGIRCandidateCache";
+        candidateDesc.byteSize = nextDesc.candidateBytes;
+        candidateDesc.structStride = nextDesc.candidateStride;
+        candidateDesc.canHaveUAVs = true;
+        candidateDesc.canHaveTypedViews = false;
+        candidateDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        candidateDesc.keepInitialState = true;
+        candidateCacheBuffer = device->createBuffer(candidateDesc);
+        allocated = true;
+    }
+
+    if (!PlaceholderBufferMatches(placeholderSrvBuffer))
+    {
+        placeholderSrvBuffer = nullptr;
+        nvrhi::BufferDesc placeholderDesc;
+        placeholderDesc.debugName = "PathTraceReGIRPlaceholderSRV";
+        placeholderDesc.byteSize = 256;
+        placeholderDesc.structStride = sizeof(uint32_t);
+        placeholderDesc.canHaveUAVs = false;
+        placeholderDesc.canHaveTypedViews = false;
+        placeholderDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+        placeholderDesc.keepInitialState = true;
+        placeholderSrvBuffer = device->createBuffer(placeholderDesc);
+        allocated = true;
+    }
+
+    if (allocated && candidateCacheBuffer && placeholderSrvBuffer)
     {
         ++allocationSerial;
     }
-    return candidateCacheBuffer != nullptr;
+    return candidateCacheBuffer != nullptr && placeholderSrvBuffer != nullptr;
 }

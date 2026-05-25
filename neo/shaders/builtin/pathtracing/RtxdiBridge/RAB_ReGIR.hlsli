@@ -9,6 +9,8 @@ struct PathTraceReGIRCellDebug
     uint localCellIndex;
     float3 localUv;
     float boundary;
+    float3 worldCenter;
+    float3 worldExtent;
 };
 
 struct PathTraceReGIRCandidateRecord
@@ -33,6 +35,8 @@ static const uint PATH_TRACE_REGIR_EMPTY_NO_ANALYTIC_LIGHTS = 2u;
 static const uint PATH_TRACE_REGIR_EMPTY_NON_ANALYTIC_DOMAIN = 3u;
 static const uint PATH_TRACE_REGIR_EMPTY_NO_EMISSIVE_LIGHTS = 4u;
 static const uint PATH_TRACE_REGIR_EMPTY_UNSUPPORTED_DOMAIN = 5u;
+static const uint PATH_TRACE_REGIR_EMPTY_NO_LOCAL_ANALYTIC_LIGHTS = 6u;
+static const uint PATH_TRACE_REGIR_EMPTY_NO_LOCAL_EMISSIVE_LIGHTS = 7u;
 
 uint PathTraceReGIRHashCell(int3 coord)
 {
@@ -54,30 +58,121 @@ float3 PathTraceReGIRCellColor(int3 coord)
         0.18 + 0.82 * (((hash >> 16u) & 255u) / 255.0));
 }
 
+float3 PathTraceReGIRResolveGridCenter(
+    float3 cameraOrigin,
+    uint centerMode,
+    float cellSize,
+    float3 explicitCenter)
+{
+    if (centerMode == 0u)
+    {
+        return floor(cameraOrigin / cellSize + 0.5) * cellSize;
+    }
+    return explicitCenter;
+}
+
+uint PathTraceReGIROnionLayer(float distanceInCells)
+{
+    return (uint)floor(log2(max(distanceInCells, 0.0) + 1.0));
+}
+
+uint PathTraceReGIROnionAxisLocalCoord(float relativePosition, uint dimension, float cellSize)
+{
+    const uint centerIndex = max(dimension / 2u, 1u);
+    const uint layer = PathTraceReGIROnionLayer(abs(relativePosition) / cellSize);
+    if (relativePosition < 0.0)
+    {
+        return centerIndex > layer ? centerIndex - 1u - layer : 0xffffffffu;
+    }
+    return centerIndex + layer;
+}
+
+void PathTraceReGIROnionAxisBounds(
+    uint localCoord,
+    uint dimension,
+    float cellSize,
+    out float minOffset,
+    out float maxOffset)
+{
+    const uint centerIndex = max(dimension / 2u, 1u);
+    if (localCoord < centerIndex)
+    {
+        const uint layer = centerIndex - 1u - localCoord;
+        const float inner = exp2((float)layer) - 1.0;
+        const float outer = exp2((float)(layer + 1u)) - 1.0;
+        minOffset = -outer * cellSize;
+        maxOffset = -inner * cellSize;
+        return;
+    }
+
+    const uint layer = localCoord - centerIndex;
+    const float inner = exp2((float)layer) - 1.0;
+    const float outer = exp2((float)(layer + 1u)) - 1.0;
+    minOffset = inner * cellSize;
+    maxOffset = outer * cellSize;
+}
+
 PathTraceReGIRCellDebug PathTraceReGIRMapWorldPositionToCell(
     float3 worldPosition,
     float3 cameraOrigin,
     uint centerMode,
+    uint mode,
     float cellSize,
-    uint3 gridDimensions)
+    uint3 gridDimensions,
+    float3 explicitCenter)
 {
     PathTraceReGIRCellDebug cell = (PathTraceReGIRCellDebug)0;
     cellSize = max(cellSize, 1.0);
     gridDimensions = max(gridDimensions, uint3(1u, 1u, 1u));
 
-    const float3 globalCell = floor(worldPosition / cellSize);
-    cell.globalCoord = int3(globalCell);
-    cell.localUv = frac(worldPosition / cellSize);
-    const float3 edgeDistance = min(cell.localUv, 1.0 - cell.localUv);
-    cell.boundary = min(edgeDistance.x, min(edgeDistance.y, edgeDistance.z));
+    const float3 gridCenter = PathTraceReGIRResolveGridCenter(cameraOrigin, centerMode, cellSize, explicitCenter);
+    if (mode == 2u)
+    {
+        const float3 relativePosition = worldPosition - gridCenter;
+        const uint3 onionCoord = uint3(
+            PathTraceReGIROnionAxisLocalCoord(relativePosition.x, gridDimensions.x, cellSize),
+            PathTraceReGIROnionAxisLocalCoord(relativePosition.y, gridDimensions.y, cellSize),
+            PathTraceReGIROnionAxisLocalCoord(relativePosition.z, gridDimensions.z, cellSize));
+        cell.localCoord = int3(onionCoord);
 
-    const float3 cameraSnappedCenter = floor(cameraOrigin / cellSize + 0.5) * cellSize;
-    const float3 fixedOriginCenter = float3(0.0, 0.0, 0.0);
-    const float3 gridCenter = centerMode == 0u ? cameraSnappedCenter : fixedOriginCenter;
+        const bool inOnionVolume =
+            onionCoord.x < gridDimensions.x &&
+            onionCoord.y < gridDimensions.y &&
+            onionCoord.z < gridDimensions.z;
+        cell.valid = inOnionVolume ? 1u : 0u;
+        if (inOnionVolume)
+        {
+            float minX;
+            float maxX;
+            float minY;
+            float maxY;
+            float minZ;
+            float maxZ;
+            PathTraceReGIROnionAxisBounds(onionCoord.x, gridDimensions.x, cellSize, minX, maxX);
+            PathTraceReGIROnionAxisBounds(onionCoord.y, gridDimensions.y, cellSize, minY, maxY);
+            PathTraceReGIROnionAxisBounds(onionCoord.z, gridDimensions.z, cellSize, minZ, maxZ);
+
+            const float3 cellMin = gridCenter + float3(minX, minY, minZ);
+            const float3 cellMax = gridCenter + float3(maxX, maxY, maxZ);
+            const float3 extent = max(cellMax - cellMin, float3(1.0, 1.0, 1.0));
+            cell.worldCenter = 0.5 * (cellMin + cellMax);
+            cell.worldExtent = extent;
+            cell.localUv = saturate((worldPosition - cellMin) / extent);
+            const float3 edgeDistance = min(cell.localUv, 1.0 - cell.localUv);
+            cell.boundary = min(edgeDistance.x, min(edgeDistance.y, edgeDistance.z));
+            cell.globalCoord = int3(floor(cell.worldCenter / cellSize));
+            cell.localCellIndex =
+                onionCoord.x +
+                onionCoord.y * gridDimensions.x +
+                onionCoord.z * gridDimensions.x * gridDimensions.y;
+        }
+        return cell;
+    }
+
     const float3 gridMin = gridCenter - float3(gridDimensions) * (0.5 * cellSize);
-    const int3 localCoord = int3(floor((worldPosition - gridMin) / cellSize));
+    const float3 localGridPosition = (worldPosition - gridMin) / cellSize;
+    const int3 localCoord = int3(floor(localGridPosition));
     cell.localCoord = localCoord;
-
     const bool inVolume =
         localCoord.x >= 0 && localCoord.y >= 0 && localCoord.z >= 0 &&
         localCoord.x < int(gridDimensions.x) &&
@@ -86,6 +181,12 @@ PathTraceReGIRCellDebug PathTraceReGIRMapWorldPositionToCell(
     cell.valid = inVolume ? 1u : 0u;
     if (inVolume)
     {
+        cell.localUv = frac(localGridPosition);
+        const float3 edgeDistance = min(cell.localUv, 1.0 - cell.localUv);
+        cell.boundary = min(edgeDistance.x, min(edgeDistance.y, edgeDistance.z));
+        cell.worldCenter = gridMin + (float3(localCoord) + 0.5) * cellSize;
+        cell.worldExtent = float3(cellSize, cellSize, cellSize);
+        cell.globalCoord = int3(floor(cell.worldCenter / cellSize));
         cell.localCellIndex =
             uint(localCoord.x) +
             uint(localCoord.y) * gridDimensions.x +
@@ -98,8 +199,10 @@ PathTraceReGIRCellDebug PathTraceReGIRMapLocalCellIndex(
     uint localCellIndex,
     float3 cameraOrigin,
     uint centerMode,
+    uint mode,
     float cellSize,
-    uint3 gridDimensions)
+    uint3 gridDimensions,
+    float3 explicitCenter)
 {
     PathTraceReGIRCellDebug cell = (PathTraceReGIRCellDebug)0;
     cellSize = max(cellSize, 1.0);
@@ -122,12 +225,30 @@ PathTraceReGIRCellDebug PathTraceReGIRMapLocalCellIndex(
     cell.valid = inVolume ? 1u : 0u;
     if (inVolume)
     {
-        const float3 cameraSnappedCenter = floor(cameraOrigin / cellSize + 0.5) * cellSize;
-        const float3 fixedOriginCenter = float3(0.0, 0.0, 0.0);
-        const float3 gridCenter = centerMode == 0u ? cameraSnappedCenter : fixedOriginCenter;
-        const float3 gridMin = gridCenter - float3(gridDimensions) * (0.5 * cellSize);
-        const float3 worldCenter = gridMin + (float3(x, y, z) + 0.5) * cellSize;
-        cell.globalCoord = int3(floor(worldCenter / cellSize));
+        const float3 gridCenter = PathTraceReGIRResolveGridCenter(cameraOrigin, centerMode, cellSize, explicitCenter);
+        if (mode == 2u)
+        {
+            float minX;
+            float maxX;
+            float minY;
+            float maxY;
+            float minZ;
+            float maxZ;
+            PathTraceReGIROnionAxisBounds(x, gridDimensions.x, cellSize, minX, maxX);
+            PathTraceReGIROnionAxisBounds(y, gridDimensions.y, cellSize, minY, maxY);
+            PathTraceReGIROnionAxisBounds(z, gridDimensions.z, cellSize, minZ, maxZ);
+            const float3 cellMin = gridCenter + float3(minX, minY, minZ);
+            const float3 cellMax = gridCenter + float3(maxX, maxY, maxZ);
+            cell.worldCenter = 0.5 * (cellMin + cellMax);
+            cell.worldExtent = max(cellMax - cellMin, float3(1.0, 1.0, 1.0));
+        }
+        else
+        {
+            const float3 gridMin = gridCenter - float3(gridDimensions) * (0.5 * cellSize);
+            cell.worldCenter = gridMin + (float3(x, y, z) + 0.5) * cellSize;
+            cell.worldExtent = float3(cellSize, cellSize, cellSize);
+        }
+        cell.globalCoord = int3(floor(cell.worldCenter / cellSize));
     }
     return cell;
 }

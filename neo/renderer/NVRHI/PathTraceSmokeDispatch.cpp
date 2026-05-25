@@ -36,6 +36,49 @@ const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const uint32_t CLEAN_RTXDI_DI_FLAG_EXTERNAL_PDFNEE_CURRENT = 1u << 0u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 
+void SetBufferStateIfPresent(nvrhi::ICommandList* commandList, const nvrhi::BufferHandle& buffer, nvrhi::ResourceStates state)
+{
+    if (commandList && buffer)
+    {
+        commandList->setBufferState(buffer, state);
+    }
+}
+
+idVec3 ResolvePathTraceReGIRCenter(const RtSmokeGeometryUniverse& geometryUniverse, const PathTraceReGIRSettings& settings, const idVec3& fallbackCenter)
+{
+    if (settings.centerMode == 2)
+    {
+        return idVec3(settings.manualCenter[0], settings.manualCenter[1], settings.manualCenter[2]);
+    }
+
+    if (settings.centerMode != 1)
+    {
+        return fallbackCenter;
+    }
+
+    const std::vector<PathTraceSmokeVertex>& staticVertices = geometryUniverse.StaticVertices();
+    if (staticVertices.empty())
+    {
+        return fallbackCenter;
+    }
+
+    idBounds bounds;
+    bounds.Clear();
+    int validPoints = 0;
+    for (const PathTraceSmokeVertex& vertex : staticVertices)
+    {
+        const idVec3 position = SmokeVertexPosition(vertex);
+        if (!SmokeVec3IsFinite(position))
+        {
+            continue;
+        }
+        bounds.AddPoint(position);
+        ++validPoints;
+    }
+
+    return validPoints > 0 ? bounds.GetCenter() : fallbackCenter;
+}
+
 struct PathTraceCleanRtxdiDiSentinelConstants
 {
     uint32_t view = 0;
@@ -376,6 +419,7 @@ struct PathTraceSmokeConstants
     float regirInfo1[4];
     float regirInfo2[4];
     float regirInfo3[4];
+    float regirInfo4[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -703,21 +747,27 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool regirDebugForbiddenMode = pdfNeeVerifierEntryDebugMode == 56;
     const bool regirDebugRouteRequested =
         regirSettings.enabled &&
-        ((regirSettings.debugView >= 1 && regirSettings.debugView <= 7) && regirSettings.debugView != 8) &&
+        (regirSettings.debugView >= 1 && regirSettings.debugView <= 8) &&
         !regirDebugForbiddenMode;
+    const idVec3 regirResolvedCenter = ResolvePathTraceReGIRCenter(m_smokeGeometryUniverse, regirSettings, m_smokeSceneOrigin);
     auto printReGIRDump = [&](const char* stage, const char* earlyReturn)
     {
         const bool regirCandidateDebugView =
             regirSettings.debugView == 4 ||
             regirSettings.debugView == 5 ||
             regirSettings.debugView == 6 ||
-            regirSettings.debugView == 7;
+            regirSettings.debugView == 7 ||
+            regirSettings.debugView == 8;
+        const char* regirSourceDistribution =
+            regirSettings.lightDomain == 0 ? "analyticBoundedRIS:proposalCount=min(buildSamples,currentDoomAnalyticCount),proposalInvPdf=currentDoomAnalyticCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveCount+analyticIndex" :
+            (regirSettings.lightDomain == 1 ? "emissiveBoundedRIS:proposalCount=min(buildSamples,currentEmissiveTriangleCount),proposalInvPdf=currentEmissiveTriangleCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveIndex" :
+            "splitBoundedRIS:slotClass=deterministicParity,analyticClassMass=analyticSlotCount/lightsPerCell,emissiveClassMass=emissiveSlotCount/lightsPerCell,singlePresentClassMass=1,view7Slot=cellHash%lightsPerCellNoFallback,proposalCount=min(buildSamples,selectedClassCount),proposalInvPdf=selectedClassCount/(classMass*proposalCount),cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,consumerMustUseSameSlotClassMass,globalIdentity=RABSplitIndex");
         const char* firstMissingContract =
             regirDebugForbiddenMode && regirSettings.debugView > 0 ? "forbidden-mode-56" :
             !regirResourceReady && regirDesc.requested && regirDesc.structuralValid ? "candidate-cache-buffer" :
             (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 && regirDesc.requested ? earlyReturn : regirDesc.firstMissingContract);
         common->Printf(
-            "PathTracePrimaryPass: ReGIR clean-room shell dump stage=%s earlyReturn=%s enable=%d debugView=%d debugRoute=%d mode=%d(%s) centerMode=%d(%s) cellSize=%.2f grid=%ux%ux%u cellCount=%u lightsPerCell=%u buildSamples=%u lightDomain=%d(%s) counts analytic=%u emissive=%u split=%u unified=%u candidateStride=%u candidateSlots=%u candidateBytes=%llu bufferReady=%d allocationSerial=%llu dispatchSlots=%u firstMissingContract=%s forbiddenPdfNee=0 temporal=0 spatial=0 bestLights=0 mode56=%d rrxPages=0 output=%s task=%s\n",
+            "PathTracePrimaryPass: ReGIR clean-room shell dump stage=%s earlyReturn=%s enable=%d debugView=%d debugRoute=%d mode=%d(%s) centerMode=%d(%s) center=(%.2f,%.2f,%.2f) cellSize=%.2f grid=%ux%ux%u cellCount=%u lightsPerCell=%u buildSamples=%u lightDomain=%d(%s) counts analytic=%u emissive=%u split=%u unified=%u candidateStride=%u candidateSlots=%u candidateBytes=%llu bufferReady=%d allocationSerial=%llu dispatchSlots=%u sourceDistribution=%s rabReplay=view7:primaryHitSurface+RAB_LoadLightInfo+RAB_SamplePolymorphicLight+RAB_GetLightSampleTargetPdfForSurface firstMissingContract=%s forbiddenPdfNee=0 temporal=0 spatial=0 bestLights=0 mode56=%d rrxPages=0 output=%s task=%s\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             regirSettings.enabled ? 1 : 0,
@@ -727,6 +777,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             PathTraceReGIRModeName(regirSettings.mode),
             regirSettings.centerMode,
             PathTraceReGIRCenterModeName(regirSettings.centerMode),
+            regirResolvedCenter.x,
+            regirResolvedCenter.y,
+            regirResolvedCenter.z,
             regirSettings.cellSize,
             regirSettings.gridX,
             regirSettings.gridY,
@@ -746,10 +799,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeReGIRState.candidateCacheBuffer ? 1 : 0,
             static_cast<unsigned long long>(m_smokeReGIRState.allocationSerial),
             regirDesc.slotCount,
+            regirSourceDistribution,
             firstMissingContract,
             regirDebugForbiddenMode ? 1 : 0,
             regirDebugRouteRequested ? "SmokeOutput" : "none",
-            regirDebugRouteRequested ? (regirSettings.lightDomain == 1 && regirCandidateDebugView ? "REGIR-04" : (regirCandidateDebugView ? "REGIR-03" : "REGIR-02")) : "REGIR-01");
+            regirDebugRouteRequested ? (regirSettings.lightDomain == 2 && regirCandidateDebugView ? "REGIR-05" : (regirSettings.lightDomain == 1 && regirCandidateDebugView ? "REGIR-04" : (regirCandidateDebugView ? "REGIR-03" : "REGIR-02"))) : "REGIR-01");
     };
     auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
     {
@@ -865,14 +919,40 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool pdfNeeVerifierBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokePdfNeeVerifierBindingLayout && m_smokeTextureDescriptorTable &&
         m_frameResources.outputTexture && m_smokeConstantsBuffer;
-    const bool regirDebugNeedsEmissiveBuffer = regirSettings.lightDomain == 1 && regirSettings.debugView >= 4 && regirSettings.debugView <= 7;
-    const bool regirDebugNeedsAnalyticBuffer = regirSettings.lightDomain == 0 && regirSettings.debugView >= 4 && regirSettings.debugView <= 7;
+    const bool regirCandidateDebugView =
+        regirSettings.debugView == 4 ||
+        regirSettings.debugView == 5 ||
+        regirSettings.debugView == 6 ||
+        regirSettings.debugView == 7 ||
+        regirSettings.debugView == 8;
+    const bool regirDebugCanUseAnalyticDomain =
+        regirCandidateDebugView &&
+        (regirSettings.lightDomain == 0 || regirSettings.lightDomain == 2) &&
+        regirLightCounts.analyticCount > 0;
+    const bool regirDebugCanUseEmissiveDomain =
+        regirCandidateDebugView &&
+        (regirSettings.lightDomain == 1 || regirSettings.lightDomain == 2) &&
+        regirLightCounts.emissiveCount > 0;
+    const bool regirDebugNeedsRabReplayBuffers = regirSettings.debugView == 7 && regirCandidateDebugView;
+    const bool regirDebugNeedsPrimarySurfaceBuffers = regirSettings.debugView == 7 && regirCandidateDebugView;
     const bool regirDebugBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokeReGIRDebugBindingLayout && m_smokeTextureDescriptorTable &&
-        m_smokeTlas && m_frameResources.outputTexture && m_smokeConstantsBuffer && m_smokeReGIRState.candidateCacheBuffer &&
-        m_smokeEmissiveTriangleBuffer && m_smokeDoomAnalyticLightBuffer &&
-        (!regirDebugNeedsEmissiveBuffer || m_smokeEmissiveTriangleBuffer) &&
-        (!regirDebugNeedsAnalyticBuffer || m_smokeDoomAnalyticLightBuffer);
+        m_smokeTlas && m_frameResources.outputTexture && m_smokeConstantsBuffer &&
+        m_smokeReGIRState.candidateCacheBuffer && m_smokeReGIRState.placeholderSrvBuffer &&
+        (!regirDebugCanUseEmissiveDomain || m_smokeEmissiveTriangleBuffer) &&
+        (!regirDebugCanUseAnalyticDomain || (m_smokeDoomAnalyticLightBuffer && (!regirDebugNeedsRabReplayBuffers || m_smokeDoomAnalyticCurrentIdentityBuffer))) &&
+        (!regirDebugNeedsPrimarySurfaceBuffers || (
+            m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
+            m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
+            m_smokeDynamicVertexBuffer && m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer &&
+            m_smokeDynamicTriangleMaterialBuffer && m_smokeDynamicTriangleMaterialIndexBuffer &&
+            m_smokeMaterialTableBuffer &&
+            m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer &&
+            m_smokeRigidRouteTriangleMaterialBuffer && m_smokeRigidRouteTriangleMaterialIndexBuffer &&
+            m_smokeRigidRouteInstanceBuffer)) &&
+        (!regirDebugNeedsRabReplayBuffers || (
+            (!regirDebugCanUseEmissiveDomain || m_smokeEmissiveTriangleBuffer) &&
+            (!regirDebugCanUseAnalyticDomain || (m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticCurrentIdentityBuffer))));
     const bool smokeBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokeShaderTable && m_smokeBindingSet && m_smokeTextureDescriptorTable &&
         m_frameResources.outputTexture && m_frameResources.accumulationTexture && m_frameResources.restirPTReflectionTexture &&
@@ -1817,12 +1897,41 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
+        auto regirOptionalSrv = [&](const nvrhi::BufferHandle& buffer) -> nvrhi::BufferHandle {
+            return buffer ? buffer : m_smokeReGIRState.placeholderSrvBuffer;
+        };
+
         nvrhi::BindingSetDesc regirBindingSetDesc;
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer));
-        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, m_smokeEmissiveTriangleBuffer));
-        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, regirOptionalSrv(m_smokeStaticVertexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, regirOptionalSrv(m_smokeStaticIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, regirOptionalSrv(m_smokeStaticTriangleClassBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, regirOptionalSrv(m_smokeDynamicVertexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, regirOptionalSrv(m_smokeDynamicIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, regirOptionalSrv(m_smokeDynamicTriangleClassBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, regirOptionalSrv(m_smokeStaticTriangleMaterialBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, regirOptionalSrv(m_smokeDynamicTriangleMaterialBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, regirOptionalSrv(m_smokeStaticTriangleMaterialIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, regirOptionalSrv(m_smokeDynamicTriangleMaterialIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, regirOptionalSrv(m_smokeMaterialTableBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, regirOptionalSrv(m_smokeEmissiveTriangleBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, regirOptionalSrv(m_smokeRigidRouteVertexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, regirOptionalSrv(m_smokeRigidRouteIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, regirOptionalSrv(m_smokeRigidRouteTriangleMaterialBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, regirOptionalSrv(m_smokeRigidRouteTriangleMaterialIndexBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, regirOptionalSrv(m_smokeRigidRouteInstanceBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, regirOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, regirOptionalSrv(m_smokeDoomAnalyticCurrentIdentityBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, regirOptionalSrv(m_smokeDoomAnalyticPreviousIdentityBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(44, regirOptionalSrv(m_smokeDoomAnalyticRemapBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, regirOptionalSrv(m_smokeDoomAnalyticPreviousLightBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, regirOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(58, regirOptionalSrv(m_smokeEmissiveRemapBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(59, regirOptionalSrv(m_smokeUnifiedLightBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(60, regirOptionalSrv(m_smokeUnifiedPreviousLightBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(61, regirOptionalSrv(m_smokeUnifiedLightRemapBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, m_smokeReGIRState.candidateCacheBuffer));
         regirDebugBindingSet = device->createBindingSet(regirBindingSetDesc, m_smokeReGIRDebugBindingLayout);
         if (!regirDebugBindingSet)
@@ -2861,6 +2970,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.regirInfo3[1] = static_cast<float>(regirDesc.slotCount);
     constants.regirInfo3[2] = 0.0f;
     constants.regirInfo3[3] = 0.0f;
+    constants.regirInfo4[0] = regirResolvedCenter.x;
+    constants.regirInfo4[1] = regirResolvedCenter.y;
+    constants.regirInfo4[2] = regirResolvedCenter.z;
+    constants.regirInfo4[3] = 1.0f;
+    if (regirDebugRouteRequested)
+    {
+        // ReGIR stores split-domain RAB identities; force the shared RAB
+        // loader to replay that identity space for the standalone proof.
+        constants.unifiedLightInfo[2] = 0.0f;
+        constants.restirLightManagerControlInfo[0] = 0.0f;
+    }
     constants.safetyInfo[0] = static_cast<float>(safetyDisableMask);
     constants.safetyInfo[1] = static_cast<float>(Max(0, static_cast<int>(m_smokeActiveTextureTable.size()) - 1));
     constants.safetyInfo[2] =
@@ -3052,36 +3172,46 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const uint64 constantsCompleteUs = Sys_Microseconds();
     const uint64 barrierStartUs = constantsCompleteUs;
+    const bool primarySurfaceGeometryBarriersRequired = !regirDebugRouteRequested || regirDebugNeedsPrimarySurfaceBuffers;
     if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Dispatch Resource Barriers");
-        commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeEmissiveRemapBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeEmissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
+        if (primarySurfaceGeometryBarriersRequired)
+        {
+            commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+        }
+        SetBufferStateIfPresent(commandList, m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeEmissiveRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeEmissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+        if (primarySurfaceGeometryBarriersRequired)
+        {
+            commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+        }
+        if (!regirDebugRouteRequested)
+        {
+            commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
+        }
         if (!regirDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
@@ -3105,6 +3235,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
+        SetBufferStateIfPresent(commandList, m_smokeReGIRState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
         if (!regirDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
@@ -3136,33 +3267,42 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     else
     {
-        commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeEmissiveRemapBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeEmissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
-        commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
+        if (primarySurfaceGeometryBarriersRequired)
+        {
+            commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
+        }
+        SetBufferStateIfPresent(commandList, m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeEmissiveRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeEmissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeLightCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticPreviousLightBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticCurrentIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticPreviousIdentityBuffer, nvrhi::ResourceStates::ShaderResource);
+        SetBufferStateIfPresent(commandList, m_smokeDoomAnalyticRemapBuffer, nvrhi::ResourceStates::ShaderResource);
+        if (primarySurfaceGeometryBarriersRequired)
+        {
+            commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
+        }
+        if (!regirDebugRouteRequested)
+        {
+            commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
+        }
         if (!regirDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
@@ -3186,6 +3326,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
+        SetBufferStateIfPresent(commandList, m_smokeReGIRState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
         if (!regirDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);

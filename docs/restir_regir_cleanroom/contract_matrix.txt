@@ -1,0 +1,214 @@
+Standalone ReGIR Contract Matrix
+================================
+
+Goal
+----
+
+Prove that rbdoom can build a standalone spatial candidate cache for current
+RAB lights before it is attached to PDFNEE or temporal accumulation.
+
+
+Contract C-01: Current Light Universe Input
+-------------------------------------------
+
+Producer:
+
+    PathTraceDoomLights.cpp
+    PathTraceSmokeSceneBuild.cpp
+    PathTraceLightUniverse.cpp
+
+Required input:
+
+    current analytic light records
+    current emissive light records
+    global light identity
+    light type
+    position / bounds / radius
+    radiance or source weight
+    current domain count
+
+Pass:
+
+    ReGIR declares exactly which current light domains it consumes
+    global light identity is preserved
+    analytic and emissive domains can be debugged independently
+
+Fail:
+
+    previous light domain is used for standalone proof
+    old rbdoom NEE records are used as candidate source
+    broad lights are deleted to make cache population easier
+
+
+Contract C-02: ReGIR Parameters And Resource Ownership
+------------------------------------------------------
+
+Producer:
+
+    PathTraceReGIR.cpp / PathTraceReGIR.h or declared equivalent
+    PathTraceSmokeResources.cpp
+    PathTraceSmokeDispatch.cpp
+
+Required output:
+
+    mode
+    grid or onion parameters
+    center
+    cell size
+    cell count
+    lights per cell
+    build sample count
+    candidate/RIS buffer handle
+    valid flag
+    debug counters
+
+Pass:
+
+    changing structural parameters recreates or resizes buffers
+    changing dynamic parameters updates constants only when possible
+    disabled mode allocates no active candidate cache
+    buffer size is computed before dispatch and logged on dump
+
+Fail:
+
+    shader assumes a buffer exists without CPU validity
+    stale buffers survive map or light-domain reset as valid
+    resource allocation is hidden inside PDFNEE or clean temporal code
+
+
+Contract C-03: World Position To Cell Mapping
+---------------------------------------------
+
+Reference shape:
+
+    ReGIRSampling.hlsli
+
+Required behavior:
+
+    maps current world position to a stable cell id
+    reports out-of-volume as invalid
+    exposes a debug color for cell id / cell boundary behavior
+
+Pass:
+
+    cell colors are stable in world space while the camera moves
+    cell size / center changes are reflected immediately
+    out-of-volume pixels are loud
+
+Fail:
+
+    cells are screen-space anchored
+    cells strobe randomly while standing still
+    invalid cells silently fall back to beauty or albedo
+
+
+Contract C-04: Build / Presample Dispatch
+-----------------------------------------
+
+Reference shape:
+
+    PresampleReGIR.hlsl
+    PresamplingFunctions.hlsli
+
+Required behavior:
+
+    standalone GPU dispatch builds candidate entries before any ReGIR debug
+    consume view reads them
+    each cell slot evaluates multiple current light proposals
+    each selected entry stores global light identity and invSourcePdf or an
+    equivalent explicit source-weight term
+
+Pass:
+
+    occupancy view shows populated and empty cells deterministically
+    selected light identity view is coherent across nearby cells
+    analytic-only and emissive-only tests both populate when their domains are
+        enabled
+
+Fail:
+
+    cells populate only after visiting mode 56, view 72, PDFNEE, or RRX
+    selected identity is compact-only and cannot be replayed by RAB
+    build dispatch reads previous frame as proof
+
+
+Contract C-05: Source PDF / Candidate Weight
+--------------------------------------------
+
+Reference shape:
+
+    LocalLightSelection.hlsli
+    RISBuffer.hlsli
+    Reservoir.hlsli
+
+Required behavior:
+
+    every selected cell candidate has a stated source distribution
+    invSourcePdf is available to the later current-pixel consumer
+    power/RIS weighting is explicit before being enabled
+
+Pass:
+
+    uniform domain proof uses invSourcePdf = currentDomainCount
+    portal/domain-reduced proof names the reduced source count
+    power/RIS proof names source weights and normalization
+    bounded RIS proof stores selected-light inverse source weight as
+        weightSum / selectedTargetWeight
+    split-domain proof states whether class mass comes from slot selection or
+        from an in-shader random class draw
+
+Fail:
+
+    sourcePdf is omitted
+    sourcePdf is zero for selected valid candidates
+    sourcePdf is only the original proposal PDF after weighted RIS selection
+    portal ranking is treated as a magic estimator without a PDF
+    split-domain sourcePdf includes a fixed 0.5 class term instead of the
+        actual deterministic slot count when lightsPerCell is odd
+    split-domain sourcePdf includes a class term but the future consumer cannot
+        name the matching slot/class selection policy
+
+
+Contract C-06: RAB Replay Boundary
+----------------------------------
+
+Required future consumer behavior:
+
+    ReGIR may select a candidate light identity and source PDF.
+    RAB still owns:
+
+        RAB_LoadLightInfo
+        RAB_SamplePolymorphicLight
+        RAB_GetLightSampleTargetPdfForSurface
+        RAB_GetReflectedBsdfRadianceForSurface
+        visibility policy
+
+Pass:
+
+    ReGIR candidate identity can be replayed through shared RAB helpers
+    debug views prove identity and source PDF before PDFNEE consumes them
+
+Fail:
+
+    ReGIR computes final direct lighting internally for proof
+    ReGIR duplicates RAB helper math without equivalence proof
+    PDFNEE consumes ReGIR before standalone replay proof exists
+
+
+Contract C-07: Reset And Lifetime
+---------------------------------
+
+Required behavior:
+
+    map change, render-world change, light-domain reset, and buffer resize clear
+    ReGIR validity.
+
+Pass:
+
+    first frame after reset shows empty/current rebuild state explicitly
+    stale previous map candidates never appear valid
+
+Fail:
+
+    old cell candidates survive into a new map
+    stale candidates are hidden by fallback lighting

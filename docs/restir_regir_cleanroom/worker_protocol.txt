@@ -1,0 +1,140 @@
+Standalone ReGIR Worker Protocol
+================================
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact reference file-equivalent
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact ReGIR CVars
+    exact whitelist inputs consumed
+    exact whitelist outputs written
+    active light domain
+    cell mapping contract
+    candidate source PDF contract
+    resource lifetime contract
+    forbidden files/functions
+    expected runtime proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Allowed Edits
+-------------
+
+Only when a task explicitly names them:
+
+    standalone ReGIR CPU module
+    standalone ReGIR debug shader
+    standalone ReGIR resource/binding code
+    ReGIR CVars
+    minimal shader build additions
+    documentation in this folder
+
+
+Forbidden Edits
+---------------
+
+Do not edit:
+
+    clean RTXDI temporal accumulator
+    PDFNEE consume path before the handoff task
+    existing temporal reuse code
+    spatial reuse code
+    best-light code
+    mode-56 debug routing
+    RRX reservoir paths
+    old NEE record producers as a shortcut
+    unrelated material/geometry systems
+
+
+Clean-Room Rule
+---------------
+
+The worker may use RTXDI ReGIR files as reference file-equivalents for
+contract shape. Do not copy NVIDIA source text into rbdoom.
+
+Acceptable implementation:
+
+    rbdoom-owned names and structures
+    equivalent concepts documented in rbdoom terms
+    short reference citations by path
+    exact source PDF and identity contracts
+
+Unacceptable implementation:
+
+    pasted reference code
+    hidden math changes
+    unreviewed weighted source PDFs
+    final lighting inside the ReGIR module
+
+
+Proof Report Format
+-------------------
+
+Every implementation report must include:
+
+    source route
+        CPU producer
+        active light domain
+        resource/binding path
+
+    cell table
+        mode
+        center
+        cell size
+        cell count
+        lights per cell
+        build samples
+
+    candidate table
+        selected global light index
+        light class
+        sourcePdf / invSourcePdf
+        cell id
+        candidate slot
+
+    negative paths
+        disabled
+        out of volume
+        no lights
+        invalid light index
+        zero source PDF
+        stale reset/map change
+
+    visual proof
+        exact CVars
+        expected output
+        observed output
+        why it is not fallback albedo/beauty
+
+
+Diagnostic Limits
+-----------------
+
+The following are diagnostic only:
+
+    CPU dumps
+    non-crashing builds
+    allocation success
+    status colors alone
+
+They cannot prove viable ReGIR behavior without world-space cell and candidate
+identity visualization.
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    source PDF cannot be stated
+    selected identity cannot replay as a global RAB light index
+    cells are screen-space anchored
+    output uses fallback albedo/beauty
+    PDFNEE or temporal is required to make the cache look correct
+    broad light suppression is proposed as the fix

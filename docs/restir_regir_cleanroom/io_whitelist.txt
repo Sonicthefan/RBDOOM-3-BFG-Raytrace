@@ -1,0 +1,153 @@
+Standalone ReGIR I/O Whitelist
+==============================
+
+This whitelist applies only to the standalone ReGIR debug lane.
+
+
+Allowed Inputs
+--------------
+
+I-01: Current Camera / View State
+
+    Allowed fields:
+        current view origin
+        current projection dimensions
+        current frame index
+
+    Forbidden use:
+        previous camera as proof
+        motion vectors
+        temporal reprojection
+
+
+I-02: Current Surface World Position
+
+    Meaning:
+        World position used only to visualize or consume a ReGIR cell in the
+        standalone debug route.
+
+    Allowed use:
+        cell id / cell boundary view
+        cell valid view
+        selected candidate debug view
+
+    Forbidden use:
+        final PDFNEE lighting proof before the integration task
+
+
+I-03: Current Light Domain
+
+    Allowed sources:
+        current Doom analytic light records
+        current emissive records
+        current unified/RAB light records only if explicitly declared
+
+    Required declaration:
+        active domain and count
+        global identity mapping
+
+    Forbidden use:
+        previous light domain
+        old NEE output records
+        broad suppression to make cells easier
+
+
+I-04: ReGIR Parameters
+
+    Allowed fields:
+        mode
+        center
+        cell size
+        grid dimensions or onion parameters
+        lights per cell
+        build sample count
+        light domain selector
+
+    Forbidden use:
+        hidden hard-coded parameters not reported by dump
+
+
+I-05: RTXDI / RAB Light Helpers
+
+    Required later helpers:
+        RAB_LoadLightInfo
+        RAB_SamplePolymorphicLight
+        RAB_GetLightSampleTargetPdfForSurface
+        RAB_GetReflectedBsdfRadianceForSurface
+
+    Allowed standalone use:
+        candidate validity / identity / source PDF proof
+
+    Forbidden use:
+        duplicate final lighting helpers without equivalence proof
+
+
+Allowed Outputs
+---------------
+
+O-01: ReGIR Candidate Buffer
+
+    Required fields:
+        global light identity or explicit invalid identity
+        source distribution / invSourcePdf or equivalent explicit weight
+        cell/candidate slot ownership
+
+
+O-02: ReGIR Debug Views
+
+    Required views:
+        route/status
+        world-space cell id
+        cell valid / out-of-volume
+        occupancy
+        selected analytic identity
+        selected emissive identity
+        sourcePdf / invSourcePdf
+        fallback / empty reason
+
+
+O-03: CPU Dump
+
+    Required fields:
+        mode
+        resource validity
+        cell counts
+        buffer size
+        light domain counts
+        dispatch dimensions
+        first failing contract
+
+
+Forbidden Inputs
+----------------
+
+Do not consume:
+
+    previous reservoir pages
+    temporal reservoir pages
+    spatial reservoir pages
+    mode-56 RRX debug outputs
+    old rbdoom selected-light NEE records
+    game beauty/albedo fallback
+    denoiser/confidence/gradient buffers
+    PDFNEE current reservoir pages
+
+
+Forbidden Outputs
+-----------------
+
+Do not output:
+
+    temporal accumulation proof
+    spatial proof
+    best-light proof
+    final PDFNEE lighting proof
+    denoised output
+    fallback beauty or albedo
+
+
+Reject Condition
+----------------
+
+Reject any worker result that cannot list every consumed input and written
+output by whitelist id.

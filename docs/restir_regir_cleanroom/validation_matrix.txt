@@ -1,0 +1,171 @@
+Standalone ReGIR Validation Matrix
+==================================
+
+Rung V-00: Read-Only Contract Audit
+-----------------------------------
+
+Purpose:
+
+    Identify exact rbdoom producers, proposed ReGIR module files, and reference
+    file-equivalents before implementation.
+
+Pass:
+
+    worker names exact read set, write set, CVars, input/output whitelist ids,
+    and first implementation slice
+
+Fail:
+
+    worker starts coding before the audit
+
+
+Rung V-01: CPU Params / Resource Shell
+--------------------------------------
+
+Purpose:
+
+    Prove ReGIR can exist as a standalone module with resources and dumps.
+
+Expected:
+
+    CVars exist
+    buffers allocate only when enabled
+    dump reports mode, dimensions, lights per cell, build samples, domain
+    counts, bytes, and dispatch size
+
+Pass:
+
+    enabling and disabling ReGIR changes only ReGIR resources
+
+Fail:
+
+    PDFNEE, clean RTXDI, RRX, or mode 56 code is edited to make this pass
+
+
+Rung V-02: World-Space Cell Visualization
+-----------------------------------------
+
+Purpose:
+
+    Prove world position to cell mapping is coherent.
+
+Expected:
+
+    visible surfaces show stable cell colors/boundaries
+    moving the camera does not screen-lock the grid
+    changing cell size changes the view predictably
+    out-of-volume is loud
+
+Pass:
+
+    user can visually inspect sane grid/onion behavior
+
+Fail:
+
+    cells strobe while standing still
+    cells are screen-space anchored
+    invalid cells fall back to albedo/beauty
+
+
+Rung V-03: Analytic Candidate Cache
+-----------------------------------
+
+Purpose:
+
+    Populate cells from current Doom analytic lights only.
+
+Expected:
+
+    occupancy view becomes populated near analytic-light influence
+    selected analytic identity view is coherent across nearby cells
+    sourcePdf / invSourcePdf view is nonzero for valid selected entries
+
+Pass:
+
+    analytic-only debug views show stable selected identities and PDFs
+
+Fail:
+
+    selected identity cannot be replayed as a global RAB light index
+    cells populate only after another debug route activates lights
+
+
+Rung V-04: Emissive Candidate Cache
+-----------------------------------
+
+Purpose:
+
+    Populate cells from current emissive lights only.
+
+Expected:
+
+    emissive-only domain populates without analytic lights enabled
+    selected emissive identity is visible and stable
+    empty cells are loud
+
+Pass:
+
+    emissive-only debug views behave coherently across map movement
+
+Fail:
+
+    emissives populate only after PDFNEE, mode 56, or view 72 is visited
+
+
+Rung V-05: Split Analytic + Emissive Domain
+-------------------------------------------
+
+Purpose:
+
+    Prove the standalone cache can represent both light classes without
+    confusing identities or PDFs.
+
+Expected:
+
+    domain selector separates analytic and emissive entries
+    identity view labels the selected class
+    source distribution is stated for each selected candidate
+
+Pass:
+
+    mixed-domain cells are inspectable and do not collapse to one class unless
+    the source PDF / weights explain it
+
+Fail:
+
+    analytic lights are mislabeled as emissives or vice versa
+    broad suppression hides overlap instead of representing it
+
+
+Rung V-06: PDFNEE Handoff Plan Only
+-----------------------------------
+
+Purpose:
+
+    Plan how PDFNEE will consume ReGIR after standalone debug proof.
+
+Expected:
+
+    no implementation
+    exact resource handoff
+    exact shader function boundary
+    negative path handling
+    first runtime proof CVars
+
+Pass:
+
+    plan is sufficient for a later PDFNEE integration task
+
+Fail:
+
+    worker edits PDFNEE or temporal code in this rung
+
+
+Hard Stop
+---------
+
+Stop at the first failing rung.
+
+Do not connect ReGIR to PDFNEE until V-00 through V-05 pass.
+
+Do not continue to temporal to make a wrong ReGIR candidate cache look stable.

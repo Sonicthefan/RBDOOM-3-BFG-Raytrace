@@ -1,0 +1,99 @@
+Paste-Ready ReGIR Worker Launch Prompt
+======================================
+
+Use this prompt for a new agent.
+
+
+Prompt
+------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/restir-rab-reference-audit-experiment
+
+Task:
+
+    Work on the standalone clean-room ReGIR candidate-cache lane. Do not link
+    it to PDFNEE, clean RTXDI temporal, RRX, spatial reuse, best-light, or mode
+    56 unless a later task explicitly says so.
+
+Read first:
+
+    docs/restir_regir_cleanroom/README.txt
+    docs/restir_regir_cleanroom/contract_matrix.txt
+    docs/restir_regir_cleanroom/cvar_contract.txt
+    docs/restir_regir_cleanroom/io_whitelist.txt
+    docs/restir_regir_cleanroom/integration_handoff_plan.txt
+    docs/restir_regir_cleanroom/validation_matrix.txt
+    docs/restir_regir_cleanroom/worker_protocol.txt
+    docs/restir_regir_cleanroom/worker_tasks.txt
+
+Known state:
+
+    PDFNEE and clean RTXDI have separate docs. This ReGIR lane is isolated
+    until standalone cell/candidate debug views pass.
+
+Standing restrictions:
+
+    no PDFNEE consume
+    no temporal proof
+    no spatial
+    no best lights
+    no denoiser/confidence/gradient path
+    no fallback albedo or beauty output
+    no mode-56 route
+    no RRX reservoir pages
+    no old rbdoom NEE records as proof
+    no broad light suppression as a fix
+    no copied NVIDIA source text
+
+Reference file-equivalents:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRParameters.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Source/ReGIR.cpp
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/LocalLightSelection.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/RISBuffer.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/Presampling/PresampleReGIR.hlsl
+
+First action:
+
+    Start with REGIR-00 only as a read-only contract audit. No code changes.
+
+    Report:
+
+        exact current light producers
+        exact proposed ReGIR CPU module files
+        exact proposed ReGIR shader files
+        exact resources and binding points
+        exact CVars
+        exact debug views
+        first missing or ambiguous contract
+
+Build lane if later implementation is approved:
+
+    From E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy:
+
+        E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Copy contents of:
+
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+    to:
+
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.

@@ -1,0 +1,454 @@
+Standalone ReGIR Integration Handoff Plan
+=========================================
+
+Purpose
+-------
+
+This file defines the future handoff from standalone ReGIR debug proof to the
+PDFNEE verifier. It is a plan only until REGIR-00 through REGIR-05 pass.
+
+
+Producer Output
+---------------
+
+Standalone ReGIR may expose:
+
+    candidate/RIS buffer
+    ReGIR parameters constant block
+    validity flag
+    selected global light identity
+    sourcePdf / invSourcePdf or equivalent explicit source weight
+    cell id
+    fallback / empty-cell reason
+
+It must not expose:
+
+    final direct-light color
+    temporal reservoir
+    spatial reservoir
+    best-light candidate
+    old NEE output
+
+
+PDFNEE Consumer Boundary
+------------------------
+
+PDFNEE may consume ReGIR only as one source distribution for selecting a
+current-frame light candidate.
+
+PDFNEE still owns:
+
+    current RAB surface
+    sample UV
+    RAB_LoadLightInfo
+    RAB_SamplePolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+    visibility policy
+    RTXDI current reservoir construction
+
+
+First Consume Shape
+-------------------
+
+The first PDFNEE consume task should:
+
+    add a new PDFNEE lightMode or domain mode for ReGIR source
+    keep temporal off
+    stream ReGIR-selected candidates through RTXDI_StreamSample
+    include a documented full-domain fallback candidate
+    write empty reservoirs for invalid ReGIR cells
+    compare mean against a known current-frame PDFNEE view
+
+It must not:
+
+    edit clean RTXDI temporal accumulator
+    edit RRX
+    enable spatial reuse
+    enable best-light feedback
+    route through mode 56
+
+
+Negative Paths
+--------------
+
+PDFNEE must handle:
+
+    ReGIR disabled
+    ReGIR resource invalid
+    out-of-volume cell
+    empty cell
+    invalid selected global light index
+    sourcePdf <= 0
+    RAB load failure
+    targetPdf <= 0
+    visibility rejection
+    scene/map/light-domain reset
+
+
+First Runtime Proof
+-------------------
+
+Standalone ReGIR proof first:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRDebugView 2 through 8
+    r_pathTracingReGIRLightDomain 0, 1, then 2
+    r_pathTracingReGIRDump 1
+
+Only after those pass:
+
+    PDFNEE ReGIR consume mode
+    temporal off
+    raw flat-diffuse one finalized reservoir per pixel
+    noisy but plausible current-frame output
+
+Clean RTXDI temporal consume is a later task after PDFNEE ReGIR current-frame
+proof passes.
+
+
+Stop Conditions
+---------------
+
+Stop before PDFNEE integration if:
+
+    cells are screen-space anchored
+    selected identity is not global/replayable
+    sourcePdf / invSourcePdf is missing
+    emissives require another debug mode to populate first
+    old map candidates survive reset
+    ReGIR debug output falls back to beauty/albedo
+
+
+REGIR-06 Exact Handoff Contract
+-------------------------------
+
+Status:
+
+    planning artifact only
+    no implementation in REGIR-06
+    no build/deploy in REGIR-06
+    standalone REGIR-00 through REGIR-05 have runtime proof before this plan is
+        used for a consumer implementation
+
+
+Accepted Standalone Producer State
+----------------------------------
+
+The accepted standalone ReGIR producer is:
+
+    CPU module:
+        neo/renderer/NVRHI/PathTraceReGIR.cpp
+        neo/renderer/NVRHI/PathTraceReGIR.h
+
+    debug shader:
+        neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+
+    bridge definitions:
+        neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+
+    candidate cache resource:
+        RWStructuredBuffer<PathTraceReGIRCandidateRecord>
+        register(u72)
+        one record per cell slot
+        stride 32 bytes
+
+    required read domains:
+        current Doom analytic lights from register(t27)
+        current emissive triangles from register(t16)
+        no previous-frame light domain
+        no PDFNEE current reservoir
+        no RRX pages
+
+The accepted candidate record fields are:
+
+    lightIndex:
+        source-domain index for the selected record
+        analytic domain: zero-based Doom analytic candidate index
+        emissive domain: zero-based current emissive triangle index
+
+    lightClass:
+        0 = none / invalid
+        1 = Doom analytic
+        2 = emissive triangle
+
+    sourcePdf:
+        reciprocal of the stored RIS selected-light inverse source weight
+        this is not the original uniform proposal PDF after bounded RIS is
+            enabled
+
+    invSourcePdf:
+        selected-light inverse source weight for valid candidates
+        computed as RIS weight sum divided by the selected cell target weight
+
+    cellIndex:
+        local ReGIR cell index
+
+    slotIndex:
+        absolute candidate cache slot index
+
+    flags:
+        valid/written bits plus empty-cell reason in the high bits
+
+    globalIdentity:
+        RAB-replayable split-domain light index for the current frame
+        emissive: emissiveIndex
+        analytic: currentEmissiveCount + analyticIndex
+
+
+Source Distribution Contract
+----------------------------
+
+The current standalone producer uses these first-proof distributions:
+
+    analytic-only:
+        r_pathTracingReGIRLightDomain 0
+        proposalCount = min(buildSamples, currentDoomAnalyticCount)
+        proposalInvPdf = currentDoomAnalyticCount / proposalCount
+        selected via a cell-weight RIS reservoir
+        invSourcePdf = risWeightSum / selectedCellWeight
+        sourcePdf = 1 / invSourcePdf
+        globalIdentity = currentEmissiveCount + analyticIndex
+
+    emissive-only:
+        r_pathTracingReGIRLightDomain 1
+        proposalCount = min(buildSamples, currentEmissiveTriangleCount)
+        proposalInvPdf = currentEmissiveTriangleCount / proposalCount
+        selected via a cell-weight RIS reservoir
+        invSourcePdf = risWeightSum / selectedCellWeight
+        sourcePdf = 1 / invSourcePdf
+        globalIdentity = emissiveIndex
+
+    split analytic + emissive:
+        r_pathTracingReGIRLightDomain 2
+        candidate slots alternate analytic and emissive class proposals
+        the class term is deterministic slot parity, not a shader-random
+            class draw
+        when both classes are present:
+            analyticSlotCount = ceil(lightsPerCell / 2)
+            emissiveSlotCount = floor(lightsPerCell / 2)
+            analytic classMass = analyticSlotCount / lightsPerCell
+            emissive classMass = emissiveSlotCount / lightsPerCell
+        if only one class is present, every slot builds that class and
+            classMass = 1.0
+        proposalCount = min(buildSamples, selectedClassCount)
+        proposalInvPdf = selectedClassCount / (classMass * proposalCount)
+        selected via a cell-weight RIS reservoir inside the slot class
+        invSourcePdf = risWeightSum / selectedCellWeight
+        sourcePdf = 1 / invSourcePdf
+        globalIdentity = RAB split-domain light index
+
+If either class is absent in split mode, the standalone debug route may emit a
+missing-domain contract or empty candidates. A later PDFNEE consumer must not
+silently reinterpret those records as full-domain samples.
+
+A later PDFNEE consumer must include the selected slot policy in the source
+distribution. In split mode, candidate.sourcePdf is valid only if the consumer
+selects slots with the same class mass implied by deterministic slot parity and
+the actual lightsPerCell slot counts. It must not treat candidate.sourcePdf as
+proof that the shader sampled an independent analytic/emissive class bit during
+candidate construction. The standalone view 7 proof uses
+cellHash % lightsPerCell and does not fall back to another class if that slot is
+invalid.
+
+
+Exact PDFNEE Consumer Input
+---------------------------
+
+A future PDFNEE ReGIR consume slice may read ReGIR only as a current-frame
+candidate source distribution.
+
+The consumer must read:
+
+    ReGIR parameters:
+        enabled flag
+        grid/onion mode
+        center mode
+        cell size
+        grid dimensions
+        lights per cell
+        active light domain
+        total candidate slot count
+
+    ReGIR candidate cache:
+        register(u72) or a new explicitly named SRV binding if u72 remains
+        debug-write-only in the final producer implementation
+
+    current RAB surface:
+        the PDFNEE verifier's current primary surface for the pixel
+
+    current RAB light domain:
+        same split-domain light indexing used by RAB_LoadLightInfo
+
+The consumer must derive:
+
+    cell id:
+        from current surface world position using the same ReGIR cell mapping
+
+    selected candidate:
+        one valid candidate from the current cell
+        first implementation may use slot 0 or a documented cell-local hash
+        later implementation may stream multiple cell slots through RTXDI
+
+    replayed light:
+        RAB_LoadLightInfo(candidate.globalIdentity, false)
+
+    replayed sample:
+        RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv)
+
+    targetPdf:
+        RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+
+    reflected radiance:
+        RAB_GetReflectedBsdfRadianceForSurface(lightSample, surface)
+
+    current reservoir:
+        RTXDI_EmptyDIReservoir
+        RTXDI_StreamSample using candidate.sourcePdf and the replayed sample
+        RTXDI_FinalizeResampling
+        RTXDI_PackDIReservoir
+
+
+Exact Producer To Consumer Boundary
+-----------------------------------
+
+ReGIR owns:
+
+    cell mapping
+    candidate cache allocation and writes
+    candidate lightClass
+    candidate sourcePdf / invSourcePdf
+    candidate globalIdentity
+    empty-cell reason
+
+PDFNEE owns:
+
+    current primary surface
+    sample UV policy for light replay
+    RAB_LoadLightInfo
+    RAB_SamplePolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+    visibility policy
+    RTXDI current reservoir construction
+    final PDFNEE debug output or clean current-page handoff
+
+PDFNEE must not consume:
+
+    ReGIR debug colors
+    SmokeOutput
+    final direct-light RGB from ReGIR
+    temporal ReGIR history
+    spatial ReGIR history
+    best-light feedback
+    RRX reservoir pages
+    old rbdoom selected-light NEE records
+
+
+Required Future PDFNEE Mode
+---------------------------
+
+The later implementation should reserve an explicit PDFNEE selector:
+
+    r_pathTracingRestirPdfNeeVerifierLightMode 9
+        ReGIR current-frame source distribution
+
+It must remain current-frame only for the first consume proof.
+
+It must not:
+
+    route through r_pathTracingDebugMode 56
+    enable clean RTXDI temporal by itself
+    enable spatial reuse
+    enable best-light sampling
+    enable RRX pages
+    suppress broad lights
+    output fallback beauty/albedo
+
+
+Negative Path Contract
+----------------------
+
+The first PDFNEE ReGIR consumer must write an empty current reservoir and loud
+diagnostic state for:
+
+    ReGIR disabled
+    ReGIR resource missing
+    ReGIR candidate slot count smaller than cellCount * lightsPerCell
+    current surface invalid
+    surface outside ReGIR volume
+    selected cell has no valid candidates
+    candidate.flags does not include valid
+    candidate.lightClass is none or unsupported
+    candidate.globalIdentity is invalid
+    candidate.sourcePdf <= 0
+    candidate.invSourcePdf <= 0
+    candidate.globalIdentity fails RAB_LoadLightInfo
+    RAB_SamplePolymorphicLight returns invalid
+    solidAnglePdf <= 0
+    targetPdf <= 0
+    visibility rejection
+    map/light-domain reset invalidates the ReGIR allocation
+
+The negative path must not preserve an old reservoir, old output color, old
+candidate, or previous-frame identity.
+
+
+First Runtime Proof CVars
+-------------------------
+
+Before any PDFNEE consume implementation, re-run standalone ReGIR proof:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRLightDomain 0
+    r_pathTracingReGIRDebugView 5
+    r_pathTracingReGIRDump 1
+
+    r_pathTracingReGIRLightDomain 1
+    r_pathTracingReGIRDebugView 6
+    r_pathTracingReGIRDump 1
+
+    r_pathTracingReGIRLightDomain 2
+    r_pathTracingReGIRDebugView 7
+    r_pathTracingReGIRDump 1
+
+The first future PDFNEE consume proof should use:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRLightDomain 2
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+    r_pathTracingRestirPdfNeeVerifierLightMode 9
+    r_pathTracingRestirPdfNeeVerifierView 2
+    r_pathTracingRestirPdfNeeVerifierSamples 1
+    r_pathTracingRestirPdfNeeVerifierVisibility 1
+    r_pathTracingRestirPdfNeeVerifierDump 1
+
+Expected first proof:
+
+    raw flat-diffuse current-frame PDFNEE output
+    noisy but plausible current-frame lighting
+    selected light identity replayed from ReGIR globalIdentity through RAB
+    no temporal accumulation
+    no mode 56
+    no RRX reservoir pages
+
+
+Implementation Stop Conditions
+------------------------------
+
+Stop before implementation if:
+
+    the consumer cannot name the exact cell mapping used to select a slot
+    the consumer cannot state sourcePdf for every selected candidate
+    the selected identity is not replayable through RAB_LoadLightInfo
+    the shader needs ReGIR debug colors as input
+    the shader needs PDFNEE, clean RTXDI temporal, RRX, or mode 56 to make
+        ReGIR candidates appear valid
+    the implementation would connect ReGIR directly to temporal/spatial reuse
+    the implementation would bypass RTXDI reservoir helpers
+
+REGIR-06 stops at this documentation artifact. Do not build, deploy, or edit
+PDFNEE shader code for REGIR-06.

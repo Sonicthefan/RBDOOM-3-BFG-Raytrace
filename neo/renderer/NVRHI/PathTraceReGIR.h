@@ -23,6 +23,7 @@ struct PathTraceReGIRSettings
     uint32_t buildSamples = 8;
     int lightDomain = 0;
     int centerMode = 0;
+    float manualCenter[3] = {};
 };
 
 struct PathTraceReGIRLightCounts
@@ -46,6 +47,7 @@ struct PathTraceReGIRResourceDesc
 struct PathTraceReGIRState
 {
     nvrhi::BufferHandle candidateCacheBuffer;
+    nvrhi::BufferHandle placeholderSrvBuffer;
     PathTraceReGIRSettings settings;
     PathTraceReGIRResourceDesc resourceDesc;
     uint64_t allocationSerial = 0;

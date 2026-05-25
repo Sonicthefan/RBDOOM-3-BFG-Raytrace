@@ -1,0 +1,150 @@
+Standalone ReGIR CVar Contract
+==============================
+
+Purpose
+-------
+
+Reserve a narrow CVar surface for the standalone ReGIR debug lane.
+
+These CVars must not enable PDFNEE consume, temporal accumulation, spatial
+reuse, best-light sampling, or mode 56 behavior.
+
+
+Naming
+------
+
+Use this prefix unless a manager explicitly changes it:
+
+    r_pathTracingReGIR*
+
+
+Required CVars
+--------------
+
+r_pathTracingReGIREnable
+
+    0 = disabled
+    1 = allocate/update ReGIR resources and allow debug route
+
+    Default: 0
+
+
+r_pathTracingReGIRDebugView
+
+    0 = disabled
+    1 = route/status sentinel
+    2 = world-space cell id / boundaries
+    3 = cell valid / out-of-volume
+    4 = cell occupancy / candidate count
+    5 = selected analytic light identity
+    6 = selected emissive light identity
+    7 = sourcePdf / invSourcePdf scalar
+    8 = fallback / empty-cell reason
+
+    Default: 0
+
+
+r_pathTracingReGIRMode
+
+    0 = disabled
+    1 = grid
+    2 = onion
+
+    Default: 1 for first implementation unless the manager changes it.
+
+
+r_pathTracingReGIRCellSize
+
+    Smallest cell size in Doom world units.
+
+    Default: implementation must choose and document a conservative value.
+
+
+r_pathTracingReGIRGridX
+r_pathTracingReGIRGridY
+r_pathTracingReGIRGridZ
+
+    Grid dimensions for grid mode.
+
+    Default: implementation must choose and document conservative values.
+
+
+r_pathTracingReGIRLightsPerCell
+
+    Candidate slots stored per ReGIR cell.
+
+    Default: 64 for first debug implementation unless performance requires a
+    lower manager-approved value.
+
+
+r_pathTracingReGIRBuildSamples
+
+    Light proposals streamed when building each cell candidate slot.
+
+    Default: 8
+    Valid range: 1 to 64
+
+
+r_pathTracingReGIRLightDomain
+
+    0 = analytic only
+    1 = emissive only
+    2 = analytic + emissive split domains
+
+    Default: 0
+
+
+r_pathTracingReGIRCenterMode
+
+    0 = camera-centered
+    1 = map/static bounds centered
+    2 = manager-provided manual center
+
+    Default: 0
+
+
+r_pathTracingReGIRManualCenterX
+r_pathTracingReGIRManualCenterY
+r_pathTracingReGIRManualCenterZ
+
+    Manual ReGIR grid/onion center in Doom world units.
+    Used only when r_pathTracingReGIRCenterMode is 2.
+
+    Default: 0, 0, 0
+
+
+r_pathTracingReGIRDump
+
+    0 = disabled
+    1 = one-shot dump of mode, center, cell size, cell count, lights per cell,
+        build samples, domain counts, buffer bytes, dispatch size, and first
+        invalid contract
+
+    Default: 0
+
+
+Future / Not First Slice
+------------------------
+
+Do not add these until the standalone debug views pass:
+
+    PDFNEE consume toggle
+    portal-biased bounds toggle
+    power-weighted presampling toggle
+    temporal accumulation toggle
+    spatial reuse toggle
+
+
+Forbidden CVar Behavior
+-----------------------
+
+ReGIR CVars must not:
+
+    route through debugMode 56
+    enable PDFNEE consume
+    enable clean RTXDI temporal consume
+    enable RRX reservoir pages
+    enable spatial reuse
+    enable best-light feedback
+    suppress broad lights
+    switch to fallback beauty or albedo

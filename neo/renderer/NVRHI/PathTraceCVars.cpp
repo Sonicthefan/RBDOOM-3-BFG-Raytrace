@@ -507,6 +507,24 @@ idCVar r_pathTracingReGIRCenterMode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR center mode: 0 camera-centered, 1 map/static bounds centered, 2 manager-provided manual center" );
 
+idCVar r_pathTracingReGIRManualCenterX(
+    "r_pathTracingReGIRManualCenterX",
+    "0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Standalone ReGIR manual center X used when r_pathTracingReGIRCenterMode is 2" );
+
+idCVar r_pathTracingReGIRManualCenterY(
+    "r_pathTracingReGIRManualCenterY",
+    "0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Standalone ReGIR manual center Y used when r_pathTracingReGIRCenterMode is 2" );
+
+idCVar r_pathTracingReGIRManualCenterZ(
+    "r_pathTracingReGIRManualCenterZ",
+    "0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Standalone ReGIR manual center Z used when r_pathTracingReGIRCenterMode is 2" );
+
 idCVar r_pathTracingReGIRDump(
     "r_pathTracingReGIRDump",
     "0",
