@@ -356,6 +356,273 @@ PDFNEE-09 stops after build/deploy for this user visual test. It must not
 continue into spatial reuse, best-light feedback, mode 56, or RRX integration.
 
 
+PDFNEE-10 Portal-Prioritized Analytic Follow-Up
+-----------------------------------------------
+
+If clean accumulation works with dense producers but full analytic lightMode 6
+still fails because most pixels select non-contributing analytic lights, the
+next fix is PDFNEE-10.
+
+PDFNEE-10 must repair the producer proposal domain, not the accumulator.
+Doom portal areas are only a broad-phase candidate source; they are not
+fine-grained enough to be the final sampling estimator.
+
+PDFNEE-10 must:
+
+    build a bounded Doom-portal-prioritized analytic candidate pool
+    keep the full authored analytic universe, identity buffers, and remap
+        semantics intact
+    stream several candidates per pixel through RTXDI_StreamSample
+    evaluate targetPdf at the actual current pixel surface
+    sample portal candidates uniformly over the portal pool for the first proof
+    include at least one defensive full-domain candidate
+    state sourcePdf / invSourcePdf separately for portal and defensive sources
+    store global analytic light indices in RTXDI reservoirs
+    keep invalid candidates loud and empty
+
+PDFNEE-10 must not:
+
+    edit the clean temporal accumulator
+    preserve previous reservoirs when the current candidate is invalid
+    route through debugMode 56 or RRX reservoirs
+    suppress broad lights in the authored universe
+    use full-world append or always-refresh as the default fix
+    build a ReGIR grid/cache in this task
+
+
+Future ReGIR Source Distribution Handoff
+----------------------------------------
+
+This section records the PDFNEE-11 handoff boundary after standalone ReGIR
+debug views passed through split-domain proof.
+
+Do not implement this as part of PDFNEE-08, PDFNEE-09, or PDFNEE-10.
+
+PDFNEE-11 adds an explicit source selector:
+
+    r_pathTracingRestirPdfNeeVerifierLightMode 9
+        ReGIR current-frame source distribution
+
+This is not a clean temporal integration switch. It is only a current-frame
+PDFNEE proposal source for selecting and replaying one or more lights.
+
+
+Required ReGIR Producer Inputs
+------------------------------
+
+The PDFNEE consumer may read:
+
+    ReGIR candidate cache:
+        PathTraceReGIRCandidateRecord buffer
+        current debug implementation writes it as register(u72)
+        PDFNEE-11 consumes it as an explicitly named SRV binding, register(t73)
+
+    ReGIR parameters:
+        enabled flag
+        mode
+        center mode
+        cell size
+        grid dimensions
+        lights per cell
+        cell count
+        active light domain
+        candidate slot count
+
+    current light domains:
+        current emissive triangle count
+        current Doom analytic count
+        split RAB light-index convention:
+            emissive globalIdentity = emissiveIndex
+            analytic globalIdentity = currentEmissiveCount + analyticIndex
+
+It must not read:
+
+    ReGIR debug color output
+    SmokeOutput from the ReGIR route
+    temporal ReGIR history
+    spatial ReGIR history
+    best-light feedback
+    RRX pages
+    mode 56 output
+    old rbdoom selected-light NEE records
+
+
+Required ReGIR Candidate Fields
+-------------------------------
+
+For each selected ReGIR candidate, PDFNEE must consume:
+
+    lightIndex:
+        source-domain index for diagnostics only
+
+    lightClass:
+        none / Doom analytic / emissive triangle
+
+    sourcePdf:
+        probability of selecting this candidate from the ReGIR RIS source
+        distribution, computed as 1 / invSourcePdf
+
+    invSourcePdf:
+        RIS reciprocal source PDF, computed as
+        risWeightSum / selectedCellWeight
+
+    cellIndex:
+        selected current-frame cell
+
+    slotIndex:
+        selected candidate-cache slot
+
+    flags:
+        valid/written bits and empty-cell reason
+
+    globalIdentity:
+        RAB-replayable current-frame split-domain light index
+
+
+Required PDFNEE Consumer Mapping
+--------------------------------
+
+The PDFNEE-11 consumer maps ReGIR output to PDFNEE/RTXDI data as follows:
+
+    surface:
+        PDFNEE current primary surface for the pixel
+
+    cell:
+        computed from the current surface world position with the same ReGIR
+        cell mapping used by the producer
+
+    selected light:
+        candidate.globalIdentity
+
+    light info:
+        RAB_LoadLightInfo(candidate.globalIdentity, false)
+
+    sample UV:
+        explicit PDFNEE sample UV policy; first proof may use a documented hash
+        or fixed calibration UV, but the same UV must be used for sampling and
+        targetPdf evaluation
+
+    light sample:
+        RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv)
+
+    source PDF:
+        candidate.sourcePdf
+
+    target PDF:
+        RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+
+    reflected radiance:
+        RAB_GetReflectedBsdfRadianceForSurface(lightSample, surface)
+
+    reservoir:
+        RTXDI_EmptyDIReservoir
+        RTXDI_StreamSample
+        RTXDI_FinalizeResampling
+        RTXDI_PackDIReservoir
+
+Do not hand-author packed reservoir fields unless exact helper equivalence is
+proven first.
+
+
+Required Source Distribution Statement
+--------------------------------------
+
+The first ReGIR consume proof inherits the standalone ReGIR RIS source
+distribution:
+
+    analytic-only:
+        proposalInvSourcePdf = currentDoomAnalyticCount / proposalCount
+        invSourcePdf = risWeightSum / selectedCellWeight
+        sourcePdf = 1 / invSourcePdf
+        globalIdentity = currentEmissiveCount + analyticIndex
+
+    emissive-only:
+        proposalInvSourcePdf = currentEmissiveTriangleCount / proposalCount
+        invSourcePdf = risWeightSum / selectedCellWeight
+        sourcePdf = 1 / invSourcePdf
+        globalIdentity = emissiveIndex
+
+    split domain:
+        proposalInvSourcePdf =
+            selectedClassCount / (selectedClassMass * proposalCount)
+        invSourcePdf = risWeightSum / selectedCellWeight
+        sourcePdf = 1 / invSourcePdf
+        globalIdentity is the RAB split-domain light index
+
+The first PDFNEE consume implementation must include this source distribution
+in its dump. If a later task changes the ReGIR source distribution, that task
+must update the sourcePdf proof before implementation.
+
+
+Negative Path Handling For ReGIR Consume
+----------------------------------------
+
+The PDFNEE-11 ReGIR consume route must write an empty current reservoir and loud
+diagnostic state for:
+
+    ReGIR disabled
+    ReGIR resource missing
+    ReGIR candidate slot count mismatch
+    invalid current primary surface
+    surface outside ReGIR volume
+    selected cell empty
+    selected candidate invalid
+    unsupported candidate lightClass
+    invalid candidate.globalIdentity
+    candidate.sourcePdf <= 0
+    candidate.invSourcePdf <= 0
+    RAB_LoadLightInfo failure
+    invalid RAB_LightSample
+    solidAnglePdf <= 0
+    targetPdf <= 0
+    visibility rejection
+    zero final contribution
+    scene/map/light-domain reset
+
+Invalid ReGIR consume must not preserve previous PDFNEE reservoirs, previous
+clean current pages, old output color, or fallback beauty/albedo.
+
+
+First Runtime Proof For ReGIR Consume
+-------------------------------------
+
+Standalone ReGIR proof immediately before consume:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRLightDomain 2
+    r_pathTracingReGIRDebugView 7
+    r_pathTracingReGIRDump 1
+
+First PDFNEE-11 consume proof:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRLightDomain 2
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+    r_pathTracingRestirPdfNeeVerifierLightMode 9
+    r_pathTracingRestirPdfNeeVerifierView 2
+    r_pathTracingRestirPdfNeeVerifierSamples 1
+    r_pathTracingRestirPdfNeeVerifierVisibility 1
+    r_pathTracingRestirPdfNeeVerifierDump 1
+
+Expected output:
+
+    raw current-frame flat-diffuse direct-light estimate
+    noisy but plausible current-frame lighting
+    ReGIR-selected globalIdentity replayed through RAB
+    sourcePdf / invSourcePdf visible in diagnostics
+    no temporal reuse
+    no spatial reuse
+    no best-light feedback
+    no debugMode 56
+    no RRX reservoir pages
+
+The clean RTXDI temporal accumulator may consume a PDFNEE ReGIR-produced
+current page only in a later, explicitly reviewed integration task after this
+current-frame proof passes.
+
+
 Known Non-Blocking Limitation
 -----------------------------
 

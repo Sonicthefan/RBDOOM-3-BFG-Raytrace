@@ -153,7 +153,7 @@ PathTraceReGIRResourceDesc BuildPathTraceReGIRResourceDesc(const PathTraceReGIRS
     {
         desc.firstMissingContract = "emissive-domain-required-regir-04";
     }
-    else if (settings.debugView == 4 || settings.debugView == 5 || settings.debugView == 6 || settings.debugView == 7)
+    else if (settings.debugView == 4 || settings.debugView == 5 || settings.debugView == 6 || settings.debugView == 7 || settings.debugView == 8)
     {
         if (settings.lightDomain == 0)
         {

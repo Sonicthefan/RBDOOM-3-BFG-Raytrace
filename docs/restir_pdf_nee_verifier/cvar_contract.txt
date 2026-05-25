@@ -53,8 +53,13 @@ r_pathTracingRestirPdfNeeVerifierLightMode
     6 = full real analytic domain
     7 = emissive domain
     8 = unified / ReSTIR light-manager domain
+    9 = ReGIR current-frame source distribution
 
     Default: 0
+
+    Mode 9 consumes the ReGIR candidate cache as a current-frame source
+    distribution. It requires a same-frame ReGIR build prepass and remains
+    current-frame only.
 
 
 r_pathTracingRestirPdfNeeVerifierSamples
@@ -93,6 +98,82 @@ r_pathTracingRestirPdfNeeVerifierDump
         contract
 
     Default: 0
+
+
+PDFNEE-10 Reserved CVars
+------------------------
+
+r_pathTracingRestirPdfNeeVerifierAnalyticPortalProposal
+
+    0 = existing full analytic domain behavior
+    1 = use the PDFNEE-10 portal-prioritized analytic candidate pool for
+        lightMode 6
+
+    Default: 0
+
+
+r_pathTracingRestirPdfNeeVerifierAnalyticPortalSteps
+
+    Portal traversal depth used to rank analytic proposal candidates.
+
+    Default: 4
+    Valid range: 0 to 8
+
+
+r_pathTracingRestirPdfNeeVerifierAnalyticProposalMaxLights
+
+    Maximum analytic candidate entries uploaded for the portal-prioritized
+    pool.
+
+    Default: 64
+    Valid range: 1 to 1024
+
+
+r_pathTracingRestirPdfNeeVerifierAnalyticDefensiveSamples
+
+    Full-authored-domain analytic candidates streamed per pixel in addition to
+    portal-prioritized candidates. These keep valid non-local lights reachable
+    when Doom portal areas are too coarse.
+
+    Default: 1
+    Valid range: 0 to 8
+
+
+r_pathTracingRestirPdfNeeVerifierAnalyticPortalDump
+
+    0 = disabled
+    1 = one-shot dump of full analytic count, portal-pool count, defensive
+        sample count, portal-depth bins, selected global analytic indices,
+        per-source sourcePdf / invSourcePdf, and any empty-list fallback reason
+
+    Default: 0
+
+
+PDFNEE-11 ReGIR Current-Frame Source
+------------------------------------
+
+PDFNEE ReGIR consume uses:
+
+    r_pathTracingRestirPdfNeeVerifierLightMode 9
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRLightDomain 0, 1, or 2
+
+First proof preset:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingReGIREnable 1
+    r_pathTracingReGIRLightDomain 2
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+    r_pathTracingRestirPdfNeeVerifierLightMode 9
+    r_pathTracingRestirPdfNeeVerifierView 2
+    r_pathTracingRestirPdfNeeVerifierSamples 1
+    r_pathTracingRestirPdfNeeVerifierVisibility 1
+    r_pathTracingRestirPdfNeeVerifierDump 1
+
+Mode 9 must consume ReGIR only as a current-frame source distribution. It must
+not enable PDFNEE temporal consume, clean RTXDI temporal consume, spatial reuse,
+best-light sampling, RRX pages, mode 56, denoiser/confidence/gradient paths, or
+fallback beauty/albedo output.
 
 
 Forbidden CVar Behavior

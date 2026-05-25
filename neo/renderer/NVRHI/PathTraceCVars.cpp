@@ -1105,7 +1105,7 @@ idCVar r_pathTracingRestirPdfNeeVerifierLightMode(
     "r_pathTracingRestirPdfNeeVerifierLightMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Standalone ReSTIR PDF + NEE verifier light mode: 0 no lights, 1 one synthetic calibration light, 2 two synthetic overlapping lights, 3 N synthetic overlapping lights, 4 one real analytic light, 5 two real overlapping analytic lights, 6 full real analytic domain, 7 emissive domain, 8 unified/light-manager domain" );
+    "Standalone ReSTIR PDF + NEE verifier light mode: 0 no lights, 1 one synthetic calibration light, 2 two synthetic overlapping lights, 3 N synthetic overlapping lights, 4 one real analytic light, 5 two real overlapping analytic lights, 6 full real analytic domain, 7 emissive domain, 8 unified/light-manager domain, 9 ReGIR current-frame source distribution" );
 
 idCVar r_pathTracingRestirPdfNeeVerifierSamples(
     "r_pathTracingRestirPdfNeeVerifierSamples",

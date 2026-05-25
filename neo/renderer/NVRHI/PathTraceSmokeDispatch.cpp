@@ -728,7 +728,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 10;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
-    const int pdfNeeVerifierEntryLightMode = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
+    const int pdfNeeVerifierEntryLightMode = idMath::ClampInt(0, 9, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
     const int pdfNeeVerifierEntryDomain = idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierDomain.GetInteger());
     const int pdfNeeVerifierEntryDebugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     const bool pdfNeeVerifierEntryForbiddenMode = pdfNeeVerifierEntryDebugMode == 56;
@@ -749,6 +749,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirSettings.enabled &&
         (regirSettings.debugView >= 1 && regirSettings.debugView <= 8) &&
         !regirDebugForbiddenMode;
+    const bool pdfNeeReGIRSourceRouteRequested = pdfNeeVerifierRouteRequested && pdfNeeVerifierEntryLightMode == 9;
+    const bool pdfNeeReGIRBuildPrepassRequested =
+        pdfNeeReGIRSourceRouteRequested &&
+        regirSettings.enabled &&
+        regirResourceReady &&
+        m_smokeReGIRState.candidateCacheBuffer;
     const idVec3 regirResolvedCenter = ResolvePathTraceReGIRCenter(m_smokeGeometryUniverse, regirSettings, m_smokeSceneOrigin);
     auto printReGIRDump = [&](const char* stage, const char* earlyReturn)
     {
@@ -862,28 +868,35 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const int realAnalyticTwoCount = Max(0, m_smokeDoomAnalyticLightCount) >= 2 ? 2 : 0;
         const int realAnalyticFullCount = Max(0, m_smokeDoomAnalyticLightCount);
         const int emissiveDomainCount = Max(0, m_smokeEmissiveTriangleCount);
+        const int regirSourceLightCount = regirSettings.lightDomain == 0 ? Max(0, m_smokeDoomAnalyticLightCount) :
+            (regirSettings.lightDomain == 1 ? Max(0, m_smokeEmissiveTriangleCount) : (Max(0, m_smokeDoomAnalyticLightCount) + Max(0, m_smokeEmissiveTriangleCount)));
+        const int regirCandidateSlotCount = regirSettings.enabled && regirSourceLightCount > 0 ? static_cast<int>(regirDesc.slotCount) : 0;
         const int activeDomainCount =
             (pdfNeeVerifierEntryLightMode >= 1 && pdfNeeVerifierEntryLightMode <= 3) ? (pdfNeeVerifierEntryLightMode == 3 ? 4 : pdfNeeVerifierEntryLightMode) :
             (pdfNeeVerifierEntryLightMode == 4 ? realAnalyticOneCount :
             (pdfNeeVerifierEntryLightMode == 5 ? realAnalyticTwoCount :
             (pdfNeeVerifierEntryLightMode == 6 ? realAnalyticFullCount :
             (pdfNeeVerifierEntryLightMode == 7 ? emissiveDomainCount :
+            (pdfNeeVerifierEntryLightMode == 9 ? regirCandidateSlotCount :
             pdfNeeVerifierEntryDomain == 0 ? splitCount :
-            (pdfNeeVerifierEntryDomain == 1 ? unifiedCount : -1)))));
+            (pdfNeeVerifierEntryDomain == 1 ? unifiedCount : -1))))));
         const char* firstMissingContract =
             pdfNeeVerifierEntryForbiddenMode ? "forbidden-mode-56" :
             (!pdfNeeVerifierRouteRequested ? "route-disabled" :
             (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 ? earlyReturn :
+            (pdfNeeVerifierEntryLightMode == 9 && !regirSettings.enabled ? "regir-disabled" :
+            (pdfNeeVerifierEntryLightMode == 9 && (!regirResourceReady || !m_smokeReGIRState.candidateCacheBuffer) ? "regir-candidate-cache" :
             (pdfNeeVerifierEntryLightMode == 0 || activeDomainCount == 0 ? "no-active-proposal-domain" :
-            (pdfNeeVerifierEntryLightMode >= 1 && pdfNeeVerifierEntryLightMode <= 7 ? "none" : "estimator-not-implemented-pdfnee-01"))));
+            ((pdfNeeVerifierEntryLightMode >= 1 && pdfNeeVerifierEntryLightMode <= 7) || pdfNeeVerifierEntryLightMode == 9 ? "none" : "estimator-not-implemented-pdfnee-01"))))));
         const char* taskLabel = (pdfNeeVerifierEntryLightMode == 2 || pdfNeeVerifierEntryLightMode == 3) ? "PDFNEE-03" :
+            (pdfNeeVerifierEntryLightMode == 9 ? "PDFNEE-11" :
             (pdfNeeVerifierEntryLightMode == 7 ? "PDFNEE-07" :
             (pdfNeeVerifierEntryLightMode == 6 ? "PDFNEE-06" :
             (pdfNeeVerifierEntryLightMode == 5 ? "PDFNEE-05" :
             (pdfNeeVerifierEntryLightMode == 4 ? "PDFNEE-04" :
-            (pdfNeeVerifierEntryLightMode == 1 ? "PDFNEE-02" : "PDFNEE-01")))));
+            (pdfNeeVerifierEntryLightMode == 1 ? "PDFNEE-02" : "PDFNEE-01"))))));
         common->Printf(
-            "PathTracePrimaryPass: PDFNEE verifier dump stage=%s earlyReturn=%s enable=%d route=%d view=%d lightMode=%d domain=%d samples=%d visibility=%d r_pathTracing=%d debugMode=%d cleanRoute=%d output=%dx%d sceneBuilt=%d shader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d commandList=%d splitCount=%d unifiedCount=%d managerCount=deferred doomAnalyticCount=%d activeVerifierCount=%d firstMissingContract=%s syntheticOneLightTable={sourcePdf=1.000000 solidAnglePdf=1.000000 targetPdfCenter=0.318310 reservoirInvPdf=1.000000 reflectedRadianceCenter=(0.318310,0.318310,0.318310) finalContributionCenter=(0.318310,0.318310,0.318310)} syntheticOverlapSourcePdfTable={twoLights=(0.500000,0.500000) nLightsCount=4 nLightsEach=0.250000 sourcePdfSum=1.000000} realAnalyticOneLightTable={proposalDomain=first-contributing-doom-analytic-for-surface sourcePdf=1.000000 requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticTwoLightTable={proposalDomain=first-two-contributing-doom-analytics-for-surface sourcePdf=(0.500000,0.500000) sourcePdfSum=1.000000 reservoirInvPdf=2.000000 finalContribution=per-selected-light-reflectedRadiance*2/solidAnglePdf*visibility view8=16-sample-rab-average-sum-of-both-lights requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticFullDomainTable={proposalDomain=all-current-doom-analytics sourcePdfFormula=1/currentDoomAnalyticCount sourcePdfSum=1.000000 invalidPolicy=included-as-zero-contribution reservoirInvPdf=currentDoomAnalyticCount view8=sum-of-all-valid-selected-sample-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} emissiveDomainTable={proposalDomain=current-emissive-triangles sourcePdf=sampleWeightAndPdf.y fallback=max(uploadedPdf,1/currentEmissiveCount) selection=SelectSmokeWeightedEmissiveTriangle view8=sum-of-valid-emissive-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} output=owned-current-frame temporal=0 spatial=0 mode56=0 task=%s\n",
+            "PathTracePrimaryPass: PDFNEE verifier dump stage=%s earlyReturn=%s enable=%d route=%d view=%d lightMode=%d domain=%d samples=%d visibility=%d r_pathTracing=%d debugMode=%d cleanRoute=%d output=%dx%d sceneBuilt=%d shader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d commandList=%d splitCount=%d unifiedCount=%d managerCount=deferred doomAnalyticCount=%d activeVerifierCount=%d firstMissingContract=%s syntheticOneLightTable={sourcePdf=1.000000 solidAnglePdf=1.000000 targetPdfCenter=0.318310 reservoirInvPdf=1.000000 reflectedRadianceCenter=(0.318310,0.318310,0.318310) finalContributionCenter=(0.318310,0.318310,0.318310)} syntheticOverlapSourcePdfTable={twoLights=(0.500000,0.500000) nLightsCount=4 nLightsEach=0.250000 sourcePdfSum=1.000000} realAnalyticOneLightTable={proposalDomain=first-contributing-doom-analytic-for-surface sourcePdf=1.000000 requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticTwoLightTable={proposalDomain=first-two-contributing-doom-analytics-for-surface sourcePdf=(0.500000,0.500000) sourcePdfSum=1.000000 reservoirInvPdf=2.000000 finalContribution=per-selected-light-reflectedRadiance*2/solidAnglePdf*visibility view8=16-sample-rab-average-sum-of-both-lights requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticFullDomainTable={proposalDomain=all-current-doom-analytics sourcePdfFormula=1/currentDoomAnalyticCount sourcePdfSum=1.000000 invalidPolicy=included-as-zero-contribution reservoirInvPdf=currentDoomAnalyticCount view8=sum-of-all-valid-selected-sample-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} emissiveDomainTable={proposalDomain=current-emissive-triangles sourcePdf=sampleWeightAndPdf.y fallback=max(uploadedPdf,1/currentEmissiveCount) selection=SelectSmokeWeightedEmissiveTriangle view8=sum-of-valid-emissive-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} regirDomainTable={proposalDomain=ReGIR-candidate-cache sourcePdf=1/invSourcePdf invSourcePdf=risWeightSum/selectedCellWeight selection=hashCellModLightsPerCell prepass=build-only-u72 consumer=t73 requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} output=owned-current-frame temporal=0 spatial=0 mode56=0 task=%s\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
@@ -918,7 +931,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture;
     const bool pdfNeeVerifierBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokePdfNeeVerifierBindingLayout && m_smokeTextureDescriptorTable &&
-        m_frameResources.outputTexture && m_smokeConstantsBuffer;
+        m_frameResources.outputTexture && m_smokeConstantsBuffer &&
+        (!pdfNeeReGIRSourceRouteRequested || (regirSettings.enabled && regirResourceReady && m_smokeReGIRState.candidateCacheBuffer));
     const bool regirCandidateDebugView =
         regirSettings.debugView == 4 ||
         regirSettings.debugView == 5 ||
@@ -1396,6 +1410,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 return;
             }
 
+            const nvrhi::BufferHandle pdfNeePrepassReGIRCandidateSrv =
+                m_smokeReGIRState.candidateCacheBuffer ? m_smokeReGIRState.candidateCacheBuffer : m_smokeLightCandidateBuffer;
             nvrhi::BindingSetDesc pdfNeePrepassBindingSetDesc;
             pdfNeePrepassBindingSetDesc.bindings = {
                 nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
@@ -1470,7 +1486,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer)
+                nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(73, pdfNeePrepassReGIRCandidateSrv)
             };
             nvrhi::BindingSetHandle pdfNeePrepassBindingSet = device->createBindingSet(pdfNeePrepassBindingSetDesc, m_smokePdfNeeVerifierBindingLayout);
             if (!pdfNeePrepassBindingSet)
@@ -1494,7 +1511,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             const uint32_t pdfNeeSafetyDisableMask = BuildPathTraceSafetyDisableMask();
             const bool pdfNeeDisableEmissiveTriangleSampling = PathTraceSafetyDisabled(pdfNeeSafetyDisableMask, RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING);
             const bool pdfNeeDisableAnalyticLightLoop = PathTraceSafetyDisabled(pdfNeeSafetyDisableMask, RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP);
-            const int requestedPdfNeeLightMode = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
+            const int requestedPdfNeeLightMode = idMath::ClampInt(0, 9, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
             const int pdfNeeProducerLightMode = requestedPdfNeeLightMode >= 4 && requestedPdfNeeLightMode <= 6 ? requestedPdfNeeLightMode : 6;
 
             PathTraceSmokeConstants pdfNeeProducerConstants = {};
@@ -1858,7 +1875,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
     }
-    if (regirDebugRouteRequested)
+    if (regirDebugRouteRequested || pdfNeeReGIRBuildPrepassRequested)
     {
         if (!m_smokeReGIRDebugShaderTable)
         {
@@ -1866,6 +1883,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (!m_smokeReGIRDebugShaderTable)
         {
+            if (pdfNeeVerifierDumpRequested)
+            {
+                printPdfNeeVerifierDump("dispatch-entry", "regir-build-shader");
+                r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+            }
             if (r_pathTracingReGIRDump.GetInteger() != 0)
             {
                 printReGIRDump("dispatch-entry", "regir-debug-shader");
@@ -1876,10 +1898,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
 
     nvrhi::BindingSetHandle regirDebugBindingSet;
-    if (regirDebugRouteRequested)
+    if (regirDebugRouteRequested || pdfNeeReGIRBuildPrepassRequested)
     {
         if (!device)
         {
+            if (pdfNeeVerifierDumpRequested)
+            {
+                printPdfNeeVerifierDump("dispatch-entry", "device");
+                r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+            }
             if (r_pathTracingReGIRDump.GetInteger() != 0)
             {
                 printReGIRDump("dispatch-entry", "device");
@@ -1889,6 +1916,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (!m_smokeReGIRState.candidateCacheBuffer)
         {
+            if (pdfNeeVerifierDumpRequested)
+            {
+                printPdfNeeVerifierDump("dispatch-entry", "regir-candidate-cache");
+                r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+            }
             if (r_pathTracingReGIRDump.GetInteger() != 0)
             {
                 printReGIRDump("dispatch-entry", "candidate-cache-buffer");
@@ -1936,6 +1968,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirDebugBindingSet = device->createBindingSet(regirBindingSetDesc, m_smokeReGIRDebugBindingLayout);
         if (!regirDebugBindingSet)
         {
+            if (pdfNeeVerifierDumpRequested)
+            {
+                printPdfNeeVerifierDump("dispatch-entry", "regir-build-binding-set");
+                r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+            }
             if (r_pathTracingReGIRDump.GetInteger() != 0)
             {
                 printReGIRDump("dispatch-entry", "regir-debug-binding-set");
@@ -2022,6 +2059,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
+        const nvrhi::BufferHandle pdfNeeReGIRCandidateSrv =
+            m_smokeReGIRState.candidateCacheBuffer ? m_smokeReGIRState.candidateCacheBuffer : m_smokeLightCandidateBuffer;
         nvrhi::BindingSetDesc pdfNeeBindingSetDesc;
         pdfNeeBindingSetDesc.bindings = {
             nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas),
@@ -2096,7 +2135,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer),
-            nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer)
+            nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(73, pdfNeeReGIRCandidateSrv)
         };
         pdfNeeVerifierBindingSet = device->createBindingSet(pdfNeeBindingSetDesc, m_smokePdfNeeVerifierBindingLayout);
         if (!pdfNeeVerifierBindingSet)
@@ -2833,7 +2873,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingRestirPTUnifiedNee.GetInteger() != 0 ? 4.0f : 0.0f);
     constants.unifiedLightInfo[3] = static_cast<float>(Max(0, m_smokeUnifiedLightRemapCount));
     const int pdfNeeVerifierView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
-    const int pdfNeeVerifierLightMode = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
+    const int pdfNeeVerifierLightMode = idMath::ClampInt(0, 9, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
     const int pdfNeeVerifierDomain = idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierDomain.GetInteger());
     const int pdfNeeVerifierSamples = idMath::ClampInt(1, 32, r_pathTracingRestirPdfNeeVerifierSamples.GetInteger());
     const int pdfNeeVerifierVisibility = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger());
@@ -2859,27 +2899,34 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const int realAnalyticTwoCount = Max(0, m_smokeDoomAnalyticLightCount) >= 2 ? 2 : 0;
         const int realAnalyticFullCount = Max(0, m_smokeDoomAnalyticLightCount);
         const int emissiveDomainCount = Max(0, m_smokeEmissiveTriangleCount);
+        const int regirSourceLightCount = regirSettings.lightDomain == 0 ? Max(0, m_smokeDoomAnalyticLightCount) :
+            (regirSettings.lightDomain == 1 ? Max(0, m_smokeEmissiveTriangleCount) : (Max(0, m_smokeDoomAnalyticLightCount) + Max(0, m_smokeEmissiveTriangleCount)));
+        const int regirCandidateSlotCount = regirSettings.enabled && regirSourceLightCount > 0 ? static_cast<int>(regirDesc.slotCount) : 0;
         const int activeDomainCount =
             (pdfNeeVerifierLightMode >= 1 && pdfNeeVerifierLightMode <= 3) ? (pdfNeeVerifierLightMode == 3 ? 4 : pdfNeeVerifierLightMode) :
             (pdfNeeVerifierLightMode == 4 ? realAnalyticOneCount :
             (pdfNeeVerifierLightMode == 5 ? realAnalyticTwoCount :
             (pdfNeeVerifierLightMode == 6 ? realAnalyticFullCount :
             (pdfNeeVerifierLightMode == 7 ? emissiveDomainCount :
+            (pdfNeeVerifierLightMode == 9 ? regirCandidateSlotCount :
             pdfNeeVerifierDomain == 0 ? splitCount :
-            (pdfNeeVerifierDomain == 1 ? unifiedCount : managerCount)))));
+            (pdfNeeVerifierDomain == 1 ? unifiedCount : managerCount))))));
         const char* firstMissingContract =
             pdfNeeVerifierForbiddenMode ? "forbidden-mode-56" :
             (!pdfNeeVerifierRouteEnabled ? "route-disabled" :
+            (pdfNeeVerifierLightMode == 9 && !regirSettings.enabled ? "regir-disabled" :
+            (pdfNeeVerifierLightMode == 9 && (!regirResourceReady || !m_smokeReGIRState.candidateCacheBuffer) ? "regir-candidate-cache" :
             (pdfNeeVerifierLightMode == 0 || activeDomainCount <= 0 ? "no-active-proposal-domain" :
-            (pdfNeeVerifierLightMode >= 1 && pdfNeeVerifierLightMode <= 7 ? "none" : "estimator-not-implemented-pdfnee-01")));
+            ((pdfNeeVerifierLightMode >= 1 && pdfNeeVerifierLightMode <= 7) || pdfNeeVerifierLightMode == 9 ? "none" : "estimator-not-implemented-pdfnee-01")))));
         const char* taskLabel = (pdfNeeVerifierLightMode == 2 || pdfNeeVerifierLightMode == 3) ? "PDFNEE-03" :
+            (pdfNeeVerifierLightMode == 9 ? "PDFNEE-11" :
             (pdfNeeVerifierLightMode == 7 ? "PDFNEE-07" :
             (pdfNeeVerifierLightMode == 6 ? "PDFNEE-06" :
             (pdfNeeVerifierLightMode == 5 ? "PDFNEE-05" :
             (pdfNeeVerifierLightMode == 4 ? "PDFNEE-04" :
-            (pdfNeeVerifierLightMode == 1 ? "PDFNEE-02" : "PDFNEE-01")))));
+            (pdfNeeVerifierLightMode == 1 ? "PDFNEE-02" : "PDFNEE-01"))))));
         common->Printf(
-            "PathTracePrimaryPass: PDFNEE verifier route enable=%d requestedEnable=%d view=%d lightMode=%d domain=%d samples=%d visibility=%d debugMode=%d splitCount=%d unifiedCount=%d managerCount=%d doomAnalyticCount=%d activeVerifierCount=%d firstMissingContract=%s cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 producerHelperSequence=RTXDI_EmptyDIReservoir,RTXDI_StreamSample,RTXDI_FinalizeResampling,RTXDI_PackDIReservoir syntheticOneLightTable={sourcePdf=1.000000 solidAnglePdf=1.000000 targetPdfCenter=0.318310 reservoirInvPdf=1.000000 reflectedRadianceCenter=(0.318310,0.318310,0.318310) finalContributionCenter=(0.318310,0.318310,0.318310)} syntheticOverlapSourcePdfTable={twoLights=(0.500000,0.500000) nLightsCount=4 nLightsEach=0.250000 sourcePdfSum=1.000000} realAnalyticOneLightTable={proposalDomain=first-contributing-doom-analytic-for-surface sourcePdf=1.000000 requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticTwoLightTable={proposalDomain=first-two-contributing-doom-analytics-for-surface sourcePdf=(0.500000,0.500000) sourcePdfSum=1.000000 reservoirInvPdf=2.000000 finalContribution=per-selected-light-reflectedRadiance*2/solidAnglePdf*visibility view8=16-sample-rab-average-sum-of-both-lights requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticFullDomainTable={proposalDomain=all-current-doom-analytics sourcePdfFormula=1/currentDoomAnalyticCount sourcePdfSum=1.000000 invalidPolicy=included-as-zero-contribution reservoirInvPdf=currentDoomAnalyticCount view8=sum-of-all-valid-selected-sample-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} emissiveDomainTable={proposalDomain=current-emissive-triangles sourcePdf=sampleWeightAndPdf.y fallback=max(uploadedPdf,1/currentEmissiveCount) selection=SelectSmokeWeightedEmissiveTriangle view8=sum-of-valid-emissive-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} output=owned-current-frame temporal=0 spatial=0 mode56=0 task=%s\n",
+            "PathTracePrimaryPass: PDFNEE verifier route enable=%d requestedEnable=%d view=%d lightMode=%d domain=%d samples=%d visibility=%d debugMode=%d splitCount=%d unifiedCount=%d managerCount=%d doomAnalyticCount=%d activeVerifierCount=%d firstMissingContract=%s cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 producerHelperSequence=RTXDI_EmptyDIReservoir,RTXDI_StreamSample,RTXDI_FinalizeResampling,RTXDI_PackDIReservoir syntheticOneLightTable={sourcePdf=1.000000 solidAnglePdf=1.000000 targetPdfCenter=0.318310 reservoirInvPdf=1.000000 reflectedRadianceCenter=(0.318310,0.318310,0.318310) finalContributionCenter=(0.318310,0.318310,0.318310)} syntheticOverlapSourcePdfTable={twoLights=(0.500000,0.500000) nLightsCount=4 nLightsEach=0.250000 sourcePdfSum=1.000000} realAnalyticOneLightTable={proposalDomain=first-contributing-doom-analytic-for-surface sourcePdf=1.000000 requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticTwoLightTable={proposalDomain=first-two-contributing-doom-analytics-for-surface sourcePdf=(0.500000,0.500000) sourcePdfSum=1.000000 reservoirInvPdf=2.000000 finalContribution=per-selected-light-reflectedRadiance*2/solidAnglePdf*visibility view8=16-sample-rab-average-sum-of-both-lights requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} realAnalyticFullDomainTable={proposalDomain=all-current-doom-analytics sourcePdfFormula=1/currentDoomAnalyticCount sourcePdfSum=1.000000 invalidPolicy=included-as-zero-contribution reservoirInvPdf=currentDoomAnalyticCount view8=sum-of-all-valid-selected-sample-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} emissiveDomainTable={proposalDomain=current-emissive-triangles sourcePdf=sampleWeightAndPdf.y fallback=max(uploadedPdf,1/currentEmissiveCount) selection=SelectSmokeWeightedEmissiveTriangle view8=sum-of-valid-emissive-contributions requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} regirDomainTable={proposalDomain=ReGIR-candidate-cache sourcePdf=1/invSourcePdf invSourcePdf=risWeightSum/selectedCellWeight selection=hashCellModLightsPerCell prepass=build-only-u72 consumer=t73 requiredCalls=RAB_LoadLightInfo,RAB_SamplePolymorphicLight,RAB_GetLightSampleTargetPdfForSurface,RAB_GetReflectedBsdfRadianceForSurface} output=owned-current-frame temporal=0 spatial=0 mode56=0 task=%s\n",
             pdfNeeVerifierRouteEnabled ? 1 : 0,
             r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
             pdfNeeVerifierView,
@@ -3766,7 +3813,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             restirPTCombinedResolveActive ? "PT56.5 CombinedResolve DispatchRays" : "PT Final DispatchRays",
             nsightGpuMarkers);
         PathTraceGpuTimingStageScope timingStage(gpuTimingCapture, commandList, PT_GPU_TIMING_FINAL_RESOLVE);
-        if (regirDebugRouteRequested)
+        if (regirDebugRouteRequested || pdfNeeReGIRBuildPrepassRequested)
         {
             PathTraceSmokeConstants regirBuildConstants = constants;
             regirBuildConstants.regirInfo3[0] = 1.0f;
@@ -3775,9 +3822,25 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             regirBuildConstants.dispatchTileInfo[2] = static_cast<float>(m_frameResources.width);
             regirBuildConstants.dispatchTileInfo[3] = static_cast<float>(m_frameResources.height);
             commandList->writeBuffer(m_smokeConstantsBuffer, &regirBuildConstants, sizeof(regirBuildConstants));
+            if (pdfNeeReGIRBuildPrepassRequested && !regirDebugRouteRequested)
+            {
+                nvrhi::rt::State regirBuildState;
+                regirBuildState.shaderTable = m_smokeReGIRDebugShaderTable;
+                regirBuildState.bindings = { regirDebugBindingSet, m_smokeTextureDescriptorTable };
+                commandList->setRayTracingState(regirBuildState);
+            }
             commandList->dispatchRays(args);
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeReGIRState.candidateCacheBuffer);
+            if (pdfNeeReGIRBuildPrepassRequested && !regirDebugRouteRequested)
+            {
+                commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::ShaderResource);
+            }
             commandList->commitBarriers();
+            commandList->writeBuffer(m_smokeConstantsBuffer, &constants, sizeof(constants));
+            if (pdfNeeReGIRBuildPrepassRequested && !regirDebugRouteRequested)
+            {
+                commandList->setRayTracingState(state);
+            }
         }
         if (dispatchTileSettings.enabled)
         {
