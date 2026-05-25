@@ -36,6 +36,10 @@ step. The lanes are:
     3. integration mode
         Verified estimator feeding the known-good accumulator.
 
+The first integration implementation task is PDFNEE-09. It may only produce a
+clean-compatible RTXDI DI current reservoir page for the known-good clean
+accumulator. It is not a mode 56, RRX, spatial, or best-light task.
+
 If the verifier fails, the bug is in light-domain/PDF/NEE/replay. If the
 verifier passes but integration fails, the bug is in the handoff to temporal.
 
@@ -137,6 +141,8 @@ Do not:
     use albedo, fallback beauty, or fallback direct lighting
     suppress broad light ranges to hide overlap problems
     claim success from names, dumps, green bands, or non-crashing builds
+    treat SmokeOutput or PathTraceSmokeReservoir buffers as the clean
+        accumulator handoff
 
 
 Primary Proof
@@ -164,6 +170,10 @@ The worker must document:
 For overlapping lights, the source PDF must sum to 1.0 across the active
 proposal domain, or the worker must stop and report the missing proposal
 contract.
+
+For integration, the proof must additionally show that the selected light
+identity, sample UV, targetPdf, sourcePdf, M, and reservoir weight are written
+as an RTXDI_PackedDIReservoir current page before temporal reuse is enabled.
 
 
 Build / Deploy Lane
@@ -201,6 +211,7 @@ Read all files in this folder before starting:
     contract_matrix.txt
     cvar_contract.txt
     io_whitelist.txt
+    integration_handoff_plan.txt
     validation_matrix.txt
     worker_protocol.txt
     worker_tasks.txt

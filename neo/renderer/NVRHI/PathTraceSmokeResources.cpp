@@ -1174,6 +1174,17 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BindingLayoutDesc pdfNeeVerifierBindingLayoutDesc = bindingLayoutDesc;
+    pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
+    pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(70));
+    pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(71));
+    m_smokePdfNeeVerifierBindingLayout = device->createBindingLayout(pdfNeeVerifierBindingLayoutDesc);
+    if (!m_smokePdfNeeVerifierBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create PDFNEE verifier binding layout\n");
+        return;
+    }
+
     nvrhi::BindingLayoutDesc cleanRtxdiDiSentinelBindingLayoutDesc;
     cleanRtxdiDiSentinelBindingLayoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
     cleanRtxdiDiSentinelBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
@@ -1479,7 +1490,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             m_smokePdfNeeVerifierShaderTable,
             "PDF+NEE verifier",
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
-            "renderprogs2/spirv/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin");
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.bin",
+            m_smokePdfNeeVerifierBindingLayout);
     default:
         return false;
     }
@@ -1737,6 +1749,9 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSceneBuilt = false;
     m_smokeTestDispatched = false;
     m_smokeStaticBlasCacheValid = false;
+    m_smokeStaticBlasSignature = 0;
+    m_smokeSceneUniverseStaticBuildGeneration = 0;
+    m_smokeSceneRebuildLogged = false;
     m_smokeGeometryUniverse.Clear();
     m_smokeSkinnedSurfaceRecords.clear();
     m_smokePreviousSkinnedSurfaceRecords.clear();
@@ -1746,6 +1761,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_sceneUniverse.Clear();
     m_instanceUniverse.Clear();
     m_smokeLightUniverse.Clear();
+    m_remixFramePrepare.Clear();
+    m_remixLightManager.Clear();
+    m_remixRtxdiResources.Clear();
+    m_restirLightManager.Clear();
     m_smokeSceneRenderWorld = nullptr;
     m_smokeSceneMapName.Clear();
     m_smokeSceneMapTimeStamp = 0;

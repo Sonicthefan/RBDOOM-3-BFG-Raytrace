@@ -188,6 +188,7 @@ extern idCVar r_pathTracingCleanRtxdiDiBestLights;
 extern idCVar r_pathTracingCleanRtxdiDiDenoiser;
 extern idCVar r_pathTracingCleanRtxdiDiFallbackLighting;
 extern idCVar r_pathTracingCleanRtxdiDiLightMode;
+extern idCVar r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent;
 extern idCVar r_pathTracingCleanRtxdiDiDump;
 extern idCVar r_pathTracingRestirPTView68Dump;
 extern idCVar r_pathTracingRestirPTView68DumpX;

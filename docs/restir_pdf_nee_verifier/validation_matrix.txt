@@ -224,13 +224,50 @@ Fail:
     when sourcePdf is zero
 
 
+Rung V-09: Clean Accumulator Reservoir Handoff
+----------------------------------------------
+
+Purpose:
+
+    Prove that a verified PDFNEE current-frame estimator can produce a
+    clean-compatible RTXDI DI current reservoir page and feed the known-good
+    clean temporal accumulator.
+
+Expected:
+
+    PDFNEE writes one RTXDI_PackedDIReservoir per output pixel into the clean
+    current reservoir page equivalent to CleanRtxdiDiCurrentReservoirs/u69
+    invalid pixels write empty reservoirs
+    selected light index and sample UV replay through shared RAB helpers
+    targetPdf and final resolve use the same replayed light sample
+    source PDF matches the verified PDFNEE proposal contract
+    temporal off matches standalone PDFNEE view 2 in mean
+    temporal on reduces noise without changing mean brightness
+
+Pass:
+
+    one verified real domain accumulates visibly from noisy to less noisy
+    first frame after enable/reset is current-frame only
+    camera motion tracks without obvious stale light identity
+    no mode 56 dispatch, RRX reservoir page, spatial reuse, best-light path, or
+    denoiser is required
+
+Fail:
+
+    integration consumes SmokeOutput or PathTraceSmokeReservoir data
+    packed reservoir fields are hand-authored without helper equivalence proof
+    temporal output changes mean brightness instead of reducing noise
+    empty or invalid samples reveal fallback albedo/beauty
+    the worker uses mode 56/view72 as the proof instead of the clean
+    accumulator handoff
+
+
 Hard Stop
 ---------
 
 Stop at the first failing rung.
 
-Do not connect the verifier to temporal until V-01 through the required real
-domain rung pass.
+Do not start V-09 until V-01 through the required real domain rung pass.
 
 Do not continue to temporal to make a wrong current-frame estimator look
 stable.

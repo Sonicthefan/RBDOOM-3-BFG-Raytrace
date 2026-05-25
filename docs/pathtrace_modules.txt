@@ -874,6 +874,42 @@ pathtrace_smoke_mode18_restir_hybrid.rt.hlsl
     suppresses native direct NEE on secondary diffuse/reflection hits for
     heavy-handed isolation only.
 
+pathtrace_pdf_nee_verifier.rt.hlsl
+    Standalone PDF + NEE verifier shader library. CMake builds
+    `pathtrace_pdf_nee_verifier.rt.bin`, and PathTraceSmokeDispatch selects it
+    only when `r_pathTracingRestirPdfNeeVerifierEnable 1`, verifier view is
+    nonzero, and debugMode is not 56. The route is current-frame verifier work:
+    it does not activate mode-56 dispatch planning, temporal/spatial RRX
+    prepasses, best lights, denoiser/confidence/gradient inputs, fallback
+    beauty/albedo output, or old rbdoom NEE records as proof.
+
+    The shader validates source PDF, `solidAnglePdf`, target PDF,
+    selected-light replay, visibility, and final NEE/direct contribution for
+    the standalone verifier modes. Analytic modes 4-6 consume split-domain RAB
+    light indices internally but write the PDFNEE-09 clean handoff page at
+    `CleanRtxdiDiCurrentReservoirs`/u69 using zero-based Doom analytic light
+    indices and RTXDI helper calls. Emissive mode 7 remains a visual
+    current-frame verifier path; it does not yet produce a clean-consumable
+    emissive reservoir because the clean sentinel has no reviewed emissive
+    light-info bridge.
+
+cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    Clean-room RTXDI DI sentinel shader library. CMake builds
+    `cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin`, and
+    PathTraceSmokeDispatch selects it for `r_pathTracingCleanRtxdiDiEnable`
+    views 1-10. Its normal current/temporal diagnostics still rebuild their
+    own initial reservoir.
+
+    `r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1` switches the sentinel to
+    consume an existing PDFNEE-produced current page at u69 instead of
+    overwriting it. That consume path is intentionally limited to the analytic
+    clean-domain reservoir indices written by PDFNEE lightModes 4-6. It is a
+    two-step same-camera diagnostic until dispatch has an explicit same-frame
+    PDFNEE producer plus clean consumer orchestration. If current-only consume
+    works but temporal accumulation fails to track, debug the clean page
+    rotation, previous-valid state, primary-surface history, motion vectors, and
+    analytic identity remap rather than changing the PDFNEE estimator.
+
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
     source category constants, small surface/light-sample/result records, the

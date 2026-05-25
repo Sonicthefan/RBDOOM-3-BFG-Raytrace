@@ -1089,6 +1089,12 @@ idCVar r_pathTracingCleanRtxdiDiLightMode(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room Remix DI light mode: 0 no lights negative test, 1 Doom analytic only, 2 emissive only deferred, 3 analytic plus emissive deferred" );
 
+idCVar r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent(
+    "r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI consumes the PDFNEE-produced current reservoir page at u69 instead of rebuilding its own initial reservoir; first slice supports analytic split-domain indices" );
+
 idCVar r_pathTracingCleanRtxdiDiDump(
     "r_pathTracingCleanRtxdiDiDump",
     "0",

@@ -1,0 +1,387 @@
+PDFNEE-08 Integration Handoff Plan
+==================================
+
+Scope
+-----
+
+This is a planning artifact only. It describes how a later integration slice
+should connect the verified PDF + NEE current-frame estimator to the
+known-good clean DI temporal accumulator.
+
+Do not implement from this task. Do not edit temporal accumulation code as
+part of PDFNEE-08.
+
+The integration claim is narrow:
+
+    current-frame static/analytic/emissive NEE producer parity into a clean
+    accumulator handoff
+
+It is not a mode 56 parity claim. PDFNEE must remain forbidden in debugMode 56.
+
+
+Current Verified Producer State
+-------------------------------
+
+The standalone verifier route is:
+
+    shader:
+        neo/shaders/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.hlsl
+
+    route:
+        EvaluatePathTracePdfNeeRealRabRoute(...)
+
+    output today:
+        SmokeOutput[pixel]
+
+    current-frame emissive route:
+        PathTracePdfNeeEvaluateEmissiveDomain(...)
+        SelectSmokeWeightedEmissiveTriangle(...)
+        RAB_EvaluateLocalLightSourcePdf(...)
+        PathTracePdfNeeEvaluateEmissiveCandidate(...)
+
+    candidate replay:
+        RAB_LoadLightInfo(...)
+        RAB_SamplePolymorphicLight(...)
+        RAB_GetLightSampleTargetPdfForSurface(...)
+        RAB_GetReflectedBsdfRadianceForSurface(...)
+        RAB_GetStrictLightSampleVisibility(...) when verifier visibility is on
+
+    contribution:
+        reflectedRadiance * reservoirInvPdf / solidAnglePdf * visibility
+
+The current standalone verifier writes a color proof. It does not yet write a
+validated RTXDI DI reservoir page that can be consumed by the clean temporal
+accumulator.
+
+The next implementation slice is PDFNEE-09. Its only job is to add that
+clean-compatible current reservoir producer and prove it through the clean
+accumulator boundary.
+
+Do not treat these PDFNEE buffers as the integration handoff:
+
+    SmokeReservoirCurrent       register(u18)
+    SmokeReservoirPrevious      register(u19)
+    SmokeReservoirSpatialScratch register(u20)
+
+Those are PathTraceSmokeReservoir buffers. The known-good clean accumulator
+uses RTXDI_PackedDIReservoir pages and has different storage semantics.
+
+
+Current Producer Prerequisites
+------------------------------
+
+The current-frame PDFNEE lightMode 7 emissive producer prerequisite is the
+named static emissive policy in:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Policy:
+
+    pdfNeeVerifierStaticEmissiveProducerPolicy =
+        debugMode 0
+        PDFNEE verifier enabled
+        PDFNEE view > 0
+        PDFNEE lightMode 7
+
+Allowed effect:
+
+    Enable the current-frame static emissive/material/light-domain producer
+    setup required by the verifier.
+
+Forbidden effects:
+
+    mode 56 dispatch
+    temporal prepasses
+    spatial prepasses
+    RRX reservoir pages
+    motion-vector requirements
+    rigid route expansion
+    dynamic/rigid emissive append
+    full-world static emissive append unless an explicit separate test CVar is
+    enabled
+
+Producer diagnostics for this prerequisite are dumped by:
+
+    r_pathTracingEmissiveBridgeDump
+
+Expected useful dump fields:
+
+    pdfNeeStaticEmissive
+    restirPT
+    enableTextureProbe
+    fullWorldAppended
+    rigidRouteEnabled
+    routedRigidAppended
+    captured
+    static
+    dynamic
+    distribution
+    unifiedCurrent
+    managerCurrentPayload
+    lightUniverseGeneration
+
+
+Required Future Resource Handoff
+--------------------------------
+
+The later integration slice needs a new explicit current-frame handoff. It must
+not wire PDFNEE PathTraceSmokeReservoir data directly into the clean temporal
+accumulator.
+
+PDFNEE-09 should treat this as an implementation requirement, not a planning
+option.
+
+Required producer write:
+
+    one RTXDI_PackedDIReservoir current page, indexed by pixel
+
+Required resource shape:
+
+    element type:
+        RTXDI_PackedDIReservoir
+
+    count:
+        width * height
+
+    current page:
+        equivalent to CleanRtxdiDiCurrentReservoirs register(u69)
+
+    temporal output page:
+        equivalent to CleanRtxdiDiTemporalReservoirs register(u70)
+
+    previous page:
+        equivalent to CleanRtxdiDiPreviousReservoirs register(u71)
+
+The first integration implementation may either:
+
+    1. add a new PDFNEE integration producer that writes the u69-compatible
+       RTXDI_PackedDIReservoir current page directly, or
+
+    2. add a tightly scoped conversion stage from the verified PDFNEE candidate
+       result into an RTXDI_DIReservoir and then RTXDI_PackDIReservoir(...)
+
+Either route must document the exact mapping from PDFNEE fields to RTXDI
+reservoir fields before code is accepted.
+
+The preferred first slice is the direct producer route: build the
+RTXDI_DIReservoir at the same point where the verified PDFNEE path selects and
+replays the candidate. Do not attempt to convert only the final RGB
+contribution, because the temporal accumulator needs reservoir identity,
+sample UV, targetPdf, M, and weight semantics.
+
+PDFNEE-09 implementation note:
+
+    The first implementation slice produces the clean-compatible current page
+    from the PDFNEE verifier shader and writes it to the clean current
+    reservoir binding, u69. It deliberately does not edit the clean sentinel
+    temporal shader. Therefore this slice proves the current reservoir
+    producer side of the handoff; the clean sentinel still needs an explicitly
+    reviewed external-current-page consume mode before it can perform the
+    temporal-on visual proof from this PDFNEE page.
+
+PDFNEE-09 external consume note:
+
+    The second implementation slice adds an explicit clean sentinel consume
+    mode:
+
+        r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
+
+    In that mode the clean sentinel reads the existing u69 current reservoir
+    page instead of rebuilding its own initial reservoir. The first consume
+    slice is intentionally limited to PDFNEE lightMode 6 analytic reservoirs.
+    PDFNEE still uses split-domain indices internally for verified RAB replay,
+    but the u69 handoff page is written in the clean sentinel's zero-based Doom
+    analytic light domain so the accumulator consumes a stable clean-domain
+    identity instead of a frame-local emissive-offset identity.
+
+    This is current-frame static analytic consume proof only. It does not claim
+    mode 56 parity, does not enable mode 56 dispatch, does not enable spatial
+    reuse, and does not add an emissive RAB loader to the clean sentinel.
+
+    PDFNEE lightMode 7 emissive current-page consumption remains deferred until
+    the clean sentinel has a reviewed emissive light-info bridge that exactly
+    matches the verifier/RAB emissive path. Until then lightMode 7 writes an
+    invalid/empty clean current reservoir instead of a misleading analytic
+    identity.
+
+
+Exact Producer Writes
+---------------------
+
+For every valid current-frame pixel, the future producer must write:
+
+    selected light identity:
+        the same selected light consumed by the verified PDFNEE RAB replay
+
+    sample UV:
+        the same UV used by RAB_SamplePolymorphicLight and by targetPdf
+        evaluation
+
+    reservoir target:
+        RTXDI-compatible DI reservoir data, not PathTraceSmokeReservoir
+
+    candidate count / M:
+        the current-frame sample count represented according to RTXDI
+        reservoir semantics
+
+    reservoir weight:
+        derived from the verified PDFNEE sourcePdf, solidAnglePdf, targetPdf,
+        reflectedRadiance, and visibility chain without inventing new math
+
+        The reservoir should be produced through RTXDI_EmptyDIReservoir,
+        RTXDI_StreamSample, RTXDI_FinalizeResampling, and
+        RTXDI_PackDIReservoir. Hand-authored packed fields are not acceptable
+        unless exact helper equivalence is proven first.
+
+    visibility:
+        the same verifier visibility policy used for the proof run
+
+    invalid state:
+        a zero/invalid RTXDI reservoir, not stale previous data
+
+The producer must also preserve the current primary surface record needed by
+the clean temporal accumulator's projection and validation path. The first
+integration proof should use the same current primary-surface path as the clean
+DI sentinel, not a new surface format.
+
+
+Exact Accumulator Reads
+-----------------------
+
+The known-good clean DI temporal accumulator reads:
+
+    current reservoir page:
+        CleanRtxdiDiCurrentReservoirs, register(u69)
+
+    temporal output page:
+        CleanRtxdiDiTemporalReservoirs, register(u70)
+
+    previous reservoir page:
+        CleanRtxdiDiPreviousReservoirs, register(u71)
+
+    primary surface history:
+        current and previous PathTracePrimarySurfaceRecord buffers
+
+    camera/history validity:
+        CleanRtxdiDiTemporalFlags
+        previous camera constants
+        previous reservoir valid flag
+
+The later integration must feed only the current reservoir page into this
+accumulator boundary first. It must not enable spatial reuse, best-light
+sampling, mode 56 combined resolve, or RRX debug reservoir pages.
+
+
+Negative Path Handling
+----------------------
+
+The integration producer must write a zero/invalid current reservoir and a
+loud diagnostic state for:
+
+    invalid RAB surface
+    zero active analytic/emissive domain
+    invalid selected light index
+    invalid RAB_LightInfo
+    non-replayable RAB_LightSample
+    sourcePdf <= 0
+    solidAnglePdf <= 0
+    targetPdf <= 0
+    visibility rejection
+    zero final contribution
+    missing RTXDI reservoir output page
+    output page count smaller than width * height
+    incompatible reservoir stride
+    first frame with no valid previous reservoir
+    scene/map/light-domain reset invalidating previous state
+
+The accumulator must treat first-frame and reset cases as current-frame only:
+
+    temporal disabled or previous-valid flag clear
+    previous reservoir ignored
+    previous output not reused
+    current page still visible as raw current-frame output
+
+
+First Runtime Proof After Integration
+-------------------------------------
+
+The first integration proof must be run from a cold load directly into the test
+location. Do not visit mode 56/view72 first.
+
+Baseline current-frame verifier:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+    r_pathTracingRestirPdfNeeVerifierLightMode 4, 5, 6, or 7
+    r_pathTracingRestirPdfNeeVerifierView 2
+    r_pathTracingRestirPdfNeeVerifierSamples 1
+    r_pathTracingRestirPdfNeeVerifierVisibility 1
+    r_pathTracingRestirPdfNeeVerifierDump 1
+
+Producer prerequisite dump for emissives:
+
+    r_pathTracingEmissiveBridgeDump 1
+
+Integration temporal-off proof:
+
+    first consume slice:
+        produce u69 with PDFNEE lightMode 6/view 2 at the same camera
+        then enable r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
+        with the clean route
+
+    clean temporal disabled
+    same camera
+    same analytic split-domain light mode/domain
+    output mean matches the standalone PDFNEE current-frame view
+
+Integration temporal-on proof:
+
+    first consume slice:
+        produce u69 with PDFNEE lightMode 6/view 2 at the same camera
+        then enable r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1
+        with the clean route
+
+    clean temporal enabled
+    first frame falls back to current-frame
+    later frames reduce noise
+    no mean brightness shift
+    no stuck old light identity after scene/map reset
+    no mode 56 dispatch or RRX reservoir page dependency
+
+Mode 56/view72 may be used as a comparison diagnostic at the same camera, but
+it is not proof for PDFNEE integration.
+
+PDFNEE-09 stops after build/deploy for this user visual test. It must not
+continue into spatial reuse, best-light feedback, mode 56, or RRX integration.
+
+
+Known Non-Blocking Limitation
+-----------------------------
+
+The current lightMode 7 view 8 expected-mean visualizer still uses
+PathTracePdfNeeEmissiveExpectedMean(...), which scans only the first 512
+emissive records. This can make view 8 dark or portal-sensitive when relevant
+lights are outside that scan window.
+
+This limitation is accepted short-term for PDFNEE-08 because the integration
+handoff proof must use the sampled current-frame route, not the first-512 mean
+visualizer.
+
+
+Stop Conditions
+---------------
+
+Stop before implementation if any of these are not explicitly resolved:
+
+    no exact PathTracePdfNee result to RTXDI_DIReservoir field mapping
+    any need to edit temporal/spatial code for the first integration slice
+    any requirement to run through debugMode 56
+    any requirement to enable full-world append as the default fix
+    any requirement to enable rigid/dynamic emissive route expansion by default
+    any reliance on old rbdoom NEE records as proof
+    any output that can fall back to beauty, albedo, or status-only colors
+
+Stop before claiming the temporal-on integration proof if:
+
+    the clean accumulator shader still rebuilds its own initial reservoir
+    instead of consuming the PDFNEE-produced current page

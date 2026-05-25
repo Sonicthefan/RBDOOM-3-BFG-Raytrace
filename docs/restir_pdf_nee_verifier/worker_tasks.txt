@@ -230,3 +230,143 @@ Acceptance:
     exact accumulator reads
     negative-path handling
     first runtime proof after integration
+
+Output artifact:
+
+    integration_handoff_plan.txt
+
+
+PDFNEE-09: Clean Accumulator Current Reservoir Producer
+-------------------------------------------------------
+
+Goal:
+
+    Connect the verified PDF + NEE current-frame estimator to the known-good
+    clean RTXDI DI temporal accumulator by producing a clean-compatible
+    RTXDI_PackedDIReservoir current page.
+
+    This is the first implementation task after PDFNEE-08. It is not a mode 56
+    or RRX integration task.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+RTXDI math reference:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/ReservoirStorage.hlsli
+
+Required rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.hlsl
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    docs/restir_pdf_nee_verifier
+
+    If the worker chooses a new adjacent integration shader instead of
+    extending the verifier shader, it must name that shader before editing and
+    keep the same resource contract.
+
+Forbidden:
+
+    no mode 56 route
+    no RRX reservoir pages
+    no PathTraceSmokeReservoir handoff
+    no spatial reuse
+    no best-light sampling
+    no denoiser/confidence/gradient paths
+    no fallback albedo/beauty output
+    no direct edits to existing temporal/spatial ReSTIR mode 56 code
+    no full-world static emissive append as the default fix
+    no rigid/dynamic emissive route expansion as the default fix
+
+Required producer write:
+
+    Write one current RTXDI_PackedDIReservoir per output pixel into the clean
+    current reservoir page equivalent to:
+
+        CleanRtxdiDiCurrentReservoirs register(u69)
+
+    The producer must write an empty RTXDI reservoir for every invalid pixel or
+    rejected candidate. It must not leave stale reservoir contents.
+
+Required reservoir mapping:
+
+    selected light identity:
+        same selected light index used by the verified PDFNEE RAB replay
+
+    sample UV:
+        same sample UV used by RAB_SamplePolymorphicLight and targetPdf
+        evaluation
+
+    targetPdf:
+        RAB_GetLightSampleTargetPdfForSurface(...) for the same replayed sample
+
+    source PDF:
+        verified PDFNEE proposal PDF for the active light mode/domain
+
+    reservoir M:
+        number of current-frame proposals represented by the reservoir
+
+    reservoir weight:
+        produced through RTXDI reservoir helpers, not by copying final color
+
+Required RTXDI helper shape:
+
+    RTXDI_EmptyDIReservoir
+    RTXDI_StreamSample
+    RTXDI_FinalizeResampling
+    RTXDI_PackDIReservoir
+
+    The worker must not hand-author packed reservoir fields unless they first
+    prove exact equivalence to these helper calls.
+
+Required accumulator boundary:
+
+    First feed only the current reservoir page into the clean accumulator
+    boundary. Reuse the clean accumulator's existing previous/temporal page
+    ownership and primary-surface history contract.
+
+Required proof:
+
+    1. temporal off:
+        integration output matches standalone PDFNEE view 2 in mean for the
+        same light mode/domain
+
+    2. temporal on:
+        first frame is current-frame only
+        later frames visibly reduce noise
+        mean brightness does not shift
+        camera motion tracks without obvious stale light identity
+
+    3. negative path:
+        invalid surface, no active domain, invalid light info, zero sourcePdf,
+        zero solidAnglePdf, zero targetPdf, and visibility rejection all write
+        empty current reservoirs and loud diagnostics
+
+Acceptance:
+
+    Build/deploy succeeds.
+
+    User visual testing confirms noisy-to-less-noisy accumulation for at least
+    one verified real domain, starting with analytic lightMode 6 or emissive
+    lightMode 7.
+
+Stop conditions:
+
+    Stop before implementation if the worker cannot name the exact sample UV
+    source, sourcePdf, targetPdf, M, and RTXDI helper sequence.
+
+    Stop after build/deploy for user visual testing. Do not proceed to spatial,
+    best-light, mode 56, or RRX integration in this task.

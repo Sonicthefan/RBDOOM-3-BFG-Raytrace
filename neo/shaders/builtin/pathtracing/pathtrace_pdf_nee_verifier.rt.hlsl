@@ -301,6 +301,12 @@ SamplerState SmokeMaterialSampler : register(s0);
 #define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
 #include "Rtxdi/PT/Reservoir.hlsli"
 #endif
+#include "Rtxdi/DI/Reservoir.hlsli"
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiTemporalReservoirs : register(u70);
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiPreviousReservoirs : register(u71);
+#define RTXDI_LIGHT_RESERVOIR_BUFFER CleanRtxdiDiPreviousReservoirs
+#include "Rtxdi/DI/ReservoirStorage.hlsli"
 
 cbuffer PathTraceSmokeConstants : register(b2)
 {
@@ -513,9 +519,61 @@ struct PathTracePdfNeeSyntheticResult
     float targetPdf;
     float reservoirInvPdf;
     float visibility;
+    float2 sampleUv;
     float3 reflectedRadiance;
     float3 finalContribution;
 };
+
+uint PathTracePdfNeeCleanReservoirBlockCount(uint dimension)
+{
+    return (dimension + RTXDI_RESERVOIR_BLOCK_SIZE - 1u) / RTXDI_RESERVOIR_BLOCK_SIZE;
+}
+
+RTXDI_ReservoirBufferParameters PathTracePdfNeeCleanReservoirParams(uint2 dimensions)
+{
+    RTXDI_ReservoirBufferParameters params = (RTXDI_ReservoirBufferParameters)0;
+    const uint blockCountX = max(PathTracePdfNeeCleanReservoirBlockCount(dimensions.x), 1u);
+    const uint blockCountY = max(PathTracePdfNeeCleanReservoirBlockCount(dimensions.y), 1u);
+    params.reservoirBlockRowPitch = blockCountX * RTXDI_RESERVOIR_BLOCK_SIZE * RTXDI_RESERVOIR_BLOCK_SIZE;
+    params.reservoirArrayPitch = params.reservoirBlockRowPitch * blockCountY;
+    return params;
+}
+
+uint PathTracePdfNeeCleanReservoirPointer(uint2 pixel, uint2 dimensions)
+{
+    return RTXDI_ReservoirPositionToPointer(PathTracePdfNeeCleanReservoirParams(dimensions), pixel, 0u);
+}
+
+RTXDI_DIReservoir PathTracePdfNeeBuildCleanCurrentReservoir(PathTracePdfNeeSyntheticResult result, uint cleanLightIndex)
+{
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    if (result.valid == 0u || cleanLightIndex == 0xffffffffu || result.targetPdf <= 0.0 || result.sourcePdf <= 0.0 || result.reservoirInvPdf <= 0.0)
+    {
+        return reservoir;
+    }
+
+    RTXDI_StreamSample(
+        reservoir,
+        cleanLightIndex,
+        result.sampleUv,
+        0.0,
+        result.targetPdf,
+        result.reservoirInvPdf);
+    RTXDI_FinalizeResampling(reservoir, 1.0, max(reservoir.M, 1.0));
+    RTXDI_StoreVisibilityInDIReservoir(reservoir, result.visibility.xxx, false);
+    return reservoir;
+}
+
+void PathTracePdfNeeStoreCleanCurrentReservoir(uint2 pixel, uint2 dimensions, PathTracePdfNeeSyntheticResult result, uint cleanLightIndex)
+{
+    if (RestirPdfNeeVerifierControlInfo.w < 0.5)
+    {
+        return;
+    }
+
+    const uint reservoirPointer = PathTracePdfNeeCleanReservoirPointer(pixel, dimensions);
+    CleanRtxdiDiCurrentReservoirs[reservoirPointer] = RTXDI_PackDIReservoir(PathTracePdfNeeBuildCleanCurrentReservoir(result, cleanLightIndex));
+}
 
 float PathTracePdfNeeLuminance(float3 value)
 {
@@ -3033,11 +3091,12 @@ float4 EvaluateRestirPTCombinedDirectGiPreviewFromSurface(RAB_Surface surface, u
 #include "RtxdiBridge/RAB_Visibility.hlsli"
 #include "RtxdiBridge/RAB_LocalLightPdf.hlsli"
 
-bool PathTracePdfNeeFindOneRealAnalyticLightIndex(RAB_Surface surface, uint2 pixel, out uint lightIndex, out RAB_LightSample selectedSample, out float selectedTargetPdf)
+bool PathTracePdfNeeFindOneRealAnalyticLightIndex(RAB_Surface surface, uint2 pixel, out uint lightIndex, out RAB_LightSample selectedSample, out float selectedTargetPdf, out float2 selectedSampleUv)
 {
     lightIndex = 0xffffffffu;
     selectedSample = RAB_EmptyLightSample();
     selectedTargetPdf = 0.0;
+    selectedSampleUv = float2(0.0, 0.0);
     const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
     const uint analyticCount = RAB_GetCurrentDoomAnalyticLightCount();
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
@@ -3061,6 +3120,7 @@ bool PathTracePdfNeeFindOneRealAnalyticLightIndex(RAB_Surface surface, uint2 pix
                     lightIndex = candidateIndex;
                     selectedSample = lightSample;
                     selectedTargetPdf = targetPdf;
+                    selectedSampleUv = sampleUv;
                     return true;
                 }
             }
@@ -3097,11 +3157,12 @@ bool PathTracePdfNeeBuildRealAnalyticCandidate(RAB_Surface surface, uint candida
     return true;
 }
 
-PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateRealAnalyticCandidate(RAB_Surface surface, uint lightIndex, RAB_LightSample lightSample, float targetPdf, float sourcePdf)
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateRealAnalyticCandidate(RAB_Surface surface, uint lightIndex, RAB_LightSample lightSample, float2 sampleUv, float targetPdf, float sourcePdf)
 {
     PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
     result.sourcePdf = sourcePdf;
     result.selectedLightIndex = lightIndex;
+    result.sampleUv = sampleUv;
 
     const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
     if (!RAB_IsLightInfoValid(lightInfo) || lightInfo.lightType != RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
@@ -3170,13 +3231,14 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateOneRealAnalyticLight(RAB_S
     uint lightIndex = 0xffffffffu;
     RAB_LightSample lightSample = RAB_EmptyLightSample();
     float targetPdf = 0.0;
-    if (!PathTracePdfNeeFindOneRealAnalyticLightIndex(surface, pixel, lightIndex, lightSample, targetPdf))
+    float2 sampleUv = float2(0.0, 0.0);
+    if (!PathTracePdfNeeFindOneRealAnalyticLightIndex(surface, pixel, lightIndex, lightSample, targetPdf, sampleUv))
     {
         result.invalidReason = 2u;
         return result;
     }
 
-    return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, targetPdf, 1.0);
+    return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, sampleUv, targetPdf, 1.0);
 }
 
 bool PathTracePdfNeeFindTwoRealAnalyticLightCandidates(
@@ -3185,12 +3247,14 @@ bool PathTracePdfNeeFindTwoRealAnalyticLightCandidates(
     out uint2 lightIndices,
     out RAB_LightSample lightSample0,
     out RAB_LightSample lightSample1,
-    out float2 targetPdfs)
+    out float2 targetPdfs,
+    out float2 selectedSampleUv)
 {
     lightIndices = uint2(0xffffffffu, 0xffffffffu);
     lightSample0 = RAB_EmptyLightSample();
     lightSample1 = RAB_EmptyLightSample();
     targetPdfs = float2(0.0, 0.0);
+    selectedSampleUv = float2(0.0, 0.0);
 
     if (!RAB_IsSurfaceValid(surface))
     {
@@ -3203,6 +3267,7 @@ bool PathTracePdfNeeFindTwoRealAnalyticLightCandidates(
     const float2 sampleUv = float2(
         PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x51u)),
         PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x52u)));
+    selectedSampleUv = sampleUv;
     const uint verifierAnalyticScanLimit = min(analyticCount, 512u);
     uint acceptedCount = 0u;
 
@@ -3250,7 +3315,8 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateTwoRealAnalyticLights(RAB_
     RAB_LightSample lightSample0 = RAB_EmptyLightSample();
     RAB_LightSample lightSample1 = RAB_EmptyLightSample();
     float2 targetPdfs = float2(0.0, 0.0);
-    if (!PathTracePdfNeeFindTwoRealAnalyticLightCandidates(surface, pixel, lightIndices, lightSample0, lightSample1, targetPdfs))
+    float2 sampleUv = float2(0.0, 0.0);
+    if (!PathTracePdfNeeFindTwoRealAnalyticLightCandidates(surface, pixel, lightIndices, lightSample0, lightSample1, targetPdfs, sampleUv))
     {
         result.invalidReason = 2u;
         return result;
@@ -3260,9 +3326,9 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateTwoRealAnalyticLights(RAB_
     const float selection = PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x53u));
     if (selection < 0.5)
     {
-        return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndices.x, lightSample0, targetPdfs.x, 0.5);
+        return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndices.x, lightSample0, sampleUv, targetPdfs.x, 0.5);
     }
-    return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndices.y, lightSample1, targetPdfs.y, 0.5);
+    return PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndices.y, lightSample1, sampleUv, targetPdfs.y, 0.5);
 }
 
 float3 PathTracePdfNeeRealAnalyticAveragedContribution(RAB_Surface surface, uint lightIndex)
@@ -3283,7 +3349,7 @@ float3 PathTracePdfNeeRealAnalyticAveragedContribution(RAB_Surface surface, uint
         }
 
         const PathTracePdfNeeSyntheticResult sampleResult =
-            PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, targetPdf, 1.0);
+            PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, sampleUv, targetPdf, 1.0);
         sumContribution += sampleResult.valid != 0u ? sampleResult.finalContribution : float3(0.0, 0.0, 0.0);
     }
 
@@ -3296,7 +3362,8 @@ float3 PathTracePdfNeeTwoRealAnalyticExpectedMean(RAB_Surface surface, uint2 pix
     RAB_LightSample lightSample0 = RAB_EmptyLightSample();
     RAB_LightSample lightSample1 = RAB_EmptyLightSample();
     float2 targetPdfs = float2(0.0, 0.0);
-    if (!PathTracePdfNeeFindTwoRealAnalyticLightCandidates(surface, pixel, lightIndices, lightSample0, lightSample1, targetPdfs))
+    float2 sampleUv = float2(0.0, 0.0);
+    if (!PathTracePdfNeeFindTwoRealAnalyticLightCandidates(surface, pixel, lightIndices, lightSample0, lightSample1, targetPdfs, sampleUv))
     {
         return float3(0.0, 0.0, 0.0);
     }
@@ -3340,6 +3407,7 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateFullRealAnalyticDomain(RAB
     const float2 sampleUv = float2(
         PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x61u)),
         PathTracePdfNeeHashToUnitFloat(PathTracePdfNeeHash(pixel, frameIndex, 0x62u)));
+    result.sampleUv = sampleUv;
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
     if (!RAB_IsReplayableLightSample(lightSample))
     {
@@ -3410,7 +3478,7 @@ float3 PathTracePdfNeeFullRealAnalyticExpectedMean(RAB_Surface surface, uint2 pi
         }
 
         const PathTracePdfNeeSyntheticResult sampleResult =
-            PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, targetPdf, 1.0);
+            PathTracePdfNeeEvaluateRealAnalyticCandidate(surface, lightIndex, lightSample, sampleUv, targetPdf, 1.0);
         sumContribution += sampleResult.valid != 0u ? sampleResult.finalContribution : float3(0.0, 0.0, 0.0);
     }
 
@@ -3435,7 +3503,8 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateEmissiveCandidate(RAB_Surf
         return result;
     }
 
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, float2(0.5, 0.5));
+    result.sampleUv = float2(0.5, 0.5);
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, result.sampleUv);
     if (!RAB_IsReplayableLightSample(lightSample))
     {
         result.invalidReason = 2u;
@@ -3540,6 +3609,7 @@ float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uin
     const uint lightMode = clamp((uint)max(RestirPdfNeeVerifierInfo.z, 0.0), 0u, 8u);
     if (lightMode != 4u && lightMode != 5u && lightMode != 6u && lightMode != 7u)
     {
+        PathTracePdfNeeStoreCleanCurrentReservoir(pixel, dimensions, (PathTracePdfNeeSyntheticResult)0, 0xffffffffu);
         return float4(1.0, 0.55, 0.0, 1.0);
     }
 
@@ -3560,6 +3630,16 @@ float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uin
     {
         result = PathTracePdfNeeEvaluateOneRealAnalyticLight(surface, pixel);
     }
+
+    uint cleanLightIndex = 0xffffffffu;
+    if (result.valid != 0u && lightMode >= 4u && lightMode <= 6u)
+    {
+        const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+        cleanLightIndex = result.selectedLightIndex >= emissiveCount
+            ? (result.selectedLightIndex - emissiveCount)
+            : 0xffffffffu;
+    }
+    PathTracePdfNeeStoreCleanCurrentReservoir(pixel, dimensions, result, cleanLightIndex);
     if (view == 6u || (result.valid == 0u && lightMode != 6u && lightMode != 7u))
     {
         return result.valid != 0u ? float4(0.05, 0.85, 0.25, 1.0) : PathTracePdfNeeInvalidColor(result.invalidReason);

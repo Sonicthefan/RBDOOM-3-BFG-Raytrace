@@ -188,6 +188,7 @@ private:
     nvrhi::rt::AccelStructHandle m_smokeDynamicBlas;
     nvrhi::rt::AccelStructHandle m_smokeTlas;
     nvrhi::BindingLayoutHandle m_smokeBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokePdfNeeVerifierBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiSentinelBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
