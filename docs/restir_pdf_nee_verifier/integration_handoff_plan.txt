@@ -591,6 +591,12 @@ Standalone ReGIR proof immediately before consume:
     r_pathTracingDebugMode 0
     r_pathTracingReGIREnable 1
     r_pathTracingReGIRLightDomain 2
+    r_pathTracingReGIRCellSize 256
+    r_pathTracingReGIRGridX 32
+    r_pathTracingReGIRGridY 32
+    r_pathTracingReGIRGridZ 16
+    r_pathTracingReGIRLightsPerCell 128
+    r_pathTracingReGIRBuildSamples 16
     r_pathTracingReGIRDebugView 7
     r_pathTracingReGIRDump 1
 
@@ -599,6 +605,12 @@ First PDFNEE-11 consume proof:
     r_pathTracingDebugMode 0
     r_pathTracingReGIREnable 1
     r_pathTracingReGIRLightDomain 2
+    r_pathTracingReGIRCellSize 256
+    r_pathTracingReGIRGridX 32
+    r_pathTracingReGIRGridY 32
+    r_pathTracingReGIRGridZ 16
+    r_pathTracingReGIRLightsPerCell 128
+    r_pathTracingReGIRBuildSamples 16
     r_pathTracingRestirPdfNeeVerifierEnable 1
     r_pathTracingRestirPdfNeeVerifierLightMode 9
     r_pathTracingRestirPdfNeeVerifierView 2
@@ -617,6 +629,11 @@ Expected output:
     no best-light feedback
     no debugMode 56
     no RRX reservoir pages
+
+The ReGIR defaults are intentionally tuned for Doom 3 room and portal scale:
+cellSize=256, grid=32x32x16, lightsPerCell=128, and buildSamples=16. Larger
+cells can make mode 9 look like it loses direct lights because one candidate set
+is shared across map regions that are too large.
 
 The clean RTXDI temporal accumulator may consume a PDFNEE ReGIR-produced
 current page only in a later, explicitly reviewed integration task after this

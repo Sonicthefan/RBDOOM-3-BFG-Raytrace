@@ -157,12 +157,24 @@ PDFNEE ReGIR consume uses:
     r_pathTracingRestirPdfNeeVerifierLightMode 9
     r_pathTracingReGIREnable 1
     r_pathTracingReGIRLightDomain 0, 1, or 2
+    r_pathTracingReGIRCellSize 256
+    r_pathTracingReGIRGridX 32
+    r_pathTracingReGIRGridY 32
+    r_pathTracingReGIRGridZ 16
+    r_pathTracingReGIRLightsPerCell 128
+    r_pathTracingReGIRBuildSamples 16
 
 First proof preset:
 
     r_pathTracingDebugMode 0
     r_pathTracingReGIREnable 1
     r_pathTracingReGIRLightDomain 2
+    r_pathTracingReGIRCellSize 256
+    r_pathTracingReGIRGridX 32
+    r_pathTracingReGIRGridY 32
+    r_pathTracingReGIRGridZ 16
+    r_pathTracingReGIRLightsPerCell 128
+    r_pathTracingReGIRBuildSamples 16
     r_pathTracingRestirPdfNeeVerifierEnable 1
     r_pathTracingRestirPdfNeeVerifierLightMode 9
     r_pathTracingRestirPdfNeeVerifierView 2

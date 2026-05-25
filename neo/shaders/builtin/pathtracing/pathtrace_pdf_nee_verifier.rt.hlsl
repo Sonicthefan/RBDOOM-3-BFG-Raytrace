@@ -3688,45 +3688,13 @@ float2 PathTracePdfNeeReGIRReplaySampleUv(PathTraceReGIRCandidateRecord candidat
     return float2(PathTracePdfNeeHashToUnitFloat(seedA), PathTracePdfNeeHashToUnitFloat(seedB));
 }
 
-PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidate(RAB_Surface surface, uint2 pixel)
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
+    RAB_Surface surface,
+    PathTraceReGIRCellDebug cell,
+    uint slotIndex,
+    uint candidateSlotCount)
 {
     PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
-    if (!RAB_IsSurfaceValid(surface))
-    {
-        result.invalidReason = 1u;
-        return result;
-    }
-
-    const uint enable = (uint)max(ReGIRInfo0.x, 0.0);
-    const uint mode = (uint)max(ReGIRInfo0.z, 0.0);
-    const uint centerMode = (uint)max(ReGIRInfo0.w, 0.0);
-    const float cellSize = ReGIRInfo1.x;
-    const uint3 gridDimensions = uint3((uint)max(ReGIRInfo1.y, 0.0), (uint)max(ReGIRInfo1.z, 0.0), (uint)max(ReGIRInfo1.w, 0.0));
-    const uint lightsPerCell = max((uint)max(ReGIRInfo2.x, 1.0), 1u);
-    const uint cellCount = (uint)max(ReGIRInfo2.w, 0.0);
-    const uint candidateSlotCount = (uint)max(ReGIRInfo3.y, 0.0);
-    if (enable == 0u || mode == 0u || cellCount == 0u || candidateSlotCount == 0u)
-    {
-        result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_DISABLED_OR_EMPTY;
-        return result;
-    }
-
-    const PathTraceReGIRCellDebug cell = PathTraceReGIRMapWorldPositionToCell(
-        surface.worldPos,
-        CameraOriginAndTMax.xyz,
-        centerMode,
-        mode,
-        cellSize,
-        gridDimensions,
-        ReGIRInfo4.xyz);
-    if (cell.valid == 0u || cell.localCellIndex >= cellCount)
-    {
-        result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_OUT_OF_VOLUME;
-        return result;
-    }
-
-    const uint slotInCell = PathTraceReGIRHashCell(cell.globalCoord) % lightsPerCell;
-    const uint slotIndex = cell.localCellIndex * lightsPerCell + slotInCell;
     if (slotIndex >= candidateSlotCount)
     {
         result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_SLOT_RANGE;
@@ -3831,6 +3799,142 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidate(RAB_Surface
     return result;
 }
 
+PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidate(RAB_Surface surface, uint2 pixel, uint sampleIndex)
+{
+    PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        result.invalidReason = 1u;
+        return result;
+    }
+
+    const uint enable = (uint)max(ReGIRInfo0.x, 0.0);
+    const uint mode = (uint)max(ReGIRInfo0.z, 0.0);
+    const uint centerMode = (uint)max(ReGIRInfo0.w, 0.0);
+    const float cellSize = ReGIRInfo1.x;
+    const uint3 gridDimensions = uint3((uint)max(ReGIRInfo1.y, 0.0), (uint)max(ReGIRInfo1.z, 0.0), (uint)max(ReGIRInfo1.w, 0.0));
+    const uint lightsPerCell = max((uint)max(ReGIRInfo2.x, 1.0), 1u);
+    const uint cellCount = (uint)max(ReGIRInfo2.w, 0.0);
+    const uint candidateSlotCount = (uint)max(ReGIRInfo3.y, 0.0);
+    if (enable == 0u || mode == 0u || cellCount == 0u || candidateSlotCount == 0u)
+    {
+        result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_DISABLED_OR_EMPTY;
+        return result;
+    }
+
+    const PathTraceReGIRCellDebug cell = PathTraceReGIRMapWorldPositionToCell(
+        surface.worldPos,
+        CameraOriginAndTMax.xyz,
+        centerMode,
+        mode,
+        cellSize,
+        gridDimensions,
+        ReGIRInfo4.xyz);
+    if (cell.valid == 0u || cell.localCellIndex >= cellCount)
+    {
+        result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_OUT_OF_VOLUME;
+        return result;
+    }
+
+    const uint cellBaseSlot = cell.localCellIndex * lightsPerCell;
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const uint hash = PathTraceReGIRHashCell(cell.globalCoord) ^
+        PathTracePdfNeeHash(pixel, frameIndex, 0x9100u + sampleIndex);
+    const uint startSlotInCell = hash % lightsPerCell;
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
+    const uint scanBudget = max(16u, min(32u, sampleCount * 4u));
+    const uint scanCount = min(lightsPerCell, scanBudget);
+    uint stride = ((hash >> 8u) | 1u) % lightsPerCell;
+    stride = stride == 0u ? 1u : stride;
+
+    PathTracePdfNeeSyntheticResult firstInvalidResult = (PathTracePdfNeeSyntheticResult)0;
+    firstInvalidResult.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_CANDIDATE;
+    [loop]
+    for (uint probeIndex = 0u; probeIndex < scanCount; ++probeIndex)
+    {
+        const uint slotInCell = (startSlotInCell + probeIndex * stride) % lightsPerCell;
+        const PathTracePdfNeeSyntheticResult candidateResult =
+            PathTracePdfNeeEvaluateReGIRCandidateSlot(surface, cell, cellBaseSlot + slotInCell, candidateSlotCount);
+        if (candidateResult.valid != 0u)
+        {
+            return candidateResult;
+        }
+        if (probeIndex == 0u ||
+            (firstInvalidResult.invalidReason == PATH_TRACE_PDF_NEE_INVALID_REGIR_CANDIDATE &&
+                candidateResult.invalidReason != PATH_TRACE_PDF_NEE_INVALID_REGIR_CANDIDATE))
+        {
+            firstInvalidResult = candidateResult;
+        }
+    }
+
+    return firstInvalidResult;
+}
+
+float3 PathTracePdfNeeEvaluateReGIRSampledContribution(RAB_Surface surface, uint2 pixel)
+{
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
+    float3 sumContribution = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    {
+        const PathTracePdfNeeSyntheticResult sampleResult =
+            PathTracePdfNeeEvaluateReGIRCandidate(surface, pixel, sampleIndex);
+        sumContribution += sampleResult.valid != 0u ? sampleResult.finalContribution : float3(0.0, 0.0, 0.0);
+    }
+    return sumContribution / max((float)sampleCount, 1.0);
+}
+
+float3 PathTracePdfNeeEvaluateReGIRCellMeanContribution(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint enable = (uint)max(ReGIRInfo0.x, 0.0);
+    const uint mode = (uint)max(ReGIRInfo0.z, 0.0);
+    const uint centerMode = (uint)max(ReGIRInfo0.w, 0.0);
+    const float cellSize = ReGIRInfo1.x;
+    const uint3 gridDimensions = uint3((uint)max(ReGIRInfo1.y, 0.0), (uint)max(ReGIRInfo1.z, 0.0), (uint)max(ReGIRInfo1.w, 0.0));
+    const uint lightsPerCell = max((uint)max(ReGIRInfo2.x, 1.0), 1u);
+    const uint cellCount = (uint)max(ReGIRInfo2.w, 0.0);
+    const uint candidateSlotCount = (uint)max(ReGIRInfo3.y, 0.0);
+    if (enable == 0u || mode == 0u || cellCount == 0u || candidateSlotCount == 0u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const PathTraceReGIRCellDebug cell = PathTraceReGIRMapWorldPositionToCell(
+        surface.worldPos,
+        CameraOriginAndTMax.xyz,
+        centerMode,
+        mode,
+        cellSize,
+        gridDimensions,
+        ReGIRInfo4.xyz);
+    if (cell.valid == 0u || cell.localCellIndex >= cellCount)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint cellBaseSlot = cell.localCellIndex * lightsPerCell;
+    const uint availableSlots = min(lightsPerCell, candidateSlotCount > cellBaseSlot ? candidateSlotCount - cellBaseSlot : 0u);
+    if (availableSlots == 0u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 sumContribution = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint slotInCell = 0u; slotInCell < availableSlots; ++slotInCell)
+    {
+        const PathTracePdfNeeSyntheticResult slotResult =
+            PathTracePdfNeeEvaluateReGIRCandidateSlot(surface, cell, cellBaseSlot + slotInCell, candidateSlotCount);
+        sumContribution += slotResult.valid != 0u ? slotResult.finalContribution : float3(0.0, 0.0, 0.0);
+    }
+    return sumContribution / max((float)availableSlots, 1.0);
+}
+
 float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uint2 dimensions)
 {
     const uint view = clamp((uint)max(RestirPdfNeeVerifierInfo.y, 0.0), 0u, 8u);
@@ -3844,7 +3948,7 @@ float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uin
     PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
     if (lightMode == 9u)
     {
-        result = PathTracePdfNeeEvaluateReGIRCandidate(surface, pixel);
+        result = PathTracePdfNeeEvaluateReGIRCandidate(surface, pixel, 0u);
     }
     else if (lightMode == 7u)
     {
@@ -3878,6 +3982,10 @@ float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uin
     }
     if (view == 2u || view == 7u)
     {
+        if (lightMode == 9u)
+        {
+            return float4(saturate(PathTracePdfNeeEvaluateReGIRSampledContribution(surface, pixel)), 1.0);
+        }
         return float4(saturate(result.finalContribution), 1.0);
     }
     if (view == 8u && lightMode == 6u)
@@ -3887,6 +3995,10 @@ float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uin
     if (view == 8u && lightMode == 7u)
     {
         return float4(saturate(PathTracePdfNeeEmissiveExpectedMean(surface)), 1.0);
+    }
+    if (view == 8u && lightMode == 9u)
+    {
+        return float4(saturate(PathTracePdfNeeEvaluateReGIRCellMeanContribution(surface)), 1.0);
     }
     if (view == 8u && lightMode == 5u)
     {

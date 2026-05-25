@@ -467,31 +467,31 @@ idCVar r_pathTracingReGIRCellSize(
 
 idCVar r_pathTracingReGIRGridX(
     "r_pathTracingReGIRGridX",
-    "16",
+    "32",
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR grid cells along world X for the initial debug shell" );
 
 idCVar r_pathTracingReGIRGridY(
     "r_pathTracingReGIRGridY",
-    "16",
+    "32",
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR grid cells along world Y for the initial debug shell" );
 
 idCVar r_pathTracingReGIRGridZ(
     "r_pathTracingReGIRGridZ",
-    "8",
+    "16",
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR grid cells along world Z for the initial debug shell" );
 
 idCVar r_pathTracingReGIRLightsPerCell(
     "r_pathTracingReGIRLightsPerCell",
-    "64",
+    "128",
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR candidate slots stored per cell" );
 
 idCVar r_pathTracingReGIRBuildSamples(
     "r_pathTracingReGIRBuildSamples",
-    "8",
+    "16",
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR light proposals streamed per cell candidate slot; clamped to 1..64" );
 
