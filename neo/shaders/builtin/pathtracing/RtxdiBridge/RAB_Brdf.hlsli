@@ -50,6 +50,16 @@ float3 RAB_EvaluateSurfaceBrdf(RAB_Surface surface, float3 wi, float3 wo)
     }
 
     const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+#ifdef RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES
+    if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES) != 0u)
+    {
+        if (dot(normal, wi) <= 0.0)
+        {
+            return float3(0.0, 0.0, 0.0);
+        }
+        return GetDiffuseAlbedo(surface.material) * (1.0 / RTXDI_PI);
+    }
+#endif
     if (dot(normal, wi) <= 0.0 || dot(normal, wo) <= 0.0 ||
         dot(RAB_GetSurfaceGeoNormal(surface), wi) <= 0.0 ||
         dot(RAB_GetSurfaceGeoNormal(surface), wo) <= 0.0)

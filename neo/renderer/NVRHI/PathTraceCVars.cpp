@@ -1141,7 +1141,7 @@ idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 12 real analytic full-domain temporal" );
+    "Clean-room Remix DI debug view: 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 12 real analytic full-domain temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",
@@ -1190,6 +1190,42 @@ idCVar r_pathTracingCleanRtxdiDiDump(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI one-shot route/resource dump for enable/view/features/light mode/page roles and dispatch dimensions" );
+
+idCVar r_pathTracingCleanRtxdiDiSubviewDispatch(
+    "r_pathTracingCleanRtxdiDiSubviewDispatch",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI mirror/subview diagnostic: allow clean dispatch during subviews; set 0 to block the mirror-glitch route at entry" );
+
+idCVar r_pathTracingCleanRtxdiDiSubviewReservoirPromote(
+    "r_pathTracingCleanRtxdiDiSubviewReservoirPromote",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI mirror/subview diagnostic: allow subview temporal reservoir pages to promote into previous history" );
+
+idCVar r_pathTracingCleanRtxdiDiSubviewSurfacePromote(
+    "r_pathTracingCleanRtxdiDiSubviewSurfacePromote",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI mirror/subview diagnostic: allow subview primary-surface pages to promote into previous history" );
+
+idCVar r_pathTracingCleanRtxdiDiView12FullAnalyticDomain(
+    "r_pathTracingCleanRtxdiDiView12FullAnalyticDomain",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI view 12 diagnostic: use full current Doom analytic domain instead of portal-region analytic domain" );
+
+idCVar r_pathTracingCleanRtxdiDiRelaxBrdfGates(
+    "r_pathTracingCleanRtxdiDiRelaxBrdfGates",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: relax RAB opaque/geometric/view BRDF rejection gates; default off for baseline validation" );
+
+idCVar r_pathTracingCleanRtxdiDiDoomTargetFloor(
+    "r_pathTracingCleanRtxdiDiDoomTargetFloor",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: force valid Doom analytic light samples to have a nonzero target PDF floor; default off for baseline validation" );
 
 idCVar r_pathTracingRestirPTView68Dump(
     "r_pathTracingRestirPTView68Dump",

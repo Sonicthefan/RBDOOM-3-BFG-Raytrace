@@ -110,7 +110,10 @@ bool RAB_UnifiedLightSampleEnabled()
 {
     return false;
 }
+static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
+static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
+#define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
 #include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 #include "../RtxdiBridge/RAB_LightTarget.hlsli"
 
@@ -1216,6 +1219,228 @@ float3 PathTraceCleanRoomTargetInvPdfColor(float targetPdf, float invPdf)
         0.15);
 }
 
+float3 PathTraceCleanRoomRealAnalyticOneSampleDiagnosticColor(uint2 pixel, uint2 dimensions)
+{
+    PathTraceCleanRtxdiDiInitialResult result = PathTraceCleanRoomRunSelectedInitialProducer(pixel, dimensions);
+    if (result.status != CLEAN_INITIAL_STATUS_VALID)
+    {
+        return PathTraceCleanRoomStatusColor(result.status);
+    }
+
+    const float sampledDistance = distance(result.surface.worldPositionAndViewDepth.xyz, result.samplePosition);
+    const float resolvedLuminance = RAB_Luminance(PathTraceCleanRoomFlatDiffuseResolveReservoir(result.surface, result.reservoir));
+    const uint band = min((pixel.y * 5u) / max(dimensions.y, 1u), 4u);
+    if (band == 0u)
+    {
+        const float v = PathTraceCleanRoomLog01(sampledDistance, 8.0);
+        return float3(v, v, v);
+    }
+    if (band == 1u)
+    {
+        const float v = PathTraceCleanRoomLog01(result.solidAnglePdf, 8.0);
+        return float3(0.0, v, 0.0);
+    }
+    if (band == 2u)
+    {
+        const float v = PathTraceCleanRoomLog01(result.targetPdf, 6.0);
+        return float3(v, 0.0, 0.0);
+    }
+    if (band == 3u)
+    {
+        const float v = PathTraceCleanRoomLog01(resolvedLuminance, 6.0);
+        return float3(v, v * 0.75, 0.05);
+    }
+
+    return PathTraceCleanRoomHashColor(result.selectedLightIndex);
+}
+
+float3 PathTraceCleanRoomRealAnalyticTargetFactorDiagnosticColor(uint2 pixel, uint2 dimensions)
+{
+    const uint2 samplePixel = min(dimensions - 1u, dimensions >> 1u);
+    PathTracePrimarySurfaceRecord surfaceRecord;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(samplePixel, dimensions, surfaceRecord))
+    {
+        return PathTraceCleanRoomStatusColor(CLEAN_INITIAL_STATUS_INVALID_SURFACE);
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(surfaceRecord);
+    const uint lightCount = PathTraceCleanRoomInitialLightCount();
+    if (!RAB_IsSurfaceValid(surface) || lightCount == 0u || CleanRtxdiDiLightMode != 1u)
+    {
+        return PathTraceCleanRoomStatusColor(lightCount == 0u ? CLEAN_INITIAL_STATUS_NO_LIGHTS : CLEAN_INITIAL_STATUS_INVALID_SURFACE);
+    }
+
+    uint lightIndex = 0u;
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    RAB_LightSample lightSample = RAB_EmptyLightSample();
+    const uint scanCount = min(lightCount, 64u);
+    [loop]
+    for (uint candidateIndex = 0u; candidateIndex < scanCount; ++candidateIndex)
+    {
+        RAB_LightInfo candidateInfo = RAB_LoadLightInfo(candidateIndex, false);
+        RAB_LightSample candidateSample = RAB_SamplePolymorphicLight(candidateInfo, surface, float2(0.5, 0.5));
+        if (RAB_IsReplayableLightSample(candidateSample) && RAB_Luminance(candidateSample.radiance) > 1.0e-8)
+        {
+            lightIndex = candidateIndex;
+            lightInfo = candidateInfo;
+            lightSample = candidateSample;
+            break;
+        }
+    }
+    const float2 sampleUv = float2(0.5, 0.5);
+    if (!RAB_IsReplayableLightSample(lightSample))
+    {
+        return PathTraceCleanRoomHashColor(lightIndex) * float3(0.25, 0.05, 0.05);
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float shadeNdotL = saturate(dot(RAB_GetSurfaceNormal(surface), lightDir));
+    const float geoNdotL = saturate(dot(RAB_GetSurfaceGeoNormal(surface), lightDir));
+    const float shadeNdotV = saturate(dot(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceViewDir(surface)));
+    const float geoNdotV = saturate(dot(RAB_GetSurfaceGeoNormal(surface), RAB_GetSurfaceViewDir(surface)));
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
+    const float radianceLum = RAB_Luminance(lightSample.radiance);
+    const float brdfLum = RAB_Luminance(brdf);
+    const float targetPdf = RAB_GetLightSampleTargetPdfForSurface(lightSample, surface);
+    const float reflectedLum = RAB_Luminance(brdf * lightSample.radiance * shadeNdotL);
+
+    const uint band = min((pixel.y * 8u) / max(dimensions.y, 1u), 7u);
+    if (band == 0u)
+    {
+        const float v = PathTraceCleanRoomLog01(lightDistance, 8.0);
+        return float3(v, v, v);
+    }
+    if (band == 1u)
+    {
+        const float v = PathTraceCleanRoomLog01(lightSample.solidAnglePdf, 8.0);
+        return float3(0.0, v, 0.0);
+    }
+    if (band == 2u)
+    {
+        const float v = PathTraceCleanRoomLog01(radianceLum, 6.0);
+        return float3(v, v * 0.5, 0.0);
+    }
+    if (band == 3u)
+    {
+        return pixel.x < (dimensions.x >> 1u)
+            ? float3(0.0, shadeNdotL, 0.0)
+            : float3(0.0, 0.0, geoNdotL);
+    }
+    if (band == 4u)
+    {
+        return pixel.x < (dimensions.x >> 1u)
+            ? float3(shadeNdotV, shadeNdotV, 0.0)
+            : float3(geoNdotV, 0.0, geoNdotV);
+    }
+    if (band == 5u)
+    {
+        const float v = PathTraceCleanRoomLog01(brdfLum, 4.0);
+        return float3(v, 0.0, v);
+    }
+    if (band == 6u)
+    {
+        const float target = PathTraceCleanRoomLog01(targetPdf, 6.0);
+        const float reflected = PathTraceCleanRoomLog01(reflectedLum, 6.0);
+        return pixel.x < (dimensions.x >> 1u)
+            ? float3(target, 0.0, 0.0)
+            : float3(reflected, reflected * 0.75, 0.0);
+    }
+
+    return PathTraceCleanRoomHashColor(lightIndex);
+}
+
+float3 PathTraceCleanRoomBinaryGateColor(bool pass)
+{
+    return pass ? float3(0.0, 0.90, 0.15) : float3(0.90, 0.04, 0.04);
+}
+
+float3 PathTraceCleanRoomRealAnalyticBinaryGateDiagnosticColor(uint2 pixel, uint2 dimensions)
+{
+    const uint2 samplePixel = min(dimensions - 1u, dimensions >> 1u);
+    PathTracePrimarySurfaceRecord surfaceRecord;
+    const bool surfaceRecordValid = PathTraceCleanRoomLoadSurfaceRecord(samplePixel, dimensions, surfaceRecord);
+    RAB_Surface surface = RAB_EmptySurface();
+    if (surfaceRecordValid)
+    {
+        surface = PathTraceCleanRoomSurfaceFromRecord(surfaceRecord);
+    }
+    const uint lightCount = PathTraceCleanRoomInitialLightCount();
+    const bool lightDomainValid = CleanRtxdiDiLightMode == 1u && lightCount > 0u;
+    const bool surfaceValid = surfaceRecordValid && RAB_IsSurfaceValid(surface);
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    RAB_LightSample lightSample = RAB_EmptyLightSample();
+    if (surfaceValid && lightDomainValid)
+    {
+        const uint scanCount = min(lightCount, 64u);
+        [loop]
+        for (uint candidateIndex = 0u; candidateIndex < scanCount; ++candidateIndex)
+        {
+            RAB_LightInfo candidateInfo = RAB_LoadLightInfo(candidateIndex, false);
+            RAB_LightSample candidateSample = RAB_SamplePolymorphicLight(candidateInfo, surface, float2(0.5, 0.5));
+            if (RAB_IsReplayableLightSample(candidateSample) && RAB_Luminance(candidateSample.radiance) > 1.0e-8)
+            {
+                lightInfo = candidateInfo;
+                lightSample = candidateSample;
+                break;
+            }
+        }
+    }
+
+    float3 lightDir = float3(0.0, 0.0, 1.0);
+    float lightDistance = 0.0;
+    if (RAB_IsReplayableLightSample(lightSample))
+    {
+        RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    }
+
+    const float shadeNdotL = dot(RAB_GetSurfaceNormal(surface), lightDir);
+    const float geoNdotL = dot(RAB_GetSurfaceGeoNormal(surface), lightDir);
+    const float shadeNdotV = dot(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceViewDir(surface));
+    const float geoNdotV = dot(RAB_GetSurfaceGeoNormal(surface), RAB_GetSurfaceViewDir(surface));
+    const float radianceLum = RAB_Luminance(lightSample.radiance);
+    const bool brdfSupported = RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface);
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
+    const float brdfLum = RAB_Luminance(brdf);
+    const float targetPdf = RAB_GetLightSampleTargetPdfForSurface(lightSample, surface);
+    const float reflectedLum = RAB_Luminance(brdf * lightSample.radiance * saturate(shadeNdotL));
+
+    const uint band = min((pixel.y * 8u) / max(dimensions.y, 1u), 7u);
+    if (band == 0u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(surfaceValid && lightDomainValid);
+    }
+    if (band == 1u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(brdfSupported);
+    }
+    if (band == 2u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(RAB_IsReplayableLightSample(lightSample));
+    }
+    if (band == 3u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(radianceLum > 1.0e-8);
+    }
+    if (band == 4u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(shadeNdotL > 0.0 && geoNdotL > 0.0);
+    }
+    if (band == 5u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(shadeNdotV > 0.0 && geoNdotV > 0.0);
+    }
+    if (band == 6u)
+    {
+        return PathTraceCleanRoomBinaryGateColor(brdfLum > 1.0e-8);
+    }
+
+    return pixel.x < (dimensions.x >> 1u)
+        ? PathTraceCleanRoomBinaryGateColor(targetPdf > 1.0e-8)
+        : PathTraceCleanRoomBinaryGateColor(reflectedLum > 1.0e-8);
+}
+
 bool PathTraceCleanRoomTemporalReuseEnabled()
 {
     return (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_ENABLE) != 0u &&
@@ -1689,7 +1914,7 @@ void RayGen()
     }
 
     const uint view = CleanRtxdiDiView;
-    if (view < 1u || view > 12u)
+    if (view < 1u || view > 15u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
         return;
@@ -1711,6 +1936,18 @@ void RayGen()
     else if (view == 4u || view == 7u || (view == 8u && (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_ENABLE) == 0u))
     {
         color = PathTraceCleanRoomInitialReservoirOutput(pixel, dimensions, view);
+    }
+    else if (view == 13u)
+    {
+        color = PathTraceCleanRoomRealAnalyticOneSampleDiagnosticColor(pixel, dimensions);
+    }
+    else if (view == 14u)
+    {
+        color = PathTraceCleanRoomRealAnalyticTargetFactorDiagnosticColor(pixel, dimensions);
+    }
+    else if (view == 15u)
+    {
+        color = PathTraceCleanRoomRealAnalyticBinaryGateDiagnosticColor(pixel, dimensions);
     }
     else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u)
     {

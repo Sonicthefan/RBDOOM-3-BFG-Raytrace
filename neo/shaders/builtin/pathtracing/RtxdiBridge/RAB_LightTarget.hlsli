@@ -23,7 +23,15 @@ float RAB_GetLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Sur
     const float3 brdf = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
     const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), lightDir));
     const float3 reflected = brdf * lightSample.radiance * ndotl;
-    return RAB_Luminance(reflected) / max(lightSample.solidAnglePdf, 1.0e-6);
+    const float targetPdf = RAB_Luminance(reflected) / max(lightSample.solidAnglePdf, 1.0e-6);
+#ifdef RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES
+    if (lightSample.lightType == 1u &&
+        (CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR) != 0u)
+    {
+        return max(targetPdf, max(RAB_Luminance(lightSample.radiance), 1.0e-4));
+    }
+#endif
+    return targetPdf;
 }
 
 float3 RAB_GetReflectedBsdfRadianceForSurface(float3 incomingRadianceLocation, float3 incomingRadiance, RAB_Surface surface)

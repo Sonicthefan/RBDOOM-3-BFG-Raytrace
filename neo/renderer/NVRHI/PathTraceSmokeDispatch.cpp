@@ -692,6 +692,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "real-analytic-portal-region-temporal";
         }
+        if (view == 13)
+        {
+            return "real-analytic-one-sample-diagnostic";
+        }
+        if (view == 14)
+        {
+            return "real-analytic-target-factor-diagnostic";
+        }
+        if (view == 15)
+        {
+            return "real-analytic-binary-gate-diagnostic";
+        }
         return "disabled";
     };
     auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
@@ -744,11 +756,23 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "shared-rab-rtxdi-initial-portal-region-temporal";
         }
+        if (view == 13)
+        {
+            return "shared-rab-one-real-doom-analytic-sample-scalars";
+        }
+        if (view == 14)
+        {
+            return "shared-rab-one-real-doom-analytic-target-factors";
+        }
+        if (view == 15)
+        {
+            return "shared-rab-one-real-doom-analytic-binary-gates";
+        }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 12;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 15;
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
@@ -855,11 +879,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
         const int cleanViewNow = cleanEnabledNow ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
-        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 12;
+        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 15;
         const int bindingSetReady = cleanRouteNow
             ? (m_smokeCleanRtxdiDiSentinelBindingLayout && m_frameResources.outputTexture ? 1 : 0)
             : (m_smokeBindingSet ? 1 : 0);
-        const bool cleanDumpPortalProofDomain = cleanViewNow == 12 ||
+        const bool cleanDumpView12FullAnalyticDomain =
+            cleanViewNow == 12 &&
+            r_pathTracingCleanRtxdiDiView12FullAnalyticDomain.GetInteger() != 0;
+        const bool cleanDumpPortalProofDomain = (!cleanDumpView12FullAnalyticDomain && cleanViewNow == 12) || cleanViewNow == 13 || cleanViewNow == 14 || cleanViewNow == 15 ||
             (cleanViewNow == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
         const uint32_t cleanDumpAnalyticDomainCount = cleanDumpPortalProofDomain
             ? static_cast<uint32_t>(Min(Max(0, m_smokeDoomAnalyticPortalRegionLightCount), Max(0, m_smokeDoomAnalyticLightCount)))
@@ -935,6 +962,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         printCleanRtxdiDiDump("dispatch-entry", "clean-view-out-of-range", 0);
         r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+    }
+    const bool cleanRtxdiDiSubview = viewDef && viewDef->isSubview;
+    if (cleanRtxdiDiRouteRequested &&
+        cleanRtxdiDiSubview &&
+        r_pathTracingCleanRtxdiDiSubviewDispatch.GetInteger() == 0)
+    {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", viewDef->isMirror ? "clean-mirror-subview-disabled" : "clean-subview-disabled", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
+        return;
     }
     auto printPdfNeeVerifierDump = [&](const char* stage, const char* earlyReturn)
     {
@@ -1223,7 +1262,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9 || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 11 || cleanRtxdiDiView == 12)
+        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9 || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 11 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -1413,7 +1452,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
 
         const bool cleanRtxdiDiNeedsPrimarySurface = cleanRtxdiDiView >= 2;
-        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 12;
+        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15;
         const bool cleanRtxdiDiNeedsAnalyticTemporalInputs = cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 ||
             cleanRtxdiDiView == 12 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
@@ -1928,7 +1967,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
-        const bool cleanPortalProofDomain = cleanRtxdiDiView == 12 ||
+        const bool cleanView12FullAnalyticDomain =
+            cleanRtxdiDiView == 12 &&
+            r_pathTracingCleanRtxdiDiView12FullAnalyticDomain.GetInteger() != 0;
+        const bool cleanPortalProofDomain = (!cleanView12FullAnalyticDomain && cleanRtxdiDiView == 12) || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
         const uint32_t cleanAvailableAnalyticLightCount = cleanPortalProofDomain
             ? static_cast<uint32_t>(Min(Max(0, m_smokeDoomAnalyticPortalRegionLightCount), Max(0, m_smokeDoomAnalyticLightCount)))
@@ -1961,6 +2003,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanRtxdiDiLightMode));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ? 1 : 0));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 1 : 0));
+        cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanView12FullAnalyticDomain ? 1 : 0));
         if (!cleanStableRemapProofView)
         {
             cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanCandidateCount));
@@ -1992,6 +2035,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_EXTERNAL_PDFNEE_CURRENT;
+        }
+        if (r_pathTracingCleanRtxdiDiRelaxBrdfGates.GetInteger() != 0)
+        {
+            cleanFlags |= 1u << 8u;
+        }
+        if (r_pathTracingCleanRtxdiDiDoomTargetFloor.GetInteger() != 0)
+        {
+            cleanFlags |= 1u << 9u;
         }
         PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {};
         cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
@@ -2075,7 +2126,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-        if (cleanRtxdiDiView >= 4)
+        const bool cleanPromoteSubviewReservoir =
+            !cleanRtxdiDiSubview ||
+            r_pathTracingCleanRtxdiDiSubviewReservoirPromote.GetInteger() != 0;
+        const bool cleanPromoteSubviewSurface =
+            !cleanRtxdiDiSubview ||
+            r_pathTracingCleanRtxdiDiSubviewSurfacePromote.GetInteger() != 0;
+        if (cleanRtxdiDiView >= 4 && cleanPromoteSubviewReservoir)
         {
             commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::CopySource);
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::CopyDest);
@@ -2088,7 +2145,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanReservoirBytes);
             m_smokeCleanRtxdiDiPreviousReservoirValid = true;
         }
-        if (cleanRtxdiDiView >= 2)
+        if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::CopyDest);
