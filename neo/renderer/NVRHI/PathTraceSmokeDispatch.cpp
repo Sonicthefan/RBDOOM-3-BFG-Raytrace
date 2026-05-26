@@ -918,7 +918,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             ? Min(cleanDumpAnalyticDomainCount, cleanDumpCandidateOverride)
             : 1u;
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u externalPdfNeeCurrent=%d externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u externalPdfNeeCurrent=%d externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
@@ -933,6 +933,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0 ? 1 : 0,
             r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger(),
             r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0 ? 1 : 0,
+            idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger()),
+            r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0 ? 1 : 0,
             r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger(),
             r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger(),
             cleanDumpCandidateOverride,
@@ -2043,6 +2045,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 1 : 0));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanView12FullAnalyticDomain ? 1 : 0));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0 ? 1 : 0));
+        cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger())));
+        cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0 ? 1 : 0));
         if (!cleanStableRemapProofView)
         {
             cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanCandidateCount));
@@ -2139,6 +2143,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.relaxBrdfGates = r_pathTracingCleanRtxdiDiRelaxBrdfGates.GetInteger() != 0;
         cleanGuiSnapshot.doomTargetFloor = r_pathTracingCleanRtxdiDiDoomTargetFloor.GetInteger() != 0;
         cleanGuiSnapshot.bypassLightUniverse = r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0;
+        cleanGuiSnapshot.requireProvenDoomLights = r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0;
         cleanGuiSnapshot.view = cleanRtxdiDiView;
         cleanGuiSnapshot.lightMode = cleanRtxdiDiLightMode;
         cleanGuiSnapshot.area = viewDef ? viewDef->areaNum : -1;
@@ -2150,6 +2155,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.regirLightsPerCell = regirSettings.lightsPerCell;
         cleanGuiSnapshot.regirBuildSamples = regirSettings.buildSamples;
         cleanGuiSnapshot.analyticDomainFreezeMs = r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger();
+        cleanGuiSnapshot.doomColorSource = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger());
         cleanGuiSnapshot.temporalBiasCorrection = idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
         cleanGuiSnapshot.temporalMaxHistory = idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger());
         cleanGuiSnapshot.candidateOverride = static_cast<int>(cleanCandidateOverride);

@@ -82,6 +82,7 @@ struct PathTraceDoomAnalyticLightBuildOptions
     bool stableReservoirOrder = false;
     bool includeOutOfSelectedArea = false;
     bool ignoreConfiguredCandidateCap = false;
+    bool requireProvenContinuity = false;
 };
 
 std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, const PathTraceDoomAnalyticLightBuildOptions& options = PathTraceDoomAnalyticLightBuildOptions());

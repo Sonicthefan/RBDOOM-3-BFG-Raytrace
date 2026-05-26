@@ -84,6 +84,28 @@ struct CleanRtxdiDiAnalyticDomainFreezeState
 
 CleanRtxdiDiAnalyticDomainFreezeState g_cleanRtxdiDiAnalyticDomainFreeze;
 
+struct CleanRtxdiDiBypassLightUniverseState
+{
+    bool valid = false;
+    idRenderWorldLocal* renderWorld = nullptr;
+    idStr mapName;
+    ID_TIME_T mapTimeStamp = 0;
+    std::vector<PathTraceDoomAnalyticLightCandidate> previousLights;
+    std::vector<uint32_t> previousKeys;
+
+    void Reset()
+    {
+        valid = false;
+        renderWorld = nullptr;
+        mapName.Clear();
+        mapTimeStamp = 0;
+        previousLights.clear();
+        previousKeys.clear();
+    }
+};
+
+CleanRtxdiDiBypassLightUniverseState g_cleanRtxdiDiBypassLightUniverse;
+
 void ApplyCleanRtxdiDiAnalyticDomainFreeze(
     const viewDef_t* viewDef,
     std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
@@ -142,36 +164,109 @@ uint32_t CleanRtxdiDiBypassUniverseIndex(const PathTraceDoomAnalyticLightCandida
     return key != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX ? key : fallbackIndex;
 }
 
-PathTraceDoomAnalyticLightGpuRemap BuildCleanRtxdiDiBypassLightUniverseRemap(const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights)
+PathTraceDoomAnalyticLightGpuRemap BuildCleanRtxdiDiBypassLightUniverseRemap(
+    const viewDef_t* viewDef,
+    const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights)
 {
+    CleanRtxdiDiBypassLightUniverseState& state = g_cleanRtxdiDiBypassLightUniverse;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
+    const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
+    if (!state.valid ||
+        state.renderWorld != renderWorld ||
+        state.mapName.Icmp(mapName) != 0 ||
+        state.mapTimeStamp != mapTimeStamp)
+    {
+        state.valid = true;
+        state.renderWorld = renderWorld;
+        state.mapName = mapName;
+        state.mapTimeStamp = mapTimeStamp;
+        state.previousLights = doomAnalyticLights;
+        state.previousKeys.resize(doomAnalyticLights.size());
+        for (int i = 0; i < static_cast<int>(doomAnalyticLights.size()); ++i)
+        {
+            state.previousKeys[i] = CleanRtxdiDiBypassUniverseIndex(doomAnalyticLights[i], static_cast<uint32_t>(i));
+        }
+    }
+
     PathTraceDoomAnalyticLightGpuRemap remap;
-    const uint32_t identityFlags =
+    const uint32_t sampleableFlags =
+        PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID |
+        PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE;
+    const uint32_t remappableFlags =
         PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID |
         PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE |
         PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID;
 
-    remap.previousCandidates = doomAnalyticLights;
-    remap.currentCandidateIdentities.resize(doomAnalyticLights.size());
-    remap.previousCandidateIdentities.resize(doomAnalyticLights.size());
-    remap.universeRemap.resize(doomAnalyticLights.size());
-
+    std::vector<uint32_t> currentKeys(doomAnalyticLights.size());
     for (int i = 0; i < static_cast<int>(doomAnalyticLights.size()); ++i)
     {
-        PathTraceDoomAnalyticLightCandidateIdentity identity;
-        identity.universeIndex = CleanRtxdiDiBypassUniverseIndex(doomAnalyticLights[i], static_cast<uint32_t>(i));
-        identity.flags = identityFlags;
-        identity.invalidReasonFlags = 0;
-        identity.remapIndex = static_cast<uint32_t>(i);
-        remap.currentCandidateIdentities[i] = identity;
-        remap.previousCandidateIdentities[i] = identity;
-
-        PathTraceDoomAnalyticLightRemap& entry = remap.universeRemap[i];
-        entry.previousToCurrentCandidateIndex = i;
-        entry.currentToPreviousCandidateIndex = i;
-        entry.flags = identityFlags;
-        entry.invalidReasonFlags = 0;
+        currentKeys[i] = CleanRtxdiDiBypassUniverseIndex(doomAnalyticLights[i], static_cast<uint32_t>(i));
     }
 
+    std::unordered_map<uint32_t, int> currentIndexByKey;
+    currentIndexByKey.reserve(currentKeys.size());
+    for (int i = 0; i < static_cast<int>(currentKeys.size()); ++i)
+    {
+        currentIndexByKey.emplace(currentKeys[i], i);
+    }
+
+    std::unordered_map<uint32_t, int> previousIndexByKey;
+    previousIndexByKey.reserve(state.previousKeys.size());
+    for (int i = 0; i < static_cast<int>(state.previousKeys.size()); ++i)
+    {
+        previousIndexByKey.emplace(state.previousKeys[i], i);
+    }
+
+    std::vector<uint32_t> remapKeys = currentKeys;
+    for (const uint32_t previousKey : state.previousKeys)
+    {
+        if (currentIndexByKey.find(previousKey) == currentIndexByKey.end())
+        {
+            remapKeys.push_back(previousKey);
+        }
+    }
+
+    remap.previousCandidates = state.previousLights;
+    remap.currentCandidateIdentities.resize(doomAnalyticLights.size());
+    remap.previousCandidateIdentities.resize(state.previousLights.size());
+    remap.universeRemap.resize(remapKeys.size());
+
+    for (int remapSlot = 0; remapSlot < static_cast<int>(remapKeys.size()); ++remapSlot)
+    {
+        const uint32_t key = remapKeys[remapSlot];
+        const auto currentIt = currentIndexByKey.find(key);
+        const auto previousIt = previousIndexByKey.find(key);
+        const bool hasCurrent = currentIt != currentIndexByKey.end();
+        const bool hasPrevious = previousIt != previousIndexByKey.end();
+        const uint32_t flags = hasCurrent && hasPrevious ? remappableFlags : sampleableFlags;
+
+        PathTraceDoomAnalyticLightRemap& entry = remap.universeRemap[remapSlot];
+        entry.previousToCurrentCandidateIndex = hasCurrent ? currentIt->second : -1;
+        entry.currentToPreviousCandidateIndex = hasPrevious ? previousIt->second : -1;
+        entry.flags = flags;
+        entry.invalidReasonFlags = 0;
+
+        if (hasCurrent)
+        {
+            PathTraceDoomAnalyticLightCandidateIdentity& identity = remap.currentCandidateIdentities[currentIt->second];
+            identity.universeIndex = key;
+            identity.flags = flags;
+            identity.invalidReasonFlags = 0;
+            identity.remapIndex = static_cast<uint32_t>(remapSlot);
+        }
+        if (hasPrevious)
+        {
+            PathTraceDoomAnalyticLightCandidateIdentity& identity = remap.previousCandidateIdentities[previousIt->second];
+            identity.universeIndex = key;
+            identity.flags = flags;
+            identity.invalidReasonFlags = 0;
+            identity.remapIndex = static_cast<uint32_t>(remapSlot);
+        }
+    }
+
+    state.previousLights = doomAnalyticLights;
+    state.previousKeys = currentKeys;
     return remap;
 }
 
@@ -2232,12 +2327,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (cleanRtxdiDiRealAnalyticRoute)
     {
         doomAnalyticBuildOptions.forceBuild = true;
+        doomAnalyticBuildOptions.requireProvenContinuity = r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0;
     }
     doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, doomAnalyticBuildOptions);
     doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
     if (cleanRtxdiDiRealAnalyticRoute && r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0)
     {
-        doomAnalyticRemap = BuildCleanRtxdiDiBypassLightUniverseRemap(doomAnalyticLights);
+        doomAnalyticRemap = BuildCleanRtxdiDiBypassLightUniverseRemap(viewDef, doomAnalyticLights);
+    }
+    else
+    {
+        g_cleanRtxdiDiBypassLightUniverse.Reset();
     }
     ApplyCleanRtxdiDiAnalyticDomainFreeze(viewDef, doomAnalyticLights, doomAnalyticRemap);
 

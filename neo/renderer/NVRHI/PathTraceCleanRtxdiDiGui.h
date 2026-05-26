@@ -31,6 +31,7 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     bool relaxBrdfGates = false;
     bool doomTargetFloor = false;
     bool bypassLightUniverse = false;
+    bool requireProvenDoomLights = false;
     int view = 0;
     int lightMode = 0;
     int area = -1;
@@ -43,6 +44,7 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     int regirBuildSamples = 0;
     int frameIndex = 0;
     int analyticDomainFreezeMs = 0;
+    int doomColorSource = 0;
     int temporalBiasCorrection = 0;
     int temporalMaxHistory = 0;
     int candidateOverride = 0;

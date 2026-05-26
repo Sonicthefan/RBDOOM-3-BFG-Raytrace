@@ -223,6 +223,8 @@ extern idCVar r_pathTracingCleanRtxdiDiDoomTargetFloor;
 extern idCVar r_pathTracingCleanRtxdiDiFrameFreeze;
 extern idCVar r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs;
 extern idCVar r_pathTracingCleanRtxdiDiBypassLightUniverse;
+extern idCVar r_pathTracingCleanRtxdiDiDoomColorSource;
+extern idCVar r_pathTracingCleanRtxdiDiRequireProvenDoomLights;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory;
 extern idCVar r_pathTracingRestirPTView68Dump;

@@ -611,8 +611,9 @@ float idConsoleLocal::DrawFPS( float y )
 				cleanGui.cleanPreviousAnalytic,
 				cleanGui.cleanPreviousAnalyticIdentity,
 				cleanGui.cleanAnalyticRemap );
-			ImGui::Text( "analyticDomainFreezeMs=%d temporalBiasCorrection=%d temporalMaxHistory=%d",
+			ImGui::Text( "analyticDomainFreezeMs=%d colorSource=%d temporalBiasCorrection=%d temporalMaxHistory=%d",
 				cleanGui.analyticDomainFreezeMs,
+				cleanGui.doomColorSource,
 				cleanGui.temporalBiasCorrection,
 				cleanGui.temporalMaxHistory );
 			ImGui::Text( "view10LightStart=%d view10LightCount=%d view10PortalDomain=%d",
@@ -651,11 +652,12 @@ float idConsoleLocal::DrawFPS( float y )
 				cleanGui.regirLightsPerCell,
 				cleanGui.regirBuildSamples,
 				cleanGui.regirCandidateSlots );
-			ImGui::Text( "toggles doomRadiusCutoff=%d relaxBrdf=%d targetFloor=%d bypassUniverse=%d",
+			ImGui::Text( "toggles doomRadiusCutoff=%d relaxBrdf=%d targetFloor=%d bypassUniverse=%d provenOnly=%d",
 				cleanGui.doomRadiusCutoff ? 1 : 0,
 				cleanGui.relaxBrdfGates ? 1 : 0,
 				cleanGui.doomTargetFloor ? 1 : 0,
-				cleanGui.bypassLightUniverse ? 1 : 0 );
+				cleanGui.bypassLightUniverse ? 1 : 0,
+				cleanGui.requireProvenDoomLights ? 1 : 0 );
 		}
 		ImGui::End();
 	}

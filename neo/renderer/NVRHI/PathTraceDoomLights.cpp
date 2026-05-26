@@ -592,6 +592,17 @@ idVec4 EvaluateDoomLightColor(const viewDef_t* viewDef, const idRenderLightLocal
     return bestColor;
 }
 
+idVec4 DoomAnalyticColorFromVec3(const idVec3& color)
+{
+    const float lightScale = r_lightScale.GetFloat();
+    const idVec4 result(
+        lightScale * Max(color.x, 0.0f),
+        lightScale * Max(color.y, 0.0f),
+        lightScale * Max(color.z, 0.0f),
+        0.0f);
+    return idVec4(result.x, result.y, result.z, Max(result.x, Max(result.y, result.z)));
+}
+
 bool IsDoomLightSuppressedForView(const viewDef_t* viewDef, const idRenderLightLocal* light)
 {
     if (!viewDef || !light)
@@ -742,6 +753,17 @@ DoomLightRecord BuildDoomLightRecord(
         record.health = metadata.health;
         record.baseColor = metadata.baseColor;
         record.currentGameColor = metadata.currentColor;
+        const int cleanDoomColorSource = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger());
+        if (cleanDoomColorSource == 1)
+        {
+            record.color = DoomAnalyticColorFromVec3(record.currentGameColor);
+            record.active = record.color.w > 0.0f && !record.suppressed;
+        }
+        else if (cleanDoomColorSource == 2)
+        {
+            record.color = DoomAnalyticColorFromVec3(record.baseColor);
+            record.active = record.color.w > 0.0f && !record.suppressed && !record.gameHidden && record.currentLevel > 0;
+        }
     }
     FillDoomLightCrosshairMetrics(viewDef, record);
     return record;
@@ -1017,11 +1039,14 @@ void RunDoomLightProbeDump(const viewDef_t* viewDef, const std::vector<DoomLight
     r_pathTracingDoomLightProbeDump.SetInteger(0);
 }
 
+bool DoomLightContinuityProvenForTask01(const DoomLightRecord& record);
+
 std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
     const std::vector<DoomLightRecord>& records,
     bool preserveZeroRadianceSlots,
     bool stableReservoirOrder,
-    bool includeOutOfSelectedArea)
+    bool includeOutOfSelectedArea,
+    bool requireProvenContinuity)
 {
     std::vector<DoomLightRecord> candidates;
     candidates.reserve(records.size());
@@ -1031,7 +1056,8 @@ std::vector<DoomLightRecord> BuildAnalyticDoomLightRecords(
     for (DoomLightRecord record : records)
     {
         const bool areaEligible = includeOutOfSelectedArea || record.selectedArea;
-        const bool eligibleLight = record.pointLight && !record.parallel && !record.suppressed && areaEligible && record.radiusMax > 1.0f;
+        const bool continuityEligible = !requireProvenContinuity || DoomLightContinuityProvenForTask01(record);
+        const bool eligibleLight = record.pointLight && !record.parallel && !record.suppressed && areaEligible && continuityEligible && record.radiusMax > 1.0f;
         if (!eligibleLight || (!preserveZeroRadianceSlots && !record.active))
         {
             continue;
@@ -2105,7 +2131,7 @@ void RunAnalyticLightCandidateDump(const DoomLightPortalSelection& selection, co
         return;
     }
 
-    std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, false, false, false);
+    std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(records, false, false, false, false);
 
     if (r_pathTracingAnalyticLightCandidateDump.GetInteger() == 0)
     {
@@ -2221,7 +2247,8 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
         records,
         options.preserveZeroRadianceSlots,
         options.stableReservoirOrder,
-        options.includeOutOfSelectedArea);
+        options.includeOutOfSelectedArea,
+        options.requireProvenContinuity);
     const int configuredMaxGpuCandidates = idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger());
     const int maxGpuCandidates = options.ignoreConfiguredCandidateCap ? static_cast<int>(candidates.size()) : configuredMaxGpuCandidates;
     UpdateDoomAnalyticLightUniverse(viewDef, records, candidates, maxGpuCandidates);

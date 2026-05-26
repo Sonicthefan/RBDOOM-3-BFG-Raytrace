@@ -1299,6 +1299,18 @@ idCVar r_pathTracingCleanRtxdiDiBypassLightUniverse(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: bypass the persistent Doom analytic light universe and synthesize compact current/previous/remap buffers from uploaded active candidates; default off" );
 
+idCVar r_pathTracingCleanRtxdiDiDoomColorSource(
+    "r_pathTracingCleanRtxdiDiDoomColorSource",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: Doom analytic payload color source; 0 material shader registers, 1 game current renderLight color, 2 game authored base color" );
+
+idCVar r_pathTracingCleanRtxdiDiRequireProvenDoomLights(
+    "r_pathTracingCleanRtxdiDiRequireProvenDoomLights",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: require game-linked non-temporary Doom analytic lights in the uploaded clean RTXDI analytic domain; default off" );
+
 idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection(
     "r_pathTracingCleanRtxdiDiTemporalBiasCorrection",
     "1",
