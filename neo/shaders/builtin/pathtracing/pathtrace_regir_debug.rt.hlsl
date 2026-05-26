@@ -573,6 +573,20 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGI
 
     if (acceptedProposalCount == 0u || selectedCellWeight <= 0.0 || risWeightSum <= 0.0)
     {
+        if (ReGIRInfo3.x == 1.0)
+        {
+            selectedAnalytic = PathTraceReGIRProposalDomainIndex(cell, slotInCell, 0u, 193u, analyticCount);
+            PathTraceReGIRCandidateRecord candidate;
+            candidate.lightIndex = selectedAnalytic;
+            candidate.lightClass = PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC;
+            candidate.invSourcePdf = (float)analyticCount;
+            candidate.sourcePdf = 1.0 / max((float)analyticCount, 1.0);
+            candidate.cellIndex = cell.localCellIndex;
+            candidate.slotIndex = slotIndex;
+            candidate.flags = PATH_TRACE_REGIR_CANDIDATE_VALID | PATH_TRACE_REGIR_CANDIDATE_WRITTEN;
+            candidate.globalIdentity = emissiveCount + selectedAnalytic;
+            return candidate;
+        }
         return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, PATH_TRACE_REGIR_EMPTY_NO_LOCAL_ANALYTIC_LIGHTS);
     }
 

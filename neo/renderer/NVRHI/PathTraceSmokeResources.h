@@ -202,6 +202,7 @@ struct RtSmokeSceneResourceCommitDesc
     int texturedLightCandidateCount = 0;
     int lightCandidateBytes = 0;
     int doomAnalyticLightCount = 0;
+    int doomAnalyticPortalRegionLightCount = 0;
     int doomAnalyticLightBytes = 0;
     int doomAnalyticPreviousLightCount = 0;
     int doomAnalyticCurrentIdentityCount = 0;
@@ -241,6 +242,7 @@ struct RtSmokeSceneResourceCommitBuildDesc
     int texturedLightCandidateCount = 0;
     int lightCandidateBytes = 0;
     int doomAnalyticLightCount = 0;
+    int doomAnalyticPortalRegionLightCount = 0;
     int doomAnalyticLightBytes = 0;
     int doomAnalyticPreviousLightCount = 0;
     int doomAnalyticCurrentIdentityCount = 0;

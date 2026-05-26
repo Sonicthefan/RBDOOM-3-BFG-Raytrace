@@ -229,6 +229,8 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
     m_smokeCleanRtxdiDiFrameIndex = 0;
     m_smokeCleanRtxdiDiPreviousReservoirValid = false;
+    m_smokeCleanRtxdiDiHistorySignature = 0;
+    m_smokeCleanRtxdiDiHistoryResetCount = 0;
     m_smokeTlas = nullptr;
     m_smokeRestirCombinedShaderTable = nullptr;
     m_smokePrimarySurfaceProducerShaderTable = nullptr;

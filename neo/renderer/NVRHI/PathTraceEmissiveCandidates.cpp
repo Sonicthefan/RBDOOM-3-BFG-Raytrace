@@ -98,6 +98,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const PathTraceSmokeMaterial& material = materials[materialIndex];
         if ((material.flags & emissiveMaterialFlag) == 0)
         {
+            ++stats.skippedNonEmissiveMaterialTriangles;
             continue;
         }
 
@@ -150,6 +151,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         const float doubleArea = areaNormal.Length();
         if (doubleArea <= 1.0e-6f)
         {
+            ++stats.zeroAreaTriangles;
             continue;
         }
 
@@ -539,6 +541,7 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
 
     idRenderWorldLocal* renderWorld = viewDef->renderWorld;
     uint32_t worldPrimitiveId = 0;
+    const int appendedBefore = static_cast<int>(emissiveTriangles.size());
     for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num(); ++entityIndex)
     {
         const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
@@ -547,6 +550,7 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
         {
             continue;
         }
+        ++stats.worldStaticScannedEntities;
 
         for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
         {
@@ -558,17 +562,24 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 continue;
             }
 
+            ++stats.worldStaticScannedSurfaces;
+            stats.worldStaticScannedTriangles += tri->numIndexes / 3;
             const uint32_t materialId = SmokeMaterialId(material);
             const uint32_t materialIndex = FindSmokeMaterialTableIndexForId(materialIds, materialId);
             if (materialIndex == UINT32_MAX || materialIndex >= materials.size())
             {
-                stats.skippedInvalidMaterialTriangles += tri->numIndexes / 3;
+                const int triangles = tri->numIndexes / 3;
+                stats.skippedInvalidMaterialTriangles += triangles;
+                stats.worldStaticSkippedInvalidMaterialTriangles += triangles;
                 continue;
             }
 
             const PathTraceSmokeMaterial& smokeMaterial = materials[materialIndex];
             if ((smokeMaterial.flags & emissiveMaterialFlag) == 0)
             {
+                const int triangles = tri->numIndexes / 3;
+                stats.skippedNonEmissiveMaterialTriangles += triangles;
+                stats.worldStaticSkippedNonEmissiveMaterialTriangles += triangles;
                 continue;
             }
 
@@ -577,6 +588,7 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 Max(0.0f, smokeMaterial.emissiveColor[0]),
                 Max(0.0f, smokeMaterial.emissiveColor[1]),
                 Max(0.0f, smokeMaterial.emissiveColor[2]));
+            int acceptedSurfaceTriangles = 0;
 
             for (int indexOffset = 0; indexOffset + 2 < tri->numIndexes; indexOffset += 3)
             {
@@ -587,6 +599,7 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 if (i0 < 0 || i1 < 0 || i2 < 0 || i0 >= tri->numVerts || i1 >= tri->numVerts || i2 >= tri->numVerts)
                 {
                     ++stats.skippedInvalidMaterialTriangles;
+                    ++stats.worldStaticSkippedInvalidMaterialTriangles;
                     continue;
                 }
 
@@ -605,6 +618,8 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 const float doubleArea = areaNormal.Length();
                 if (doubleArea <= 1.0e-6f)
                 {
+                    ++stats.zeroAreaTriangles;
+                    ++stats.worldStaticZeroAreaTriangles;
                     continue;
                 }
 
@@ -625,6 +640,7 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 if (static_cast<int>(emissiveTriangles.size()) >= maxRecords)
                 {
                     ++stats.cappedTriangles;
+                    ++stats.worldStaticCappedTriangles;
                     continue;
                 }
 
@@ -667,11 +683,18 @@ void AppendSmokeWorldStaticEmissiveTriangleInventory(
                 record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
                 record.padding0 = classAndFlags;
                 emissiveTriangles.push_back(record);
+                ++acceptedSurfaceTriangles;
+            }
+            if (acceptedSurfaceTriangles > 0)
+            {
+                ++stats.worldStaticAcceptedSurfaces;
+                stats.worldStaticAcceptedTriangles += acceptedSurfaceTriangles;
             }
         }
     }
 
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
+    stats.worldStaticFinalAppended += stats.capturedTriangles - appendedBefore;
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
 }
 

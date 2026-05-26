@@ -81,12 +81,38 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint CleanRtxdiDiPreviousAnalyticIdentityCount;
     uint CleanRtxdiDiAnalyticRemapCount;
     uint CleanRtxdiDiTemporalFlags;
-    uint CleanRtxdiDiPadding0;
+    uint CleanRtxdiDiHistoryResetCount;
     float4 CleanRtxdiDiPrevCameraOriginAndValid;
     float4 CleanRtxdiDiPrevCameraForwardAndTanX;
     float4 CleanRtxdiDiPrevCameraLeftAndTanY;
     float4 CleanRtxdiDiPrevCameraUpAndTanY;
+    float4 CleanRtxdiDiCameraOriginAndValid;
+    float4 CleanRtxdiDiCameraForwardAndTanX;
+    float4 CleanRtxdiDiCameraLeftAndTanY;
+    float4 CleanRtxdiDiCameraUpAndTanY;
+    float4 CleanRtxdiDiDoomAnalyticLightInfo;
+    float4 CleanRtxdiDiMotionVectorInfo;
+    float4 CleanRtxdiDiRestirPTSurfaceInfo;
 };
+
+#define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
+#define MotionVectorInfo CleanRtxdiDiMotionVectorInfo
+#define RestirPTSurfaceInfo CleanRtxdiDiRestirPTSurfaceInfo
+static const float4 TextureInfo = float4(0.0, 0.0, 0.0, 0.0);
+static const float4 ToyPathInfo = float4(0.0, 0.0, 1.0, 0.0);
+static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0u;
+static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0u;
+bool RAB_RestirLightManagerRABEnabled()
+{
+    return false;
+}
+bool RAB_UnifiedLightSampleEnabled()
+{
+    return false;
+}
+#define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
+#include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
+#include "../RtxdiBridge/RAB_LightTarget.hlsli"
 
 static const uint CLEAN_DOOM_ANALYTIC_IDENTITY_VALID = 1u << 0u;
 static const uint CLEAN_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE = 1u << 1u;
@@ -123,6 +149,7 @@ static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint CLEAN_RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE = 1u;
 static const uint CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT = 2u;
 static const float3 CLEAN_SYNTHETIC_CONSTANT_RADIANCE = float3(2.0, 2.0, 2.0);
+static const uint CLEAN_SYNTHETIC_OVERLAP_LIGHT_COUNT = 4u;
 
 struct PathTraceCleanRtxdiDiInitialResult
 {
@@ -146,60 +173,12 @@ struct PathTraceCleanRtxdiDiTemporalResult
     uint flags;
     int2 previousPixel;
     int2 temporalSamplePixel;
+    float previousM;
+    float previousTargetPdf;
+    float previousInvPdf;
+    float temporalTargetPdf;
+    float temporalInvPdf;
 };
-
-struct RAB_Surface
-{
-    uint valid;
-    float3 worldPos;
-    float linearDepth;
-    float3 normal;
-    float3 geometryNormal;
-    float3 viewDir;
-    uint materialId;
-    uint materialIndex;
-    uint surfaceClass;
-};
-
-struct RAB_LightInfo
-{
-    uint valid;
-    uint lightType;
-    uint lightIndex;
-    uint flags;
-    float3 position;
-    float radius;
-    float3 radiance;
-    float influenceRadius;
-    float area;
-};
-
-struct RAB_LightSample
-{
-    uint valid;
-    uint lightType;
-    uint lightIndex;
-    uint flags;
-    float3 position;
-    float distance;
-    float3 radiance;
-    float solidAnglePdf;
-};
-
-RAB_Surface RAB_EmptySurface()
-{
-    return (RAB_Surface)0;
-}
-
-RAB_LightInfo RAB_EmptyLightInfo()
-{
-    return (RAB_LightInfo)0;
-}
-
-RAB_LightSample RAB_EmptyLightSample()
-{
-    return (RAB_LightSample)0;
-}
 
 bool PathTraceCleanRoomSyntheticConstantMode()
 {
@@ -211,9 +190,37 @@ bool PathTraceCleanRoomSyntheticAnalyticPayloadMode()
     return CleanRtxdiDiView == 10u;
 }
 
+bool PathTraceCleanRoomSyntheticOverlapMode()
+{
+    return CleanRtxdiDiView == 11u;
+}
+
+bool PathTraceCleanRoomRealAnalyticPointProxyMode()
+{
+    return false;
+}
+
+bool PathTraceCleanRoomSyntheticMode()
+{
+    return PathTraceCleanRoomSyntheticConstantMode() ||
+        PathTraceCleanRoomSyntheticAnalyticPayloadMode() ||
+        PathTraceCleanRoomSyntheticOverlapMode();
+}
+
 bool PathTraceCleanRoomSyntheticSingleLightMode()
 {
     return PathTraceCleanRoomSyntheticConstantMode() || PathTraceCleanRoomSyntheticAnalyticPayloadMode();
+}
+
+uint PathTraceCleanRoomSyntheticLightCount()
+{
+    return PathTraceCleanRoomSyntheticOverlapMode() ? CLEAN_SYNTHETIC_OVERLAP_LIGHT_COUNT : 1u;
+}
+
+uint PathTraceCleanRoomInitialLightCount()
+{
+    const uint analyticCount = min(CleanRtxdiDiAnalyticLightCount, CleanRtxdiDiAnalyticIdentityCount);
+    return analyticCount;
 }
 
 bool PathTraceCleanRoomExternalPdfNeeCurrentEnabled()
@@ -299,31 +306,6 @@ float3 PathTraceCleanRoomSafeNormalize(float3 value, float3 fallback)
 {
     const float lengthSquared = dot(value, value);
     return lengthSquared > 1.0e-8 ? value * rsqrt(lengthSquared) : fallback;
-}
-
-bool RAB_IsSurfaceValid(RAB_Surface surface)
-{
-    return surface.valid != 0u;
-}
-
-float3 RAB_GetSurfaceNormal(RAB_Surface surface)
-{
-    return PathTraceCleanRoomSafeNormalize(surface.normal, surface.geometryNormal);
-}
-
-float3 RAB_GetSurfaceWorldPos(RAB_Surface surface)
-{
-    return surface.worldPos;
-}
-
-float3 RAB_GetSurfaceViewDir(RAB_Surface surface)
-{
-    return PathTraceCleanRoomSafeNormalize(surface.viewDir, -RAB_GetSurfaceNormal(surface));
-}
-
-float RAB_GetSurfaceLinearDepth(RAB_Surface surface)
-{
-    return surface.linearDepth;
 }
 
 float PathTraceCleanRoomLuminance(float3 value)
@@ -418,11 +400,17 @@ RAB_Surface PathTraceCleanRoomSurfaceFromRecord(PathTracePrimarySurfaceRecord re
     surface.worldPos = record.worldPositionAndViewDepth.xyz;
     surface.linearDepth = record.worldPositionAndViewDepth.w;
     surface.geometryNormal = PathTraceCleanRoomSafeNormalize(record.geometricNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0));
-    surface.normal = PathTraceCleanRoomSafeNormalize(record.shadingNormalAndOpacity.xyz, surface.geometryNormal);
-    surface.viewDir = PathTraceCleanRoomSafeNormalize(record.viewDirectionAndReserved.xyz, -surface.normal);
+    surface.shadingNormal = PathTraceCleanRoomSafeNormalize(record.shadingNormalAndOpacity.xyz, surface.geometryNormal);
+    surface.viewDir = PathTraceCleanRoomSafeNormalize(record.viewDirectionAndReserved.xyz, -surface.shadingNormal);
     surface.materialId = record.materialAndSurface.x;
     surface.materialIndex = record.materialAndSurface.y;
     surface.surfaceClass = record.materialAndSurface.w;
+    surface.material = RAB_EmptyMaterial();
+    surface.material.materialId = surface.materialId;
+    surface.material.materialIndex = surface.materialIndex;
+    surface.material.diffuseAlbedo = float3(0.5, 0.5, 0.5);
+    surface.material.roughness = 1.0;
+    surface.material.opacity = 1.0;
     return surface;
 }
 
@@ -478,28 +466,36 @@ RAB_LightInfo PathTraceCleanRoomBuildAnalyticLightInfo(PathTraceDoomAnalyticLigh
         return lightInfo;
     }
 
-    lightInfo.valid = 1u;
-    lightInfo.lightType = CLEAN_RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
     lightInfo.lightIndex = lightIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
     lightInfo.flags = light.flags;
     lightInfo.position = light.originAndRadius.xyz;
     lightInfo.radius = max(light.originAndRadius.w, 0.01);
-    lightInfo.radiance = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
+    lightInfo.radiance = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0)) * max(CleanRtxdiDiDoomAnalyticLightInfo.z, 0.0);
     lightInfo.influenceRadius = max(light.doomRadiusAndArea.x, lightInfo.radius);
     lightInfo.area = max(light.doomRadiusAndArea.y, 1.0e-4);
+    lightInfo.weight = PathTraceCleanRoomLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
 }
 
 RAB_LightInfo PathTraceCleanRoomBuildSyntheticConstantLightInfo()
 {
     RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
-    lightInfo.valid = 1u;
-    lightInfo.lightType = CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT;
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
     lightInfo.lightIndex = 0u;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
+    const float3 forward = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraForwardAndTanX.xyz, float3(1.0, 0.0, 0.0));
+    lightInfo.position = CleanRtxdiDiCameraOriginAndValid.xyz + forward * 96.0;
     lightInfo.radiance = CLEAN_SYNTHETIC_CONSTANT_RADIANCE;
-    lightInfo.radius = 1.0;
-    lightInfo.influenceRadius = 100000.0;
-    lightInfo.area = 1.0;
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
+    lightInfo.radius = 12.0;
+    lightInfo.influenceRadius = 220.0;
+    lightInfo.area = 4.0 * CLEAN_RTXDI_PI * lightInfo.radius * lightInfo.radius;
+    lightInfo.weight = PathTraceCleanRoomLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
 }
 
@@ -527,36 +523,72 @@ RAB_LightInfo PathTraceCleanRoomBuildSyntheticAnalyticPayloadLightInfo()
 
     const PathTraceDoomAnalyticLightCandidate light = DoomAnalyticLights[sourceIndex];
     RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
-    lightInfo.valid = 1u;
-    lightInfo.lightType = CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT;
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
     lightInfo.lightIndex = 0u;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
     lightInfo.flags = light.flags;
     lightInfo.position = light.originAndRadius.xyz;
     lightInfo.radius = max(light.originAndRadius.w, 0.01);
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
     lightInfo.radiance = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
     lightInfo.influenceRadius = max(light.doomRadiusAndArea.x, lightInfo.radius);
     lightInfo.area = max(light.doomRadiusAndArea.y, 1.0e-4);
+    lightInfo.weight = PathTraceCleanRoomLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
 }
 
-bool RAB_IsLightInfoValid(RAB_LightInfo lightInfo)
+RAB_LightInfo PathTraceCleanRoomBuildSyntheticOverlapLightInfo(uint lightIndex)
 {
-    return lightInfo.valid != 0u;
-}
+    if (lightIndex >= CLEAN_SYNTHETIC_OVERLAP_LIGHT_COUNT ||
+        CleanRtxdiDiCameraOriginAndValid.w < 0.5)
+    {
+        return RAB_EmptyLightInfo();
+    }
 
-bool RAB_IsReplayableLightSample(RAB_LightSample lightSample)
-{
-    return lightSample.valid != 0u &&
-        lightSample.solidAnglePdf > 1.0e-8 &&
-        all(lightSample.radiance == lightSample.radiance) &&
-        PathTraceCleanRoomLuminance(lightSample.radiance) > 0.0;
+    static const float3 overlapRadiance[CLEAN_SYNTHETIC_OVERLAP_LIGHT_COUNT] =
+    {
+        float3(0.55, 0.48, 0.40),
+        float3(0.40, 0.52, 0.60),
+        float3(0.58, 0.42, 0.52),
+        float3(0.46, 0.56, 0.44)
+    };
+    static const float3 overlapOffsets[CLEAN_SYNTHETIC_OVERLAP_LIGHT_COUNT] =
+    {
+        float3(0.0, 0.0, 0.0),
+        float3(18.0, 4.0, 5.0),
+        float3(-14.0, 13.0, -3.0),
+        float3(7.0, -15.0, 8.0)
+    };
+
+    const float3 forward = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraForwardAndTanX.xyz, float3(1.0, 0.0, 0.0));
+    const float3 left = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraLeftAndTanY.xyz, float3(0.0, 1.0, 0.0));
+    const float3 up = PathTraceCleanRoomSafeNormalize(CleanRtxdiDiCameraUpAndTanY.xyz, float3(0.0, 0.0, 1.0));
+    const float3 offset = overlapOffsets[lightIndex];
+
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+    lightInfo.lightIndex = lightIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
+    lightInfo.position = CleanRtxdiDiCameraOriginAndValid.xyz +
+        forward * (92.0 + offset.z) +
+        left * offset.x +
+        up * offset.y;
+    lightInfo.radiance = overlapRadiance[lightIndex];
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
+    lightInfo.radius = 12.0;
+    lightInfo.influenceRadius = 220.0;
+    lightInfo.area = 4.0 * CLEAN_RTXDI_PI * lightInfo.radius * lightInfo.radius;
+    lightInfo.weight = PathTraceCleanRoomLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
+    return lightInfo;
 }
 
 int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
 {
-    if (PathTraceCleanRoomSyntheticSingleLightMode())
+    if (PathTraceCleanRoomSyntheticMode())
     {
-        return lightIndex == 0u ? 0 : -1;
+        return lightIndex < PathTraceCleanRoomSyntheticLightCount() ? (int)lightIndex : -1;
     }
 
     if (PathTraceCleanRoomExternalPdfNeeCurrentEnabled())
@@ -674,6 +706,10 @@ RAB_LightInfo RAB_LoadLightInfo(uint lightIndex, bool previousFrame)
         }
         return RAB_EmptyLightInfo();
     }
+    if (PathTraceCleanRoomSyntheticOverlapMode())
+    {
+        return PathTraceCleanRoomBuildSyntheticOverlapLightInfo(lightIndex);
+    }
 
     if (PathTraceCleanRoomExternalPdfNeeCurrentEnabled())
     {
@@ -766,166 +802,15 @@ float PathTraceCleanRoomDoomLightInfluence(float centerDistance, PathTraceDoomAn
     return saturate(1.0 - normalizedDistance * normalizedDistance);
 }
 
-float PathTraceCleanRoomDoomLightInfluenceFromInfo(float centerDistance, RAB_LightInfo lightInfo)
-{
-    if (lightInfo.influenceRadius <= 0.0 || centerDistance >= lightInfo.influenceRadius)
-    {
-        return 0.0;
-    }
-
-    const float normalizedDistance = saturate(centerDistance / lightInfo.influenceRadius);
-    return saturate(1.0 - normalizedDistance * normalizedDistance);
-}
-
-RAB_LightSample PathTraceCleanRoomSampleSyntheticConstantLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
-{
-    RAB_LightSample lightSample = RAB_EmptyLightSample();
-    if (!RAB_IsLightInfoValid(lightInfo) || !RAB_IsSurfaceValid(surface) ||
-        lightInfo.lightType != CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT)
-    {
-        return lightSample;
-    }
-
-    const float3 normal = RAB_GetSurfaceNormal(surface);
-    const float3 geometryNormal = PathTraceCleanRoomSafeNormalize(surface.geometryNormal, normal);
-    float3 centerDirection = normal;
-    float centerDistance = 1000.0;
-    float cosThetaMax = 0.0;
-    if (PathTraceCleanRoomSyntheticAnalyticPayloadMode())
-    {
-        const float3 toCenter = lightInfo.position - surface.worldPos;
-        const float distanceSquared = dot(toCenter, toCenter);
-        if (distanceSquared <= 1.0e-6)
-        {
-            return lightSample;
-        }
-
-        centerDistance = sqrt(distanceSquared);
-        centerDirection = toCenter / centerDistance;
-        if (dot(centerDirection, normal) <= 0.0 || dot(centerDirection, geometryNormal) <= 0.0)
-        {
-            return lightSample;
-        }
-        cosThetaMax = 0.90;
-    }
-
-    const float3 sampleDirection = PathTraceCleanRoomSampleCone(centerDirection, cosThetaMax, uv);
-    if (dot(sampleDirection, normal) <= 0.0 || dot(sampleDirection, geometryNormal) <= 0.0)
-    {
-        return lightSample;
-    }
-
-    lightSample.valid = 1u;
-    lightSample.lightType = lightInfo.lightType;
-    lightSample.lightIndex = lightInfo.lightIndex;
-    lightSample.flags = lightInfo.flags;
-    lightSample.position = surface.worldPos + sampleDirection * centerDistance;
-    lightSample.distance = centerDistance;
-    lightSample.radiance = lightInfo.radiance;
-    lightSample.solidAnglePdf = 1.0 / (2.0 * CLEAN_RTXDI_PI);
-    return lightSample;
-}
-
-RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
-{
-    RAB_LightSample lightSample = RAB_EmptyLightSample();
-    if (lightInfo.lightType == CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT)
-    {
-        return PathTraceCleanRoomSampleSyntheticConstantLight(lightInfo, surface, uv);
-    }
-
-    if (!RAB_IsLightInfoValid(lightInfo) || !RAB_IsSurfaceValid(surface) ||
-        lightInfo.lightType != CLEAN_RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
-    {
-        return lightSample;
-    }
-
-    const float3 toCenter = lightInfo.position - surface.worldPos;
-    const float centerDistance = sqrt(max(dot(toCenter, toCenter), 1.0e-6));
-    const float3 centerDirection = toCenter / centerDistance;
-    const float sphereRadius = clamp(lightInfo.radius, 0.01, max(lightInfo.influenceRadius, 0.01));
-    const float sinThetaMax = saturate(sphereRadius / centerDistance);
-    const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
-    const float solidAngle = max(2.0 * CLEAN_RTXDI_PI * (1.0 - cosThetaMax), 1.0e-5);
-    const float3 sampleDirection = PathTraceCleanRoomSampleCone(centerDirection, cosThetaMax, uv);
-    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), sampleDirection));
-    if (ndotl <= 0.0)
-    {
-        return lightSample;
-    }
-
-    const float hitT = PathTraceCleanRoomSphereHitT(surface.worldPos, sampleDirection, lightInfo.position, sphereRadius, centerDistance);
-    const float influence = PathTraceCleanRoomDoomLightInfluenceFromInfo(centerDistance, lightInfo);
-    lightSample.valid = influence > 0.0 ? 1u : 0u;
-    lightSample.lightType = lightInfo.lightType;
-    lightSample.lightIndex = lightInfo.lightIndex;
-    lightSample.flags = lightInfo.flags;
-    lightSample.position = surface.worldPos + sampleDirection * hitT;
-    lightSample.distance = hitT;
-    lightSample.radiance = lightInfo.radiance * influence;
-    lightSample.solidAnglePdf = 1.0 / solidAngle;
-    return lightSample;
-}
-
-float RAB_GetLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Surface surface)
-{
-    if (!RAB_IsReplayableLightSample(lightSample) || !RAB_IsSurfaceValid(surface))
-    {
-        return 0.0;
-    }
-
-    const float3 toSample = lightSample.position - surface.worldPos;
-    const float distanceSquared = max(dot(toSample, toSample), 1.0e-6);
-    const float3 lightDirection = toSample * rsqrt(distanceSquared);
-    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), lightDirection));
-    const float3 flatDiffuse = float3(0.5, 0.5, 0.5) * (1.0 / CLEAN_RTXDI_PI);
-    const float3 reflected = flatDiffuse * lightSample.radiance * ndotl;
-    return PathTraceCleanRoomLuminance(reflected) / max(lightSample.solidAnglePdf, 1.0e-6);
-}
-
-float RAB_LightSampleSolidAnglePdf(RAB_LightSample lightSample)
-{
-    return lightSample.solidAnglePdf;
-}
-
-bool RAB_IsAnalyticLightSample(RAB_LightSample lightSample)
-{
-    return lightSample.lightType == CLEAN_RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE ||
-        lightSample.lightType == CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT;
-}
-
-void RAB_GetLightDirDistance(RAB_Surface surface, RAB_LightSample lightSample, out float3 lightDir, out float lightDistance)
-{
-    const float3 toSample = lightSample.position - surface.worldPos;
-    lightDistance = sqrt(max(dot(toSample, toSample), 1.0e-6));
-    lightDir = toSample / lightDistance;
-}
-
-float RAB_SurfaceEvaluateBrdfPdf(RAB_Surface surface, float3 lightDir)
-{
-    if (!RAB_IsSurfaceValid(surface))
-    {
-        return 0.0;
-    }
-
-    return saturate(dot(RAB_GetSurfaceNormal(surface), lightDir)) * (1.0 / CLEAN_RTXDI_PI);
-}
-
 bool RAB_GetConservativeVisibility(RAB_Surface surface, RAB_LightSample lightSample)
 {
     PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
     record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, RT_PRIMARY_SURFACE_VALID, 0u, 0u);
     record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
     record.geometricNormalAndRoughness = float4(surface.geometryNormal, 0.5);
-    record.shadingNormalAndOpacity = float4(surface.normal, 1.0);
+    record.shadingNormalAndOpacity = float4(surface.shadingNormal, 1.0);
     record.viewDirectionAndReserved = float4(surface.viewDir, 0.0);
     return PathTraceCleanRoomTraceVisibility(record, lightSample.position) > 0.0;
-}
-
-bool RAB_SurfaceImportanceSampleBrdf(RAB_Surface surface, inout RTXDI_RandomSamplerState rng, out float3 sampleDir)
-{
-    sampleDir = RAB_GetSurfaceNormal(surface);
-    return false;
 }
 
 bool RAB_TraceRayForLocalLight(float3 rayOrigin, float3 rayDirection, float tMin, float tMax, out uint lightIndex, out float2 randXY)
@@ -952,7 +837,7 @@ float RAB_EvaluateEnvironmentMapSamplingPdf(float3 sampleDir)
 
 bool RAB_GetTemporalConservativeVisibility(RAB_Surface surface, RAB_Surface previousSurface, RAB_LightSample lightSample)
 {
-    return true;
+    return RAB_GetConservativeVisibility(surface, lightSample);
 }
 
 #include "Rtxdi/DI/InitialSampling.hlsli"
@@ -1056,20 +941,19 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
     result.selectedLightIndex = 0xffffffffu;
     result.status = CLEAN_INITIAL_STATUS_VALID;
 
-    const bool syntheticConstantMode = PathTraceCleanRoomSyntheticConstantMode();
-    const bool syntheticSingleLightMode = PathTraceCleanRoomSyntheticSingleLightMode();
-    if (!syntheticConstantMode && CleanRtxdiDiLightMode == 0u)
+    const bool syntheticMode = PathTraceCleanRoomSyntheticMode();
+    if (!syntheticMode && CleanRtxdiDiLightMode == 0u)
     {
         result.status = CLEAN_INITIAL_STATUS_NO_LIGHT_MODE;
         return result;
     }
-    if (!syntheticConstantMode && CleanRtxdiDiLightMode != 1u)
+    if (!syntheticMode && CleanRtxdiDiLightMode != 1u)
     {
         result.status = CLEAN_INITIAL_STATUS_DEFERRED_LIGHT_MODE;
         return result;
     }
 
-    const uint lightCount = syntheticSingleLightMode ? 1u : min(CleanRtxdiDiAnalyticLightCount, CleanRtxdiDiAnalyticIdentityCount);
+    const uint lightCount = syntheticMode ? PathTraceCleanRoomSyntheticLightCount() : PathTraceCleanRoomInitialLightCount();
     if (lightCount == 0u)
     {
         result.status = CLEAN_INITIAL_STATUS_NO_LIGHTS;
@@ -1090,7 +974,9 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
     }
 
     RTXDI_DIInitialSamplingParameters sampleParams = (RTXDI_DIInitialSamplingParameters)0;
-    sampleParams.numLocalLightSamples = syntheticSingleLightMode ? 1u : max(CleanRtxdiDiCandidateCount, 1u);
+    sampleParams.numLocalLightSamples = syntheticMode
+        ? 1u
+        : max(CleanRtxdiDiCandidateCount, 1u);
     sampleParams.localLightSamplingMode = ReSTIRDI_LocalLightSamplingMode_UNIFORM;
     sampleParams.enableInitialVisibility = 0u;
 
@@ -1125,7 +1011,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
     result.solidAnglePdf = selectedSample.solidAnglePdf;
     result.targetPdf = result.reservoir.targetPdf;
     result.invSourcePdf = RTXDI_GetDIReservoirInvPdf(result.reservoir);
-    if ((!syntheticSingleLightMode && result.selectedLightIndex >= CleanRtxdiDiAnalyticLightCount) ||
+    if ((!syntheticMode && result.selectedLightIndex >= CleanRtxdiDiAnalyticLightCount) ||
         selectedSample.valid == 0u || selectedSample.solidAnglePdf <= 1.0e-8)
     {
         result.status = CLEAN_INITIAL_STATUS_BAD_SAMPLE_PDF;
@@ -1133,11 +1019,13 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
         return result;
     }
 
-    if (!syntheticSingleLightMode)
+    if (!syntheticMode)
     {
         result.light = DoomAnalyticLights[result.selectedLightIndex];
     }
-    result.visibility = syntheticSingleLightMode ? 1.0 : PathTraceCleanRoomTraceVisibility(result.surface, result.samplePosition);
+    result.visibility = PathTraceCleanRoomSyntheticOverlapMode()
+        ? PathTraceCleanRoomTraceVisibility(result.surface, result.samplePosition)
+        : (syntheticMode ? 1.0 : PathTraceCleanRoomTraceVisibility(result.surface, result.samplePosition));
     RTXDI_StoreVisibilityInDIReservoir(result.reservoir, result.visibility.xxx, false);
     return result;
 }
@@ -1235,7 +1123,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     }
 
     const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
-    if (!PathTraceCleanRoomSyntheticSingleLightMode() &&
+    if (!PathTraceCleanRoomSyntheticMode() &&
         !PathTraceCleanRoomExternalPdfNeeCurrentEnabled() &&
         lightIndex >= CleanRtxdiDiAnalyticLightCount)
     {
@@ -1254,7 +1142,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     const float3 lightDirection = PathTraceCleanRoomSafeNormalize(toSample, PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
     const float ndotl = saturate(dot(PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz), lightDirection));
     const float3 flatDiffuse = float3(0.5, 0.5, 0.5) * (1.0 / CLEAN_RTXDI_PI);
-    const float visibility = lightSample.lightType == CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT
+    const float visibility = PathTraceCleanRoomSyntheticSingleLightMode()
         ? 1.0
         : PathTraceCleanRoomTraceVisibility(surfaceRecord, lightSample.position);
     const float3 reflectedRadiance = max(lightSample.radiance, float3(0.0, 0.0, 0.0)) * flatDiffuse * ndotl;
@@ -1313,6 +1201,19 @@ float3 PathTraceCleanRoomReservoirWeightColor(PathTraceCleanRtxdiDiInitialResult
         return float3(0.15, saturate(log2(1.0 + RTXDI_GetDIReservoirInvPdf(result.reservoir)) / 12.0), 0.85);
     }
     return result.visibility > 0.0 ? float3(0.0, 0.95, 0.72) : float3(0.95, 0.05, 0.12);
+}
+
+float PathTraceCleanRoomLog01(float value, float scale)
+{
+    return saturate(log2(1.0 + max(value, 0.0)) / max(scale, 1.0e-3));
+}
+
+float3 PathTraceCleanRoomTargetInvPdfColor(float targetPdf, float invPdf)
+{
+    return float3(
+        PathTraceCleanRoomLog01(targetPdf, 14.0),
+        PathTraceCleanRoomLog01(invPdf, 16.0),
+        0.15);
 }
 
 bool PathTraceCleanRoomTemporalReuseEnabled()
@@ -1440,6 +1341,9 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
         if (RTXDI_IsValidDIReservoir(previousReservoir))
         {
             result.flags |= CLEAN_TEMPORAL_DIAG_PREVIOUS_RESERVOIR_VALID;
+            result.previousM = previousReservoir.M;
+            result.previousTargetPdf = previousReservoir.targetPdf;
+            result.previousInvPdf = RTXDI_GetDIReservoirInvPdf(previousReservoir);
             if (RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(previousReservoir), false) >= 0)
             {
                 result.flags |= CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED;
@@ -1483,6 +1387,8 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     {
         result.flags |= CLEAN_TEMPORAL_DIAG_TEMPORAL_RESERVOIR_VALID;
         result.reservoir = temporalReservoir;
+        result.temporalTargetPdf = temporalReservoir.targetPdf;
+        result.temporalInvPdf = RTXDI_GetDIReservoirInvPdf(temporalReservoir);
         if (temporalReservoir.M > currentReservoir.M)
         {
             result.flags |= CLEAN_TEMPORAL_DIAG_SDK_REUSED_PREVIOUS;
@@ -1507,7 +1413,9 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
     const uint band = min((pixel.y * bandCount) / max(dimensions.y, 1u), bandCount - 1u);
     if (band == 0u)
     {
-        return PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_ENABLED | CLEAN_TEMPORAL_DIAG_PREVIOUS_FRAME_VALID);
+        float3 gate = PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_ENABLED | CLEAN_TEMPORAL_DIAG_PREVIOUS_FRAME_VALID);
+        gate.b = PathTraceCleanRoomLog01((float)CleanRtxdiDiHistoryResetCount, 8.0);
+        return gate;
     }
     if (band == 1u)
     {
@@ -1523,22 +1431,28 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
     }
     if (band == 4u)
     {
-        return PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_PREVIOUS_RESERVOIR_VALID);
+        float3 gate = PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_PREVIOUS_RESERVOIR_VALID);
+        gate.b = PathTraceCleanRoomLog01(temporal.previousM, 5.0);
+        return gate;
     }
     if (band == 5u)
     {
-        return PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED);
+        return pixel.x < (dimensions.x >> 1u)
+            ? PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED)
+            : PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_SDK_CALLED | CLEAN_TEMPORAL_DIAG_TEMPORAL_RESERVOIR_VALID | CLEAN_TEMPORAL_DIAG_SDK_REUSED_PREVIOUS);
     }
     if (band == 6u)
     {
-        return PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_SDK_CALLED | CLEAN_TEMPORAL_DIAG_TEMPORAL_RESERVOIR_VALID | CLEAN_TEMPORAL_DIAG_SDK_REUSED_PREVIOUS);
+        return pixel.x < (dimensions.x >> 1u)
+            ? PathTraceCleanRoomTargetInvPdfColor(initial.targetPdf, RTXDI_GetDIReservoirInvPdf(initial.reservoir))
+            : PathTraceCleanRoomTargetInvPdfColor(temporal.temporalTargetPdf, temporal.temporalInvPdf);
     }
 
-    const float currentM = saturate(initial.reservoir.M / 16.0);
-    const float temporalM = saturate(temporal.reservoir.M / 16.0);
+    const float currentLum = RAB_Luminance(PathTraceCleanRoomFlatDiffuseResolveReservoir(initial.surface, initial.reservoir));
+    const float temporalLum = RAB_Luminance(PathTraceCleanRoomFlatDiffuseResolveReservoir(initial.surface, temporal.reservoir));
     return pixel.x < (dimensions.x >> 1u)
-        ? float3(currentM, currentM, currentM)
-        : float3(temporalM, temporalM, temporalM);
+        ? float3(PathTraceCleanRoomLog01(currentLum, 12.0), PathTraceCleanRoomLog01(initial.reservoir.M, 5.0), 0.05)
+        : float3(PathTraceCleanRoomLog01(temporalLum, 12.0), PathTraceCleanRoomLog01(temporal.reservoir.M, 5.0), 0.05);
 }
 
 float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, uint view)
@@ -1581,7 +1495,7 @@ float3 PathTraceCleanRoomTemporalReservoirOutput(uint2 pixel, uint2 dimensions, 
         }
     }
 
-    const bool temporalRequested = view == 5u || view == 6u || view == 8u || view == 9u || view == 10u;
+    const bool temporalRequested = view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u;
     const bool temporalAllowed = temporalRequested && (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_ENABLE) != 0u;
     RTXDI_DIReservoir temporalReservoir = initial.reservoir;
     PathTraceCleanRtxdiDiTemporalResult temporal = (PathTraceCleanRtxdiDiTemporalResult)0;
@@ -1619,7 +1533,7 @@ float3 PathTraceCleanRoomTemporalReservoirOutput(uint2 pixel, uint2 dimensions, 
         return PathTraceCleanRoomTemporalDiagnosticColor(initial, temporal, pixel, dimensions);
     }
 
-    if (view == 9u || view == 10u)
+    if (view == 9u || view == 10u || view == 11u || view == 12u)
     {
         if (!RTXDI_IsValidDIReservoir(temporalReservoir))
         {
@@ -1774,7 +1688,13 @@ void RayGen()
         return;
     }
 
-    const uint view = clamp(CleanRtxdiDiView, 1u, 10u);
+    const uint view = CleanRtxdiDiView;
+    if (view < 1u || view > 12u)
+    {
+        SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
+        return;
+    }
+
     float3 color = PathTraceCleanRoomDeferredColor(pixel, view);
     if (view == 1u)
     {
@@ -1792,7 +1712,7 @@ void RayGen()
     {
         color = PathTraceCleanRoomInitialReservoirOutput(pixel, dimensions, view);
     }
-    else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u)
+    else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u)
     {
         color = PathTraceCleanRoomTemporalReservoirOutput(pixel, dimensions, view);
     }

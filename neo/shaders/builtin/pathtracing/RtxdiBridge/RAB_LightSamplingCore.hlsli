@@ -3,7 +3,11 @@
 
 #include "RAB_SurfaceCore.hlsli"
 #include "RAB_LightSample.hlsli"
+#ifdef RB_RAB_LIGHT_SAMPLING_CORE_ONLY
+#include "RAB_LightInfoCore.hlsli"
+#else
 #include "RAB_LightInfo.hlsli"
+#endif
 
 float RAB_Luminance(float3 radiance)
 {
@@ -58,6 +62,55 @@ bool RAB_DoomAnalyticHardInfluenceCutoffEnabled()
 {
     return (((uint)max(DoomAnalyticLightInfo.w, 0.0)) & 4u) != 0u;
 }
+
+#ifdef RB_RAB_CLEAN_DOOM_ANALYTIC_POINT_PROXY
+bool RAB_CleanDoomAnalyticPointProxyEnabled()
+{
+    return CleanRtxdiDiView == 12u;
+}
+
+RAB_LightSample RAB_SampleCleanDoomAnalyticPointProxyLight(
+    RAB_LightInfo lightInfo,
+    RAB_Surface surface,
+    float3 centerDir,
+    float centerDistance,
+    float doomInfluence)
+{
+    RAB_LightSample lightSample = RAB_EmptyLightSample();
+    lightSample.lightType = lightInfo.lightType;
+    lightSample.lightIndex = lightInfo.lightIndex;
+    lightSample.flags = lightInfo.flags;
+
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), centerDir));
+    if (ndotl <= 0.0)
+    {
+        return lightSample;
+    }
+
+    const float minEffectiveDistance = 64.0;
+    const float maxProxyLuminance = 0.06;
+    const float boundedDistanceSquared = max(centerDistance * centerDistance, minEffectiveDistance * minEffectiveDistance);
+    const float boundedFalloff = (minEffectiveDistance * minEffectiveDistance) / boundedDistanceSquared;
+    const float3 rawIncidentRadiance = max(lightInfo.radiance, float3(0.0, 0.0, 0.0)) * doomInfluence * boundedFalloff;
+    const float incidentLuminance = RAB_Luminance(rawIncidentRadiance);
+    const float incidentScale = incidentLuminance > maxProxyLuminance
+        ? maxProxyLuminance / max(incidentLuminance, 1.0e-6)
+        : 1.0;
+    const float3 incidentRadiance = rawIncidentRadiance * incidentScale;
+
+    lightSample.valid = 1u;
+    lightSample.lightType = lightInfo.lightType;
+    lightSample.lightIndex = lightInfo.lightIndex;
+    lightSample.flags = lightInfo.flags;
+    lightSample.position = lightInfo.position;
+    lightSample.normal = -centerDir;
+    lightSample.distance = max(centerDistance, 1.0e-3);
+    lightSample.radiance = incidentRadiance;
+    lightSample.areaPdf = 1.0;
+    lightSample.solidAnglePdf = 1.0;
+    return lightSample;
+}
+#endif
 
 bool RAB_AllFinite3(float3 value)
 {
@@ -138,6 +191,13 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     {
         return lightSample;
     }
+
+#ifdef RB_RAB_CLEAN_DOOM_ANALYTIC_POINT_PROXY
+    if (RAB_CleanDoomAnalyticPointProxyEnabled())
+    {
+        return RAB_SampleCleanDoomAnalyticPointProxyLight(lightInfo, surface, centerDir, centerDistance, doomInfluence);
+    }
+#endif
 
     const float sphereRadius = clamp(lightInfo.radius, 0.01, doomRadius);
     const float sinThetaMax = saturate(sphereRadius / centerDistance);

@@ -171,6 +171,8 @@ private:
     uint64_t m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
     uint32_t m_smokeCleanRtxdiDiFrameIndex = 0;
     bool m_smokeCleanRtxdiDiPreviousReservoirValid = false;
+    uint64 m_smokeCleanRtxdiDiHistorySignature = 0;
+    uint32_t m_smokeCleanRtxdiDiHistoryResetCount = 0;
     std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;
     int m_smokeBoundsOverlayLineCount = 0;
     bool m_smokeBoundsOverlayViewValid = false;
@@ -214,6 +216,7 @@ private:
     int m_smokeTexturedLightCandidateCount = 0;
     int m_smokeLightCandidateBytes = 0;
     int m_smokeDoomAnalyticLightCount = 0;
+    int m_smokeDoomAnalyticPortalRegionLightCount = 0;
     int m_smokeDoomAnalyticLightBytes = 0;
     int m_smokeDoomAnalyticPreviousLightCount = 0;
     int m_smokeDoomAnalyticCurrentIdentityCount = 0;

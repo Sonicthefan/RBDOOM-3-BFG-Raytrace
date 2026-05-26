@@ -3286,12 +3286,6 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateRealAnalyticCandidate(RAB_
         result.reservoirInvPdf /
         max(lightSample.solidAnglePdf, 1.0e-6) *
         result.visibility;
-    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
-    {
-        result.invalidReason = result.visibility <= 0.0 ? 6u : 5u;
-        return result;
-    }
-
     result.valid = 1u;
     return result;
 }
@@ -3518,12 +3512,6 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateFullRealAnalyticDomain(RAB
         result.reservoirInvPdf /
         max(result.solidAnglePdf, 1.0e-6) *
         result.visibility;
-    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
-    {
-        result.invalidReason = result.visibility <= 0.0 ? 6u : 5u;
-        return result;
-    }
-
     result.valid = 1u;
     return result;
 }
@@ -3681,10 +3669,12 @@ float3 PathTracePdfNeeEmissiveExpectedMean(RAB_Surface surface)
     return sumContribution;
 }
 
-float2 PathTracePdfNeeReGIRReplaySampleUv(PathTraceReGIRCandidateRecord candidate, PathTraceReGIRCellDebug cell)
+float2 PathTracePdfNeeReGIRReplaySampleUv(PathTraceReGIRCandidateRecord candidate, PathTraceReGIRCellDebug cell, uint2 pixel, uint frameIndex, uint sampleIndex)
 {
-    const uint seedA = PathTraceReGIRHashCell(cell.globalCoord + int3((int)candidate.slotIndex, (int)candidate.lightIndex, 17));
-    const uint seedB = PathTraceReGIRHashCell(cell.globalCoord + int3((int)candidate.globalIdentity, (int)candidate.cellIndex, 29));
+    const uint seedA = PathTraceReGIRHashCell(cell.globalCoord + int3((int)candidate.slotIndex, (int)candidate.lightIndex, 17)) ^
+        PathTracePdfNeeHash(pixel, frameIndex, 0xa341u + sampleIndex);
+    const uint seedB = PathTraceReGIRHashCell(cell.globalCoord + int3((int)candidate.globalIdentity, (int)candidate.cellIndex, 29)) ^
+        PathTracePdfNeeHash(pixel.yx, frameIndex, 0xb529u + sampleIndex);
     return float2(PathTracePdfNeeHashToUnitFloat(seedA), PathTracePdfNeeHashToUnitFloat(seedB));
 }
 
@@ -3692,7 +3682,11 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
     RAB_Surface surface,
     PathTraceReGIRCellDebug cell,
     uint slotIndex,
-    uint candidateSlotCount)
+    uint candidateSlotCount,
+    float slotSelectionPdf,
+    uint2 pixel,
+    uint frameIndex,
+    uint sampleIndex)
 {
     PathTracePdfNeeSyntheticResult result = (PathTracePdfNeeSyntheticResult)0;
     if (slotIndex >= candidateSlotCount)
@@ -3703,9 +3697,9 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
 
     const PathTraceReGIRCandidateRecord candidate = ReGIRCandidateCache[slotIndex];
     result.selectedLightIndex = candidate.globalIdentity;
-    result.sourcePdf = candidate.sourcePdf;
-    result.reservoirInvPdf = candidate.invSourcePdf;
-    result.sampleUv = PathTracePdfNeeReGIRReplaySampleUv(candidate, cell);
+    result.sourcePdf = candidate.sourcePdf * max(slotSelectionPdf, 1.0e-8);
+    result.reservoirInvPdf = candidate.invSourcePdf / max(slotSelectionPdf, 1.0e-8);
+    result.sampleUv = PathTracePdfNeeReGIRReplaySampleUv(candidate, cell, pixel, frameIndex, sampleIndex);
 
     if ((candidate.flags & PATH_TRACE_REGIR_CANDIDATE_VALID) == 0u)
     {
@@ -3789,12 +3783,6 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
         result.reservoirInvPdf /
         max(result.solidAnglePdf, 1.0e-6) *
         result.visibility;
-    if (PathTracePdfNeeLuminance(result.finalContribution) <= 0.0)
-    {
-        result.invalidReason = result.visibility <= 0.0 ? 6u : 5u;
-        return result;
-    }
-
     result.valid = 1u;
     return result;
 }
@@ -3837,37 +3825,27 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidate(RAB_Surface
     }
 
     const uint cellBaseSlot = cell.localCellIndex * lightsPerCell;
+    const uint availableSlots = min(lightsPerCell, candidateSlotCount > cellBaseSlot ? candidateSlotCount - cellBaseSlot : 0u);
+    if (availableSlots == 0u)
+    {
+        result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_SLOT_RANGE;
+        return result;
+    }
+
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
     const uint hash = PathTraceReGIRHashCell(cell.globalCoord) ^
         PathTracePdfNeeHash(pixel, frameIndex, 0x9100u + sampleIndex);
-    const uint startSlotInCell = hash % lightsPerCell;
-    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
-    const uint scanBudget = max(16u, min(32u, sampleCount * 4u));
-    const uint scanCount = min(lightsPerCell, scanBudget);
-    uint stride = ((hash >> 8u) | 1u) % lightsPerCell;
-    stride = stride == 0u ? 1u : stride;
-
-    PathTracePdfNeeSyntheticResult firstInvalidResult = (PathTracePdfNeeSyntheticResult)0;
-    firstInvalidResult.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_CANDIDATE;
-    [loop]
-    for (uint probeIndex = 0u; probeIndex < scanCount; ++probeIndex)
-    {
-        const uint slotInCell = (startSlotInCell + probeIndex * stride) % lightsPerCell;
-        const PathTracePdfNeeSyntheticResult candidateResult =
-            PathTracePdfNeeEvaluateReGIRCandidateSlot(surface, cell, cellBaseSlot + slotInCell, candidateSlotCount);
-        if (candidateResult.valid != 0u)
-        {
-            return candidateResult;
-        }
-        if (probeIndex == 0u ||
-            (firstInvalidResult.invalidReason == PATH_TRACE_PDF_NEE_INVALID_REGIR_CANDIDATE &&
-                candidateResult.invalidReason != PATH_TRACE_PDF_NEE_INVALID_REGIR_CANDIDATE))
-        {
-            firstInvalidResult = candidateResult;
-        }
-    }
-
-    return firstInvalidResult;
+    const uint slotInCell = hash % availableSlots;
+    const float slotSelectionPdf = 1.0 / max((float)availableSlots, 1.0);
+    return PathTracePdfNeeEvaluateReGIRCandidateSlot(
+        surface,
+        cell,
+        cellBaseSlot + slotInCell,
+        candidateSlotCount,
+        slotSelectionPdf,
+        pixel,
+        frameIndex,
+        sampleIndex);
 }
 
 float3 PathTracePdfNeeEvaluateReGIRSampledContribution(RAB_Surface surface, uint2 pixel)
@@ -3925,11 +3903,13 @@ float3 PathTracePdfNeeEvaluateReGIRCellMeanContribution(RAB_Surface surface)
     }
 
     float3 sumContribution = float3(0.0, 0.0, 0.0);
+    const float slotSelectionPdf = 1.0 / max((float)lightsPerCell, 1.0);
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
     [loop]
     for (uint slotInCell = 0u; slotInCell < availableSlots; ++slotInCell)
     {
         const PathTracePdfNeeSyntheticResult slotResult =
-            PathTracePdfNeeEvaluateReGIRCandidateSlot(surface, cell, cellBaseSlot + slotInCell, candidateSlotCount);
+            PathTracePdfNeeEvaluateReGIRCandidateSlot(surface, cell, cellBaseSlot + slotInCell, candidateSlotCount, slotSelectionPdf, uint2(slotInCell, cell.localCellIndex), frameIndex, slotInCell);
         sumContribution += slotResult.valid != 0u ? slotResult.finalContribution : float3(0.0, 0.0, 0.0);
     }
     return sumContribution / max((float)availableSlots, 1.0);

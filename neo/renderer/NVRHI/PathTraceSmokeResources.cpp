@@ -860,6 +860,7 @@ RtSmokeSceneResourceCommitDesc CreateSmokeSceneResourceCommitDesc(const RtSmokeS
     commitDesc.texturedLightCandidateCount = desc.texturedLightCandidateCount;
     commitDesc.lightCandidateBytes = desc.lightCandidateBytes;
     commitDesc.doomAnalyticLightCount = desc.doomAnalyticLightCount;
+    commitDesc.doomAnalyticPortalRegionLightCount = desc.doomAnalyticPortalRegionLightCount;
     commitDesc.doomAnalyticLightBytes = desc.doomAnalyticLightBytes;
     commitDesc.doomAnalyticPreviousLightCount = desc.doomAnalyticPreviousLightCount;
     commitDesc.doomAnalyticCurrentIdentityCount = desc.doomAnalyticCurrentIdentityCount;
@@ -1064,7 +1065,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::BufferDesc cleanRtxdiDiSentinelConstantsDesc;
-    cleanRtxdiDiSentinelConstantsDesc.byteSize = 128;
+    cleanRtxdiDiSentinelConstantsDesc.byteSize = 256;
     cleanRtxdiDiSentinelConstantsDesc.debugName = "PathTraceCleanRtxdiDiSentinelConstants";
     cleanRtxdiDiSentinelConstantsDesc.isConstantBuffer = true;
     cleanRtxdiDiSentinelConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
@@ -1888,6 +1889,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeCleanRtxdiDiTemporalReservoirBytes = 0;
     m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
     m_smokeCleanRtxdiDiPreviousReservoirValid = false;
+    m_smokeCleanRtxdiDiHistorySignature = 0;
+    m_smokeCleanRtxdiDiHistoryResetCount = 0;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;
@@ -1897,6 +1900,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeTexturedLightCandidateCount = 0;
     m_smokeLightCandidateBytes = 0;
     m_smokeDoomAnalyticLightCount = 0;
+    m_smokeDoomAnalyticPortalRegionLightCount = 0;
     m_smokeDoomAnalyticLightBytes = 0;
     m_smokeDoomAnalyticPreviousLightCount = 0;
     m_smokeDoomAnalyticCurrentIdentityCount = 0;
@@ -2064,6 +2068,7 @@ void PathTracePrimaryPass::CommitRayTracingSmokeSceneResources(const RtSmokeScen
     m_smokeTexturedLightCandidateCount = desc.texturedLightCandidateCount;
     m_smokeLightCandidateBytes = desc.lightCandidateBytes;
     m_smokeDoomAnalyticLightCount = desc.doomAnalyticLightCount;
+    m_smokeDoomAnalyticPortalRegionLightCount = desc.doomAnalyticPortalRegionLightCount;
     m_smokeDoomAnalyticLightBytes = desc.doomAnalyticLightBytes;
     m_smokeDoomAnalyticPreviousLightCount = desc.doomAnalyticPreviousLightCount;
     m_smokeDoomAnalyticCurrentIdentityCount = desc.doomAnalyticCurrentIdentityCount;

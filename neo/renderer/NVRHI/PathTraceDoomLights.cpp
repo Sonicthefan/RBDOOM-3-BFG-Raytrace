@@ -223,6 +223,8 @@ struct DoomAnalyticLightStableKey
 struct DoomAnalyticLightUniverseState
 {
     const idRenderWorldLocal* renderWorld = nullptr;
+    idStr mapName;
+    ID_TIME_T mapTimeStamp = 0;
     uint32_t nextUniverseIndex = 0;
     std::vector<DoomAnalyticLightStableKey> stableKeys;
     std::vector<DoomAnalyticLightUniverseEntry> previousEntries;
@@ -234,9 +236,11 @@ struct DoomAnalyticLightUniverseState
     DoomPersistentAuthoredLightStats persistentStats;
     int frameIndex = 0;
 
-    void Reset(const idRenderWorldLocal* newRenderWorld)
+    void Reset(const idRenderWorldLocal* newRenderWorld, const char* newMapName, ID_TIME_T newMapTimeStamp)
     {
         renderWorld = newRenderWorld;
+        mapName = newMapName ? newMapName : "";
+        mapTimeStamp = newMapTimeStamp;
         nextUniverseIndex = 0;
         stableKeys.clear();
         previousEntries.clear();
@@ -1599,9 +1603,13 @@ void UpdateDoomAnalyticLightUniverse(
     int maxGpuCandidates)
 {
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    if (g_doomAnalyticLightUniverse.renderWorld != renderWorld)
+    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
+    const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
+    if (g_doomAnalyticLightUniverse.renderWorld != renderWorld ||
+        g_doomAnalyticLightUniverse.mapName.Icmp(mapName) != 0 ||
+        g_doomAnalyticLightUniverse.mapTimeStamp != mapTimeStamp)
     {
-        g_doomAnalyticLightUniverse.Reset(renderWorld);
+        g_doomAnalyticLightUniverse.Reset(renderWorld, mapName, mapTimeStamp);
     }
 
     DoomAnalyticLightUniverseState& state = g_doomAnalyticLightUniverse;
