@@ -9,6 +9,7 @@
 // outside this module.
 
 #include "PathTraceCVars.h"
+#include "PathTraceCleanRtxdiDiGui.h"
 #include "PathTraceSmokeDispatch.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceAcceleration.h"
@@ -35,6 +36,22 @@ namespace {
 const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const uint32_t CLEAN_RTXDI_DI_FLAG_EXTERNAL_PDFNEE_CURRENT = 1u << 0u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
+PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
+
+}
+
+void PathTraceCleanRtxdiDiPublishGuiSnapshot(const PathTraceCleanRtxdiDiGuiSnapshot& snapshot)
+{
+    g_cleanRtxdiDiGuiSnapshot = snapshot;
+}
+
+bool PathTraceCleanRtxdiDiGetGuiSnapshot(PathTraceCleanRtxdiDiGuiSnapshot& snapshot)
+{
+    snapshot = g_cleanRtxdiDiGuiSnapshot;
+    return snapshot.valid;
+}
+
+namespace {
 
 void SetBufferStateIfPresent(nvrhi::ICommandList* commandList, const nvrhi::BufferHandle& buffer, nvrhi::ResourceStates state)
 {
@@ -97,6 +114,10 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t analyticRemapCount = 0;
     uint32_t temporalFlags = 0;
     uint32_t historyResetCount = 0;
+    uint32_t view8Band = 0xffffffffu;
+    uint32_t resolveVisibilityReuse = 0;
+    uint32_t resolveBrdfTarget = 0;
+    uint32_t referenceRab = 0;
     float prevCameraOriginAndValid[4] = {};
     float prevCameraForwardAndTanX[4] = {};
     float prevCameraLeftAndTanY[4] = {};
@@ -887,15 +908,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanViewNow == 12 &&
             r_pathTracingCleanRtxdiDiView12FullAnalyticDomain.GetInteger() != 0;
         const bool cleanDumpPortalProofDomain = (!cleanDumpView12FullAnalyticDomain && cleanViewNow == 12) || cleanViewNow == 13 || cleanViewNow == 14 || cleanViewNow == 15 ||
-            (cleanViewNow == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
+            (cleanViewNow == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0) ||
+            (cleanViewNow == 10 && r_pathTracingCleanRtxdiDiView10PortalDomain.GetInteger() != 0);
         const uint32_t cleanDumpAnalyticDomainCount = cleanDumpPortalProofDomain
             ? static_cast<uint32_t>(Min(Max(0, m_smokeDoomAnalyticPortalRegionLightCount), Max(0, m_smokeDoomAnalyticLightCount)))
             : static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
-        const uint32_t cleanDumpCandidateCount = cleanDumpPortalProofDomain && r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool()
-            ? Min(cleanDumpAnalyticDomainCount, static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())))
-            : ((cleanViewNow == 8 || cleanViewNow == 12) ? 8u : 1u);
+        const uint32_t cleanDumpCandidateOverride = static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingCleanRtxdiDiCandidateCount.GetInteger()));
+        const uint32_t cleanDumpCandidateCount = (cleanViewNow == 8 || cleanViewNow == 12)
+            ? Min(cleanDumpAnalyticDomainCount, cleanDumpCandidateOverride)
+            : 1u;
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d cleanCandidates=%u externalPdfNeeCurrent=%d externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u externalPdfNeeCurrent=%d externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
@@ -907,6 +930,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiFallbackLighting.GetInteger(),
             r_pathTracingCleanRtxdiDiLightMode.GetInteger(),
             r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 1 : 0,
+            r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger(),
+            r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger(),
+            r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger(),
+            cleanDumpCandidateOverride,
+            idMath::ClampInt(-1, 7, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
+            r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1 : 0,
+            idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()),
+            idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger()),
+            idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger()),
+            r_pathTracingCleanRtxdiDiView10PortalDomain.GetInteger() != 0 ? 1 : 0,
             cleanDumpCandidateCount,
             r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ? 1 : 0,
             0,
@@ -1971,7 +2006,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRtxdiDiView == 12 &&
             r_pathTracingCleanRtxdiDiView12FullAnalyticDomain.GetInteger() != 0;
         const bool cleanPortalProofDomain = (!cleanView12FullAnalyticDomain && cleanRtxdiDiView == 12) || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 ||
-            (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
+            (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0) ||
+            (cleanRtxdiDiView == 10 && r_pathTracingCleanRtxdiDiView10PortalDomain.GetInteger() != 0);
         const uint32_t cleanAvailableAnalyticLightCount = cleanPortalProofDomain
             ? static_cast<uint32_t>(Min(Max(0, m_smokeDoomAnalyticPortalRegionLightCount), Max(0, m_smokeDoomAnalyticLightCount)))
             : static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
@@ -1990,9 +2026,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanAnalyticRemapCount = cleanRtxdiDiLightMode == 1
             ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticRemapCount))
             : 0u;
-        const uint32_t cleanCandidateCount = cleanPortalProofDomain && r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool()
-            ? Min(cleanAnalyticLightCount, static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())))
-            : ((cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12) ? 8u : 1u);
+        const uint32_t cleanCandidateOverride = static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingCleanRtxdiDiCandidateCount.GetInteger()));
+        const uint32_t cleanCandidateCount = (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12)
+            ? Min(cleanAnalyticLightCount, cleanCandidateOverride)
+            : 1u;
         const bool cleanSyntheticTemporalProofView =
             cleanRtxdiDiView == 9 ||
             cleanRtxdiDiView == 10 ||
@@ -2009,9 +2046,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanCandidateCount));
             cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanAnalyticLightCount));
             cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanAnalyticIdentityCount));
-            cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanPreviousAnalyticLightCount));
-            cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanPreviousAnalyticIdentityCount));
-            cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanAnalyticRemapCount));
+            if (!cleanPortalProofDomain)
+            {
+                cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanPreviousAnalyticLightCount));
+                cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanPreviousAnalyticIdentityCount));
+                cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanAnalyticRemapCount));
+            }
         }
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanReservoirCount));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(Max(0, m_frameResources.width)));
@@ -2052,7 +2092,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.analyticLightCount = cleanAnalyticLightCount;
         cleanConstants.analyticIdentityCount = cleanAnalyticIdentityCount;
         cleanConstants.lightMode = static_cast<uint32_t>(cleanRtxdiDiLightMode);
-        cleanConstants.frameIndex = m_smokeCleanRtxdiDiFrameIndex++;
+        cleanConstants.frameIndex = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
+            ? 0u
+            : m_smokeCleanRtxdiDiFrameIndex++;
         cleanConstants.reservoirCount = cleanReservoirCount;
         cleanConstants.candidateCount = cleanCandidateCount;
         cleanConstants.flags = cleanFlags;
@@ -2061,6 +2103,77 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.analyticRemapCount = cleanAnalyticRemapCount;
         cleanConstants.temporalFlags = cleanTemporalFlags;
         cleanConstants.historyResetCount = m_smokeCleanRtxdiDiHistoryResetCount;
+        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 7, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
+        cleanConstants.resolveVisibilityReuse = r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1u : 0u;
+        cleanConstants.resolveBrdfTarget = r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1u : 0u;
+        cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));
+        PathTraceCleanRtxdiDiGuiSnapshot cleanGuiSnapshot;
+        cleanGuiSnapshot.valid = true;
+        cleanGuiSnapshot.enabled = cleanRtxdiDiEnabled;
+        cleanGuiSnapshot.routeReady = true;
+        cleanGuiSnapshot.temporal = r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0;
+        cleanGuiSnapshot.spatial = r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0;
+        cleanGuiSnapshot.bestLights = r_pathTracingCleanRtxdiDiBestLights.GetInteger() != 0;
+        cleanGuiSnapshot.denoiser = r_pathTracingCleanRtxdiDiDenoiser.GetInteger() != 0;
+        cleanGuiSnapshot.fallback = r_pathTracingCleanRtxdiDiFallbackLighting.GetInteger() != 0;
+        cleanGuiSnapshot.externalPdfNeeCurrent = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
+        cleanGuiSnapshot.externalPdfNeeMode9 = cleanExternalPdfNeeMode9Requested;
+        cleanGuiSnapshot.regirEnabled = regirSettings.enabled;
+        cleanGuiSnapshot.subview = viewDef && viewDef->isSubview;
+        cleanGuiSnapshot.mirror = viewDef && viewDef->isMirror;
+        cleanGuiSnapshot.superView = viewDef && viewDef->superView;
+        cleanGuiSnapshot.sceneBuilt = m_smokeSceneBuilt;
+        cleanGuiSnapshot.cleanShader = m_smokeCleanRtxdiDiSentinelShaderTable != nullptr;
+        cleanGuiSnapshot.bindingSet = cleanBindingSet != nullptr;
+        cleanGuiSnapshot.textureTable = m_smokeTextureDescriptorTable != nullptr;
+        cleanGuiSnapshot.outputTexture = m_frameResources.outputTexture != nullptr;
+        cleanGuiSnapshot.currentReservoir = m_smokeCleanRtxdiDiCurrentReservoirBuffer != nullptr;
+        cleanGuiSnapshot.temporalReservoir = m_smokeCleanRtxdiDiTemporalReservoirBuffer != nullptr;
+        cleanGuiSnapshot.previousReservoir = m_smokeCleanRtxdiDiPreviousReservoirBuffer != nullptr;
+        cleanGuiSnapshot.previousReservoirValid = m_smokeCleanRtxdiDiPreviousReservoirValid;
+        cleanGuiSnapshot.portalProofDomain = cleanPortalProofDomain;
+        cleanGuiSnapshot.fullAnalyticDomain = cleanView12FullAnalyticDomain;
+        cleanGuiSnapshot.doomRadiusCutoff = r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool();
+        cleanGuiSnapshot.relaxBrdfGates = r_pathTracingCleanRtxdiDiRelaxBrdfGates.GetInteger() != 0;
+        cleanGuiSnapshot.doomTargetFloor = r_pathTracingCleanRtxdiDiDoomTargetFloor.GetInteger() != 0;
+        cleanGuiSnapshot.view = cleanRtxdiDiView;
+        cleanGuiSnapshot.lightMode = cleanRtxdiDiLightMode;
+        cleanGuiSnapshot.area = viewDef ? viewDef->areaNum : -1;
+        cleanGuiSnapshot.drawSurfs = viewDef ? viewDef->numDrawSurfs : 0;
+        cleanGuiSnapshot.width = m_frameResources.width;
+        cleanGuiSnapshot.height = m_frameResources.height;
+        cleanGuiSnapshot.regirMode = regirSettings.mode;
+        cleanGuiSnapshot.regirCenterMode = regirSettings.centerMode;
+        cleanGuiSnapshot.regirLightsPerCell = regirSettings.lightsPerCell;
+        cleanGuiSnapshot.regirBuildSamples = regirSettings.buildSamples;
+        cleanGuiSnapshot.analyticDomainFreezeMs = r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger();
+        cleanGuiSnapshot.temporalBiasCorrection = idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
+        cleanGuiSnapshot.temporalMaxHistory = idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger());
+        cleanGuiSnapshot.candidateOverride = static_cast<int>(cleanCandidateOverride);
+        cleanGuiSnapshot.view10LightCount = idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger());
+        cleanGuiSnapshot.view10LightStart = idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger());
+        cleanGuiSnapshot.view10PortalDomain = r_pathTracingCleanRtxdiDiView10PortalDomain.GetInteger() != 0;
+        cleanGuiSnapshot.frameIndex = static_cast<int>(cleanConstants.frameIndex);
+        cleanGuiSnapshot.cleanCandidates = cleanCandidateCount;
+        cleanGuiSnapshot.cleanCurrentAnalytic = static_cast<unsigned int>(Max(0, m_smokeDoomAnalyticLightCount));
+        cleanGuiSnapshot.cleanPortalAnalytic = static_cast<unsigned int>(Max(0, m_smokeDoomAnalyticPortalRegionLightCount));
+        cleanGuiSnapshot.cleanCurrentAnalyticIdentity = cleanAnalyticIdentityCount;
+        cleanGuiSnapshot.cleanPreviousAnalytic = cleanPreviousAnalyticLightCount;
+        cleanGuiSnapshot.cleanPreviousAnalyticIdentity = cleanPreviousAnalyticIdentityCount;
+        cleanGuiSnapshot.cleanAnalyticRemap = cleanAnalyticRemapCount;
+        cleanGuiSnapshot.cleanReservoirCount = cleanReservoirCount;
+        cleanGuiSnapshot.cleanHistoryResetCount = m_smokeCleanRtxdiDiHistoryResetCount;
+        cleanGuiSnapshot.cleanHistorySignature = static_cast<unsigned long long>(m_smokeCleanRtxdiDiHistorySignature);
+        cleanGuiSnapshot.temporalFlags = cleanTemporalFlags;
+        cleanGuiSnapshot.regirCellSize = regirSettings.cellSize;
+        cleanGuiSnapshot.regirGridX = regirSettings.gridX;
+        cleanGuiSnapshot.regirGridY = regirSettings.gridY;
+        cleanGuiSnapshot.regirGridZ = regirSettings.gridZ;
+        cleanGuiSnapshot.regirCandidateSlots = regirDesc.slotCount;
+        cleanGuiSnapshot.route = cleanRtxdiDiRouteLabel(cleanRtxdiDiView);
+        cleanGuiSnapshot.behavior = cleanRtxdiDiBehaviorLabel(cleanRtxdiDiView);
+        cleanGuiSnapshot.regirFirstMissing = regirDesc.firstMissingContract ? regirDesc.firstMissingContract : "unknown";
+        PathTraceCleanRtxdiDiPublishGuiSnapshot(cleanGuiSnapshot);
         cleanConstants.prevCameraOriginAndValid[0] = m_frameResources.primarySurfaceHistoryView.origin.x;
         cleanConstants.prevCameraOriginAndValid[1] = m_frameResources.primarySurfaceHistoryView.origin.y;
         cleanConstants.prevCameraOriginAndValid[2] = m_frameResources.primarySurfaceHistoryView.origin.z;
@@ -2105,10 +2218,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.motionVectorInfo[1] = 1.0f;
         cleanConstants.motionVectorInfo[2] = static_cast<float>(idMath::ClampInt(1, 128, r_pathTracingRestirPTAnalyticLightTrials.GetInteger()));
         cleanConstants.motionVectorInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
-        cleanConstants.restirPTSurfaceInfo[0] = 5.0f;
-        cleanConstants.restirPTSurfaceInfo[1] = 0.0f;
-        cleanConstants.restirPTSurfaceInfo[2] = 0.0f;
-        cleanConstants.restirPTSurfaceInfo[3] = 0.0f;
+        cleanConstants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger()));
+        cleanConstants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger()));
+        cleanConstants.restirPTSurfaceInfo[2] = static_cast<float>(idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger()));
+        cleanConstants.restirPTSurfaceInfo[3] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger()));
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
         commandList->setRayTracingState(cleanState);
 

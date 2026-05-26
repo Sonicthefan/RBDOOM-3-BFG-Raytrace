@@ -344,12 +344,13 @@ uint RestirPTReferencePreviousNeeLightRemapFailureReason(RTXDI_PTReservoir reser
     }
 
     const PathTraceDoomAnalyticLightCandidateIdentity previousIdentity = DoomAnalyticPreviousIdentities[previousAnalyticIndex];
-    if (!RAB_DoomAnalyticIdentityValid(previousIdentity) || previousIdentity.universeIndex >= remapCount)
+    const uint remapIndex = RAB_DoomAnalyticIdentityRemapIndex(previousIdentity);
+    if (!RAB_DoomAnalyticIdentityValid(previousIdentity) || remapIndex >= remapCount)
     {
         return 13u;
     }
 
-    const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[previousIdentity.universeIndex];
+    const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[remapIndex];
     if (!RAB_DoomAnalyticRemapValid(remap) || remap.previousToCurrentCandidateIndex < 0)
     {
         return 14u;

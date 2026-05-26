@@ -799,12 +799,13 @@ float4 RestirPTReferenceCurrentToPreviousLightFailureColor(uint lightIndex)
     {
         return float4(1.0, 1.0, 1.0, 1.0);
     }
-    if (currentIdentity.universeIndex >= remapCount)
+    const uint remapIndex = RAB_DoomAnalyticIdentityRemapIndex(currentIdentity);
+    if (remapIndex >= remapCount)
     {
         return float4(1.0, 0.0, 0.75, 1.0);
     }
 
-    const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[currentIdentity.universeIndex];
+    const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[remapIndex];
     if (!RAB_DoomAnalyticRemapValid(remap) || remap.currentToPreviousCandidateIndex < 0)
     {
         const uint reason = currentIdentity.invalidReasonFlags | remap.invalidReasonFlags;

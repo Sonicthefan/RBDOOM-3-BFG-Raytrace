@@ -58,6 +58,81 @@ int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
 
+struct CleanRtxdiDiAnalyticDomainFreezeState
+{
+    bool valid = false;
+    idRenderWorldLocal* renderWorld = nullptr;
+    idStr mapName;
+    ID_TIME_T mapTimeStamp = 0;
+    int lastRefreshMs = 0;
+    int intervalMs = 0;
+    std::vector<PathTraceDoomAnalyticLightCandidate> lights;
+    PathTraceDoomAnalyticLightGpuRemap remap;
+
+    void Reset()
+    {
+        valid = false;
+        renderWorld = nullptr;
+        mapName.Clear();
+        mapTimeStamp = 0;
+        lastRefreshMs = 0;
+        intervalMs = 0;
+        lights.clear();
+        remap = PathTraceDoomAnalyticLightGpuRemap();
+    }
+};
+
+CleanRtxdiDiAnalyticDomainFreezeState g_cleanRtxdiDiAnalyticDomainFreeze;
+
+void ApplyCleanRtxdiDiAnalyticDomainFreeze(
+    const viewDef_t* viewDef,
+    std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
+    PathTraceDoomAnalyticLightGpuRemap& doomAnalyticRemap)
+{
+    CleanRtxdiDiAnalyticDomainFreezeState& freeze = g_cleanRtxdiDiAnalyticDomainFreeze;
+    const int intervalMs = idMath::ClampInt(0, 600000, r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger());
+    if (intervalMs <= 0 || r_pathTracingCleanRtxdiDiEnable.GetInteger() == 0)
+    {
+        if (freeze.valid)
+        {
+            freeze.Reset();
+        }
+        return;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
+    const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
+    if (!freeze.valid ||
+        freeze.renderWorld != renderWorld ||
+        freeze.mapName.Icmp(mapName) != 0 ||
+        freeze.mapTimeStamp != mapTimeStamp ||
+        freeze.intervalMs != intervalMs)
+    {
+        freeze.valid = true;
+        freeze.renderWorld = renderWorld;
+        freeze.mapName = mapName;
+        freeze.mapTimeStamp = mapTimeStamp;
+        freeze.intervalMs = intervalMs;
+        freeze.lastRefreshMs = Sys_Milliseconds();
+        freeze.lights = doomAnalyticLights;
+        freeze.remap = doomAnalyticRemap;
+        return;
+    }
+
+    const int nowMs = Sys_Milliseconds();
+    if (nowMs - freeze.lastRefreshMs >= intervalMs)
+    {
+        freeze.lastRefreshMs = nowMs;
+        freeze.lights = doomAnalyticLights;
+        freeze.remap = doomAnalyticRemap;
+        return;
+    }
+
+    doomAnalyticLights = freeze.lights;
+    doomAnalyticRemap = freeze.remap;
+}
+
 bool SmokeUploadElementRangeValid(int elementOffset, int elementCount, size_t elementTotal)
 {
     return elementOffset >= 0 &&
@@ -2097,8 +2172,29 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         : std::vector<PathTraceSmokeEmissiveTriangle>();
     const std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap = BuildSmokeEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
     const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
+    const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
+    const bool cleanRtxdiDiRealAnalyticRoute =
+        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
+        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15);
     const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates;
-    doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, restirPTAnalyticLightCandidates);
+    PathTraceDoomAnalyticLightBuildOptions doomAnalyticBuildOptions;
+    if (restirPTAnalyticLightCandidates)
+    {
+        doomAnalyticBuildOptions.forceBuild = true;
+        doomAnalyticBuildOptions.preserveZeroRadianceSlots = true;
+        doomAnalyticBuildOptions.stableReservoirOrder = true;
+        doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
+        doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
+    }
+    if (cleanRtxdiDiRealAnalyticRoute)
+    {
+        doomAnalyticBuildOptions.forceBuild = true;
+    }
+    doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, doomAnalyticBuildOptions);
+    doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
+    ApplyCleanRtxdiDiAnalyticDomainFreeze(viewDef, doomAnalyticLights, doomAnalyticRemap);
+
     int doomAnalyticPortalRegionLightCount = 0;
     for (const PathTraceDoomAnalyticLightCandidate& light : doomAnalyticLights)
     {
@@ -2108,7 +2204,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         ++doomAnalyticPortalRegionLightCount;
     }
-    doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
     if (r_pathTracingSmokeLog.GetInteger() != 0 && enableDoomAnalyticLightCandidates && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
     {
         common->Printf("PathTracePrimaryPass: Doom analytic lights gpu=%d bytes=%d intensityScale=%.3f\n",

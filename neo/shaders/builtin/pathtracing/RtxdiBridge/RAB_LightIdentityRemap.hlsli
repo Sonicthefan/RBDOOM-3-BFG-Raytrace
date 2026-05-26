@@ -39,6 +39,11 @@ bool RAB_DoomAnalyticIdentityValid(PathTraceDoomAnalyticLightCandidateIdentity i
         (identity.flags & RAB_DOOM_ANALYTIC_IDENTITY_VALID) != 0u;
 }
 
+uint RAB_DoomAnalyticIdentityRemapIndex(PathTraceDoomAnalyticLightCandidateIdentity identity)
+{
+    return identity.padding0;
+}
+
 bool RAB_DoomAnalyticIdentitySampleable(PathTraceDoomAnalyticLightCandidateIdentity identity)
 {
     return RAB_DoomAnalyticIdentityValid(identity) &&

@@ -114,9 +114,10 @@ RestirPTDebugUnifiedLightRecord RestirPTDebugLoadUnifiedCurrentLight(uint unifie
         influenceRadius > 0.0 &&
         record.sourceWeight > 0.0 ? 1u : 0u;
 
-    if (RAB_DoomAnalyticIdentityValid(identity) && identity.universeIndex < remapCount)
+    const uint remapIndex = RAB_DoomAnalyticIdentityRemapIndex(identity);
+    if (RAB_DoomAnalyticIdentityValid(identity) && remapIndex < remapCount)
     {
-        const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[identity.universeIndex];
+        const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[remapIndex];
         if (RAB_DoomAnalyticRemapValid(remap) && remap.currentToPreviousCandidateIndex >= 0)
         {
             const uint previousAnalyticIndex = (uint)remap.currentToPreviousCandidateIndex;

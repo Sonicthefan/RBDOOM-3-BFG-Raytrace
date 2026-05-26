@@ -47,6 +47,7 @@ bool RemixLightMapIndexValid(uint32_t index)
 bool RemixDoomAnalyticIdentityMappable(const PathTraceDoomAnalyticLightCandidateIdentity& identity)
 {
     return identity.universeIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
+        identity.remapIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
         (identity.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID) != 0u &&
         (identity.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE) != 0u;
 }
@@ -141,12 +142,12 @@ void PathTraceRemixLightManager::PrepareSceneData(
         }
 
         const PathTraceDoomAnalyticLightCandidateIdentity& identity = currentAnalyticIdentities[analyticIndex];
-        if (!RemixDoomAnalyticIdentityMappable(identity) || identity.universeIndex >= analyticRemap.size())
+        if (!RemixDoomAnalyticIdentityMappable(identity) || identity.remapIndex >= analyticRemap.size())
         {
             continue;
         }
 
-        const PathTraceDoomAnalyticLightRemap& remap = analyticRemap[identity.universeIndex];
+        const PathTraceDoomAnalyticLightRemap& remap = analyticRemap[identity.remapIndex];
         if (!RemixDoomAnalyticRemapValid(remap) || remap.currentToPreviousCandidateIndex < 0)
         {
             continue;

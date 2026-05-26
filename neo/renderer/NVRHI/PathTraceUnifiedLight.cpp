@@ -23,6 +23,7 @@ float Luminance(const float rgb[3])
 bool DoomAnalyticIdentitySampleable(const PathTraceDoomAnalyticLightCandidateIdentity& identity)
 {
     return identity.universeIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
+        identity.remapIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
         (identity.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID) != 0u &&
         (identity.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE) != 0u;
 }
@@ -256,12 +257,12 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
         }
 
         const PathTraceDoomAnalyticLightCandidateIdentity& identity = currentAnalyticIdentities[analyticIndex];
-        if (!DoomAnalyticIdentitySampleable(identity) || identity.universeIndex >= analyticRemap.size())
+        if (!DoomAnalyticIdentitySampleable(identity) || identity.remapIndex >= analyticRemap.size())
         {
             continue;
         }
 
-        const PathTraceDoomAnalyticLightRemap& remap = analyticRemap[identity.universeIndex];
+        const PathTraceDoomAnalyticLightRemap& remap = analyticRemap[identity.remapIndex];
         if (!DoomAnalyticRemapValid(remap) || remap.currentToPreviousCandidateIndex < 0)
         {
             continue;

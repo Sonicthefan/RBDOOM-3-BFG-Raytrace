@@ -31,6 +31,8 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 #include "ConsoleHistory.h"
 #include "../renderer/ResolutionScale.h"
+#include "../renderer/NVRHI/PathTraceCVars.h"
+#include "../renderer/NVRHI/PathTraceCleanRtxdiDiGui.h"
 #include "Common_local.h"
 #include "../imgui/BFGimgui.h"
 
@@ -560,6 +562,100 @@ float idConsoleLocal::DrawFPS( float y )
 		// SRS - Show CPU and GPU overall usage statistics
 		//ImGui::TextColored( colorWhite,														"Frame:     %3.0f %%    Frame:          %3.0f %%", cpuUsage, gpuUsage );
 
+		ImGui::End();
+	}
+
+	if( r_pathTracingCleanRtxdiDiGui.GetBool() && ImGuiHook::IsReadyToRender() )
+	{
+		PathTraceCleanRtxdiDiGuiSnapshot cleanGui;
+		const bool hasCleanGui = PathTraceCleanRtxdiDiGetGuiSnapshot( cleanGui );
+		ImGui::SetNextWindowPos( ImVec2( 24.0f, 24.0f ), ImGuiCond_FirstUseEver );
+		ImGui::SetNextWindowSize( ImVec2( 520.0f, 520.0f ), ImGuiCond_FirstUseEver );
+		ImGui::Begin( "Clean RTXDI DI" );
+		if( !hasCleanGui )
+		{
+			ImGui::TextColored( ImVec4( 1.0f, 1.0f, 0.0f, 1.0f ), "No clean RTXDI DI dispatch snapshot yet." );
+			ImGui::Text( "Enable r_pathTracingCleanRtxdiDiEnable and a clean view." );
+		}
+		else
+		{
+			ImGui::Text( "view=%d route=%s", cleanGui.view, cleanGui.route );
+			ImGui::TextWrapped( "%s", cleanGui.behavior );
+			ImGui::Separator();
+			ImGui::Text( "enable=%d temporal=%d spatial=%d best=%d denoiser=%d fallback=%d",
+				cleanGui.enabled ? 1 : 0,
+				cleanGui.temporal ? 1 : 0,
+				cleanGui.spatial ? 1 : 0,
+				cleanGui.bestLights ? 1 : 0,
+				cleanGui.denoiser ? 1 : 0,
+				cleanGui.fallback ? 1 : 0 );
+			ImGui::Text( "lightMode=%d candidates=%u override=%d domain portal/full=%d/%d",
+				cleanGui.lightMode,
+				cleanGui.cleanCandidates,
+				cleanGui.candidateOverride,
+				cleanGui.portalProofDomain ? 1 : 0,
+				cleanGui.fullAnalyticDomain ? 1 : 0 );
+			ImGui::Text( "area=%d drawSurfs=%d subview=%d mirror=%d super=%d",
+				cleanGui.area,
+				cleanGui.drawSurfs,
+				cleanGui.subview ? 1 : 0,
+				cleanGui.mirror ? 1 : 0,
+				cleanGui.superView ? 1 : 0 );
+			ImGui::Text( "output=%dx%d frame=%d", cleanGui.width, cleanGui.height, cleanGui.frameIndex );
+			ImGui::Separator();
+			ImGui::Text( "analytic current=%u portal=%u currentId=%u",
+				cleanGui.cleanCurrentAnalytic,
+				cleanGui.cleanPortalAnalytic,
+				cleanGui.cleanCurrentAnalyticIdentity );
+			ImGui::Text( "analytic previous=%u previousId=%u remap=%u",
+				cleanGui.cleanPreviousAnalytic,
+				cleanGui.cleanPreviousAnalyticIdentity,
+				cleanGui.cleanAnalyticRemap );
+			ImGui::Text( "analyticDomainFreezeMs=%d temporalBiasCorrection=%d temporalMaxHistory=%d",
+				cleanGui.analyticDomainFreezeMs,
+				cleanGui.temporalBiasCorrection,
+				cleanGui.temporalMaxHistory );
+			ImGui::Text( "view10LightStart=%d view10LightCount=%d view10PortalDomain=%d",
+				cleanGui.view10LightStart,
+				cleanGui.view10LightCount,
+				cleanGui.view10PortalDomain ? 1 : 0 );
+			ImGui::Text( "reservoirs current=%d temporal=%d previous=%d previousValid=%d count=%u",
+				cleanGui.currentReservoir ? 1 : 0,
+				cleanGui.temporalReservoir ? 1 : 0,
+				cleanGui.previousReservoir ? 1 : 0,
+				cleanGui.previousReservoirValid ? 1 : 0,
+				cleanGui.cleanReservoirCount );
+			ImGui::Text( "history resets=%u signature=%llu temporalFlags=0x%08x",
+				cleanGui.cleanHistoryResetCount,
+				cleanGui.cleanHistorySignature,
+				cleanGui.temporalFlags );
+			ImGui::Separator();
+			ImGui::Text( "scene=%d shader=%d binding=%d table=%d outputTex=%d",
+				cleanGui.sceneBuilt ? 1 : 0,
+				cleanGui.cleanShader ? 1 : 0,
+				cleanGui.bindingSet ? 1 : 0,
+				cleanGui.textureTable ? 1 : 0,
+				cleanGui.outputTexture ? 1 : 0 );
+			ImGui::Text( "externalPdfNee=%d mode9=%d ReGIR=%d mode=%d missing=%s",
+				cleanGui.externalPdfNeeCurrent ? 1 : 0,
+				cleanGui.externalPdfNeeMode9 ? 1 : 0,
+				cleanGui.regirEnabled ? 1 : 0,
+				cleanGui.regirMode,
+				cleanGui.regirFirstMissing );
+			ImGui::Text( "ReGIR centerMode=%d cell=%.1f grid=%ux%ux%u lights=%d samples=%d slots=%u",
+				cleanGui.regirCenterMode,
+				cleanGui.regirCellSize,
+				cleanGui.regirGridX,
+				cleanGui.regirGridY,
+				cleanGui.regirGridZ,
+				cleanGui.regirLightsPerCell,
+				cleanGui.regirBuildSamples,
+				cleanGui.regirCandidateSlots );
+			ImGui::Text( "toggles doomRadiusCutoff=%d relaxBrdf=%d targetFloor=%d",
+				cleanGui.doomRadiusCutoff ? 1 : 0,
+				cleanGui.relaxBrdfGates ? 1 : 0,
+				cleanGui.doomTargetFloor ? 1 : 0 );
+		}
 		ImGui::End();
 	}
 

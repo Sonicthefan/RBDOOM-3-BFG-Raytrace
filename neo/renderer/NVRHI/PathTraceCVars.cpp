@@ -1191,6 +1191,60 @@ idCVar r_pathTracingCleanRtxdiDiDump(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI one-shot route/resource dump for enable/view/features/light mode/page roles and dispatch dimensions" );
 
+idCVar r_pathTracingCleanRtxdiDiGui(
+    "r_pathTracingCleanRtxdiDiGui",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Show clean-room RTXDI DI route/domain/history diagnostics in the ImGui overlay; requires com_showFPS 2 or another active ImGui window" );
+
+idCVar r_pathTracingCleanRtxdiDiCandidateCount(
+    "r_pathTracingCleanRtxdiDiCandidateCount",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: RTXDI initial local-light candidate samples for real analytic views; default 8 matches the existing view-12 baseline" );
+
+idCVar r_pathTracingCleanRtxdiDiView8Band(
+    "r_pathTracingCleanRtxdiDiView8Band",
+    "-1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: force view 8 to show one temporal diagnostic band full-screen; -1 keeps the default stacked bands, valid forced range is 0..7" );
+
+idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
+    "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: in final resolve, reuse RTXDI reservoir visibility when valid before falling back to the current visibility trace" );
+
+idCVar r_pathTracingCleanRtxdiDiResolveBrdfTarget(
+    "r_pathTracingCleanRtxdiDiResolveBrdfTarget",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: make final resolve use the same RAB BRDF reflected-radiance function used by the target PDF instead of the flat-diffuse display resolve" );
+
+idCVar r_pathTracingCleanRtxdiDiReferenceRab(
+    "r_pathTracingCleanRtxdiDiReferenceRab",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: 1 strict reference-shaped RAB; 2 altered radiance+PDF prove-use; 3 altered radiance only; 4 altered target/PDF only; 5 stable candidate-index radiance; 6 constant white radiance; 7 stable universe-identity radiance; 8 stable payload-key radiance; 9 constant white with resolve visibility forced on; 10 constant white with resolve visibility and reservoir throughput forced on" );
+
+idCVar r_pathTracingCleanRtxdiDiView10LightCount(
+    "r_pathTracingCleanRtxdiDiView10LightCount",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: number of real Doom analytic payloads exposed to view 10 synthetic temporal sampling" );
+
+idCVar r_pathTracingCleanRtxdiDiView10LightStart(
+    "r_pathTracingCleanRtxdiDiView10LightStart",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: first sampleable Doom analytic payload index exposed to view 10 synthetic temporal sampling" );
+
+idCVar r_pathTracingCleanRtxdiDiView10PortalDomain(
+    "r_pathTracingCleanRtxdiDiView10PortalDomain",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: force view 10 synthetic single-Doom-payload proof to pick from the same portal-domain analytic count as view 12" );
+
 idCVar r_pathTracingCleanRtxdiDiSubviewDispatch(
     "r_pathTracingCleanRtxdiDiSubviewDispatch",
     "1",
@@ -1226,6 +1280,30 @@ idCVar r_pathTracingCleanRtxdiDiDoomTargetFloor(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: force valid Doom analytic light samples to have a nonzero target PDF floor; default off for baseline validation" );
+
+idCVar r_pathTracingCleanRtxdiDiFrameFreeze(
+    "r_pathTracingCleanRtxdiDiFrameFreeze",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: freeze the clean RTXDI frame index used by initial and temporal random streams; default off" );
+
+idCVar r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs(
+    "r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: freeze uploaded Doom analytic current/previous/remap buffers for this many milliseconds between refreshes; 0 disables the freeze" );
+
+idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection(
+    "r_pathTracingCleanRtxdiDiTemporalBiasCorrection",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: RTXDI temporal bias correction mode; 0 off, 1 basic. Default matches the current clean view-12 path" );
+
+idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory(
+    "r_pathTracingCleanRtxdiDiTemporalMaxHistory",
+    "16",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: RTXDI temporal maxHistoryLength parameter; use 0 to run temporal while suppressing previous-reservoir history contribution" );
 
 idCVar r_pathTracingRestirPTView68Dump(
     "r_pathTracingRestirPTView68Dump",

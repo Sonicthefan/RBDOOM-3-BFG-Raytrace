@@ -53,7 +53,7 @@ struct PathTraceDoomAnalyticLightCandidateIdentity
     uint32_t universeIndex = PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX;
     uint32_t flags = 0;
     uint32_t invalidReasonFlags = 0;
-    uint32_t padding0 = 0;
+    uint32_t remapIndex = PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX;
 };
 static_assert((sizeof(PathTraceDoomAnalyticLightCandidateIdentity) % 16) == 0, "PathTraceDoomAnalyticLightCandidateIdentity must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
@@ -75,6 +75,16 @@ struct PathTraceDoomAnalyticLightGpuRemap
     int invalidRemapCount = 0;
 };
 
-std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable = false);
+struct PathTraceDoomAnalyticLightBuildOptions
+{
+    bool forceBuild = false;
+    bool preserveZeroRadianceSlots = false;
+    bool stableReservoirOrder = false;
+    bool includeOutOfSelectedArea = false;
+    bool ignoreConfiguredCandidateCap = false;
+};
+
+std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, const PathTraceDoomAnalyticLightBuildOptions& options = PathTraceDoomAnalyticLightBuildOptions());
+std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLightCandidates(const viewDef_t* viewDef, bool forceEnable);
 const PathTraceDoomAnalyticLightGpuRemap& GetPathTraceDoomAnalyticLightGpuRemap();
 void RunPathTraceDoomLightDiagnostics(const viewDef_t* viewDef);

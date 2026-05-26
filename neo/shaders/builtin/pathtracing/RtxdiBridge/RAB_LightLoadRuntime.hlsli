@@ -274,12 +274,13 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
         }
 
         const PathTraceDoomAnalyticLightCandidateIdentity currentIdentity = DoomAnalyticCurrentIdentities[currentAnalyticIndex];
-        if (!RAB_DoomAnalyticIdentityValid(currentIdentity) || currentIdentity.universeIndex >= remapCount)
+        const uint remapIndex = RAB_DoomAnalyticIdentityRemapIndex(currentIdentity);
+        if (!RAB_DoomAnalyticIdentityValid(currentIdentity) || remapIndex >= remapCount)
         {
             return -1;
         }
 
-        const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[currentIdentity.universeIndex];
+        const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[remapIndex];
         if (!RAB_DoomAnalyticRemapValid(remap) || remap.currentToPreviousCandidateIndex < 0)
         {
             return -1;
@@ -317,12 +318,13 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
     }
 
     const PathTraceDoomAnalyticLightCandidateIdentity previousIdentity = DoomAnalyticPreviousIdentities[previousAnalyticIndex];
-    if (!RAB_DoomAnalyticIdentityValid(previousIdentity) || previousIdentity.universeIndex >= remapCount)
+    const uint remapIndex = RAB_DoomAnalyticIdentityRemapIndex(previousIdentity);
+    if (!RAB_DoomAnalyticIdentityValid(previousIdentity) || remapIndex >= remapCount)
     {
         return -1;
     }
 
-    const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[previousIdentity.universeIndex];
+    const PathTraceDoomAnalyticLightRemap remap = DoomAnalyticRemap[remapIndex];
     if (!RAB_DoomAnalyticRemapValid(remap) || remap.previousToCurrentCandidateIndex < 0)
     {
         return -1;

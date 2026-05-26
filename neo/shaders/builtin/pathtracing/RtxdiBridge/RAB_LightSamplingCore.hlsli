@@ -47,6 +47,10 @@ float RAB_RaySphereHitT(float3 rayOrigin, float3 rayDirection, float3 sphereCent
     return nearT > 0.01 ? nearT : fallbackT;
 }
 
+#ifdef RB_RAB_CLEAN_REFERENCE_DOOM_ANALYTIC
+#include "../cleanroom_rtxdi/RAB_DoomAnalyticReference.hlsli"
+#endif
+
 float RAB_DoomAnalyticInfluence(float centerDistance, float influenceRadius)
 {
     if (influenceRadius <= 0.0 || centerDistance > influenceRadius)
@@ -255,6 +259,12 @@ RAB_LightSample RAB_SampleUnifiedPolymorphicLight(RAB_LightInfo lightInfo, RAB_S
 
 RAB_LightSample RAB_SamplePolymorphicLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
 {
+#ifdef RB_RAB_CLEAN_REFERENCE_DOOM_ANALYTIC
+    if (PathTraceCleanReferenceRabEnabled() && lightInfo.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
+    {
+        return PathTraceCleanReferenceRabSampleDoomAnalyticSphereLight(lightInfo, surface, uv);
+    }
+#endif
     if (RAB_RestirLightManagerRABEnabled() || RAB_UnifiedLightSampleEnabled())
     {
         return RAB_SampleUnifiedPolymorphicLight(lightInfo, surface, uv);
