@@ -651,10 +651,11 @@ float idConsoleLocal::DrawFPS( float y )
 				cleanGui.regirLightsPerCell,
 				cleanGui.regirBuildSamples,
 				cleanGui.regirCandidateSlots );
-			ImGui::Text( "toggles doomRadiusCutoff=%d relaxBrdf=%d targetFloor=%d",
+			ImGui::Text( "toggles doomRadiusCutoff=%d relaxBrdf=%d targetFloor=%d bypassUniverse=%d",
 				cleanGui.doomRadiusCutoff ? 1 : 0,
 				cleanGui.relaxBrdfGates ? 1 : 0,
-				cleanGui.doomTargetFloor ? 1 : 0 );
+				cleanGui.doomTargetFloor ? 1 : 0,
+				cleanGui.bypassLightUniverse ? 1 : 0 );
 		}
 		ImGui::End();
 	}

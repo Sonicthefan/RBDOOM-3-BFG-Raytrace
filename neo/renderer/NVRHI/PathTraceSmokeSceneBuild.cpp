@@ -133,6 +133,48 @@ void ApplyCleanRtxdiDiAnalyticDomainFreeze(
     doomAnalyticRemap = freeze.remap;
 }
 
+uint32_t CleanRtxdiDiBypassUniverseIndex(const PathTraceDoomAnalyticLightCandidate& light, uint32_t fallbackIndex)
+{
+    uint32_t key = light.renderLightIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX
+        ? light.renderLightIndex
+        : fallbackIndex;
+    key = (key * 16777619u) ^ light.entityNumber;
+    return key != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX ? key : fallbackIndex;
+}
+
+PathTraceDoomAnalyticLightGpuRemap BuildCleanRtxdiDiBypassLightUniverseRemap(const std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights)
+{
+    PathTraceDoomAnalyticLightGpuRemap remap;
+    const uint32_t identityFlags =
+        PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID |
+        PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE |
+        PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID;
+
+    remap.previousCandidates = doomAnalyticLights;
+    remap.currentCandidateIdentities.resize(doomAnalyticLights.size());
+    remap.previousCandidateIdentities.resize(doomAnalyticLights.size());
+    remap.universeRemap.resize(doomAnalyticLights.size());
+
+    for (int i = 0; i < static_cast<int>(doomAnalyticLights.size()); ++i)
+    {
+        PathTraceDoomAnalyticLightCandidateIdentity identity;
+        identity.universeIndex = CleanRtxdiDiBypassUniverseIndex(doomAnalyticLights[i], static_cast<uint32_t>(i));
+        identity.flags = identityFlags;
+        identity.invalidReasonFlags = 0;
+        identity.remapIndex = static_cast<uint32_t>(i);
+        remap.currentCandidateIdentities[i] = identity;
+        remap.previousCandidateIdentities[i] = identity;
+
+        PathTraceDoomAnalyticLightRemap& entry = remap.universeRemap[i];
+        entry.previousToCurrentCandidateIndex = i;
+        entry.currentToPreviousCandidateIndex = i;
+        entry.flags = identityFlags;
+        entry.invalidReasonFlags = 0;
+    }
+
+    return remap;
+}
+
 bool SmokeUploadElementRangeValid(int elementOffset, int elementCount, size_t elementTotal)
 {
     return elementOffset >= 0 &&
@@ -2193,6 +2235,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, doomAnalyticBuildOptions);
     doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
+    if (cleanRtxdiDiRealAnalyticRoute && r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0)
+    {
+        doomAnalyticRemap = BuildCleanRtxdiDiBypassLightUniverseRemap(doomAnalyticLights);
+    }
     ApplyCleanRtxdiDiAnalyticDomainFreeze(viewDef, doomAnalyticLights, doomAnalyticRemap);
 
     int doomAnalyticPortalRegionLightCount = 0;

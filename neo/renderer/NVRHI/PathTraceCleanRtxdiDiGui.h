@@ -30,6 +30,7 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     bool doomRadiusCutoff = false;
     bool relaxBrdfGates = false;
     bool doomTargetFloor = false;
+    bool bypassLightUniverse = false;
     int view = 0;
     int lightMode = 0;
     int area = -1;

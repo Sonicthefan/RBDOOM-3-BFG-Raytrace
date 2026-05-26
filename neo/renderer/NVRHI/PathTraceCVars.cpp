@@ -1293,6 +1293,12 @@ idCVar r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room Remix DI diagnostic: freeze uploaded Doom analytic current/previous/remap buffers for this many milliseconds between refreshes; 0 disables the freeze" );
 
+idCVar r_pathTracingCleanRtxdiDiBypassLightUniverse(
+    "r_pathTracingCleanRtxdiDiBypassLightUniverse",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: bypass the persistent Doom analytic light universe and synthesize compact current/previous/remap buffers from uploaded active candidates; default off" );
+
 idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection(
     "r_pathTracingCleanRtxdiDiTemporalBiasCorrection",
     "1",
