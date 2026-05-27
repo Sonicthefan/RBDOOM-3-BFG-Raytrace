@@ -7,8 +7,99 @@
 
 #include <algorithm>
 #include <cstring>
+#include <map>
 
 namespace {
+
+enum PathTraceRemixLightContractStatus : uint32_t
+{
+    PATH_TRACE_REMIX_LIGHT_CONTRACT_OK = 0u,
+    PATH_TRACE_REMIX_LIGHT_CONTRACT_DISABLED = 1u,
+    PATH_TRACE_REMIX_LIGHT_CONTRACT_NO_CURRENT_DOMAIN = 2u,
+    PATH_TRACE_REMIX_LIGHT_CONTRACT_MAP_SIZE_MISMATCH = 3u,
+    PATH_TRACE_REMIX_LIGHT_CONTRACT_DUPLICATE_IDENTITY = 4u
+};
+
+struct RemixUnifiedIdentityKey
+{
+    uint32_t type = 0;
+    uint32_t identityA = 0;
+    uint32_t identityB = 0;
+    uint32_t materialOrLightId = 0;
+};
+
+bool operator<(const RemixUnifiedIdentityKey& a, const RemixUnifiedIdentityKey& b)
+{
+    if (a.type != b.type)
+    {
+        return a.type < b.type;
+    }
+    if (a.identityA != b.identityA)
+    {
+        return a.identityA < b.identityA;
+    }
+    if (a.identityB != b.identityB)
+    {
+        return a.identityB < b.identityB;
+    }
+    return a.materialOrLightId < b.materialOrLightId;
+}
+
+bool operator==(const RemixUnifiedIdentityKey& a, const RemixUnifiedIdentityKey& b)
+{
+    return a.type == b.type &&
+        a.identityA == b.identityA &&
+        a.identityB == b.identityB &&
+        a.materialOrLightId == b.materialOrLightId;
+}
+
+bool RemixUnifiedIdentityKeyValid(const RemixUnifiedIdentityKey& key)
+{
+    if (key.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID)
+    {
+        return false;
+    }
+    if (key.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return key.identityA != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX &&
+            key.materialOrLightId != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    }
+    return key.identityA != 0u || key.identityB != 0u || key.materialOrLightId != 0u;
+}
+
+RemixUnifiedIdentityKey MakeRemixUnifiedIdentityKey(const PathTraceUnifiedLightRecord& record)
+{
+    RemixUnifiedIdentityKey key;
+    key.type = record.type;
+    key.identityA = record.identityA;
+    key.identityB = record.identityB;
+    key.materialOrLightId = record.materialOrLightId;
+    return key;
+}
+
+uint32_t BuildUniqueUnifiedIdentityIndex(
+    const std::vector<PathTraceUnifiedLightRecord>& records,
+    std::map<RemixUnifiedIdentityKey, int>& identityToIndex)
+{
+    identityToIndex.clear();
+    uint32_t duplicateCount = 0;
+    for (int index = 0; index < static_cast<int>(records.size()); ++index)
+    {
+        const RemixUnifiedIdentityKey key = MakeRemixUnifiedIdentityKey(records[index]);
+        if (!RemixUnifiedIdentityKeyValid(key))
+        {
+            continue;
+        }
+
+        const auto insertResult = identityToIndex.emplace(key, index);
+        if (!insertResult.second)
+        {
+            insertResult.first->second = -1;
+            ++duplicateCount;
+        }
+    }
+    return duplicateCount;
+}
 
 uint64_t RemixHashBytes(uint64_t hash, const void* data, size_t byteCount)
 {
@@ -101,6 +192,22 @@ void PathTraceRemixLightManager::Clear()
     m_lastMappingSignature = 0;
     m_lastPayloadSignature = 0;
     m_haveLastSignatures = false;
+    m_lightUniverseHistoryValid = false;
+    m_lastPrepareWasLightUniverse = false;
+}
+
+void PathTraceRemixLightManager::PrepareDisabled(
+    const PathTraceRemixFramePrepareObservationPackage& framePackage,
+    uint32_t domain,
+    bool strictRemixMapping)
+{
+    Clear();
+    m_stats.frameIndex = framePackage.frameIndex;
+    m_stats.enabled = 0;
+    m_stats.domain = domain;
+    m_stats.strictRemixMapping = strictRemixMapping ? 1u : 0u;
+    m_stats.resetReasonFlags = framePackage.resetReasonFlags;
+    m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_DISABLED;
 }
 
 void PathTraceRemixLightManager::PrepareSceneData(
@@ -115,50 +222,91 @@ void PathTraceRemixLightManager::PrepareSceneData(
     const std::vector<PathTraceDoomAnalyticLightRemap>& analyticRemap,
     uint32_t emissiveSampleCount,
     uint32_t doomAnalyticSampleCount,
-    float analyticStateCompatibilityTolerance)
+    float analyticStateCompatibilityTolerance,
+    uint32_t domain,
+    bool strictRemixMapping,
+    bool lightUniverseEnabled)
 {
-    PathTraceUnifiedLightBuild build = BuildPathTraceUnifiedLights(
-        currentEmissiveTriangles,
-        previousEmissiveTriangles,
-        emissiveRemap,
-        currentAnalyticLights,
-        previousAnalyticLights,
-        currentAnalyticIdentities,
-        previousAnalyticIdentities,
-        analyticRemap,
-        analyticStateCompatibilityTolerance);
+    std::vector<PathTraceUnifiedLightRecord> lightUniversePreviousPayloads;
+    if (lightUniverseEnabled && m_lastPrepareWasLightUniverse && m_lightUniverseHistoryValid)
+    {
+        lightUniversePreviousPayloads = m_currentLightPayloads;
+    }
+
+    const std::vector<PathTraceSmokeEmissiveTriangle> emptyEmissiveTriangles;
+    const std::vector<PathTraceEmissiveLightRemap> emptyEmissiveRemap;
+    const std::vector<PathTraceDoomAnalyticLightCandidate> emptyAnalyticLights;
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
+    const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
+
+    PathTraceUnifiedLightBuild build = lightUniverseEnabled
+        ? BuildPathTraceUnifiedLights(
+            currentEmissiveTriangles,
+            emptyEmissiveTriangles,
+            emptyEmissiveRemap,
+            currentAnalyticLights,
+            emptyAnalyticLights,
+            currentAnalyticIdentities,
+            emptyAnalyticIdentities,
+            emptyAnalyticRemap,
+            analyticStateCompatibilityTolerance)
+        : BuildPathTraceUnifiedLights(
+            currentEmissiveTriangles,
+            previousEmissiveTriangles,
+            emissiveRemap,
+            currentAnalyticLights,
+            previousAnalyticLights,
+            currentAnalyticIdentities,
+            previousAnalyticIdentities,
+            analyticRemap,
+            analyticStateCompatibilityTolerance);
 
     m_currentLightPayloads.swap(build.currentLights);
-    m_previousLightPayloads.swap(build.previousLights);
-    m_currentToPreviousMap.swap(build.currentToPreviousRemap);
-    const uint32_t currentEmissiveCount = static_cast<uint32_t>(currentEmissiveTriangles.size());
-    const uint32_t previousEmissiveCount = static_cast<uint32_t>(previousEmissiveTriangles.size());
-    for (uint32_t analyticIndex = 0; analyticIndex < currentAnalyticIdentities.size(); ++analyticIndex)
+    if (lightUniverseEnabled)
     {
-        const uint32_t currentUnifiedIndex = currentEmissiveCount + analyticIndex;
-        if (currentUnifiedIndex >= m_currentToPreviousMap.size())
+        m_previousLightPayloads.swap(lightUniversePreviousPayloads);
+    }
+    else
+    {
+        m_previousLightPayloads.swap(build.previousLights);
+    }
+    m_currentToPreviousMap.swap(build.currentToPreviousRemap);
+    uint32_t identityDuplicateCount = 0;
+    if (lightUniverseEnabled)
+    {
+        identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
+    }
+    else
+    {
+        const uint32_t currentEmissiveCount = static_cast<uint32_t>(currentEmissiveTriangles.size());
+        const uint32_t previousEmissiveCount = static_cast<uint32_t>(previousEmissiveTriangles.size());
+        for (uint32_t analyticIndex = 0; analyticIndex < currentAnalyticIdentities.size(); ++analyticIndex)
         {
-            continue;
-        }
+            const uint32_t currentUnifiedIndex = currentEmissiveCount + analyticIndex;
+            if (currentUnifiedIndex >= m_currentToPreviousMap.size())
+            {
+                continue;
+            }
 
-        const PathTraceDoomAnalyticLightCandidateIdentity& identity = currentAnalyticIdentities[analyticIndex];
-        if (!RemixDoomAnalyticIdentityMappable(identity) || identity.remapIndex >= analyticRemap.size())
-        {
-            continue;
-        }
+            const PathTraceDoomAnalyticLightCandidateIdentity& identity = currentAnalyticIdentities[analyticIndex];
+            if (!RemixDoomAnalyticIdentityMappable(identity) || identity.remapIndex >= analyticRemap.size())
+            {
+                continue;
+            }
 
-        const PathTraceDoomAnalyticLightRemap& remap = analyticRemap[identity.remapIndex];
-        if (!RemixDoomAnalyticRemapValid(remap) || remap.currentToPreviousCandidateIndex < 0)
-        {
-            continue;
-        }
+            const PathTraceDoomAnalyticLightRemap& remap = analyticRemap[identity.remapIndex];
+            if (!RemixDoomAnalyticRemapValid(remap) || remap.currentToPreviousCandidateIndex < 0)
+            {
+                continue;
+            }
 
-        const uint32_t previousAnalyticIndex = static_cast<uint32_t>(remap.currentToPreviousCandidateIndex);
-        const uint32_t previousUnifiedIndex = previousEmissiveCount + previousAnalyticIndex;
-        if (previousAnalyticIndex < previousAnalyticLights.size() && previousUnifiedIndex < m_previousLightPayloads.size())
-        {
-            m_currentToPreviousMap[currentUnifiedIndex] = previousUnifiedIndex;
-            m_currentLightPayloads[currentUnifiedIndex].previousIndex = previousUnifiedIndex;
+            const uint32_t previousAnalyticIndex = static_cast<uint32_t>(remap.currentToPreviousCandidateIndex);
+            const uint32_t previousUnifiedIndex = previousEmissiveCount + previousAnalyticIndex;
+            if (previousAnalyticIndex < previousAnalyticLights.size() && previousUnifiedIndex < m_previousLightPayloads.size())
+            {
+                m_currentToPreviousMap[currentUnifiedIndex] = previousUnifiedIndex;
+                m_currentLightPayloads[currentUnifiedIndex].previousIndex = previousUnifiedIndex;
+            }
         }
     }
     RebuildPreviousToCurrentMap();
@@ -169,6 +317,23 @@ void PathTraceRemixLightManager::PrepareSceneData(
         doomAnalyticSampleCount);
     RebuildSignatures();
     RebuildStats(framePackage);
+    m_stats.enabled = lightUniverseEnabled ? 1u : 0u;
+    m_stats.domain = domain;
+    m_stats.strictRemixMapping = strictRemixMapping ? 1u : 0u;
+    if (lightUniverseEnabled)
+    {
+        m_stats.invalidDuplicateIdentityCount = identityDuplicateCount;
+        if (identityDuplicateCount != 0u)
+        {
+            m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_DUPLICATE_IDENTITY;
+        }
+    }
+    if (!lightUniverseEnabled)
+    {
+        m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_DISABLED;
+    }
+    m_lightUniverseHistoryValid = lightUniverseEnabled;
+    m_lastPrepareWasLightUniverse = lightUniverseEnabled;
 }
 
 const std::vector<PathTraceUnifiedLightRecord>& PathTraceRemixLightManager::GetCurrentLightPayloads() const
@@ -216,6 +381,50 @@ void PathTraceRemixLightManager::RebuildPreviousToCurrentMap()
             m_previousToCurrentMap[previousIndex] = currentIndex;
         }
     }
+}
+
+uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity()
+{
+    m_currentToPreviousMap.assign(m_currentLightPayloads.size(), PATH_TRACE_REMIX_LIGHT_INVALID_INDEX);
+    for (PathTraceUnifiedLightRecord& record : m_currentLightPayloads)
+    {
+        record.previousIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    }
+
+    std::map<RemixUnifiedIdentityKey, int> currentIdentityToIndex;
+    std::map<RemixUnifiedIdentityKey, int> previousIdentityToIndex;
+    const uint32_t duplicateCount =
+        BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
+        BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
+
+    for (uint32_t currentIndex = 0; currentIndex < m_currentLightPayloads.size(); ++currentIndex)
+    {
+        const RemixUnifiedIdentityKey key = MakeRemixUnifiedIdentityKey(m_currentLightPayloads[currentIndex]);
+        if (!RemixUnifiedIdentityKeyValid(key))
+        {
+            continue;
+        }
+
+        const auto currentIt = currentIdentityToIndex.find(key);
+        if (currentIt == currentIdentityToIndex.end() || currentIt->second != static_cast<int>(currentIndex))
+        {
+            continue;
+        }
+
+        const auto previousIt = previousIdentityToIndex.find(key);
+        if (previousIt == previousIdentityToIndex.end() || previousIt->second < 0)
+        {
+            continue;
+        }
+
+        const uint32_t previousIndex = static_cast<uint32_t>(previousIt->second);
+        if (previousIndex < m_previousLightPayloads.size())
+        {
+            m_currentToPreviousMap[currentIndex] = previousIndex;
+            m_currentLightPayloads[currentIndex].previousIndex = previousIndex;
+        }
+    }
+    return duplicateCount;
 }
 
 void PathTraceRemixLightManager::RebuildLightRanges(
@@ -285,6 +494,7 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
             ++m_stats.currentInvalidCount;
         }
     }
+    m_stats.currentOnlyCount = m_stats.currentInvalidCount;
     m_stats.previousMappedCount = 0;
     m_stats.previousInvalidCount = 0;
     for (uint32_t currentIndex : m_previousToCurrentMap)
@@ -298,6 +508,12 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
             ++m_stats.previousInvalidCount;
         }
     }
+    m_stats.previousOnlyCount = m_stats.previousInvalidCount;
+    std::map<RemixUnifiedIdentityKey, int> currentIdentityToIndex;
+    std::map<RemixUnifiedIdentityKey, int> previousIdentityToIndex;
+    m_stats.invalidDuplicateIdentityCount =
+        BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
+        BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
     m_stats.emissiveRangeOffset = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].firstLightIndex;
     m_stats.emissiveRangeCount = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount;
     m_stats.doomAnalyticRangeOffset = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].firstLightIndex;
@@ -315,6 +531,21 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     m_stats.oldSmokeReservoirSignatureConsulted = 0;
     m_stats.resourceAllocationCount = 0;
     m_stats.shaderRouteCount = 0;
+    m_stats.resetReasonFlags = framePackage.resetReasonFlags;
+    m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_OK;
+    if (m_currentToPreviousMap.size() != m_currentLightPayloads.size() ||
+        m_previousToCurrentMap.size() != m_previousLightPayloads.size())
+    {
+        m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_MAP_SIZE_MISMATCH;
+    }
+    else if (m_stats.invalidDuplicateIdentityCount != 0u)
+    {
+        m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_DUPLICATE_IDENTITY;
+    }
+    else if (m_stats.currentLightCount == 0u)
+    {
+        m_stats.firstFailingContract = PATH_TRACE_REMIX_LIGHT_CONTRACT_NO_CURRENT_DOMAIN;
+    }
 
     m_lastStructuralSignature = structuralSignature;
     m_lastMappingSignature = mappingSignature;

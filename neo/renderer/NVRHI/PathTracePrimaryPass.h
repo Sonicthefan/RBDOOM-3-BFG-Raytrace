@@ -173,6 +173,7 @@ private:
     bool m_smokeCleanRtxdiDiPreviousReservoirValid = false;
     uint64 m_smokeCleanRtxdiDiHistorySignature = 0;
     uint32_t m_smokeCleanRtxdiDiHistoryResetCount = 0;
+    uint32_t m_smokeCleanRtxdiDiPreviousReservoirResetReason = 0;
     std::vector<RtPathTraceBoundsOverlayLine> m_smokeBoundsOverlayLines;
     int m_smokeBoundsOverlayLineCount = 0;
     bool m_smokeBoundsOverlayViewValid = false;

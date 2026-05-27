@@ -405,6 +405,48 @@ idCVar r_pathTracingRemixFramePrepareDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the CPU-only Remix-shaped frame preparation scaffold once" );
 
+idCVar r_pathTracingRemixLightUniverseEnable(
+    "r_pathTracingRemixLightUniverseEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Default-off Remix-shaped light-universe CPU shell: owns dense current/previous light domains and maps without active shader consume" );
+
+idCVar r_pathTracingRemixLightUniverseUseForCleanRtxdiDi(
+    "r_pathTracingRemixLightUniverseUseForCleanRtxdiDi",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Reserved RLU opt-in: allow clean RTXDI DI to consume the Remix-shaped dense light domain after analytic mapping proof" );
+
+idCVar r_pathTracingRemixLightUniverseDebugView(
+    "r_pathTracingRemixLightUniverseDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Reserved RLU debug view selector: 0 off, 1 route/status, 2 current identity, 3 previous identity, 4 current-to-previous map, 5 previous-to-current map, 6 classification, 7 payload signatures, 8 spawn/despawn, 9 RAB replay validity" );
+
+idCVar r_pathTracingRemixLightUniverseDomain(
+    "r_pathTracingRemixLightUniverseDomain",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "RLU dense-domain source: 0 Doom analytic only, 1 emissive only, 2 analytic plus emissive unified" );
+
+idCVar r_pathTracingRemixLightUniverseDoomColorSource(
+    "r_pathTracingRemixLightUniverseDoomColorSource",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Reserved RLU Doom analytic payload diagnostic color source: 0 material register, 1 current renderLight color, 2 authored/base color" );
+
+idCVar r_pathTracingRemixLightUniverseDump(
+    "r_pathTracingRemixLightUniverseDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 for one-shot RLU CPU shell dump, 2 for continuous dump while explicitly requested" );
+
+idCVar r_pathTracingRemixLightUniverseStrictRemixMapping(
+    "r_pathTracingRemixLightUniverseStrictRemixMapping",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "RLU mapping policy: 1 bases validity only on current/previous dense-domain identity; 0 allows diagnostic compatibility mode" );
+
 idCVar r_pathTracingRemixLightManagerDump(
     "r_pathTracingRemixLightManagerDump",
     "0",

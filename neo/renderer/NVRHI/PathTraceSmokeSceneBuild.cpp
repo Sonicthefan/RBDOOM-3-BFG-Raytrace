@@ -291,6 +291,25 @@ uint32_t RestirSourceTypeFromUnifiedLightType(uint32_t type)
     return PATH_TRACE_RESTIR_LIGHT_SOURCE_INVALID;
 }
 
+const char* RemixLightUniverseContractStatusName(uint32_t status)
+{
+    switch (status)
+    {
+    case 0u:
+        return "ok";
+    case 1u:
+        return "disabled";
+    case 2u:
+        return "no-current-domain";
+    case 3u:
+        return "map-size-mismatch";
+    case 4u:
+        return "duplicate-identity";
+    default:
+        return "unknown";
+    }
+}
+
 std::vector<PathTraceRestirCurrentLightRecord> BuildRestirRecordsFromRemixCurrentLights(
     const std::vector<PathTraceUnifiedLightRecord>& records,
     const std::vector<uint32_t>& currentToPrevious)
@@ -2437,32 +2456,60 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFrameStats.shaderRouteCount);
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
     }
+    const bool remixLightUniverseEnabled = r_pathTracingRemixLightUniverseEnable.GetInteger() != 0;
+    const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
+        idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger()));
+    const bool remixLightUniverseStrictMapping =
+        r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
+    const bool remixLightUniverseIncludeAnalytic =
+        !remixLightUniverseEnabled || remixLightUniverseDomain == 0u || remixLightUniverseDomain == 2u;
+    const bool remixLightUniverseIncludeEmissive =
+        !remixLightUniverseEnabled || remixLightUniverseDomain == 1u || remixLightUniverseDomain == 2u;
+    const std::vector<PathTraceSmokeEmissiveTriangle> emptyEmissiveTriangles;
+    const std::vector<PathTraceEmissiveLightRemap> emptyEmissiveRemap;
+    const std::vector<PathTraceDoomAnalyticLightCandidate> emptyAnalyticLights;
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
+    const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
     m_remixLightManager.PrepareSceneData(
         m_remixFramePrepare.GetObservationPackage(),
-        emissiveTriangles,
-        previousEmissiveTriangles,
-        emissiveLightRemap,
-        doomAnalyticLights,
-        doomAnalyticRemap.previousCandidates,
-        doomAnalyticRemap.currentCandidateIdentities,
-        doomAnalyticRemap.previousCandidateIdentities,
-        doomAnalyticRemap.universeRemap,
-        static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())),
-        static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())),
-        idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()));
-    if (r_pathTracingRemixLightManagerDump.GetInteger() != 0)
+        remixLightUniverseIncludeEmissive ? emissiveTriangles : emptyEmissiveTriangles,
+        remixLightUniverseIncludeEmissive ? previousEmissiveTriangles : emptyEmissiveTriangles,
+        remixLightUniverseIncludeEmissive ? emissiveLightRemap : emptyEmissiveRemap,
+        remixLightUniverseIncludeAnalytic ? doomAnalyticLights : emptyAnalyticLights,
+        remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidates : emptyAnalyticLights,
+        remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.currentCandidateIdentities : emptyAnalyticIdentities,
+        remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidateIdentities : emptyAnalyticIdentities,
+        remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.universeRemap : emptyAnalyticRemap,
+        remixLightUniverseIncludeEmissive ? static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())) : 0u,
+        remixLightUniverseIncludeAnalytic ? static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())) : 0u,
+        idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()),
+        remixLightUniverseEnabled ? remixLightUniverseDomain : 2u,
+        remixLightUniverseStrictMapping,
+        remixLightUniverseEnabled);
+    const int remixLightUniverseDump = r_pathTracingRemixLightUniverseDump.GetInteger();
+    if (r_pathTracingRemixLightManagerDump.GetInteger() != 0 || remixLightUniverseDump != 0)
     {
         const PathTraceRemixLightManagerStats& remixLightStats = m_remixLightManager.GetStats();
-        common->Printf("PathTracePrimaryPass: Remix light manager frame=%llu current=%u previous=%u maps currentToPrevious size/mapped/invalid=%u/%u/%u previousToCurrent size/mapped/invalid=%u/%u/%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=cpu-diagnostics-only\n",
+        const char* remixLightUniverseBehavior = remixLightStats.enabled != 0
+            ? "rlu-02-dense-current-previous-domain"
+            : "legacy-remix-light-manager-compat";
+        common->Printf("PathTracePrimaryPass: Remix light universe frame=%llu enabled=%u domain=%u strictMapping=%u resetReason=0x%x current=%u previous=%u maps currentToPrevious size/mapped/invalid/currentOnly=%u/%u/%u/%u previousToCurrent size/mapped/invalid/previousOnly=%u/%u/%u/%u duplicateIdentity=%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u firstFailingContract=%u:%s oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=%s\n",
             static_cast<unsigned long long>(remixLightStats.frameIndex),
+            remixLightStats.enabled,
+            remixLightStats.domain,
+            remixLightStats.strictRemixMapping,
+            remixLightStats.resetReasonFlags,
             remixLightStats.currentLightCount,
             remixLightStats.previousLightCount,
             remixLightStats.currentToPreviousCount,
             remixLightStats.currentMappedCount,
             remixLightStats.currentInvalidCount,
+            remixLightStats.currentOnlyCount,
             remixLightStats.previousToCurrentCount,
             remixLightStats.previousMappedCount,
             remixLightStats.previousInvalidCount,
+            remixLightStats.previousOnlyCount,
+            remixLightStats.invalidDuplicateIdentityCount,
             remixLightStats.emissiveRangeOffset,
             remixLightStats.emissiveRangeCount,
             remixLightStats.emissiveSampleCount,
@@ -2478,10 +2525,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixLightStats.mappingSignatureChanged,
             remixLightStats.payloadSignatureChanged,
             remixLightStats.payloadOnlyChange,
+            remixLightStats.firstFailingContract,
+            RemixLightUniverseContractStatusName(remixLightStats.firstFailingContract),
             remixLightStats.oldSmokeReservoirSignatureConsulted,
             remixLightStats.resourceAllocationCount,
-            remixLightStats.shaderRouteCount);
+            remixLightStats.shaderRouteCount,
+            remixLightUniverseBehavior);
         r_pathTracingRemixLightManagerDump.SetInteger(0);
+        if (remixLightUniverseDump == 1)
+        {
+            r_pathTracingRemixLightUniverseDump.SetInteger(0);
+        }
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
     const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 76, r_pathTracingRestirPTDiDebugView.GetInteger());

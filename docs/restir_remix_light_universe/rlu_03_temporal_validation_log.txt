@@ -1,0 +1,173 @@
+RLU-03 Clean DI Temporal Validation Log
+======================================
+
+Date
+----
+
+2026-05-27
+
+
+Scope
+-----
+
+This log records the RLU-03 clean RTXDI DI route validation for the
+Remix-shaped light-universe lane.
+
+The tested route was:
+
+    r_pathTracingRemixLightUniverseEnable 1
+    r_pathTracingRemixLightUniverseDomain 0
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+
+The intended contract was:
+
+    Clean RTXDI DI consumes the RLU dense current payload domain.
+    Temporal resampling translates prior light indices through the RLU
+    previous-to-current map.
+    Animated payload changes do not invalidate the whole reservoir page.
+    Spawned, despawned, or unmatched lights fail locally through invalid map
+    entries.
+
+
+Failure 1: Constant Buffer Overrun
+----------------------------------
+
+Symptom:
+
+    Enabling clean RTXDI DI view 12 crashed after the clean sentinel shader
+    loaded.
+
+Observed log:
+
+    writeBuffer: dataSize + destOffsetBytes is greater than the buffer size
+
+Cause:
+
+    RLU-03 added four uint fields to PathTraceCleanRtxdiDiSentinelConstants:
+
+        rluCurrentLightCount
+        rluPreviousLightCount
+        rluCurrentToPreviousCount
+        rluPreviousToCurrentCount
+
+    The C++ constants struct became larger than the existing
+    PathTraceCleanRtxdiDiSentinelConstants constant buffer allocation, which
+    was still hard-coded to 256 bytes.
+
+Prevention:
+
+    The allocation in PathTraceSmokeResources.cpp was increased to 320 bytes.
+
+    A static_assert was added in PathTraceSmokeDispatch.cpp:
+
+        sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 320
+
+    Future clean sentinel constant additions should fail at build time instead
+    of crashing at runtime if the allocation is not updated.
+
+
+Failure 2: Temporal Page Reset From Light-Domain Count Churn
+------------------------------------------------------------
+
+Symptom:
+
+    The RLU clean route activated, but temporal accumulation reset repeatedly.
+    Early dumps showed:
+
+        remixLightUniverseRoute=1
+        cleanPreviousReservoirValid=0
+        cleanHistoryResetCount climbing
+
+Cause:
+
+    The clean history signature hashed RLU current and previous dense-domain
+    light counts. In the RLU contract, dense-domain count changes are normal:
+    light insertion/removal or portal/area membership changes should be handled
+    through the two-way mapping contract, not by clearing the entire clean
+    temporal reservoir page.
+
+    Hashing those counts converted legal light-domain churn into a full
+    history reset. That masked the actual RLU temporal contract and prevented
+    stable lights from proving reuse.
+
+Prevention:
+
+    For the RLU route, the clean history signature now hashes route/settings
+    state but does not hash the changing dense-domain current/previous counts
+    or the old Doom analytic remap counts.
+
+    Temporal invalidation for individual lights is left to:
+
+        RAB_TranslateLightIndex(currentToPrevious = false)
+        RLU previous-to-current map entries
+        local invalid map results
+
+    This preserves the reservoir page while still rejecting unmatched previous
+    samples locally.
+
+
+Diagnostic Added
+----------------
+
+The clean RTXDI DI dump now includes:
+
+    remixLightUniverseRoute
+    rlu current/previous/currentToPrevious/previousToCurrent
+    cleanPreviousResetReason
+
+Reset reason codes:
+
+    1 = full smoke resource reset
+    2 = clean DI reservoir buffer allocation/reallocation
+    3 = PDFNEE verifier resized/shared clean reservoir path
+    4 = clean history signature changed
+
+This separates CPU-side reservoir page clears from shader-side temporal
+rejection.
+
+
+Validated Result
+----------------
+
+Accepted validation dump:
+
+    PathTracePrimaryPass: clean-room RTXDI DI dump stage=route-ready
+    enable=1 view=12 temporal=1 lightMode=1
+    remixLightUniverseRoute=1
+    rlu current/previous/currentToPrevious/previousToCurrent=79/79/79/79
+    cleanPreviousReservoirValid=1
+    cleanPreviousResetReason=4
+    cleanHistoryResetCount=1
+
+User visual validation:
+
+    Animations work.
+    No flickering.
+    No cross-light contamination.
+
+Interpretation:
+
+    The one reset was the initial route/settings signature reset. After that,
+    the previous reservoir page stayed valid, and animated payload changes were
+    accumulated through the RLU dense current/previous domain and map contract.
+
+
+Important Non-Claims
+--------------------
+
+This validation does not claim:
+
+    spatial reuse correctness
+    best-light feedback correctness
+    denoiser or confidence proof
+    mode-56 correctness
+    full Remix parity
+
+It only proves the RLU-03 clean DI temporal lane can consume the dense
+current/previous Doom analytic light domain through the two-way mapping
+contract without the old persistent Doom analytic remap producer.

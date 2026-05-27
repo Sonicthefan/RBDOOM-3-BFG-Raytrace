@@ -38,14 +38,21 @@ struct PathTraceRemixLightRange
 struct PathTraceRemixLightManagerStats
 {
     uint64_t frameIndex = 0;
+    uint32_t enabled = 0;
+    uint32_t domain = 0;
+    uint32_t strictRemixMapping = 1;
+    uint32_t resetReasonFlags = 0;
     uint32_t currentLightCount = 0;
     uint32_t previousLightCount = 0;
     uint32_t currentToPreviousCount = 0;
     uint32_t previousToCurrentCount = 0;
     uint32_t currentMappedCount = 0;
     uint32_t currentInvalidCount = 0;
+    uint32_t currentOnlyCount = 0;
     uint32_t previousMappedCount = 0;
     uint32_t previousInvalidCount = 0;
+    uint32_t previousOnlyCount = 0;
+    uint32_t invalidDuplicateIdentityCount = 0;
     uint32_t emissiveRangeOffset = 0;
     uint32_t emissiveRangeCount = 0;
     uint32_t doomAnalyticRangeOffset = 0;
@@ -61,6 +68,7 @@ struct PathTraceRemixLightManagerStats
     uint32_t oldSmokeReservoirSignatureConsulted = 0;
     uint32_t resourceAllocationCount = 0;
     uint32_t shaderRouteCount = 0;
+    uint32_t firstFailingContract = 0;
     uint64_t structuralSignature = 0;
     uint64_t mappingSignature = 0;
     uint64_t payloadSignature = 0;
@@ -70,6 +78,10 @@ class PathTraceRemixLightManager
 {
 public:
     void Clear();
+    void PrepareDisabled(
+        const PathTraceRemixFramePrepareObservationPackage& framePackage,
+        uint32_t domain,
+        bool strictRemixMapping);
     void PrepareSceneData(
         const PathTraceRemixFramePrepareObservationPackage& framePackage,
         const std::vector<PathTraceSmokeEmissiveTriangle>& currentEmissiveTriangles,
@@ -82,7 +94,10 @@ public:
         const std::vector<PathTraceDoomAnalyticLightRemap>& analyticRemap,
         uint32_t emissiveSampleCount,
         uint32_t doomAnalyticSampleCount,
-        float analyticStateCompatibilityTolerance);
+        float analyticStateCompatibilityTolerance,
+        uint32_t domain,
+        bool strictRemixMapping,
+        bool lightUniverseEnabled);
 
     const std::vector<PathTraceUnifiedLightRecord>& GetCurrentLightPayloads() const;
     const std::vector<PathTraceUnifiedLightRecord>& GetPreviousLightPayloads() const;
@@ -93,6 +108,7 @@ public:
 
 private:
     void RebuildPreviousToCurrentMap();
+    uint32_t RebuildCurrentToPreviousMapByStableIdentity();
     void RebuildLightRanges(
         uint32_t currentEmissiveCount,
         uint32_t currentAnalyticCount,
@@ -111,4 +127,6 @@ private:
     uint64_t m_lastMappingSignature = 0;
     uint64_t m_lastPayloadSignature = 0;
     bool m_haveLastSignatures = false;
+    bool m_lightUniverseHistoryValid = false;
+    bool m_lastPrepareWasLightUniverse = false;
 };
