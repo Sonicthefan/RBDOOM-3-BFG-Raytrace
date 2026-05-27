@@ -2395,24 +2395,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     emissiveInventoryDiagnosticDesc.emissiveInventoryStats = &emissiveInventoryStats;
     RunSmokeEmissiveInventoryDiagnosticTriggers(emissiveInventoryDiagnosticDesc);
     const int runtimeInactiveEmissiveTriangles = emissiveInventoryStats.skippedRuntimeInactiveTriangles;
-    {
-        OPTICK_EVENT("PT Light Universe");
-        emissiveTriangles = m_smokeLightUniverse.MergeFrameCandidates(
-            viewDef,
-            emissiveTriangles,
-            maxEmissiveRecords,
-            idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()),
-            r_pathTracingLightAreaFilter.GetInteger() != 0,
-            r_pathTracingLightAreaFilterApply.GetInteger() != 0,
-            idMath::ClampInt(0, maxEmissiveRecords, r_pathTracingLightAreaOverflowMax.GetInteger()),
-            r_pathTracingLightUniverseChurn.GetInteger() != 0,
-            r_pathTracingLightUniversePersistDynamic.GetInteger() != 0,
-            r_pathTracingLightUniverseInjectMissingDynamic.GetInteger() != 0,
-            idMath::ClampInt(1, 120, r_pathTracingLightUniverseDynamicMinSeenFrames.GetInteger()),
-            idMath::ClampInt(1, 3600, r_pathTracingLightUniverseDynamicMaxMissingFrames.GetInteger()));
-        emissiveInventoryStats = BuildSmokeEmissiveInventoryStatsForRecords(materialTable.materialIds, emissiveTriangles);
-        lightCandidates = BuildSmokeLightCandidateBufferRecords(emissiveInventoryStats);
-    }
+    // The old RT smoke emissive light universe is intentionally no longer a
+    // producer. The Remix Light Universe below owns current/previous light
+    // domains and remaps; keep raw emissive extraction as its input.
+    m_smokeLightUniverse.Clear();
     const std::vector<PathTraceRestirLightObservation> restirLightManagerObservations =
         BuildPathTraceRestirLightManagerObservations(
         emissiveTriangles,
@@ -2468,6 +2454,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFrameStats.shaderRouteCount);
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
     }
+    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 77, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const bool rrxDiLightUniverseRequested =
+        requestedDebugMode == 56 &&
+        ((requestedRestirPTDiDebugView >= 60 && requestedRestirPTDiDebugView <= 77) ||
+            r_pathTracingRestirPTRrxFinalConsumerOutput.GetInteger() != 0);
     const bool regirLightUniverseRequested =
         r_pathTracingReGIREnable.GetInteger() != 0 &&
         r_pathTracingReGIRMode.GetInteger() != 0;
@@ -2476,12 +2467,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
     const bool remixLightUniverseEnabled =
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        rrxDiLightUniverseRequested ||
         regirLightUniverseRequested ||
         cleanRtxdiDiRluRequested;
     const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
-            : (cleanRtxdiDiRluRequested ? 0 : regirSceneLightDomain)));
+            : (cleanRtxdiDiRluRequested ? 0 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
     const bool remixLightUniverseStrictMapping =
         r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
     const bool remixLightUniverseIncludeAnalytic =
@@ -2573,7 +2565,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const bool dumpRemixRtxdiResources = r_pathTracingRemixRtxdiResourcesDump.GetInteger() != 0;
-    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 76, r_pathTracingRestirPTDiDebugView.GetInteger());
     PathTraceRemixRtxdiResourceGateDesc remixRtxdiResourceGateDesc;
     remixRtxdiResourceGateDesc.restirPTCombinedMode = requestedDebugMode == 56;
     remixRtxdiResourceGateDesc.restirPTDiDebugView = requestedRestirPTDiDebugView;
@@ -2651,21 +2642,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixRtxdiStats.bindingHandoffCount);
         r_pathTracingRemixRtxdiResourcesDump.SetInteger(0);
     }
-    m_restirLightManager.BeginFrame();
-    m_restirLightManager.UpdateFromObservations(restirLightManagerObservations);
-    m_restirLightManager.UpdateActivePayloadRecords(
-        emissiveTriangles,
-        previousEmissiveTriangles,
-        doomAnalyticLights,
-        doomAnalyticRemap.previousCandidates,
-        doomAnalyticRemap.currentCandidateIdentities,
-        doomAnalyticRemap.previousCandidateIdentities);
-    m_restirLightManager.EndFrame();
+    // Legacy ReSTIR light-manager ownership is purged. The buffers named
+    // PathTraceRestirLightManager* remain as a shader ABI bridge, but their
+    // contents are built from the Remix Light Universe records below.
+    m_restirLightManager.Clear();
     const bool dumpRestirLightManager = r_pathTracingRestirLightManagerDump.GetInteger() != 0;
-    const bool useRemixLightManagerRabSource =
-        r_pathTracingRemixLightManagerRAB.GetInteger() != 0 ||
-        regirLightUniverseRequested ||
-        cleanRtxdiDiRluRequested;
+    const bool useRemixLightManagerRabSource = true;
     const PathTraceRemixLightManagerStats& remixLightManagerActiveStats = m_remixLightManager.GetStats();
     const std::vector<PathTraceRestirCurrentLightRecord> remixRestirCurrentRecords =
         BuildRestirRecordsFromRemixCurrentLights(m_remixLightManager.GetCurrentLightPayloads(), m_remixLightManager.GetCurrentToPreviousMap());
@@ -2684,6 +2666,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
         useRemixLightManagerRabSource ? m_remixLightManager.GetPreviousLightPayloads() : m_restirLightManager.GetActivePreviousPayloadRecords();
     if (dumpRestirLightManager)
+    {
+        common->Printf("PathTracePrimaryPass: legacy ReSTIR light manager purged; active light domains are owned by Remix Light Universe behavior=legacy-light-universe-purged\n");
+        r_pathTracingRestirLightManagerDump.SetInteger(0);
+    }
+    if (r_pathTracingRestirLightManagerDump.GetInteger() != 0)
     {
         const PathTraceRestirLightObservationStats restirLightManagerStats = BuildPathTraceRestirLightManagerDebugObservations(
             restirLightManagerObservations);
@@ -2809,6 +2796,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingEmissiveDistribution.GetInteger());
     }
     const RtSmokeLightUniverseStats lightUniverseStats = m_smokeLightUniverse.GetStats();
+    if (r_pathTracingLightUniverseDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: legacy RT smoke light universe purged; raw emissive extraction feeds Remix Light Universe directly behavior=legacy-light-universe-purged\n");
+        r_pathTracingLightUniverseDump.SetInteger(0);
+    }
     if (r_pathTracingLightUniverseDump.GetInteger() != 0)
     {
         common->Printf("PathTracePrimaryPass: RT smoke light universe static=%d seen=%d new=%d updated=%d missing=%d semiStatic=%d dynSeen=%d dynPromoted=%d dynUpdated=%d dynMissing=%d dynAged=%d dynamicFrame=%d merged=%d area current/total=%d/%d selected steps/areas/edges/blocked=%d/%d/%d/%d staticKnown/unknown=%d/%d dynamicKnown/unknown=%d/%d mergedKnown/unknown=%d/%d mergedCurrent/selected/connected/disconnected=%d/%d/%d/%d connectedUnselected=%d portalSweep areas=%d/%d/%d/%d/%d merged=%d/%d/%d/%d/%d portalDepthBins depth0/1/2/3/4/>4/disconnected/unknown=%d/%d/%d/%d/%d/%d/%d/%d areaFilter enabled/applied=%d/%d steps=%d overflowMax=%d selected=%d connectedOverflow=%d disconnected=%d unknown=%d wouldUpload=%d wouldDrop=%d area %.2f/%.2f drop=%.2f weight %.3f/%.3f drop=%.3f dropWeight overflow/disconnected/unknown=%.3f/%.3f/%.3f persistDynamic=%d injectMissingDynamic=%d minSeen=%d maxMissing=%d generation=%llu\n",
@@ -3292,11 +3284,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     const int staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
-    const PathTraceRestirLightManagerStats restirLightManagerSignatureStats = m_restirLightManager.GetStats();
+    const PathTraceRemixLightManagerStats remixLightManagerSignatureStats = m_remixLightManager.GetStats();
     const uint64 reservoirSceneSignature = ComputeSmokeReservoirStructuralSignature(
         materialTableSignature,
         staticSignature.hash,
-        restirLightManagerSignatureStats.structuralSignature);
+        remixLightManagerSignatureStats.structuralSignature);
     const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
         m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
         !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;

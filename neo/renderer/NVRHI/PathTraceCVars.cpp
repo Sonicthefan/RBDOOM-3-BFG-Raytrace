@@ -343,37 +343,37 @@ idCVar r_pathTracingLightUniverseDump(
     "r_pathTracingLightUniverseDump",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump persistent RT smoke emissive and CPU Doom analytic light-universe stats once" );
+    "Legacy RT smoke light universe is purged; set to 1 to print the purge notice once" );
 
 idCVar r_pathTracingLightUniversePersistDynamic(
     "r_pathTracingLightUniversePersistDynamic",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Persist stable rigid-entity emissives in the RT smoke light universe; particles/skinned/non-rigid dynamics remain frame-local" );
+    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
 
 idCVar r_pathTracingLightUniverseInjectMissingDynamic(
     "r_pathTracingLightUniverseInjectMissingDynamic",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Inject missing semi-static dynamic emissives into the RT smoke light list; disabled by default because matching dynamic occluder geometry is not persistent yet" );
+    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
 
 idCVar r_pathTracingLightUniverseDynamicMinSeenFrames(
     "r_pathTracingLightUniverseDynamicMinSeenFrames",
     "2",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Frames a rigid-entity emissive must be seen before it is promoted to semi-static light-universe persistence" );
+    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
 
 idCVar r_pathTracingLightUniverseDynamicMaxMissingFrames(
     "r_pathTracingLightUniverseDynamicMaxMissingFrames",
     "90",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Frames a promoted semi-static dynamic emissive may be missing before it is aged out of the light universe" );
+    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
 
 idCVar r_pathTracingLightUniverseChurn(
     "r_pathTracingLightUniverseChurn",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Track frame-to-frame changes in the uploaded RT smoke emissive light set for portal-edge stability diagnostics" );
+    "Purged legacy RT smoke light-universe knob; ignored by active lighting paths" );
 
 idCVar r_pathTracingLightAreaPortalSteps(
     "r_pathTracingLightAreaPortalSteps",
@@ -457,7 +457,7 @@ idCVar r_pathTracingRemixLightManagerRAB(
     "r_pathTracingRemixLightManagerRAB",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Active RRX RAB light source: 1 uses the Remix-shaped light manager by default, 0 selects the legacy ReSTIR manager comparison/debug source" );
+    "Active RRX RAB light source: Remix Light Universe only; legacy ReSTIR manager fallback has been purged" );
 
 idCVar r_pathTracingRemixRtxdiResourcesEnable(
     "r_pathTracingRemixRtxdiResourcesEnable",
@@ -475,13 +475,13 @@ idCVar r_pathTracingRestirLightManagerDump(
     "r_pathTracingRestirLightManagerDump",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Set to 1 to dump debug-only ReSTIR light-manager observation counts once" );
+    "Legacy ReSTIR light manager is purged; set to 1 to print the purge notice once" );
 
 idCVar r_pathTracingRestirLightManagerRAB(
     "r_pathTracingRestirLightManagerRAB",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Opt-in ReSTIR RAB routing through the CPU light-manager current/previous domains; 0 preserves the existing RAB light path" );
+    "Purged legacy ReSTIR light-manager route; active RAB light domains come from Remix Light Universe" );
 
 idCVar r_pathTracingReGIREnable(
     "r_pathTracingReGIREnable",

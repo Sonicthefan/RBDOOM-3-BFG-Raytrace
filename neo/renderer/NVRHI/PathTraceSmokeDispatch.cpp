@@ -3456,9 +3456,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.doomAnalyticLightRemapInfo[3] = static_cast<float>(m_smokePreviousEmissiveTriangleCount);
     const PathTraceRestirLightManagerStats restirLightManagerStats = m_restirLightManager.GetStats();
     const PathTraceRemixLightManagerStats remixLightManagerStats = m_remixLightManager.GetStats();
-    const bool useRemixLightManagerRabSource =
-        r_pathTracingRemixLightManagerRAB.GetInteger() != 0 ||
-        (regirDebugRouteRequested && regirRemixLightManagerStats.enabled != 0u);
+    const bool useRemixLightManagerRabSource = remixLightManagerStats.enabled != 0u;
     const bool useRemixLightManagerDenseRabSource =
         useRemixLightManagerRabSource &&
         remixLightManagerStats.enabled != 0u;
