@@ -53,6 +53,23 @@ bool RAB_UnifiedPrevToCurrentScanEnabled()
     return RestirPTSurfaceInfo.z >= 0.5;
 }
 
+#ifndef RB_PATH_TRACE_RESTIR_LIGHT_MANAGER_CONSTANTS
+#define RB_PATH_TRACE_RESTIR_LIGHT_MANAGER_CONSTANTS
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX = 0xffffffffu;
+static const uint PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE = 1u;
+static const uint PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC = 2u;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY = 1u << 0;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY = 1u << 2;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_PREVIOUS_ONLY = 1u << 3;
+static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID = 1u << 4;
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY = 1u << 5;
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE = 1u << 6;
+static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE = 1u << 15;
+static const uint PATH_TRACE_RESTIR_LIGHT_MANAGER_SOURCE_NONE = 0u;
+static const uint PATH_TRACE_RESTIR_LIGHT_MANAGER_SOURCE_COMPAT_ACTIVE = 1u;
+static const uint PATH_TRACE_RESTIR_LIGHT_MANAGER_SOURCE_REMIX_DENSE = 2u;
+#endif
+
 uint RAB_GetCurrentRestirLightManagerCount()
 {
 #ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
@@ -152,19 +169,20 @@ bool RAB_RestirLightManagerRABEnabled()
 #endif
 }
 
-#ifndef RB_PATH_TRACE_RESTIR_LIGHT_MANAGER_CONSTANTS
-#define RB_PATH_TRACE_RESTIR_LIGHT_MANAGER_CONSTANTS
-static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_INDEX = 0xffffffffu;
-static const uint PATH_TRACE_RESTIR_LIGHT_SOURCE_EMISSIVE_TRIANGLE = 1u;
-static const uint PATH_TRACE_RESTIR_LIGHT_SOURCE_DOOM_ANALYTIC = 2u;
-static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_STABLE_IDENTITY = 1u << 0;
-static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_CURRENT_ONLY = 1u << 2;
-static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_PREVIOUS_ONLY = 1u << 3;
-static const uint PATH_TRACE_RESTIR_LIGHT_RECORD_REMAP_VALID = 1u << 4;
-static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNKNOWN_IDENTITY = 1u << 5;
-static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_UNSUPPORTED_SOURCE = 1u << 6;
-static const uint PATH_TRACE_RESTIR_LIGHT_INVALID_REASON_INCOMPATIBLE_SOURCE = 1u << 15;
+uint RAB_GetRestirLightManagerSource()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerControlInfo.y, 0.0);
+#else
+    return PATH_TRACE_RESTIR_LIGHT_MANAGER_SOURCE_NONE;
 #endif
+}
+
+bool RAB_RestirLightManagerRemixDenseDomainEnabled()
+{
+    return RAB_RestirLightManagerRABEnabled() &&
+        RAB_GetRestirLightManagerSource() == PATH_TRACE_RESTIR_LIGHT_MANAGER_SOURCE_REMIX_DENSE;
+}
 
 int RAB_TranslateUnifiedLightIndex(uint lightIndex, bool currentToPrevious)
 {

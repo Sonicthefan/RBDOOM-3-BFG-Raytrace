@@ -2493,7 +2493,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const char* remixLightUniverseBehavior = remixLightStats.enabled != 0
             ? "rlu-02-dense-current-previous-domain"
             : "legacy-remix-light-manager-compat";
-        common->Printf("PathTracePrimaryPass: Remix light universe frame=%llu enabled=%u domain=%u strictMapping=%u resetReason=0x%x current=%u previous=%u maps currentToPrevious size/mapped/invalid/currentOnly=%u/%u/%u/%u previousToCurrent size/mapped/invalid/previousOnly=%u/%u/%u/%u duplicateIdentity=%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u firstFailingContract=%u:%s oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=%s\n",
+        common->Printf("PathTracePrimaryPass: Remix light universe frame=%llu enabled=%u domain=%u strictMapping=%u resetReason=0x%x current=%u previous=%u maps currentToPrevious size/mapped/invalid/currentOnly=%u/%u/%u/%u previousToCurrent size/mapped/invalid/previousOnly=%u/%u/%u/%u duplicateIdentity=%u typeCounts currentMapped emissive/doom=%u/%u currentOnly emissive/doom=%u/%u previousMapped emissive/doom=%u/%u previousOnly emissive/doom=%u/%u mappedPayloadChanged emissive/doom=%u/%u duplicateIdentity emissive/doom=%u/%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u firstFailingContract=%u:%s oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=%s\n",
             static_cast<unsigned long long>(remixLightStats.frameIndex),
             remixLightStats.enabled,
             remixLightStats.domain,
@@ -2510,6 +2510,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixLightStats.previousInvalidCount,
             remixLightStats.previousOnlyCount,
             remixLightStats.invalidDuplicateIdentityCount,
+            remixLightStats.currentMappedByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            remixLightStats.currentMappedByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            remixLightStats.currentOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            remixLightStats.currentOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            remixLightStats.previousMappedByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            remixLightStats.previousMappedByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            remixLightStats.previousOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            remixLightStats.previousOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            remixLightStats.mappedPayloadChangedByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            remixLightStats.mappedPayloadChangedByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            remixLightStats.duplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            remixLightStats.duplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
             remixLightStats.emissiveRangeOffset,
             remixLightStats.emissiveRangeCount,
             remixLightStats.emissiveSampleCount,

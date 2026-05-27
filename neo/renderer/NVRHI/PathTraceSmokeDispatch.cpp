@@ -3355,16 +3355,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const PathTraceRestirLightManagerStats restirLightManagerStats = m_restirLightManager.GetStats();
     const PathTraceRemixLightManagerStats remixLightManagerStats = m_remixLightManager.GetStats();
     const bool useRemixLightManagerRabSource = r_pathTracingRemixLightManagerRAB.GetInteger() != 0;
+    const bool useRemixLightManagerDenseRabSource =
+        useRemixLightManagerRabSource &&
+        remixLightManagerStats.enabled != 0u;
     const bool restirLightManagerPayloadsMatch = restirLightManagerStats.activePayloadCountMismatch == 0;
+    const bool useLegacyRestirLightManagerRabSource =
+        !useRemixLightManagerRabSource &&
+        r_pathTracingRestirLightManagerRAB.GetInteger() != 0 &&
+        restirLightManagerPayloadsMatch;
     constants.restirLightManagerInfo[0] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.currentLightCount : restirLightManagerStats.activeCurrentPayloadCount);
     constants.restirLightManagerInfo[1] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.previousLightCount : restirLightManagerStats.activePreviousPayloadCount);
     constants.restirLightManagerInfo[2] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.currentToPreviousCount : restirLightManagerStats.activeCurrentToPreviousCount);
     constants.restirLightManagerInfo[3] = static_cast<float>(useRemixLightManagerRabSource ? remixLightManagerStats.previousToCurrentCount : restirLightManagerStats.activePreviousToCurrentCount);
-    constants.restirLightManagerControlInfo[0] =
-        useRemixLightManagerRabSource
-            ? 1.0f
-            : (r_pathTracingRestirLightManagerRAB.GetInteger() != 0 && restirLightManagerPayloadsMatch ? 1.0f : 0.0f);
-    constants.restirLightManagerControlInfo[1] = 0.0f;
+    constants.restirLightManagerControlInfo[0] = (useRemixLightManagerRabSource || useLegacyRestirLightManagerRabSource) ? 1.0f : 0.0f;
+    constants.restirLightManagerControlInfo[1] = useRemixLightManagerDenseRabSource
+        ? 2.0f
+        : ((useRemixLightManagerRabSource || useLegacyRestirLightManagerRabSource) ? 1.0f : 0.0f);
     constants.restirLightManagerControlInfo[2] = 0.0f;
     constants.restirLightManagerControlInfo[3] = 0.0f;
     const bool rrxEmissiveSamplingEnabled = !disableEmissiveTriangleSampling && toyEmissiveScale > 0.0f;

@@ -77,6 +77,12 @@ struct PathTraceRemixLightManagerStats
     uint32_t nonEmptyRangeCount = 0;
     uint32_t payloadOnlyChange = 0;
     uint32_t mappedPayloadChangedCount = 0;
+    uint32_t currentMappedByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t currentOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t previousMappedByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t previousOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t mappedPayloadChangedByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t duplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
     uint32_t structuralSignatureChanged = 0;
     uint32_t mappingSignatureChanged = 0;
     uint32_t payloadSignatureChanged = 0;

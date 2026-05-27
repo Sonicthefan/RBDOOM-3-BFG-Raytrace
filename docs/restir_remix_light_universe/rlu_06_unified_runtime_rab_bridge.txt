@@ -1,0 +1,106 @@
+RLU-06 Unified Runtime RAB Bridge
+=================================
+
+Scope
+-----
+
+This slice keeps the active RTXDI/RAB math unchanged.  It only documents and
+hardens the bridge that lets shader consumers load and translate the
+Remix-shaped dense light domain.
+
+
+Producer Contract
+-----------------
+
+The active RAB light-domain constants use the existing restir-light-manager
+constant block:
+
+    RestirLightManagerInfo.x = current dense payload count
+    RestirLightManagerInfo.y = previous dense payload count
+    RestirLightManagerInfo.z = current-to-previous map count
+    RestirLightManagerInfo.w = previous-to-current map count
+
+    RestirLightManagerRangeInfo.xy = emissive dense range offset/count
+    RestirLightManagerRangeInfo.zw = Doom analytic dense range offset/count
+
+    RestirLightManagerSampleInfo.xy = bounded emissive/Doom analytic initial
+        sample counts
+    RestirLightManagerSampleInfo.zw = total sample count / non-empty range count
+
+    RestirLightManagerControlInfo.x = RAB bridge enabled
+    RestirLightManagerControlInfo.y = active source marker
+
+Source marker values:
+
+    0 = no active manager bridge
+    1 = legacy/compat active manager comparison/debug source
+    2 = Remix-shaped dense current/previous/mapping source
+
+
+Shader Consumer Contract
+------------------------
+
+The active proof path must use:
+
+    RAB_LoadLightInfo(index, false)
+        loads PathTraceRestirLightManagerCurrentPayload[index]
+
+    RAB_LoadLightInfo(index, true)
+        loads PathTraceRestirLightManagerPreviousPayload[index]
+
+    RAB_TranslateLightIndex(index, true)
+        reads PathTraceRestirLightManagerCurrentToPrevious[index]
+
+    RAB_TranslateLightIndex(index, false)
+        reads PathTraceRestirLightManagerPreviousToCurrent[index]
+
+Each read is bounded by the matching count from RestirLightManagerInfo.  A
+failed translation returns invalid for that light only; it does not rewrite the
+reservoir, change the RTXDI combine math, or fall back to a split payload reload.
+
+
+RLU-06 Change
+-------------
+
+PathTraceSmokeDispatch now marks the active manager bridge source in
+RestirLightManagerControlInfo.y.  Source marker 2 is written only when the
+Remix manager reports the light-universe contract enabled.  The default-on
+Remix manager RAB compatibility route stays usable, but it reports source 1
+until the RLU dense-history producer is actually active.  RAB_LightLoadRuntime
+exposes:
+
+    RAB_GetRestirLightManagerSource()
+    RAB_RestirLightManagerRemixDenseDomainEnabled()
+
+The generic RAB helpers continue to preserve the legacy manager comparison
+route when explicitly selected.  The new source marker lets validation prove
+that the active route is consuming the Remix-shaped dense domain without using
+legacy split-domain payloadSourceIndex reloads as hidden evidence.
+
+
+Non-Claims
+----------
+
+RLU-06 does not:
+
+    change RTXDI reservoir math
+    enable spatial reuse
+    route best-light feedback
+    change targetPdf/sourcePdf math
+    widen light suppression
+    use mode 56 as proof
+    copy Remix or RTXDI source text
+
+
+Validation
+----------
+
+Build required after this slice because shader and C++ files changed:
+
+    cd E:/prog/rbdoom-3-bfg-rt/neo
+    cmake --build --preset win64-pt-dev-release
+
+Runtime proof should use the existing active/clean RLU route toggles and verify
+that the Remix-shaped RAB route is selected, while stable temporal behavior
+remains visually unchanged from RLU-03/RLU-04.  The source marker is now
+shader-visible for follow-up debug views.

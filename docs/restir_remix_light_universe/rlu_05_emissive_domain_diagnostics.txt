@@ -1,0 +1,108 @@
+RLU-05 Emissive Domain Diagnostics
+==================================
+
+Purpose
+-------
+
+RLU-05 adds explicit emissive-domain diagnostics to the Remix-shaped light
+universe manager after the Doom analytic temporal proof passed.
+
+This slice does not change RTXDI reservoir math, the clean analytic view-12
+proof path, spatial reuse, best-light feedback, denoising, or mode-56 routing.
+
+
+Producer Contract
+-----------------
+
+The Remix-shaped manager receives the final merged emissive list from
+PathTraceSmokeSceneBuild.cpp. That list is produced after the existing
+RtSmokeLightUniverse::MergeFrameCandidates step, so RLU-05 does not add a
+second emissive producer and does not consume pre-merge transient lists.
+
+For RLU domain testing:
+
+    r_pathTracingRemixLightUniverseDomain 1
+
+means the manager domain is emissive-only. In that mode the existing
+current/previous/map counts in the Remix light-universe dump are emissive
+counts, because analytic lights are not included.
+
+
+Added Manager Diagnostics
+-------------------------
+
+PathTraceRemixLightManagerStats now separates mapping and local-event counts
+by light type:
+
+    currentMappedByType
+    currentOnlyByType
+    previousMappedByType
+    previousOnlyByType
+    mappedPayloadChangedByType
+    duplicateIdentityByType
+
+Type index mapping:
+
+    0 = emissive triangle
+    1 = Doom analytic
+
+The existing aggregate counters remain unchanged:
+
+    currentMappedCount
+    currentOnlyCount
+    previousMappedCount
+    previousOnlyCount
+    mappedPayloadChangedCount
+    invalidDuplicateIdentityCount
+
+The RLU dump surfaces those per-type counters as emissive/Doom analytic pairs:
+
+    typeCounts currentMapped emissive/doom
+    typeCounts currentOnly emissive/doom
+    typeCounts previousMapped emissive/doom
+    typeCounts previousOnly emissive/doom
+    typeCounts mappedPayloadChanged emissive/doom
+    typeCounts duplicateIdentity emissive/doom
+
+
+Validation CVar Set
+-------------------
+
+Use an emissive-only RLU dump:
+
+    r_pathTracingRemixLightUniverseEnable 1
+    r_pathTracingRemixLightUniverseDomain 1
+    r_pathTracingRemixLightUniverseDump 1
+
+Expected:
+
+    enabled=1
+    domain=1
+    ranges emissive offset/count/samples is nonzero when emissives exist
+    ranges doomAnalytic offset/count/samples is 0/0/0
+    maps currentToPrevious and previousToCurrent report real map sizes
+    duplicateIdentity=0 for strict proof
+    typeCounts fields report emissive values in the first slot and zero Doom
+        analytic values in the second slot
+
+For unified CPU diagnostics after analytic proof:
+
+    r_pathTracingRemixLightUniverseDomain 2
+    r_pathTracingRemixLightUniverseDump 1
+
+Expected:
+
+    both emissive and Doom analytic ranges are inspectable
+    typeCounts fields can separate emissive local events from Doom analytic
+        local events in the same dense domain
+    analytic clean DI proof remains domain-0 only unless a later slice routes
+    unified runtime RAB through the dense domain
+
+
+Non-Claims
+----------
+
+This slice does not claim emissive runtime RTXDI parity. It proves that the
+Remix-shaped CPU light universe can carry the final merged emissive domain with
+typed ranges and per-type mapping diagnostics without regressing the analytic
+temporal proof.

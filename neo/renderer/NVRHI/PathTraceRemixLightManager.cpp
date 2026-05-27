@@ -135,6 +135,50 @@ bool RemixLightMapIndexValid(uint32_t index)
     return index != PATH_TRACE_REMIX_LIGHT_INVALID_INDEX;
 }
 
+uint32_t RemixLightTypeIndexFromUnifiedType(uint32_t unifiedType)
+{
+    switch (unifiedType)
+    {
+    case PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE:
+        return PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+    case PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC:
+        return PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC;
+    default:
+        return PATH_TRACE_REMIX_LIGHT_TYPE_COUNT;
+    }
+}
+
+uint32_t BuildDuplicateUnifiedIdentityCountsByType(
+    const std::vector<PathTraceUnifiedLightRecord>& records,
+    uint32_t duplicateCounts[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT])
+{
+    std::fill(duplicateCounts, duplicateCounts + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+
+    std::map<RemixUnifiedIdentityKey, int> identityToIndex;
+    uint32_t duplicateCount = 0;
+    for (int index = 0; index < static_cast<int>(records.size()); ++index)
+    {
+        const RemixUnifiedIdentityKey key = MakeRemixUnifiedIdentityKey(records[index]);
+        if (!RemixUnifiedIdentityKeyValid(key))
+        {
+            continue;
+        }
+
+        const auto insertResult = identityToIndex.emplace(key, index);
+        if (!insertResult.second)
+        {
+            insertResult.first->second = -1;
+            const uint32_t typeIndex = RemixLightTypeIndexFromUnifiedType(records[index].type);
+            if (typeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                ++duplicateCounts[typeIndex];
+            }
+            ++duplicateCount;
+        }
+    }
+    return duplicateCount;
+}
+
 PathTraceRemixLightEventSample MakeRemixLightEventSample(uint32_t index, const PathTraceUnifiedLightRecord& record)
 {
     PathTraceRemixLightEventSample sample;
@@ -512,6 +556,12 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     m_stats.currentMappedCount = 0;
     m_stats.currentInvalidCount = 0;
     m_stats.mappedPayloadChangedCount = 0;
+    std::fill(m_stats.currentMappedByType, m_stats.currentMappedByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+    std::fill(m_stats.currentOnlyByType, m_stats.currentOnlyByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+    std::fill(m_stats.previousMappedByType, m_stats.previousMappedByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+    std::fill(m_stats.previousOnlyByType, m_stats.previousOnlyByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+    std::fill(m_stats.mappedPayloadChangedByType, m_stats.mappedPayloadChangedByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+    std::fill(m_stats.duplicateIdentityByType, m_stats.duplicateIdentityByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
     m_stats.firstPayloadChangedCurrent = PathTraceRemixLightEventSample();
     m_stats.firstPayloadChangedPrevious = PathTraceRemixLightEventSample();
     m_stats.firstCurrentOnly = PathTraceRemixLightEventSample();
@@ -519,9 +569,16 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     for (uint32_t previousIndex : m_currentToPreviousMap)
     {
         const uint32_t currentIndex = m_stats.currentMappedCount + m_stats.currentInvalidCount;
+        const uint32_t currentType = currentIndex < m_currentLightPayloads.size()
+            ? RemixLightTypeIndexFromUnifiedType(m_currentLightPayloads[currentIndex].type)
+            : PATH_TRACE_REMIX_LIGHT_TYPE_COUNT;
         if (previousIndex < m_previousLightPayloads.size())
         {
             ++m_stats.currentMappedCount;
+            if (currentType < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                ++m_stats.currentMappedByType[currentType];
+            }
             if (currentIndex < m_currentLightPayloads.size() &&
                 RemixMappedPayloadChanged(m_currentLightPayloads[currentIndex], m_previousLightPayloads[previousIndex]))
             {
@@ -531,6 +588,10 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
                     m_stats.firstPayloadChangedPrevious = MakeRemixLightEventSample(previousIndex, m_previousLightPayloads[previousIndex]);
                 }
                 ++m_stats.mappedPayloadChangedCount;
+                if (currentType < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+                {
+                    ++m_stats.mappedPayloadChangedByType[currentType];
+                }
             }
         }
         else
@@ -540,6 +601,10 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
                 m_stats.firstCurrentOnly = MakeRemixLightEventSample(currentIndex, m_currentLightPayloads[currentIndex]);
             }
             ++m_stats.currentInvalidCount;
+            if (currentType < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                ++m_stats.currentOnlyByType[currentType];
+            }
         }
     }
     m_stats.currentOnlyCount = m_stats.currentInvalidCount;
@@ -548,9 +613,16 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     for (uint32_t currentIndex : m_previousToCurrentMap)
     {
         const uint32_t previousIndex = m_stats.previousMappedCount + m_stats.previousInvalidCount;
+        const uint32_t previousType = previousIndex < m_previousLightPayloads.size()
+            ? RemixLightTypeIndexFromUnifiedType(m_previousLightPayloads[previousIndex].type)
+            : PATH_TRACE_REMIX_LIGHT_TYPE_COUNT;
         if (currentIndex < m_currentLightPayloads.size())
         {
             ++m_stats.previousMappedCount;
+            if (previousType < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                ++m_stats.previousMappedByType[previousType];
+            }
         }
         else
         {
@@ -559,6 +631,10 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
                 m_stats.firstPreviousOnly = MakeRemixLightEventSample(previousIndex, m_previousLightPayloads[previousIndex]);
             }
             ++m_stats.previousInvalidCount;
+            if (previousType < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                ++m_stats.previousOnlyByType[previousType];
+            }
         }
     }
     m_stats.previousOnlyCount = m_stats.previousInvalidCount;
@@ -567,6 +643,15 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     m_stats.invalidDuplicateIdentityCount =
         BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
         BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
+    uint32_t currentDuplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t previousDuplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    BuildDuplicateUnifiedIdentityCountsByType(m_currentLightPayloads, currentDuplicateIdentityByType);
+    BuildDuplicateUnifiedIdentityCountsByType(m_previousLightPayloads, previousDuplicateIdentityByType);
+    for (uint32_t typeIndex = 0; typeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT; ++typeIndex)
+    {
+        m_stats.duplicateIdentityByType[typeIndex] =
+            currentDuplicateIdentityByType[typeIndex] + previousDuplicateIdentityByType[typeIndex];
+    }
     m_stats.emissiveRangeOffset = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].firstLightIndex;
     m_stats.emissiveRangeCount = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount;
     m_stats.doomAnalyticRangeOffset = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC].firstLightIndex;
