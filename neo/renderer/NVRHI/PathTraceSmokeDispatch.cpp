@@ -920,8 +920,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanDumpAnalyticDomainCount = cleanDumpPortalProofDomain
             ? static_cast<uint32_t>(Min(Max(0, m_smokeDoomAnalyticPortalRegionLightCount), Max(0, m_smokeDoomAnalyticLightCount)))
             : static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
+        const PathTraceRemixLightManagerStats& cleanDumpRluStats = m_remixLightManager.GetStats();
         const uint32_t cleanDumpRluCurrentLightCount = static_cast<uint32_t>(Max(0, m_smokeRestirLightManagerCurrentPayloadCount));
         const uint32_t cleanDumpRluPreviousLightCount = static_cast<uint32_t>(Max(0, m_smokeRestirLightManagerPreviousPayloadCount));
+        const uint32_t cleanDumpRluCurrentToPreviousCount = cleanDumpRluStats.currentToPreviousCount;
+        const uint32_t cleanDumpRluPreviousToCurrentCount = cleanDumpRluStats.previousToCurrentCount;
         const bool cleanDumpRluRoute =
             cleanEnabledNow &&
             r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
@@ -940,8 +943,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanDumpCandidateCount = (cleanViewNow == 8 || cleanViewNow == 12)
             ? Min(cleanDumpCandidateDomainCount, cleanDumpCandidateOverride)
             : 1u;
+        const PathTraceRemixLightEventSample cleanDumpEmptyRluSample;
+        const PathTraceRemixLightEventSample& cleanDumpPayloadCurrent = cleanDumpRluRoute ? cleanDumpRluStats.firstPayloadChangedCurrent : cleanDumpEmptyRluSample;
+        const PathTraceRemixLightEventSample& cleanDumpPayloadPrevious = cleanDumpRluRoute ? cleanDumpRluStats.firstPayloadChangedPrevious : cleanDumpEmptyRluSample;
+        const PathTraceRemixLightEventSample& cleanDumpCurrentOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstCurrentOnly : cleanDumpEmptyRluSample;
+        const PathTraceRemixLightEventSample& cleanDumpPreviousOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstPreviousOnly : cleanDumpEmptyRluSample;
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u externalPdfNeeCurrent=%d externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
@@ -972,8 +980,48 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanDumpRluRoute ? 1 : 0,
             cleanDumpRluRoute ? cleanDumpRluCurrentLightCount : 0u,
             cleanDumpRluRoute ? cleanDumpRluPreviousLightCount : 0u,
-            cleanDumpRluRoute ? cleanDumpRluCurrentLightCount : 0u,
-            cleanDumpRluRoute ? cleanDumpRluPreviousLightCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluCurrentToPreviousCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluPreviousToCurrentCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluStats.mappedPayloadChangedCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluStats.currentOnlyCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluStats.previousOnlyCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluStats.invalidDuplicateIdentityCount : 0u,
+            cleanDumpPayloadCurrent.index,
+            cleanDumpPayloadPrevious.index,
+            cleanDumpPayloadCurrent.type,
+            cleanDumpPayloadCurrent.materialOrLightId,
+            cleanDumpPayloadCurrent.identityA,
+            cleanDumpPayloadCurrent.identityB,
+            cleanDumpPayloadCurrent.positionAndRadius[0],
+            cleanDumpPayloadCurrent.positionAndRadius[1],
+            cleanDumpPayloadCurrent.positionAndRadius[2],
+            cleanDumpPayloadCurrent.positionAndRadius[3],
+            cleanDumpPayloadPrevious.positionAndRadius[0],
+            cleanDumpPayloadPrevious.positionAndRadius[1],
+            cleanDumpPayloadPrevious.positionAndRadius[2],
+            cleanDumpPayloadPrevious.positionAndRadius[3],
+            cleanDumpPayloadCurrent.radianceAndLuminance[3],
+            cleanDumpPayloadPrevious.radianceAndLuminance[3],
+            cleanDumpCurrentOnly.index,
+            cleanDumpCurrentOnly.type,
+            cleanDumpCurrentOnly.materialOrLightId,
+            cleanDumpCurrentOnly.identityA,
+            cleanDumpCurrentOnly.identityB,
+            cleanDumpCurrentOnly.positionAndRadius[0],
+            cleanDumpCurrentOnly.positionAndRadius[1],
+            cleanDumpCurrentOnly.positionAndRadius[2],
+            cleanDumpCurrentOnly.positionAndRadius[3],
+            cleanDumpCurrentOnly.radianceAndLuminance[3],
+            cleanDumpPreviousOnly.index,
+            cleanDumpPreviousOnly.type,
+            cleanDumpPreviousOnly.materialOrLightId,
+            cleanDumpPreviousOnly.identityA,
+            cleanDumpPreviousOnly.identityB,
+            cleanDumpPreviousOnly.positionAndRadius[0],
+            cleanDumpPreviousOnly.positionAndRadius[1],
+            cleanDumpPreviousOnly.positionAndRadius[2],
+            cleanDumpPreviousOnly.positionAndRadius[3],
+            cleanDumpPreviousOnly.radianceAndLuminance[3],
             r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ? 1 : 0,
             0,
             pdfNeeVerifierEntryLightMode,
@@ -2067,11 +2115,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanAnalyticRemapCount = cleanRtxdiDiLightMode == 1
             ? static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticRemapCount))
             : 0u;
+        const PathTraceRemixLightManagerStats& cleanRluStats = m_remixLightManager.GetStats();
         const uint32_t cleanRluCurrentLightCount = cleanRtxdiDiLightMode == 1
             ? static_cast<uint32_t>(Max(0, m_smokeRestirLightManagerCurrentPayloadCount))
             : 0u;
         const uint32_t cleanRluPreviousLightCount = cleanRtxdiDiLightMode == 1
             ? static_cast<uint32_t>(Max(0, m_smokeRestirLightManagerPreviousPayloadCount))
+            : 0u;
+        const uint32_t cleanRluCurrentToPreviousCount = cleanRtxdiDiLightMode == 1
+            ? cleanRluStats.currentToPreviousCount
+            : 0u;
+        const uint32_t cleanRluPreviousToCurrentCount = cleanRtxdiDiLightMode == 1
+            ? cleanRluStats.previousToCurrentCount
             : 0u;
         const bool cleanRluRoute =
             r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
@@ -2181,8 +2236,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));
         cleanConstants.rluCurrentLightCount = cleanRluRoute ? cleanRluCurrentLightCount : 0u;
         cleanConstants.rluPreviousLightCount = cleanRluRoute ? cleanRluPreviousLightCount : 0u;
-        cleanConstants.rluCurrentToPreviousCount = cleanRluRoute ? cleanRluCurrentLightCount : 0u;
-        cleanConstants.rluPreviousToCurrentCount = cleanRluRoute ? cleanRluPreviousLightCount : 0u;
+        cleanConstants.rluCurrentToPreviousCount = cleanRluRoute ? cleanRluCurrentToPreviousCount : 0u;
+        cleanConstants.rluPreviousToCurrentCount = cleanRluRoute ? cleanRluPreviousToCurrentCount : 0u;
         PathTraceCleanRtxdiDiGuiSnapshot cleanGuiSnapshot;
         cleanGuiSnapshot.valid = true;
         cleanGuiSnapshot.enabled = cleanRtxdiDiEnabled;

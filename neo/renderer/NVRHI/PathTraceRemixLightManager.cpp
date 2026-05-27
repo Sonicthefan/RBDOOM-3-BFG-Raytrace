@@ -135,6 +135,34 @@ bool RemixLightMapIndexValid(uint32_t index)
     return index != PATH_TRACE_REMIX_LIGHT_INVALID_INDEX;
 }
 
+PathTraceRemixLightEventSample MakeRemixLightEventSample(uint32_t index, const PathTraceUnifiedLightRecord& record)
+{
+    PathTraceRemixLightEventSample sample;
+    sample.index = index;
+    sample.type = record.type;
+    sample.sourceIndex = record.sourceIndex;
+    sample.materialOrLightId = record.materialOrLightId;
+    sample.identityA = record.identityA;
+    sample.identityB = record.identityB;
+    sample.flags = record.flags;
+    std::memcpy(sample.positionAndRadius, record.positionAndRadius, sizeof(sample.positionAndRadius));
+    std::memcpy(sample.radianceAndLuminance, record.radianceAndLuminance, sizeof(sample.radianceAndLuminance));
+    return sample;
+}
+
+bool RemixMappedPayloadChanged(
+    const PathTraceUnifiedLightRecord& current,
+    const PathTraceUnifiedLightRecord& previous)
+{
+    return std::memcmp(current.positionAndRadius, previous.positionAndRadius, sizeof(current.positionAndRadius)) != 0 ||
+        std::memcmp(current.normalAndArea, previous.normalAndArea, sizeof(current.normalAndArea)) != 0 ||
+        std::memcmp(current.radianceAndLuminance, previous.radianceAndLuminance, sizeof(current.radianceAndLuminance)) != 0 ||
+        std::memcmp(current.uvOrDoomParams, previous.uvOrDoomParams, sizeof(current.uvOrDoomParams)) != 0 ||
+        current.flags != previous.flags ||
+        current.sourcePdf != previous.sourcePdf ||
+        current.sourceWeight != previous.sourceWeight;
+}
+
 bool RemixDoomAnalyticIdentityMappable(const PathTraceDoomAnalyticLightCandidateIdentity& identity)
 {
     return identity.universeIndex != PATH_TRACE_DOOM_ANALYTIC_LIGHT_INVALID_INDEX &&
@@ -483,14 +511,34 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     m_stats.previousToCurrentCount = static_cast<uint32_t>(m_previousToCurrentMap.size());
     m_stats.currentMappedCount = 0;
     m_stats.currentInvalidCount = 0;
+    m_stats.mappedPayloadChangedCount = 0;
+    m_stats.firstPayloadChangedCurrent = PathTraceRemixLightEventSample();
+    m_stats.firstPayloadChangedPrevious = PathTraceRemixLightEventSample();
+    m_stats.firstCurrentOnly = PathTraceRemixLightEventSample();
+    m_stats.firstPreviousOnly = PathTraceRemixLightEventSample();
     for (uint32_t previousIndex : m_currentToPreviousMap)
     {
+        const uint32_t currentIndex = m_stats.currentMappedCount + m_stats.currentInvalidCount;
         if (previousIndex < m_previousLightPayloads.size())
         {
             ++m_stats.currentMappedCount;
+            if (currentIndex < m_currentLightPayloads.size() &&
+                RemixMappedPayloadChanged(m_currentLightPayloads[currentIndex], m_previousLightPayloads[previousIndex]))
+            {
+                if (m_stats.mappedPayloadChangedCount == 0u)
+                {
+                    m_stats.firstPayloadChangedCurrent = MakeRemixLightEventSample(currentIndex, m_currentLightPayloads[currentIndex]);
+                    m_stats.firstPayloadChangedPrevious = MakeRemixLightEventSample(previousIndex, m_previousLightPayloads[previousIndex]);
+                }
+                ++m_stats.mappedPayloadChangedCount;
+            }
         }
         else
         {
+            if (m_stats.currentInvalidCount == 0u && currentIndex < m_currentLightPayloads.size())
+            {
+                m_stats.firstCurrentOnly = MakeRemixLightEventSample(currentIndex, m_currentLightPayloads[currentIndex]);
+            }
             ++m_stats.currentInvalidCount;
         }
     }
@@ -499,12 +547,17 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     m_stats.previousInvalidCount = 0;
     for (uint32_t currentIndex : m_previousToCurrentMap)
     {
+        const uint32_t previousIndex = m_stats.previousMappedCount + m_stats.previousInvalidCount;
         if (currentIndex < m_currentLightPayloads.size())
         {
             ++m_stats.previousMappedCount;
         }
         else
         {
+            if (m_stats.previousInvalidCount == 0u && previousIndex < m_previousLightPayloads.size())
+            {
+                m_stats.firstPreviousOnly = MakeRemixLightEventSample(previousIndex, m_previousLightPayloads[previousIndex]);
+            }
             ++m_stats.previousInvalidCount;
         }
     }

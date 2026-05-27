@@ -35,6 +35,20 @@ struct PathTraceRemixLightRange
     uint32_t padding0 = 0;
 };
 
+struct PathTraceRemixLightEventSample
+{
+    uint32_t index = PATH_TRACE_REMIX_LIGHT_INVALID_INDEX;
+    uint32_t type = PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID;
+    uint32_t sourceIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    uint32_t materialOrLightId = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    uint32_t identityA = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    uint32_t identityB = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+    uint32_t flags = 0;
+    uint32_t padding0 = 0;
+    float positionAndRadius[4] = {};
+    float radianceAndLuminance[4] = {};
+};
+
 struct PathTraceRemixLightManagerStats
 {
     uint64_t frameIndex = 0;
@@ -62,6 +76,7 @@ struct PathTraceRemixLightManagerStats
     uint32_t totalSampleCount = 0;
     uint32_t nonEmptyRangeCount = 0;
     uint32_t payloadOnlyChange = 0;
+    uint32_t mappedPayloadChangedCount = 0;
     uint32_t structuralSignatureChanged = 0;
     uint32_t mappingSignatureChanged = 0;
     uint32_t payloadSignatureChanged = 0;
@@ -72,6 +87,10 @@ struct PathTraceRemixLightManagerStats
     uint64_t structuralSignature = 0;
     uint64_t mappingSignature = 0;
     uint64_t payloadSignature = 0;
+    PathTraceRemixLightEventSample firstPayloadChangedCurrent;
+    PathTraceRemixLightEventSample firstPayloadChangedPrevious;
+    PathTraceRemixLightEventSample firstCurrentOnly;
+    PathTraceRemixLightEventSample firstPreviousOnly;
 };
 
 class PathTraceRemixLightManager

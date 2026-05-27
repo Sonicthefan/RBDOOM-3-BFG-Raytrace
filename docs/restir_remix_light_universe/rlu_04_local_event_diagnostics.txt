@@ -1,0 +1,113 @@
+RLU-04 Local Event Diagnostics
+==============================
+
+Purpose
+-------
+
+RLU-04 adds focused diagnostics for proving that animated payload changes and
+effect-light spawn/despawn events stay local inside the Remix-shaped dense
+light domain.
+
+This is a diagnostic/proof slice only. It does not change RTXDI reservoir math,
+sampling policy, spatial reuse, best-light feedback, denoising, or mode-56
+routing.
+
+
+Runtime Dump
+------------
+
+Use the clean RTXDI DI dump while the RLU clean route is active:
+
+    r_pathTracingRemixLightUniverseEnable 1
+    r_pathTracingRemixLightUniverseDomain 0
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiDump 1
+
+The dump includes:
+
+    rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates
+    rluFirstPayload ...
+    rluFirstCurrentOnly ...
+    rluFirstPreviousOnly ...
+
+
+Field Meaning
+-------------
+
+payloadChangedMapped:
+
+    Count of current lights that mapped to a previous light by stable identity
+    but had visible payload changes. The comparison covers position/radius,
+    normal/area, radiance/luminance, Doom params, flags, source PDF, and source
+    weight. It intentionally does not invalidate the mapping.
+
+currentOnly:
+
+    Count of current dense-domain lights with no valid previous index. These
+    are local spawn/new-light events.
+
+previousOnly:
+
+    Count of previous dense-domain lights with no valid current index. These
+    are local despawn/gone-light events.
+
+duplicates:
+
+    Count of duplicate stable identities in current and previous payload
+    domains. This must stay zero for strict Remix-shaped mapping proof.
+
+rluFirstPayload:
+
+    First mapped payload-change sample. It reports current and previous dense
+    indices, type, stable ids, current/previous position-radius, and
+    current/previous luminance.
+
+rluFirstCurrentOnly:
+
+    First local current-only sample. Use position/radius and luminance to
+    correlate with sparks, robot lights, or other newly spawned effect lights.
+
+rluFirstPreviousOnly:
+
+    First local previous-only sample. Use position/radius and luminance to
+    correlate with effect lights that disappeared.
+
+
+Expected Proof Pattern
+----------------------
+
+Animated light payload:
+
+    payloadChangedMapped > 0
+    currentOnly may remain 0
+    previousOnly may remain 0
+    cleanPreviousReservoirValid remains 1
+    no visual flicker or cross-light contamination
+
+Spawn/despawn effect light:
+
+    currentOnly or previousOnly may increase locally
+    stable room lights remain mapped
+    duplicate identities remain 0
+    temporal rejection is local to unmatched light indices
+
+
+Non-Claims
+----------
+
+This diagnostic does not prove:
+
+    spatial reuse
+    best-light feedback
+    denoiser or confidence behavior
+    full Remix parity
+    emissive-domain parity
+
+It proves only that the Doom analytic RLU domain exposes enough local event
+diagnostics to correlate animated payloads and effect-light churn with dense
+current/previous mapping behavior.
