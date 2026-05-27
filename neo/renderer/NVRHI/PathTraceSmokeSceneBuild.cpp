@@ -2333,6 +2333,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
         (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15);
+    const int regirSceneLightDomain = idMath::ClampInt(0, 2, r_pathTracingReGIRLightDomain.GetInteger());
+    const bool regirAnalyticLightUniverseRequested =
+        r_pathTracingReGIREnable.GetInteger() != 0 &&
+        r_pathTracingReGIRMode.GetInteger() != 0 &&
+        (regirSceneLightDomain == 0 || regirSceneLightDomain == 2);
     const bool enableDoomAnalyticLightCandidates = r_pathTracingAnalyticLightCandidates.GetInteger() != 0 || restirPTAnalyticLightCandidates;
     PathTraceDoomAnalyticLightBuildOptions doomAnalyticBuildOptions;
     if (restirPTAnalyticLightCandidates)
@@ -2347,6 +2352,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         doomAnalyticBuildOptions.forceBuild = true;
         doomAnalyticBuildOptions.requireProvenContinuity = r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0;
+    }
+    if (regirAnalyticLightUniverseRequested)
+    {
+        doomAnalyticBuildOptions.forceBuild = true;
+        doomAnalyticBuildOptions.stableReservoirOrder = true;
+        doomAnalyticBuildOptions.includeOutOfSelectedArea = true;
+        doomAnalyticBuildOptions.ignoreConfiguredCandidateCap = true;
     }
     doomAnalyticLights = BuildPathTraceDoomAnalyticLightCandidates(viewDef, doomAnalyticBuildOptions);
     doomAnalyticRemap = GetPathTraceDoomAnalyticLightGpuRemap();
@@ -2456,9 +2468,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFrameStats.shaderRouteCount);
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
     }
-    const bool remixLightUniverseEnabled = r_pathTracingRemixLightUniverseEnable.GetInteger() != 0;
+    const bool regirLightUniverseRequested =
+        r_pathTracingReGIREnable.GetInteger() != 0 &&
+        r_pathTracingReGIRMode.GetInteger() != 0;
+    const bool cleanRtxdiDiRluRequested =
+        cleanRtxdiDiRealAnalyticRoute &&
+        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
+    const bool remixLightUniverseEnabled =
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        regirLightUniverseRequested ||
+        cleanRtxdiDiRluRequested;
     const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
-        idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger()));
+        idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
+            ? r_pathTracingRemixLightUniverseDomain.GetInteger()
+            : (cleanRtxdiDiRluRequested ? 0 : regirSceneLightDomain)));
     const bool remixLightUniverseStrictMapping =
         r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
     const bool remixLightUniverseIncludeAnalytic =
@@ -2639,7 +2662,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         doomAnalyticRemap.previousCandidateIdentities);
     m_restirLightManager.EndFrame();
     const bool dumpRestirLightManager = r_pathTracingRestirLightManagerDump.GetInteger() != 0;
-    const bool useRemixLightManagerRabSource = r_pathTracingRemixLightManagerRAB.GetInteger() != 0;
+    const bool useRemixLightManagerRabSource =
+        r_pathTracingRemixLightManagerRAB.GetInteger() != 0 ||
+        regirLightUniverseRequested ||
+        cleanRtxdiDiRluRequested;
     const PathTraceRemixLightManagerStats& remixLightManagerActiveStats = m_remixLightManager.GetStats();
     const std::vector<PathTraceRestirCurrentLightRecord> remixRestirCurrentRecords =
         BuildRestirRecordsFromRemixCurrentLights(m_remixLightManager.GetCurrentLightPayloads(), m_remixLightManager.GetCurrentToPreviousMap());

@@ -170,6 +170,10 @@ StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticPreviousLights
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedLights : register(t59);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedPreviousLights : register(t60);
 StructuredBuffer<uint> PathTraceUnifiedLightRemap : register(t61);
+StructuredBuffer<uint> PathTraceRestirLightManagerCurrentToPrevious : register(t64);
+StructuredBuffer<uint> PathTraceRestirLightManagerPreviousToCurrent : register(t65);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerCurrentPayload : register(t66);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerPreviousPayload : register(t67);
 RWStructuredBuffer<PathTraceReGIRCandidateRecord> ReGIRCandidateCache : register(u72);
 
 cbuffer PathTraceSmokeConstants : register(b2)
@@ -382,6 +386,7 @@ bool PathTraceReGIRTriangleRangeValid(uint instanceId, uint primitiveIndex)
         routeIndexOffset + 2u < PathTraceReGIRRigidRouteIndexCount();
 }
 
+#define RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB 1
 #include "RtxdiBridge/RAB_LightInfoRuntime.hlsli"
 #include "RtxdiBridge/RAB_LightTarget.hlsli"
 
@@ -533,10 +538,123 @@ float PathTraceReGIREmissiveCellWeight(PathTraceSmokeEmissiveTriangle emissiveTr
     return sourceWeight * area * (0.2 + 0.8 * normalFacing) * distanceWeight;
 }
 
+bool PathTraceReGIRUseCurrentRabLightUniverse()
+{
+    return RAB_RestirLightManagerRABEnabled() &&
+        RAB_RestirLightManagerRemixDenseDomainEnabled() &&
+        RAB_GetCurrentRestirLightManagerCount() > 0u;
+}
+
+uint2 PathTraceReGIRCurrentAnalyticRange()
+{
+    if (PathTraceReGIRUseCurrentRabLightUniverse())
+    {
+        return RAB_GetRestirLightManagerDoomAnalyticRange();
+    }
+
+    return uint2(0u, (uint)max(DoomAnalyticLightInfo.x, 0.0));
+}
+
+uint2 PathTraceReGIRCurrentEmissiveRange()
+{
+    if (PathTraceReGIRUseCurrentRabLightUniverse())
+    {
+        return RAB_GetRestirLightManagerEmissiveRange();
+    }
+
+    return uint2(0u, (uint)max(EmissiveInfo.x, 0.0));
+}
+
+PathTraceReGIRCandidateRecord PathTraceReGIRBuildDeterministicSourceCandidate(
+    PathTraceReGIRCellDebug cell,
+    uint slotInCell,
+    uint slotIndex,
+    uint lightClass,
+    uint rangeOffset,
+    uint rangeCount,
+    float classProbability,
+    uint salt,
+    uint fallbackEmptyReason)
+{
+    if (rangeCount == 0u)
+    {
+        return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, fallbackEmptyReason);
+    }
+
+    const uint localIndex = PathTraceReGIRProposalDomainIndex(cell, slotInCell, 0u, salt, rangeCount);
+    const uint denseIndex = rangeOffset + localIndex;
+    const bool useRabLightUniverse = PathTraceReGIRUseCurrentRabLightUniverse();
+
+    PathTraceReGIRCandidateRecord candidate;
+    candidate.lightIndex = useRabLightUniverse ? denseIndex : localIndex;
+    candidate.lightClass = lightClass;
+    candidate.invSourcePdf = (float)rangeCount / max(classProbability, 1.0e-8);
+    candidate.sourcePdf = 1.0 / max(candidate.invSourcePdf, 1.0e-8);
+    candidate.cellIndex = cell.localCellIndex;
+    candidate.slotIndex = slotIndex;
+    candidate.flags = PATH_TRACE_REGIR_CANDIDATE_VALID | PATH_TRACE_REGIR_CANDIDATE_WRITTEN;
+    candidate.globalIdentity = useRabLightUniverse
+        ? denseIndex
+        : (lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC ? PathTraceReGIRCurrentEmissiveRange().y + localIndex : localIndex);
+    return candidate;
+}
+
+float PathTraceReGIRUnifiedAnalyticCellWeight(PathTraceUnifiedLightRecord record, float3 cellCenter, float cellSize)
+{
+    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return 0.0;
+    }
+
+    const float radius = max(record.positionAndRadius.w, 1.0e-3);
+    const float influenceRadius = max(record.uvOrDoomParams.x, radius);
+    const float cellRadius = max(cellSize, 1.0) * 0.8660254;
+    const float influenceDistance = influenceRadius + cellRadius;
+    const float3 toCell = cellCenter - record.positionAndRadius.xyz;
+    const float distanceToCell = length(toCell);
+    if (distanceToCell > influenceDistance)
+    {
+        return 0.0;
+    }
+
+    const float3 radiance = max(record.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(DoomAnalyticLightInfo.z, 0.0);
+    const float luminance = max(record.radianceAndLuminance.w, PathTraceReGIRLuminance(radiance));
+    const float area = max(record.normalAndArea.w, 4.0 * 3.14159265 * radius * radius);
+    const float edgeDistance = max(distanceToCell - radius, 0.0);
+    const float influenceFalloff = saturate(1.0 - edgeDistance / max(influenceDistance - radius, 1.0));
+    const float distanceWeight = 1.0 / max(dot(toCell, toCell) + radius * radius + cellSize * cellSize * 0.25, 1.0);
+    return luminance * area * influenceFalloff * influenceFalloff * distanceWeight;
+}
+
+float PathTraceReGIRUnifiedEmissiveCellWeight(PathTraceUnifiedLightRecord record, float3 cellCenter, float cellSize)
+{
+    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return 0.0;
+    }
+
+    const float area = max(record.normalAndArea.w, 0.0);
+    if (area <= 1.0e-6)
+    {
+        return 0.0;
+    }
+
+    const float3 toCell = cellCenter - record.positionAndRadius.xyz;
+    const float distanceSquared = dot(toCell, toCell);
+    const float normalFacing = saturate(dot(normalize(toCell + float3(0.0, 0.0, 1.0e-6)), record.normalAndArea.xyz));
+    const float radianceLuminance = max(record.radianceAndLuminance.w, PathTraceReGIRLuminance(record.radianceAndLuminance.rgb));
+    const float sourceWeight = max(max(record.sourceWeight, radianceLuminance), 0.0);
+    const float cellRadius = max(cellSize, 1.0) * 0.8660254;
+    const float distanceWeight = 1.0 / max(distanceSquared + cellRadius * cellRadius, 1.0);
+    return sourceWeight * area * (0.2 + 0.8 * normalFacing) * distanceWeight;
+}
+
 PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGIRCellDebug cell, uint slotInCell, uint slotIndex, float classProbability)
 {
-    const uint analyticCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
-    const uint emissiveCount = (uint)max(EmissiveInfo.x, 0.0);
+    const bool useRabLightUniverse = PathTraceReGIRUseCurrentRabLightUniverse();
+    const uint2 analyticRange = PathTraceReGIRCurrentAnalyticRange();
+    const uint analyticCount = analyticRange.y;
+    const uint emissiveCount = PathTraceReGIRCurrentEmissiveRange().y;
     const float cellSize = max(ReGIRInfo1.x, 1.0);
     const float3 cellCenter = PathTraceReGIRCellCenter(cell, cellSize);
     const float cellExtent = PathTraceReGIRCellExtent(cell, cellSize);
@@ -554,9 +672,11 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGI
     [loop]
     for (uint proposalIndex = 0u; proposalIndex < proposalCount; ++proposalIndex)
     {
-        const uint analyticIndex = PathTraceReGIRProposalDomainIndex(cell, slotInCell, proposalIndex, 101u, analyticCount);
-        const PathTraceDoomAnalyticLightCandidate proposedLight = DoomAnalyticLights[analyticIndex];
-        const float proposalWeight = PathTraceReGIRAnalyticCellWeight(proposedLight, cellCenter, cellExtent);
+        const uint analyticLocalIndex = PathTraceReGIRProposalDomainIndex(cell, slotInCell, proposalIndex, 101u, analyticCount);
+        const uint analyticIndex = analyticRange.x + analyticLocalIndex;
+        const float proposalWeight = useRabLightUniverse
+            ? PathTraceReGIRUnifiedAnalyticCellWeight(PathTraceRestirLightManagerCurrentPayload[analyticIndex], cellCenter, cellExtent)
+            : PathTraceReGIRAnalyticCellWeight(DoomAnalyticLights[analyticLocalIndex], cellCenter, cellExtent);
         if (proposalWeight > 0.0)
         {
             const float risWeight = proposalWeight * proposalInvSourcePdf;
@@ -573,20 +693,6 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGI
 
     if (acceptedProposalCount == 0u || selectedCellWeight <= 0.0 || risWeightSum <= 0.0)
     {
-        if (ReGIRInfo3.x == 1.0)
-        {
-            selectedAnalytic = PathTraceReGIRProposalDomainIndex(cell, slotInCell, 0u, 193u, analyticCount);
-            PathTraceReGIRCandidateRecord candidate;
-            candidate.lightIndex = selectedAnalytic;
-            candidate.lightClass = PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC;
-            candidate.invSourcePdf = (float)analyticCount;
-            candidate.sourcePdf = 1.0 / max((float)analyticCount, 1.0);
-            candidate.cellIndex = cell.localCellIndex;
-            candidate.slotIndex = slotIndex;
-            candidate.flags = PATH_TRACE_REGIR_CANDIDATE_VALID | PATH_TRACE_REGIR_CANDIDATE_WRITTEN;
-            candidate.globalIdentity = emissiveCount + selectedAnalytic;
-            return candidate;
-        }
         return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, PATH_TRACE_REGIR_EMPTY_NO_LOCAL_ANALYTIC_LIGHTS);
     }
 
@@ -599,13 +705,15 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGI
     candidate.cellIndex = cell.localCellIndex;
     candidate.slotIndex = slotIndex;
     candidate.flags = PATH_TRACE_REGIR_CANDIDATE_VALID | PATH_TRACE_REGIR_CANDIDATE_WRITTEN;
-    candidate.globalIdentity = emissiveCount + selectedAnalytic;
+    candidate.globalIdentity = useRabLightUniverse ? selectedAnalytic : emissiveCount + selectedAnalytic;
     return candidate;
 }
 
 PathTraceReGIRCandidateRecord PathTraceReGIRBuildEmissiveCandidate(PathTraceReGIRCellDebug cell, uint slotInCell, uint slotIndex, float classProbability)
 {
-    const uint emissiveCount = (uint)max(EmissiveInfo.x, 0.0);
+    const bool useRabLightUniverse = PathTraceReGIRUseCurrentRabLightUniverse();
+    const uint2 emissiveRange = PathTraceReGIRCurrentEmissiveRange();
+    const uint emissiveCount = emissiveRange.y;
     const float cellSize = max(ReGIRInfo1.x, 1.0);
     const float3 cellCenter = PathTraceReGIRCellCenter(cell, cellSize);
     const float cellExtent = PathTraceReGIRCellExtent(cell, cellSize);
@@ -623,9 +731,11 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildEmissiveCandidate(PathTraceReGI
     [loop]
     for (uint proposalIndex = 0u; proposalIndex < proposalCount; ++proposalIndex)
     {
-        const uint emissiveIndex = PathTraceReGIRProposalDomainIndex(cell, slotInCell, proposalIndex, 103u, emissiveCount);
-        const PathTraceSmokeEmissiveTriangle proposedTriangle = SmokeEmissiveTriangles[emissiveIndex];
-        const float proposalWeight = PathTraceReGIREmissiveCellWeight(proposedTriangle, cellCenter, cellExtent);
+        const uint emissiveLocalIndex = PathTraceReGIRProposalDomainIndex(cell, slotInCell, proposalIndex, 103u, emissiveCount);
+        const uint emissiveIndex = emissiveRange.x + emissiveLocalIndex;
+        const float proposalWeight = useRabLightUniverse
+            ? PathTraceReGIRUnifiedEmissiveCellWeight(PathTraceRestirLightManagerCurrentPayload[emissiveIndex], cellCenter, cellExtent)
+            : PathTraceReGIREmissiveCellWeight(SmokeEmissiveTriangles[emissiveLocalIndex], cellCenter, cellExtent);
         if (proposalWeight > 0.0)
         {
             const float risWeight = proposalWeight * proposalInvSourcePdf;
@@ -661,15 +771,35 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildEmissiveCandidate(PathTraceReGI
 PathTraceReGIRCandidateRecord PathTraceReGIRBuildCandidateForCellSlot(PathTraceReGIRCellDebug cell, uint slotInCell, uint slotIndex)
 {
     const uint lightDomain = (uint)ReGIRInfo2.z;
-    const uint analyticCount = (uint)max(DoomAnalyticLightInfo.x, 0.0);
-    const uint emissiveCount = (uint)max(EmissiveInfo.x, 0.0);
+    const uint debugView = (uint)ReGIRInfo0.y;
+    const uint2 analyticRange = PathTraceReGIRCurrentAnalyticRange();
+    const uint2 emissiveRange = PathTraceReGIRCurrentEmissiveRange();
+    const uint analyticCount = analyticRange.y;
+    const uint emissiveCount = emissiveRange.y;
+    const bool deterministicSourceDiagnostic = debugView == 9u;
 
     if (lightDomain == 0u)
     {
+        if (deterministicSourceDiagnostic)
+        {
+            return PathTraceReGIRBuildDeterministicSourceCandidate(
+                cell, slotInCell, slotIndex,
+                PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC,
+                analyticRange.x, analyticCount, 1.0, 101u,
+                PATH_TRACE_REGIR_EMPTY_NO_ANALYTIC_LIGHTS);
+        }
         return PathTraceReGIRBuildAnalyticCandidate(cell, slotInCell, slotIndex, 1.0);
     }
     if (lightDomain == 1u)
     {
+        if (deterministicSourceDiagnostic)
+        {
+            return PathTraceReGIRBuildDeterministicSourceCandidate(
+                cell, slotInCell, slotIndex,
+                PATH_TRACE_REGIR_LIGHT_CLASS_EMISSIVE_TRIANGLE,
+                emissiveRange.x, emissiveCount, 1.0, 103u,
+                PATH_TRACE_REGIR_EMPTY_NO_EMISSIVE_LIGHTS);
+        }
         return PathTraceReGIRBuildEmissiveCandidate(cell, slotInCell, slotIndex, 1.0);
     }
     if (lightDomain == 2u)
@@ -691,7 +821,23 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildCandidateForCellSlot(PathTraceR
         const float emissiveClassProbability = (float)emissiveSlotCount / max((float)lightsPerCell, 1.0);
         if (buildAnalyticSlot)
         {
+            if (deterministicSourceDiagnostic)
+            {
+                return PathTraceReGIRBuildDeterministicSourceCandidate(
+                    cell, slotInCell, slotIndex,
+                    PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC,
+                    analyticRange.x, analyticCount, analyticClassProbability, 101u,
+                    PATH_TRACE_REGIR_EMPTY_NO_ANALYTIC_LIGHTS);
+            }
             return PathTraceReGIRBuildAnalyticCandidate(cell, slotInCell, slotIndex, analyticClassProbability);
+        }
+        if (deterministicSourceDiagnostic)
+        {
+            return PathTraceReGIRBuildDeterministicSourceCandidate(
+                cell, slotInCell, slotIndex,
+                PATH_TRACE_REGIR_LIGHT_CLASS_EMISSIVE_TRIANGLE,
+                emissiveRange.x, emissiveCount, emissiveClassProbability, 103u,
+                PATH_TRACE_REGIR_EMPTY_NO_EMISSIVE_LIGHTS);
         }
         return PathTraceReGIRBuildEmissiveCandidate(cell, slotInCell, slotIndex, emissiveClassProbability);
     }
@@ -798,8 +944,10 @@ struct PathTraceReGIRReplayResult
 {
     uint lightInfoValid;
     uint sampleValid;
+    float solidAnglePdf;
     float targetPdf;
     float reflectedLuminance;
+    float contributionLuminance;
 };
 
 PathTraceReGIRPayload PathTraceReGIRInitPayload()
@@ -905,9 +1053,88 @@ PathTraceReGIRReplayResult PathTraceReGIRReplayCandidateThroughRAB(PathTraceReGI
         return result;
     }
     result.sampleValid = 1u;
+    result.solidAnglePdf = max(lightSample.solidAnglePdf, 0.0);
     result.targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
     result.reflectedLuminance = PathTraceReGIRLuminance(RAB_GetReflectedBsdfRadianceForSurface(lightSample.position, lightSample.radiance, surface));
+    result.contributionLuminance = result.solidAnglePdf > 0.0
+        ? result.reflectedLuminance * max(candidate.invSourcePdf, 0.0) / max(result.solidAnglePdf, 1.0e-6)
+        : 0.0;
     return result;
+}
+
+uint PathTraceReGIRStableSlotInCell(PathTraceReGIRCellDebug cell, uint lightsPerCell)
+{
+    return PathTraceReGIRHashCell(cell.globalCoord) % max(lightsPerCell, 1u);
+}
+
+float3 PathTraceReGIRHeat(float value, float exposure)
+{
+    const float x = saturate(value * exposure);
+    return saturate(float3(
+        smoothstep(0.45, 0.95, x),
+        smoothstep(0.08, 0.65, x) * (1.0 - smoothstep(0.82, 1.0, x) * 0.35),
+        1.0 - smoothstep(0.18, 0.72, x)));
+}
+
+float4 PathTraceReGIRStableSlotColor(PathTraceReGIRCellDebug cell, uint lightsPerCell, bool boundary)
+{
+    const uint slotInCell = PathTraceReGIRStableSlotInCell(cell, lightsPerCell);
+    const PathTraceReGIRCandidateRecord slotCandidate = ReGIRCandidateCache[cell.localCellIndex * lightsPerCell + slotInCell];
+    if ((slotCandidate.flags & PATH_TRACE_REGIR_CANDIDATE_VALID) == 0u)
+    {
+        return float4(1.0, 0.42, 0.0, 1.0);
+    }
+
+    const float slotBand = ((slotInCell & 15u) + 1u) / 16.0;
+    const float3 identityColor = PathTraceReGIRCellColor(int3(
+        (int)slotCandidate.globalIdentity,
+        (int)(slotCandidate.globalIdentity >> 8u),
+        (int)(slotCandidate.slotIndex >> 4u)));
+    const float3 classTint = slotCandidate.lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC
+        ? float3(0.20, 0.50, 1.0)
+        : float3(1.0, 0.55, 0.15);
+    const float3 color = lerp(identityColor, classTint, 0.28) * (0.55 + 0.45 * slotBand);
+    return float4(boundary ? float3(1.0, 1.0, 1.0) : saturate(color), 1.0);
+}
+
+float4 PathTraceReGIRCellMeanContributionColor(PathTraceReGIRCellDebug cell, uint lightsPerCell, RAB_Surface primarySurface, bool boundary)
+{
+    if (!RAB_IsSurfaceValid(primarySurface))
+    {
+        return float4(0.55, 0.0, 0.0, 1.0);
+    }
+
+    float sumContribution = 0.0;
+    uint validSlots = 0u;
+    uint replayableSlots = 0u;
+    [loop]
+    for (uint slotInCell = 0u; slotInCell < lightsPerCell; ++slotInCell)
+    {
+        const PathTraceReGIRCandidateRecord slotCandidate = ReGIRCandidateCache[cell.localCellIndex * lightsPerCell + slotInCell];
+        if ((slotCandidate.flags & PATH_TRACE_REGIR_CANDIDATE_VALID) == 0u)
+        {
+            continue;
+        }
+
+        ++validSlots;
+        const PathTraceReGIRReplayResult replay = PathTraceReGIRReplayCandidateThroughRAB(slotCandidate, cell, primarySurface);
+        if (replay.sampleValid != 0u && replay.solidAnglePdf > 0.0)
+        {
+            ++replayableSlots;
+            sumContribution += replay.contributionLuminance;
+        }
+    }
+
+    if (validSlots == 0u)
+    {
+        return float4(1.0, 0.42, 0.0, 1.0);
+    }
+
+    const float meanContribution = sumContribution / max((float)validSlots, 1.0);
+    const float replayBand = (float)replayableSlots / max((float)validSlots, 1.0);
+    const float3 heat = PathTraceReGIRHeat(meanContribution, 0.25);
+    const float3 color = lerp(float3(0.30, 0.0, 0.0), heat, replayBand);
+    return float4(boundary ? float3(1.0, 1.0, 1.0) : color, 1.0);
 }
 
 float4 PathTraceReGIRCandidateDebugColor(float3 worldPosition, RAB_Surface primarySurface)
@@ -998,6 +1225,14 @@ float4 PathTraceReGIRCandidateDebugColor(float3 worldPosition, RAB_Surface prima
         const float replayBand = replay.targetPdf > 0.0 ? 1.0 : (replay.sampleValid != 0u ? 0.66 : (replay.lightInfoValid != 0u ? 0.33 : 0.0));
         return float4(pdfBand, invBand, pdfCandidate.sourcePdf > 0.0 ? replayBand : 0.0, 1.0);
     }
+    if (view == 9u)
+    {
+        return PathTraceReGIRStableSlotColor(cell, lightsPerCell, boundary);
+    }
+    if (view == 10u)
+    {
+        return PathTraceReGIRCellMeanContributionColor(cell, lightsPerCell, primarySurface, boundary);
+    }
     if (!candidateValid)
     {
         return float4(1.0, 0.42, 0.0, 1.0);
@@ -1009,8 +1244,17 @@ float4 PathTraceReGIRCandidateDebugColor(float3 worldPosition, RAB_Surface prima
         {
             return float4(0.75, 0.0, 0.0, 1.0);
         }
-        const PathTraceDoomAnalyticLightCandidate analyticLight = DoomAnalyticLights[analyticCandidate.lightIndex];
-        const uint identityHash = analyticLight.renderLightIndex != 0xffffffffu ? analyticLight.renderLightIndex : analyticCandidate.globalIdentity;
+        uint identityHash = analyticCandidate.globalIdentity;
+        if (PathTraceReGIRUseCurrentRabLightUniverse())
+        {
+            const PathTraceUnifiedLightRecord record = PathTraceRestirLightManagerCurrentPayload[analyticCandidate.globalIdentity];
+            identityHash = record.identityA ^ (record.identityB * 1664525u) ^ analyticCandidate.globalIdentity;
+        }
+        else
+        {
+            const PathTraceDoomAnalyticLightCandidate analyticLight = DoomAnalyticLights[analyticCandidate.lightIndex];
+            identityHash = analyticLight.renderLightIndex != 0xffffffffu ? analyticLight.renderLightIndex : analyticCandidate.globalIdentity;
+        }
         const float3 color = PathTraceReGIRCellColor(int3(identityHash, identityHash >> 8u, identityHash >> 16u));
         return float4(boundary ? float3(1.0, 1.0, 1.0) : color, 1.0);
     }
@@ -1021,8 +1265,18 @@ float4 PathTraceReGIRCandidateDebugColor(float3 worldPosition, RAB_Surface prima
         {
             return float4(0.75, 0.0, 0.0, 1.0);
         }
-        const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[emissiveCandidate.lightIndex];
-        const float3 color = PathTraceReGIRCellColor(int3(emissiveTriangle.identityHashLo, emissiveTriangle.identityHashHi, emissiveCandidate.globalIdentity));
+        int3 identityColor;
+        if (PathTraceReGIRUseCurrentRabLightUniverse())
+        {
+            const PathTraceUnifiedLightRecord record = PathTraceRestirLightManagerCurrentPayload[emissiveCandidate.globalIdentity];
+            identityColor = int3(record.identityA, record.identityB, emissiveCandidate.globalIdentity);
+        }
+        else
+        {
+            const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[emissiveCandidate.lightIndex];
+            identityColor = int3(emissiveTriangle.identityHashLo, emissiveTriangle.identityHashHi, emissiveCandidate.globalIdentity);
+        }
+        const float3 color = PathTraceReGIRCellColor(identityColor);
         return float4(boundary ? float3(1.0, 1.0, 1.0) : color, 1.0);
     }
     return PathTraceReGIRDebugColor(worldPosition);
@@ -1069,11 +1323,11 @@ void RayGen()
     const float3 worldPosition = ray.Origin + ray.Direction * payload.hitT;
     const uint view = (uint)ReGIRInfo0.y;
     RAB_Surface primarySurface = RAB_EmptySurface();
-    if (view == 7u)
+    if (view == 7u || view == 10u)
     {
         primarySurface = PathTraceReGIRBuildSurfaceFromPrimaryHit(payload, ray.Origin, ray.Direction);
     }
-    SmokeOutput[pixel] = (view >= 4u && view <= 8u)
+    SmokeOutput[pixel] = (view >= 4u && view <= 10u)
         ? PathTraceReGIRCandidateDebugColor(worldPosition, primarySurface)
         : PathTraceReGIRDebugColor(worldPosition);
 }
@@ -1106,7 +1360,8 @@ void ClosestHit(inout PathTraceReGIRPayload payload, BuiltInTriangleIntersection
 {
     payload.value = 1u;
     payload.hitT = RayTCurrent();
-    if ((uint)ReGIRInfo0.y != 7u)
+    const uint view = (uint)ReGIRInfo0.y;
+    if (view != 7u && view != 10u)
     {
         return;
     }

@@ -1255,6 +1255,10 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(59));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(60));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(61));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(64));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(65));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
+    regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(67));
     regirDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(72));
     m_smokeReGIRDebugBindingLayout = device->createBindingLayout(regirDebugBindingLayoutDesc);
     if (!m_smokeReGIRDebugBindingLayout)

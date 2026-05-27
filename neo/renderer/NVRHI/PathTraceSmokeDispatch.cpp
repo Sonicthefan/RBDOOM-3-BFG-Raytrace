@@ -94,7 +94,33 @@ idVec3 ResolvePathTraceReGIRCenter(const RtSmokeGeometryUniverse& geometryUniver
         ++validPoints;
     }
 
-    return validPoints > 0 ? bounds.GetCenter() : fallbackCenter;
+    if (validPoints <= 0)
+    {
+        return fallbackCenter;
+    }
+
+    idVec3 center = bounds.GetCenter();
+    const idVec3 halfGridExtent(
+        Max(settings.cellSize * static_cast<float>(settings.gridX) * 0.5f, settings.cellSize * 0.5f),
+        Max(settings.cellSize * static_cast<float>(settings.gridY) * 0.5f, settings.cellSize * 0.5f),
+        Max(settings.cellSize * static_cast<float>(settings.gridZ) * 0.5f, settings.cellSize * 0.5f));
+
+    if (SmokeVec3IsFinite(fallbackCenter))
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            const float mapMin = bounds[0][axis];
+            const float mapMax = bounds[1][axis];
+            const float minCenter = mapMin + halfGridExtent[axis];
+            const float maxCenter = mapMax - halfGridExtent[axis];
+            if (minCenter <= maxCenter)
+            {
+                center[axis] = idMath::ClampFloat(minCenter, maxCenter, fallbackCenter[axis]);
+            }
+        }
+    }
+
+    return center;
 }
 
 struct PathTraceCleanRtxdiDiSentinelConstants
@@ -812,36 +838,41 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 &&
         pdfNeeVerifierEntryView > 0 &&
         !pdfNeeVerifierEntryForbiddenMode;
+    const PathTraceRemixLightManagerStats& regirRemixLightManagerStats = m_remixLightManager.GetStats();
+    const bool regirRequestsRemixRabSource =
+        r_pathTracingRemixLightManagerRAB.GetInteger() != 0 ||
+        (r_pathTracingReGIREnable.GetInteger() != 0 && r_pathTracingReGIRMode.GetInteger() != 0);
+    const bool regirUseCurrentRabLightUniverse =
+        regirRequestsRemixRabSource &&
+        regirRemixLightManagerStats.enabled != 0u &&
+        regirRemixLightManagerStats.currentLightCount > 0u &&
+        m_smokeRestirLightManagerCurrentPayloadBuffer;
     PathTraceReGIRLightCounts regirLightCounts;
-    regirLightCounts.analyticCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
-    regirLightCounts.emissiveCount = static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
-    regirLightCounts.unifiedCount = static_cast<uint32_t>(Max(0, m_smokeUnifiedLightCount));
+    regirLightCounts.analyticCount = regirUseCurrentRabLightUniverse
+        ? regirRemixLightManagerStats.doomAnalyticRangeCount
+        : static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
+    regirLightCounts.emissiveCount = regirUseCurrentRabLightUniverse
+        ? regirRemixLightManagerStats.emissiveRangeCount
+        : static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
+    regirLightCounts.unifiedCount = regirUseCurrentRabLightUniverse
+        ? regirRemixLightManagerStats.currentLightCount
+        : static_cast<uint32_t>(Max(0, m_smokeUnifiedLightCount));
     PathTraceReGIRSettings regirSettings = BuildPathTraceReGIRSettingsFromCVars();
-    const bool cleanExternalPdfNeeMode9Requested =
+    const bool cleanExternalPdfNeeMode9Blocked =
         cleanRtxdiDiRouteRequested &&
         cleanExternalPdfNeeRequested &&
         pdfNeeVerifierEntryLightMode == 9;
-    if (cleanExternalPdfNeeMode9Requested)
-    {
-        regirSettings.enabled = true;
-        regirSettings.debugView = 0;
-        regirSettings.mode = regirSettings.mode <= 0 ? 1 : regirSettings.mode;
-        regirSettings.cellSize = Min(regirSettings.cellSize, 128.0f);
-        regirSettings.gridX = Max(regirSettings.gridX, 32u);
-        regirSettings.gridY = Max(regirSettings.gridY, 32u);
-        regirSettings.gridZ = Max(regirSettings.gridZ, 16u);
-        regirSettings.lightsPerCell = 8;
-        regirSettings.lightDomain = 0;
-    }
+    const bool cleanExternalPdfNeeMode9Requested = false;
     PathTraceReGIRResourceDesc regirDesc = BuildPathTraceReGIRResourceDesc(regirSettings, regirLightCounts);
     nvrhi::IDevice* regirDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
     const bool regirResourceReady = m_smokeReGIRState.EnsureResources(regirDevice, regirSettings, regirDesc);
     const bool regirDebugForbiddenMode = pdfNeeVerifierEntryDebugMode == 56;
     const bool regirDebugRouteRequested =
         regirSettings.enabled &&
-        (regirSettings.debugView >= 1 && regirSettings.debugView <= 8) &&
+        (regirSettings.debugView >= 1 && regirSettings.debugView <= 10) &&
         !regirDebugForbiddenMode;
-    const bool pdfNeeReGIRSourceRouteRequested = pdfNeeVerifierRouteRequested && pdfNeeVerifierEntryLightMode == 9;
+    const bool pdfNeeReGIRSourceRouteBlocked = pdfNeeVerifierRouteRequested && pdfNeeVerifierEntryLightMode == 9;
+    const bool pdfNeeReGIRSourceRouteRequested = false;
     const bool pdfNeeReGIRBuildPrepassRequested =
         pdfNeeReGIRSourceRouteRequested &&
         regirSettings.enabled &&
@@ -851,21 +882,25 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     auto printReGIRDump = [&](const char* stage, const char* earlyReturn)
     {
         const bool regirCandidateDebugView =
-            regirSettings.debugView == 4 ||
-            regirSettings.debugView == 5 ||
-            regirSettings.debugView == 6 ||
-            regirSettings.debugView == 7 ||
-            regirSettings.debugView == 8;
+            regirSettings.debugView >= 4 && regirSettings.debugView <= 10;
         const char* regirSourceDistribution =
-            regirSettings.lightDomain == 0 ? "analyticBoundedRIS:proposalCount=min(buildSamples,currentDoomAnalyticCount),proposalInvPdf=currentDoomAnalyticCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveCount+analyticIndex" :
-            (regirSettings.lightDomain == 1 ? "emissiveBoundedRIS:proposalCount=min(buildSamples,currentEmissiveTriangleCount),proposalInvPdf=currentEmissiveTriangleCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveIndex" :
-            "splitBoundedRIS:slotClass=deterministicParity,analyticClassMass=analyticSlotCount/lightsPerCell,emissiveClassMass=emissiveSlotCount/lightsPerCell,singlePresentClassMass=1,view7Slot=cellHash%lightsPerCellNoFallback,proposalCount=min(buildSamples,selectedClassCount),proposalInvPdf=selectedClassCount/(classMass*proposalCount),cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,consumerMustUseSameSlotClassMass,globalIdentity=RABSplitIndex");
+            regirSettings.debugView == 9
+                ? (regirUseCurrentRabLightUniverse
+                    ? "view9DeterministicDenseSource:slotClass=deterministicParity,selectedIndex=hash(cell,slot)%selectedClassRangeCount,noRadianceOrSourceWeightRIS,sourcePdf=classMass/rangeCount,globalIdentity=RABLightManagerDenseIndex"
+                    : "view9DeterministicLegacySource:slotClass=deterministicParity,selectedIndex=hash(cell,slot)%selectedClassCount,noRadianceOrSourceWeightRIS,sourcePdf=classMass/rangeCount,globalIdentity=legacySplitIndex")
+            : regirUseCurrentRabLightUniverse
+                ? (regirSettings.lightDomain == 0 ? "analyticBoundedRIS:proposalCount=min(buildSamples,currentRabDoomAnalyticRangeCount),proposalInvPdf=rangeCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=RABLightManagerDenseIndex" :
+                    (regirSettings.lightDomain == 1 ? "emissiveBoundedRIS:proposalCount=min(buildSamples,currentRabEmissiveRangeCount),proposalInvPdf=rangeCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=RABLightManagerDenseIndex" :
+                    "splitBoundedRIS:slotClass=deterministicParity,analyticClassMass=analyticSlotCount/lightsPerCell,emissiveClassMass=emissiveSlotCount/lightsPerCell,singlePresentClassMass=1,stableSlot=cellHash%lightsPerCellNoFallback,proposalCount=min(buildSamples,selectedClassRangeCount),proposalInvPdf=rangeCount/(classMass*proposalCount),cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,consumerMustUseSameSlotClassMass,globalIdentity=RABLightManagerDenseIndex"))
+                : (regirSettings.lightDomain == 0 ? "analyticBoundedRIS:proposalCount=min(buildSamples,currentDoomAnalyticCount),proposalInvPdf=currentDoomAnalyticCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveCount+analyticIndex" :
+                    (regirSettings.lightDomain == 1 ? "emissiveBoundedRIS:proposalCount=min(buildSamples,currentEmissiveTriangleCount),proposalInvPdf=currentEmissiveTriangleCount/proposalCount,cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,globalIdentity=emissiveIndex" :
+                    "splitBoundedRIS:slotClass=deterministicParity,analyticClassMass=analyticSlotCount/lightsPerCell,emissiveClassMass=emissiveSlotCount/lightsPerCell,singlePresentClassMass=1,stableSlot=cellHash%lightsPerCellNoFallback,proposalCount=min(buildSamples,selectedClassCount),proposalInvPdf=selectedClassCount/(classMass*proposalCount),cellWeightReservoir,storedInvSourcePdf=risWeightSum/selectedCellWeight,sourcePdf=1/storedInvSourcePdf,consumerMustUseSameSlotClassMass,globalIdentity=RABSplitIndex"));
         const char* firstMissingContract =
             regirDebugForbiddenMode && regirSettings.debugView > 0 ? "forbidden-mode-56" :
             !regirResourceReady && regirDesc.requested && regirDesc.structuralValid ? "candidate-cache-buffer" :
             (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 && regirDesc.requested ? earlyReturn : regirDesc.firstMissingContract);
         common->Printf(
-            "PathTracePrimaryPass: ReGIR clean-room shell dump stage=%s earlyReturn=%s enable=%d debugView=%d debugRoute=%d mode=%d(%s) centerMode=%d(%s) center=(%.2f,%.2f,%.2f) cellSize=%.2f grid=%ux%ux%u cellCount=%u lightsPerCell=%u buildSamples=%u lightDomain=%d(%s) counts analytic=%u emissive=%u split=%u unified=%u candidateStride=%u candidateSlots=%u candidateBytes=%llu bufferReady=%d allocationSerial=%llu dispatchSlots=%u sourceDistribution=%s rabReplay=view7:primaryHitSurface+RAB_LoadLightInfo+RAB_SamplePolymorphicLight+RAB_GetLightSampleTargetPdfForSurface firstMissingContract=%s forbiddenPdfNee=0 temporal=0 spatial=0 bestLights=0 mode56=%d rrxPages=0 output=%s task=%s\n",
+            "PathTracePrimaryPass: ReGIR clean-room shell dump stage=%s earlyReturn=%s enable=%d debugView=%d debugRoute=%d mode=%d(%s) centerMode=%d(%s) centerPolicy=%s center=(%.2f,%.2f,%.2f) cellSize=%.2f grid=%ux%ux%u cellCount=%u lightsPerCell=%u buildSamples=%u lightDomain=%d(%s) lightSource=%s counts analytic=%u emissive=%u split=%u unified=%u candidateStride=%u candidateSlots=%u candidateBytes=%llu bufferReady=%d allocationSerial=%llu dispatchSlots=%u selectedSlotPolicy=view9:cellHash%%lightsPerCell-no-frameIndex consumerOverrides=none sourceDistribution=%s rabReplay=view7/view10:primaryHitSurface+RAB_LoadLightInfo+RAB_SamplePolymorphicLight+RAB_GetLightSampleTargetPdfForSurface firstMissingContract=%s forbiddenPdfNee=0 temporal=0 spatial=0 bestLights=0 mode56=%d rrxPages=0 output=%s task=%s\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             regirSettings.enabled ? 1 : 0,
@@ -875,6 +910,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             PathTraceReGIRModeName(regirSettings.mode),
             regirSettings.centerMode,
             PathTraceReGIRCenterModeName(regirSettings.centerMode),
+            regirSettings.centerMode == 1 ? "map-bounds-clamp-to-view-when-grid-smaller-than-map" : "direct",
             regirResolvedCenter.x,
             regirResolvedCenter.y,
             regirResolvedCenter.z,
@@ -887,6 +923,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             regirSettings.buildSamples,
             regirSettings.lightDomain,
             PathTraceReGIRLightDomainName(regirSettings.lightDomain),
+            regirUseCurrentRabLightUniverse ? "current-remix-rab-light-universe" : "legacy-split-current-light-buffers",
             regirLightCounts.analyticCount,
             regirLightCounts.emissiveCount,
             regirLightCounts.analyticCount + regirLightCounts.emissiveCount,
@@ -901,7 +938,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             firstMissingContract,
             regirDebugForbiddenMode ? 1 : 0,
             regirDebugRouteRequested ? "SmokeOutput" : "none",
-            regirDebugRouteRequested ? (regirSettings.lightDomain == 2 && regirCandidateDebugView ? "REGIR-05" : (regirSettings.lightDomain == 1 && regirCandidateDebugView ? "REGIR-04" : (regirCandidateDebugView ? "REGIR-03" : "REGIR-02"))) : "REGIR-01");
+            regirDebugRouteRequested
+                ? ((regirSettings.debugView == 9 || regirSettings.debugView == 10)
+                    ? "REGIR-06"
+                    : (regirSettings.lightDomain == 2 && regirCandidateDebugView ? "REGIR-05" : (regirSettings.lightDomain == 1 && regirCandidateDebugView ? "REGIR-04" : (regirCandidateDebugView ? "REGIR-03" : "REGIR-02"))))
+                : "REGIR-01");
     };
     auto printCleanRtxdiDiDump = [&](const char* stage, const char* earlyReturn, int selectedCleanShaderTable)
     {
@@ -928,9 +969,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool cleanDumpRluRoute =
             cleanEnabledNow &&
             r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
-            r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 &&
-            idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger()) == 0 &&
-            r_pathTracingRemixLightManagerRAB.GetInteger() != 0 &&
+            cleanDumpRluStats.enabled != 0u &&
+            cleanDumpRluStats.domain == 0u &&
             cleanDumpRluCurrentLightCount > 0u &&
             m_smokeRestirLightManagerCurrentToPreviousBuffer &&
             m_smokeRestirLightManagerPreviousToCurrentBuffer &&
@@ -1025,7 +1065,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ? 1 : 0,
             0,
             pdfNeeVerifierEntryLightMode,
-            cleanExternalPdfNeeMode9Requested ? 1 : 0,
+            cleanExternalPdfNeeMode9Blocked ? 1 : 0,
             regirSettings.enabled ? 1 : 0,
             regirSettings.mode,
             regirSettings.centerMode,
@@ -1078,6 +1118,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         printCleanRtxdiDiDump("dispatch-entry", "clean-view-out-of-range", 0);
         r_pathTracingCleanRtxdiDiDump.SetInteger(0);
     }
+    if (cleanExternalPdfNeeMode9Blocked)
+    {
+        if (cleanRtxdiDiDumpRequested)
+        {
+            printCleanRtxdiDiDump("dispatch-entry", "regir-v06-standalone-required", 0);
+            r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+        }
+        return;
+    }
     const bool cleanRtxdiDiSubview = viewDef && viewDef->isSubview;
     if (cleanRtxdiDiRouteRequested &&
         cleanRtxdiDiSubview &&
@@ -1098,26 +1147,65 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const int realAnalyticTwoCount = Max(0, m_smokeDoomAnalyticLightCount) >= 2 ? 2 : 0;
         const int realAnalyticFullCount = Max(0, m_smokeDoomAnalyticLightCount);
         const int emissiveDomainCount = Max(0, m_smokeEmissiveTriangleCount);
-        const int regirSourceLightCount = regirSettings.lightDomain == 0 ? Max(0, m_smokeDoomAnalyticLightCount) :
-            (regirSettings.lightDomain == 1 ? Max(0, m_smokeEmissiveTriangleCount) : (Max(0, m_smokeDoomAnalyticLightCount) + Max(0, m_smokeEmissiveTriangleCount)));
-        const int regirCandidateSlotCount = regirSettings.enabled && regirSourceLightCount > 0 ? static_cast<int>(regirDesc.slotCount) : 0;
-        const int activeDomainCount =
-            (pdfNeeVerifierEntryLightMode >= 1 && pdfNeeVerifierEntryLightMode <= 3) ? (pdfNeeVerifierEntryLightMode == 3 ? 4 : pdfNeeVerifierEntryLightMode) :
-            (pdfNeeVerifierEntryLightMode == 4 ? realAnalyticOneCount :
-            (pdfNeeVerifierEntryLightMode == 5 ? realAnalyticTwoCount :
-            (pdfNeeVerifierEntryLightMode == 6 ? realAnalyticFullCount :
-            (pdfNeeVerifierEntryLightMode == 7 ? emissiveDomainCount :
-            (pdfNeeVerifierEntryLightMode == 9 ? regirCandidateSlotCount :
-            pdfNeeVerifierEntryDomain == 0 ? splitCount :
-            (pdfNeeVerifierEntryDomain == 1 ? unifiedCount : -1))))));
-        const char* firstMissingContract =
-            pdfNeeVerifierEntryForbiddenMode ? "forbidden-mode-56" :
-            (!pdfNeeVerifierRouteRequested ? "route-disabled" :
-            (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 ? earlyReturn :
-            (pdfNeeVerifierEntryLightMode == 9 && !regirSettings.enabled ? "regir-disabled" :
-            (pdfNeeVerifierEntryLightMode == 9 && (!regirResourceReady || !m_smokeReGIRState.candidateCacheBuffer) ? "regir-candidate-cache" :
-            (pdfNeeVerifierEntryLightMode == 0 || activeDomainCount == 0 ? "no-active-proposal-domain" :
-            ((pdfNeeVerifierEntryLightMode >= 1 && pdfNeeVerifierEntryLightMode <= 7) || pdfNeeVerifierEntryLightMode == 9 ? "none" : "estimator-not-implemented-pdfnee-01"))))));
+        int activeDomainCount = -1;
+        if (pdfNeeVerifierEntryLightMode >= 1 && pdfNeeVerifierEntryLightMode <= 3)
+        {
+            activeDomainCount = pdfNeeVerifierEntryLightMode == 3 ? 4 : pdfNeeVerifierEntryLightMode;
+        }
+        else if (pdfNeeVerifierEntryLightMode == 4)
+        {
+            activeDomainCount = realAnalyticOneCount;
+        }
+        else if (pdfNeeVerifierEntryLightMode == 5)
+        {
+            activeDomainCount = realAnalyticTwoCount;
+        }
+        else if (pdfNeeVerifierEntryLightMode == 6)
+        {
+            activeDomainCount = realAnalyticFullCount;
+        }
+        else if (pdfNeeVerifierEntryLightMode == 7)
+        {
+            activeDomainCount = emissiveDomainCount;
+        }
+        else if (pdfNeeVerifierEntryLightMode == 9)
+        {
+            activeDomainCount = 0;
+        }
+        else if (pdfNeeVerifierEntryDomain == 0)
+        {
+            activeDomainCount = splitCount;
+        }
+        else if (pdfNeeVerifierEntryDomain == 1)
+        {
+            activeDomainCount = unifiedCount;
+        }
+
+        const char* firstMissingContract = "none";
+        if (pdfNeeVerifierEntryForbiddenMode)
+        {
+            firstMissingContract = "forbidden-mode-56";
+        }
+        else if (!pdfNeeVerifierRouteRequested)
+        {
+            firstMissingContract = "route-disabled";
+        }
+        else if (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0)
+        {
+            firstMissingContract = earlyReturn;
+        }
+        else if (pdfNeeVerifierEntryLightMode == 9)
+        {
+            firstMissingContract = "regir-v06-standalone-required";
+        }
+        else if (pdfNeeVerifierEntryLightMode == 0 || activeDomainCount == 0)
+        {
+            firstMissingContract = "no-active-proposal-domain";
+        }
+        else if (pdfNeeVerifierEntryLightMode < 1 || pdfNeeVerifierEntryLightMode > 7)
+        {
+            firstMissingContract = "estimator-not-implemented-pdfnee-01";
+        }
         const char* taskLabel = (pdfNeeVerifierEntryLightMode == 2 || pdfNeeVerifierEntryLightMode == 3) ? "PDFNEE-03" :
             (pdfNeeVerifierEntryLightMode == 9 ? "PDFNEE-11" :
             (pdfNeeVerifierEntryLightMode == 7 ? "PDFNEE-07" :
@@ -1156,19 +1244,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             firstMissingContract,
             taskLabel);
     };
+    if (pdfNeeReGIRSourceRouteBlocked)
+    {
+        if (pdfNeeVerifierDumpRequested)
+        {
+            printPdfNeeVerifierDump("dispatch-entry", "regir-v06-standalone-required");
+            r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
+        }
+        return;
+    }
     const bool cleanRtxdiDiBaseResourcesValid =
         viewDef && m_smokeCleanRtxdiDiSentinelBindingLayout && m_smokeTextureDescriptorTable && m_smokeCleanRtxdiDiSentinelConstantsBuffer &&
         m_smokeSceneBuilt && m_smokeTlas && m_frameResources.outputTexture;
     const bool pdfNeeVerifierBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokePdfNeeVerifierBindingLayout && m_smokeTextureDescriptorTable &&
         m_frameResources.outputTexture && m_smokeConstantsBuffer &&
-        (!pdfNeeReGIRSourceRouteRequested || (regirSettings.enabled && regirResourceReady && m_smokeReGIRState.candidateCacheBuffer));
+        !pdfNeeReGIRSourceRouteRequested;
     const bool regirCandidateDebugView =
-        regirSettings.debugView == 4 ||
-        regirSettings.debugView == 5 ||
-        regirSettings.debugView == 6 ||
-        regirSettings.debugView == 7 ||
-        regirSettings.debugView == 8;
+        regirSettings.debugView >= 4 && regirSettings.debugView <= 10;
     const bool regirDebugCanUseAnalyticDomain =
         regirCandidateDebugView &&
         (regirSettings.lightDomain == 0 || regirSettings.lightDomain == 2) &&
@@ -1177,8 +1270,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirCandidateDebugView &&
         (regirSettings.lightDomain == 1 || regirSettings.lightDomain == 2) &&
         regirLightCounts.emissiveCount > 0;
-    const bool regirDebugNeedsRabReplayBuffers = regirSettings.debugView == 7 && regirCandidateDebugView;
-    const bool regirDebugNeedsPrimarySurfaceBuffers = regirSettings.debugView == 7 && regirCandidateDebugView;
+    const bool regirDebugNeedsRabReplayBuffers =
+        (regirSettings.debugView == 7 || regirSettings.debugView == 10) && regirCandidateDebugView;
+    const bool regirDebugNeedsPrimarySurfaceBuffers =
+        (regirSettings.debugView == 7 || regirSettings.debugView == 10) && regirCandidateDebugView;
     const bool regirDebugBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokeReGIRDebugBindingLayout && m_smokeTextureDescriptorTable &&
         m_smokeTlas && m_frameResources.outputTexture && m_smokeConstantsBuffer &&
@@ -1703,6 +1798,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(59, cleanReGIROptionalSrv(m_smokeUnifiedLightBuffer)));
                 cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(60, cleanReGIROptionalSrv(m_smokeUnifiedPreviousLightBuffer)));
                 cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(61, cleanReGIROptionalSrv(m_smokeUnifiedLightRemapBuffer)));
+                cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, cleanReGIROptionalSrv(m_smokeRestirLightManagerCurrentToPreviousBuffer)));
+                cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(65, cleanReGIROptionalSrv(m_smokeRestirLightManagerPreviousToCurrentBuffer)));
+                cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, cleanReGIROptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer)));
+                cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(67, cleanReGIROptionalSrv(m_smokeRestirLightManagerPreviousPayloadBuffer)));
                 cleanReGIRBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, m_smokeReGIRState.candidateCacheBuffer));
                 cleanReGIRBuildBindingSet = device->createBindingSet(cleanReGIRBindingSetDesc, m_smokeReGIRDebugBindingLayout);
                 if (!cleanReGIRBuildBindingSet)
@@ -2130,9 +2229,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             : 0u;
         const bool cleanRluRoute =
             r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
-            r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 &&
-            idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger()) == 0 &&
-            r_pathTracingRemixLightManagerRAB.GetInteger() != 0 &&
+            cleanRluStats.enabled != 0u &&
+            cleanRluStats.domain == 0u &&
             cleanRluCurrentLightCount > 0u &&
             m_smokeRestirLightManagerCurrentToPreviousBuffer &&
             m_smokeRestirLightManagerPreviousToCurrentBuffer &&
@@ -2538,6 +2636,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(59, regirOptionalSrv(m_smokeUnifiedLightBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(60, regirOptionalSrv(m_smokeUnifiedPreviousLightBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(61, regirOptionalSrv(m_smokeUnifiedLightRemapBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, regirOptionalSrv(m_smokeRestirLightManagerCurrentToPreviousBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(65, regirOptionalSrv(m_smokeRestirLightManagerPreviousToCurrentBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, regirOptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer)));
+        regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(67, regirOptionalSrv(m_smokeRestirLightManagerPreviousPayloadBuffer)));
         regirBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, m_smokeReGIRState.candidateCacheBuffer));
         regirDebugBindingSet = device->createBindingSet(regirBindingSetDesc, m_smokeReGIRDebugBindingLayout);
         if (!regirDebugBindingSet)
@@ -3354,7 +3456,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.doomAnalyticLightRemapInfo[3] = static_cast<float>(m_smokePreviousEmissiveTriangleCount);
     const PathTraceRestirLightManagerStats restirLightManagerStats = m_restirLightManager.GetStats();
     const PathTraceRemixLightManagerStats remixLightManagerStats = m_remixLightManager.GetStats();
-    const bool useRemixLightManagerRabSource = r_pathTracingRemixLightManagerRAB.GetInteger() != 0;
+    const bool useRemixLightManagerRabSource =
+        r_pathTracingRemixLightManagerRAB.GetInteger() != 0 ||
+        (regirDebugRouteRequested && regirRemixLightManagerStats.enabled != 0u);
     const bool useRemixLightManagerDenseRabSource =
         useRemixLightManagerRabSource &&
         remixLightManagerStats.enabled != 0u;
@@ -3380,8 +3484,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t rawEmissiveRangeCount = useRemixLightManagerRabSource ? remixLightManagerStats.emissiveRangeCount : restirLightManagerStats.activeEmissiveCurrentRangeCount;
     const uint32_t rawDoomAnalyticRangeOffset = useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticRangeOffset : restirLightManagerStats.activeDoomAnalyticCurrentRangeOffset;
     const uint32_t rawDoomAnalyticRangeCount = useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticRangeCount : restirLightManagerStats.activeDoomAnalyticCurrentRangeCount;
-    const uint32_t activeEmissiveRangeCount = rrxEmissiveSamplingEnabled ? rawEmissiveRangeCount : 0u;
-    const uint32_t activeDoomAnalyticRangeCount = rrxDoomAnalyticSamplingEnabled ? rawDoomAnalyticRangeCount : 0u;
+    const bool regirNeedsEmissiveRange =
+        regirDebugRouteRequested &&
+        useRemixLightManagerDenseRabSource &&
+        (regirSettings.lightDomain == 1 || regirSettings.lightDomain == 2);
+    const bool regirNeedsDoomAnalyticRange =
+        regirDebugRouteRequested &&
+        useRemixLightManagerDenseRabSource &&
+        (regirSettings.lightDomain == 0 || regirSettings.lightDomain == 2);
+    const uint32_t activeEmissiveRangeCount =
+        (rrxEmissiveSamplingEnabled || regirNeedsEmissiveRange) ? rawEmissiveRangeCount : 0u;
+    const uint32_t activeDoomAnalyticRangeCount =
+        (rrxDoomAnalyticSamplingEnabled || regirNeedsDoomAnalyticRange) ? rawDoomAnalyticRangeCount : 0u;
     constants.restirLightManagerRangeInfo[0] = static_cast<float>(rawEmissiveRangeOffset);
     constants.restirLightManagerRangeInfo[1] = static_cast<float>(activeEmissiveRangeCount);
     constants.restirLightManagerRangeInfo[2] = static_cast<float>(rawDoomAnalyticRangeOffset);
@@ -3602,7 +3716,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.regirInfo4[1] = regirResolvedCenter.y;
     constants.regirInfo4[2] = regirResolvedCenter.z;
     constants.regirInfo4[3] = 1.0f;
-    if (regirDebugRouteRequested)
+    if (regirDebugRouteRequested && !regirUseCurrentRabLightUniverse)
     {
         // ReGIR stores split-domain RAB identities; force the shared RAB
         // loader to replay that identity space for the standalone proof.

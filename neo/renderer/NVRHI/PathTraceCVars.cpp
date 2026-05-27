@@ -413,9 +413,9 @@ idCVar r_pathTracingRemixLightUniverseEnable(
 
 idCVar r_pathTracingRemixLightUniverseUseForCleanRtxdiDi(
     "r_pathTracingRemixLightUniverseUseForCleanRtxdiDi",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Reserved RLU opt-in: allow clean RTXDI DI to consume the Remix-shaped dense light domain after analytic mapping proof" );
+    "Allow clean RTXDI DI real-light routes to request and consume the Remix-shaped dense Doom analytic light domain" );
 
 idCVar r_pathTracingRemixLightUniverseDebugView(
     "r_pathTracingRemixLightUniverseDebugView",
@@ -493,7 +493,7 @@ idCVar r_pathTracingReGIRDebugView(
     "r_pathTracingReGIRDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Standalone ReGIR debug view selector: 0 disabled, 1 status, 2 cells, 3 validity, 4 occupancy, 5 analytic identity, 6 emissive identity, 7 sourcePdf, 8 empty reason" );
+    "Standalone ReGIR debug view selector: 0 disabled, 1 status, 2 cells, 3 validity, 4 occupancy, 5 analytic identity, 6 emissive identity, 7 sourcePdf, 8 empty reason, 9 deterministic slot, 10 cell mean" );
 
 idCVar r_pathTracingReGIRMode(
     "r_pathTracingReGIRMode",
@@ -545,7 +545,7 @@ idCVar r_pathTracingReGIRLightDomain(
 
 idCVar r_pathTracingReGIRCenterMode(
     "r_pathTracingReGIRCenterMode",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Standalone ReGIR center mode: 0 camera-centered, 1 map/static bounds centered, 2 manager-provided manual center" );
 

@@ -753,13 +753,21 @@ DoomLightRecord BuildDoomLightRecord(
         record.health = metadata.health;
         record.baseColor = metadata.baseColor;
         record.currentGameColor = metadata.currentColor;
-        const int cleanDoomColorSource = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger());
-        if (cleanDoomColorSource == 1)
+        const bool cleanDoomColorRoute = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
+        const bool remixLightUniverseColorRoute =
+            r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+            (r_pathTracingReGIREnable.GetInteger() != 0 && r_pathTracingReGIRMode.GetInteger() != 0);
+        const int doomColorSource = cleanDoomColorRoute
+            ? idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger())
+            : (remixLightUniverseColorRoute
+                ? idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDoomColorSource.GetInteger())
+                : 0);
+        if (doomColorSource == 1)
         {
             record.color = DoomAnalyticColorFromVec3(record.currentGameColor);
             record.active = record.color.w > 0.0f && !record.suppressed;
         }
-        else if (cleanDoomColorSource == 2)
+        else if (doomColorSource == 2)
         {
             record.color = DoomAnalyticColorFromVec3(record.baseColor);
             record.active = record.color.w > 0.0f && !record.suppressed && !record.gameHidden && record.currentLevel > 0;

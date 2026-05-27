@@ -75,7 +75,7 @@ PathTraceReGIRSettings BuildPathTraceReGIRSettingsFromCVars()
 {
     PathTraceReGIRSettings settings;
     settings.enabled = r_pathTracingReGIREnable.GetInteger() != 0;
-    settings.debugView = idMath::ClampInt(0, 8, r_pathTracingReGIRDebugView.GetInteger());
+    settings.debugView = idMath::ClampInt(0, 10, r_pathTracingReGIRDebugView.GetInteger());
     settings.mode = idMath::ClampInt(0, 2, r_pathTracingReGIRMode.GetInteger());
     settings.cellSize = idMath::ClampFloat(16.0f, 8192.0f, r_pathTracingReGIRCellSize.GetFloat());
     settings.gridX = ClampCVarUInt(r_pathTracingReGIRGridX, 1, 128);
@@ -153,7 +153,7 @@ PathTraceReGIRResourceDesc BuildPathTraceReGIRResourceDesc(const PathTraceReGIRS
     {
         desc.firstMissingContract = "emissive-domain-required-regir-04";
     }
-    else if (settings.debugView == 4 || settings.debugView == 5 || settings.debugView == 6 || settings.debugView == 7 || settings.debugView == 8)
+    else if (settings.debugView >= 4 && settings.debugView <= 10)
     {
         if (settings.lightDomain == 0)
         {
