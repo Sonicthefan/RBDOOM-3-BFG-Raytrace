@@ -37,9 +37,9 @@ bool RAB_GetStrictLightSampleVisibility(RAB_Surface surface, RAB_LightSample lig
         return false;
     }
 
-    uint ignoreInstanceId = 0xffffffffu;
-    uint ignorePrimitiveIndex = 0xffffffffu;
-    uint ignoreMaterialId = 0xffffffffu;
+    uint ignoreInstanceId = surface.instanceId;
+    uint ignorePrimitiveIndex = surface.primitiveIndex;
+    uint ignoreMaterialId = surface.materialId;
     if (lightSample.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE && lightSample.lightIndex < RAB_GetCurrentEmissiveTriangleCount())
     {
         const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[lightSample.lightIndex];

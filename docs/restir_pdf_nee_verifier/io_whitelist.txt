@@ -1,7 +1,14 @@
-PDF + NEE Verifier I/O Whitelist
-================================
+PDF + NEE Replacement I/O Whitelist
+===================================
 
-This whitelist applies only to the standalone current-frame verifier.
+This whitelist applies to replacement current-frame PDF/NEE work.
+
+The active source of truth is the Remix Light Universe (RLU) dense current
+domain. The active handoff target is the clean RTXDI DI current reservoir page.
+
+Old split-domain, portal-pool, ReGIR, and rbdoom NEE inputs are discarded as
+implementation routes. They may not be used as default producer sources or
+proof outputs.
 
 
 Allowed Inputs
@@ -26,26 +33,64 @@ I-01: Current Primary Surface
         temporal reprojection
 
 
-I-02: Current Light Domain
+I-02: Current RLU Dense Light Domain
 
     Meaning:
-        The current rbdoom light universe / RAB light domain used by the
-        verifier.
+        The current dense RLU light domain used by the replacement producer.
 
     Allowed sources:
-        split current emissive + Doom analytic arrays
-        unified current light records
-        ReSTIR light-manager current payload records
+        current RLU dense light payload records
+        current RLU typed ranges
+        current RLU sample-count metadata
 
     Required declaration:
-        worker must name exactly which domain is active.
+        worker must name exactly which RLU domain is active and the current
+        dense count used for proposal selection.
+
+    Required first producer source policy:
+        proposal domain is the full current RLU dense lightIndex range
+            [0, currentRluLightCount)
+        sourcePdf = 1.0 / currentRluLightCount
+        invSourcePdf = currentRluLightCount
+        selected reservoir identity is the dense current lightIndex
 
     Forbidden use:
-        previous light domain during verifier proof
+        RLU payload sourcePdf/sourceWeight as the first producer proposal PDF
+        Doom analytic payload sourcePdf=0 as a valid proposal PDF
+        typed-range uniform sampling as the first producer source policy
+        bounded per-range sampling as the first producer source policy
+        payload-weighted or alias-table sampling as the first producer source
+            policy
+        split current emissive + Doom analytic arrays as the default source
+        unified current light records as the default source
+        legacy ReSTIR light-manager records as the default source
+        ReGIR candidate cache as the default source
+        portal-prioritized candidate pool as the default source
+        previous light domain during current-frame proof
         broad pruning to avoid overlap failures
 
 
-I-03: Light Identity Metadata
+I-03: Active RLU RAB Helpers
+
+    Required helpers:
+        RAB_LoadActiveRrxLightInfo
+        RAB_SampleActiveRrxPolymorphicLight
+        RAB_GetLightSampleTargetPdfForSurface
+        RAB_GetReflectedBsdfRadianceForSurface
+
+    Allowed use:
+        default replacement producer implementation
+        clean RTXDI DI current reservoir producer
+
+    Forbidden use:
+        replacing these helpers with local light math
+        falling back to split-domain RAB helpers without a loud diagnostic and
+            manager approval
+        locally duplicated helper implementations unless exact equivalence is
+            proven before runtime proof
+
+
+I-04: Light Identity Metadata
 
     Meaning:
         Light identity/type/source data used to classify selected samples and
@@ -55,24 +100,15 @@ I-03: Light Identity Metadata
         current-frame diagnostic labels
         selected-light identity table
 
+    Required identity:
+        selected reservoir identity is the dense RLU current-domain index that
+        the clean RLU consumer can replay.
+
     Forbidden use:
+        old rbdoom selected-light NEE identity
+        compact portal candidate index
+        ReGIR candidate slot
         previous-frame remap as proof of current-frame PDF correctness
-
-
-I-04: Shared RAB Light Helpers
-
-    Required helpers:
-        RAB_LoadLightInfo
-        RAB_SamplePolymorphicLight
-        RAB_GetLightSampleTargetPdfForSurface
-        RAB_GetReflectedBsdfRadianceForSurface
-
-    Allowed use:
-        all verifier estimator rungs
-
-    Forbidden use:
-        locally duplicated helper implementations unless exact equivalence is
-        proven before runtime proof
 
 
 I-05: Visibility Helper
@@ -92,9 +128,10 @@ I-05: Visibility Helper
 I-06: RTXDI DI Reservoir Helpers
 
     Allowed helpers:
+        RTXDI_EmptyDIReservoir
         RTXDI_StreamSample
-        RTXDI_SampleLocalLights
         RTXDI_FinalizeResampling
+        RTXDI_PackDIReservoir
         RTXDI_GetDIReservoirInvPdf
         RTXDI_GetDIReservoirLightIndex
         RTXDI_GetDIReservoirSampleUV
@@ -103,9 +140,11 @@ I-06: RTXDI DI Reservoir Helpers
         current-frame initial reservoir only
 
     Forbidden use:
-        temporal reuse
+        temporal reuse in current-frame proof
         spatial reuse
         previous-best feedback
+        hand-authored packed reservoir fields without exact helper-equivalence
+            proof
 
 
 Forbidden Inputs
@@ -113,17 +152,24 @@ Forbidden Inputs
 
 Do not consume:
 
-    previous reservoir pages
-    temporal reservoir pages
+    previous reservoir pages for current-frame proof
+    temporal reservoir pages for current-frame proof
     spatial reservoir pages
     previous primary surface
     motion vector textures
     mode-56 RRX debug output
+    view-72 output
     old rbdoom selected-light NEE records
     old rbdoom NEE contribution output
+    split-domain Doom analytic arrays as the default source
+    ReGIR candidate cache as the default source
+    portal-prioritized candidate pool as the default source
     denoiser/confidence/gradient buffers
     game beauty/albedo fallback output
     synthetic temporal accumulator history
+    compact portal proposal index as final reservoir light identity
+    ReGIR debug color output as a light sample
+    ReGIR temporal/spatial/best-light state
 
 
 Allowed Outputs
@@ -138,12 +184,27 @@ O-01: Raw Flat-Diffuse Direct-Light View
         one sampled candidate per pixel for first proof
         no temporal average
         no albedo fallback
+        no old NEE contribution output
 
 
-O-02: Numeric Probe View
+O-02: Clean RTXDI DI Current Reservoir Page
+
+    Required:
+        RTXDI_PackedDIReservoir-compatible current page
+        selected light identity in the clean RLU consumer domain
+        sample UV matching the RAB sample and targetPdf evaluation
+        sourcePdf and targetPdf produced by the same selected sample contract
+        invalid paths write empty reservoirs
+
+    Allowed use:
+        default replacement producer output
+        clean RTXDI DI consume proof
+
+
+O-03: Numeric Probe View
 
     Allowed fields:
-        lightSelectionPdf
+        lightSelectionPdf or invSourcePdf
         solidAnglePdf
         targetPdf
         reservoir inverse PDF / weight
@@ -151,14 +212,14 @@ O-02: Numeric Probe View
         finalContribution magnitude
 
     Restriction:
-        diagnostic only; cannot be success proof without O-01.
+        diagnostic only; cannot be success proof without O-01 or O-02.
 
 
-O-03: Loud Invalid Status View
+O-04: Loud Invalid Status View
 
     Required invalid states:
         invalid surface
-        no light domain
+        no RLU light domain
         invalid light info
         invalid replay sample
         zero source PDF
@@ -175,13 +236,15 @@ Forbidden Outputs
 
 Do not output:
 
-    temporal accumulation proof
+    temporal accumulation proof before clean consume
     spatial proof
     best-light proof
     denoised output
     game beauty output
     albedo fallback
     status colors as final estimator proof
+    old rbdoom NEE selected-light records
+    old rbdoom NEE contribution output
 
 
 Reject Condition

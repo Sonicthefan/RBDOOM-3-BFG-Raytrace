@@ -1555,6 +1555,15 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_regir_debug.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_regir_debug.rt.bin",
             m_smokeReGIRDebugBindingLayout);
+    case 18:
+        return initLibrary(
+            m_smokeRestirPdfNeeRluCurrentShaderLibrary,
+            m_smokeRestirPdfNeeRluCurrentPipeline,
+            m_smokeRestirPdfNeeRluCurrentShaderTable,
+            "ReSTIR PDF+NEE RLU current producer",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.bin",
+            m_smokePdfNeeVerifierBindingLayout);
     default:
         return false;
     }

@@ -274,6 +274,10 @@ StructuredBuffer<PathTraceEmissiveLightRemap> SmokeEmissiveRemap : register(t58)
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedLights : register(t59);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceUnifiedPreviousLights : register(t60);
 StructuredBuffer<uint> PathTraceUnifiedLightRemap : register(t61);
+StructuredBuffer<uint> PathTraceRestirLightManagerCurrentToPrevious : register(t64);
+StructuredBuffer<uint> PathTraceRestirLightManagerPreviousToCurrent : register(t65);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerCurrentPayload : register(t66);
+StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerPreviousPayload : register(t67);
 StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeLightCandidate> SmokeLightCandidates : register(t17);
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirCurrent : register(u18);
@@ -283,6 +287,12 @@ StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(
 #ifdef RB_PT_ENABLE_RESTIR
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
+#endif
+#ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+#include "Rtxdi/DI/Reservoir.hlsli"
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
+#define RTXDI_LIGHT_RESERVOIR_BUFFER CleanRtxdiDiCurrentReservoirs
+#include "Rtxdi/DI/ReservoirStorage.hlsli"
 #endif
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -3372,6 +3382,174 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
     return float4(saturate(color), 1.0);
 }
 
+#ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+static const uint RT_PDF_NEE_RLU_STATUS_VALID = 0u;
+static const uint RT_PDF_NEE_RLU_STATUS_INVALID_SURFACE = 1u;
+static const uint RT_PDF_NEE_RLU_STATUS_NO_RLU = 2u;
+static const uint RT_PDF_NEE_RLU_STATUS_EMPTY_RESERVOIR = 3u;
+
+uint PathTraceRestirPdfNeeRluReservoirBlockCount(uint dimension)
+{
+    return (dimension + RTXDI_RESERVOIR_BLOCK_SIZE - 1u) / RTXDI_RESERVOIR_BLOCK_SIZE;
+}
+
+RTXDI_ReservoirBufferParameters PathTraceRestirPdfNeeRluReservoirParams(uint2 dimensions)
+{
+    RTXDI_ReservoirBufferParameters params = (RTXDI_ReservoirBufferParameters)0;
+    const uint blockCountX = max(PathTraceRestirPdfNeeRluReservoirBlockCount(dimensions.x), 1u);
+    const uint blockCountY = max(PathTraceRestirPdfNeeRluReservoirBlockCount(dimensions.y), 1u);
+    params.reservoirBlockRowPitch = blockCountX * RTXDI_RESERVOIR_BLOCK_SIZE * RTXDI_RESERVOIR_BLOCK_SIZE;
+    params.reservoirArrayPitch = params.reservoirBlockRowPitch * blockCountY;
+    return params;
+}
+
+uint PathTraceRestirPdfNeeRluReservoirPointer(uint2 pixel, uint2 dimensions)
+{
+    return RTXDI_ReservoirPositionToPointer(PathTraceRestirPdfNeeRluReservoirParams(dimensions), pixel, 0u);
+}
+
+float3 PathTraceRestirPdfNeeRluStatusColor(uint status)
+{
+    if (status == RT_PDF_NEE_RLU_STATUS_INVALID_SURFACE)
+    {
+        return float3(0.95, 0.05, 0.10);
+    }
+    if (status == RT_PDF_NEE_RLU_STATUS_NO_RLU)
+    {
+        return float3(1.00, 0.00, 1.00);
+    }
+    if (status == RT_PDF_NEE_RLU_STATUS_EMPTY_RESERVOIR)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return float3(0.02, 0.02, 0.02);
+}
+
+float3 PathTraceRestirPdfNeeRluPreviewColor(float3 contribution)
+{
+    const float3 clampedPositive = max(contribution, float3(0.0, 0.0, 0.0));
+    return clampedPositive / (clampedPositive + float3(1.0, 1.0, 1.0));
+}
+
+uint PathTraceRestirPdfNeeRluSeed(uint2 pixel, uint frameIndex, uint sampleIndex, uint salt)
+{
+    return pixel.x * 1973u ^
+        pixel.y * 9277u ^
+        frameIndex * 26699u ^
+        sampleIndex * 104729u ^
+        salt;
+}
+
+float2 PathTraceRestirPdfNeeRluSampleUv(uint2 pixel, uint frameIndex, uint sampleIndex, uint lightIndex)
+{
+    return float2(
+        SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel, frameIndex, sampleIndex, 0x9e3779b9u ^ lightIndex)),
+        SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel.yx, frameIndex, sampleIndex, 0x85ebca6bu ^ (lightIndex * 17u))));
+}
+
+RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
+    RAB_Surface surface,
+    uint2 pixel,
+    out float3 selectedContribution,
+    out uint status)
+{
+    selectedContribution = float3(0.0, 0.0, 0.0);
+    status = RT_PDF_NEE_RLU_STATUS_VALID;
+
+    RTXDI_DIReservoir reservoir = RTXDI_EmptyDIReservoir();
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        status = RT_PDF_NEE_RLU_STATUS_INVALID_SURFACE;
+        return reservoir;
+    }
+    if (!RAB_RestirLightManagerRemixDenseDomainEnabled())
+    {
+        status = RT_PDF_NEE_RLU_STATUS_NO_RLU;
+        return reservoir;
+    }
+
+    const uint currentRluLightCount = RAB_GetCurrentRestirLightManagerCount();
+    if (currentRluLightCount == 0u)
+    {
+        status = RT_PDF_NEE_RLU_STATUS_NO_RLU;
+        return reservoir;
+    }
+
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
+    const float invSourcePdf = (float)currentRluLightCount;
+    const bool tracedVisibility = RestirPdfNeeVerifierControlInfo.y >= 0.5;
+
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    {
+        const float selection = SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel, frameIndex, sampleIndex, 0x51ed270bu));
+        const uint lightIndex = min((uint)(selection * (float)currentRluLightCount), currentRluLightCount - 1u);
+        const float2 sampleUv = PathTraceRestirPdfNeeRluSampleUv(pixel, frameIndex, sampleIndex, lightIndex);
+        float targetPdf = 0.0;
+
+        const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
+        if (RAB_IsLightInfoValid(lightInfo))
+        {
+            const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, sampleUv);
+            if (RAB_IsReplayableLightSample(lightSample) && lightSample.solidAnglePdf > 0.0)
+            {
+                targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+            }
+        }
+
+        RTXDI_StreamSample(
+            reservoir,
+            lightIndex,
+            sampleUv,
+            SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel, frameIndex, sampleIndex, 0x27d4eb2du)),
+            targetPdf,
+            invSourcePdf);
+    }
+
+    if (!RTXDI_IsValidDIReservoir(reservoir) || reservoir.targetPdf <= 0.0)
+    {
+        status = RT_PDF_NEE_RLU_STATUS_EMPTY_RESERVOIR;
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M);
+    reservoir.M = 1.0;
+    reservoir.age = 0u;
+    reservoir.spatialDistance = int2(0, 0);
+
+    const uint selectedLightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    const RAB_LightInfo selectedLightInfo = RAB_LoadActiveRrxLightInfo(selectedLightIndex, false);
+    if (!RAB_IsLightInfoValid(selectedLightInfo))
+    {
+        status = RT_PDF_NEE_RLU_STATUS_EMPTY_RESERVOIR;
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    const float2 selectedUv = RTXDI_GetDIReservoirSampleUV(reservoir);
+    const RAB_LightSample selectedSample = RAB_SampleActiveRrxPolymorphicLight(selectedLightInfo, surface, selectedUv);
+    if (!RAB_IsReplayableLightSample(selectedSample) || selectedSample.solidAnglePdf <= 0.0)
+    {
+        status = RT_PDF_NEE_RLU_STATUS_EMPTY_RESERVOIR;
+        return RTXDI_EmptyDIReservoir();
+    }
+
+    const float visibility = tracedVisibility ? (RAB_GetSelectedNeeVisibility(surface, selectedSample) ? 1.0 : 0.0) : 1.0;
+    RTXDI_StoreVisibilityInDIReservoir(reservoir, visibility.xxx, false);
+    if (visibility <= 0.0)
+    {
+        selectedContribution = float3(0.0, 0.0, 0.0);
+        return reservoir;
+    }
+
+    selectedContribution =
+        RAB_GetReflectedBsdfRadianceForSurface(selectedSample.position, selectedSample.radiance, surface) *
+        (RTXDI_GetDIReservoirInvPdf(reservoir) / max(selectedSample.solidAnglePdf, 1.0e-6)) *
+        visibility;
+    return reservoir;
+}
+#endif
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -3518,6 +3696,20 @@ void RayGen()
             primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
         }
     }
+#ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+    float3 pdfNeeRluContribution = float3(0.0, 0.0, 0.0);
+    uint pdfNeeRluStatus = RT_PDF_NEE_RLU_STATUS_VALID;
+    const RTXDI_DIReservoir pdfNeeRluReservoir = PathTraceRestirPdfNeeRluBuildCurrentReservoir(
+        primaryHistorySurface,
+        pixel,
+        pdfNeeRluContribution,
+        pdfNeeRluStatus);
+    CleanRtxdiDiCurrentReservoirs[PathTraceRestirPdfNeeRluReservoirPointer(pixel, fullDimensions)] = RTXDI_PackDIReservoir(pdfNeeRluReservoir);
+    SmokeOutput[pixel] = pdfNeeRluStatus == RT_PDF_NEE_RLU_STATUS_VALID
+        ? float4(PathTraceRestirPdfNeeRluPreviewColor(pdfNeeRluContribution), 1.0)
+        : float4(PathTraceRestirPdfNeeRluStatusColor(pdfNeeRluStatus), 1.0);
+    return;
+#endif
 #ifndef RB_PT_RESTIR_SPATIAL_PRODUCER
     if (!consumePrimarySurfaceHistory)
     {

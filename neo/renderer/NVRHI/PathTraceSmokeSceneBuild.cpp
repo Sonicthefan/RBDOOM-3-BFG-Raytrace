@@ -2465,15 +2465,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool cleanRtxdiDiRluRequested =
         cleanRtxdiDiRealAnalyticRoute &&
         r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
+    const bool pdfNeeRluCurrentProducerRequested =
+        requestedDebugMode != 56 &&
+        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
     const bool remixLightUniverseEnabled =
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
         rrxDiLightUniverseRequested ||
         regirLightUniverseRequested ||
-        cleanRtxdiDiRluRequested;
+        cleanRtxdiDiRluRequested ||
+        pdfNeeRluCurrentProducerRequested;
     const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
-            : (cleanRtxdiDiRluRequested ? 0 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
+            : ((cleanRtxdiDiRluRequested || pdfNeeRluCurrentProducerRequested) ? 0 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
     const bool remixLightUniverseStrictMapping =
         r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
     const bool remixLightUniverseIncludeAnalytic =

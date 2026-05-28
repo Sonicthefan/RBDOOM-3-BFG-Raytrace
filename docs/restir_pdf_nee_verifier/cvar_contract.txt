@@ -1,216 +1,169 @@
-PDF + NEE Verifier CVar Contract
-================================
+PDF + NEE Replacement CVar Contract
+===================================
 
 Purpose
 -------
 
-Reserve a small, standalone CVar surface for current-frame PDF + NEE
-validation. These CVars must not control temporal accumulation.
+Reserve a small CVar surface for the replacement current-frame producer.
+These CVars must not control temporal accumulation.
+
+The old PDFNEE light-mode matrix, ReGIR recipe, and portal-candidate CVars are
+discarded as implementation routes. They were built before the working RLU
+path existed and must not become the normal producer.
 
 
-Naming
-------
+Default-Functionality Rule
+--------------------------
+
+One enable CVar must activate the replacement module's intended current-frame
+estimator with useful defaults:
+
+    default source = current RLU dense domain
+    default source PDF = full-domain uniform over current RLU dense count
+    default output = useful current-frame lighting or clean-compatible current
+        reservoir page
+    diagnostics = optional only
+
+The normal path must not require a recipe of verifier light modes, ReGIR grid
+settings, portal toggles, mode 56, view 72, clean-side debug toggles, or legacy
+domain switches.
+
+
+Active Prefix
+-------------
 
 Use this prefix unless a manager explicitly changes it:
 
     r_pathTracingRestirPdfNeeVerifier*
 
 
-Required CVars
---------------
+Required Active CVar
+--------------------
 
 r_pathTracingRestirPdfNeeVerifierEnable
 
     0 = disabled
-    1 = route standalone verifier output to primary path/test output
+    1 = run the replacement current-frame RLU producer with default behavior
 
     Default: 0
 
 
-r_pathTracingRestirPdfNeeVerifierView
-
-    0 = disabled
-    1 = route/status sentinel
-    2 = raw flat diffuse direct-light output
-    3 = selected light identity
-    4 = PDF scalar view
-    5 = final contribution scalar view
-    6 = invalid-state classifier
-    7 = one-light comparison helper
-    8 = overlap comparison helper
-
-    Default: 0
-
-
-r_pathTracingRestirPdfNeeVerifierLightMode
-
-    0 = no lights / negative path
-    1 = one synthetic calibration light
-    2 = two synthetic overlapping lights
-    3 = N synthetic overlapping lights
-    4 = one fixed real analytic light
-    5 = two fixed real overlapping analytic lights
-    6 = full real analytic domain
-    7 = emissive domain
-    8 = unified / ReSTIR light-manager domain
-    9 = ReGIR current-frame source distribution
-
-    Default: 0
-
-    Mode 9 consumes the ReGIR candidate cache as a current-frame source
-    distribution. It requires a same-frame ReGIR build prepass and remains
-    current-frame only.
-
-
-r_pathTracingRestirPdfNeeVerifierSamples
-
-    Candidate proposals per pixel for the current-frame reservoir.
-
-    First proof default: 1
-    Valid range: 1 to 32
-
-
-r_pathTracingRestirPdfNeeVerifierVisibility
-
-    0 = forced visible, calibration only
-    1 = traced visibility
-
-    Default: 1
-
-
-r_pathTracingRestirPdfNeeVerifierDomain
-
-    0 = split RAB domain
-    1 = unified RAB domain
-    2 = ReSTIR light-manager RAB domain
-
-    Default: 0
-
-    PDFNEE-01 starts with split RAB domain because it is the narrowest route
-    through the existing shared RAB load/sample helpers without depending on
-    light-manager activation.
-
-
-r_pathTracingRestirPdfNeeVerifierDump
-
-    0 = disabled
-    1 = one-shot dump of active verifier route, light counts, and first failing
-        contract
-
-    Default: 0
-
-
-PDFNEE-10 Reserved CVars
+Allowed Diagnostic CVars
 ------------------------
 
-r_pathTracingRestirPdfNeeVerifierAnalyticPortalProposal
+Diagnostic CVars may expose:
 
-    0 = existing full analytic domain behavior
-    1 = use the PDFNEE-10 portal-prioritized analytic candidate pool for
-        lightMode 6
+    numeric PDF/weight views
+    selected dense RLU light identity
+    invalid-state classifier
+    one-shot route dump
+    sample-count stress, if the default remains useful
+    forced visibility for calibration only
 
-    Default: 0
-
-
-r_pathTracingRestirPdfNeeVerifierAnalyticPortalSteps
-
-    Portal traversal depth used to rank analytic proposal candidates.
-
-    Default: 4
-    Valid range: 0 to 8
-
-
-r_pathTracingRestirPdfNeeVerifierAnalyticProposalMaxLights
-
-    Maximum analytic candidate entries uploaded for the portal-prioritized
-    pool.
-
-    Default: 64
-    Valid range: 1 to 1024
+Diagnostic CVars must not be required to make the basic estimator function.
+They must not switch the default producer away from full-domain uniform RLU
+sampling. Typed-range, bounded per-range, payload-weighted, portal, and ReGIR
+sampling policies require separate manager-approved proof tasks before they can
+exist as diagnostics or alternatives.
 
 
-r_pathTracingRestirPdfNeeVerifierAnalyticDefensiveSamples
+Discarded Legacy CVars And Recipes
+----------------------------------
 
-    Full-authored-domain analytic candidates streamed per pixel in addition to
-    portal-prioritized candidates. These keep valid non-local lights reachable
-    when Doom portal areas are too coarse.
+Do not use these as implementation requirements or proof paths:
 
-    Default: 1
-    Valid range: 0 to 8
-
-
-r_pathTracingRestirPdfNeeVerifierAnalyticPortalDump
-
-    0 = disabled
-    1 = one-shot dump of full analytic count, portal-pool count, defensive
-        sample count, portal-depth bins, selected global analytic indices,
-        per-source sourcePdf / invSourcePdf, and any empty-list fallback reason
-
-    Default: 0
-
-
-PDFNEE-11 ReGIR Current-Frame Source
-------------------------------------
-
-PDFNEE ReGIR consume uses:
-
+    r_pathTracingRestirPdfNeeVerifierLightMode 8
     r_pathTracingRestirPdfNeeVerifierLightMode 9
-    r_pathTracingReGIREnable 1
-    r_pathTracingReGIRLightDomain 0, 1, or 2
-    r_pathTracingReGIRCellSize 256
-    r_pathTracingReGIRGridX 32
-    r_pathTracingReGIRGridY 32
-    r_pathTracingReGIRGridZ 16
-    r_pathTracingReGIRLightsPerCell 128
-    r_pathTracingReGIRBuildSamples 16
+    r_pathTracingRestirPdfNeeVerifierDomain as the default source selector
+    r_pathTracingRestirPdfNeeVerifierAnalyticPortalProposal
+    r_pathTracingRestirPdfNeeVerifierAnalyticPortalSteps
+    r_pathTracingRestirPdfNeeVerifierAnalyticProposalMaxLights
+    r_pathTracingRestirPdfNeeVerifierAnalyticDefensiveSamples
+    r_pathTracingRestirPdfNeeVerifierAnalyticPortalDump
+    r_pathTracingReGIREnable plus ReGIR grid/cache CVars as a producer recipe
+    r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent as an old analytic-only
+        identity handoff
 
-First proof preset:
-
-    r_pathTracingDebugMode 0
-    r_pathTracingReGIREnable 1
-    r_pathTracingReGIRLightDomain 2
-    r_pathTracingReGIRCellSize 256
-    r_pathTracingReGIRGridX 32
-    r_pathTracingReGIRGridY 32
-    r_pathTracingReGIRGridZ 16
-    r_pathTracingReGIRLightsPerCell 128
-    r_pathTracingReGIRBuildSamples 16
-    r_pathTracingRestirPdfNeeVerifierEnable 1
-    r_pathTracingRestirPdfNeeVerifierLightMode 9
-    r_pathTracingRestirPdfNeeVerifierView 2
-    r_pathTracingRestirPdfNeeVerifierSamples 1
-    r_pathTracingRestirPdfNeeVerifierVisibility 1
-    r_pathTracingRestirPdfNeeVerifierDump 1
-
-Mode 9 must consume ReGIR only as a current-frame source distribution. It must
-not enable PDFNEE temporal consume, clean RTXDI temporal consume, spatial reuse,
-best-light sampling, RRX pages, mode 56, denoiser/confidence/gradient paths, or
-fallback beauty/albedo output.
+If these names still exist in code, treat them as old debug/failure evidence
+only. They are not accepted NEE functionality and must not be used for the
+replacement module's normal path.
 
 
 Forbidden CVar Behavior
 -----------------------
 
-These verifier CVars must not:
+Replacement CVars must not:
 
+    require multiple auxiliary CVars for default functionality
+    make debug/status views the default useful output
     enable temporal reuse
     enable spatial reuse
     enable best-light sampling
     enable denoiser/confidence/gradient paths
     route through r_pathTracingDebugMode 56
-    reuse r_pathTracingRestirPTDiDebugView as the proof surface
-    change the known-good clean synthetic accumulator
+    reuse r_pathTracingRestirPTDiDebugView as proof
+    require ReGIR, portal pools, split-domain arrays, or old NEE records
+    change the known-good clean RTXDI DI / RLU temporal path
 
 
-Required Runtime Preset
------------------------
+Required Runtime Shape
+----------------------
 
 For estimator proof:
 
     r_pathTracingRestirPdfNeeVerifierEnable 1
-    r_pathTracingRestirPdfNeeVerifierView 2
-    r_pathTracingRestirPdfNeeVerifierSamples 1
+
+No additional CVar should be required to assemble the normal RLU current-frame
+producer path. Extra CVars are only for diagnostics after the default path is
+already useful.
+
+The normal default uses:
+
+    r_pathTracingRestirPdfNeeVerifierSamples 8
+
+Lower or higher sample counts are diagnostic/quality controls only. The sample
+count does not change the proposal domain or source PDF; each streamed candidate
+is still sampled uniformly from the dense current RLU lightIndex range.
+
+The normal visibility setting is:
+
     r_pathTracingRestirPdfNeeVerifierVisibility 1
 
-Temporal, spatial, best lights, denoiser, and fallback lighting must be off
-or irrelevant to the verifier route.
+This means "store selected-light visibility separately", not "fold candidate
+visibility into targetPdf". Candidate streaming must compute targetPdf from:
+
+    RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+
+Selected-light replay must call RAB_GetSelectedNeeVisibility and store the
+result with RTXDI_StoreVisibilityInDIReservoir. Strict shadow-ray rungs are
+controlled by r_pathTracingRestirPTVisibilityPolicy.
+
+For non-emissive selected samples, strict visibility must ignore the originating
+RAB surface identity. This prevents source-surface self-occlusion from being
+misreported as an RLU selected-light failure.
+
+If selected-light replay produces visibility 0, the current reservoir remains
+valid. Store zero visibility and zero final contribution; do not convert that
+case into an empty-reservoir error.
+
+If proposal streaming produces no positive-target candidate for a pixel, the
+normal one-CVar producer output is zero contribution. Do not paint this as an
+error color in the default output; invalid-state colors belong in an explicit
+diagnostic classifier.
+
+The default source PDF policy is fixed for the first producer:
+
+    proposal domain = dense current lightIndex range [0, currentRluLightCount)
+    sourcePdf = 1.0 / currentRluLightCount
+    invSourcePdf = currentRluLightCount
+
+Do not read RLU payload sourcePdf/sourceWeight as the proposal PDF for the
+first producer.
+
+The current reservoir M contract must match the working RTXDI initial path:
+
+    finalize with the streamed proposal count
+    store M = 1 in the produced current reservoir
+
+Do not leave the current reservoir's stored M equal to the number of streamed
+proposals; temporal consumers use M as part of the reservoir contract.

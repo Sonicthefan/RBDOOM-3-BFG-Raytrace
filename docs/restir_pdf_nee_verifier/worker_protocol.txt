@@ -37,18 +37,38 @@ Only when a task explicitly names them:
     documentation in this folder
 
 
+Default Behavior
+----------------
+
+Workers must build the module so default CVars mean default functionality.
+
+Acceptable:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1 runs the normal current-frame
+        light sampler/reservoir producer
+    extra CVars select diagnostics, dumps, stress cases, or comparison views
+    the default output is useful lighting or a useful current reservoir
+
+Unacceptable:
+
+    normal functionality requires a long CVar recipe
+    debug colors or heatmaps are the only useful output
+    a feature works only after enabling another module's debug route
+    worker claims a diagnostic route is the production path
+
+
 Forbidden Edits
 ---------------
 
 Do not edit:
 
-    known-good synthetic temporal accumulator
+    known-good clean RTXDI DI / RLU temporal path
     existing temporal reuse code
     spatial reuse code
     best-light code
     denoiser/confidence/gradient code
     mode-56 debug routing
-    old NEE record producers as a shortcut
+    old NEE record producers in the replacement path
     unrelated material/geometry systems
     broad light-universe filters
 
@@ -80,6 +100,18 @@ Required target PDF shape:
 If the worker believes a different expression is required, stop for manager
 review.
 
+Required first source PDF policy:
+
+    proposal domain = dense current RLU lightIndex range
+        [0, currentRluLightCount)
+    sourcePdf = 1.0 / currentRluLightCount
+    invSourcePdf = currentRluLightCount
+    selected reservoir identity = dense current RLU lightIndex
+
+Payload sourcePdf/sourceWeight is not the first producer proposal PDF. Typed
+range, bounded per-range, payload-weighted, portal, alias-table, and ReGIR
+sampling are not allowed in the first producer.
+
 
 Proof Report Format
 -------------------
@@ -92,6 +124,7 @@ Every implementation report must include:
         active RAB load path
 
     estimator table
+        source policy
         lightSelectionPdf
         solidAnglePdf
         targetPdf

@@ -17,7 +17,8 @@ Branch:
 
 Task:
 
-    Work on the standalone ReSTIR PDF + NEE verifier. Do not edit temporal
+    Work on the replacement ReSTIR PDF + NEE current-frame producer only after
+    auditing the working RLU -> clean RTXDI DI path. Do not edit temporal
     accumulation code unless explicitly instructed in a later task.
 
 Read first:
@@ -32,12 +33,31 @@ Read first:
 
 Known state:
 
-    The clean synthetic DI temporal mode can visibly accumulate. Treat that as
-    the known-good accumulator control. Do not modify it.
+    Clean RTXDI DI view 12 can consume the Remix Light Universe (RLU) dense
+    light domain and visibly accumulate real Doom lighting. Treat that as the
+    known-good producer/consumer baseline. Do not modify it.
 
-    The current risk is the current-frame estimator: source PDF, solidAnglePdf,
-    targetPdf, selected-light replay, visibility, and final NEE/direct-light
-    contribution under overlapping lights.
+    The current risk is the replacement current-frame estimator: source PDF,
+    solidAnglePdf, targetPdf, selected-light replay, visibility, and final
+    NEE/direct-light contribution when selecting from the RLU dense current
+    domain.
+
+    First replacement source PDF policy is already fixed: sample uniformly over
+    the full current RLU dense domain. For currentRluLightCount > 0, use
+    sourcePdf = 1/currentRluLightCount and
+    invSourcePdf = currentRluLightCount. Ignore RLU payload
+    sourcePdf/sourceWeight for the first producer.
+
+    The old PDFNEE/ReGIR verifier routes are discarded as implementation
+    routes. Do not claim success from PDFNEE lightMode 8, PDFNEE lightMode 9,
+    ReGIR debug views, portal candidate pools, mode 56, view 72, or
+    non-crashing builds.
+
+Default functionality rule:
+
+    One enable CVar must activate the normal producer path with useful
+    defaults. Extra CVars are diagnostics only. Do not build a module whose
+    normal function requires a long CVar recipe.
 
 Standing restrictions:
 
@@ -48,6 +68,9 @@ Standing restrictions:
     no fallback albedo or beauty output
     no mode-56 route
     no old rbdoom NEE records as proof
+    no ReGIR as the default source
+    no Doom portal candidate pool as the default source
+    no split-domain fallback as the default source
     no broad light suppression as a fix
     no invented ReSTIR math
     no local duplicate RAB helpers unless exact equivalence is proven first
@@ -56,21 +79,26 @@ Required bridge:
 
     Use or exactly match:
 
-        RAB_LoadLightInfo
-        RAB_SamplePolymorphicLight
+        RAB_LoadActiveRrxLightInfo
+        RAB_SampleActiveRrxPolymorphicLight
         RAB_GetLightSampleTargetPdfForSurface
         RAB_GetReflectedBsdfRadianceForSurface
 
 First action:
 
-    Start with PDFNEE-00 only as a read-only bridge audit. No code changes.
+    Start with PDFNEE-RLU-00 only as a read-only RLU/clean-DI contract audit.
+    No code changes.
 
     Report:
 
-        exact CPU producer domain
-        exact shader RAB consumer path
-        where source PDF is produced for emissives
-        where analytic source PDF must be computed
+        exact RLU dense current producer domain
+        exact shader active RRX RAB consumer path
+        exact clean RTXDI DI current reservoir page contract
+        exact selected light identity expected by the clean consumer
+        where source PDF is produced for the full current RLU dense proposal
+            domain
+        confirmation that typed-range, bounded per-range, payload-weighted,
+            portal, and ReGIR policies are deferred
         where solidAnglePdf is produced
         where targetPdf is produced
         where final contribution is produced

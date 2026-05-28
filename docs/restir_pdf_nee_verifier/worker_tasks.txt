@@ -1,17 +1,45 @@
-PDF + NEE Verifier Worker Tasks
-===============================
+PDF + NEE Replacement Worker Tasks
+==================================
 
 Run one task at a time. Stop after the first failing task or after build/deploy
 for user visual testing.
 
 
-PDFNEE-00: Read-Only Bridge Audit
----------------------------------
+Current Status
+--------------
+
+The old PDFNEE/ReGIR verifier implementation is discarded as an implementation
+base. It failed the basic proof requirement and was built before the current
+working RLU path existed.
+
+Do not launch or extend old PDFNEE-00 through PDFNEE-11 tasks. Do not implement
+from their light modes, handoffs, candidate pools, ReGIR recipes, or old NEE
+records.
+
+The current known-good chain is:
+
+    Remix Light Universe (RLU) dense current/previous domain
+    active RRX RAB helpers over that dense RLU domain
+    clean RTXDI DI view 12 consuming RLU
+    clean RTXDI DI temporal accumulation as the proof consumer
+
+Any replacement PDF/NEE module must be built from this chain:
+
+    one enable CVar = normal current-frame DI/NEE functionality
+    default light source = current RLU dense domain
+    default proposal PDF = full-domain uniform over current RLU dense count
+    default handoff target = clean RTXDI DI current reservoir page
+    extra CVars = diagnostics only
+
+
+PDFNEE-RLU-00: Read-Only RLU/Clean-DI Contract Audit
+----------------------------------------------------
 
 Goal:
 
-    Produce a producer-consumer map from Doom/emissive payloads to the shared
-    RAB PDF + NEE helpers.
+    Audit the functioning RLU -> clean RTXDI DI path and define the exact
+    producer/consumer contract a replacement current-frame PDF/NEE module must
+    reuse.
 
 Reference file-equivalent:
 
@@ -22,15 +50,15 @@ RTXDI math reference:
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
 
-rbdoom read set:
+Required rbdoom read set:
 
-    neo/renderer/NVRHI/PathTraceDoomLights.cpp
-    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
-    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
     neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
     neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
     neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
-    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracerNee.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
 
 Allowed write set:
 
@@ -38,335 +66,94 @@ Allowed write set:
 
 Required output:
 
-    exact active domains available
-    where source PDF exists
-    where analytic source PDF must be computed
+    exact RLU current dense light count source
+    exact RLU current payload buffer and typed ranges
+    exact active RRX RAB load/sample helpers
+    exact clean RTXDI DI current reservoir page contract
+    exact light identity expected by the clean consumer
+    where source PDF is produced for the full current RLU dense proposal domain
+    confirm sourcePdf = 1/currentRluLightCount and
+        invSourcePdf = currentRluLightCount for the first producer
     where solidAnglePdf is produced
     where targetPdf is produced
     where final contribution is produced
-    first missing/ambiguous contract
+    first missing or ambiguous replacement contract
 
 
-PDFNEE-01: Verifier CVar And Route Skeleton
--------------------------------------------
-
-Goal:
-
-    Add an isolated verifier route that owns every pixel and cannot use
-    temporal/spatial/denoiser/fallback output.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
-
-Allowed rbdoom write set:
-
-    verifier CVar definitions
-    standalone verifier shader or mode
-    minimal dispatch/resource binding for verifier output
-    CMake shader registration if needed
-
-Forbidden:
-
-    no temporal
-    no spatial
-    no best lights
-    no existing clean synthetic accumulator edits
-    no mode-56 route
-
-Acceptance:
-
-    route sentinel visible
-    invalid/no-light output is loud
-    verifier does not expose fallback scene lighting
-
-
-PDFNEE-02: One Synthetic Light Estimator Proof
-----------------------------------------------
+PDFNEE-RLU-01: Default Current-Frame Producer Design
+----------------------------------------------------
 
 Goal:
 
-    Prove the final contribution formula with one known light.
-
-Required:
-
-    source PDF = 1.0
-    positive solidAnglePdf
-    positive targetPdf
-    raw flat-diffuse current-frame output
-    no temporal
-
-Acceptance:
-
-    output matches documented expected contribution
-    estimator table is included in report
-
-
-PDFNEE-03: Synthetic Overlap Estimator Proof
---------------------------------------------
-
-Goal:
-
-    Prove source-PDF normalization and contribution under two and N overlapping
-    lights.
-
-Required:
-
-    two-light source PDF table
-    N-light source PDF table
-    source PDF sums to 1.0
-    selected light identity changes do not alter mean brightness incorrectly
-
-Acceptance:
-
-    noisy one-sample output has correct mean
-    no strobe from light identity weighting errors
-
-
-PDFNEE-04: One Real Analytic Light Through Shared RAB
------------------------------------------------------
-
-Goal:
-
-    Use one real Doom analytic payload with the shared RAB bridge.
-
-Required:
-
-    RAB_LoadLightInfo
-    RAB_SamplePolymorphicLight
-    RAB_GetLightSampleTargetPdfForSurface
-    RAB_GetReflectedBsdfRadianceForSurface
-
-Forbidden:
-
-    no duplicate local RAB implementation
-    no broad light filtering
-
-Acceptance:
-
-    single real analytic light matches brute-force direct-light reference in
-    mean
-
-
-PDFNEE-05: Two Real Overlapping Analytic Lights
------------------------------------------------
-
-Goal:
-
-    Prove the first real overlapping analytic-light estimator case.
-
-Required:
-
-    explicit proposal domain of exactly two lights
-    source PDF table
-    both lights selectable
-    final contribution table for both lights
-
-Acceptance:
-
-    output matches sum of both direct-light estimates in mean
-    turning off one light removes only that contribution
-
-
-PDFNEE-06: Full Real Analytic Domain
-------------------------------------
-
-Goal:
-
-    Validate the full overlapping Doom analytic domain.
-
-Required:
-
-    active domain count
-    source PDF contract
-    invalid-candidate policy
-    targetPdf and final contribution proof
-
-Acceptance:
-
-    dense overlapping lights produce a noisy but correct current-frame direct
-    estimate
-
-
-PDFNEE-07: Emissive Domain Cross-Check
---------------------------------------
-
-Goal:
-
-    Verify emissive lights through the same verifier route.
-
-Required:
-
-    uploaded emissive source PDF or documented fallback
-    shared RAB replay
-    final contribution table
-
-Acceptance:
-
-    emissive output does not depend on old NEE output or temporal smoothing
-
-
-PDFNEE-08: Integration Handoff Plan Only
-----------------------------------------
-
-Goal:
-
-    Write a plan for connecting the verified current-frame reservoir to the
-    known-good temporal accumulator.
+    Design, but do not yet implement, the replacement current-frame producer
+    that uses the current RLU dense domain by default.
 
 Allowed write set:
 
     docs/restir_pdf_nee_verifier only
 
-Forbidden:
-
-    no implementation
-    no temporal edits
-
-Acceptance:
-
-    exact resource handoff
-    exact producer writes
-    exact accumulator reads
-    negative-path handling
-    first runtime proof after integration
-
 Output artifact:
 
-    integration_handoff_plan.txt
+    current_frame_producer_design.txt
+
+Required design:
+
+    one enable CVar activates the default producer
+    default source domain is the RLU dense current domain
+    default output writes a clean RTXDI DI compatible current reservoir page or
+        raw current-frame direct-light output
+    default route does not require a view/mode/debug recipe
+    diagnostics are optional and cannot be required for functionality
+    selected reservoir identity is a dense RLU current-domain index
+    source policy is full-domain uniform over dense RLU current lightIndex
+        range [0, currentRluLightCount)
+    sourcePdf = 1/currentRluLightCount and
+        invSourcePdf = currentRluLightCount for every first-producer proposal
+    RTXDI helper proposal count M is the number of streamed candidates, not a
+        substitute for the source domain size
+    solidAnglePdf, targetPdf, reflected radiance, visibility, and final
+        contribution all use the same replayed selected sample
+
+Forbidden:
+
+    no payload sourcePdf/sourceWeight sampling in the first producer
+    no typed-range uniform or bounded per-range sampling in the first producer
+    no old PDFNEE lightMode 8 or 9 route
+    no ReGIR dependency
+    no Doom portal candidate pool as the default producer
+    no split-domain fallback as the default producer
+    no old rbdoom selected-light NEE records
+    no old rbdoom NEE contribution output
+    no PathTraceSmokeReservoir handoff
+    no mode 56, view 72, RRX pages, spatial reuse, best-light, or denoiser path
+    no broad light suppression
+    no temporal accumulator edits
 
 
-PDFNEE-09: Clean Accumulator Current Reservoir Producer
--------------------------------------------------------
+PDFNEE-RLU-02: Default Producer Implementation
+----------------------------------------------
 
 Goal:
 
-    Connect the verified PDF + NEE current-frame estimator to the known-good
-    clean RTXDI DI temporal accumulator by producing a clean-compatible
-    RTXDI_PackedDIReservoir current page.
-
-    This is the first implementation task after PDFNEE-08. It is not a mode 56
-    or RRX integration task.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
-
-RTXDI math reference:
-
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/ReservoirStorage.hlsli
-
-Required rbdoom read set:
-
-    neo/shaders/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.hlsl
-    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    Implement the replacement current-frame producer from PDFNEE-RLU-01.
 
 Allowed rbdoom write set:
 
-    neo/shaders/builtin/pathtracing/pathtrace_pdf_nee_verifier.rt.hlsl
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/renderer/NVRHI/PathTracePrimaryPass.h
-    docs/restir_pdf_nee_verifier
-
-    If the worker chooses a new adjacent integration shader instead of
-    extending the verifier shader, it must name that shader before editing and
-    keep the same resource contract.
-
-Forbidden:
-
-    no mode 56 route
-    no RRX reservoir pages
-    no PathTraceSmokeReservoir handoff
-    no spatial reuse
-    no best-light sampling
-    no denoiser/confidence/gradient paths
-    no fallback albedo/beauty output
-    no direct edits to existing temporal/spatial ReSTIR mode 56 code
-    no full-world static emissive append as the default fix
-    no rigid/dynamic emissive route expansion as the default fix
-
-Required producer write:
-
-    Write one current RTXDI_PackedDIReservoir per output pixel into the clean
-    current reservoir page equivalent to:
-
-        CleanRtxdiDiCurrentReservoirs register(u69)
-
-    The producer must write an empty RTXDI reservoir for every invalid pixel or
-    rejected candidate. It must not leave stale reservoir contents.
-
-Required reservoir mapping:
-
-    selected light identity:
-        same selected light index used by the verified PDFNEE RAB replay
-
-    sample UV:
-        same sample UV used by RAB_SamplePolymorphicLight and targetPdf
-        evaluation
-
-    targetPdf:
-        RAB_GetLightSampleTargetPdfForSurface(...) for the same replayed sample
-
-    source PDF:
-        verified PDFNEE proposal PDF for the active light mode/domain
-
-    reservoir M:
-        number of current-frame proposals represented by the reservoir
-
-    reservoir weight:
-        produced through RTXDI reservoir helpers, not by copying final color
-
-Required RTXDI helper shape:
-
-    RTXDI_EmptyDIReservoir
-    RTXDI_StreamSample
-    RTXDI_FinalizeResampling
-    RTXDI_PackDIReservoir
-
-    The worker must not hand-author packed reservoir fields unless they first
-    prove exact equivalence to these helper calls.
-
-Required accumulator boundary:
-
-    First feed only the current reservoir page into the clean accumulator
-    boundary. Reuse the clean accumulator's existing previous/temporal page
-    ownership and primary-surface history contract.
-
-Required proof:
-
-    1. temporal off:
-        integration output matches standalone PDFNEE view 2 in mean for the
-        same light mode/domain
-
-    2. temporal on:
-        first frame is current-frame only
-        later frames visibly reduce noise
-        mean brightness does not shift
-        camera motion tracks without obvious stale light identity
-
-    3. negative path:
-        invalid surface, no active domain, invalid light info, zero sourcePdf,
-        zero solidAnglePdf, zero targetPdf, and visibility rejection all write
-        empty current reservoirs and loud diagnostics
+    exact files must be declared before editing
 
 Acceptance:
 
-    Build/deploy succeeds.
+    enabling the module with its single enable CVar produces useful raw
+    current-frame direct lighting or a clean current reservoir page
+    clean RTXDI DI can consume that page without extra PDFNEE debug CVars
+    invalid paths write empty reservoirs and loud diagnostics
+    build/deploy stops for user visual testing
 
-    User visual testing confirms noisy-to-less-noisy accumulation for at least
-    one verified real domain, starting with analytic lightMode 6 or emissive
-    lightMode 7.
 
-Stop conditions:
+Discarded Work
+--------------
 
-    Stop before implementation if the worker cannot name the exact sample UV
-    source, sourcePdf, targetPdf, M, and RTXDI helper sequence.
-
-    Stop after build/deploy for user visual testing. Do not proceed to spatial,
-    best-light, mode 56, or RRX integration in this task.
+The old PDFNEE-00 through PDFNEE-11 task bodies were intentionally removed from
+this worker task list. Their names must not be used to commission new
+implementation unless a later manager task explicitly writes a new RLU-based
+task under a new replacement contract.

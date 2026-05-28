@@ -1,0 +1,128 @@
+PDFNEE-RLU-02 Implementation Notes
+==================================
+
+Implemented path:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+
+This is the replacement current-frame producer path. It does not require the
+old PDFNEE view/lightMode recipe.
+
+Default proposal count:
+
+    r_pathTracingRestirPdfNeeVerifierSamples 8
+
+The default is eight uniform dense-RLU proposals per pixel. A single proposal is
+kept available as a diagnostic but was too sparse for a useful one-CVar
+full-domain current-frame image on scenes with hundreds of active Doom lights.
+
+
+Producer Shader
+---------------
+
+Shader:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+
+The shader compiles the existing smoke primary-surface and active RRX RAB
+machinery with:
+
+    RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+
+The producer writes:
+
+    CleanRtxdiDiCurrentReservoirs register(u69)
+    SmokeOutput tone-mapped current-frame direct-light diagnostic
+
+The reservoir page is the proof target. The standalone SmokeOutput preview is
+only a visual diagnostic and is tone mapped; it is not an unclamped raw mean
+proof.
+
+
+Source Policy
+-------------
+
+Default source domain:
+
+    current dense RLU lightIndex range [0, currentRluLightCount)
+
+Per streamed candidate:
+
+    lightIndex = uniform dense current RLU index
+    sourcePdf = 1.0 / currentRluLightCount
+    invSourcePdf = currentRluLightCount
+
+The producer ignores RLU payload sourcePdf/sourceWeight for proposal PDF.
+
+Current reservoir M contract:
+
+    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M)
+    reservoir.M = 1
+
+The streamed proposal count participates in initial reservoir finalization, but
+the produced current reservoir stores M = 1, matching the working RTXDI initial
+local-light path and the clean current-reservoir consumer expectation.
+
+Visibility policy:
+
+    r_pathTracingRestirPdfNeeVerifierVisibility 1
+
+The producer matches the working RTXDI initial path by not folding candidate
+visibility into the proposal target function:
+
+    targetPdf = RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+
+Selected-light replay stores visibility separately:
+
+    selected sample -> RAB_GetSelectedNeeVisibility
+    RTXDI_StoreVisibilityInDIReservoir
+
+The stricter shadow-ray rungs are controlled by
+r_pathTracingRestirPTVisibilityPolicy. This keeps the current reservoir target
+function comparable with clean temporal/remap replay while still allowing
+selected-visibility diagnostics.
+
+Strict selected-sample visibility for Doom analytic RLU lights ignores the
+originating surface instance/primitive/material when tracing the shadow ray.
+Without that source-surface ignore, policy 1 self-occluded most selected samples
+and collapsed the current-frame producer back to empty-reservoir status.
+
+A selected sample with traced visibility 0 is still a valid selected-light
+reservoir. The producer stores zero visibility in the reservoir and emits zero
+direct contribution, instead of discarding the reservoir and painting the
+empty-reservoir status color.
+
+An empty current reservoir after proposal streaming is also a zero-contribution
+current-frame result in the normal producer output. It is not shown as orange in
+the one-CVar path, because full-domain uniform sampling can legitimately miss a
+positive-target light for a pixel. Explicit invalid-state classifier colors must
+be a separate diagnostic view.
+
+
+Required Bridge
+---------------
+
+The selected-light replay uses:
+
+    RAB_LoadActiveRrxLightInfo(lightIndex, false)
+    RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, sampleUv)
+    RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+    RAB_GetReflectedBsdfRadianceForSurface(
+        lightSample.position,
+        lightSample.radiance,
+        surface)
+
+
+Clean Handoff
+-------------
+
+When clean RTXDI DI is active at the same time, the enable CVar also marks the
+clean current page as an external PDF/NEE current producer and enables the RLU
+consumer route without requiring extra PDFNEE debug CVars.
+
+The implementation does not edit temporal accumulation, spatial reuse,
+best-light, denoiser, mode-56, ReGIR, portal, or old PDFNEE lightMode routes.
+
+Legacy PDFNEE lightMode values are ignored by the replacement producer. In
+particular, stale lightMode 8 or 9 settings must not block
+r_pathTracingRestirPdfNeeVerifierEnable 1 from running the RLU current producer.

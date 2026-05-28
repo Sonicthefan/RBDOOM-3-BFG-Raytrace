@@ -1,0 +1,276 @@
+PDFNEE-RLU-01 Current-Frame Producer Design
+===========================================
+
+Task
+----
+
+PDFNEE-RLU-01 designs the replacement current-frame producer. It does not
+implement code.
+
+The producer replaces the old PDFNEE/NEE attempts. It does not extend their
+light modes, ReGIR routes, portal pools, split-domain fallback, old NEE
+records, or old contribution output.
+
+
+Default Behavior
+----------------
+
+One CVar activates the normal producer:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+
+Default behavior:
+
+    current-frame only
+    source domain = full current RLU dense lightIndex range
+    source policy = full-domain uniform
+    output = clean RTXDI DI compatible current reservoir page
+    no required view/lightMode/debug recipe
+
+Optional diagnostics may expose scalar PDFs, selected identity, invalid
+classification, and raw flat-diffuse resolve. They cannot be required for the
+normal producer to function.
+
+
+Producer Inputs
+---------------
+
+I-01: Current Primary Surface
+
+    Read current-frame primary surface data only. The producer may reuse the
+    existing current primary-surface prepass/resource, but it must not consume
+    previous primary surface, motion vectors, temporal reprojection, or
+    temporal reservoir pages for current-frame proof.
+
+I-02: Current RLU Dense Light Domain
+
+    Required shader-visible domain:
+
+        RestirLightManagerControlInfo.x enables the active RAB manager route
+        RestirLightManagerControlInfo.y identifies Remix dense source
+        RestirLightManagerInfo.x supplies currentRluLightCount
+        PathTraceRestirLightManagerCurrentPayload at t66 supplies dense
+            PathTraceUnifiedLightRecord payloads
+
+    Required CPU source:
+
+        PathTraceRemixLightManager current payloads
+        PathTraceRemixLightManager typed ranges for diagnostics only
+        PathTraceSmokeSceneBuild uploads those payloads into the
+            RestirLightManagerCurrentPayload shader ABI bridge
+
+    The default proposal domain is:
+
+        lightIndex in [0, currentRluLightCount)
+
+    The typed ranges are useful diagnostics and future extension points. They
+    are not the first producer's source domains.
+
+I-03: Active RRX RAB Helpers
+
+    The implementation must call or exactly match:
+
+        RAB_LoadActiveRrxLightInfo(lightIndex, false)
+        RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, sampleUv)
+        RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+        RAB_GetReflectedBsdfRadianceForSurface(
+            lightSample.position,
+            lightSample.radiance,
+            surface)
+
+    Generic RAB_LoadLightInfo/RAB_SamplePolymorphicLight may only be used if
+    the worker proves they are exactly routing through the same active RRX
+    dense path under the replacement CVar. A local duplicate RAB helper is not
+    acceptable.
+
+I-05: Visibility
+
+    The first proof may have a forced-visible calibration diagnostic, but the
+    default real-light producer must state and use a selected-sample visibility
+    policy. Visibility rejection writes an empty reservoir or loud invalid
+    diagnostic; it must not reveal fallback lighting.
+
+I-06: RTXDI DI Reservoir Helpers
+
+    Required helpers:
+
+        RTXDI_EmptyDIReservoir
+        RTXDI_StreamSample
+        RTXDI_FinalizeResampling
+        RTXDI_PackDIReservoir
+
+    The implementation must not hand-author packed reservoir fields.
+
+
+Source PDF
+----------
+
+For currentRluLightCount > 0:
+
+    proposal domain = dense current lightIndex range [0, currentRluLightCount)
+    sourcePdf = 1.0 / currentRluLightCount
+    invSourcePdf = currentRluLightCount
+
+For every streamed candidate:
+
+    selectedLightIndex = uniformly sampled dense current lightIndex
+    sampleUv = random two-dimensional light sample
+    invSourcePdf = currentRluLightCount
+
+The RLU payload fields sourcePdf/sourceWeight are ignored by the first
+producer. Doom analytic payload sourcePdf can be zero, so it is not a valid
+proposal PDF.
+
+Deferred policies:
+
+    typed-range uniform
+    bounded per-range
+    payload-weighted
+    alias-table
+    portal
+    ReGIR
+
+Each deferred policy needs a separate source-PDF proof before implementation.
+
+
+Reservoir Algorithm
+-------------------
+
+For each output pixel:
+
+    1. Load the current primary surface.
+    2. If the surface is invalid, write RTXDI_EmptyDIReservoir.
+    3. Read currentRluLightCount from the active dense RLU domain.
+    4. If currentRluLightCount is zero, write RTXDI_EmptyDIReservoir.
+    5. Initialize RTXDI_EmptyDIReservoir.
+    6. For each current-frame candidate sample:
+        choose dense current lightIndex uniformly from
+            [0, currentRluLightCount)
+        set invSourcePdf = currentRluLightCount
+        choose sampleUv
+        load lightInfo with RAB_LoadActiveRrxLightInfo
+        sample lightSample with RAB_SampleActiveRrxPolymorphicLight
+        compute targetPdf with RAB_GetLightSampleTargetPdfForSurface
+        if lightInfo, lightSample, solidAnglePdf, or targetPdf is invalid:
+            stream targetPdf = 0 or skip according to the final helper-equivalent
+            implementation, keeping the invalid state loud in diagnostics
+        otherwise stream:
+            RTXDI_StreamSample(
+                reservoir,
+                lightIndex,
+                sampleUv,
+                risRandom,
+                targetPdf,
+                invSourcePdf)
+    7. Finalize with RTXDI_FinalizeResampling using the streamed candidate
+       count as the normalization denominator.
+    8. Store visibility for the selected sample if the chosen proof rung uses
+       traced visibility.
+    9. Write RTXDI_PackDIReservoir to the clean current reservoir page.
+
+The proposal/sample count M is the number of streamed current-frame
+candidates. It is not currentRluLightCount unless the implementation streams
+the whole dense domain.
+
+
+Output Contract
+---------------
+
+Default output:
+
+    Clean RTXDI DI compatible current page equivalent to:
+
+        CleanRtxdiDiCurrentReservoirs register(u69)
+
+Each valid packed reservoir must contain:
+
+    selected dense RLU current-domain lightIndex
+    sampleUv used for RAB replay
+    targetPdf for the same replayed lightSample
+    finalized reservoir weight/invPdf from RTXDI helpers
+    M for the streamed current-frame candidate count
+
+Invalid paths write empty reservoirs:
+
+    invalid surface
+    no RLU light domain
+    invalid light info
+    invalid replay sample
+    zero solidAnglePdf
+    zero targetPdf
+    visibility rejected when the proof rung discards invisible samples
+
+Optional diagnostic output:
+
+    current-frame direct-light preview:
+
+        reflectedRadiance *
+        RTXDI_GetDIReservoirInvPdf(reservoir) /
+        max(lightSample.solidAnglePdf, epsilon) *
+        visibility
+
+    This resolve is diagnostic output only. The displayed preview may be
+    tone-mapped or otherwise display-shaped and must not be used as an
+    unclamped raw mean proof. It does not replace the clean current reservoir
+    page as the default handoff target.
+
+
+Clean Consumer Compatibility
+----------------------------
+
+The clean consumer must be able to replay the selected sample by reading:
+
+    RTXDI_GetDIReservoirLightIndex(reservoir)
+    RTXDI_GetDIReservoirSampleUV(reservoir)
+
+Then:
+
+    RLU dense lightIndex -> active RRX/RLU light info
+    sampleUv -> same RAB lightSample
+    same lightSample -> solidAnglePdf, targetPdf, reflectedRadiance
+
+The selected light identity is never:
+
+    split Doom analytic index
+    compact portal candidate index
+    ReGIR slot
+    old rbdoom selected-light NEE identity
+    old external PDFNEE analytic-only identity
+
+
+Future Implementation Write Set
+-------------------------------
+
+The implementation task must restate the exact write set before editing. The
+expected narrow write set is:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.h
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+    build/shader registration if a new shader library requires it
+    docs/restir_pdf_nee_verifier
+
+If the worker reuses an existing shader filename instead of adding
+pathtrace_restir_pdf_nee_rlu_current.rt.hlsl, they must state why it is a
+complete replacement and not an extension of old PDFNEE light modes.
+
+
+Stop Conditions
+---------------
+
+Stop before implementation if:
+
+    currentRluLightCount cannot be read from the dense RLU domain
+    the shader route cannot prove Remix dense source is active
+    sourcePdf/invSourcePdf deviates from full-domain uniform
+    selected identity is not dense current RLU lightIndex
+    targetPdf and final contribution use different light samples
+    solidAnglePdf is missing
+    the default route needs a multi-CVar recipe
+    output depends on fallback beauty/albedo or old NEE contribution
+    temporal, spatial, best-light, denoiser, mode 56, view 72, ReGIR, or
+        portal routes are required
