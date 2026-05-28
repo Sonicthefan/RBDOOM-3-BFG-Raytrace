@@ -1367,9 +1367,9 @@ idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection(
 
 idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory(
     "r_pathTracingCleanRtxdiDiTemporalMaxHistory",
-    "16",
+    "5",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: RTXDI temporal maxHistoryLength parameter; use 0 to run temporal while suppressing previous-reservoir history contribution" );
+    "Clean-room Remix DI diagnostic: RTXDI temporal maxHistoryLength parameter; default 5 limits stale history during movement; use 0 to run temporal while suppressing previous-reservoir history contribution" );
 
 idCVar r_pathTracingRestirPTView68Dump(
     "r_pathTracingRestirPTView68Dump",
