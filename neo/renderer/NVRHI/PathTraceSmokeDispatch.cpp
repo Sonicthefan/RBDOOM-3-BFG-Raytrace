@@ -1065,7 +1065,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger(),
             r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger(),
             cleanDumpCandidateOverride,
-            idMath::ClampInt(-1, 7, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
+            idMath::ClampInt(-1, 8, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
             r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1 : 0,
             r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1 : 0,
             idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()),
@@ -1200,31 +1200,49 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (pdfNeeRluCurrentProducerRequested)
         {
             const int managerCount = static_cast<int>(regirRemixLightManagerStats.currentLightCount);
+            const int sourcePolicy = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierSourcePolicy.GetInteger());
+            const bool typedPolicy =
+                sourcePolicy != 0 &&
+                (regirRemixLightManagerStats.emissiveRangeCount > 0u || regirRemixLightManagerStats.doomAnalyticRangeCount > 0u);
+            const float emissiveClassProbability = typedPolicy && regirRemixLightManagerStats.emissiveRangeCount > 0u
+                ? (regirRemixLightManagerStats.doomAnalyticRangeCount > 0u ? 0.5f : 1.0f)
+                : 0.0f;
+            const float doomAnalyticClassProbability = typedPolicy && regirRemixLightManagerStats.doomAnalyticRangeCount > 0u
+                ? (regirRemixLightManagerStats.emissiveRangeCount > 0u ? 0.5f : 1.0f)
+                : 0.0f;
             const char* firstMissingContract =
                 pdfNeeVerifierEntryForbiddenMode ? "forbidden-mode-56" :
                 (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 ? earlyReturn :
                 (managerCount <= 0 ? "current-rlu-dense-domain" : "none"));
             common->Printf(
-                "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer dump stage=%s earlyReturn=%s enable=%d route=%d samples=%d visibility=%d debugMode=%d rluEnabled=%u rluDomain=%u rluCurrent=%u rluRanges emissive=%u+%u doomAnalytic=%u+%u sourcePdf=uniform-dense-current sourcePdfFormula=1/currentRluLightCount invSourcePdf=currentRluLightCount selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanReservoirPage=u69 shader=%d bindingLayout=%d outputTex=%d firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=PDFNEE-RLU-02\n",
+                "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer dump stage=%s earlyReturn=%s enable=%d route=%d samples=%d visibility=%d sourcePolicy=%d(%s) debugMode=%d rluEnabled=%u rluCurrent=%u rluPrevious=%u rluRanges emissive=%u+%u doomAnalytic=%u+%u classProbability emissive=%.3f doomAnalytic=%.3f sourcePdf=%s sourcePdfFormula=%s invSourcePdfFormula=%s selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanReservoirPage=u69 shader=%d bindingLayout=%d outputTex=%d firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=%s\n",
                 stage ? stage : "unknown",
                 earlyReturn ? earlyReturn : "none",
                 r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
                 firstMissingContract[0] == 'n' && idStr::Icmp(firstMissingContract, "none") == 0 ? 1 : 0,
                 idMath::ClampInt(1, 32, r_pathTracingRestirPdfNeeVerifierSamples.GetInteger()),
                 idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger()),
+                sourcePolicy,
+                typedPolicy ? "typed-stratified-rlu" : "full-domain-uniform-rlu",
                 pdfNeeVerifierEntryDebugMode,
                 regirRemixLightManagerStats.enabled,
-                regirRemixLightManagerStats.domain,
                 regirRemixLightManagerStats.currentLightCount,
+                regirRemixLightManagerStats.previousLightCount,
                 regirRemixLightManagerStats.emissiveRangeOffset,
                 regirRemixLightManagerStats.emissiveRangeCount,
                 regirRemixLightManagerStats.doomAnalyticRangeOffset,
                 regirRemixLightManagerStats.doomAnalyticRangeCount,
+                emissiveClassProbability,
+                doomAnalyticClassProbability,
+                typedPolicy ? "typed-class-uniform" : "uniform-dense-current",
+                typedPolicy ? "classProbability/classCount" : "1/currentRluLightCount",
+                typedPolicy ? "classCount/classProbability" : "currentRluLightCount",
                 m_smokeRestirPdfNeeRluCurrentShaderTable ? 1 : 0,
                 m_smokePdfNeeVerifierBindingLayout ? 1 : 0,
                 m_frameResources.outputTexture ? 1 : 0,
                 firstMissingContract,
-                pdfNeeVerifierEntryForbiddenMode ? 1 : 0);
+                pdfNeeVerifierEntryForbiddenMode ? 1 : 0,
+                typedPolicy ? "PDFNEE-RLU-03" : "PDFNEE-RLU-02");
             return;
         }
 
@@ -2093,7 +2111,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeeProducerConstants.restirPdfNeeVerifierInfo[3] = 0.0f;
             pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[0] = static_cast<float>(idMath::ClampInt(1, 32, r_pathTracingRestirPdfNeeVerifierSamples.GetInteger()));
             pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[1] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger()));
-            pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[2] = 0.0f;
+            pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[2] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierSourcePolicy.GetInteger()));
             pdfNeeProducerConstants.restirPdfNeeVerifierControlInfo[3] = 1.0f;
             pdfNeeProducerConstants.regirInfo0[0] = regirSettings.enabled ? 1.0f : 0.0f;
             pdfNeeProducerConstants.regirInfo0[1] = 0.0f;
@@ -2437,7 +2455,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.analyticRemapCount = cleanAnalyticRemapCount;
         cleanConstants.temporalFlags = cleanTemporalFlags;
         cleanConstants.historyResetCount = m_smokeCleanRtxdiDiHistoryResetCount;
-        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 7, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
+        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 8, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
         cleanConstants.resolveVisibilityReuse = r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1u : 0u;
         cleanConstants.resolveBrdfTarget = r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1u : 0u;
         cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));
@@ -3623,10 +3641,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         regirDebugRouteRequested &&
         useRemixLightManagerDenseRabSource &&
         (regirSettings.lightDomain == 0 || regirSettings.lightDomain == 2);
+    const bool pdfNeeNeedsCurrentRluTypedRanges =
+        pdfNeeRluCurrentProducerRequested &&
+        useRemixLightManagerDenseRabSource;
     const uint32_t activeEmissiveRangeCount =
-        (rrxEmissiveSamplingEnabled || regirNeedsEmissiveRange) ? rawEmissiveRangeCount : 0u;
+        (rrxEmissiveSamplingEnabled || regirNeedsEmissiveRange || pdfNeeNeedsCurrentRluTypedRanges) ? rawEmissiveRangeCount : 0u;
     const uint32_t activeDoomAnalyticRangeCount =
-        (rrxDoomAnalyticSamplingEnabled || regirNeedsDoomAnalyticRange) ? rawDoomAnalyticRangeCount : 0u;
+        (rrxDoomAnalyticSamplingEnabled || regirNeedsDoomAnalyticRange || pdfNeeNeedsCurrentRluTypedRanges) ? rawDoomAnalyticRangeCount : 0u;
     constants.restirLightManagerRangeInfo[0] = static_cast<float>(rawEmissiveRangeOffset);
     constants.restirLightManagerRangeInfo[1] = static_cast<float>(activeEmissiveRangeCount);
     constants.restirLightManagerRangeInfo[2] = static_cast<float>(rawDoomAnalyticRangeOffset);
@@ -3707,6 +3728,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int pdfNeeVerifierDomain = idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierDomain.GetInteger());
     const int pdfNeeVerifierSamples = idMath::ClampInt(1, 32, r_pathTracingRestirPdfNeeVerifierSamples.GetInteger());
     const int pdfNeeVerifierVisibility = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger());
+    const int pdfNeeVerifierSourcePolicy = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierSourcePolicy.GetInteger());
     const bool pdfNeeVerifierForbiddenMode = debugMode == 56;
     const bool pdfNeeRluCurrentProducerEnabled =
         r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 &&
@@ -3724,32 +3746,49 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPdfNeeVerifierInfo[3] = static_cast<float>(pdfNeeVerifierDomain);
     constants.restirPdfNeeVerifierControlInfo[0] = static_cast<float>(pdfNeeVerifierSamples);
     constants.restirPdfNeeVerifierControlInfo[1] = static_cast<float>(pdfNeeVerifierVisibility);
-    constants.restirPdfNeeVerifierControlInfo[2] = static_cast<float>(r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0 ? 1 : 0);
+    constants.restirPdfNeeVerifierControlInfo[2] = static_cast<float>(pdfNeeVerifierSourcePolicy);
     constants.restirPdfNeeVerifierControlInfo[3] = pdfNeeVerifierRouteEnabled ? 1.0f : 0.0f;
     if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0 && pdfNeeRluCurrentProducerEnabled)
     {
         const int managerCount = static_cast<int>(constants.restirLightManagerInfo[0]);
+        const int emissiveCount = static_cast<int>(constants.restirLightManagerRangeInfo[1]);
+        const int doomAnalyticCount = static_cast<int>(constants.restirLightManagerRangeInfo[3]);
+        const bool typedPolicy = pdfNeeVerifierSourcePolicy != 0 && (emissiveCount > 0 || doomAnalyticCount > 0);
+        const float emissiveClassProbability = typedPolicy && emissiveCount > 0
+            ? (doomAnalyticCount > 0 ? 0.5f : 1.0f)
+            : 0.0f;
+        const float doomAnalyticClassProbability = typedPolicy && doomAnalyticCount > 0
+            ? (emissiveCount > 0 ? 0.5f : 1.0f)
+            : 0.0f;
         const char* firstMissingContract =
             pdfNeeVerifierForbiddenMode ? "forbidden-mode-56" :
             (managerCount <= 0 ? "current-rlu-dense-domain" : "none");
         common->Printf(
-            "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer route enable=%d requestedEnable=%d samples=%d visibility=%d debugMode=%d managerCount=%d rluDomain=%d rluRanges emissive=%d+%d doomAnalytic=%d+%d sourcePdf=uniform-dense-current sourcePdfFormula=1/currentRluLightCount invSourcePdf=currentRluLightCount selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=PDFNEE-RLU-02\n",
+            "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer route enable=%d requestedEnable=%d samples=%d visibility=%d sourcePolicy=%d(%s) debugMode=%d managerCount=%d previousCount=%d rluRanges emissive=%d+%d doomAnalytic=%d+%d classProbability emissive=%.3f doomAnalytic=%.3f sourcePdf=%s sourcePdfFormula=%s invSourcePdfFormula=%s selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=%s\n",
             idStr::Icmp(firstMissingContract, "none") == 0 ? 1 : 0,
             r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
             pdfNeeVerifierSamples,
             pdfNeeVerifierVisibility,
+            pdfNeeVerifierSourcePolicy,
+            typedPolicy ? "typed-stratified-rlu" : "full-domain-uniform-rlu",
             debugMode,
             managerCount,
             static_cast<int>(constants.restirLightManagerInfo[1]),
             static_cast<int>(constants.restirLightManagerRangeInfo[0]),
-            static_cast<int>(constants.restirLightManagerRangeInfo[1]),
+            emissiveCount,
             static_cast<int>(constants.restirLightManagerRangeInfo[2]),
-            static_cast<int>(constants.restirLightManagerRangeInfo[3]),
+            doomAnalyticCount,
+            emissiveClassProbability,
+            doomAnalyticClassProbability,
+            typedPolicy ? "typed-class-uniform" : "uniform-dense-current",
+            typedPolicy ? "classProbability/classCount" : "1/currentRluLightCount",
+            typedPolicy ? "classCount/classProbability" : "currentRluLightCount",
             m_smokeCleanRtxdiDiCurrentReservoirBuffer ? 1 : 0,
             m_smokeCleanRtxdiDiTemporalReservoirBuffer ? 1 : 0,
             m_smokeCleanRtxdiDiPreviousReservoirBuffer ? 1 : 0,
             firstMissingContract,
-            pdfNeeVerifierForbiddenMode ? 1 : 0);
+            pdfNeeVerifierForbiddenMode ? 1 : 0,
+            typedPolicy ? "PDFNEE-RLU-03" : "PDFNEE-RLU-02");
         r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
     }
     if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)

@@ -3718,14 +3718,18 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
         return result;
     }
 
-    const uint currentEmissiveCount = RAB_GetCurrentEmissiveTriangleCount();
-    const uint currentAnalyticCount = RAB_GetCurrentDoomAnalyticLightCount();
-    if ((candidate.lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_EMISSIVE_TRIANGLE && candidate.globalIdentity >= currentEmissiveCount) ||
-        (candidate.lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC &&
-            (candidate.globalIdentity < currentEmissiveCount || candidate.globalIdentity >= currentEmissiveCount + currentAnalyticCount)))
+    const bool denseRluIdentity = RAB_RestirLightManagerRemixDenseDomainEnabled();
+    if (!denseRluIdentity)
     {
-        result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_GLOBAL_IDENTITY;
-        return result;
+        const uint currentEmissiveCount = RAB_GetCurrentEmissiveTriangleCount();
+        const uint currentAnalyticCount = RAB_GetCurrentDoomAnalyticLightCount();
+        if ((candidate.lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_EMISSIVE_TRIANGLE && candidate.globalIdentity >= currentEmissiveCount) ||
+            (candidate.lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC &&
+                (candidate.globalIdentity < currentEmissiveCount || candidate.globalIdentity >= currentEmissiveCount + currentAnalyticCount)))
+        {
+            result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_GLOBAL_IDENTITY;
+            return result;
+        }
     }
     if (result.sourcePdf <= 0.0)
     {
@@ -3738,7 +3742,15 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
         return result;
     }
 
-    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(candidate.globalIdentity, false);
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    if (denseRluIdentity)
+    {
+        lightInfo = RAB_LoadActiveRrxLightInfo(candidate.globalIdentity, false);
+    }
+    else
+    {
+        lightInfo = RAB_LoadLightInfo(candidate.globalIdentity, false);
+    }
     if (!RAB_IsLightInfoValid(lightInfo))
     {
         result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_RAB_LOAD;
@@ -3751,7 +3763,15 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidateSlot(
         return result;
     }
 
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, result.sampleUv);
+    RAB_LightSample lightSample = RAB_EmptyLightSample();
+    if (denseRluIdentity)
+    {
+        lightSample = RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, result.sampleUv);
+    }
+    else
+    {
+        lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, result.sampleUv);
+    }
     if (!RAB_IsReplayableLightSample(lightSample))
     {
         result.invalidReason = PATH_TRACE_PDF_NEE_INVALID_REGIR_RAB_SAMPLE;
@@ -3948,7 +3968,11 @@ float4 EvaluatePathTracePdfNeeRealRabRoute(RAB_Surface surface, uint2 pixel, uin
     }
 
     uint cleanLightIndex = 0xffffffffu;
-    if (result.valid != 0u && ((lightMode >= 4u && lightMode <= 6u) || lightMode == 9u))
+    if (result.valid != 0u && lightMode == 9u)
+    {
+        cleanLightIndex = result.selectedLightIndex;
+    }
+    else if (result.valid != 0u && lightMode >= 4u && lightMode <= 6u)
     {
         const uint emissiveCount = RAB_GetCurrentEmissiveTriangleCount();
         cleanLightIndex = result.selectedLightIndex >= emissiveCount

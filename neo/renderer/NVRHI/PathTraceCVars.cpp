@@ -1161,6 +1161,12 @@ idCVar r_pathTracingRestirPdfNeeVerifierVisibility(
     CVAR_RENDERER | CVAR_INTEGER,
     "Replacement RLU current producer visibility: 0 forced visible diagnostic, 1 use RAB NEE visibility policy; r_pathTracingRestirPTVisibilityPolicy controls selected/strict shadow rays" );
 
+idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy(
+    "r_pathTracingRestirPdfNeeVerifierSourcePolicy",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Replacement RLU current producer source policy: 0 full dense RLU uniform baseline, 1 typed 50/50 stratified over non-empty emissive and Doom analytic RLU ranges" );
+
 idCVar r_pathTracingRestirPdfNeeVerifierDomain(
     "r_pathTracingRestirPdfNeeVerifierDomain",
     "0",
@@ -1249,7 +1255,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one temporal diagnostic band full-screen; -1 keeps the default stacked bands, valid forced range is 0..7" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..8; band 8 classifies selected-sample black output cause" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",

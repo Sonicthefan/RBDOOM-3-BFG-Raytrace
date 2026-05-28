@@ -200,6 +200,7 @@ extern idCVar r_pathTracingRestirPdfNeeVerifierView;
 extern idCVar r_pathTracingRestirPdfNeeVerifierLightMode;
 extern idCVar r_pathTracingRestirPdfNeeVerifierSamples;
 extern idCVar r_pathTracingRestirPdfNeeVerifierVisibility;
+extern idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy;
 extern idCVar r_pathTracingRestirPdfNeeVerifierDomain;
 extern idCVar r_pathTracingRestirPdfNeeVerifierDump;
 extern idCVar r_pathTracingCleanRtxdiDiEnable;

@@ -1325,6 +1325,80 @@ float3 PathTraceCleanRoomFlatDiffuseResolve(PathTraceCleanRtxdiDiInitialResult r
     return PathTraceCleanRoomFlatDiffuseResolveReservoir(result.surface, result.reservoir);
 }
 
+float3 PathTraceCleanRoomSelectedSampleFailureColor(PathTracePrimarySurfaceRecord surfaceRecord, RTXDI_DIReservoir reservoir, uint initialStatus)
+{
+    if (initialStatus != CLEAN_INITIAL_STATUS_VALID && initialStatus != CLEAN_INITIAL_STATUS_ZERO_TARGET_PDF)
+    {
+        return PathTraceCleanRoomStatusColor(initialStatus);
+    }
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return float3(1.0, 0.0, 0.0); // red: no selected reservoir sample
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    if (!PathTraceCleanRoomSyntheticMode() &&
+        !PathTraceCleanRoomExternalPdfNeeCurrentEnabled() &&
+        lightIndex >= PathTraceCleanRoomInitialLightCount())
+    {
+        return float3(1.0, 0.45, 0.0); // orange: selected index outside the active light domain
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(surfaceRecord);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.45, 0.0, 0.65); // purple: invalid primary surface
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, RTXDI_GetDIReservoirSampleUV(reservoir));
+    if (!RAB_IsReplayableLightSample(lightSample))
+    {
+        return float3(1.0, 0.0, 1.0); // magenta: selected light cannot replay into a valid sample
+    }
+    if (lightSample.solidAnglePdf <= 1.0e-8 || !(lightSample.solidAnglePdf == lightSample.solidAnglePdf))
+    {
+        return float3(0.0, 0.18, 1.0); // blue: invalid sampled-light solid-angle PDF
+    }
+    if (reservoir.targetPdf <= 1.0e-8 || !(reservoir.targetPdf == reservoir.targetPdf))
+    {
+        return float3(0.0, 0.95, 1.0); // cyan: invalid selected target PDF
+    }
+
+    const float radianceLum = RAB_Luminance(max(lightSample.radiance, float3(0.0, 0.0, 0.0)));
+    if (radianceLum <= 1.0e-8 || !(radianceLum == radianceLum))
+    {
+        return float3(1.0, 0.86, 0.0); // yellow: selected light has no usable radiance
+    }
+
+    const float3 toSample = lightSample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
+    const float3 lightDirection = PathTraceCleanRoomSafeNormalize(toSample, PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
+    const float3 shadingNormal = PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz);
+    const float ndotl = saturate(dot(shadingNormal, lightDirection));
+    if (ndotl <= 1.0e-8 || !(ndotl == ndotl))
+    {
+        return float3(0.55, 0.0, 1.0); // violet: selected point is behind the shading normal
+    }
+
+    const float visibility = PathTraceCleanRoomSyntheticSingleLightMode()
+        ? 1.0
+        : PathTraceCleanRoomTraceVisibility(surfaceRecord, lightSample.position);
+    if (visibility <= 1.0e-8 || !(visibility == visibility))
+    {
+        return float3(0.0, 0.95, 0.12); // green: selected sample is rejected by clean visibility
+    }
+
+    const float3 resolved = PathTraceCleanRoomFlatDiffuseResolveReservoir(surfaceRecord, reservoir);
+    const float resolvedLum = RAB_Luminance(max(resolved, float3(0.0, 0.0, 0.0)));
+    if (resolvedLum <= 1.0e-8 || !(resolvedLum == resolvedLum))
+    {
+        return float3(0.45, 0.05, 0.02); // dark red: black output after all explicit gates passed
+    }
+
+    const float brightness = saturate(log2(1.0 + max(resolvedLum, 0.0)) / 12.0);
+    return lerp(float3(0.12, 0.12, 0.12), float3(1.0, 1.0, 1.0), brightness);
+}
+
 float3 PathTraceCleanRoomReservoirIdentityColor(PathTraceCleanRtxdiDiInitialResult result, uint2 pixel)
 {
     if (result.status != CLEAN_INITIAL_STATUS_VALID)
@@ -1809,9 +1883,15 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
         return PathTraceCleanRoomStatusColor(initial.status);
     }
 
-    const uint bandCount = 8u;
+    const uint bandCount = 9u;
     const bool forcedBand = CleanRtxdiDiView8Band < bandCount;
     const uint band = forcedBand ? CleanRtxdiDiView8Band : min((pixel.y * bandCount) / max(dimensions.y, 1u), bandCount - 1u);
+    if (band == 8u)
+    {
+        return pixel.x < (dimensions.x >> 1u)
+            ? PathTraceCleanRoomSelectedSampleFailureColor(initial.surface, initial.reservoir, initial.status)
+            : PathTraceCleanRoomSelectedSampleFailureColor(initial.surface, temporal.reservoir, initial.status);
+    }
     if (band == 0u)
     {
         float3 gate = PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_ENABLED | CLEAN_TEMPORAL_DIAG_PREVIOUS_FRAME_VALID);
@@ -1893,6 +1973,10 @@ float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, u
     }
     if (view == 8u)
     {
+        if (CleanRtxdiDiView8Band == 8u)
+        {
+            return PathTraceCleanRoomSelectedSampleFailureColor(result.surface, result.reservoir, result.status);
+        }
         return PathTraceCleanRoomReservoirWeightColor(result, pixel);
     }
     return PathTraceCleanRoomStatusColor(result.status);
