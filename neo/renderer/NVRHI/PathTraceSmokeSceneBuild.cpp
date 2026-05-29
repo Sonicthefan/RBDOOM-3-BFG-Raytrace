@@ -2698,6 +2698,143 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         useRemixLightManagerRabSource ? m_remixLightManager.GetCurrentLightPayloads() : m_restirLightManager.GetActiveCurrentPayloadRecords();
     const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
         useRemixLightManagerRabSource ? m_remixLightManager.GetPreviousLightPayloads() : m_restirLightManager.GetActivePreviousPayloadRecords();
+    if (remixLightUniverseDump != 0 && remixLightManagerActiveStats.enabled != 0u && remixLightManagerActiveStats.domain == 2u)
+    {
+        auto recordFinite = [](const PathTraceUnifiedLightRecord& record) {
+            return
+                std::isfinite(record.positionAndRadius[0]) &&
+                std::isfinite(record.positionAndRadius[1]) &&
+                std::isfinite(record.positionAndRadius[2]) &&
+                std::isfinite(record.positionAndRadius[3]) &&
+                std::isfinite(record.uvOrDoomParams[0]) &&
+                std::isfinite(record.normalAndArea[3]) &&
+                std::isfinite(record.radianceAndLuminance[3]) &&
+                std::isfinite(record.sourceWeight);
+        };
+        auto printMappedDoomPair = [&](const char* label, uint32_t currentIndex, uint32_t previousIndex, uint32_t previousToCurrentIndex) {
+            const PathTraceUnifiedLightRecord& current = restirLightManagerCurrentPayloadRecords[currentIndex];
+            const PathTraceUnifiedLightRecord& previous = restirLightManagerPreviousPayloadRecords[previousIndex];
+            common->Printf(
+                "PathTracePrimaryPass: RLU domain2 CPU mapped Doom analytic payload %s currentIndex=%u previousIndex=%u previousToCurrent=%u type current/previous=%u/%u sourceIndex current/previous=%u/%u radius current/previous=%.6g/%.6g influence current/previous=%.6g/%.6g area current/previous=%.6g/%.6g luminance current/previous=%.6g/%.6g sourceWeight current/previous=%.6g/%.6g flags current/previous=0x%x/0x%x identity current/previous=%u:%u/%u:%u behavior=pre-upload-rlu-domain2-payload-audit\n",
+                label,
+                currentIndex,
+                previousIndex,
+                previousToCurrentIndex,
+                current.type,
+                previous.type,
+                current.sourceIndex,
+                previous.sourceIndex,
+                current.positionAndRadius[3],
+                previous.positionAndRadius[3],
+                current.uvOrDoomParams[0],
+                previous.uvOrDoomParams[0],
+                current.normalAndArea[3],
+                previous.normalAndArea[3],
+                current.radianceAndLuminance[3],
+                previous.radianceAndLuminance[3],
+                current.sourceWeight,
+                previous.sourceWeight,
+                current.flags,
+                previous.flags,
+                current.identityA,
+                current.identityB,
+                previous.identityA,
+                previous.identityB);
+        };
+
+        uint32_t mappedDoomAnalyticPairs = 0u;
+        uint32_t previousDoomBadRadius = 0u;
+        uint32_t previousDoomBadSourceWeight = 0u;
+        uint32_t previousDoomNonfinite = 0u;
+        uint32_t typeMismatches = 0u;
+        uint32_t firstCurrentIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+        uint32_t firstPreviousIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+        uint32_t firstPreviousToCurrentIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+        uint32_t firstFailCurrentIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+        uint32_t firstFailPreviousIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+        uint32_t firstFailPreviousToCurrentIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+
+        const uint32_t currentToPreviousCount = static_cast<uint32_t>(restirLightManagerCurrentToPreviousRemap.size());
+        for (uint32_t currentIndex = 0u; currentIndex < currentToPreviousCount && currentIndex < restirLightManagerCurrentPayloadRecords.size(); ++currentIndex)
+        {
+            const PathTraceUnifiedLightRecord& current = restirLightManagerCurrentPayloadRecords[currentIndex];
+            if (current.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+            {
+                continue;
+            }
+
+            const uint32_t previousIndex = restirLightManagerCurrentToPreviousRemap[currentIndex];
+            if (previousIndex >= restirLightManagerPreviousPayloadRecords.size())
+            {
+                continue;
+            }
+
+            const uint32_t previousToCurrentIndex = previousIndex < restirLightManagerPreviousToCurrentRemap.size()
+                ? restirLightManagerPreviousToCurrentRemap[previousIndex]
+                : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            const PathTraceUnifiedLightRecord& previous = restirLightManagerPreviousPayloadRecords[previousIndex];
+            ++mappedDoomAnalyticPairs;
+            if (firstCurrentIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+            {
+                firstCurrentIndex = currentIndex;
+                firstPreviousIndex = previousIndex;
+                firstPreviousToCurrentIndex = previousToCurrentIndex;
+            }
+
+            bool pairFailed = false;
+            if (previous.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+            {
+                ++typeMismatches;
+                pairFailed = true;
+            }
+            else
+            {
+                const bool finitePrevious = recordFinite(previous);
+                if (!finitePrevious)
+                {
+                    ++previousDoomNonfinite;
+                    pairFailed = true;
+                }
+                if (!finitePrevious || previous.positionAndRadius[3] <= 0.0f)
+                {
+                    ++previousDoomBadRadius;
+                    pairFailed = true;
+                }
+                if (!finitePrevious || previous.sourceWeight <= 0.0f)
+                {
+                    ++previousDoomBadSourceWeight;
+                    pairFailed = true;
+                }
+            }
+
+            if (pairFailed && firstFailCurrentIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+            {
+                firstFailCurrentIndex = currentIndex;
+                firstFailPreviousIndex = previousIndex;
+                firstFailPreviousToCurrentIndex = previousToCurrentIndex;
+            }
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: RLU domain2 CPU mapped Doom analytic payload audit mappedPairs=%u previousBadRadius=%u previousBadSourceWeight=%u previousNonfinite=%u typeMismatches=%u currentPayloads=%u previousPayloads=%u currentToPrevious=%u previousToCurrent=%u behavior=pre-upload-rlu-domain2-payload-audit\n",
+            mappedDoomAnalyticPairs,
+            previousDoomBadRadius,
+            previousDoomBadSourceWeight,
+            previousDoomNonfinite,
+            typeMismatches,
+            static_cast<uint32_t>(restirLightManagerCurrentPayloadRecords.size()),
+            static_cast<uint32_t>(restirLightManagerPreviousPayloadRecords.size()),
+            static_cast<uint32_t>(restirLightManagerCurrentToPreviousRemap.size()),
+            static_cast<uint32_t>(restirLightManagerPreviousToCurrentRemap.size()));
+        if (firstCurrentIndex != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printMappedDoomPair("first", firstCurrentIndex, firstPreviousIndex, firstPreviousToCurrentIndex);
+        }
+        if (firstFailCurrentIndex != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printMappedDoomPair("firstFailing", firstFailCurrentIndex, firstFailPreviousIndex, firstFailPreviousToCurrentIndex);
+        }
+    }
     if (dumpRestirLightManager)
     {
         common->Printf("PathTracePrimaryPass: legacy ReSTIR light manager purged; active light domains are owned by Remix Light Universe behavior=legacy-light-universe-purged\n");

@@ -257,8 +257,12 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t rigidRouteTriangleCount = 0;
     uint32_t currentEmissiveTriangleCount = 0;
     uint32_t previousEmissiveTriangleCount = 0;
-    uint32_t texturePad0 = 0;
-    uint32_t texturePad1 = 0;
+    uint32_t rluDoomAnalyticRangeOffset = 0;
+    uint32_t rluDoomAnalyticRangeCount = 0;
+    uint32_t doomAnalyticFullCurrentCount = 0;
+    uint32_t doomAnalyticFullPreviousCount = 0;
+    uint32_t rluDomain = 0;
+    uint32_t rluDoomAnalyticParityProof = 0;
     float textureInfo[4] = {};
     float prevCameraOriginAndValid[4] = {};
     float prevCameraForwardAndTanX[4] = {};
@@ -273,7 +277,7 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     float restirPTSurfaceInfo[4] = {};
 };
 
-static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 320, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
+static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 336, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
 
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
 {
@@ -1103,7 +1107,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanDumpRluPreviousToCurrentCount = cleanDumpRluStats.previousToCurrentCount;
         const bool cleanDumpRluDomainAllowed =
             cleanDumpRluStats.domain == 0u ||
-            (cleanExternalPdfNeeRequested && cleanDumpRluStats.domain == 2u);
+            cleanDumpRluStats.domain == 2u;
         const bool cleanDumpRluRoute =
             cleanEnabledNow &&
             (r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 || pdfNeeRluCurrentProducerRequested) &&
@@ -1115,8 +1119,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeRestirLightManagerCurrentPayloadBuffer &&
             m_smokeRestirLightManagerPreviousPayloadBuffer;
         const uint32_t cleanDumpCandidateOverride = static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingCleanRtxdiDiCandidateCount.GetInteger()));
+        const uint32_t cleanDumpRluDoomRangeOffset = Min(cleanDumpRluStats.doomAnalyticRangeOffset, cleanDumpRluCurrentLightCount);
+        const uint32_t cleanDumpRluDoomRangeCount = Min(cleanDumpRluStats.doomAnalyticRangeCount, cleanDumpRluCurrentLightCount - cleanDumpRluDoomRangeOffset);
         const uint32_t cleanDumpCandidateDomainCount = cleanDumpRluRoute
-            ? cleanDumpRluCurrentLightCount
+            ? (cleanDumpRluDoomRangeCount > 0u ? cleanDumpRluDoomRangeCount : cleanDumpRluCurrentLightCount)
             : cleanDumpAnalyticDomainCount;
         const uint32_t cleanDumpCandidateCount = (cleanViewNow == 8 || cleanViewNow == 12)
             ? Min(cleanDumpCandidateDomainCount, cleanDumpCandidateOverride)
@@ -2479,7 +2485,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             : 0u;
         const bool cleanRluDomainAllowed =
             cleanRluStats.domain == 0u ||
-            (cleanExternalPdfNeeRequested && cleanRluStats.domain == 2u);
+            cleanRluStats.domain == 2u;
         const bool cleanRluRoute =
             (r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 || pdfNeeRluCurrentProducerRequested) &&
             cleanRluStats.enabled != 0u &&
@@ -2490,8 +2496,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeRestirLightManagerCurrentPayloadBuffer &&
             m_smokeRestirLightManagerPreviousPayloadBuffer;
         const uint32_t cleanCandidateOverride = static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingCleanRtxdiDiCandidateCount.GetInteger()));
+        const uint32_t cleanRluDoomRangeOffset = Min(cleanRluStats.doomAnalyticRangeOffset, cleanRluCurrentLightCount);
+        const uint32_t cleanRluDoomRangeCount = Min(cleanRluStats.doomAnalyticRangeCount, cleanRluCurrentLightCount - cleanRluDoomRangeOffset);
         const uint32_t cleanCandidateDomainCount = cleanRluRoute
-            ? cleanRluCurrentLightCount
+            ? (cleanRluDoomRangeCount > 0u ? cleanRluDoomRangeCount : cleanRluCurrentLightCount)
             : cleanAnalyticLightCount;
         const uint32_t cleanCandidateCount = (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12)
             ? Min(cleanCandidateDomainCount, cleanCandidateOverride)
@@ -2599,6 +2607,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.rigidRouteTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
         cleanConstants.currentEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
         cleanConstants.previousEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokePreviousEmissiveTriangleCount));
+        cleanConstants.rluDoomAnalyticRangeOffset = cleanRluRoute ? cleanRluStats.doomAnalyticRangeOffset : 0u;
+        cleanConstants.rluDoomAnalyticRangeCount = cleanRluRoute ? cleanRluStats.doomAnalyticRangeCount : 0u;
+        cleanConstants.doomAnalyticFullCurrentCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
+        cleanConstants.doomAnalyticFullPreviousCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
+        cleanConstants.rluDomain = cleanRluRoute ? cleanRluStats.domain : 0u;
+        cleanConstants.rluDoomAnalyticParityProof = 0u;
         const int cleanTextureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0
             ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())
             : 0;
