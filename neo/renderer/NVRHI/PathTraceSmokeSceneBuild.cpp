@@ -1475,9 +1475,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 &&
         pdfNeeVerifierSceneBuildView > 0 &&
         pdfNeeVerifierSceneBuildLightMode == 7;
+    const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
+    const int cleanRtxdiDiSceneBuildDomain = idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger());
+    const bool cleanRtxdiDiSceneBuildRluEmissives =
+        requestedDebugMode == 0 &&
+        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 &&
+        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
+        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15) &&
+        (cleanRtxdiDiSceneBuildDomain == 1 || cleanRtxdiDiSceneBuildDomain == 2);
     const bool currentFrameStaticEmissiveProducerPolicy =
         restirPTDebugMode || pdfNeeVerifierStaticEmissiveProducerPolicy;
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -1684,6 +1694,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             requestedDebugMode == 52 ||
             requestedDebugMode == 42 ||
             requestedDebugMode == 43 ||
+            cleanRtxdiDiSceneBuildRluEmissives ||
             restirPTDebugMode ||
             integratorDebugMode ||
             (requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0) ||
@@ -2195,6 +2206,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         common->Printf("PathTracePrimaryPass: invalid RT smoke material table, skipping scene build\n");
         return;
     }
+    if (cleanRtxdiDiSceneBuildRluEmissives)
+    {
+        for (PathTraceSmokeMaterial& material : materialTable.materials)
+        {
+            material.diffuseTextureIndex = UINT32_MAX;
+            material.alphaTextureIndex = UINT32_MAX;
+            material.normalTextureIndex = UINT32_MAX;
+            material.specularTextureIndex = UINT32_MAX;
+            material.textureWidth = 1;
+            material.textureHeight = 1;
+            material.alphaTextureWidth = 1;
+            material.alphaTextureHeight = 1;
+            material.normalTextureWidth = 1;
+            material.normalTextureHeight = 1;
+            material.specularTextureWidth = 1;
+            material.specularTextureHeight = 1;
+        }
+    }
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
     if (needTextureCoverageStats)
@@ -2264,7 +2293,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (enableRigidRouteForMode && (requestedDebugMode == 20 || restirPTDebugMode || integratorDebugMode))
+        if (enableRigidRouteForMode && (requestedDebugMode == 20 || cleanRtxdiDiSceneBuildRluEmissives || restirPTDebugMode || integratorDebugMode))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(
                 materialTable.materialIds,

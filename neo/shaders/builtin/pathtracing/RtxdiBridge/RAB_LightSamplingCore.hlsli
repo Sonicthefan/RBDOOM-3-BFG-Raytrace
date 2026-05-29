@@ -133,8 +133,13 @@ RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Sur
     const float lightDistance = sqrt(max(dot(toLight, toLight), 1.0e-6));
     const float3 lightDir = toLight / lightDistance;
 
+    const bool reservoirTwoSidedEmissive = ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES) != 0u);
+#if defined(RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY) || defined(RB_RAB_CLEAN_RTXDI_DI_SENTINEL)
+    const bool twoSidedEmissive = reservoirTwoSidedEmissive;
+#else
     const bool historicalDynamicEmissive = (lightInfo.flags & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
-    const bool twoSidedEmissive = !historicalDynamicEmissive && ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES) != 0u);
+    const bool twoSidedEmissive = !historicalDynamicEmissive && reservoirTwoSidedEmissive;
+#endif
     const float lightFacingRaw = dot(lightInfo.normal, -lightDir);
     const float lightFacing = twoSidedEmissive ? abs(lightFacingRaw) : saturate(lightFacingRaw);
     if (lightFacing <= 0.0)
