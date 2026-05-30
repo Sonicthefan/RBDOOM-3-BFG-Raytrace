@@ -589,7 +589,7 @@ idCVar r_pathTracingNeeCacheDebugView(
     "r_pathTracingNeeCacheDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "NEE cache debug view selector: 0 disabled, 1 status, 2 cell id, 3 occupancy, 4 task accumulation, 5 emissive candidates, 6 analytic candidates, 7 sourcePdf, 8 mixture source, 9 fallback reason, 10 RAB replay, 11 cell-local mean" );
+    "NEE cache debug view selector: 0 disabled, 1 status, 2 cell id, 3 occupancy, 4 task accumulation, 5 emissive candidates, 6 analytic candidates, 7 sourcePdf, 8 mixture source, 9 fallback reason, 10 RAB replay, 11 flat consumed candidates, 12 flat full current RLU" );
 
 idCVar r_pathTracingNeeCacheCellResolution(
     "r_pathTracingNeeCacheCellResolution",

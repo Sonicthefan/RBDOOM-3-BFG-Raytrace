@@ -128,6 +128,47 @@ Fail:
     animation from one light leaks into other light payloads
 
 
+Contract C-04A: Reusable Analytic Stability Classification
+---------------------------------------------------------
+
+Required output:
+
+    currentSampleable flag for same-frame direct-light replay
+    stableCacheable flag for persistent cache/ReGIR/temporal-style reuse
+    stable Doom analytic prefix/count inside the Doom analytic typed range
+    unstableDynamic flag for current-frame-only analytics
+    explicit rejection reason flags:
+        noRemap
+        payloadChanged
+        unprovenContinuity
+        unknownIdentity
+        duplicateIdentity
+        portalDisconnected
+        outOfSelectedArea
+
+Pass:
+
+    stableCacheable requires stable identity, valid current-to-previous and
+        previous-to-current remaps, no duplicate identity, proven continuity,
+        and no incompatible payload change
+    if any required proof is missing, the analytic remains currentSampleable
+        only and is marked unstableDynamic with a reason
+    portal depth metadata alone is not outOfSelectedArea proof and must not
+        reject otherwise stable analytic lights from stableCacheable
+    consumers keep dense RLU identity and replay through RAB only
+    persistent consumers sample only the stableCacheable prefix/count, while
+        current-frame direct lighting may still use the full current range
+    fallback-only current-frame proposals may use currentSampleable lights but
+        must not store unstableDynamic analytics into persistent cells
+
+Fail:
+
+    persistent consumers cache every current Doom analytic in the typed range
+    consumers dereference DoomAnalyticLights[sourceIndex] or run private
+        continuity tests
+    animated current-frame lights poison reusable cell or temporal state
+
+
 Contract C-05: Spawn / Despawn / Effect Lights
 ----------------------------------------------
 

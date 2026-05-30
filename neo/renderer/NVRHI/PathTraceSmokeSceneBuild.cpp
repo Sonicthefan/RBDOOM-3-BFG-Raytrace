@@ -1496,9 +1496,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
             (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15) &&
             (cleanRtxdiDiSceneBuildDomain == 1 || cleanRtxdiDiSceneBuildDomain == 2));
+    const int neeCacheSceneBuildSourceDomain = idMath::ClampInt(0, 3, r_pathTracingNeeCacheSourceDomain.GetInteger());
+    const bool neeCacheSceneBuildRluEmissives =
+        requestedDebugMode != 56 &&
+        r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
+        r_pathTracingNeeCacheMode.GetInteger() != 0 &&
+        (neeCacheSceneBuildSourceDomain == 0 || neeCacheSceneBuildSourceDomain == 1 || neeCacheSceneBuildSourceDomain == 3);
     const bool currentFrameStaticEmissiveProducerPolicy =
         restirPTDebugMode || pdfNeeVerifierStaticEmissiveProducerPolicy;
-    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
+    const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
@@ -2217,7 +2223,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         common->Printf("PathTracePrimaryPass: invalid RT smoke material table, skipping scene build\n");
         return;
     }
-    if (cleanRtxdiDiSceneBuildRluEmissives)
+    if (cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives)
     {
         for (PathTraceSmokeMaterial& material : materialTable.materials)
         {
@@ -2304,7 +2310,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),
             maxEmissiveRecords,
             emissiveInventoryStats);
-        if (enableRigidRouteForMode && (requestedDebugMode == 20 || cleanRtxdiDiSceneBuildRluEmissives || restirPTDebugMode || integratorDebugMode))
+        if (enableRigidRouteForMode && (requestedDebugMode == 20 || cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives || restirPTDebugMode || integratorDebugMode))
         {
             AppendSmokeRigidRouteEmissiveTriangleInventory(
                 materialTable.materialIds,
@@ -2508,15 +2514,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool pdfNeeRluCurrentProducerRequested =
         requestedDebugMode != 56 &&
         r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
+    const bool neeCacheRluCurrentProducerRequested =
+        requestedDebugMode != 56 &&
+        r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
+        r_pathTracingNeeCacheMode.GetInteger() != 0;
     const bool remixLightUniverseEnabled =
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
         rrxDiLightUniverseRequested ||
         regirLightUniverseRequested ||
         cleanRtxdiDiRluRequested ||
-        pdfNeeRluCurrentProducerRequested;
+        pdfNeeRluCurrentProducerRequested ||
+        neeCacheRluCurrentProducerRequested;
     const bool currentRluDenseProducerRequested =
         cleanRtxdiDiRluRequested ||
-        pdfNeeRluCurrentProducerRequested;
+        pdfNeeRluCurrentProducerRequested ||
+        neeCacheRluCurrentProducerRequested;
     const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
@@ -2555,7 +2567,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const char* remixLightUniverseBehavior = remixLightStats.enabled != 0
             ? "rlu-02-dense-current-previous-domain"
             : "legacy-remix-light-manager-compat";
-        common->Printf("PathTracePrimaryPass: Remix light universe frame=%llu enabled=%u domain=%u strictMapping=%u resetReason=0x%x current=%u previous=%u maps currentToPrevious size/mapped/invalid/currentOnly=%u/%u/%u/%u previousToCurrent size/mapped/invalid/previousOnly=%u/%u/%u/%u duplicateIdentity=%u typeCounts currentMapped emissive/doom=%u/%u currentOnly emissive/doom=%u/%u previousMapped emissive/doom=%u/%u previousOnly emissive/doom=%u/%u mappedPayloadChanged emissive/doom=%u/%u duplicateIdentity emissive/doom=%u/%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u firstFailingContract=%u:%s oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=%s\n",
+        common->Printf("PathTracePrimaryPass: Remix light universe frame=%llu enabled=%u domain=%u strictMapping=%u resetReason=0x%x current=%u previous=%u maps currentToPrevious size/mapped/invalid/currentOnly=%u/%u/%u/%u previousToCurrent size/mapped/invalid/previousOnly=%u/%u/%u/%u duplicateIdentity=%u typeCounts currentMapped emissive/doom=%u/%u currentOnly emissive/doom=%u/%u previousMapped emissive/doom=%u/%u previousOnly emissive/doom=%u/%u mappedPayloadChanged emissive/doom=%u/%u duplicateIdentity emissive/doom=%u/%u ranges emissive offset/count/samples=%u/%u/%u doomAnalytic offset/count/samples=%u/%u/%u analyticStability currentSampleable/stableCacheable/unstableDynamic=%u/%u/%u reject noRemap/payloadChanged/unprovenContinuity/unknownIdentity/duplicateIdentity/portalDisconnected/outOfSelectedArea=%u/%u/%u/%u/%u/%u/%u sampleContract total/nonEmpty=%u/%u signatures structural/mapping/payload=%llu/%llu/%llu changed=%u/%u/%u payloadOnlyChange=%u firstFailingContract=%u:%s oldSmokeReservoirSignatureConsulted=%u resourceAllocations=%u shaderRoutes=%u behavior=%s\n",
             static_cast<unsigned long long>(remixLightStats.frameIndex),
             remixLightStats.enabled,
             remixLightStats.domain,
@@ -2590,6 +2602,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixLightStats.doomAnalyticRangeOffset,
             remixLightStats.doomAnalyticRangeCount,
             remixLightStats.doomAnalyticSampleCount,
+            remixLightStats.doomAnalyticCurrentSampleableCount,
+            remixLightStats.doomAnalyticStableCacheableCount,
+            remixLightStats.doomAnalyticUnstableDynamicCount,
+            remixLightStats.doomAnalyticRejectNoRemapCount,
+            remixLightStats.doomAnalyticRejectPayloadChangedCount,
+            remixLightStats.doomAnalyticRejectUnprovenContinuityCount,
+            remixLightStats.doomAnalyticRejectUnknownIdentityCount,
+            remixLightStats.doomAnalyticRejectDuplicateIdentityCount,
+            remixLightStats.doomAnalyticRejectPortalDisconnectedCount,
+            remixLightStats.doomAnalyticRejectOutOfSelectedAreaCount,
             remixLightStats.totalSampleCount,
             remixLightStats.nonEmptyRangeCount,
             static_cast<unsigned long long>(remixLightStats.structuralSignature),

@@ -158,6 +158,8 @@ Bridge include:
 Binding layout:
 
     t0  SmokeScene TLAS
+    t27 DoomAnalyticLights
+    t66 PathTraceRestirLightManagerCurrentPayload
     u1  SmokeOutput
     b2  PathTraceSmokeConstants
     u74 PathTraceNeeCacheProviderResult
@@ -167,6 +169,10 @@ Binding layout:
 
 Constant slots:
 
+    c100 RestirLightManagerInfo
+    c101 RestirLightManagerControlInfo
+    c102 RestirLightManagerRangeInfo
+    c103 RestirLightManagerSampleInfo
     c115 NeeCacheInfo0
     c116 NeeCacheInfo1
     c117 NeeCacheInfo2
@@ -178,6 +184,14 @@ Debug views:
     2 cell id
     3 empty occupancy
     4 task accumulation
+    5 emissive candidate map
+    6 analytic candidate identity map
+    7 analytic sourcePdf / invSourcePdf map
+    8 cache/fallback source label
+    9 fallback reason
+    10 analytic RLU payload replay validity
+    11 flat consumed-candidate render
+    12 flat full current-RLU render
 
 This route traces primary scene hits to recover world position, hashes the
 position into a log-distance cell, writes only SmokeOutput, and leaves all final
@@ -228,6 +242,171 @@ This diagnostic does not prove candidate quality, source PDFs, RAB replay, or
 final direct lighting.
 
 
+Candidate Diagnostics
+---------------------
+
+NEECACHE-04 and NEECACHE-05 use the candidate buffer at u77 and the current RLU
+payload SRV at t66.
+
+Build policy:
+
+    primary-visible-cell-mixed-rlu-hash-slots
+
+When the cache is enabled and either current dense RLU typed range is nonempty,
+the NEE cache requests the current dense RLU producer during scene build and the
+debug RT shader runs a build-only prepass before the final dispatch. The prepass
+traces primary-visible cells, hashes each mapped cell, and fills that cell's
+fixed candidate slots from the current RLU emissive and Doom analytic typed
+ranges. This build is independent of debug views; debug views only visualize the
+populated records. Views 5 through 10 are read-only in the visible debug pass;
+only the build prepass writes provider, cell, and candidate records. A separate
+light-universe CVar must not be required for this lane.
+
+For source domains that can consume emissives, the NEE cache scene-build request
+also enables the emissive material/texture and rigid-route inventory producer
+used by the accepted RLU consumers. Without that producer handoff, the RLU shell
+can exist while the emissive typed range contains only inert zero-weight records.
+
+Candidate identity:
+
+    dense current RLU index
+
+Source-domain policy:
+
+    r_pathTracingNeeCacheSourceDomain is consumed by the shader. Domain 0 uses
+    the full dense current RLU as a uniform source domain. Domain 1 restricts
+    candidates and typed fallback to the current emissive range. Domain 2
+    restricts candidates and typed fallback to the current Doom analytic range.
+    Domain 3 builds typed candidate lists and multiplies the per-type source
+    PDF by the selected typed class probability.
+
+Source PDF policy:
+
+    domain 0 sourcePdf = 1 / (currentEmissiveRluRangeCount +
+        stableCurrentDoomAnalyticRluRangeCount)
+    domain 1 emissive sourcePdf = max(PathTraceUnifiedLightRecord.sourcePdf,
+        1 / currentEmissiveRluRangeCount)
+    domain 2 analytic sourcePdf = 1 / stableCurrentDoomAnalyticRluRangeCount
+    domain 3 typed sourcePdf = typedClassProbability * typed sourcePdf
+    invSourcePdf = 1 / sourcePdf
+
+If a current emissive RLU record carries a zero sourcePdf, the diagnostic uses
+uniform emissive-range fallback for that candidate and the dump reports the
+fallback policy. This preserves a nonzero replay field for validation without
+claiming final PDFNEE consumption.
+
+Analytic records are selected from the current dense RLU Doom analytic typed
+range and store dense current RLU identity. Candidate slots also carry a
+spatial weight. Emissive weights use a cell-distance, sourceWeight, area, and
+normal-facing proxy. Analytic weights use a cell-distance, sourceWeight,
+luminance, area, radius, and influence-radius proxy. These are proposal weights
+only; target PDF and final contribution remain outside the cache.
+
+The current dense RLU Doom analytic typed range is not automatically a cacheable
+range. RLU records expose explicit stability flags:
+
+    currentSampleable
+    stableCacheable
+    unstableDynamic
+
+and rejection reason flags:
+
+    noRemap
+    payloadChanged
+    unprovenContinuity
+    unknownIdentity
+    duplicateIdentity
+    portalDisconnected
+    outOfSelectedArea
+
+The provider may use currentSampleable lights as fallback/current-frame direct
+lighting only through RAB. Persistent candidate records for Doom analytics must
+require stableCacheable. If an analytic is unstableDynamic, the provider must
+not write it into candidate cells and must reject any stale buffered candidate
+that no longer carries stableCacheable in the current RLU payload.
+Portal depth is diagnostic metadata only. It must not be interpreted as
+outOfSelectedArea, and it must not reject otherwise stable analytic lights from
+the stableCacheable prefix.
+
+For dense Remix RLU mode the manager sorts stableCacheable Doom analytics to
+the front of the Doom analytic typed range and reports the stable count. The
+NEE cache and ReGIR-style persistent consumers sample only that stable prefix
+when writing candidate cells. Current-frame full-RLU diagnostics may still
+iterate the full current typed range to inspect direct-light replay.
+Fallback is current-frame only and may sample the full current RLU or full
+current typed range; unstable analytic fallback selections must not be copied
+back into persistent candidate cells.
+
+Candidate validity policy:
+
+    reject-zero-area-or-zero-energy-emissive
+    reject-analytic-not-rlu-stableCacheable
+    analytic-zero-cell-weight
+    provider-rejects-rab-replay-failed-or-zero-current-weight
+
+The emissive typed range can contain structurally emissive payloads with zero
+sourceWeight and zero luminance. NEECACHE-04 does not write those records as
+valid cache candidates because they cannot be useful NEE proposals. DebugView 5
+uses a separate dark-red failure color for this state.
+
+Doom analytic identity selection is typed-range based and uses only current RLU
+payload fields, never raw DoomAnalyticLights sourceIndex dereferences. DebugView
+6 is therefore a proposal identity map, while debugView 10 reports whether the
+selected current RLU payload can replay as a nonzero RAB light this frame.
+
+Debug views:
+
+    5 emissive candidate map
+    6 analytic candidate identity map
+    7 analytic sourcePdf / invSourcePdf map, identity-tinted because the
+        current analytic PDF is uniform over the typed range
+    8 cache/fallback source label
+    9 fallback reason
+    10 analytic RLU payload replay validity
+    11 flat consumed-candidate render
+    12 flat full current-RLU render
+
+Provider result policy:
+
+    PathTraceNeeCacheSelectProposal writes PathTraceNeeCacheProviderResults
+    at u74 with one result per physical cell. The selected identity is always a
+    dense current RLU index. Cache selection scans the fixed candidate slot
+    list, but a buffered record is selectable only after
+    RAB_LoadActiveRrxLightInfo(candidate.denseRluIndex, false) succeeds for
+    the current frame and the current RLU payload type still matches the
+    candidate class. The provider then recomputes the candidate weight from the
+    current RLU payload before contributing it to selection or sourcePdf.
+
+    If the selected dense identity appears in more than one slot, the provider
+    sums duplicate-slot current replay weights and writes
+    sourcePdf = currentReplayWeightedCandidateIdentityPdf * cacheProbability.
+    A fallback selection writes sourcePdf = domainPdf * fallbackProbability. If
+    no valid cache candidate exists, fallback is forced with
+    mixtureProbability = 1. Disabled/no-RLU/zero-PDF cases write an invalid
+    result with the documented fallbackReason. Buffered candidateWeight is a
+    build-time diagnostic hint, not provider consume proof.
+
+This diagnostic does not consume old ReGIR/PDFNEE routes and does not perform
+final direct-light contribution inside the cache.
+
+DebugView 11 is a visual inspection route for the light data consumed by this
+diagnostic lane. It shades flat surfaces from the current candidate records and
+the dense current RLU payload at t66 by replaying candidate dense indexes
+through RAB_LoadActiveRrxLightInfo, RAB_SampleActiveRrxPolymorphicLight,
+RAB_GetLightSampleTargetPdfForSurface, and RAB_GetReflectedBsdfRadianceForSurface.
+Geometry SRVs are used only to recover a flat diagnostic surface. It
+intentionally skips textures, denoising, temporal/spatial reuse, best-light
+feedback, visibility proof, and PDFNEE consumption.
+
+DebugView 12 uses the same flat shading and the same current dense RLU identity
+payload but bypasses the candidate slot filter and loops over the full current
+typed RLU ranges. It must not dereference DoomAnalyticLights[record.sourceIndex]
+for shading; raw split-domain SRVs may be bound only because the shared RAB
+bridge helpers declare them. The diagnostic replay boundary is the dense
+current RLU index. It is the control view for separating bad source payload or
+range data from bad cache proposal quality.
+
+
 Buffer Lifetime
 ---------------
 
@@ -240,6 +419,10 @@ Lifetime:
     Created when r_pathTracingNeeCacheEnable 1 and mode is nonzero.
     Destroyed when disabled, invalid, or scene resources are reset.
     Recreated when the fixed budget or stride changes.
+    Cleared when the current RLU structural, mapping, or payload signature
+    changes. payloadOnlyChange also clears the cache because candidate weights
+    and per-cell relevance depend on current-frame payload values even when the
+    dense RLU index can replay through RAB.
 
 Buffers:
 
@@ -255,6 +438,25 @@ Default fixed budget:
     taskSlots = 8 per cell
     candidateSlots = 8 per cell
     providerResultCount = one result record per cell
+
+Invalidation:
+
+    PathTraceNeeCacheState observes the current Remix light-manager structural,
+    mapping, and payload signatures after resource creation.
+
+    The provider result, cell, task, and candidate buffers are cleared on:
+
+        resource allocation
+        scene/resource reset
+        RLU structural signature change
+        RLU mapping signature change
+        RLU payload signature change
+        RLU payloadOnlyChange
+
+    This is required even though selected dense RLU indexes are replayed through
+    the active RLU/RAB helpers. Replaying the current payload fixes stale light
+    dereference, but it does not make stale per-cell candidate relevance or
+    candidate weights valid across animated Doom-light payload changes.
 
 
 Enums

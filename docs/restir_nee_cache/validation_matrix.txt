@@ -115,21 +115,42 @@ Purpose:
 
     Prove cached emissive triangle candidates are visible and replayable.
 
+Status:
+
+    implemented by NEECACHE-04 as current-RLU emissive candidate records
+
 Expected:
 
     cursor/cell or selected-cell view highlights visible emissive triangles
     candidate sourcePdf/invSourcePdf is nonzero for valid candidates
+    zero-area or zero-energy emissive RLU records are rejected as invalid
+        candidates
+    NEE cache source domains 0, 1, and 3 request the same emissive
+        material/texture and rigid-route inventory producer used by accepted
+        RLU consumers
     fallback rate remains visible
+    debugView 5 visualizes candidate identity/weight without contributing
+        final lighting
+    debugViews 5 through 10 read already-built provider/candidate records and
+        do not rebuild or overwrite cache records during the visible pass
 
 Pass:
 
     user can correlate emissive candidates with actual visible emissive
     sources in the scene
+    candidate records use dense current RLU identity and t66 current payload
+        sourcePdf
+    moving the camera does not introduce read/write race noise in the visible
+        candidate debug view
 
 Fail:
 
     emissive candidates require another debug route to populate first
     identity is not dense RLU replayable
+    a visible emissive panel is absent from the RLU emissive typed range while
+        the NEE cache is the only active RLU consumer
+    the visible debug view mutates provider or candidate records while reading
+        them
 
 
 Rung V-05: Analytic Candidate Map
@@ -139,19 +160,59 @@ Purpose:
 
     Prove cached Doom analytic candidates are visible and replayable.
 
+Status:
+
+    implemented by NEECACHE-05 as current-RLU Doom analytic candidate records
+
 Expected:
 
     selected analytic identities are stable while stationary
-    RAB replay validates selected dense RLU index
+    light animation does not turn the identity map into a rejection mask or
+        leave stale per-cell candidate relevance alive
+    portal-dependent replay state does not rank or invalidate the identity map
+    RLU payload replay validates selected dense RLU index
+    analytic candidates are written only when the dense RLU record is marked
+        stableCacheable
+    currentSampleable but unstableDynamic analytics can still be direct-light
+        fallback inputs, but cannot be stored in persistent candidate cells
+    RLU structural, mapping, payload, and payloadOnlyChange flags invalidate
+        provider, cell, task, and candidate buffers
+    provider selection rejects any buffered candidate that cannot replay through
+        RAB_LoadActiveRrxLightInfo in the current frame
+    provider selection recomputes candidate weight from the current RLU payload
+        before calculating selected sourcePdf
     candidate PDF is explicit
+    debugView 6 shows selected analytic identity
+    debugView 7 shows analytic sourcePdf / invSourcePdf with identity tint
+        rather than a flat uniform field
+    debugView 10 shows analytic RLU payload replay validity
+    debugView 11 shows a flat consumed-candidate render from the same candidate
+        records and current dense RLU payload
+    debugView 12 shows a flat full current-RLU render from dense RLU identities
+        replayed through the active RLU/RAB helpers, without the candidate slot
+        filter or any direct raw DoomAnalyticLights sourceIndex dereference
 
 Pass:
 
     user can correlate candidate identity with clean RTXDI view-12 lighting
+    candidate records use dense current RLU identity and explicit uniform
+        current-Doom-analytic-range source PDF
+    view 12 shows whether portal-dependent payload strobing exists before the
+        candidate filter
+    view 11 shows whether the fixed-budget candidate filter is dropping or
+        strobing lights relative to view 12
+    the dump reports rluSignatures, rluSignatureChanged, cacheInvalidation,
+        candidateInvalidationPolicy, and current replay/reweight selection
+        policy
 
 Fail:
 
     analytic candidate brightness/shape diverges from RLU/RAB replay
+    animated zero-energy lights poison unrelated cell identities
+    payload position/radiance/sourceWeight changes reshuffle source identities
+    payloadOnlyChange is treated as safe cache reuse
+    cached candidateWeight is used as provider consume proof without current
+        RAB replay and current-payload reweighting
     broad lights are suppressed to make the view look correct
 
 
@@ -169,11 +230,18 @@ Expected:
     selected source label
     mixture PDF
     full-RLU fallback A/B
+    debugView 8 shows cache/fallback source labels from
+        PathTraceNeeCacheProviderResults
+    debugView 9 shows fallbackReason from PathTraceNeeCacheProviderResults
+    provider sourcePdf is the selected weighted candidate identity probability
+        times cacheProbability, not the raw slot-generation PDF
 
 Pass:
 
     disabling cache while preserving fallback matches current uniform RLU
     baseline, and enabling cache only changes proposal distribution
+    the dump reports providerResultWrite=PathTraceNeeCacheProviderResults[cellIndex]
+        and task=NEECACHE-06 for debugViews 8 and 9
 
 Fail:
 

@@ -236,13 +236,26 @@ bool RemixMappedPayloadChanged(
     const PathTraceUnifiedLightRecord& current,
     const PathTraceUnifiedLightRecord& previous)
 {
+    const uint32_t currentPayloadFlags = current.flags & ~PATH_TRACE_RLU_STABILITY_FLAG_MASK;
+    const uint32_t previousPayloadFlags = previous.flags & ~PATH_TRACE_RLU_STABILITY_FLAG_MASK;
     return std::memcmp(current.positionAndRadius, previous.positionAndRadius, sizeof(current.positionAndRadius)) != 0 ||
         std::memcmp(current.normalAndArea, previous.normalAndArea, sizeof(current.normalAndArea)) != 0 ||
         std::memcmp(current.radianceAndLuminance, previous.radianceAndLuminance, sizeof(current.radianceAndLuminance)) != 0 ||
         std::memcmp(current.uvOrDoomParams, previous.uvOrDoomParams, sizeof(current.uvOrDoomParams)) != 0 ||
-        current.flags != previous.flags ||
+        currentPayloadFlags != previousPayloadFlags ||
         current.sourcePdf != previous.sourcePdf ||
         current.sourceWeight != previous.sourceWeight;
+}
+
+bool RemixDoomAnalyticCurrentSampleable(const PathTraceUnifiedLightRecord& record)
+{
+    return record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+        (record.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_VALID) != 0u &&
+        (record.flags & PATH_TRACE_DOOM_ANALYTIC_IDENTITY_SAMPLEABLE) != 0u &&
+        record.sourceIndex != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX &&
+        record.positionAndRadius[3] > 0.0f &&
+        record.uvOrDoomParams[0] > 0.0f &&
+        record.sourceWeight > 0.0f;
 }
 
 bool RemixDoomAnalyticIdentityMappable(const PathTraceDoomAnalyticLightCandidateIdentity& identity)
@@ -427,6 +440,16 @@ void PathTraceRemixLightManager::PrepareSceneData(
         }
     }
     RebuildPreviousToCurrentMap();
+    RebuildAnalyticStabilityClassification();
+    if (lightUniverseEnabled)
+    {
+        const uint32_t currentEmissiveCount = static_cast<uint32_t>(currentEmissiveTriangles.size());
+        const uint32_t currentAnalyticCount = static_cast<uint32_t>(currentAnalyticLights.size());
+        SortCurrentDoomAnalyticRangeByCacheability(currentEmissiveCount, currentAnalyticCount);
+        identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
+        RebuildPreviousToCurrentMap();
+        RebuildAnalyticStabilityClassification();
+    }
     RebuildLightRanges(
         static_cast<uint32_t>(currentEmissiveTriangles.size()),
         static_cast<uint32_t>(currentAnalyticLights.size()),
@@ -544,6 +567,171 @@ uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity
     return duplicateCount;
 }
 
+void PathTraceRemixLightManager::RebuildAnalyticStabilityClassification()
+{
+    std::map<RemixUnifiedIdentityKey, int> currentIdentityToIndex;
+    std::map<RemixUnifiedIdentityKey, int> previousIdentityToIndex;
+    BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex);
+    BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
+
+    for (PathTraceUnifiedLightRecord& record : m_currentLightPayloads)
+    {
+        record.flags &= ~PATH_TRACE_RLU_STABILITY_FLAG_MASK;
+    }
+
+    for (uint32_t currentIndex = 0; currentIndex < m_currentLightPayloads.size(); ++currentIndex)
+    {
+        PathTraceUnifiedLightRecord& current = m_currentLightPayloads[currentIndex];
+        if (current.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+        {
+            continue;
+        }
+
+        uint32_t classificationFlags = 0u;
+        uint32_t rejectionReasons = 0u;
+        const bool currentSampleable = RemixDoomAnalyticCurrentSampleable(current);
+        if (currentSampleable)
+        {
+            classificationFlags |= PATH_TRACE_RLU_LIGHT_FLAG_CURRENT_SAMPLEABLE;
+        }
+
+        const RemixUnifiedIdentityKey key = MakeRemixUnifiedIdentityKey(current);
+        const bool identityValid = RemixUnifiedIdentityKeyValid(key);
+        if (!identityValid)
+        {
+            rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_UNKNOWN_IDENTITY |
+                PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY;
+        }
+
+        const auto currentIt = currentIdentityToIndex.find(key);
+        const bool duplicateCurrentIdentity =
+            identityValid &&
+            (currentIt == currentIdentityToIndex.end() || currentIt->second != static_cast<int>(currentIndex));
+        if (duplicateCurrentIdentity)
+        {
+            rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_DUPLICATE_IDENTITY |
+                PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY;
+        }
+
+        const uint32_t previousIndex = currentIndex < m_currentToPreviousMap.size()
+            ? m_currentToPreviousMap[currentIndex]
+            : PATH_TRACE_REMIX_LIGHT_INVALID_INDEX;
+        const bool previousIndexValid = previousIndex < m_previousLightPayloads.size();
+        if (!previousIndexValid)
+        {
+            rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_NO_REMAP |
+                PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY;
+        }
+
+        bool stableCacheable = false;
+        if (currentSampleable && identityValid && !duplicateCurrentIdentity && previousIndexValid)
+        {
+            const PathTraceUnifiedLightRecord& previous = m_previousLightPayloads[previousIndex];
+            const RemixUnifiedIdentityKey previousKey = MakeRemixUnifiedIdentityKey(previous);
+            const auto previousIt = previousIdentityToIndex.find(previousKey);
+            const bool duplicatePreviousIdentity =
+                previousIt == previousIdentityToIndex.end() || previousIt->second != static_cast<int>(previousIndex);
+            const bool previousBackMapValid =
+                previousIndex < m_previousToCurrentMap.size() &&
+                m_previousToCurrentMap[previousIndex] == currentIndex;
+            const bool previousSampleable = RemixDoomAnalyticCurrentSampleable(previous);
+            const bool payloadChanged = RemixMappedPayloadChanged(current, previous);
+
+            if (previous.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC ||
+                !(previousKey == key) ||
+                !previousBackMapValid)
+            {
+                rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_NO_REMAP |
+                    PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY;
+            }
+            if (duplicatePreviousIdentity)
+            {
+                rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_DUPLICATE_IDENTITY |
+                    PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY;
+            }
+            if (!previousSampleable)
+            {
+                rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY;
+            }
+            if (payloadChanged)
+            {
+                rejectionReasons |= PATH_TRACE_RLU_STABILITY_REASON_PAYLOAD_CHANGED;
+            }
+
+            stableCacheable =
+                previous.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+                previousKey == key &&
+                previousBackMapValid &&
+                !duplicatePreviousIdentity &&
+                previousSampleable &&
+                !payloadChanged &&
+                rejectionReasons == 0u;
+        }
+
+        if (stableCacheable)
+        {
+            classificationFlags |= PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE;
+        }
+        else if (currentSampleable)
+        {
+            classificationFlags |= PATH_TRACE_RLU_LIGHT_FLAG_UNSTABLE_DYNAMIC;
+        }
+
+        current.flags |= classificationFlags | rejectionReasons;
+    }
+}
+
+void PathTraceRemixLightManager::SortCurrentDoomAnalyticRangeByCacheability(
+    uint32_t currentEmissiveCount,
+    uint32_t currentAnalyticCount)
+{
+    if (currentAnalyticCount <= 1u || currentEmissiveCount >= m_currentLightPayloads.size())
+    {
+        return;
+    }
+
+    const size_t begin = static_cast<size_t>(currentEmissiveCount);
+    const size_t end = std::min(m_currentLightPayloads.size(), begin + static_cast<size_t>(currentAnalyticCount));
+    std::stable_sort(
+        m_currentLightPayloads.begin() + begin,
+        m_currentLightPayloads.begin() + end,
+        [](const PathTraceUnifiedLightRecord& a, const PathTraceUnifiedLightRecord& b) {
+            const bool aStable = (a.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u;
+            const bool bStable = (b.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u;
+            if (aStable != bStable)
+            {
+                return aStable && !bStable;
+            }
+
+            const bool aCurrentSampleable = (a.flags & PATH_TRACE_RLU_LIGHT_FLAG_CURRENT_SAMPLEABLE) != 0u;
+            const bool bCurrentSampleable = (b.flags & PATH_TRACE_RLU_LIGHT_FLAG_CURRENT_SAMPLEABLE) != 0u;
+            if (aCurrentSampleable != bCurrentSampleable)
+            {
+                return aCurrentSampleable && !bCurrentSampleable;
+            }
+
+            const RemixUnifiedIdentityKey keyA = MakeRemixUnifiedIdentityKey(a);
+            const RemixUnifiedIdentityKey keyB = MakeRemixUnifiedIdentityKey(b);
+            if (!(keyA == keyB))
+            {
+                return keyA < keyB;
+            }
+            if (a.sourceIndex != b.sourceIndex)
+            {
+                return a.sourceIndex < b.sourceIndex;
+            }
+            if (a.instanceId != b.instanceId)
+            {
+                return a.instanceId < b.instanceId;
+            }
+            if (a.primitiveIndex != b.primitiveIndex)
+            {
+                return a.primitiveIndex < b.primitiveIndex;
+            }
+            return a.flags < b.flags;
+        });
+}
+
 void PathTraceRemixLightManager::RebuildLightRanges(
     uint32_t currentEmissiveCount,
     uint32_t currentAnalyticCount,
@@ -607,6 +795,16 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     std::fill(m_stats.previousOnlyByType, m_stats.previousOnlyByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
     std::fill(m_stats.mappedPayloadChangedByType, m_stats.mappedPayloadChangedByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
     std::fill(m_stats.duplicateIdentityByType, m_stats.duplicateIdentityByType + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
+    m_stats.doomAnalyticCurrentSampleableCount = 0;
+    m_stats.doomAnalyticStableCacheableCount = 0;
+    m_stats.doomAnalyticUnstableDynamicCount = 0;
+    m_stats.doomAnalyticRejectNoRemapCount = 0;
+    m_stats.doomAnalyticRejectPayloadChangedCount = 0;
+    m_stats.doomAnalyticRejectUnprovenContinuityCount = 0;
+    m_stats.doomAnalyticRejectUnknownIdentityCount = 0;
+    m_stats.doomAnalyticRejectDuplicateIdentityCount = 0;
+    m_stats.doomAnalyticRejectPortalDisconnectedCount = 0;
+    m_stats.doomAnalyticRejectOutOfSelectedAreaCount = 0;
     m_stats.firstPayloadChangedCurrent = PathTraceRemixLightEventSample();
     m_stats.firstPayloadChangedPrevious = PathTraceRemixLightEventSample();
     m_stats.firstCurrentOnly = PathTraceRemixLightEventSample();
@@ -696,6 +894,53 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
     {
         m_stats.duplicateIdentityByType[typeIndex] =
             currentDuplicateIdentityByType[typeIndex] + previousDuplicateIdentityByType[typeIndex];
+    }
+    for (const PathTraceUnifiedLightRecord& record : m_currentLightPayloads)
+    {
+        if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+        {
+            continue;
+        }
+        if ((record.flags & PATH_TRACE_RLU_LIGHT_FLAG_CURRENT_SAMPLEABLE) != 0u)
+        {
+            ++m_stats.doomAnalyticCurrentSampleableCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u)
+        {
+            ++m_stats.doomAnalyticStableCacheableCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_LIGHT_FLAG_UNSTABLE_DYNAMIC) != 0u)
+        {
+            ++m_stats.doomAnalyticUnstableDynamicCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_NO_REMAP) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectNoRemapCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_PAYLOAD_CHANGED) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectPayloadChangedCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_UNPROVEN_CONTINUITY) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectUnprovenContinuityCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_UNKNOWN_IDENTITY) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectUnknownIdentityCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_DUPLICATE_IDENTITY) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectDuplicateIdentityCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_PORTAL_DISCONNECTED) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectPortalDisconnectedCount;
+        }
+        if ((record.flags & PATH_TRACE_RLU_STABILITY_REASON_OUT_OF_SELECTED_AREA) != 0u)
+        {
+            ++m_stats.doomAnalyticRejectOutOfSelectedAreaCount;
+        }
     }
     m_stats.emissiveRangeOffset = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].firstLightIndex;
     m_stats.emissiveRangeCount = m_lightRanges[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE].lightCount;

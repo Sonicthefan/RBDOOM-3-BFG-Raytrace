@@ -183,6 +183,8 @@ Allowed rbdoom write set:
     neo/renderer/NVRHI/PathTraceNeeCache.cpp
     neo/renderer/NVRHI/PathTraceNeeCache.h
     neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
     neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
     neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
     neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
@@ -246,6 +248,7 @@ Acceptance:
 
     emissive candidates populate from current RLU without old ReGIR/PDFNEE
     routes
+    normal candidate update is not gated on debugView 5
 
 
 NEECACHE-05: Analytic Candidate List
@@ -280,7 +283,9 @@ Required:
 Acceptance:
 
     selected analytic identity visually matches clean RTXDI/RLU lighting
+    selected analytic identity remains stable under light animation
     class/source PDF is explicit
+    debugViews 6, 7, 10, 11, and 12 report task=NEECACHE-05
 
 
 NEECACHE-06: Cache/Fallback Mixture Provider

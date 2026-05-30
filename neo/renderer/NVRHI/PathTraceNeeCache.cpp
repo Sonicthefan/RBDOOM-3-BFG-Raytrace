@@ -66,7 +66,7 @@ PathTraceNeeCacheSettings BuildPathTraceNeeCacheSettingsFromCVars()
     PathTraceNeeCacheSettings settings;
     settings.enabled = r_pathTracingNeeCacheEnable.GetInteger() != 0;
     settings.mode = idMath::ClampInt(0, 3, r_pathTracingNeeCacheMode.GetInteger());
-    settings.debugView = idMath::ClampInt(0, 11, r_pathTracingNeeCacheDebugView.GetInteger());
+    settings.debugView = idMath::ClampInt(0, 12, r_pathTracingNeeCacheDebugView.GetInteger());
     settings.cellResolution = idMath::ClampInt(1, 4096, r_pathTracingNeeCacheCellResolution.GetInteger());
     settings.minRange = idMath::ClampFloat(1.0f, 65536.0f, r_pathTracingNeeCacheMinRange.GetFloat());
     settings.cellCount = ClampCVarUInt(r_pathTracingNeeCacheCellCount, 1, 1048576);
@@ -150,9 +150,13 @@ PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTrace
     {
         desc.firstMissingContract = "fallback-probability-zero-diagnostic";
     }
+    else if (rluInputs.doomAnalyticRangeCount == 0u)
+    {
+        desc.firstMissingContract = "current-rlu-doom-analytic-range-empty-neecache-05";
+    }
     else
     {
-        desc.firstMissingContract = "emissive-candidates-not-implemented-neecache-04";
+        desc.firstMissingContract = "pdfnee-consumer-not-implemented-neecache-07";
     }
     return desc;
 }
@@ -209,6 +213,13 @@ void PathTraceNeeCacheState::Clear()
     settings = PathTraceNeeCacheSettings();
     resourceDesc = PathTraceNeeCacheResourceDesc();
     allocationSerial = 0u;
+    invalidationSerial = 0u;
+    observedRluStructuralSignature = 0u;
+    observedRluMappingSignature = 0u;
+    observedRluPayloadSignature = 0u;
+    pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    observedRluSignaturesValid = false;
     taskClearPending = false;
 }
 
@@ -224,6 +235,12 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         taskBuffer = nullptr;
         candidateBuffer = nullptr;
         placeholderSrvBuffer = nullptr;
+        observedRluStructuralSignature = 0u;
+        observedRluMappingSignature = 0u;
+        observedRluPayloadSignature = 0u;
+        pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+        lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+        observedRluSignaturesValid = false;
         taskClearPending = false;
         return true;
     }
@@ -293,7 +310,43 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
     if (allocated && ready)
     {
         ++allocationSerial;
+        ++invalidationSerial;
+        pendingInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RESOURCE_ALLOCATION;
+        lastInvalidationFlags = pendingInvalidationFlags;
         taskClearPending = true;
     }
     return ready;
+}
+
+void PathTraceNeeCacheState::ObserveRluSignatures(uint64_t structuralSignature, uint64_t mappingSignature, uint64_t payloadSignature, uint32_t changeFlags)
+{
+    uint32_t invalidationFlags = changeFlags;
+    if (observedRluSignaturesValid)
+    {
+        if (structuralSignature != observedRluStructuralSignature)
+        {
+            invalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_STRUCTURAL;
+        }
+        if (mappingSignature != observedRluMappingSignature)
+        {
+            invalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_MAPPING;
+        }
+        if (payloadSignature != observedRluPayloadSignature)
+        {
+            invalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD;
+        }
+    }
+
+    observedRluStructuralSignature = structuralSignature;
+    observedRluMappingSignature = mappingSignature;
+    observedRluPayloadSignature = payloadSignature;
+    observedRluSignaturesValid = true;
+
+    if (invalidationFlags != PATH_TRACE_NEE_CACHE_INVALIDATE_NONE)
+    {
+        pendingInvalidationFlags |= invalidationFlags;
+        lastInvalidationFlags = pendingInvalidationFlags;
+        ++invalidationSerial;
+        taskClearPending = true;
+    }
 }

@@ -178,6 +178,24 @@ uint RAB_GetRestirLightManagerSource()
 #endif
 }
 
+uint RAB_GetRestirLightManagerStableDoomAnalyticCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerControlInfo.z, 0.0);
+#else
+    return 0u;
+#endif
+}
+
+uint RAB_GetRestirLightManagerUnstableDoomAnalyticCount()
+{
+#ifdef RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB
+    return (uint)max(RestirLightManagerControlInfo.w, 0.0);
+#else
+    return 0u;
+#endif
+}
+
 bool RAB_RestirLightManagerRemixDenseDomainEnabled()
 {
     return RAB_RestirLightManagerRABEnabled() &&

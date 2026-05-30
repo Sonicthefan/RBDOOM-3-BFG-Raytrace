@@ -83,6 +83,16 @@ struct PathTraceRemixLightManagerStats
     uint32_t previousOnlyByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
     uint32_t mappedPayloadChangedByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
     uint32_t duplicateIdentityByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+    uint32_t doomAnalyticCurrentSampleableCount = 0;
+    uint32_t doomAnalyticStableCacheableCount = 0;
+    uint32_t doomAnalyticUnstableDynamicCount = 0;
+    uint32_t doomAnalyticRejectNoRemapCount = 0;
+    uint32_t doomAnalyticRejectPayloadChangedCount = 0;
+    uint32_t doomAnalyticRejectUnprovenContinuityCount = 0;
+    uint32_t doomAnalyticRejectUnknownIdentityCount = 0;
+    uint32_t doomAnalyticRejectDuplicateIdentityCount = 0;
+    uint32_t doomAnalyticRejectPortalDisconnectedCount = 0;
+    uint32_t doomAnalyticRejectOutOfSelectedAreaCount = 0;
     uint32_t structuralSignatureChanged = 0;
     uint32_t mappingSignatureChanged = 0;
     uint32_t payloadSignatureChanged = 0;
@@ -134,6 +144,10 @@ public:
 private:
     void RebuildPreviousToCurrentMap();
     uint32_t RebuildCurrentToPreviousMapByStableIdentity();
+    void RebuildAnalyticStabilityClassification();
+    void SortCurrentDoomAnalyticRangeByCacheability(
+        uint32_t currentEmissiveCount,
+        uint32_t currentAnalyticCount);
     void RebuildLightRanges(
         uint32_t currentEmissiveCount,
         uint32_t currentAnalyticCount,

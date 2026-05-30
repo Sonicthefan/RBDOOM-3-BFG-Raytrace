@@ -17,7 +17,10 @@ Status:
     see provider_abi.txt
     NEECACHE-02 binds the debug route for cell mapping only
     NEECACHE-03 adds task-slot accumulation diagnostics only
-    current next missing contract is emissive-candidates-not-implemented-neecache-04
+    NEECACHE-04 adds the current-RLU emissive candidate map
+    NEECACHE-05 adds the current-RLU Doom analytic candidate map
+    NEECACHE-06 writes the provider result cache/fallback mixture
+    current next missing contract is pdfnee-consumer-not-implemented-neecache-07
 
 First missing contract to resolve:
 

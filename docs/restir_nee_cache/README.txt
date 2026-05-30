@@ -61,13 +61,32 @@ Current NEECACHE-01 ABI document:
 
     provider_abi.txt
 
-Current first missing contract after the NEECACHE-03 task diagnostic:
+Current first missing contract after the NEECACHE-06 cache/fallback provider
+diagnostic:
 
-    emissive-candidates-not-implemented-neecache-04
+    pdfnee-consumer-not-implemented-neecache-07
 
 NEECACHE-02 adds only the standalone cell-mapping debug route. NEECACHE-03
 adds a debug-primary-hit task accumulator in task slot 0 for each mapped cell.
-It does not populate candidate records and it does not feed PDFNEE.
+NEECACHE-04 populates current-RLU emissive candidate records in the candidate
+buffer and exposes debugView 5. NEECACHE-05 adds current-RLU Doom analytic
+candidate records and exposes debugViews 6, 7, and 10. NEECACHE-06 writes
+PathTraceNeeCacheProviderResults at u74 and exposes debugViews 8 and 9 for the
+cache/fallback source and fallback reason. It does not feed PDFNEE.
+
+NEECACHE-05/06 candidate data is invalidated on current RLU structural,
+mapping, payload, and payloadOnlyChange flags. Dense RLU replay through RAB is
+the light dereference boundary, but it does not make stale per-cell task values,
+candidate weights, or provider results valid across animated Doom-light payload
+changes.
+
+Reusable analytic-light consumers must additionally honor the RLU stability
+classification on each dense Doom analytic payload. The full/current RLU typed
+range may contain current-frame-only lights for direct lighting. Persistent
+cache, ReGIR-style cells, and temporal-style reuse may write or reuse only
+records marked stableCacheable by RLU. Consumers must keep the dense RLU index
+as identity and replay through RAB; they must not dereference
+DoomAnalyticLights[sourceIndex] or invent local analytic-light stability tests.
 
 
 Reference Roots

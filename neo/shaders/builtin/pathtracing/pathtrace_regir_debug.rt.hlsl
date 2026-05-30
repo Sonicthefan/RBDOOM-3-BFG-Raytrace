@@ -546,6 +546,19 @@ bool PathTraceReGIRUseCurrentRabLightUniverse()
         RAB_GetCurrentRestirLightManagerCount() > 0u;
 }
 
+bool PathTraceReGIRRluAnalyticStableCacheable(uint denseIndex)
+{
+    if (!PathTraceReGIRUseCurrentRabLightUniverse() ||
+        denseIndex >= RAB_GetCurrentRestirLightManagerCount())
+    {
+        return false;
+    }
+
+    const PathTraceUnifiedLightRecord record = PathTraceRestirLightManagerCurrentPayload[denseIndex];
+    return record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+        (record.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u;
+}
+
 bool PathTraceReGIRSourceViewRequiresCurrentRlu()
 {
     const uint debugView = (uint)ReGIRInfo0.y;
@@ -594,7 +607,8 @@ uint2 PathTraceReGIRCurrentAnalyticRange()
 {
     if (PathTraceReGIRUseCurrentRabLightUniverse())
     {
-        return RAB_GetRestirLightManagerDoomAnalyticRange();
+        const uint2 range = RAB_GetRestirLightManagerDoomAnalyticRange();
+        return uint2(range.x, min(range.y, RAB_GetRestirLightManagerStableDoomAnalyticCount()));
     }
 
     return uint2(0u, (uint)max(DoomAnalyticLightInfo.x, 0.0));
@@ -633,6 +647,12 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildDeterministicSourceCandidate(
         ? PathTraceReGIRLightClassFromCurrentRluPayload(denseIndex)
         : lightClass;
     if (resolvedLightClass == PATH_TRACE_REGIR_LIGHT_CLASS_NONE)
+    {
+        return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, PATH_TRACE_REGIR_EMPTY_UNSUPPORTED_DOMAIN);
+    }
+    if (useRabLightUniverse &&
+        resolvedLightClass == PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC &&
+        !PathTraceReGIRRluAnalyticStableCacheable(denseIndex))
     {
         return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, PATH_TRACE_REGIR_EMPTY_UNSUPPORTED_DOMAIN);
     }
@@ -726,6 +746,10 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGI
     {
         const uint analyticLocalIndex = PathTraceReGIRProposalDomainIndex(cell, slotInCell, proposalIndex, 101u, analyticCount);
         const uint analyticIndex = analyticRange.x + analyticLocalIndex;
+        if (useRabLightUniverse && !PathTraceReGIRRluAnalyticStableCacheable(analyticIndex))
+        {
+            continue;
+        }
         const float proposalWeight = useRabLightUniverse
             ? PathTraceReGIRUnifiedAnalyticCellWeight(PathTraceRestirLightManagerCurrentPayload[analyticIndex], cellCenter, cellExtent)
             : PathTraceReGIRAnalyticCellWeight(DoomAnalyticLights[analyticLocalIndex], cellCenter, cellExtent);
@@ -753,6 +777,10 @@ PathTraceReGIRCandidateRecord PathTraceReGIRBuildAnalyticCandidate(PathTraceReGI
     candidate.lightIndex = selectedAnalytic;
     candidate.lightClass = useRabLightUniverse ? PathTraceReGIRLightClassFromCurrentRluPayload(selectedAnalytic) : PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC;
     if (candidate.lightClass != PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC)
+    {
+        return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, PATH_TRACE_REGIR_EMPTY_UNSUPPORTED_DOMAIN);
+    }
+    if (useRabLightUniverse && !PathTraceReGIRRluAnalyticStableCacheable(selectedAnalytic))
     {
         return PathTraceReGIREmptyCandidate(cell.localCellIndex, slotIndex, PATH_TRACE_REGIR_EMPTY_UNSUPPORTED_DOMAIN);
     }
@@ -1116,6 +1144,11 @@ PathTraceReGIRReplayResult PathTraceReGIRReplayCandidateThroughRAB(PathTraceReGI
     RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
     if (PathTraceReGIRUseCurrentRabLightUniverse())
     {
+        if (candidate.lightClass == PATH_TRACE_REGIR_LIGHT_CLASS_DOOM_ANALYTIC &&
+            !PathTraceReGIRRluAnalyticStableCacheable(candidate.globalIdentity))
+        {
+            return result;
+        }
         lightInfo = RAB_LoadActiveRrxLightInfo(candidate.globalIdentity, false);
     }
     else

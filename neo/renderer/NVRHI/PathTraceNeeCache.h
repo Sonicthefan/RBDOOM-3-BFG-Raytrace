@@ -87,6 +87,16 @@ struct PathTraceNeeCacheCandidateRecord
 };
 static_assert(sizeof(PathTraceNeeCacheCandidateRecord) == 32, "NEE cache candidate stride must match HLSL ABI");
 
+enum PathTraceNeeCacheInvalidationFlags : uint32_t
+{
+    PATH_TRACE_NEE_CACHE_INVALIDATE_NONE = 0u,
+    PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_STRUCTURAL = 1u << 0,
+    PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_MAPPING = 1u << 1,
+    PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD = 1u << 2,
+    PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD_ONLY = 1u << 3,
+    PATH_TRACE_NEE_CACHE_INVALIDATE_RESOURCE_ALLOCATION = 1u << 4
+};
+
 struct PathTraceNeeCacheSettings
 {
     bool enabled = false;
@@ -142,10 +152,18 @@ struct PathTraceNeeCacheState
     PathTraceNeeCacheSettings settings;
     PathTraceNeeCacheResourceDesc resourceDesc;
     uint64_t allocationSerial = 0u;
+    uint64_t invalidationSerial = 0u;
+    uint64_t observedRluStructuralSignature = 0u;
+    uint64_t observedRluMappingSignature = 0u;
+    uint64_t observedRluPayloadSignature = 0u;
+    uint32_t pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    uint32_t lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    bool observedRluSignaturesValid = false;
     bool taskClearPending = false;
 
     void Clear();
     bool EnsureResources(nvrhi::IDevice* device, const PathTraceNeeCacheSettings& nextSettings, const PathTraceNeeCacheResourceDesc& nextDesc);
+    void ObserveRluSignatures(uint64_t structuralSignature, uint64_t mappingSignature, uint64_t payloadSignature, uint32_t changeFlags);
 };
 
 PathTraceNeeCacheSettings BuildPathTraceNeeCacheSettingsFromCVars();

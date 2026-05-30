@@ -48,12 +48,25 @@ r_pathTracingNeeCacheDebugView
     8 = cache/fallback mixture source
     9 = empty/fallback reason
     10 = RAB replay validity
-    11 = cell-local mean contribution diagnostic
+    11 = flat consumed-candidate render
+    12 = flat full current-RLU render
 
     Default: 0
 
     This CVar selects diagnostics only. It must not be needed for normal cache
     build/update when r_pathTracingNeeCacheEnable is 1.
+
+    View 11 renders flat material response from the cache candidate records by
+    replaying dense current RLU indexes through the active RLU/RAB load, sample,
+    target-PDF, and reflected-BSDF helpers.
+
+    View 12 renders flat material response from the full current dense RLU typed
+    ranges through the same RLU/RAB replay path, bypassing the cache candidate
+    slot filter. Use it as the control when view 11 misses most lights.
+
+    Both flat views are for inspecting payload/candidate stability only: no
+    textures, no visibility proof, no temporal/spatial reuse, no best-light
+    feedback, and no final direct-light cache contribution.
 
 
 r_pathTracingNeeCacheCellResolution
@@ -115,6 +128,12 @@ r_pathTracingNeeCacheSourceDomain
     3 = typed candidate lists with mixture probabilities
 
     Default: 0 or 3, chosen by implementation and documented.
+
+    The shader must consume this field. Domain 0 samples candidate/fallback
+    identities uniformly from the full dense current RLU. Domains 1 and 2
+    restrict candidate/fallback identities to the current typed emissive or
+    analytic range. Domain 3 builds typed candidate lists and folds the typed
+    class probability into sourcePdf.
 
 
 r_pathTracingNeeCacheDump
