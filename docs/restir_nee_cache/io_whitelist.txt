@@ -1,0 +1,178 @@
+Remix-Style NEE Cache I/O Whitelist
+===================================
+
+This whitelist applies only to the NEE cache proposal-provider lane.
+
+
+Allowed Inputs
+--------------
+
+I-01: Current RLU Dense Light Domain
+
+    Allowed sources:
+        current Remix/RAB light-manager payload buffer
+        current typed ranges
+        current dense light count
+
+    Forbidden use:
+        old split-domain buffers as the default source
+        old rbdoom NEE selected-light records
+        previous light domain for initial proposals
+
+
+I-02: Current Primary / Secondary Surface
+
+    Allowed use:
+        map a surface world position to a cache cell
+        insert useful NEE task feedback
+        debug RAB replay
+
+    Forbidden use:
+        fallback beauty/albedo output
+        temporal proof before standalone cache proof
+
+
+I-03: Candidate Feedback Events
+
+    Allowed fields:
+        dense RLU identity
+        light class
+        contribution/task value
+        cell id
+        source path label
+
+    Forbidden use:
+        final lighting proof
+        visibility folded into targetPdf
+        best-light feedback as first implementation
+
+
+I-04: RAB Helper Boundary
+
+    Allowed helpers:
+        RAB_LoadActiveRrxLightInfo
+        RAB_SampleActiveRrxPolymorphicLight
+        RAB_GetLightSampleTargetPdfForSurface
+        RAB_GetReflectedBsdfRadianceForSurface
+
+    Forbidden use:
+        duplicated local RAB helpers unless equivalence is proven first
+        invented source PDF or target PDF math
+
+
+I-05: Existing ReGIR Debug Scaffolding
+
+    Allowed use:
+        CVar/dump style
+        debug route pattern
+        candidate-buffer allocation pattern
+        RAB replay diagnostic pattern
+
+    Forbidden use:
+        axis-wise onion mapping as the production cache mapping
+        debug-view-gated build as normal function
+        legacy split-domain fallback as active source
+
+
+Allowed Outputs
+---------------
+
+O-01: Cache Cell Buffer
+
+    Required fields:
+        cell validity
+        cell id/hash
+        task count or task slot range
+        candidate count or candidate slot range
+
+
+O-02: Task Buffer
+
+    Required fields:
+        dense RLU identity or invalid sentinel
+        task class
+        accumulated task value
+        decay/reset state
+
+
+O-03: Candidate Buffer
+
+    Required fields:
+        dense current RLU index
+        light class
+        sourcePdf or invSourcePdf
+        candidate weight/debug value
+        valid flag
+        empty/fallback reason
+
+
+O-04: PDFNEE Source Provider Output
+
+    Required fields:
+        selected dense RLU identity
+        selected sourcePdf
+        selected invSourcePdf
+        selected source label
+        mixture probability
+        fallback flag
+
+
+O-05: Debug Views
+
+    Required views:
+        route/status
+        cell id
+        occupancy
+        task accumulation
+        emissive candidate
+        analytic candidate
+        source PDF
+        cache/fallback mixture
+        RAB replay validity
+
+
+O-06: CPU Dump
+
+    Required fields:
+        all CVar state
+        RLU current count
+        typed ranges
+        cache dimensions
+        buffer bytes
+        fallback probability
+        candidate counts
+        first failing contract
+
+
+Forbidden Inputs
+----------------
+
+Do not consume:
+
+    old PDFNEE/ReGIR verifier routes as proof
+    old rbdoom NEE records
+    mode-56 output
+    spatial reservoir pages
+    best-light buffers
+    denoiser/confidence/gradient buffers
+    Doom portal candidate pools as the default source
+
+
+Forbidden Outputs
+-----------------
+
+Do not output:
+
+    temporal proof
+    spatial proof
+    best-light proof
+    denoised output
+    fallback beauty or albedo
+    final direct-light color as cache proof
+
+
+Reject Condition
+----------------
+
+Reject any worker result that cannot list every consumed input and written
+output by whitelist id.

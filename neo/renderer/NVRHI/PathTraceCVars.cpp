@@ -573,6 +573,72 @@ idCVar r_pathTracingReGIRDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump standalone ReGIR mode, cells, domain counts, resource size, dispatch slots, and first missing contract once" );
 
+idCVar r_pathTracingNeeCacheEnable(
+    "r_pathTracingNeeCacheEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable the Remix-style NEE cache proposal-provider resource shell; does not route PDFNEE, temporal, spatial, RRX, best-light, or mode 56" );
+
+idCVar r_pathTracingNeeCacheMode(
+    "r_pathTracingNeeCacheMode",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache provider mode: 0 disabled, 1 Remix-style log/hash learned cache, 2 ReGIR/onion fallback provider, 3 bounded grid diagnostic" );
+
+idCVar r_pathTracingNeeCacheDebugView(
+    "r_pathTracingNeeCacheDebugView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache debug view selector: 0 disabled, 1 status, 2 cell id, 3 occupancy, 4 task accumulation, 5 emissive candidates, 6 analytic candidates, 7 sourcePdf, 8 mixture source, 9 fallback reason, 10 RAB replay, 11 cell-local mean" );
+
+idCVar r_pathTracingNeeCacheCellResolution(
+    "r_pathTracingNeeCacheCellResolution",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache log/hash cell resolution parameter; higher values mean smaller cells; default 8 visually matches the Remix reference cell scale" );
+
+idCVar r_pathTracingNeeCacheMinRange(
+    "r_pathTracingNeeCacheMinRange",
+    "256",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "NEE cache minimum range for lowest-level cells in Doom world units" );
+
+idCVar r_pathTracingNeeCacheCellCount(
+    "r_pathTracingNeeCacheCellCount",
+    "65536",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache fixed physical cell count for the log/hash provider" );
+
+idCVar r_pathTracingNeeCacheCandidateSlots(
+    "r_pathTracingNeeCacheCandidateSlots",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache candidate slots per cell for the fixed-budget provider shell" );
+
+idCVar r_pathTracingNeeCacheTaskSlots(
+    "r_pathTracingNeeCacheTaskSlots",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache task slots per cell for learned source feedback" );
+
+idCVar r_pathTracingNeeCacheFallbackProbability(
+    "r_pathTracingNeeCacheFallbackProbability",
+    "0.25",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "NEE cache probability of sampling full-RLU fallback instead of the cache; 0 is diagnostic/cache-only" );
+
+idCVar r_pathTracingNeeCacheSourceDomain(
+    "r_pathTracingNeeCacheSourceDomain",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEE cache source domain: 0 all current RLU, 1 emissive range only, 2 analytic range only, 3 typed candidate lists with mixture probabilities" );
+
+idCVar r_pathTracingNeeCacheDump(
+    "r_pathTracingNeeCacheDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the NEE cache provider ABI, fixed resource sizes, RLU input state, and first missing contract once" );
+
 idCVar r_pathTracingLightDump(
     "r_pathTracingLightDump",
     "0",

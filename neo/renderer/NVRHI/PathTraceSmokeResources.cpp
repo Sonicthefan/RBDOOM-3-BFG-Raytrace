@@ -1276,6 +1276,26 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BindingLayoutDesc neeCacheDebugBindingLayoutDesc;
+    neeCacheDebugBindingLayoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+    neeCacheDebugBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_PROVIDER_RESULT_UAV));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CELL_UAV));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_TASK_UAV));
+    neeCacheDebugBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CANDIDATE_UAV));
+    m_smokeNeeCacheDebugBindingLayout = device->createBindingLayout(neeCacheDebugBindingLayoutDesc);
+    if (!m_smokeNeeCacheDebugBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create NEE cache debug binding layout\n");
+        return;
+    }
+
     nvrhi::BindingLayoutDesc skinningBindingLayoutDesc;
     skinningBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     skinningBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
@@ -1573,6 +1593,15 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.bin",
             m_smokePdfNeeVerifierBindingLayout);
+    case 19:
+        return initLibrary(
+            m_smokeNeeCacheDebugShaderLibrary,
+            m_smokeNeeCacheDebugPipeline,
+            m_smokeNeeCacheDebugShaderTable,
+            "NEE cache debug",
+            "renderprogs2/dxil/builtin/pathtracing/pathtrace_nee_cache_debug.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/pathtrace_nee_cache_debug.rt.bin",
+            m_smokeNeeCacheDebugBindingLayout);
     default:
         return false;
     }
@@ -1907,6 +1936,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
+    m_smokeNeeCacheState.Clear();
     m_smokeReGIRState.Clear();
     m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
     m_smokeCleanRtxdiDiTemporalReservoirCount = 0;

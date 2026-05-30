@@ -1,0 +1,154 @@
+Remix-Style NEE Cache Worker Protocol
+=====================================
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact Remix reference file-equivalent
+    exact RTXDI/ReGIR reference file, if used
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact CVars
+    exact whitelist inputs consumed
+    exact whitelist outputs written
+    exact provider ABI, if task id is NEECACHE-01 or later
+    exact shader struct/register layout, if task id is NEECACHE-01 or later
+    source-provider boundary
+    selected dense RLU identity contract
+    sourcePdf / invSourcePdf contract
+    fallback mixture contract
+    RAB replay boundary
+    forbidden files/functions
+    expected runtime proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Allowed Edits
+-------------
+
+Only when a task explicitly names them:
+
+    new NEE cache CPU module
+    new NEE cache shader bridge
+    resource/binding code for cache buffers
+    CVars for this lane
+    debug views for this lane
+    PDFNEE source-provider adapter, after standalone proof
+    documentation in this folder
+
+
+Forbidden Edits
+---------------
+
+Do not edit unless a task explicitly names them:
+
+    clean RTXDI temporal accumulator math
+    RRX temporal/spatial paths
+    RTXDI reservoir math
+    denoiser/confidence/gradient paths
+    mode-56 routing
+    old PDFNEE/ReGIR verifier routes
+    old rbdoom NEE selected-light records
+    unrelated material/geometry systems
+
+
+Clean-Room Rule
+---------------
+
+The worker may use Remix and RTXDI files as reference file-equivalents for
+contract shape. Do not copy source text into rbdoom.
+
+Acceptable implementation:
+
+    rbdoom-owned names and structures
+    dense RLU identity output
+    explicit source PDF and fallback mixture
+    exact reference citations by path
+
+Unacceptable implementation:
+
+    pasted reference code
+    hidden ReSTIR math changes
+    broad light suppression
+    fallback beauty/albedo
+    debug heatmap as quality proof
+
+
+Proof Report Format
+-------------------
+
+Every implementation report must include:
+
+    producer route
+        CPU producer
+        shader producer
+        source RLU domain
+        cache buffers
+
+    cache table
+        cell count
+        task slots
+        candidate slots
+        active RLU count
+        typed ranges
+        fallback probability
+
+    candidate table
+        selected source
+        dense RLU identity
+        light class
+        sourcePdf
+        invSourcePdf
+        RAB replay validity
+
+    negative paths
+        disabled
+        no RLU lights
+        empty cell
+        invalid candidate
+        cache-only diagnostic
+        fallback-only diagnostic
+        map/render-world reset
+
+    visual proof
+        exact CVars
+        expected color meaning
+        observed user-facing output
+        why it is not fallback albedo/beauty/status color
+
+
+Diagnostic Limits
+-----------------
+
+The following are diagnostic only:
+
+    CPU dumps
+    GUI numbers
+    debug heatmaps
+    non-crashing builds
+    allocation survival
+    valid buffer names
+
+They cannot prove final NEE quality without user visual testing of current
+PDFNEE output after the standalone source-provider proof passes.
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    NEECACHE-01 or later has no concrete provider ABI
+    shader struct/register layout is ambiguous
+    selected identity is not dense RLU replayable
+    sourcePdf / invSourcePdf cannot be stated
+    fallback mixture cannot be stated
+    cache-only mode is needed for normal function
+    debug view is required before the normal path populates
+    RAB replay fails for valid candidates
+    proof requires broad suppression, spatial, best lights, mode 56, or old
+        PDFNEE/ReGIR routes

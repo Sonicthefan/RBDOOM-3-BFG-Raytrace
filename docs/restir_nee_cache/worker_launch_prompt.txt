@@ -1,0 +1,109 @@
+Paste-Ready NEE Cache Worker Launch Prompt
+=========================================
+
+Use this prompt for a new agent.
+
+
+Prompt
+------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    restir-development
+
+Task:
+
+    Work on the Remix-style NEE cache / RLU spatial proposal-provider lane.
+    The goal is to build a fixed-budget spatial proposal source over the
+    current RLU dense domain. It should first mimic Remix's useful NEE cache
+    behavior: log/hash cells, learned task values, emissive and analytic
+    candidates, exact source PDFs, and uniform/full-RLU fallback. If that
+    screen-space-discovered cache fails to deliver, the fallback plan is a
+    full ReGIR/onion provider behind the same source-provider interface.
+
+Read first:
+
+    docs/restir_nee_cache/README.txt
+    docs/restir_nee_cache/contract_matrix.txt
+    docs/restir_nee_cache/cvar_contract.txt
+    docs/restir_nee_cache/io_whitelist.txt
+    docs/restir_nee_cache/integration_handoff_plan.txt
+    docs/restir_nee_cache/validation_matrix.txt
+    docs/restir_nee_cache/worker_protocol.txt
+    docs/restir_nee_cache/worker_tasks.txt
+
+Known state:
+
+    The current accepted light identity is dense current RLU index. Clean RTXDI
+    DI view 12 can consume RLU and accumulate real Doom lighting. Replacement
+    PDFNEE currently has functional current-frame plumbing but weak proposal
+    quality. The old PDFNEE/ReGIR verifier routes are diagnostic history only.
+
+Standing restrictions:
+
+    no clean RTXDI temporal accumulation edits
+    no RRX temporal/spatial edits
+    no spatial reuse as proof
+    no best-light feedback as proof
+    no denoiser/confidence/gradient proof
+    no mode-56 route
+    no old PDFNEE lightMode 8/9 route
+    no old rbdoom NEE records as proof
+    no Doom portal candidate pool as the default source
+    no broad light suppression as a fix
+    no copied Remix or RTXDI source text
+    no final direct-light contribution inside the cache as proof
+
+Reference file-equivalents:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache_data.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/nee_cache/update_nee_cache.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+
+First action:
+
+    Start with NEECACHE-00 only as a read-only contract audit. No code changes.
+
+    Report:
+
+        exact proposal-provider boundary
+        exact provider ABI ambiguity to resolve in NEECACHE-01
+        exact old ReGIR pieces to reuse or discard
+        exact RLU input contract
+        exact sourcePdf/fallback mixture contract
+        exact RAB replay boundary
+        exact proposed rbdoom write set
+        first missing or ambiguous contract
+
+Build lane if later implementation is approved:
+
+    From E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy:
+
+        E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Copy contents of:
+
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+    to:
+
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.

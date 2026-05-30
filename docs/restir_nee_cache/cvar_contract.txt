@@ -1,0 +1,167 @@
+Remix-Style NEE Cache CVar Contract
+===================================
+
+Purpose
+-------
+
+Reserve a narrow CVar surface for the NEE cache proposal-provider lane.
+
+Default-functionality rule:
+
+    r_pathTracingNeeCacheEnable 1 must build/update the normal proposal
+    provider with useful defaults. DebugView, dump, forced mode, manual
+    parameters, and validation views are diagnostics only. They must not be
+    required before cells populate or candidates replay through RAB.
+
+
+Required CVars
+--------------
+
+r_pathTracingNeeCacheEnable
+
+    0 = disabled
+    1 = build/update the normal NEE cache proposal provider
+
+    Default: 0
+
+
+r_pathTracingNeeCacheMode
+
+    0 = disabled
+    1 = Remix-style log/hash learned cache
+    2 = RTXDI-style onion/full ReGIR fallback provider
+    3 = bounded regular grid diagnostic
+
+    Default: 1
+
+
+r_pathTracingNeeCacheDebugView
+
+    0 = disabled
+    1 = route/status sentinel
+    2 = cell id
+    3 = cell occupancy
+    4 = task accumulation map
+    5 = emissive triangle candidate map
+    6 = analytic candidate identity map
+    7 = sourcePdf / invSourcePdf
+    8 = cache/fallback mixture source
+    9 = empty/fallback reason
+    10 = RAB replay validity
+    11 = cell-local mean contribution diagnostic
+
+    Default: 0
+
+    This CVar selects diagnostics only. It must not be needed for normal cache
+    build/update when r_pathTracingNeeCacheEnable is 1.
+
+
+r_pathTracingNeeCacheCellResolution
+
+    Remix-style cell resolution parameter. Higher values mean smaller cells.
+
+    Default: 8
+
+    Calibration:
+
+        debugView 2 visual comparison matched the Remix reference when using
+        cellResolution 8 with minRange 256. A 64-cell resolution made the
+        visible cells about one quarter of the desired width.
+
+
+r_pathTracingNeeCacheMinRange
+
+    Minimum range for lowest-level cells in Doom world units.
+
+    Default: implementation must choose and document a conservative value.
+
+
+r_pathTracingNeeCacheCellCount
+
+    Fixed physical cache cell count for hash/log mode.
+
+    Default: implementation must choose and document a fixed budget.
+
+
+r_pathTracingNeeCacheCandidateSlots
+
+    Candidate slots per cell for each active list, or the total slot budget if
+    the implementation stores a packed mixed list.
+
+    Default: implementation must choose and document a fixed budget.
+
+
+r_pathTracingNeeCacheTaskSlots
+
+    Task slots per cell.
+
+    Default: implementation must choose and document a fixed budget.
+
+
+r_pathTracingNeeCacheFallbackProbability
+
+    Probability of sampling from the full RLU fallback instead of the cache.
+
+    Default: greater than 0.
+
+    A value of 0 is diagnostic only and must be reported as biased/cache-only.
+
+
+r_pathTracingNeeCacheSourceDomain
+
+    0 = all current RLU lights
+    1 = emissive range only
+    2 = analytic range only
+    3 = typed candidate lists with mixture probabilities
+
+    Default: 0 or 3, chosen by implementation and documented.
+
+
+r_pathTracingNeeCacheDump
+
+    0 = disabled
+    1 = one-shot dump
+
+    Required dump fields:
+
+        enable
+        mode
+        debugView
+        cell count
+        task slots
+        candidate slots
+        RLU current count
+        typed ranges
+        fallback probability
+        cache probability
+        selected provider
+        first missing contract
+
+
+Future / Not First Slice
+------------------------
+
+Do not add until standalone debug proof passes:
+
+    PDFNEE consume toggle
+    temporal feedback toggle
+    spatial reuse toggle
+    best-light feedback toggle
+    denoiser/confidence/gradient toggle
+
+
+Forbidden CVar Behavior
+-----------------------
+
+NEE cache CVars must not:
+
+    require a multi-CVar recipe for normal functionality
+    make debug views the only path where cells populate
+    route through mode 56
+    enable clean RTXDI temporal consume
+    enable RRX reservoir pages
+    enable spatial reuse
+    enable best-light feedback
+    suppress broad lights
+    switch to fallback beauty or albedo
+    hide effective parameter overrides from the dump

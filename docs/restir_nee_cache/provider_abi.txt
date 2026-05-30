@@ -1,0 +1,264 @@
+NEE Cache Provider ABI
+======================
+
+Status
+------
+
+Implemented for NEECACHE-01 as a CPU/resource-shell ABI.
+
+This file resolves the previous first missing contract:
+
+    provider-abi
+
+The next missing contract after NEECACHE-01 is:
+
+    cell-mapping-not-implemented-neecache-02
+
+
+Owner
+-----
+
+CPU/resource owner:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+    PathTracePrimaryPass::m_smokeNeeCacheState
+
+No old ReGIR/PDFNEE verifier route owns this ABI.
+
+
+Provider Function Boundary
+--------------------------
+
+Future shader function name:
+
+    PathTraceNeeCacheSelectProposal
+
+Input side:
+
+    current RLU dense light count
+    current RLU typed ranges
+    current dense RLU payloads
+    current RAB surface/world position
+    provider RNG/sample state
+
+Output side:
+
+    PathTraceNeeCacheProviderResult
+
+The provider returns identity and source-distribution metadata only. It does
+not compute final direct-light contribution, visibility, temporal reservoirs,
+spatial reservoirs, best-light state, or denoiser/confidence/gradient data.
+
+
+Future PDFNEE Boundary
+----------------------
+
+Future call/read site:
+
+    pathtrace_restir_pdf_nee_rlu_current.rt.hlsl:current-frame-source-policy
+
+PDFNEE may call the provider function after standalone proof. It must keep RAB
+ownership of:
+
+    RAB_LoadActiveRrxLightInfo
+    RAB_SampleActiveRrxPolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+    visibility policy
+    RTXDI current reservoir construction
+
+
+HLSL Result Struct
+------------------
+
+The HLSL struct name is reserved as:
+
+    PathTraceNeeCacheProviderResult
+
+Layout, matching the C++ mirror in PathTraceNeeCache.h:
+
+    uint selectedDenseRluIndex
+    uint sourceLabel
+    uint fallbackReason
+    uint cellIndex
+    uint candidateSlot
+    uint flags
+    float sourcePdf
+    float invSourcePdf
+    float mixtureProbability
+    float reserved0
+    uint reserved1
+    uint reserved2
+
+Stride:
+
+    48 bytes
+
+Invalid/disabled result:
+
+    selectedDenseRluIndex = 0xffffffff
+    sourceLabel = PATH_TRACE_NEE_CACHE_SOURCE_NONE
+    fallbackReason = PATH_TRACE_NEE_CACHE_FALLBACK_DISABLED
+    sourcePdf = 0
+    invSourcePdf = 0
+    mixtureProbability = 0
+
+
+C++ Mirror Structs
+------------------
+
+Defined in:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+
+Structs:
+
+    PathTraceNeeCacheProviderResult
+    PathTraceNeeCacheCellRecord
+    PathTraceNeeCacheTaskRecord
+    PathTraceNeeCacheCandidateRecord
+    PathTraceNeeCacheSettings
+    PathTraceNeeCacheRluInputs
+    PathTraceNeeCacheResourceDesc
+    PathTraceNeeCacheState
+
+
+Reserved Binding/Register Slots
+-------------------------------
+
+These slots are reserved by PathTraceNeeCache.h:
+
+    provider result UAV: u74
+    cell UAV:            u75
+    task UAV:            u76
+    candidate UAV:       u77
+
+NEECACHE-01 creates the buffers but does not bind or dispatch a shader route.
+NEECACHE-02 binds these slots for the standalone debug route:
+
+    pathtrace_nee_cache_debug.rt.hlsl
+
+The NEECACHE-02 debug shader declares the provider, cell, task, and candidate
+UAVs at u74-u77 but does not read task or candidate cache contents. The route
+is for cell-mapping visualization only.
+
+
+Cell Mapping Debug Route
+------------------------
+
+Route shader:
+
+    pathtrace_nee_cache_debug.rt.hlsl
+
+Bridge include:
+
+    RtxdiBridge/RAB_NeeCache.hlsli
+
+Binding layout:
+
+    t0  SmokeScene TLAS
+    u1  SmokeOutput
+    b2  PathTraceSmokeConstants
+    u74 PathTraceNeeCacheProviderResult
+    u75 PathTraceNeeCacheCells
+    u76 PathTraceNeeCacheTasks
+    u77 PathTraceNeeCacheCandidates
+
+Constant slots:
+
+    c115 NeeCacheInfo0
+    c116 NeeCacheInfo1
+    c117 NeeCacheInfo2
+    c118 NeeCacheInfo3
+
+Debug views:
+
+    1 route/status
+    2 cell id
+    3 empty occupancy
+
+This route traces primary scene hits to recover world position, hashes the
+position into a log-distance cell, writes only SmokeOutput, and leaves all final
+direct-light contribution outside the cache.
+
+Visual calibration:
+
+    cellResolution 8 with minRange 256 is the current default because user
+    visual inspection matched the Remix reference cell scale. Higher
+    cellResolution values intentionally make cells smaller.
+
+
+Buffer Lifetime
+---------------
+
+Buffer owner:
+
+    PathTraceNeeCacheState
+
+Lifetime:
+
+    Created when r_pathTracingNeeCacheEnable 1 and mode is nonzero.
+    Destroyed when disabled, invalid, or scene resources are reset.
+    Recreated when the fixed budget or stride changes.
+
+Buffers:
+
+    PathTraceNeeCacheProviderResult
+    PathTraceNeeCacheCells
+    PathTraceNeeCacheTasks
+    PathTraceNeeCacheCandidates
+    PathTraceNeeCachePlaceholderSRV
+
+Default fixed budget:
+
+    cellCount = 65536
+    taskSlots = 8 per cell
+    candidateSlots = 8 per cell
+    providerResultCount = one result record per cell
+
+
+Enums
+-----
+
+sourceLabel:
+
+    PATH_TRACE_NEE_CACHE_SOURCE_NONE = 0
+    PATH_TRACE_NEE_CACHE_SOURCE_CACHE_ANALYTIC = 1
+    PATH_TRACE_NEE_CACHE_SOURCE_CACHE_EMISSIVE = 2
+    PATH_TRACE_NEE_CACHE_SOURCE_FALLBACK_FULL_RLU = 3
+    PATH_TRACE_NEE_CACHE_SOURCE_FALLBACK_TYPED_RLU = 4
+
+fallbackReason:
+
+    PATH_TRACE_NEE_CACHE_FALLBACK_NONE = 0
+    PATH_TRACE_NEE_CACHE_FALLBACK_DISABLED = 1
+    PATH_TRACE_NEE_CACHE_FALLBACK_NO_RLU = 2
+    PATH_TRACE_NEE_CACHE_FALLBACK_EMPTY_CELL = 3
+    PATH_TRACE_NEE_CACHE_FALLBACK_INVALID_CANDIDATE = 4
+    PATH_TRACE_NEE_CACHE_FALLBACK_ZERO_SOURCE_PDF = 5
+    PATH_TRACE_NEE_CACHE_FALLBACK_RAB_REPLAY_FAILED = 6
+    PATH_TRACE_NEE_CACHE_FALLBACK_CACHE_ONLY_DIAGNOSTIC = 7
+
+
+Dump Proof
+----------
+
+One-shot dump CVar:
+
+    r_pathTracingNeeCacheDump 1
+
+The dump reports:
+
+    provider ABI owner
+    shader struct and C++ mirror struct
+    reserved binding slots
+    provider function boundary
+    future PDFNEE boundary
+    sourceLabel enum
+    fallbackReason enum
+    resource counts and bytes
+    current RLU count and typed ranges
+    firstMissingContract
+
+The dump is diagnostic only and does not prove candidate quality.

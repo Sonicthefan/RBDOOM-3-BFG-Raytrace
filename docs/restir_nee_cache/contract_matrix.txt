@@ -1,0 +1,330 @@
+Remix-Style NEE Cache Contract Matrix
+=====================================
+
+Goal
+----
+
+Build a spatial proposal provider for PDFNEE that reduces many-light noise
+without changing the trusted RLU/RAB/RTXDI reservoir consumer contract.
+
+
+Contract C-00: Provider ABI
+---------------------------
+
+Status:
+
+    resolved by NEECACHE-01 CPU/resource shell
+    see provider_abi.txt
+    NEECACHE-02 binds the debug route for cell mapping only
+    current next missing contract is task-accumulation-not-implemented-neecache-03
+
+First missing contract to resolve:
+
+    exact rbdoom-owned shader structs
+    exact binding/register slots
+    exact buffer ownership
+    exact producer function boundary
+    exact consumer function boundary
+
+Required provider result fields:
+
+    selectedDenseRluIndex
+    sourcePdf
+    invSourcePdf
+    sourceLabel
+    mixtureProbability
+    fallbackReason
+    cellIndex
+    candidateSlot
+    flags
+
+Required behavior:
+
+    NEECACHE-01 defines the ABI before any candidate algorithm work
+    the ABI is owned by the new NEE cache lane, not old ReGIR/PDFNEE routes
+    PDFNEE calls one provider function or reads one documented result buffer
+    the provider returns identity/PDF/source metadata only
+    final light sampling and contribution remain in PDFNEE/RAB
+
+Pass:
+
+    worker can name the exact HLSL struct, C++ mirror struct if any, binding
+        slots, buffer lifetime owner, and caller/callee relationship
+    sourceLabel and fallbackReason have documented enum values
+    disabled/invalid provider output is explicitly representable
+
+Fail:
+
+    candidate algorithms start before ABI is defined
+    PDFNEE reads ad hoc cache buffers directly without a provider contract
+    sourcePdf/invSourcePdf/sourceLabel are reconstructed differently by each
+        consumer
+
+
+Contract C-00A: Cell Mapping Debug Route
+----------------------------------------
+
+Status:
+
+    resolved by NEECACHE-02 standalone debug route
+
+Producer:
+
+    pathtrace_nee_cache_debug.rt.hlsl
+    RtxdiBridge/RAB_NeeCache.hlsli
+
+Required behavior:
+
+    r_pathTracingNeeCacheDebugView 1 shows route/status
+    r_pathTracingNeeCacheDebugView 2 shows cell id and cell boundaries
+    r_pathTracingNeeCacheDebugView 3 shows empty occupancy
+    no task or candidate cache records are read for this proof
+    output is SmokeOutput only
+    final light contribution remains zero
+
+Pass:
+
+    user can visually confirm stable world-position to cell mapping while
+        stationary
+    dump reports debugRoute=1, noCandidateReads=1, output=SmokeOutput,
+        task=NEECACHE-02
+
+Fail:
+
+    cell colors depend on frameIndex alone
+    debug route reads candidate cache contents before candidate build exists
+    route is used as lighting or PDFNEE proof
+
+
+Contract C-01: RLU Dense Domain Input
+-------------------------------------
+
+Producer:
+
+    PathTraceRemixLightManager.cpp
+    PathTraceLightUniverse.cpp
+    PathTraceUnifiedLight.cpp
+    PathTraceSmokeSceneBuild.cpp
+
+Required input:
+
+    current RLU dense light payloads
+    current typed ranges
+    current dense light count
+    dense RLU light identity
+    light type
+    replayable RAB payload
+
+Pass:
+
+    every cache candidate stores a dense current RLU index
+    candidate class matches the RLU payload type
+    RAB_LoadActiveRrxLightInfo can replay the identity
+
+Fail:
+
+    old Doom analytic split buffers are the default source
+    old rbdoom NEE records are used as proof
+    cache invents a new light identity domain
+
+
+Contract C-02: Cell Mapping
+---------------------------
+
+Reference shape:
+
+    Remix NEECache.pointToOffset
+    RTXDI ReGIR onion as fallback reference only
+
+Required behavior:
+
+    maps world position to stable cell id
+    uses fixed resource budget
+    supports fine near cells and coarser far coverage
+    reports hash/log/onion parameters in dump
+    loud invalid/out-of-volume state
+
+Pass:
+
+    cells are world-space stable while standing still
+    camera movement does not randomly strobe stationary cell ids
+    debug view distinguishes cell id, occupancy, and empty state
+
+Fail:
+
+    cells are screen-space anchored
+    cell id changes from frameIndex alone
+    cell size or center is silently overridden
+
+
+Contract C-03: Task Accumulation
+--------------------------------
+
+Reference shape:
+
+    Remix NEE cache task slots and accumulated values
+
+Required output:
+
+    per-cell task slots
+    task value / accumulated importance
+    task class
+    task decay or reset policy
+    task insert policy
+
+Pass:
+
+    visible/secondary useful NEE events can increase task values
+    stale tasks decay or clear on reset
+    task accumulation map is debug-only and not final lighting proof
+
+Fail:
+
+    stale tasks survive map/load reset as valid
+    task values are treated as final radiance
+    task insertion cannot name the source contribution and identity
+
+
+Contract C-04: Candidate Lists
+------------------------------
+
+Required output:
+
+    per-cell analytic candidate list
+    per-cell emissive candidate list
+    candidate count
+    selected dense RLU identity
+    candidate source PDF or invSourcePdf
+    empty/fallback reason
+
+Pass:
+
+    emissive triangle candidate view paints visible cached triangles
+    analytic candidate view paints or labels selected analytic identities
+    candidate list remains bounded by configured slots
+
+Fail:
+
+    candidate identity is compact-only and not RAB replayable
+    emissive and analytic candidates share ambiguous class ids
+    candidate list only exists in one diagnostic view
+
+
+Contract C-05: Source PDF And Fallback Mixture
+----------------------------------------------
+
+Required behavior:
+
+    every selected cache candidate has exact sourcePdf/invSourcePdf
+    uniform/full-RLU fallback is always available unless explicitly disabled
+        for a diagnostic
+    final proposal PDF includes cache/fallback mixture probability
+
+Pass:
+
+    cache-only PDF is explicit
+    fallback PDF is 1/currentRluLightCount or exact typed equivalent
+    mixture PDF is:
+
+        p = cacheProbability * cachePdf + fallbackProbability * fallbackPdf
+
+    dump reports cacheProbability, fallbackProbability, and selected source
+
+Fail:
+
+    cache drops lights with no fallback
+    sourcePdf is zero for valid selected candidates
+    bounded RIS stores original proposal PDF instead of selected-light PDF
+    fallback is hidden or only described as "safety"
+
+
+Contract C-06: RAB Replay Boundary
+----------------------------------
+
+Required consumer behavior:
+
+    cache selects only candidate identity and source distribution
+    RAB still owns sample evaluation
+
+Required helpers:
+
+    RAB_LoadActiveRrxLightInfo
+    RAB_SampleActiveRrxPolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+
+Pass:
+
+    candidate replay uses shared RAB helpers
+    solidAnglePdf comes from RAB sampling
+    targetPdf comes from RAB target function
+    visibility remains separate
+
+Fail:
+
+    cache computes final direct-light color as proof
+    cache duplicates RAB light sampling math without equivalence proof
+    visibility is folded into targetPdf
+
+
+Contract C-07: PDFNEE Consumer Handoff
+--------------------------------------
+
+Required behavior:
+
+    PDFNEE consumes the cache only after standalone proof
+    selected identity remains dense current RLU index
+    RTXDI current reservoir construction remains compliant
+
+Pass:
+
+    PDFNEE source policy can switch cache/fallback off for A/B
+    disabling cache but keeping fallback matches current RLU uniform baseline
+    enabling cache changes only proposal distribution and reported sourcePdf
+
+Fail:
+
+    cache changes clean RTXDI temporal accumulation
+    cache writes directly to temporal pages
+    PDFNEE uses a different domain than the cache dump reports
+
+
+Contract C-08: Full ReGIR Fallback Provider
+-------------------------------------------
+
+Required if screen-space/log-hash cache fails:
+
+    build a full ReGIR/onion/bounded-grid proposal provider
+    select dense RLU identities
+    preserve exact sourcePdf and fallback mixture
+    keep the same PDFNEE source-provider interface
+
+Pass:
+
+    provider can be swapped without changing RAB replay or reservoir consume
+
+Fail:
+
+    fallback provider becomes a separate light universe
+    fallback provider hides missing source PDF behind debug-only output
+
+
+Contract C-09: Reset And Lifetime
+---------------------------------
+
+Required behavior:
+
+    map change clears cache state
+    render-world reset clears cache state
+    RLU structural reset clears candidate identities
+    buffer resize clears or rebuilds cache
+
+Pass:
+
+    first frame after reset reports empty/current rebuild state
+    stale previous-map tasks and candidates never appear valid
+
+Fail:
+
+    old map candidates survive as valid candidates
+    fallback lighting hides stale cache identity

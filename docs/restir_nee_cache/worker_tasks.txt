@@ -1,0 +1,384 @@
+Remix-Style NEE Cache Worker Tasks
+==================================
+
+Run tasks in order. Do not skip ahead.
+
+
+NEECACHE-00: Read-Only Contract Audit
+-------------------------------------
+
+Goal:
+
+    Audit Remix NEE cache, RTXDI ReGIR, current rbdoom ReGIR scaffolding,
+    current RLU, and current PDFNEE producer before implementation.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/nee_cache/update_nee_cache.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+
+Allowed write set:
+
+    docs/restir_nee_cache only
+
+Forbidden:
+
+    no code changes
+    no build
+
+Acceptance:
+
+    report exact proposal-provider boundary
+    report exact old ReGIR pieces to reuse or discard
+    report exact RLU input contract
+    report exact PDFNEE handoff contract
+    report first missing or ambiguous contract
+
+
+NEECACHE-01: CPU Resource Shell
+-------------------------------
+
+Goal:
+
+    Add a default-off CPU/resource shell for the new NEE cache provider.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_resources.cpp
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    docs/restir_nee_cache
+
+Required:
+
+    CVars from cvar_contract.txt
+    concrete provider ABI before any candidate algorithm work
+    rbdoom-owned shader result struct with:
+        selectedDenseRluIndex
+        sourcePdf
+        invSourcePdf
+        sourceLabel
+        mixtureProbability
+        fallbackReason
+        cellIndex
+        candidateSlot
+        flags
+    documented sourceLabel enum
+    documented fallbackReason enum
+    exact binding/register slots for every provider buffer
+    exact buffer owner and lifetime/reset policy
+    exact provider function boundary
+    exact future PDFNEE call/read boundary
+    parameter struct
+    resource size calculation
+    disabled state
+    one-shot dump
+
+Forbidden:
+
+    no shader candidate build
+    no PDFNEE consume
+    no temporal edits
+
+Acceptance:
+
+    build/deploy succeeds
+    dump proves resource sizes and disabled/enabled state
+    docs name the exact provider ABI and first missing contract is no longer
+    "provider-abi"
+    provider_abi.txt exists and names the exact struct/register/function
+    boundary
+
+
+NEECACHE-02: Log/Hash Cell Debug View
+-------------------------------------
+
+Status:
+
+    implemented as standalone debug route
+
+Goal:
+
+    Add a standalone debug route that visualizes cache cell mapping.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    docs/restir_nee_cache
+
+Required:
+
+    debugView 1 route/status
+    debugView 2 cell id
+    debugView 3 empty occupancy
+    no candidate cache reads yet
+
+Acceptance:
+
+    user can visually confirm world-space cell stability while stationary
+    dump reports debugRoute=1, noCandidateReads=1, output=SmokeOutput
+    firstMissingContract=none for debugView 1-3 when current dense RLU is
+        available
+
+
+NEECACHE-03: Task Accumulation Buffer
+-------------------------------------
+
+Goal:
+
+    Add task slots and accumulation/decay/reset diagnostics.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/nee_cache/update_nee_cache.comp.slang
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
+    docs/restir_nee_cache
+
+Required:
+
+    task buffer
+    task slot count
+    task accumulation debug view 4
+    reset clears stale tasks
+    dump states insert and decay policy
+
+Forbidden:
+
+    no final lighting proof
+    no PDFNEE consume
+
+Acceptance:
+
+    task accumulation map changes coherently and clears on reset
+
+
+NEECACHE-04: Emissive Candidate List
+------------------------------------
+
+Goal:
+
+    Build per-cell emissive candidates from current RLU emissive records.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
+    docs/restir_nee_cache
+
+Required:
+
+    emissive candidate records use dense RLU identity
+    debugView 5 emissive triangle candidate map
+    sourcePdf / invSourcePdf proof
+    fallback rate proof
+
+Acceptance:
+
+    emissive candidates populate from current RLU without old ReGIR/PDFNEE
+    routes
+
+
+NEECACHE-05: Analytic Candidate List
+------------------------------------
+
+Goal:
+
+    Build per-cell analytic candidates from current RLU Doom analytic records.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
+    docs/restir_nee_cache
+
+Required:
+
+    analytic candidate records use dense RLU identity
+    debugView 6 selected analytic identity
+    debugView 7 sourcePdf / invSourcePdf
+    debugView 10 RAB replay validity
+
+Acceptance:
+
+    selected analytic identity visually matches clean RTXDI/RLU lighting
+    class/source PDF is explicit
+
+
+NEECACHE-06: Cache/Fallback Mixture Provider
+--------------------------------------------
+
+Goal:
+
+    Add the proposal-provider output that samples cache candidates or full-RLU
+    fallback with an explicit mixture PDF.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    neo/renderer/NVRHI/PathTraceNeeCache.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
+    docs/restir_nee_cache
+
+Required:
+
+    selected dense RLU index
+    sourcePdf / invSourcePdf
+    source label cache/fallback
+    fallback probability
+    cache probability
+    debugView 8 mixture source
+    debugView 9 empty/fallback reason
+
+Acceptance:
+
+    fallback-only matches current uniform RLU baseline
+    cache+fallback changes only proposal distribution
+
+
+NEECACHE-07: PDFNEE Current-Frame Consume
+-----------------------------------------
+
+Goal:
+
+    Let replacement PDFNEE consume the NEE cache provider as an optional
+    current-frame source.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
+    docs/restir_nee_cache
+
+Required:
+
+    temporal off
+    spatial off
+    selected dense RLU identity
+    visibility separate
+    RAB owns solidAnglePdf, targetPdf, reflected radiance
+    RTXDI current reservoir construction unchanged except source proposal
+
+Forbidden:
+
+    no clean RTXDI temporal edits
+    no RRX edits
+    no old lightMode 8/9 route
+
+Acceptance:
+
+    build/deploy succeeds
+    stop for user visual test
+
+
+NEECACHE-08: Full ReGIR / Onion Fallback Provider
+-------------------------------------------------
+
+Goal:
+
+    If NEECACHE-02 through NEECACHE-07 prove the Remix-style cache is too
+    sparse or unstable, add a full ReGIR/onion provider behind the same source
+    interface.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+
+Required:
+
+    same dense RLU identity output
+    same sourcePdf/fallback contract
+    same RAB replay boundary
+    full provider selectable by mode only
+
+Acceptance:
+
+    provider swap does not change PDFNEE reservoir consumer

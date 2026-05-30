@@ -1,0 +1,232 @@
+Remix-Style NEE Cache Validation Matrix
+=======================================
+
+Rung V-00: Read-Only Contract Audit
+-----------------------------------
+
+Purpose:
+
+    Compare Remix NEE cache, RTXDI ReGIR, current rbdoom ReGIR scaffolding,
+    current RLU, and current PDFNEE producer before implementation.
+
+Pass:
+
+    worker names exact reference files, rbdoom read set, proposed write set,
+    whitelist ids, CVars, source-provider boundary, and first missing contract
+
+Fail:
+
+    worker starts coding before proving the boundary
+
+
+Rung V-01: CPU Resource Shell
+-----------------------------
+
+Purpose:
+
+    Prove the new lane can own fixed-budget cache buffers and dump their
+    state without affecting active lighting.
+
+Expected:
+
+    CVars exist
+    disabled state writes no active route
+    enable creates only this lane's resources
+    dump reports buffer bytes and first missing contract
+    provider ABI is concrete before candidate algorithm work
+
+Pass:
+
+    enabling/disabling changes only this lane's resources and dumps
+    worker names shader struct, binding slots, buffer owner, provider
+    function boundary, and future PDFNEE call/read boundary
+
+Fail:
+
+    clean RTXDI, PDFNEE, temporal, spatial, or mode 56 behavior changes
+    candidate algorithm work starts while provider ABI is ambiguous
+
+
+Rung V-02: Cell Mapping Debug
+-----------------------------
+
+Purpose:
+
+    Prove world-position to cache-cell mapping before candidate build.
+
+Status:
+
+    implemented by NEECACHE-02
+
+Expected:
+
+    debugView 1 route/status
+    cell id view with no border overlay
+    empty-occupancy view
+    occupancy is empty
+    stable world-space behavior while standing still
+
+Pass:
+
+    cell ids do not strobe from frameIndex alone
+    dump reports noCandidateReads=1 and output=SmokeOutput
+    default cellResolution is 8 after visual reference matching
+
+Fail:
+
+    cells are screen-space anchored
+    camera movement causes incoherent stationary-surface strobe
+
+
+Rung V-03: Task Accumulation Debug
+----------------------------------
+
+Purpose:
+
+    Prove useful events can accumulate into task slots and reset/decay.
+
+Expected:
+
+    task accumulation map changes where useful NEE events occur
+    reset clears stale task values
+    task value is not treated as final lighting
+
+Pass:
+
+    task debug behaves coherently and dump names insert/decay policy
+
+Fail:
+
+    stale task values survive map reset
+    accumulation map is claimed as final NEE quality proof
+
+
+Rung V-04: Emissive Candidate Map
+---------------------------------
+
+Purpose:
+
+    Prove cached emissive triangle candidates are visible and replayable.
+
+Expected:
+
+    cursor/cell or selected-cell view highlights visible emissive triangles
+    candidate sourcePdf/invSourcePdf is nonzero for valid candidates
+    fallback rate remains visible
+
+Pass:
+
+    user can correlate emissive candidates with actual visible emissive
+    sources in the scene
+
+Fail:
+
+    emissive candidates require another debug route to populate first
+    identity is not dense RLU replayable
+
+
+Rung V-05: Analytic Candidate Map
+---------------------------------
+
+Purpose:
+
+    Prove cached Doom analytic candidates are visible and replayable.
+
+Expected:
+
+    selected analytic identities are stable while stationary
+    RAB replay validates selected dense RLU index
+    candidate PDF is explicit
+
+Pass:
+
+    user can correlate candidate identity with clean RTXDI view-12 lighting
+
+Fail:
+
+    analytic candidate brightness/shape diverges from RLU/RAB replay
+    broad lights are suppressed to make the view look correct
+
+
+Rung V-06: Cache/Fallback Mixture Proof
+---------------------------------------
+
+Purpose:
+
+    Prove the provider remains covered and unbiased enough for PDFNEE consume.
+
+Expected:
+
+    cache source rate
+    fallback source rate
+    selected source label
+    mixture PDF
+    full-RLU fallback A/B
+
+Pass:
+
+    disabling cache while preserving fallback matches current uniform RLU
+    baseline, and enabling cache only changes proposal distribution
+
+Fail:
+
+    cache-only mode is used as quality proof
+    missing candidates produce black/zero with no fallback
+
+
+Rung V-07: PDFNEE Current-Frame Consume
+---------------------------------------
+
+Purpose:
+
+    Let replacement PDFNEE consume the cache as one optional source provider.
+
+Expected:
+
+    temporal off
+    spatial off
+    clean RTXDI temporal untouched
+    selected dense RLU identity
+    RAB owns solidAnglePdf, targetPdf, reflected radiance, and visibility
+
+Pass:
+
+    user sees current-frame noise behavior change plausibly without changing
+    the mean lighting contract
+
+Fail:
+
+    implementation edits temporal accumulation
+    PDFNEE uses different source settings than the cache dump
+
+
+Rung V-08: Full ReGIR / Onion Fallback Provider
+-----------------------------------------------
+
+Purpose:
+
+    If the Remix-style learned cache is too sparse, add a full ReGIR/onion
+    provider behind the same source-provider interface.
+
+Expected:
+
+    same dense RLU identity output
+    same sourcePdf/fallback contract
+    same RAB replay boundary
+
+Pass:
+
+    provider can be swapped without changing PDFNEE reservoir consumer
+
+Fail:
+
+    fallback provider creates a second light universe or private lighting path
+
+
+Hard Stop
+---------
+
+Stop at the first failing rung.
+
+Do not continue to PDFNEE, temporal, spatial, best lights, or full ReGIR to
+hide a failing cell/candidate/PDF contract.

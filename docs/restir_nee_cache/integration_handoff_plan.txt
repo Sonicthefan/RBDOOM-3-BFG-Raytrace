@@ -1,0 +1,180 @@
+Remix-Style NEE Cache Integration Handoff Plan
+==============================================
+
+Purpose
+-------
+
+This file defines the future handoff from standalone NEE cache proof to the
+replacement PDFNEE current-frame producer. It is a plan only until
+NEECACHE-00 through NEECACHE-06 pass.
+
+
+Producer Output
+---------------
+
+The NEE cache may expose:
+
+    cache buffers
+    cache parameters
+    selected dense current RLU identity
+    sourcePdf / invSourcePdf
+    source label
+    fallback mixture probability
+    cell id
+    empty/fallback reason
+
+It must not expose:
+
+    final direct-light color
+    temporal reservoir
+    spatial reservoir
+    best-light candidate
+    old NEE output
+
+
+Provider ABI Requirement
+------------------------
+
+NEECACHE-01 must define the concrete rbdoom-owned provider ABI before any
+candidate algorithm work begins.
+
+The ABI must state:
+
+    HLSL struct name and fields
+    C++ mirror struct name if CPU readback or upload uses one
+    binding/register slots for provider result, cell, task, and candidate
+        buffers
+    buffer owner
+    buffer reset/lifetime policy
+    provider function name
+    future PDFNEE call/read site
+    sourceLabel enum values
+    fallbackReason enum values
+
+The minimum provider result is:
+
+    selectedDenseRluIndex
+    sourcePdf
+    invSourcePdf
+    sourceLabel
+    mixtureProbability
+    fallbackReason
+    cellIndex
+    candidateSlot
+    flags
+
+No PDFNEE consume task may start while this ABI is ambiguous.
+
+
+PDFNEE Consumer Boundary
+------------------------
+
+PDFNEE may consume the NEE cache only as one source distribution for selecting
+a current-frame light candidate.
+
+PDFNEE still owns:
+
+    current RAB surface
+    sample UV
+    RAB_LoadActiveRrxLightInfo
+    RAB_SampleActiveRrxPolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+    visibility policy
+    RTXDI current reservoir construction
+
+
+First Consume Shape
+-------------------
+
+The first PDFNEE consume task should:
+
+    add a source policy for NEE cache provider
+    keep temporal off
+    keep spatial off
+    use the cache/fallback provider output as source proposal
+    include fallback-only A/B
+    include cache-only diagnostic but label it biased/diagnostic
+    dump effective cache parameters and mixture probabilities
+
+It must not:
+
+    edit clean RTXDI temporal accumulator
+    edit RRX
+    enable spatial reuse
+    enable best-light feedback
+    route through mode 56
+    revive old PDFNEE lightMode 8/9
+    silently force different cache parameters than the NEE cache dump reports
+
+
+Negative Paths
+--------------
+
+PDFNEE must handle:
+
+    NEE cache disabled
+    cache resource invalid
+    no current RLU lights
+    empty cell
+    invalid selected dense index
+    sourcePdf <= 0
+    RAB load failure
+    targetPdf <= 0
+    solidAnglePdf <= 0
+    visibility rejection
+    scene/map/light-domain reset
+
+
+First Runtime Proof
+-------------------
+
+Standalone NEE cache proof first:
+
+    r_pathTracingDebugMode 0
+    r_pathTracingNeeCacheEnable 1
+    r_pathTracingNeeCacheDebugView 2 through 10
+    r_pathTracingNeeCacheDump 1
+
+Only after those pass:
+
+    PDFNEE NEE-cache source policy
+    temporal off
+    raw current-frame output
+    noisy but plausible lighting
+
+Clean RTXDI temporal consume is a later task after current-frame PDFNEE proof
+passes.
+
+
+Stop Conditions
+---------------
+
+Stop before PDFNEE integration if:
+
+    cells are screen-space anchored
+    cells or candidates strobe while standing still
+    selected identity is not dense RLU replayable
+    sourcePdf / invSourcePdf is missing
+    fallback mixture is missing
+    valid candidates cannot replay through RAB
+    emissives require an old debug route to populate first
+    old map candidates survive reset
+    output falls back to beauty/albedo
+
+
+Fallback Provider Rule
+----------------------
+
+If the Remix-style learned cache is too sparse, do not rewrite PDFNEE.
+
+Instead, implement the full ReGIR/onion provider behind the same producer
+output:
+
+    selected dense RLU identity
+    sourcePdf / invSourcePdf
+    source label
+    fallback mixture
+
+The PDFNEE consumer must not know whether the provider is Remix-style cache or
+full ReGIR except through the reported source label and dump fields.

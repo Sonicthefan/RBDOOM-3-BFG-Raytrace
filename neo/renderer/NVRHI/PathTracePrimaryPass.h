@@ -12,6 +12,7 @@
 #include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
+#include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceRemixLightManager.h"
@@ -162,6 +163,7 @@ private:
     nvrhi::BufferHandle m_smokeCleanRtxdiDiCurrentReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiTemporalReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiPreviousReservoirBuffer;
+    PathTraceNeeCacheState m_smokeNeeCacheState;
     PathTraceReGIRState m_smokeReGIRState;
     uint32_t m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
     uint32_t m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
@@ -196,6 +198,7 @@ private:
     nvrhi::BindingLayoutHandle m_smokePdfNeeVerifierBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiSentinelBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeReGIRDebugBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeNeeCacheDebugBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
@@ -250,6 +253,7 @@ private:
     nvrhi::ShaderLibraryHandle m_smokePdfNeeVerifierShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeCleanRtxdiDiSentinelShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
+    nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
@@ -272,6 +276,7 @@ private:
     nvrhi::rt::PipelineHandle m_smokePdfNeeVerifierPipeline;
     nvrhi::rt::PipelineHandle m_smokeCleanRtxdiDiSentinelPipeline;
     nvrhi::rt::PipelineHandle m_smokeReGIRDebugPipeline;
+    nvrhi::rt::PipelineHandle m_smokeNeeCacheDebugPipeline;
     nvrhi::rt::ShaderTableHandle m_smokeShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeRestirInitialShaderTable;
@@ -292,4 +297,5 @@ private:
     nvrhi::rt::ShaderTableHandle m_smokePdfNeeVerifierShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeCleanRtxdiDiSentinelShaderTable;
     nvrhi::rt::ShaderTableHandle m_smokeReGIRDebugShaderTable;
+    nvrhi::rt::ShaderTableHandle m_smokeNeeCacheDebugShaderTable;
 };

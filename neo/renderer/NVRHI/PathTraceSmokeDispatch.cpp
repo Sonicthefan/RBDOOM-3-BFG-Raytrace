@@ -16,6 +16,7 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceLightSelection.h"
+#include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixRtxdiResourceGate.h"
 #include "PathTraceRestirPasses.h"
@@ -596,6 +597,10 @@ struct PathTraceSmokeConstants
     float regirInfo2[4];
     float regirInfo3[4];
     float regirInfo4[4];
+    float neeCacheInfo0[4];
+    float neeCacheInfo1[4];
+    float neeCacheInfo2[4];
+    float neeCacheInfo3[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -996,11 +1001,122 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     PathTraceReGIRResourceDesc regirDesc = BuildPathTraceReGIRResourceDesc(regirSettings, regirLightCounts);
     nvrhi::IDevice* regirDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
     const bool regirResourceReady = m_smokeReGIRState.EnsureResources(regirDevice, regirSettings, regirDesc);
+    PathTraceNeeCacheSettings neeCacheSettings = BuildPathTraceNeeCacheSettingsFromCVars();
+    PathTraceNeeCacheRluInputs neeCacheRluInputs;
+    neeCacheRluInputs.currentLightCount = regirRemixLightManagerStats.currentLightCount;
+    neeCacheRluInputs.emissiveRangeOffset = regirRemixLightManagerStats.emissiveRangeOffset;
+    neeCacheRluInputs.emissiveRangeCount = regirRemixLightManagerStats.emissiveRangeCount;
+    neeCacheRluInputs.doomAnalyticRangeOffset = regirRemixLightManagerStats.doomAnalyticRangeOffset;
+    neeCacheRluInputs.doomAnalyticRangeCount = regirRemixLightManagerStats.doomAnalyticRangeCount;
+    neeCacheRluInputs.nonEmptyRangeCount = regirRemixLightManagerStats.nonEmptyRangeCount;
+    neeCacheRluInputs.remixDenseDomain =
+        regirRemixLightManagerStats.enabled != 0u &&
+        regirRemixLightManagerStats.currentLightCount > 0u &&
+        m_smokeRestirLightManagerCurrentPayloadBuffer;
+    PathTraceNeeCacheResourceDesc neeCacheDesc = BuildPathTraceNeeCacheResourceDesc(neeCacheSettings, neeCacheRluInputs);
+    const bool neeCacheResourceReady = m_smokeNeeCacheState.EnsureResources(regirDevice, neeCacheSettings, neeCacheDesc);
+    const bool neeCacheDebugForbiddenMode = pdfNeeVerifierEntryForbiddenMode;
+    const bool neeCacheDebugRouteRequested =
+        neeCacheSettings.enabled &&
+        (neeCacheSettings.debugView >= 1 && neeCacheSettings.debugView <= 3) &&
+        !neeCacheDebugForbiddenMode;
+    auto printNeeCacheDump = [&](const char* stage, const char* earlyReturn)
+    {
+        const bool neeCacheBuffersReady =
+            m_smokeNeeCacheState.providerResultBuffer &&
+            m_smokeNeeCacheState.cellBuffer &&
+            m_smokeNeeCacheState.taskBuffer &&
+            m_smokeNeeCacheState.candidateBuffer;
+        const bool neeCacheDebugRouteReady =
+            neeCacheDebugRouteRequested &&
+            m_smokeNeeCacheDebugBindingLayout &&
+            m_smokeNeeCacheDebugShaderTable &&
+            neeCacheBuffersReady;
+        const char* firstMissingContract = neeCacheDesc.firstMissingContract;
+        if (earlyReturn && idStr::Icmp(earlyReturn, "none") != 0 && neeCacheDesc.requested)
+        {
+            firstMissingContract = earlyReturn;
+        }
+        if (!neeCacheResourceReady && neeCacheDesc.requested && neeCacheDesc.structuralValid)
+        {
+            firstMissingContract = "nee-cache-provider-buffers";
+        }
+        if (neeCacheDebugRouteReady && neeCacheRluInputs.remixDenseDomain && neeCacheRluInputs.currentLightCount > 0u)
+        {
+            firstMissingContract = "none";
+        }
+        if (neeCacheDebugRouteRequested && !neeCacheBuffersReady)
+        {
+            firstMissingContract = "nee-cache-provider-buffers";
+        }
+        if (neeCacheDebugRouteRequested && !m_smokeNeeCacheDebugShaderTable)
+        {
+            firstMissingContract = "nee-cache-debug-shader";
+        }
+        if (neeCacheDebugRouteRequested && !m_smokeNeeCacheDebugBindingLayout)
+        {
+            firstMissingContract = "nee-cache-debug-binding-layout";
+        }
+        if (neeCacheDebugForbiddenMode && neeCacheSettings.debugView > 0)
+        {
+            firstMissingContract = "forbidden-mode-56";
+        }
+        common->Printf(
+            "PathTracePrimaryPass: NEE cache provider shell dump stage=%s earlyReturn=%s enable=%d mode=%d(%s) debugView=%d debugRoute=%d cellResolution=%d minRange=%.2f cellCount=%u candidateSlots=%u taskSlots=%u fallbackProbability=%.3f cacheProbability=%.3f sourceDomain=%d(%s) rluDense=%d rluCurrent=%u rluRanges emissive=%u+%u doomAnalytic=%u+%u rluNonEmptyRanges=%u abiOwner=PathTraceNeeCache shaderStruct=PathTraceNeeCacheProviderResult cppStruct=PathTraceNeeCacheProviderResult bindingSlots providerResultUav=u%u cellUav=u%u taskUav=u%u candidateUav=u%u providerFunction=%s futurePdfNeeBoundary=%s resultStride=%u cellStride=%u taskStride=%u candidateStride=%u resultCount=%u taskCount=%u candidateCount=%u bytes result/cell/task/candidate/total=%llu/%llu/%llu/%llu/%llu buffersReady=%d allocationSerial=%llu sourceLabelEnum=none,cache-analytic,cache-emissive,fallback-full-rlu,fallback-typed-rlu fallbackReasonEnum=none,disabled,no-rlu,empty-cell,invalid-candidate,zero-source-pdf,rab-replay-failed,cache-only-diagnostic selectedDenseCurrentIndex=result.selectedDenseRluIndex sourcePdf=result.sourcePdf invSourcePdf=result.invSourcePdf mixtureProbability=result.mixtureProbability cellMapping=log-distance-hash debugViews=1:route-status,2:cell-id,3:empty-occupancy noCandidateReads=1 output=%s consumer=%s finalContribution=0 temporal=0 spatial=0 bestLights=0 mode56=0 oldPdfNee=0 firstMissingContract=%s task=%s\n",
+            stage ? stage : "unknown",
+            earlyReturn ? earlyReturn : "none",
+            neeCacheSettings.enabled ? 1 : 0,
+            neeCacheSettings.mode,
+            PathTraceNeeCacheModeName(neeCacheSettings.mode),
+            neeCacheSettings.debugView,
+            neeCacheDebugRouteRequested ? 1 : 0,
+            neeCacheSettings.cellResolution,
+            neeCacheSettings.minRange,
+            neeCacheSettings.cellCount,
+            neeCacheSettings.candidateSlots,
+            neeCacheSettings.taskSlots,
+            neeCacheSettings.fallbackProbability,
+            1.0f - neeCacheSettings.fallbackProbability,
+            neeCacheSettings.sourceDomain,
+            PathTraceNeeCacheSourceDomainName(neeCacheSettings.sourceDomain),
+            neeCacheRluInputs.remixDenseDomain ? 1 : 0,
+            neeCacheRluInputs.currentLightCount,
+            neeCacheRluInputs.emissiveRangeOffset,
+            neeCacheRluInputs.emissiveRangeCount,
+            neeCacheRluInputs.doomAnalyticRangeOffset,
+            neeCacheRluInputs.doomAnalyticRangeCount,
+            neeCacheRluInputs.nonEmptyRangeCount,
+            PATH_TRACE_NEE_CACHE_BINDING_PROVIDER_RESULT_UAV,
+            PATH_TRACE_NEE_CACHE_BINDING_CELL_UAV,
+            PATH_TRACE_NEE_CACHE_BINDING_TASK_UAV,
+            PATH_TRACE_NEE_CACHE_BINDING_CANDIDATE_UAV,
+            PathTraceNeeCacheProviderFunctionName(),
+            PathTraceNeeCacheFuturePdfNeeBoundaryName(),
+            neeCacheDesc.providerResultStride,
+            neeCacheDesc.cellStride,
+            neeCacheDesc.taskStride,
+            neeCacheDesc.candidateStride,
+            neeCacheDesc.providerResultCount,
+            neeCacheDesc.taskCount,
+            neeCacheDesc.candidateCount,
+            static_cast<unsigned long long>(neeCacheDesc.providerResultBytes),
+            static_cast<unsigned long long>(neeCacheDesc.cellBytes),
+            static_cast<unsigned long long>(neeCacheDesc.taskBytes),
+            static_cast<unsigned long long>(neeCacheDesc.candidateBytes),
+            static_cast<unsigned long long>(neeCacheDesc.totalBytes),
+            neeCacheBuffersReady ? 1 : 0,
+            static_cast<unsigned long long>(m_smokeNeeCacheState.allocationSerial),
+            neeCacheDebugRouteRequested ? "SmokeOutput" : "none",
+            neeCacheDebugRouteRequested ? "nee-cache-debug-route" : "none",
+            firstMissingContract,
+            neeCacheDebugRouteRequested ? "NEECACHE-02" : "NEECACHE-01");
+    };
     const bool regirDebugForbiddenMode = pdfNeeVerifierEntryDebugMode == 56;
     const bool regirDebugRouteRequested =
         regirSettings.enabled &&
         (regirSettings.debugView >= 1 && regirSettings.debugView <= 10) &&
         !regirDebugForbiddenMode;
+    const bool standaloneDebugRouteRequested = regirDebugRouteRequested || neeCacheDebugRouteRequested;
     const bool pdfNeeReGIRSourceRouteRequested = false;
     const bool pdfNeeReGIRSourceRouteBlocked =
         pdfNeeVerifierRouteRequested &&
@@ -1504,6 +1620,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (!regirDebugNeedsRabReplayBuffers || (
             (!regirDebugCanUseEmissiveDomain || m_smokeEmissiveTriangleBuffer) &&
             (!regirDebugCanUseAnalyticDomain || (m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticCurrentIdentityBuffer))));
+    const bool neeCacheDebugBaseResourcesValid =
+        viewDef && m_smokeSceneBuilt && m_smokeNeeCacheDebugBindingLayout && m_smokeTextureDescriptorTable &&
+        m_smokeTlas && m_frameResources.outputTexture && m_smokeConstantsBuffer &&
+        m_smokeNeeCacheState.providerResultBuffer &&
+        m_smokeNeeCacheState.cellBuffer &&
+        m_smokeNeeCacheState.taskBuffer &&
+        m_smokeNeeCacheState.candidateBuffer;
     const bool smokeBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokeShaderTable && m_smokeBindingSet && m_smokeTextureDescriptorTable &&
         m_frameResources.outputTexture && m_frameResources.accumulationTexture && m_frameResources.restirPTReflectionTexture &&
@@ -1519,11 +1642,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_smokeDoomAnalyticCurrentIdentityBuffer && m_smokeDoomAnalyticPreviousIdentityBuffer && m_smokeDoomAnalyticRemapBuffer &&
         m_smokeRigidRouteVertexBuffer && m_smokeRigidRouteIndexBuffer && m_smokeRigidRouteTriangleMaterialBuffer &&
         m_smokeRigidRouteTriangleMaterialIndexBuffer && m_smokeRigidRouteInstanceBuffer;
-    const bool baseResourcesValid = regirDebugRouteRequested ? regirDebugBaseResourcesValid :
+    const bool baseResourcesValid = neeCacheDebugRouteRequested ? neeCacheDebugBaseResourcesValid :
+        (regirDebugRouteRequested ? regirDebugBaseResourcesValid :
         (cleanRtxdiDiRouteRequested ? cleanRtxdiDiBaseResourcesValid :
-        ((pdfNeeVerifierRouteRequested || pdfNeeRluCurrentProducerRequested) ? pdfNeeVerifierBaseResourcesValid : smokeBaseResourcesValid));
+        ((pdfNeeVerifierRouteRequested || pdfNeeRluCurrentProducerRequested) ? pdfNeeVerifierBaseResourcesValid : smokeBaseResourcesValid)));
     if (!baseResourcesValid)
     {
+        if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+        {
+            printNeeCacheDump("dispatch-entry", "base-resource");
+            r_pathTracingNeeCacheDump.SetInteger(0);
+        }
         if (r_pathTracingReGIRDump.GetInteger() != 0)
         {
             printReGIRDump("dispatch-entry", "base-resource");
@@ -1541,7 +1670,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         return;
     }
-    if (!regirDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.smokeReservoirBuffers.IsValidFor(m_frameResources.width, m_frameResources.height))
+    if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.smokeReservoirBuffers.IsValidFor(m_frameResources.width, m_frameResources.height))
     {
         if (r_pathTracingReGIRDump.GetInteger() != 0)
         {
@@ -1560,7 +1689,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         return;
     }
-    if (!regirDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested &&
+    if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested &&
         (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
             !m_frameResources.restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
             !m_frameResources.restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off)))
@@ -1582,7 +1711,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         return;
     }
-    if (!regirDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)))
+    if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested && !m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)))
     {
         if (r_pathTracingReGIRDump.GetInteger() != 0)
         {
@@ -1605,6 +1734,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     nvrhi::ICommandList* commandList = m_backend ? m_backend->GL_GetCommandList() : nullptr;
     if (!commandList)
     {
+        if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+        {
+            printNeeCacheDump("dispatch-entry", "command-list");
+            r_pathTracingNeeCacheDump.SetInteger(0);
+        }
         if (r_pathTracingReGIRDump.GetInteger() != 0)
         {
             printReGIRDump("dispatch-entry", "command-list");
@@ -2900,6 +3034,67 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
     }
+    if (neeCacheDebugRouteRequested)
+    {
+        if (!m_smokeNeeCacheDebugShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(19);
+        }
+        if (!m_smokeNeeCacheDebugShaderTable)
+        {
+            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+            {
+                printNeeCacheDump("dispatch-entry", "nee-cache-debug-shader");
+                r_pathTracingNeeCacheDump.SetInteger(0);
+            }
+            return;
+        }
+    }
+
+    nvrhi::BindingSetHandle neeCacheDebugBindingSet;
+    if (neeCacheDebugRouteRequested)
+    {
+        if (!device)
+        {
+            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+            {
+                printNeeCacheDump("dispatch-entry", "device");
+                r_pathTracingNeeCacheDump.SetInteger(0);
+            }
+            return;
+        }
+        if (!m_smokeNeeCacheState.providerResultBuffer ||
+            !m_smokeNeeCacheState.cellBuffer ||
+            !m_smokeNeeCacheState.taskBuffer ||
+            !m_smokeNeeCacheState.candidateBuffer)
+        {
+            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+            {
+                printNeeCacheDump("dispatch-entry", "nee-cache-provider-buffers");
+                r_pathTracingNeeCacheDump.SetInteger(0);
+            }
+            return;
+        }
+
+        nvrhi::BindingSetDesc neeCacheBindingSetDesc;
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_PROVIDER_RESULT_UAV, m_smokeNeeCacheState.providerResultBuffer));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CELL_UAV, m_smokeNeeCacheState.cellBuffer));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_TASK_UAV, m_smokeNeeCacheState.taskBuffer));
+        neeCacheBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CANDIDATE_UAV, m_smokeNeeCacheState.candidateBuffer));
+        neeCacheDebugBindingSet = device->createBindingSet(neeCacheBindingSetDesc, m_smokeNeeCacheDebugBindingLayout);
+        if (!neeCacheDebugBindingSet)
+        {
+            if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+            {
+                printNeeCacheDump("dispatch-entry", "nee-cache-debug-binding-set");
+                r_pathTracingNeeCacheDump.SetInteger(0);
+            }
+            return;
+        }
+    }
 
     nvrhi::BindingSetHandle regirDebugBindingSet;
     if (regirDebugRouteRequested || pdfNeeReGIRBuildPrepassRequested)
@@ -3159,7 +3354,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
 
-    int debugMode = regirDebugRouteRequested ? 0 : idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
+    int debugMode = standaloneDebugRouteRequested ? 0 : idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
@@ -3291,7 +3486,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     nvrhi::rt::State state;
-    if (regirDebugRouteRequested && m_smokeReGIRDebugShaderTable)
+    if (neeCacheDebugRouteRequested && m_smokeNeeCacheDebugShaderTable)
+    {
+        state.shaderTable = m_smokeNeeCacheDebugShaderTable;
+    }
+    else if (regirDebugRouteRequested && m_smokeReGIRDebugShaderTable)
     {
         state.shaderTable = m_smokeReGIRDebugShaderTable;
     }
@@ -3344,9 +3543,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         state.shaderTable = m_smokeShaderTable;
     }
     nvrhi::BindingSetHandle activeBindingSet =
-        regirDebugRouteRequested && regirDebugBindingSet
+        neeCacheDebugRouteRequested && neeCacheDebugBindingSet
+            ? neeCacheDebugBindingSet
+            : (regirDebugRouteRequested && regirDebugBindingSet
             ? regirDebugBindingSet
-            : ((pdfNeeVerifierRouteRequested || pdfNeeRluCurrentProducerRequested) && pdfNeeVerifierBindingSet ? pdfNeeVerifierBindingSet : m_smokeBindingSet);
+            : ((pdfNeeVerifierRouteRequested || pdfNeeRluCurrentProducerRequested) && pdfNeeVerifierBindingSet ? pdfNeeVerifierBindingSet : m_smokeBindingSet));
     state.bindings = { activeBindingSet, m_smokeTextureDescriptorTable };
     const bool restirPTCombinedResolveActive =
         restirPTCombinedMode &&
@@ -4037,6 +4238,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             taskLabel);
         r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);
     }
+    if (r_pathTracingNeeCacheDump.GetInteger() != 0)
+    {
+        printNeeCacheDump("pre-dispatch", "none");
+        r_pathTracingNeeCacheDump.SetInteger(0);
+    }
     if (r_pathTracingReGIRDump.GetInteger() != 0)
     {
         printReGIRDump("pre-dispatch", "none");
@@ -4111,6 +4317,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.regirInfo4[1] = regirResolvedCenter.y;
     constants.regirInfo4[2] = regirResolvedCenter.z;
     constants.regirInfo4[3] = 1.0f;
+    constants.neeCacheInfo0[0] = neeCacheSettings.enabled ? 1.0f : 0.0f;
+    constants.neeCacheInfo0[1] = static_cast<float>(neeCacheSettings.debugView);
+    constants.neeCacheInfo0[2] = static_cast<float>(neeCacheSettings.mode);
+    constants.neeCacheInfo0[3] = static_cast<float>(neeCacheSettings.sourceDomain);
+    constants.neeCacheInfo1[0] = static_cast<float>(neeCacheSettings.cellResolution);
+    constants.neeCacheInfo1[1] = neeCacheSettings.minRange;
+    constants.neeCacheInfo1[2] = static_cast<float>(neeCacheSettings.cellCount);
+    constants.neeCacheInfo1[3] = static_cast<float>(neeCacheSettings.candidateSlots);
+    constants.neeCacheInfo2[0] = static_cast<float>(neeCacheSettings.taskSlots);
+    constants.neeCacheInfo2[1] = neeCacheSettings.fallbackProbability;
+    constants.neeCacheInfo2[2] = static_cast<float>(neeCacheDesc.providerResultCount);
+    constants.neeCacheInfo2[3] = static_cast<float>(neeCacheDesc.cellCount);
+    constants.neeCacheInfo3[0] = neeCacheDebugRouteRequested ? 1.0f : 0.0f;
+    constants.neeCacheInfo3[1] = neeCacheRluInputs.remixDenseDomain ? 1.0f : 0.0f;
+    constants.neeCacheInfo3[2] = static_cast<float>(neeCacheRluInputs.currentLightCount);
+    constants.neeCacheInfo3[3] = neeCacheResourceReady ? 1.0f : 0.0f;
     if (regirDebugRouteRequested && !regirUseCurrentRabLightUniverse)
     {
         // Candidate-cache views 4-10 must not fall back to local split-domain
@@ -4312,7 +4534,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const uint64 constantsCompleteUs = Sys_Microseconds();
     const uint64 barrierStartUs = constantsCompleteUs;
-    const bool primarySurfaceGeometryBarriersRequired = !regirDebugRouteRequested || regirDebugNeedsPrimarySurfaceBuffers;
+    const bool primarySurfaceGeometryBarriersRequired = !standaloneDebugRouteRequested || regirDebugNeedsPrimarySurfaceBuffers;
     if (optickGpuMarkers)
     {
         OPTICK_GPU_EVENT("PT GPU Dispatch Resource Barriers");
@@ -4348,11 +4570,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
         }
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         }
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
@@ -4376,7 +4598,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
         SetBufferStateIfPresent(commandList, m_smokeReGIRState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
-        if (!regirDebugRouteRequested)
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.providerResultBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.taskBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.candidateBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
@@ -4389,7 +4616,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
         }
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -4439,11 +4666,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
         }
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setBufferState(m_smokeBoundsOverlayLineBuffer, nvrhi::ResourceStates::ShaderResource);
         }
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.smokeReservoirBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_frameResources.smokeReservoirBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
@@ -4467,7 +4694,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
         SetBufferStateIfPresent(commandList, m_smokeReGIRState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
-        if (!regirDebugRouteRequested)
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.providerResultBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.taskBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.candidateBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::UnorderedAccess);
@@ -4480,7 +4712,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
         }
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -4497,14 +4729,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->commitBarriers();
     }
     const uint64 barrierCompleteUs = Sys_Microseconds();
-    if (!regirDebugRouteRequested && disableReservoirWrites)
+    if (!standaloneDebugRouteRequested && disableReservoirWrites)
     {
         m_frameResources.smokeReservoirNeedsClear = true;
         m_frameResources.restirPTReservoirNeedsClear = true;
         m_frameResources.restirPTDiReservoirNeedsClear = true;
         m_frameResources.restirPTGiReservoirNeedsClear = true;
     }
-    if (!regirDebugRouteRequested && disablePrimarySurfaceHistory &&
+    if (!standaloneDebugRouteRequested && disablePrimarySurfaceHistory &&
         (!m_frameResources.primarySurfaceHistoryNeedsClear ||
             m_frameResources.primarySurfaceHistoryView.valid ||
             m_frameResources.primarySurfaceHistoryState.currentValid ||
@@ -4512,7 +4744,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         m_frameResources.InvalidatePrimarySurfaceHistory(RT_FRAME_RESET_PRIMARY_HISTORY);
     }
-    const bool reservoirClearRequested = !regirDebugRouteRequested && !disableReservoirWrites && m_frameResources.smokeReservoirNeedsClear;
+    const bool reservoirClearRequested = !standaloneDebugRouteRequested && !disableReservoirWrites && m_frameResources.smokeReservoirNeedsClear;
     const uint64 reservoirClearStartUs = barrierCompleteUs;
     if (reservoirClearRequested)
     {
@@ -4527,7 +4759,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
     const uint64 reservoirClearCompleteUs = Sys_Microseconds();
-    const bool restirPTReservoirClearRequested = !regirDebugRouteRequested && !disableReservoirWrites && (requestedRestirPTDebugMode || mode18RestirDirectMode) && (m_frameResources.restirPTReservoirNeedsClear || m_frameResources.restirPTDiReservoirNeedsClear || m_frameResources.restirPTGiReservoirNeedsClear);
+    const bool restirPTReservoirClearRequested = !standaloneDebugRouteRequested && !disableReservoirWrites && (requestedRestirPTDebugMode || mode18RestirDirectMode) && (m_frameResources.restirPTReservoirNeedsClear || m_frameResources.restirPTDiReservoirNeedsClear || m_frameResources.restirPTGiReservoirNeedsClear);
     const uint64 restirPTReservoirClearStartUs = reservoirClearCompleteUs;
     if (restirPTReservoirClearRequested)
     {
@@ -4570,7 +4802,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         updateRemixDiReservoirProbeConstants();
     }
     const uint64 restirPTReservoirClearCompleteUs = Sys_Microseconds();
-    const bool primaryHistoryClearRequested = !regirDebugRouteRequested && !disablePrimarySurfaceHistory && m_frameResources.primarySurfaceHistoryNeedsClear;
+    const bool primaryHistoryClearRequested = !standaloneDebugRouteRequested && !disablePrimarySurfaceHistory && m_frameResources.primarySurfaceHistoryNeedsClear;
     const uint64 primaryHistoryClearStartUs = restirPTReservoirClearCompleteUs;
     if (primaryHistoryClearRequested)
     {
@@ -4589,7 +4821,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         OPTICK_GPU_EVENT("PT GPU Clear Dispatch Targets");
         commandList->clearTextureFloat(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->clearTextureFloat(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
@@ -4612,7 +4844,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     else
     {
         commandList->clearTextureFloat(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::Color(0.25f, 0.50f, 0.75f, 1.0f));
-        if (!regirDebugRouteRequested)
+        if (!standaloneDebugRouteRequested)
         {
             commandList->clearTextureFloat(m_frameResources.restirPTReflectionTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
@@ -5015,7 +5247,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     }
     const uint64 dlssRrCompleteUs = Sys_Microseconds();
     const uint64 historyCopyStartUs = dlssRrCompleteUs;
-    if (!regirDebugRouteRequested && !disablePrimarySurfaceHistory)
+    if (!standaloneDebugRouteRequested && !disablePrimarySurfaceHistory)
     {
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
         commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.previous, nvrhi::ResourceStates::CopyDest);
@@ -5028,7 +5260,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.primarySurfaceHistoryBuffers.surfaceBytes);
     }
     const uint64 historyCopyCompleteUs = Sys_Microseconds();
-    if (!regirDebugRouteRequested && !disablePrimarySurfaceHistory)
+    if (!standaloneDebugRouteRequested && !disablePrimarySurfaceHistory)
     {
         RtPathTraceFrameCameraState currentHistoryView;
         currentHistoryView.valid = true;
