@@ -1,0 +1,170 @@
+Remix-Shaped Light Universe Validation Matrix
+============================================
+
+Rung V-00: Read-Only Contract Audit
+-----------------------------------
+
+Purpose:
+
+    Compare the current rbdoom light-universe/remap producer against Remix and
+    RTXDI before implementation.
+
+Pass:
+
+    worker names exact reference files, rbdoom read set, proposed write set,
+    whitelist ids, CVars, and first implementation boundary
+
+Fail:
+
+    worker starts coding before proving the boundary
+
+
+Rung V-01: Dense Domain CPU Shell
+---------------------------------
+
+Purpose:
+
+    Prove the new lane can own dense current/previous arrays and two-way maps
+    without affecting active lighting.
+
+Expected:
+
+    CVars exist
+    dumps report dense current/previous counts
+    disabled state writes no active route
+    map/render-world reset clears previous state
+
+Pass:
+
+    enabling and disabling changes only this lane's resources and dumps
+
+Fail:
+
+    clean RTXDI, PDFNEE, RRX, or mode 56 behavior changes to make the shell pass
+
+
+Rung V-02: Doom Analytic Dense Mapping
+--------------------------------------
+
+Purpose:
+
+    Build dense current/previous Doom analytic domains and two-way maps from
+    uploaded real Doom analytic payload identity.
+
+Expected:
+
+    stable room lights map both directions while stationary
+    animated payload changes do not break mapping
+    spawned/despawned effect lights become current-only or previous-only
+
+Pass:
+
+    dump and debug views agree that stable lights remain mapped while effects
+    fail locally
+
+Fail:
+
+    one effect light invalidates unrelated room-light mappings
+    dense previous payloads are indexed by stale candidate slots
+
+
+Rung V-03: Clean RTXDI DI Opt-In A/B
+------------------------------------
+
+Purpose:
+
+    Let clean RTXDI view 12 consume the new Remix-shaped analytic domain as an
+    opt-in A/B against the old producer and bypass.
+
+Expected:
+
+    old path is legacy/debug only and is not proof or replacement fallback
+    bypass remains diagnostic
+    new path routes current/previous/remap through the Remix-shaped producer
+
+Pass:
+
+    user sees real Doom analytic temporal-on raw flat-diffuse output become
+    visibly less noisy than temporal-off around the same mean lighting
+
+Fail:
+
+    success is claimed from synthetic view 10/11, mirror behavior, status
+    colors, or non-crashing builds
+
+
+Rung V-04: Animated Payload And Effect-Light Diagnostics
+--------------------------------------------------------
+
+Purpose:
+
+    Prove animated payloads and spawned/despawned lights are local events.
+
+Expected:
+
+    payload-only signature changes while mapping signature remains stable for
+    stable lights
+    effect lights show current-only/previous-only classification
+
+Pass:
+
+    room lights continue mapping while sparks or robot lights enter/exit
+
+Fail:
+
+    broad suppression is required
+    payload animation is treated as structural remap failure
+
+
+Rung V-05: Emissive Domain Addition
+-----------------------------------
+
+Purpose:
+
+    Add emissive lights only after analytic temporal proof.
+
+Expected:
+
+    final merged emissive list is used
+    dense current/previous emissive payloads map by stable emissive identity
+    analytic proof math is not changed
+
+Pass:
+
+    emissive-only debug views map coherently, and analytic temporal proof still
+    works unchanged
+
+Fail:
+
+    emissive overlap failure changes analytic proof math
+
+
+Rung V-06: Unified RAB Bridge
+-----------------------------
+
+Purpose:
+
+    Expose the new dense domain through RAB runtime loading and translation.
+
+Expected:
+
+    RAB_LoadLightInfo and RAB_TranslateLightIndex consume the new buffers
+    temporal consumers no longer inspect old split-domain candidate slots
+
+Pass:
+
+    shader temporal path sees one Remix-shaped domain with typed ranges
+
+Fail:
+
+    shader still reloads legacy split payload arrays through payloadSourceIndex
+    for the active proof path
+
+
+Hard Stop
+---------
+
+Stop at the first failing rung.
+
+Do not continue to spatial, best lights, ReGIR, PDFNEE, or emissive expansion
+to hide a failing analytic temporal mapping contract.

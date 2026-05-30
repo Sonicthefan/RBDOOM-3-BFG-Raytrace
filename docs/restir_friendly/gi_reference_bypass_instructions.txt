@@ -1,0 +1,225 @@
+GI Reference-Style Bypass Instructions
+======================================
+
+Purpose
+-------
+
+Bring the mode 56 GI/indirect path into the same reference-style bypass shape
+that made the DI path look sane enough for visual testing.
+
+This is not a request to copy NVIDIA source. RTXDI is the contract and oracle.
+rbdoom-local code should provide the same inputs, buffer pages, dispatch shape,
+and RAB callbacks to existing RTXDI library entry points already present in the
+tree.
+
+Current diagnosis
+-----------------
+
+DI and GI currently have two different kinds of paths in mode 56:
+
+1. Reference-shaped DI path:
+   - The standalone direct temporal/spatial producer wrappers include
+     `pathtrace_smoke.rt.hlsl`.
+   - The implementation calls `RTXDI_PTTemporalResampling` and
+     `RTXDI_PTSpatialResampling`.
+   - Mode 56 DI debug view 6 reads the RTXDI PT final-shading input page via
+     `LoadRestirPTFinalShadingInputReservoir`.
+   - This path was the emergency experiment that briefly suggested the
+     application data is now close enough to drive RTXDI.
+
+2. Local debug DI/GI reservoir path:
+   - `pathtrace_restir_local_debug_reservoirs.hlsli` hand-rolls temporal and
+     spatial reservoir logic for both DI and GI.
+   - It manually combines reservoirs, computes `piSum`, finalizes weights, and
+     does its own motion-vector fallback.
+   - It does not run RTXDI PT temporal/spatial neighbor search, hybrid shift,
+     reconnection, Jacobian, or bias correction.
+   - Treat it as diagnostic legacy, not a source of truth.
+
+3. Current GI/indirect final resolve:
+   - `pathtrace_restir_local_preview_resolve.hlsli` uses
+     `LoadRestirPTInitialReservoir(pixel)` for GI.
+   - That means final/RR input is not consuming a full reference-shaped GI
+     temporal/spatial page chain.
+
+Goal
+----
+
+Create a GI/indirect reference-style bypass that mirrors the DI proof path:
+
+    GI initial reservoir
+        -> RTXDI PT temporal resampling
+        -> RTXDI PT spatial resampling
+        -> GI final-shading input page
+        -> combined HDR final/RR input
+
+The first useful result is a debug/proof mode that can feed DLSS RR with a full
+combined HDR input where both DI and GI come from RTXDI-backed page chains.
+Do not test DLSS RR with DI-only or GI-only final input; partial lighting is not
+a meaningful RR validation signal.
+
+Strict constraints
+------------------
+
+- Do not copy/paste NVIDIA RTXDI, RTX Remix, or Portal RTX shader/source files.
+- Do not invent reservoir math.
+- Do not rewrite `CombineReservoirs`, `RTXDI_FinalizeResampling`, temporal
+  policy, spatial policy, or debug color meanings.
+- Do not merge DI and GI reservoir streams into one ambiguous buffer page.
+- Do not replace the legacy local debug views in the same slice unless the task
+  explicitly says to retire them.
+- Preserve existing split outputs and existing mode 56 controls.
+- Implement one narrow slice, build/deploy, then stop for visual testing.
+
+Reference files to read
+-----------------------
+
+rbdoom:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_indirect_initial_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_direct_temporal_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_direct_spatial_reservoir_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve_reservoir_pages.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_preview_resolve.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceRestirPasses.h
+    neo/renderer/NVRHI/PathTraceRestirPT.cpp
+
+RTXDI contract references:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/GenerateInitialSamples.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/TemporalResampling.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/SpatialResampling.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/FinalShading.hlsl
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/SpatialResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/ReSTIRPTParameters.h
+
+Do not compile or copy NVIDIA RTXDI Source/ReSTIRPT.cpp. The active branch uses
+local RTXDI_PTParameters packing and keeps the reference host accumulator out of
+the build.
+
+Required audit before coding
+----------------------------
+
+Before editing code, write down the answers in the worker's own scratch notes:
+
+1. Which buffer page currently contains GI initial output in mode 56?
+2. Which pass writes it?
+3. Which dispatch domain does GI use: full-res output pixels, sparse indirect
+   representative pixels, or direct-domain pixels?
+4. Which RTXDI buffer indices are currently used by DI in the same frame?
+5. Can GI reuse the existing PT reservoir page indices safely, or does it need
+   a separate `RTXDI_PTParameters` / reservoir buffer selection so DI and GI do
+   not overwrite each other?
+6. Which final resolve load should represent "GI final-shading input" after the
+   bypass exists?
+
+If any answer is unclear, stop and report the ambiguity. Do not guess.
+
+Implementation shape
+--------------------
+
+Preferred shape:
+
+1. Keep the existing GI initial producer as the initial sample source.
+2. Add GI temporal and GI spatial producer wrappers that follow the direct
+   producer pattern:
+
+       #define RB_PT_ENABLE_RESTIR 1
+       #define RB_PT_ENABLE_RESTIR_TEMPORAL 1
+       #define <GI producer-only macro>
+       #include "pathtrace_smoke.rt.hlsl"
+
+   and the spatial equivalent with `RB_PT_ENABLE_RESTIR_SPATIAL`.
+
+3. In `pathtrace_smoke.rt.hlsl`, make the GI producer-only macros call the same
+   RTXDI library entry points used by the direct path:
+
+       RTXDI_PTTemporalResampling(...)
+       RTXDI_PTSpatialResampling(...)
+
+   The rbdoom-local work is only to provide:
+
+       RTXDI_PTTemporalResamplingRuntimeParameters
+       RTXDI_PTSpatialResamplingRuntimeParameters
+       RTXDI_RuntimeParameters
+       motion vector in RTXDI pixel-space convention
+       current/previous camera positions
+       correct reservoir buffer parameters
+       correct GI buffer indices
+       RAB surface access through the existing bridge
+
+4. Add a GI final page load helper in
+   `pathtrace_restir_combined_resolve_reservoir_pages.hlsli` only after the GI
+   page ownership is clear. Do not make this helper alias the DI page unless the
+   audit proves the pages are intentionally shared and non-overlapping.
+
+5. Update `pathtrace_restir_local_preview_resolve.hlsli` behind a debug/proof
+   CVar so the combined HDR/RR input can use:
+
+       DI contribution from the DI RTXDI-backed final/direct page
+       GI contribution from the GI RTXDI-backed final/indirect page
+       emissive surface radiance preserved
+       reflection contribution preserved only if it is already valid for the
+       test being run
+
+6. Keep the old local GI path available as a comparison view. Do not delete the
+   old local path in the proof slice.
+
+Non-goals
+---------
+
+- Do not implement a new ReSTIR GI algorithm.
+- Do not port NVIDIA pass bodies manually.
+- Do not solve GI denoising, PSR, or DLSS RR quality in this slice.
+- Do not change light sampling policy, visibility policy, or reservoir
+  finalization math.
+- Do not make DI-only or GI-only DLSS RR claims.
+
+Expected validation
+-------------------
+
+After implementation, build and deploy:
+
+    cd E:/prog/rbdoom-3-bfg-rt/neo
+    cmake --build --preset win64-pt-dev-release
+
+Copy:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+If shader files changed, copy the contents of:
+
+    E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+to:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest `renderprogs2` inside `renderprogs2`.
+
+Visual test intent
+------------------
+
+The user should compare:
+
+1. Old local GI/final resolve behavior.
+2. DI reference-shaped bypass only as a diagnostic view.
+3. Full combined reference-shaped DI + GI HDR input for DLSS RR.
+
+Success signal:
+
+    Full combined RR input no longer shows the frame-to-frame black-pixel
+    reservoir failure that masked recent motion-vector and portal fixes.
+
+Failure signal:
+
+    If full combined DI + GI reference-shaped input still flickers or drops
+    large black regions, stop and dump the reservoir page state. Do not tune
+    reservoir math.

@@ -1,0 +1,80 @@
+PDFNEE-RLU-03 Implementation Notes
+==================================
+
+Status:
+
+    Superseded by PDFNEE-RLU-04. This file records the older fixed typed
+    stratification intent and must not be used as the current sourcePolicy 1
+    contract.
+
+    The current sourcePolicy 1 contract is documented in:
+
+        rlu_04_current_status_and_parity_notes.txt
+
+Implemented path:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+
+Historical source policy:
+
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 1
+
+Policy 0 remains the PDFNEE-RLU-02 full dense current RLU uniform baseline:
+
+    sourcePdf = 1.0 / currentRluLightCount
+    invSourcePdf = currentRluLightCount
+
+Policy 1 uses fixed typed stratification over non-empty current RLU ranges:
+
+    emissive range:
+        [emissiveOffset, emissiveOffset + emissiveCount)
+
+    Doom analytic range:
+        [doomAnalyticOffset, doomAnalyticOffset + doomAnalyticCount)
+
+The standalone PDFNEE-RLU producer requests these raw current RLU typed ranges
+directly. They are not filtered by legacy emissive or Doom analytic sampling
+enable gates before being written to RestirLightManagerRangeInfo.
+
+If both ranges are non-empty:
+
+    classProbability(emissive) = 0.5
+    classProbability(doomAnalytic) = 0.5
+
+If only one range is non-empty:
+
+    classProbability(activeClass) = 1.0
+
+For every streamed candidate:
+
+    sourcePdf = classProbability / classCount
+    invSourcePdf = classCount / classProbability
+    selected identity = dense current RLU lightIndex
+
+Unchanged Contracts
+-------------------
+
+This slice only changes proposal lightIndex selection and sourcePdf/invSourcePdf.
+It does not change:
+
+    RTXDI_StreamSample
+    RTXDI_FinalizeResampling
+    stored M = 1
+    RAB_LoadActiveRrxLightInfo
+    RAB_SampleActiveRrxPolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    selected visibility storage
+    final contribution shape
+    temporal accumulation
+
+Forbidden Sources
+-----------------
+
+The typed policy does not use:
+
+    RLU payload sourcePdf/sourceWeight
+    payload radiance or light power
+    portal distance
+    ReGIR cell weights
+    alias tables
+    split-domain fallback arrays

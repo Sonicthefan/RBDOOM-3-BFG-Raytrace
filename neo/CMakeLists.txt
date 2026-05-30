@@ -459,11 +459,10 @@ if(EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/PT/ReSTIRPT.h")
 	include_directories("${RTXDI_RUNTIME_DIR}/Include")
 	set(RTXDI_RUNTIME_SOURCES
 		"${RTXDI_RUNTIME_DIR}/Source/RtxdiUtils.cpp"
-		"${RTXDI_RUNTIME_DIR}/Source/ReSTIRPT.cpp"
 		)
 	source_group("libs\\rtxdi" FILES ${RTXDI_RUNTIME_SOURCES})
 else()
-	message(WARNING "RTXDI runtime headers not found at ${RTXDI_RUNTIME_DIR}; ReSTIR PT bridge modules will not compile until the path is populated")
+	message(WARNING "RTXDI runtime headers not found at ${RTXDI_RUNTIME_DIR}; RTXDI parameter headers will not compile until the path is populated")
 endif()
 
 include_directories("libs/optick")

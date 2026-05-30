@@ -36,7 +36,7 @@ Default-functionality rule:
 
     one enable CVar must activate the normal producer path
     default source is RLU
-    default source PDF is full-domain uniform over current RLU dense count
+    default source policy is the current accepted RLU producer policy
     default output is useful lighting or a clean current reservoir page
     extra CVars are diagnostics only
 
@@ -129,6 +129,88 @@ Fail:
     spatial, best-light, mode 56, RRX, denoiser, or fallback paths are required
 
 
+Rung RLU-V-03: Range-Stratified RLU Proposal Distribution
+---------------------------------------------------------
+
+Purpose:
+
+    Improve current-frame sample usefulness while preserving the proven
+    PDFNEE-RLU-02 reservoir, replay, targetPdf, visibility, and clean consume
+    contract.
+
+Expected:
+
+    proposal ranges are only current RLU typed ranges
+    selected light identity remains dense current RLU lightIndex
+    rangeSampleCount is stated for every streamed range
+    totalProposalSamples is stated
+    sourcePdf = rangeSampleCount / (rangeCount * totalProposalSamples)
+    invSourcePdf = (rangeCount * totalProposalSamples) / rangeSampleCount
+    sourcePdf is normalized over the streamed proposal distribution
+    payload sourcePdf/sourceWeight, ReGIR weights, portal distance, and alias
+        tables are not used
+
+Pass:
+
+    one-class scenes state the active range PDF
+    multi-range scenes state a normalized sourcePdf table
+    temporal off preserves current-frame mean against PDFNEE-RLU-02 baseline
+    clean RTXDI DI view 12 consumes typed reservoirs without mean drift
+    user visual testing shows equal or better sample usefulness/noise behavior
+
+Fail:
+
+    sourcePdf cannot be derived from rangeSampleCount, rangeCount, and
+        totalProposalSamples
+    sourcePolicy 1 is documented or reported as fixed 50/50 while the shader
+        uses rangeSampleCount/totalProposalSamples
+    selected identity is not dense current RLU lightIndex
+    targetPdf, visibility, final contribution, temporal, or reservoir
+        finalization changes are mixed into the proposal-distribution task
+    ReGIR, portal, payload-weighted, alias-table, or broad suppression behavior
+        is introduced
+
+
+Rung RLU-V-04: Clean View-12 Analytic Parity
+--------------------------------------------
+
+Purpose:
+
+    Prove that PDFNEE/RLU current-frame Doom analytic lighting matches the
+    known-good clean RTXDI DI view 12 current-domain analytic load/replay path.
+
+Expected:
+
+    PDFNEE/RLU and clean view 12 use the same RLU domain
+    domain 0 analytic-only is compared only to domain 0 analytic-only
+    domain 2 mixed RLU is compared only to domain 2 mixed RLU
+    compare the same dense current RLU lightIndex
+    compare the same RLU record sourceIndex
+    compare direct DoomAnalyticLights payload values when clean view 12 uses
+        that sourceIndex for current-domain analytics
+    compare PDFNEE and clean RAB_LightInfo fields
+    compare sample UV, solidAnglePdf, targetPdf, reflectedRadiance, visibility,
+        and finalContribution for the same surface
+
+Pass:
+
+    PDFNEE analytic lighting is not missing, brighter, dimmer, or differently
+        shaped relative to clean RTXDI DI view 12 except for expected stochastic
+        sample choice/noise
+    any remaining difference is traced to a named proposal/sample event, not a
+        different light payload interpretation
+
+Fail:
+
+    PDFNEE domain 0 is compared against clean view-12 domain 2, or the reverse
+    legacy PDFNEE verifier views are used as the visual baseline
+    temporal accumulation is tuned before current analytic parity passes
+    active RRX unified-record loading rejects or reshapes a current Doom
+        analytic that clean view 12 accepts through DoomAnalyticLights
+    fallback albedo/beauty, broad light suppression, denoising, or history
+        clamping is used to hide the mismatch
+
+
 Proof Standard
 --------------
 
@@ -161,8 +243,13 @@ Stop immediately if:
     source PDF cannot be stated
     source PDF does not sum to 1.0 for the proposal domain
     first producer uses typed-range, bounded per-range, payload-weighted,
-        portal, ReGIR, or payload sourcePdf/sourceWeight sampling
+        portal, ReGIR, or payload sourcePdf/sourceWeight sampling before
+        PDFNEE-RLU-02 full-domain uniform is accepted
+    PDFNEE-RLU-04 uses any non-uniform policy without a normalized
+        rangeSampleCount / rangeCount / totalProposalSamples source PDF
     selected light identity is not a dense RLU current-domain index
+    PDFNEE analytic current lighting does not match clean RTXDI DI view 12 for
+        the same current RLU analytic domain
     targetPdf and final contribution use different light samples
     solidAnglePdf is missing
     output uses fallback albedo/beauty

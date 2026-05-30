@@ -1,0 +1,93 @@
+Validation Matrix
+=================
+
+All visual validation is performed in the prepared game folder:
+
+    E:/prog/rbdoom-3-BFG-prebuilt
+
+
+Baseline CVars
+--------------
+
+Use these for active RRX DI temporal testing:
+
+    r_pathTracingDebugMode 56
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 0
+    r_pathTracingRestirPTDiDebugView 72
+
+Fallback comparison only:
+
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 1
+    r_pathTracingRestirPTDiDebugView 73
+    r_pathTracingRestirPTDiDebugView 74
+
+
+Pass / Fail Definitions
+-----------------------
+
+Hard pass:
+
+    mode 72 accumulates stable DI in overlapping-light scenes with
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 0
+
+Soft diagnostic pass:
+
+    73/74 show stable light identity/history only when
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 1
+
+Hard fail:
+
+    mode 72 requires r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 1
+    72 routes through spatial during temporal validation
+    72 accumulates only because mode-56 output accumulation hides per-frame
+    reservoir failure
+    dynamic or overlapping lights force screen-wide reservoir loss
+
+
+Required Worker Test Matrix
+---------------------------
+
+Every implementation worker must report:
+
+    72 with previous-temporal-as-best off
+    72 with previous-temporal-as-best on
+    73 with previous-temporal-as-best off
+    73 with previous-temporal-as-best on
+    74 with previous-temporal-as-best off
+    74 with previous-temporal-as-best on
+
+Expected interpretation:
+
+    If only fallback-on works, the real temporal path is still broken.
+    If 73/74 work but 72 fails, final replay is broken.
+    If 72/73/74 all fail, reservoir history or page ownership is broken.
+    If single-light areas work but overlaps fail, initial sampling/candidate
+    weighting or targetPdf handling is suspect.
+
+
+Build And Deploy
+----------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    -> E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders:
+
+    copy contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    -> E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not create:
+
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/renderprogs2
+

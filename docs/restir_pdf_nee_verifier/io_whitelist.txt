@@ -54,11 +54,18 @@ I-02: Current RLU Dense Light Domain
         invSourcePdf = currentRluLightCount
         selected reservoir identity is the dense current lightIndex
 
+    Current accepted alternate source policy:
+        PDFNEE-RLU-04 sourcePolicy 1 may sample raw current RLU typed ranges
+        with an explicitly normalized rangeSampleCount/rangeCount source PDF.
+        This is allowed only because sourcePolicy 0 remains available as the
+        full dense uniform baseline.
+
     Forbidden use:
         RLU payload sourcePdf/sourceWeight as the first producer proposal PDF
         Doom analytic payload sourcePdf=0 as a valid proposal PDF
-        typed-range uniform sampling as the first producer source policy
-        bounded per-range sampling as the first producer source policy
+        fixed 50/50 typed-range sampling as the current sourcePolicy 1 contract
+        unapproved bounded per-range sampling as the first producer source
+            policy
         payload-weighted or alias-table sampling as the first producer source
             policy
         split current emissive + Doom analytic arrays as the default source
@@ -109,6 +116,30 @@ I-04: Light Identity Metadata
         compact portal candidate index
         ReGIR candidate slot
         previous-frame remap as proof of current-frame PDF correctness
+
+
+I-04B: Current Doom Analytic Payload Parity
+
+    Meaning:
+        Current-domain Doom analytic RLU records may carry a sourceIndex that
+        points at the uploaded DoomAnalyticLights payload used by clean RTXDI DI
+        view 12.
+
+    Allowed use:
+        PDFNEE/RLU current producer may match clean view-12 current analytic
+        loading by resolving the dense RLU record sourceIndex through
+        DoomAnalyticLights[sourceIndex], then preserving the dense RLU lightIndex
+        as the selected reservoir identity.
+
+    Required declaration:
+        worker must state whether a selected Doom analytic light was loaded
+        through the clean-compatible direct DoomAnalyticLights payload or
+        through a packed unified RLU record.
+
+    Forbidden use:
+        changing selected reservoir identity from dense current RLU lightIndex
+        using legacy PDFNEE analytic view output as the baseline
+        changing temporal accumulation to hide current analytic load mismatch
 
 
 I-05: Visibility Helper

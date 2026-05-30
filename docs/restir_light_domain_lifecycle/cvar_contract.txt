@@ -1,0 +1,108 @@
+ReSTIR Light-Domain Lifecycle CVar Contract
+===========================================
+
+Purpose
+-------
+
+Reserve a small CVar surface for lifecycle/domain diagnostics. These CVars must
+not control PDF + NEE math or temporal accumulation.
+
+
+Naming
+------
+
+Use this prefix unless a manager explicitly changes it:
+
+    r_pathTracingRestirLightDomain*
+
+
+Required CVars
+--------------
+
+r_pathTracingRestirLightDomainVerifierEnable
+
+    0 = disabled
+    1 = enable lifecycle/domain verifier route or dumps
+
+    Default: 0
+
+
+r_pathTracingRestirLightDomainVerifierView
+
+    0 = disabled
+    1 = route/status sentinel
+    2 = analytic-only domain liveness
+    3 = emissive-only domain liveness
+    4 = unified domain liveness
+    5 = active range visualization
+    6 = remap validity visualization
+    7 = map-reset first-frame sentinel
+    8 = area-transition sentinel
+
+    Default: 0
+
+
+r_pathTracingRestirLightDomainVerifierMode
+
+    0 = no lights / negative path
+    1 = analytic-only
+    2 = emissive-only
+    3 = analytics present, emissive samples forced zero
+    4 = emissives present, analytic samples forced zero
+    5 = unified analytic + emissive
+    6 = map-reset validation
+    7 = area-transition validation
+
+    Default: 0
+
+
+r_pathTracingRestirLightDomainDump
+
+    0 = disabled
+    1 = one-shot dump of lifecycle state, counts, ranges, and remaps
+
+    Default: 0
+
+
+r_pathTracingRestirLightDomainForceSplit
+
+    0 = normal route
+    1 = force split-domain diagnostics; do not use unified payload as proof
+
+    Default: 0
+
+
+Forbidden CVar Behavior
+-----------------------
+
+These CVars must not:
+
+    enable temporal reuse
+    enable spatial reuse
+    enable best-light sampling
+    enable denoiser/confidence/gradient paths
+    change PDF or NEE formulas
+    suppress authored light ranges broadly
+    clear every frame to hide stale state
+    route through mode 56 as the proof surface
+
+
+Required Runtime Preset
+-----------------------
+
+For lifecycle proof:
+
+    r_pathTracingRestirLightDomainVerifierEnable 1
+    r_pathTracingRestirLightDomainDump 1
+
+Then test modes one at a time:
+
+    analytic-only
+    emissive-only
+    analytics present with emissive samples forced zero
+    unified analytic + emissive
+    map-reset validation
+    area-transition validation
+
+Temporal, spatial, best lights, denoiser, and fallback lighting must be off or
+irrelevant to the verifier route.

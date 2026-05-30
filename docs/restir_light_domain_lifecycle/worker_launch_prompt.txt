@@ -1,0 +1,106 @@
+Paste-Ready Worker Launch Prompt
+================================
+
+Use this prompt for a new agent.
+
+
+Prompt
+------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/restir-rab-reference-audit-experiment
+
+Task:
+
+    Work on the ReSTIR light-domain lifecycle repair. Do not edit PDF + NEE,
+    reservoir math, temporal accumulation, spatial reuse, best lights, or
+    denoiser code unless explicitly instructed in a later task.
+
+Read first:
+
+    docs/restir_light_domain_lifecycle/README.txt
+    docs/restir_light_domain_lifecycle/contract_matrix.txt
+    docs/restir_light_domain_lifecycle/cvar_contract.txt
+    docs/restir_light_domain_lifecycle/io_whitelist.txt
+    docs/restir_light_domain_lifecycle/validation_matrix.txt
+    docs/restir_light_domain_lifecycle/worker_protocol.txt
+    docs/restir_light_domain_lifecycle/worker_tasks.txt
+
+Known state:
+
+    Analytic lights previously worked. After emissives were brought into the
+    same active light-manager/unified path, analytics appeared to get absorbed
+    into an emissive-only behavior and stopped receiving fresh lights as the
+    player moved to different areas.
+
+    The suspected issues are lifecycle and bridge ownership:
+
+        partial map/renderWorld reset leaves stale light state
+        Doom analytic universe reset is keyed only on renderWorld pointer
+        emissive remap may be built before the final emissive list
+        unified payload/range routing can let emissive corruption affect
+            analytics
+
+Standing restrictions:
+
+    no reservoir math changes
+    no PDF + NEE math changes
+    no temporal changes
+    no spatial
+    no best lights
+    no denoiser/confidence/gradient path
+    no fallback albedo or beauty proof
+    no broad light suppression as a fix
+    no clear-every-frame workaround
+    no RTXDI/Remix compliance claims from dumps or green bands
+
+Reference roots:
+
+    RTX Remix: E:/prog/references/dxvk-remix-git
+    RTXDI:     E:/prog/references/RTXDI-main
+
+Primary reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+First action:
+
+    Start with LDLC-00 only as a read-only lifecycle and bridge audit. No code
+    changes.
+
+    Report:
+
+        exact map/renderWorld reset behavior
+        exact state not cleared by the partial reset
+        exact Doom analytic reset key
+        exact order of emissive inventory, merge, remap, manager build, upload
+        exact active RAB light-manager route CVars
+        whether analytics can be affected by emissive remap/range corruption
+        first failing lifecycle contract
+
+Build lane if later implementation is approved:
+
+    From E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy:
+
+        E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Copy contents of:
+
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+    to:
+
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.

@@ -1,0 +1,109 @@
+That pins the strobe-prone room to material shader-register radiance, not visibility or reservoir math.
+
+Interpretation:
+
+ReferenceRab 9/10 still strobes with color source 0: not final visibility, not reservoir throughput.
+DoomColorSource 1 stops it: the stable idLight/renderLight.shaderParms color is fine.
+DoomColorSource 2 also stops it: authored base color is fine too.
+Therefore the bad source is specifically our analytic producer’s EvaluateDoomLightColor() material-register evaluation path, or animated material stages it includes.
+For a diagnostic baseline, the cleanest current settings are:
+
+r_pathTracingCleanRtxdiDiBypassLightUniverse 1
+r_pathTracingCleanRtxdiDiDoomColorSource 1
+r_pathTracingCleanRtxdiDiRequireProvenDoomLights 1
+Use 1 over 2 first because it preserves game-controlled light color/level better than base color, while avoiding material-stage flicker. This is still a diagnostic baseline, not a final compliance claim. The real fix is now likely: replace/limit the Doom analytic material-register color producer rather than touching temporal.
+
+
+
+
+
+Wednesday 6:31 AM
+there is one thing, a robot with  alight spawns in periodically, it upsets the room lights even with color source 2 on, then they behave when it disapears 
+Wednesday 6:32 AM
+
+
+Worked for 2m 12s
+Deployed a keyed-bypass build.
+
+Retest the robot-light case with:
+
+r_pathTracingCleanRtxdiDiBypassLightUniverse 1
+r_pathTracingCleanRtxdiDiDoomColorSource 2
+r_pathTracingCleanRtxdiDiRequireProvenDoomLights 1
+What changed: the bypass no longer maps previous/current by compact slot. It keeps its own previous compact table and remaps by stable renderLight/entity key, so a robot light entering/leaving should not shift existing room-light history.
+
+If the robot still upsets the room with this build, then it is not just slot-shift remap in the bypass; it is changing the actual selected light set, light geometry, or scene/portal state.
+
+
+Edited PathTraceSmokeSceneBuild.cpp
++117
+-18
+Undo
+Review
+Details
+
+
+
+
+Wednesday 6:34 AM
+pulses once still probably not worth the effort
+Wednesday 6:38 AM
+
+
+Worked for 34s
+Committed:
+
+d91e7877 Refine clean RTXDI analytic diagnostics
+
+Included:
+
+r_pathTracingCleanRtxdiDiDoomColorSource
+r_pathTracingCleanRtxdiDiRequireProvenDoomLights
+keyed current/previous remap inside the light-universe bypass
+GUI/dump visibility for the new switches
+That last one-pulse robot case is probably not worth chasing in this diagnostic lane. It is consistent with a real domain change from a current-only light entering before previous history exists.
+
+Unrelated docs/temp files remain unstaged.
+
+
+
+
+
+Wednesday 6:38 AM
+but do we know why accumulation works here and not the main one
+Wednesday 6:38 AM
+
+Yes. The bypass tells us the main failure is the persistent Doom analytic universe/remap contract, not RTXDI temporal itself.
+
+Why accumulation works with bypass:
+
+Current lights are uploaded as a compact active candidate table.
+Previous lights are now retained in a small bypass-local previous table.
+Current-to-previous remap is built by a stable key from the uploaded candidates.
+RTXDI temporal can translate the selected current light to the correct previous light, so history is reusable.
+Why the main one fails:
+
+The persistent Doom analytic universe builds identities/remaps from a much larger authored/persistent light registry.
+That registry includes broad static/dynamic state, animated/temporary/unproven entries, missing-current reasons, zero-radiance state, selected-area state, etc.
+Its GPU remap says buffers are valid enough structurally, but something in that producer’s identity/remap/source-domain contract causes RTXDI temporal to reuse the wrong previous sample, reject valid history, or compare against an incompatible previous payload.
+The visual proof is decisive: same clean RTXDI temporal/RAB/resolve works once that persistent universe layer is bypassed.
+So the likely failing boundary is:
+
+B/C: current reservoir valid, but persistent-universe identity/remap domain is wrong for temporal reuse.
+
+Not:
+
+final resolve, because ReferenceRab 9/10 did not fix the bad cases
+raw Doom analytic shading, because bypass + color source works
+RTXDI temporal generally, because the bypass accumulates
+mirror/subview behavior
+full-map brute force or spatial
+The remaining main-path fix should audit BuildDoomAnalyticLightGpuRemap() and the persistent authored registry, especially:
+
+candidate index assignment vs uploaded compact candidate order
+currentCandidateIndex stored on persistent entries
+previous entries using old currentCandidateIndex
+remap validity conditions
+dynamic/unproven/zero-radiance entries affecting remap table shape
+selected-area/current-domain filtering mismatching previous-domain filtering
+The bypass is not a compliant final solution, but it is a strong proof harness: preserve active compact sampling, preserve previous compact payloads, remap by stable key.

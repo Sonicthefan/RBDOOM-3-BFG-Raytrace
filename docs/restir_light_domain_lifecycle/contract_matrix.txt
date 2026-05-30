@@ -1,0 +1,258 @@
+ReSTIR Light-Domain Lifecycle Contract Matrix
+=============================================
+
+Goal
+----
+
+Prove that rbdoom supplies truthful current and previous light domains to the
+ReSTIR RAB bridge before any PDF + NEE or temporal claim is made.
+
+
+Contract C-01: Map / Render-World Reset Ownership
+-------------------------------------------------
+
+Producer:
+
+    PathTraceSmokeSceneBuild.cpp
+    PathTraceSmokeResources.cpp
+
+Required behavior:
+
+    renderWorldChanged || mapChanged invalidates all stale scene/light domain
+    state that can feed previous-frame or previous-map data.
+
+Must clear or invalidate:
+
+    m_sceneInputs
+    previous emissive triangle vector
+    previous emissive buffer/count
+    emissive remap state
+    unified light buffers/counts
+    ReSTIR light-manager current/previous payloads
+    Remix light-manager current/previous payloads
+    retired scene packages that contain old light buffers
+
+Pass:
+
+    first frame after a map/renderWorld change reports no valid previous
+    emissive or unified previous domain unless explicitly rebuilt from the new
+    map.
+
+Fail:
+
+    partial inline reset leaves m_sceneInputs.valid true
+    previous emissives from the old map are used to build a new remap
+    old retired packages can preserve old light buffers into the new map
+
+
+Contract C-02: Doom Analytic Universe Identity
+----------------------------------------------
+
+Producer:
+
+    PathTraceDoomLights.cpp
+
+Required behavior:
+
+    Doom analytic persistent state resets when map identity changes, not only
+    when the renderWorld pointer changes.
+
+Map identity must include:
+
+    renderWorld pointer
+    mapName
+    mapTimeStamp
+
+Must clear or invalidate:
+
+    currentEntries
+    previousEntries
+    stableKeys
+    persistentAuthoredLights
+    persistentAuthoredProposals
+    persistentStaticUniverseList
+    nextUniverseIndex
+    stats
+
+Pass:
+
+    spawn-area lights from one map cannot survive into a different map through
+    stable identity or persistent authored state.
+
+Fail:
+
+    same renderWorld pointer with new mapName/mapTimeStamp keeps old analytic
+    universe entries.
+
+
+Contract C-03: Emissive Final-Domain Remap Ordering
+---------------------------------------------------
+
+Producer:
+
+    PathTraceSmokeSceneBuild.cpp
+    PathTraceUnifiedLight.cpp
+    PathTraceRemixLightManager.cpp
+    PathTraceRestirLightManager.cpp
+
+Required order:
+
+    collect raw emissives
+    apply light-universe merge/filter/persistence
+    finalize emissive sampling fields and stats
+    build previous/current emissive remap from the final current list
+    build managers and unified records from the same final current list
+
+Pass:
+
+    every consumer receives the exact same final current emissive list that the
+    remap was built for.
+
+Fail:
+
+    emissiveLightRemap is built before MergeFrameCandidates mutates the current
+    emissive list.
+
+
+Contract C-04: Producer Isolation
+---------------------------------
+
+Required domains:
+
+    analytic-only
+    emissive-only
+    unified preview
+
+Required behavior:
+
+    analytic validation must not depend on emissive counts, emissive remaps, or
+    emissive light-universe persistence.
+
+Pass:
+
+    disabling emissive sampling leaves analytic counts, ranges, payloads, and
+    visual output unchanged.
+
+Fail:
+
+    enabling emissive presence with zero emissive samples changes analytic
+    range offsets/counts, sample budgets, or active payload validity.
+
+
+Contract C-05: Active Manager Payload Consistency
+-------------------------------------------------
+
+Producer:
+
+    PathTraceRestirLightManager.cpp
+    PathTraceRemixLightManager.cpp
+    PathTraceSmokeSceneBuild.cpp
+    PathTraceSmokeDispatch.cpp
+
+Required outputs:
+
+    active current payload count
+    active previous payload count
+    active current-to-previous remap count
+    active previous-to-current remap count
+    emissive range offset/count
+    analytic range offset/count
+    sample budget per range
+
+Pass:
+
+    payload counts match manager records
+    range offsets/counts fit inside active current payload count
+    analytic range remains valid when emissive range is empty
+    emissive range remains valid when analytic range is empty
+
+Fail:
+
+    active payload count mismatch is ignored
+    analytics are appended after a corrupt emissive range and sampled through
+    wrong offsets.
+
+
+Contract C-06: Previous Domain Validity
+---------------------------------------
+
+Required rule:
+
+    previous domains are valid only when they describe the immediately previous
+    frame of the same map and same producer domain.
+
+Pass:
+
+    area movement produces missing/current-only/remapped records according to
+    real light visibility and persistence.
+
+Fail:
+
+    previous records from another map or a pre-merge current list are treated
+    as valid temporal continuity.
+
+
+Contract C-07: Shader-Visible Count/Control Contract
+----------------------------------------------------
+
+Producer:
+
+    PathTraceSmokeDispatch.cpp
+    PathTraceSceneInputs.h
+
+Required outputs:
+
+    constants.restirLightManagerInfo
+    constants.restirLightManagerRangeInfo
+    constants.restirLightManagerSampleInfo
+    constants.unifiedLightInfo
+    sceneInputs.lights.* counts
+
+Pass:
+
+    shader-visible counts match uploaded buffers and selected RAB source.
+
+Fail:
+
+    CVar route selects Remix/manager payloads but constants or buffers describe
+    another domain.
+
+
+Contract C-08: Negative Path
+----------------------------
+
+Required explicit behavior:
+
+    no lights
+    no previous domain
+    invalid remap
+    map reset
+    area transition
+    payload mismatch
+
+Pass:
+
+    invalid states are loud in dumps/proof modes and do not silently fall back
+    to old light state.
+
+Fail:
+
+    stale state is hidden by fallback lighting or by clearing only the visible
+    reservoir output.
+
+
+Contract C-09: Handoff To PDF + NEE
+-----------------------------------
+
+Only after C-01 through C-08 pass:
+
+    PDF + NEE verifier may consume the repaired current light domain.
+
+Pass:
+
+    handoff names the exact current payload buffer, count, range, source type,
+    and CVar route.
+
+Fail:
+
+    PDF + NEE worker is asked to repair stale lifecycle/remap behavior.

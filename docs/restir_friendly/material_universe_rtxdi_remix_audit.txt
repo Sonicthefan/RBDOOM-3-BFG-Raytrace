@@ -1,0 +1,329 @@
+Material Universe Audit Against RTXDI and RTX Remix
+Date: 2026-05-18
+
+Scope
+=====
+
+This note compares rbdoom's current RT smoke/path tracing material universe
+against:
+
+- RTXDI FullSample material and surface RAB contract.
+- RTX Remix material/texture persistence patterns for hostile legacy games.
+
+This is an audit only. No shader or C++ behavior is changed here.
+
+
+rbdoom Material Path Today
+==========================
+
+CPU-side persistent material records:
+
+- neo/renderer/NVRHI/PathTraceMaterialUniverse.h
+- neo/renderer/NVRHI/PathTraceMaterialUniverse.cpp
+
+The material universe keys records by Doom material id plus material-name hash.
+Each record gets a persistent universeIndex, stable flags, fallback albedo,
+texture safety flags, emissive facts, and additive/filter/portal/glass
+fallback flags.
+
+CPU-side texture metadata registry:
+
+- neo/renderer/NVRHI/PathTraceTextureRegistry.h
+- neo/renderer/NVRHI/PathTraceTextureRegistry.cpp
+- neo/renderer/NVRHI/PathTraceMaterialTextureDiscovery.cpp
+
+The texture registry persists material texture metadata by material id. It
+tracks image pointers, safe texture handles, texture names, usage/color-format
+facts, and a generation counter used by the dynamic material table cache.
+
+Per-frame GPU material table:
+
+- neo/renderer/NVRHI/PathTraceDynamicMaterialState.cpp
+- neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+The GPU-facing table can be built from either the legacy path or the material
+universe path, controlled by r_pathTracingMaterialUniverseTable. The cache
+signature includes texture registry size/generation and several texture CVars,
+but not every shader-side material policy CVar.
+
+Shader material supplier:
+
+- neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_material_supplier.hlsli
+
+This reconstructs an RTXDI-shaped RAB_Material from the smoke payload and
+PathTraceSmokeMaterial table. It samples diffuse, alpha, normal, specular, and
+emissive textures according to TextureInfo flags.
+
+Primary surface history:
+
+- neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+rbdoom stores its own current/previous primary-surface records. These records
+carry world position, geometry normal, shading normal, albedo, roughness,
+specular F0, material id, material table index, material flags, surface class,
+instance id, primitive id, and emissive texture index.
+
+RAB material similarity:
+
+- neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Material.hlsli
+- neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+There are two similarity concepts:
+
+1. RAB_Material similarity has an RTXDI-like mode: roughness relative
+   difference, specular luminance difference, diffuse luminance difference.
+2. PathTracePrimarySurfacesAreSimilar still requires materialId,
+   materialIndex, and surfaceClass to match before normal/roughness checks.
+
+
+RTXDI Reference Shape
+=====================
+
+Reference files:
+
+- E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Material.hlsli
+- E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Surface.hlsli
+- E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/RasterizedGBuffer.hlsl
+- E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+
+RTXDI FullSample does not use Doom-style material ids or compact material-table
+indices for ReSTIR similarity. It writes current and previous G-buffer material
+state, then RAB reads:
+
+- diffuseAlbedo
+- specularF0
+- roughness
+- emissiveColor
+- shading normal
+- geometric normal
+- depth
+- motion vector compatible with the depth convention
+
+RAB_AreMaterialsSimilar compares material properties, not authored material
+identity. The reference explicitly says to return true if unsure; the material
+test is a reuse guard, not an identity/remap system.
+
+RTXDI's emissive light preparation reads material constants and emissive texture
+indices from the scene/material system, but ReSTIR material similarity itself is
+property based.
+
+
+RTX Remix Reference Shape
+=========================
+
+Reference files:
+
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.h
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_types.cpp
+- E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_texture_manager.cpp
+
+RTX Remix is the closer architectural reference for rbdoom because it must deal
+with an uncooperative base game. The relevant patterns are:
+
+- surface material cache persists until scene reset;
+- texture cache persists and textures are kept alive when referenced;
+- per-frame buffer indices are refreshed every frame;
+- material and texture categories are derived from original game texture hashes;
+- surface material indices are stable across frames;
+- GPU material data is uploaded from ordered scene surfaces each frame or when
+  scene/material state requires it;
+- ray portals and special material types are handled as material/instance
+  categories, not as accidental side effects of generic material ids.
+
+Remix separates persistent material identity from frame-local buffer indices.
+That separation is the important lesson for rbdoom.
+
+
+High-Impact Deviations
+======================
+
+1. Primary-surface similarity is stricter than RTXDI material similarity.
+
+PathTracePrimarySurfacesAreSimilar rejects when materialId, materialIndex, or
+surfaceClass differ. RTXDI's reference RAB_AreMaterialsSimilar only compares
+roughness/specular/diffuse properties. In rbdoom, compact materialIndex can
+change because of table order, texture probe/table settings, universe-vs-legacy
+table mode, or material-table rebuilds. If materialIndex changes while the
+surface is otherwise the same, temporal reuse is rejected for a reason RTXDI
+does not use.
+
+Impact:
+
+- Can cause cyan/accepted regions to turn into rejection noise during motion or
+  after material-table changes.
+- Can make portal-adjacent regions look worse if the material table includes
+  different static/dynamic/rigid/emissive contributors in different areas.
+- Makes a frame-local table index part of a temporal contract.
+
+Recommended slice:
+
+MU-01A: add a debug-only surface-similarity mode that reports whether rejection
+comes from materialId, materialIndex, surfaceClass, normal, or roughness. Then
+test whether ignoring materialIndex while keeping materialId/surfaceClass
+changes the orange/magenta mode-12 failures. Do not change final behavior until
+the diagnostic proves the failure mode.
+
+
+2. Material and texture registries persist, but reset boundaries are unclear.
+
+ClearSmokeMaterialUniverse exists, but current grep only found the function
+definition, not a call site. The texture registry has generation tracking but no
+obvious clear/reset API in the inspected files. This is not inherently wrong,
+but it differs from the Remix pattern where persistent caches have explicit
+scene-reset/lifetime ownership and textures are touched/kept alive by live
+instances.
+
+Impact:
+
+- The user's report that disabling normal maps poisons mode 12 and turning them
+  back on does not recover even after loading another level is consistent with a
+  missing reset/invalidation boundary.
+- If previous primary surfaces, previous light domains, material universe
+  records, texture metadata, and reservoir history survive a semantic material
+  mode change, ReSTIR may compare current data against previous data produced
+  under different shading-normal/material policy.
+
+Recommended slice:
+
+MU-02A: add a CPU diagnostic "material contract generation" that includes:
+r_pathTracingUseNormalMaps, r_pathTracingNormalMapFlipGreen,
+r_pathTracingUseSpecularMaps, r_pathTracingUseEmissiveMaps,
+r_pathTracingTextureDecode, r_pathTracingMaterialUniverseTable,
+SmokeMaterialTextureRegistryGeneration, and material universe stats. Log when
+it changes. Do not reset anything in this slice.
+
+
+3. Shader-side normal/specular/emissive flags are not obviously part of the
+material-table cache signature.
+
+TextureInfo.w controls whether normal, specular, and emissive maps participate
+in shader material construction. The material table cache signature includes
+some texture policy CVars, but the inspected signature does not show
+r_pathTracingUseNormalMaps, r_pathTracingUseSpecularMaps, or
+r_pathTracingUseEmissiveMaps.
+
+Impact:
+
+- A CVar can change the RAB material/surface produced by the shader without a
+  corresponding CPU-side material-table rebuild or ReSTIR history invalidation.
+- Normal-map toggling is especially dangerous because RTXDI temporal/spatial
+  reuse depends heavily on stable current/previous normals.
+
+Recommended slice:
+
+MU-03A: after MU-02A confirms generation changes, force a ReSTIR/PT history
+clear and primary-surface history clear when the material contract generation
+changes. Keep it broad and explicit for testing. If it fixes the normal-map
+poisoning, narrow the reset scope later.
+
+
+4. Emissive identity/remap depends on material universe and texture indices.
+
+BuildSmokeEmissiveLightRemap compatibility requires matching identity hash,
+materialId, universeMaterialIndex, and emissiveTextureIndex. Emissive triangle
+identity also includes materialIndex. This is stricter than Remix's persistent
+material/texture hash model and more fragile than RTXDI's material-property
+reuse guard.
+
+Impact:
+
+- If materialIndex or emissiveTextureIndex changes due to table ordering or
+  texture table rebuild, previous emissive lights fail previous-to-current
+  translation.
+- This directly matches the mode-12 diagnostic where analytic lights disabled
+  produced stationary cyan but motion/portal failures showed emissive
+  previous-to-current failures.
+
+Recommended slice:
+
+MU-04A: dump a small sample of emissive remap incompatible records with current
+and previous materialId, materialIndex, universeMaterialIndex,
+emissiveTextureIndex, material name, emissive texture name, identity hash, and
+surface class. This should be one-shot/low-frequency only.
+
+
+5. rbdoom's material model is still simplified compared with RTXDI/RTRT
+shading.
+
+rbdoom's RAB BRDF currently routes mostly through a diffuse-only opaque path,
+with optional fake-PBR specular values used for roughness/F0. RTXDI FullSample
+uses a clearer GGX/Lambert material model, and RTX Remix has richer opaque
+surface material interaction.
+
+Impact:
+
+- This is likely not the immediate strobing bug.
+- It can affect target-function magnitude, reservoir weights, and perceived
+  brightness, but it should not by itself cause previous-to-current remap
+  failures.
+
+Recommended slice:
+
+Do not rewrite BRDF math until the identity/reset/remap issues above are
+understood. Keep this as a later conformance task.
+
+
+Most Likely Link To Current Bug
+===============================
+
+The material universe is unlikely to be the only cause of the portal-correlated
+orange/magenta ReSTIR debug failures. The current strongest geometry/light
+finding remains that emissive remap can be built from a different current
+emissive list than the list later uploaded/sampled.
+
+However, the material universe can amplify or preserve the failure:
+
+- materialIndex is frame-local but participates in surface similarity and
+  emissive identity;
+- universeMaterialIndex and emissiveTextureIndex participate in emissive remap
+  compatibility;
+- shader-side material/normal policy can change without an obvious ReSTIR
+  history reset;
+- persistent material/texture registries have no clearly audited scene-reset
+  boundary.
+
+The normal-map toggle poisoning behavior is the clearest sign that material
+policy changes are not invalidating every history domain that depends on them.
+
+
+Recommended Order
+=================
+
+1. Finish the known emissive remap ordering fix first:
+
+   Build the emissive remap from the same post-merge current/previous emissive
+   lists that BuildPathTraceUnifiedLights uploads.
+
+2. Add MU-01A diagnostics:
+
+   Split surface-similarity rejection into materialId, materialIndex,
+   surfaceClass, normal, and roughness causes.
+
+3. Add MU-02A diagnostics:
+
+   Track a material contract generation that includes material/normal/specular/
+   emissive policy CVars and persistent registry generations.
+
+4. Add MU-03A reset test:
+
+   On material contract generation change, clear ReSTIR/PT reservoirs,
+   primary-surface history, previous unified light domains, and any previous
+   emissive/analytic remap inputs. This is a proof slice, not a final policy.
+
+5. Add MU-04A remap incompatibility dump:
+
+   If emissive previous-to-current failures remain, dump exact current/previous
+   material identity fields for a few incompatible records.
+
+
+Do Not Do Yet
+=============
+
+- Do not rewrite BRDF/material math as a first response.
+- Do not remove Doom material flags or material ids globally.
+- Do not copy/paste RTXDI or RTX Remix source.
+- Do not hide the failure with looser reuse gates until the diagnostic proves
+  which identity field is causing rejection.
+- Do not treat the material universe as independent from light and geometry
+  universes; emissive identity crosses all three.

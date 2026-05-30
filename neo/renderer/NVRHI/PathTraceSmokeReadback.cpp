@@ -7,6 +7,7 @@
 // GPU output without becoming part of the normal frame path.
 
 #include "PathTraceCVars.h"
+#include "PathTraceCleanRtxdiDiGui.h"
 #include "PathTracePrimaryPass.h"
 #include "PathTraceDebugDumps.h"
 #include "../../sys/DeviceManager.h"
@@ -17,6 +18,23 @@ namespace {
 
 const int RT_SMOKE_READBACK_INTERVAL_FRAMES = 120;
 const int RESTIR_PT_VIEW68_BAND_COUNT = 9;
+const int CLEAN_TEMPORAL_AUDIT_FLAG_SCALE = 262143;
+const uint32_t CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;
+const uint32_t CLEAN_TEMPORAL_DIAG_CURRENT_SURFACE_VALID = 1u << 3u;
+const uint32_t CLEAN_TEMPORAL_DIAG_MOTION_VALID = 1u << 4u;
+const uint32_t CLEAN_TEMPORAL_DIAG_PREVIOUS_SURFACE_VALID = 1u << 5u;
+const uint32_t CLEAN_TEMPORAL_DIAG_PREVIOUS_RESERVOIR_VALID = 1u << 6u;
+const uint32_t CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED = 1u << 7u;
+const uint32_t CLEAN_TEMPORAL_DIAG_TEMPORAL_RESERVOIR_VALID = 1u << 8u;
+const uint32_t CLEAN_TEMPORAL_DIAG_SDK_REUSED_PREVIOUS = 1u << 9u;
+const uint32_t CLEAN_TEMPORAL_DIAG_CURRENT_CANDIDATE = 1u << 10u;
+const uint32_t CLEAN_TEMPORAL_DIAG_CAMERA_REPROJECTED = 1u << 11u;
+const uint32_t CLEAN_TEMPORAL_DIAG_SDK_CALLED = 1u << 12u;
+const uint32_t CLEAN_TEMPORAL_DIAG_PREVIOUS_TARGET_AT_CURRENT = 1u << 13u;
+const uint32_t CLEAN_TEMPORAL_DIAG_SDK_SELECTED_PREVIOUS_SAMPLE = 1u << 14u;
+const uint32_t CLEAN_TEMPORAL_DIAG_TEMPORAL_OUTPUT_CHANGED = 1u << 15u;
+const uint32_t CLEAN_TEMPORAL_DIAG_TEMPORAL_SAMPLE_PIXEL_VALID = 1u << 16u;
+const uint32_t CLEAN_TEMPORAL_DIAG_PREVIOUS_PIXEL_IN_BOUNDS = 1u << 17u;
 int g_smokeLastReadbackTimingLogMs = -1000000;
 int g_view68LastInactiveLogFrame = -1000000;
 int g_view68LastWaitingLogFrame = -1000000;
@@ -80,6 +98,20 @@ struct RestirPTView69TupleCount
     RestirPTView69TupleKey key;
     int count = 0;
 };
+
+static uint32_t DecodeCleanTemporalAuditFlags(const float* rgba)
+{
+    const int decoded = static_cast<int>(rgba[0] * static_cast<float>(CLEAN_TEMPORAL_AUDIT_FLAG_SCALE) + 0.5f);
+    return static_cast<uint32_t>(idMath::ClampInt(0, CLEAN_TEMPORAL_AUDIT_FLAG_SCALE, decoded));
+}
+
+static void AccumulateCleanTemporalAuditFlag(unsigned int& count, uint32_t flags, uint32_t flag)
+{
+    if ((flags & flag) != 0u)
+    {
+        ++count;
+    }
+}
 
 struct RestirPTView68ReferenceColor
 {
@@ -288,6 +320,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     const int view68DumpMode = r_pathTracingRestirPTView68Dump.GetInteger();
     const bool view68DumpRequested = debugMode == 56 && (restirPTDiDebugView == 68 || restirPTDiDebugView == 69) && view68DumpMode != 0;
     const bool view69TupleDumpRequested = view68DumpRequested && restirPTDiDebugView == 69;
+    const bool cleanTemporalAuditRequested = r_pathTracingCleanRtxdiDiTemporalAudit.GetInteger() != 0;
     if (view68DumpMode != 0)
     {
         common->Printf("PathTracePrimaryPass: PT mode56 view68 readback entry rawDebug=%d debugMode=%d rawDiView=%d diView=%d requested=%d queued=%d delay=%d cooldown=%d texture=%d\n",
@@ -307,7 +340,7 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
         common->Printf("PathTracePrimaryPass: PT mode56 view68/69 dump requested but inactive debugMode=%d diView=%d; use r_pathTracingDebugMode 56 and r_pathTracingRestirPTDiDebugView 68 or 69\n",
             debugMode, restirPTDiDebugView);
     }
-    if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested && !view68DumpRequested)
+    if (r_pathTracingReadbackEnable.GetInteger() == 0 && !overlapDumpRequested && !view68DumpRequested && !cleanTemporalAuditRequested)
     {
         m_frameResources.readbackQueued = false;
         m_frameResources.readbackDelayFrames = 0;
@@ -405,6 +438,10 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
     int view69SelectedLightChanged = 0;
     int view69PreviousAbsent = 0;
     int view69BothDirectionsValid = 0;
+    PathTraceCleanRtxdiDiGuiSnapshot cleanTemporalAudit;
+    double cleanTemporalAuditPreviousMSum = 0.0;
+    double cleanTemporalAuditOutputMSum = 0.0;
+    cleanTemporalAudit.temporalAuditValid = cleanTemporalAuditRequested;
     for (int y = 0; y < m_frameResources.height; ++y)
     {
         const float* row = reinterpret_cast<const float*>(readbackBytes + rowPitch * y);
@@ -418,6 +455,30 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             else if (rgba[0] > 0.5f)
             {
                 ++redMisses;
+            }
+
+            if (cleanTemporalAuditRequested)
+            {
+                const uint32_t auditFlags = DecodeCleanTemporalAuditFlags(rgba);
+                ++cleanTemporalAudit.temporalAuditPixels;
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditCurrentValid, auditFlags, CLEAN_TEMPORAL_DIAG_CURRENT_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditCurrentCandidate, auditFlags, CLEAN_TEMPORAL_DIAG_CURRENT_CANDIDATE);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditSurfaceValid, auditFlags, CLEAN_TEMPORAL_DIAG_CURRENT_SURFACE_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditMotionValid, auditFlags, CLEAN_TEMPORAL_DIAG_MOTION_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditCameraFallback, auditFlags, CLEAN_TEMPORAL_DIAG_CAMERA_REPROJECTED);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditPreviousPixelInBounds, auditFlags, CLEAN_TEMPORAL_DIAG_PREVIOUS_PIXEL_IN_BOUNDS);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditPreviousSurfaceValid, auditFlags, CLEAN_TEMPORAL_DIAG_PREVIOUS_SURFACE_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditPreviousReservoirValid, auditFlags, CLEAN_TEMPORAL_DIAG_PREVIOUS_RESERVOIR_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditPreviousLightMapped, auditFlags, CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditPreviousTargetAtCurrent, auditFlags, CLEAN_TEMPORAL_DIAG_PREVIOUS_TARGET_AT_CURRENT);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditSdkCalled, auditFlags, CLEAN_TEMPORAL_DIAG_SDK_CALLED);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditSdkTemporalSamplePixelValid, auditFlags, CLEAN_TEMPORAL_DIAG_TEMPORAL_SAMPLE_PIXEL_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditOutputReservoirValid, auditFlags, CLEAN_TEMPORAL_DIAG_TEMPORAL_RESERVOIR_VALID);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditSdkSelectedPrevious, auditFlags, CLEAN_TEMPORAL_DIAG_SDK_SELECTED_PREVIOUS_SAMPLE);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditSdkReusedPrevious, auditFlags, CLEAN_TEMPORAL_DIAG_SDK_REUSED_PREVIOUS);
+                AccumulateCleanTemporalAuditFlag(cleanTemporalAudit.temporalAuditOutputChanged, auditFlags, CLEAN_TEMPORAL_DIAG_TEMPORAL_OUTPUT_CHANGED);
+                cleanTemporalAuditPreviousMSum += static_cast<double>(idMath::ClampFloat(0.0f, 1.0f, rgba[1]) * 64.0f);
+                cleanTemporalAuditOutputMSum += static_cast<double>(idMath::ClampFloat(0.0f, 1.0f, rgba[2]) * 64.0f);
             }
 
             if (debugMode == 24)
@@ -490,6 +551,13 @@ void PathTracePrimaryPass::ReadBackRayTracingSmokeTest()
             centerRgba[0], centerRgba[1], centerRgba[2], centerRgba[3],
             greenHits, redMisses, static_cast<unsigned int>(rowPitch),
             readbackMs, waitForIdleMs);
+    }
+    if (cleanTemporalAuditRequested)
+    {
+        const double auditPixels = static_cast<double>(Max(1u, cleanTemporalAudit.temporalAuditPixels));
+        cleanTemporalAudit.temporalAuditAvgPreviousM = static_cast<float>(cleanTemporalAuditPreviousMSum / auditPixels);
+        cleanTemporalAudit.temporalAuditAvgOutputM = static_cast<float>(cleanTemporalAuditOutputMSum / auditPixels);
+        PathTraceCleanRtxdiDiPublishTemporalAudit(cleanTemporalAudit);
     }
     if (debugMode == 24 && (overlapDumpRequested || r_pathTracingSmokeLog.GetInteger() != 0))
     {

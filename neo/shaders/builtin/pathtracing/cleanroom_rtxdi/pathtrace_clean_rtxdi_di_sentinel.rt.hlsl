@@ -2526,6 +2526,187 @@ float3 PathTraceCleanRoomRluAnalyticDirectPreviousProbeColor()
     return PathTraceCleanRoomRluAnalyticPayloadFailureColor(CleanRtxdiDiRluPreviousLights[previousIndex]);
 }
 
+float3 PathTraceCleanRoomRluReplayNodeColor(
+    bool selectedPresent,
+    uint lightIndex,
+    bool previousFrame,
+    RAB_Surface surface,
+    float2 sampleUv)
+{
+    if (!selectedPresent)
+    {
+        return float3(0.95, 0.04, 0.10);
+    }
+
+    const uint lightCount = previousFrame ? CleanRtxdiDiRluPreviousLightCount : CleanRtxdiDiRluCurrentLightCount;
+    if (lightIndex >= lightCount)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+
+    PathTraceUnifiedLightRecord record = (PathTraceUnifiedLightRecord)0;
+    if (previousFrame)
+    {
+        record = CleanRtxdiDiRluPreviousLights[lightIndex];
+    }
+    else
+    {
+        record = CleanRtxdiDiRluCurrentLights[lightIndex];
+    }
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return float3(0.08, 0.22, 0.95);
+    }
+    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    const uint sourceCount = previousFrame ? CleanRtxdiDiDoomAnalyticFullPreviousCount : CleanRtxdiDiDoomAnalyticFullCurrentCount;
+    if (record.sourceIndex >= sourceCount)
+    {
+        return float3(1.0, 0.82, 0.0);
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, previousFrame);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return float3(1.0, 0.35, 0.0);
+    }
+
+    const RAB_LightSample sample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
+    if (!RAB_IsReplayableLightSample(sample))
+    {
+        return float3(0.0, 0.95, 1.0);
+    }
+
+    const float targetPdf = RAB_GetLightSampleTargetPdfForSurface(sample, surface);
+    if (targetPdf <= 1.0e-8 || !(targetPdf == targetPdf))
+    {
+        return float3(0.95, 0.95, 0.95);
+    }
+
+    return float3(PathTraceCleanRoomLog01(targetPdf, 6.0), 0.90, 0.18);
+}
+
+float3 PathTraceCleanRoomRluSelectedReplaySplitDiagnosticColor(
+    PathTraceCleanRtxdiDiInitialResult initial,
+    PathTraceCleanRtxdiDiTemporalResult temporal,
+    uint2 pixel,
+    uint2 dimensions)
+{
+    if (!PathTraceCleanRoomMixedRluDomainEnabled())
+    {
+        return PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED);
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(initial.surface);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.45, 0.0, 0.65);
+    }
+
+    const uint quarterWidth = max(dimensions.x >> 2u, 1u);
+    if (pixel.x < quarterWidth)
+    {
+        const bool selectedPresent = RTXDI_IsValidDIReservoir(initial.reservoir);
+        const uint currentIndex = selectedPresent ? RTXDI_GetDIReservoirLightIndex(initial.reservoir) : 0xffffffffu;
+        return PathTraceCleanRoomRluReplayNodeColor(
+            selectedPresent,
+            currentIndex,
+            false,
+            surface,
+            RTXDI_GetDIReservoirSampleUV(initial.reservoir));
+    }
+    if (pixel.x < quarterWidth * 2u)
+    {
+        const bool selectedPresent = RTXDI_IsValidDIReservoir(initial.reservoir);
+        const uint currentIndex = selectedPresent ? RTXDI_GetDIReservoirLightIndex(initial.reservoir) : 0xffffffffu;
+        const bool currentIndexValid = currentIndex < CleanRtxdiDiRluCurrentLightCount;
+        PathTraceUnifiedLightRecord currentRecord = (PathTraceUnifiedLightRecord)0;
+        if (currentIndexValid)
+        {
+            currentRecord = CleanRtxdiDiRluCurrentLights[currentIndex];
+        }
+        if (!selectedPresent || !currentIndexValid)
+        {
+            return float3(0.95, 0.04, 0.10);
+        }
+        if (currentRecord.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+        {
+            return currentRecord.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE
+                ? float3(0.08, 0.22, 0.95)
+                : float3(1.0, 0.0, 1.0);
+        }
+
+        const int previousIndexSigned = RAB_TranslateLightIndex(currentIndex, true);
+        if (previousIndexSigned < 0)
+        {
+            return float3(0.95, 0.04, 0.10);
+        }
+        return PathTraceCleanRoomRluReplayNodeColor(
+            true,
+            (uint)previousIndexSigned,
+            true,
+            surface,
+            RTXDI_GetDIReservoirSampleUV(initial.reservoir));
+    }
+
+    const bool previousPixelInBounds =
+        temporal.previousPixel.x >= 0 &&
+        temporal.previousPixel.y >= 0 &&
+        (uint)temporal.previousPixel.x < dimensions.x &&
+        (uint)temporal.previousPixel.y < dimensions.y;
+    RTXDI_DIReservoir previousReservoir = RTXDI_EmptyDIReservoir();
+    if (previousPixelInBounds)
+    {
+        previousReservoir = RTXDI_LoadDIReservoir(PathTraceCleanRoomReservoirParams(dimensions), (uint2)temporal.previousPixel, 0u);
+    }
+
+    if (pixel.x < quarterWidth * 3u)
+    {
+        const bool selectedPresent = previousPixelInBounds && RTXDI_IsValidDIReservoir(previousReservoir);
+        const uint previousIndex = selectedPresent ? RTXDI_GetDIReservoirLightIndex(previousReservoir) : 0xffffffffu;
+        return PathTraceCleanRoomRluReplayNodeColor(
+            selectedPresent,
+            previousIndex,
+            true,
+            surface,
+            RTXDI_GetDIReservoirSampleUV(previousReservoir));
+    }
+
+    const bool selectedPresent = previousPixelInBounds && RTXDI_IsValidDIReservoir(previousReservoir);
+    const uint previousIndex = selectedPresent ? RTXDI_GetDIReservoirLightIndex(previousReservoir) : 0xffffffffu;
+    const bool previousIndexValid = previousIndex < CleanRtxdiDiRluPreviousLightCount;
+    PathTraceUnifiedLightRecord previousRecord = (PathTraceUnifiedLightRecord)0;
+    if (previousIndexValid)
+    {
+        previousRecord = CleanRtxdiDiRluPreviousLights[previousIndex];
+    }
+    if (!selectedPresent || !previousIndexValid)
+    {
+        return float3(0.95, 0.04, 0.10);
+    }
+    if (previousRecord.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return previousRecord.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE
+            ? float3(0.08, 0.22, 0.95)
+            : float3(1.0, 0.0, 1.0);
+    }
+
+    const int currentIndexSigned = RAB_TranslateLightIndex(previousIndex, false);
+    if (currentIndexSigned < 0)
+    {
+        return float3(0.95, 0.04, 0.10);
+    }
+    return PathTraceCleanRoomRluReplayNodeColor(
+        true,
+        (uint)currentIndexSigned,
+        false,
+        surface,
+        RTXDI_GetDIReservoirSampleUV(previousReservoir));
+}
+
 float3 PathTraceCleanRoomRluAnalyticReplayDiagnosticColor(
     PathTraceCleanRtxdiDiInitialResult initial,
     PathTraceCleanRtxdiDiTemporalResult temporal,
@@ -2678,7 +2859,7 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
         return PathTraceCleanRoomStatusColor(initial.status);
     }
 
-    const uint bandCount = 9u;
+    const uint bandCount = 10u;
     const bool forcedBand = CleanRtxdiDiView8Band < bandCount;
     const uint band = forcedBand ? CleanRtxdiDiView8Band : min((pixel.y * bandCount) / max(dimensions.y, 1u), bandCount - 1u);
     if (band == 8u)
@@ -2736,6 +2917,10 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
         return pixel.x < (dimensions.x >> 1u)
             ? PathTraceCleanRoomTargetInvPdfColor(initial.targetPdf, RTXDI_GetDIReservoirInvPdf(initial.reservoir))
             : PathTraceCleanRoomTargetInvPdfColor(temporal.temporalTargetPdf, temporal.temporalInvPdf);
+    }
+    if (band == 9u)
+    {
+        return PathTraceCleanRoomRluSelectedReplaySplitDiagnosticColor(initial, temporal, pixel, dimensions);
     }
 
     if (pixel.x < (dimensions.x >> 1u))

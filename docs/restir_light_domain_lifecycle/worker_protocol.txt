@@ -1,0 +1,144 @@
+ReSTIR Light-Domain Lifecycle Worker Protocol
+=============================================
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact reference file-equivalent
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact CVars touched or added
+    exact whitelist inputs consumed
+    exact whitelist outputs written
+    active light domain
+    reset contract
+    remap contract
+    manager/unified route
+    forbidden files/functions
+    expected runtime proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Allowed Edits
+-------------
+
+Only when a task explicitly names them:
+
+    lifecycle reset code
+    Doom analytic universe identity/reset code
+    emissive remap ordering
+    light-domain diagnostic CVars
+    light-domain diagnostic dumps/views
+    manager/unified bridge range/count validation
+    documentation in this folder
+
+
+Forbidden Edits
+---------------
+
+Do not edit:
+
+    reservoir math
+    PDF + NEE math
+    temporal reuse code
+    spatial reuse code
+    best-light code
+    denoiser/confidence/gradient code
+    broad light filters as a fix
+    unrelated material/geometry systems
+    known-good synthetic temporal accumulator
+
+
+Repair Lock
+-----------
+
+Workers may not claim lifecycle success unless they prove:
+
+    map reset clears previous-map domains
+    final emissive remap matches final emissive list
+    analytic-only liveness survives area movement
+    emissive-only liveness survives area movement
+    analytics survive emissive presence with emissive sampling disabled
+
+Clearing every frame is not a valid fix. It can be used only as a temporary
+negative-path diagnostic when explicitly requested.
+
+
+Proof Report Format
+-------------------
+
+Every implementation report must include:
+
+    source route
+        CPU producer
+        manager/unified bridge
+        shader-visible count path
+
+    lifecycle table
+        map identity
+        reset reason
+        before/after previous counts
+        sceneInputs.valid before/after
+        retired package count before/after
+
+    domain table
+        raw emissive count
+        final emissive count
+        analytic count
+        unified count
+        manager active payload count
+        range offsets/counts
+
+    remap table
+        current-to-previous size
+        mapped count
+        invalid count
+        current-only count
+        previous-only count
+
+    negative paths
+        map changed
+        no previous domain
+        no lights
+        invalid remap
+        payload count mismatch
+
+    visual proof
+        exact CVars
+        expected output
+        observed output
+        why it is not fallback albedo/beauty
+
+
+Diagnostic Limits
+-----------------
+
+The following are diagnostic only:
+
+    status colors
+    identity colors
+    scalar heat maps
+    CPU dumps
+    non-crashing builds
+    resource allocation
+
+They cannot prove lifecycle repair without split-domain liveness and negative
+path evidence.
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    map identity cannot be stated
+    previous domain survives a map change without proof
+    remap is built for a different list than the uploaded current domain
+    analytic proof depends on emissive state
+    emissive proof depends on analytic state
+    broad light suppression is proposed as the fix
+    worker proposes changing PDF + NEE or temporal math

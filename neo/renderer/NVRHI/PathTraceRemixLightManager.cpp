@@ -77,6 +77,44 @@ RemixUnifiedIdentityKey MakeRemixUnifiedIdentityKey(const PathTraceUnifiedLightR
     return key;
 }
 
+void SortUnifiedLightPayloadRangeByStableIdentity(
+    std::vector<PathTraceUnifiedLightRecord>& records,
+    uint32_t rangeBegin,
+    uint32_t rangeCount)
+{
+    if (rangeCount <= 1u || rangeBegin >= records.size())
+    {
+        return;
+    }
+
+    const size_t begin = static_cast<size_t>(rangeBegin);
+    const size_t end = std::min(records.size(), begin + static_cast<size_t>(rangeCount));
+    std::stable_sort(
+        records.begin() + begin,
+        records.begin() + end,
+        [](const PathTraceUnifiedLightRecord& a, const PathTraceUnifiedLightRecord& b) {
+            const RemixUnifiedIdentityKey keyA = MakeRemixUnifiedIdentityKey(a);
+            const RemixUnifiedIdentityKey keyB = MakeRemixUnifiedIdentityKey(b);
+            if (!(keyA == keyB))
+            {
+                return keyA < keyB;
+            }
+            if (a.sourceIndex != b.sourceIndex)
+            {
+                return a.sourceIndex < b.sourceIndex;
+            }
+            if (a.instanceId != b.instanceId)
+            {
+                return a.instanceId < b.instanceId;
+            }
+            if (a.primitiveIndex != b.primitiveIndex)
+            {
+                return a.primitiveIndex < b.primitiveIndex;
+            }
+            return a.flags < b.flags;
+        });
+}
+
 uint32_t BuildUniqueUnifiedIdentityIndex(
     const std::vector<PathTraceUnifiedLightRecord>& records,
     std::map<RemixUnifiedIdentityKey, int>& identityToIndex)
@@ -334,6 +372,13 @@ void PathTraceRemixLightManager::PrepareSceneData(
             analyticStateCompatibilityTolerance);
 
     m_currentLightPayloads.swap(build.currentLights);
+    if (lightUniverseEnabled)
+    {
+        const uint32_t currentEmissiveCount = static_cast<uint32_t>(currentEmissiveTriangles.size());
+        const uint32_t currentAnalyticCount = static_cast<uint32_t>(currentAnalyticLights.size());
+        SortUnifiedLightPayloadRangeByStableIdentity(m_currentLightPayloads, 0u, currentEmissiveCount);
+        SortUnifiedLightPayloadRangeByStableIdentity(m_currentLightPayloads, currentEmissiveCount, currentAnalyticCount);
+    }
     if (lightUniverseEnabled)
     {
         m_previousLightPayloads.swap(lightUniversePreviousPayloads);

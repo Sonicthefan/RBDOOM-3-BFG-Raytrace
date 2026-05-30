@@ -1,0 +1,387 @@
+RRX-PURGE: Cull Legacy Light/Reservoir Mixing And Make RRX Default
+==================================================================
+
+Purpose
+-------
+
+The current failure mode is no longer a narrow bug inside the old rbdoom
+ReSTIR path. The old pre-Remix light manager, old unified/split light fallbacks,
+old smoke reservoir reset semantics, and temporary mode-56 accumulation can
+all contaminate results from the new Remix-shaped light manager and RRX DI
+reservoir path.
+
+This task retires those mixed-path dependencies for the active RRX lane. Legacy
+paths may remain as explicitly named comparison/debug paths, but they must not
+feed, validate, accumulate, reset, or normalize the new light-manager or RRX
+reservoir systems.
+
+
+References
+----------
+
+RTX Remix:
+
+    E:/prog/references/dxvk-remix-git
+
+RTXDI:
+
+    E:/prog/references/RTXDI-main
+
+rbdoom:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Required local docs:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/remix_file_graph.txt
+    docs/restir_remix_rebuild/implementation_slices.txt
+    docs/restir_remix_rebuild/obscure_issue_log.txt
+
+
+Hard Boundary
+-------------
+
+For the active RRX DI path:
+
+    PathTraceRemixLightManager is the only light-manager source.
+    PathTraceRemixRtxdiResources is the only RRX reservoir resource owner.
+    RAB light load/translate/sample must use the Remix-manager domains.
+    Failed light translation rejects only the selected sample/candidate path.
+    Dynamic light payload changes must not broad-clear the reservoir domain.
+    Old mode-56 accumulation must not make RRX output appear stable.
+
+Forbidden for active RRX:
+
+    m_restirLightManager as fallback light source
+    old split light buffers as fallback light source
+    old unified light buffers as fallback light source, except as a named
+        legacy debug path outside active RRX
+    smokeReservoirDispatchSignature as RRX validity
+    smokeReservoirSceneSignature as RRX light-payload reset gate
+    m_smokeDoomAnalyticLightCount as RRX temporal validity
+    old mode-18/mode-56 accumulation as RRX reservoir proof
+    old spatial/combined smoke reservoir output as RRX final-consumer fallback
+
+
+Default-State Goal
+------------------
+
+The experimental branch should boot into the Remix-shaped/RRX route by default.
+The user should not need to remember a hidden stack of opt-in CVars before
+testing analytic-light accumulation.
+
+Change default behavior for the active RRX lane:
+
+    r_pathTracingRemixLightManagerRAB
+        desired default: 1
+        meaning: shader-visible RAB light records and maps come from
+        PathTraceRemixLightManager.
+
+    r_pathTracingRemixRtxdiResourcesEnable
+        desired default: 1
+        meaning: persistent RRX DI reservoir resources are allocated for the
+        normal active RRX route.
+
+    r_pathTracingRestirPTUnifiedLightLoad
+        desired default for active RRX: not required as an opt-in gate.
+        Either remove it from the active RRX decision or default it to 1 while
+        preserving an explicitly named legacy comparison path.
+
+    r_pathTracingRestirPTUnifiedLightSample
+        desired default for active RRX: not required as an opt-in gate.
+        Either remove it from the active RRX decision or default it to 1 while
+        preserving an explicitly named legacy comparison path.
+
+    r_pathTracingRestirPTRrxTemporalPermutation
+        desired default: 1 if the active temporal path uses the RTXDI temporal
+        descriptor. RTXDI/Remix expose permutation sampling as normal temporal
+        reuse behavior, not as an emergency debugging invention.
+
+    r_pathTracingRestirPTRrxDisablePreviousBest
+        desired default: 0. Previous-best injection must remain enabled unless
+        explicitly debugging the candidate path.
+
+    r_pathTracingRestirPTRrxDebugFlatContribution
+        desired default: 0. This is only a probe.
+
+    r_pathTracingRestirPTMode56Accumulation
+        desired default: 0, and active RRX output must bypass it even when a
+        user enables it for old debug views.
+
+    r_pathTracingRestirPTRrxFinalConsumerOutput
+        desired behavior: mode 56 view 0 should consume the RRX final-consumer
+        path by default once the purge is complete. If the CVar remains, it
+        must be a legacy/compare override, not a required activation step.
+
+
+RRX-PURGE-01: Active Source Defaults
+------------------------------------
+
+Goal:
+
+    Make the Remix-shaped light manager and RRX resource owner the default
+    active route.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h only if comments/externs change
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp only if active-source dump
+        wording must change
+
+Steps:
+
+    1. Change defaults so the active RRX route uses:
+
+           PathTraceRemixLightManager
+           PathTraceRemixRtxdiResources
+
+       without requiring manual opt-in CVars.
+
+    2. Update CVar descriptions. Do not describe these as opt-in once they are
+       default active. If legacy comparison remains, name it as comparison or
+       fallback explicitly.
+
+    3. Ensure dumps report activeLightSource=remix-light-manager by default.
+
+    4. Preserve a way to inspect the old path only if it is isolated and named
+       as legacy/debug. Do not let old-path fallback happen silently.
+
+Forbidden:
+
+    no reservoir math changes
+    no visual quality tuning
+    no dynamic-light suppression
+    no shader debug view redesign
+
+Validation:
+
+    Runtime dump without manually setting the old activation stack must show:
+
+        activeLightSource=remix-light-manager
+        payload-bound RRX/light-manager buffers
+        no old smoke reservoir signature consulted for RRX
+
+
+RRX-PURGE-02: Remove Old Light Fallbacks From Active RRX
+-------------------------------------------------------
+
+Goal:
+
+    Make RAB_LoadLightInfo, RAB_TranslateLightIndex, and RAB sampling for active
+    RRX fail locally if the Remix-manager route is unavailable. Do not fall back
+    to old split/unified/smoke light domains inside active RRX.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSample.hlsli only if
+        required by the local call graph
+    existing debug views only as needed to report inactive RRX source
+
+Steps:
+
+    1. Identify the active RRX call sites that load/translate/sample lights.
+
+    2. Route those call sites through the Remix-manager domains only.
+
+    3. If the Remix-manager domains are missing, return invalid/empty data and
+       report inactive RRX source. Do not silently use old unified or split
+       lights.
+
+    4. Preserve old RAB helpers only for explicitly legacy debug paths.
+
+Forbidden:
+
+    no new light selection policy
+    no new target PDF formula
+    no fallback to old m_restirLightManager in active RRX
+
+Validation:
+
+    Add or preserve a debug/dump state that distinguishes:
+
+        remix-manager active
+        remix-manager missing
+        legacy comparison path active
+        selected-light translation failed
+
+
+RRX-PURGE-03: Remove Old Accumulation From RRX Proofs
+-----------------------------------------------------
+
+Goal:
+
+    Ensure RRX debug/final-consumer output cannot be stabilized by the old
+    mode-56 SmokeAccumulation path.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    CVar docs/help text only if needed
+
+Steps:
+
+    1. Audit every call to RestirPTAccumulateMode56Output.
+
+    2. RRX final-consumer output, RRX reservoir diagnostics, RRX translation
+       diagnostics, and active RRX mode-56 view 0 must bypass old accumulation.
+
+    3. Keep old accumulation only for explicitly legacy debug views that are
+       not used to prove RRX temporal behavior.
+
+    4. If a debug view needs accumulation as a separate probe, name it clearly
+       as old accumulator testing and keep it outside RRX acceptance criteria.
+
+Forbidden:
+
+    no using old accumulation to judge RRX reservoir stability
+    no changing RTXDI temporal reuse to compensate for noisy output
+
+Validation:
+
+    With r_pathTracingRestirPTMode56Accumulation toggled on/off, RRX views used
+    for reservoir proof must not change stability because of the old
+    accumulation buffer.
+
+
+RRX-PURGE-04: Remove Old Broad-Reset Inputs From RRX Reservoir Domain
+---------------------------------------------------------------------
+
+Goal:
+
+    RRX reservoir clears must be owned by resource/output incompatibility or
+    explicit RRX reset conditions, not by old smoke light count, payload churn,
+    or scene signatures.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResourceGate.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    files owning PathTraceRemixRtxdiResources clear/reallocation policy
+
+Steps:
+
+    1. Find every clear/reallocate/reset decision that can affect RRX DI/GI
+       reservoirs.
+
+    2. Classify each input as:
+
+           output/resource incompatibility
+           explicit user/history reset
+           old smoke light/signature dependency
+           payload-only light change
+           mapping/structural light change
+
+    3. Remove old smoke light/signature dependencies from the RRX resource
+       clear gate.
+
+    4. Payload-only light changes must update current/previous payload data and
+       maps; they must not clear all RRX reservoirs.
+
+    5. Failed mapping must be handled in shader-side selected-light rejection,
+       not CPU-side global clear.
+
+Forbidden:
+
+    no treating dynamic light animation as a full reservoir reset
+    no hiding the issue by suppressing dynamic analytic lights
+
+Validation:
+
+    Diagnostics must separately report:
+
+        RRX resource clear reason
+        payloadSignatureChanged
+        mappingSignatureChanged
+        structuralSignatureChanged
+        oldSmokeReservoirSignatureConsulted=0 for active RRX
+
+
+RRX-PURGE-05: Make Mode 56 View 0 RRX-Only Or Retire It
+-------------------------------------------------------
+
+Goal:
+
+    Stop using legacy mixed mode-56 view 0 as the primary truth test. Either
+    make it an RRX-only final consumer or move the RRX output to a clearly
+    named new debug view.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_preview_resolve.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    CVar/help text only as required
+    docs/pathtracing.txt
+
+Steps:
+
+    1. Identify all inputs used by mode 56 view 0.
+
+    2. Remove old spatial/combined smoke direct-lighting fallback from the RRX
+       default output.
+
+    3. If RRX data is unavailable, display an obvious inactive/error state
+       instead of falling back to the old output.
+
+    4. Keep old mode 56 view 0 only as a named legacy comparison if needed.
+
+    5. Update docs/pathtracing.txt so users know the default RRX test path and
+       which views are legacy-only.
+
+Forbidden:
+
+    no fallback that makes old DI look like successful RRX DI
+    no legacy accumulation in the RRX final-consumer output
+
+Validation:
+
+    In a clean run, without manual activation CVars, mode 56 view 0 or the new
+    named RRX view must report that it is consuming:
+
+        Remix-manager light records
+        RRX DI reservoir resources
+        RRX final-consumer path
+
+
+Stop Conditions
+---------------
+
+Stop and report instead of editing further if:
+
+    a required active RRX consumer cannot be identified
+    an old smoke fallback is still required to avoid a compile error
+    the worker cannot separate legacy comparison from active RRX
+    changing a default would make non-ReSTIR modes fail to initialize
+    RTXDI/Remix reference behavior is unclear
+
+
+Build And Deploy
+----------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders after shader changes:
+
+    copy the contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.

@@ -1,0 +1,226 @@
+Worker Tasks
+============
+
+Use these tasks in order. Do not skip ahead.
+
+
+RTM-00: Active Path Audit
+-------------------------
+
+Type:
+
+    read-only audit
+
+Goal:
+
+    Produce an exact active producer-to-consumer graph for rbdoom mode 56 /
+    DI view 72, 73, and 74.
+
+Reference files:
+
+    dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+rbdoom files to inspect:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_ReservoirBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
+
+Required output:
+
+    current page role table
+    view 72 producer-to-consumer chain
+    view 73 producer-to-consumer chain
+    view 74 producer-to-consumer chain
+    exact use of r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest
+    exact point where mode 72 diverges from 73/74
+    parity gaps against contract_matrix.txt
+
+Forbidden:
+
+    no edits
+    no build
+    no new task proposals until audit is complete
+
+
+RTM-01: Restore Temporal-Only Baseline
+--------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Ensure active temporal testing is not contaminated by spatial or fallback
+    output routing.
+
+Requirements:
+
+    mode 72 consumes temporal, not spatial
+    73 and 74 remain temporal diagnostics
+    view 77 may remain spatial proof only
+    no page-role rewrites
+    no previous-temporal-as-best promotion
+
+Success:
+
+    73/74 still work in fallback mode
+    72 no longer reports/uses spatial source
+    build/deploy succeeds
+
+
+RTM-02: Initial Reservoir Contract Audit and Fix
+------------------------------------------------
+
+Type:
+
+    audit first, then implementation only if the audit identifies exact fixes
+
+Goal:
+
+    Make the current initial DI reservoir conform to RTXDI initial-sampling
+    expectations enough to feed temporal reuse without fake previous-best.
+
+Reference files:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+
+Questions to answer before editing:
+
+    Is M equal to the RTXDI-expected current sample count/history basis?
+    Is weightSum finalized with the same normalization contract?
+    Are zero-target candidates counted or skipped in a way that changes RIS?
+    Are overlapping light ranges sampled with the same source PDF contract?
+    Is previous-best disabled in the real path?
+
+Success:
+
+    mode 72 has a valid current reservoir in overlapping-light scenes with
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 0
+
+
+RTM-03: RTXDI Temporal Reuse Contract Fix
+-----------------------------------------
+
+Type:
+
+    narrow implementation
+
+Goal:
+
+    Make rbdoom's active temporal pass match RTXDI DI temporal reuse semantics.
+
+Reference files:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+Requirements:
+
+    no previous-temporal-as-best dependency
+    current reservoir is combined with previous reservoir through RTXDI temporal
+    previous reservoir light index is translated previous->current
+    previous selected light targetPdf is recomputed on current surface
+    failed previous translation kills only previous sample
+    M/history is preserved according to RTXDI
+    mode 72 can accumulate with best-light/fallback disabled
+
+Forbidden:
+
+    do not activate spatial
+    do not clamp all lights as the fix
+    do not change RTXDI finalization math
+
+
+RTM-04: Mode 72 Final Replay Stair-Step
+---------------------------------------
+
+Type:
+
+    diagnostic implementation
+
+Goal:
+
+    Find the exact stage where mode 72 diverges from 73/74.
+
+Procedure:
+
+    Add or reuse subviews that show, in order:
+
+        selected-light identity matching 74
+        reservoir targetPdf/weightSum/M
+        light sample reconstruction without visibility
+        BRDF/normal contribution without visibility
+        solid-angle and selection-PDF weighted contribution without visibility
+        final contribution with visibility
+
+Success:
+
+    The first failing stair is identified with a visible/debug output.
+
+
+RTM-05: Temporary Light-Range Clamp Diagnostic
+----------------------------------------------
+
+Type:
+
+    diagnostic only
+
+Goal:
+
+    Determine whether candidate starvation or overlapping light count is the
+    blocker without pretending the clamp is a final design.
+
+Allowed implementation:
+
+    Add a CVar that restricts active RRX DI sampling to a small deterministic
+    local/portal/light-type subset.
+
+Rules:
+
+    CVar must default off
+    must be named diagnostic
+    must print/dump that it is active
+    must not be used to claim final compliance
+
+Success:
+
+    mode 72 accumulation improves or does not improve with the clamp
+    result is recorded as evidence for or against candidate starvation
+
+
+RTM-06: Real Best-Light Feedback, Optional Later
+------------------------------------------------
+
+Type:
+
+    deferred implementation
+
+Goal:
+
+    Build a real Remix-shaped RtxdiBestLights equivalent only after temporal
+    works without it.
+
+Reference files:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Rules:
+
+    dedicated resource
+    dedicated producer
+    translated previous light index
+    optional consumer
+    temporal must still work when disabled
+

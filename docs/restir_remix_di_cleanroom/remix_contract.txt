@@ -71,6 +71,10 @@ The first rbdoom implementation must reproduce only this Remix mode:
 This must work with flat/textured primary surfaces and Doom analytic lights
 first. Emissive lights are added only after analytic temporal proof is visible.
 
+Functional temporal proof is raw flat-diffuse lighting. Status colors and
+reservoir field displays are useful diagnostics, but they are not compliance
+evidence for accumulation.
+
 
 Pass Contract
 -------------
@@ -90,6 +94,16 @@ It may call shared rbdoom low-level helpers for surface/light sampling,
 targetPdf evaluation, BRDF/target-function evaluation, and visibility, provided
 those helpers are used only as adapters and do not route through old NEE stage
 state.
+
+Initial visibility note:
+
+    RTX Remix's "Initial Visibility" option is important when temporal reuse is
+    enabled because it can prevent invisible selected samples from poisoning
+    temporal reuse. In rbdoom clean view 12, merely wiring
+    r_pathTracingCleanRtxdiDiInitialVisibility into RTXDI initial sampling did
+    not produce a visible improvement. Do not treat initial visibility alone as
+    the missing fix; the temporal surface/reprojection/visibility contract must
+    match Remix/RRX closely enough for the option to matter.
 
     input:
         current primary surface
@@ -129,6 +143,10 @@ Stage 2: DI Temporal
         current reservoir remains valid if current sampling was valid
         history/M follows RTXDI semantics
         targetPdf is evaluated for the current surface
+        temporal surface loading, previous-surface lookup, motion vectors, and
+            selected-sample visibility/discard behavior are audited against
+            RTX Remix and the local RRX/Remix-shaped temporal path before any
+            tuning or threshold changes
 
     forbidden:
         no spatial fallback
@@ -137,6 +155,8 @@ Stage 2: DI Temporal
         no history brightness ramp
         no fake previous surface writes
         no synthetic previous reservoir as active proof
+        no threshold tuning or visibility toggle presented as a fix when the
+            temporal surface contract still differs from Remix/RRX
 
 
 Stage 3: Reservoir-Only Debug Resolve
@@ -164,6 +184,40 @@ Stage 3: Reservoir-Only Debug Resolve
         no direct-light beauty shading
         no tone-mapped scene lighting
         no using mode-56 accumulation as proof
+
+
+Stage 4: Raw Flat-Diffuse Validation Resolve
+
+This is the human-facing proof view once the path can sample lights. It is not
+beauty integration.
+
+    input:
+        current or temporal DI reservoir page
+        current primary surface position and normal
+        current light universe for replaying the selected DI sample
+        visibility ray API only when validating visible direct lighting
+
+    output:
+        raw flat-diffuse direct-light estimate
+
+    required output ownership:
+        one sampled light candidate per pixel for the temporal-off baseline
+        constant diffuse reflectance, independent of material albedo/textures
+        physically based light replay from the selected DI sample
+        same resolve path for temporal off and temporal on
+        temporal off is noisy/current-only
+        temporal on reduces noise over frames around the same mean lighting
+        camera motion shows temporal tracking/reprojection behavior
+        failed projection/disocclusion becomes current-only noise
+
+    forbidden:
+        no albedo modulation
+        no path-traced beauty underneath
+        no fallback lighting
+        no denoiser/spatial/best-light input
+        no history brightness ramp
+        no luminance averaging filter presented as accumulation
+        no false-color dashboard as accumulation proof
 
 
 rbdoom Adapter Boundary
@@ -203,3 +257,5 @@ After analytic temporal proof:
     add emissive triangles as a second adapter task
     do not change temporal math when adding emissives
     do not use emissive overlap failure to alter analytic proof math
+    emissive proof must use the same raw flat-diffuse noisy-to-less-noisy
+        validation rule before any beauty integration claims

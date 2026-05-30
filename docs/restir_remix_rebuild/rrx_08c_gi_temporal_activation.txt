@@ -1,0 +1,307 @@
+RRX-08C GI Temporal Activation Plan
+===================================
+
+Purpose
+-------
+
+RRX-08 created inactive shader contracts for the RTX Remix ReSTIR GI temporal
+file-equivalent. RRX-08C is the missing activation slice plan: it defines the
+producer, binding, and validation work required before that inactive contract
+can become a real temporal GI pass.
+
+This is a plan only. Do not implement shaders or C++ from this document unless
+the user explicitly commissions the implementation slice.
+
+
+Authoritative File-Equivalents
+------------------------------
+
+Primary Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Related producer/reference files:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_reuse_bindings.slangh
+    src/dxvk/shaders/rtx/pass/integrate/integrate_nee.comp.slang
+    src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
+    src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+RTXDI helper-math contract:
+
+    Libraries/Rtxdi/Include/Rtxdi/GI/Reservoir.hlsli
+    Libraries/Rtxdi/Include/Rtxdi/GI/TemporalResampling.hlsli
+
+
+Exact Remix Responsibilities
+----------------------------
+
+The Remix temporal GI pass owns this sequence:
+
+    1. Load the current RAB surface.
+    2. Load ReSTIR GI radiance and hit-distance input.
+    3. Load GI hit geometry input.
+    4. Build the GI initial reservoir for the current pixel.
+    5. Store the completed GI init page.
+    6. Reproject the current surface into the previous frame.
+    7. Build GI temporal parameters.
+    8. Run RTXDI GI temporal resampling.
+    9. Optionally update ray-traced temporal visibility.
+    10. Optionally reject stale samples using RTXDI gradients.
+    11. Store the GI temporal output page.
+
+The future rbdoom implementation must preserve this dataflow shape. It must not
+replace the producer with the old rbdoom smoke GI reservoir path.
+
+
+Future Implementation Worker Owned Files
+----------------------------------------
+
+The first activation implementation worker should own only these files unless
+it stops and asks for a narrower prerequisite slice:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GIInitialSampleBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GITemporalValidationBridge.hlsli
+    neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+
+Likely required binding/dispatch files for a later activation worker:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.cpp
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.h
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp only for explicit binding
+        handoff, if no narrower Remix resource handoff exists yet
+
+Do not edit these C++ files in the first producer slice unless the user
+explicitly commissions binding/dispatch after reviewing this plan.
+
+
+Required Inputs
+---------------
+
+Current and previous RAB surfaces:
+
+    current RAB_Surface for the pixel
+    previous RAB_Surface from motion/reprojection lookup
+    current/previous material similarity support
+    current/previous linear depth
+    current/previous world position and normal
+
+RestirGIRadiance equivalent:
+
+    radiance RGB for the selected integration surface
+    indirect path length / hit distance in alpha
+    sign or explicit flag for non-opaque GI hit
+    clear/invalid value for pixels without selected integration surface
+
+RestirGIHitGeometry equivalent:
+
+    GI hit position
+    GI hit normal
+    portal index for the indirect hit
+    explicit invalid portal sentinel
+
+Prepared RTXDI_GIReservoir initial sample:
+
+    position
+    normal
+    radiance
+    weightSum
+    M
+    age
+    any rbdoom-owned misc flag use must be documented before storage
+
+GI reservoir pages and addressing params:
+
+    GI init-sample page
+    GI temporal input page
+    GI temporal output page
+    RTXDI_ReservoirBufferParameters matching RRX-03 allocation
+    active checkerboard field
+    output resolution
+
+Screen-space motion vector:
+
+    current pixel to previous pixel motion
+    depth component for expected previous linear depth
+    validity/invalid-pixel policy
+
+Temporal parameters:
+
+    depth threshold
+    normal threshold
+    max history length
+    fallback sampling toggle
+    bias correction mode
+    max reservoir age
+    permutation sampling toggle
+    uniform random number
+
+Deferred validation inputs:
+
+    RTXDI gradient payloads from RRX-07
+    gradient validation threshold
+    gradient hit-distance tolerance
+    ray-traced visibility request
+    active portal count
+
+
+Required Outputs
+----------------
+
+GI init page:
+
+    completed RTXDI_GIReservoir written through RAB_StoreGIReservoir
+    invalid/empty reservoir for invalid current surfaces or invalid producer
+        inputs
+
+GI temporal output page:
+
+    result of RTXDI_GITemporalResampling when temporal reuse is enabled and the
+        initial reservoir is valid
+    initial reservoir when temporal reuse is disabled
+    invalid/empty reservoir when current surface or producer inputs are invalid
+
+Diagnostics/debug flags:
+
+    producer input valid/invalid
+    prepared reservoir valid/invalid
+    target-PDF bridge available/unavailable
+    temporal pass dispatched/skipped
+    stale-sample validation deferred/applied
+    ray-traced temporal visibility deferred/applied
+    old smoke GI path consulted count, expected zero
+    shader route count and binding handoff count
+
+
+First Allowed Implementation Slice
+----------------------------------
+
+Recommended first implementation slice:
+
+    RRX-08C.1: GI Initial Producer Binding And Prepared Reservoir
+
+Goal:
+
+    Create and bind the real prepared GI initial reservoir producer for
+    RAB_GIInitialSampleBridge.hlsli using RTXDI helper shape only. Keep the
+    temporal shader inactive unless the producer can be proven exact.
+
+Allowed work:
+
+    1. Identify the exact rbdoom producer for the RestirGIRadiance equivalent.
+       It must carry radiance, indirect path length, selected-surface validity,
+       and non-opaque-hit state equivalent to Remix.
+
+    2. Identify the exact rbdoom producer for the RestirGIHitGeometry
+       equivalent. It must carry hit position, hit normal, and portal index or
+       an explicit invalid portal sentinel.
+
+    3. Bind those producer outputs to RemixRAB_LoadRawGIInitialSample.
+
+    4. Implement RemixRAB_LoadPreparedGIInitialReservoir only if the future
+       worker can reproduce the Remix initial-reservoir construction using
+       RTXDI helper primitives and exact reference-equivalent inputs.
+
+    5. Implement the GI target-PDF bridge only if the required material,
+       normal, view, roughness clamp, demodulated target-function, and
+       subsurface-side conditions are available in RAB_Surface with exact
+       reference-equivalent semantics.
+
+    6. Store only the GI init page for inspection before enabling temporal
+       reuse dispatch.
+
+Forbidden in the first slice:
+
+    no RRX-09 spatial reuse
+    no final GI shading
+    no DLSS RR validation
+    no portal transform approximation
+    no virtual sample approximation
+    no reflection reprojection
+    no RTXDI-gradient stale-sample validation
+    no ray-traced temporal visibility
+
+
+Math Boundaries
+---------------
+
+Use RTXDI helpers for:
+
+    RTXDI_GIReservoir storage/packing/unpacking
+    RTXDI_GITemporalResampling
+    RTXDI_CombineGIReservoirs only when the exact input weights and target PDFs
+        are known
+    RTXDI_FinalizeGIResampling only with the exact reference-equivalent
+        normalization terms
+
+Do not invent:
+
+    radiance factoring
+    MIS terms
+    target PDF policy
+    Jacobian acceptance policy
+    firefly filtering policy
+    virtual sample movement
+    portal hit transform
+    temporal search radius
+    reflection reprojection
+    stale-sample gradient rejection
+    visibility policy
+
+
+Explicit Stop Conditions
+------------------------
+
+Stop before editing implementation code if:
+
+    the exact Remix producer input cannot be identified in rbdoom
+    only the old rbdoom smoke GI reservoir path is available
+    the implementation would need to approximate Remix radiance factoring
+    the implementation would need to approximate MIS, target PDF, Jacobian, or
+        finalization math
+    RAB_Surface lacks exact material or geometry fields required by the target
+        PDF bridge
+    current/previous surface reprojection cannot provide valid previous
+        material/depth/normal data
+    the worker cannot keep GI temporal output isolated from normal mode-56,
+        DLSS RR, spatial GI, and final GI shading
+
+
+Deferred Features
+-----------------
+
+These must remain explicit deferred features until separately commissioned:
+
+    portal GI transforms
+    virtual sample construction
+    reflection reprojection
+    DLSS RR temporal randomization
+    RTXDI-gradient stale-sample validation
+    ray-traced temporal visibility
+    ReSTIR GI spatial reuse
+    ReSTIR GI final shading
+
+
+Validation For The First Implementation Slice
+---------------------------------------------
+
+Build validation:
+
+    cmake --build --preset win64-pt-dev-release
+
+Runtime validation before enabling temporal dispatch:
+
+    r_pathTracingRemixRtxdiResourcesEnable 1
+    r_pathTracingRemixRtxdiResourcesDump 1
+    r_pathTracingRemixLightManagerDump 1
+
+Expected until dispatch is explicitly commissioned:
+
+    shaderRoutes=0
+    bindingHandoffs=0 unless the binding slice is explicitly commissioned
+    oldSmokeReservoirSignatureConsulted=0
+    smokeDoomAnalyticLightCountConsulted=0
+
+Do not claim runtime GI temporal validation while the shader remains inactive.

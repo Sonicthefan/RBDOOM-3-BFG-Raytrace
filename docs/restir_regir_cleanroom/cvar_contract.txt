@@ -9,6 +9,19 @@ Reserve a narrow CVar surface for the standalone ReGIR debug lane.
 These CVars must not enable PDFNEE consume, temporal accumulation, spatial
 reuse, best-light sampling, or mode 56 behavior.
 
+Default-functionality rule:
+
+    r_pathTracingReGIREnable 1 must be enough to build the module's normal
+    candidate cache with production-intended defaults. DebugView, dump,
+    manual-center, forced-domain, and visualization CVars are debug tools only.
+    They must not be required before cells populate or selected lights replay
+    through the active RAB light universe.
+
+    If useful behavior requires a recipe of five or more CVars, or only exists
+    in one debug view, the module design is rejected. The default path must be
+    the intended cache behavior; diagnostics may inspect or override it, but
+    must not create it.
+
 
 Naming
 ------
@@ -40,8 +53,13 @@ r_pathTracingReGIRDebugView
     6 = selected emissive light identity
     7 = sourcePdf / invSourcePdf scalar
     8 = fallback / empty-cell reason
+    9 = deterministic selected-slot stability
+    10 = cell-local mean contribution across valid slots
 
     Default: 0
+
+    This CVar selects diagnostics only. It must not be needed for ReGIR to
+    build/update its normal candidate cache when r_pathTracingReGIREnable is 1.
 
 
 r_pathTracingReGIRMode
@@ -58,6 +76,8 @@ r_pathTracingReGIRCellSize
     Smallest cell size in Doom world units.
 
     Default: implementation must choose and document a conservative value.
+    The effective value used by any consumer path must be dumped. A consumer
+    must not silently clamp or replace this value.
 
 
 r_pathTracingReGIRGridX
@@ -75,6 +95,8 @@ r_pathTracingReGIRLightsPerCell
 
     Default: 64 for first debug implementation unless performance requires a
     lower manager-approved value.
+    The effective value used by any consumer path must be dumped. A consumer
+    must not silently force a smaller value.
 
 
 r_pathTracingReGIRBuildSamples
@@ -97,10 +119,16 @@ r_pathTracingReGIRLightDomain
 r_pathTracingReGIRCenterMode
 
     0 = camera-centered
-    1 = map/static bounds centered
+    1 = map/static bounds constrained center
     2 = manager-provided manual center
 
-    Default: 0
+    Default: 1 for validation. Camera-centered mode is a separate diagnostic
+    and is not accepted until static/manual-center stability passes.
+
+    If the static map bounds are larger than the finite ReGIR grid on an axis,
+    the implementation may clamp the effective center toward the current view
+    position on that axis while keeping it inside the map bounds. The dump must
+    report this policy and the effective center.
 
 
 r_pathTracingReGIRManualCenterX
@@ -140,6 +168,8 @@ Forbidden CVar Behavior
 
 ReGIR CVars must not:
 
+    require a multi-CVar recipe for default cache functionality
+    make debug views the only path where lights populate
     route through debugMode 56
     enable PDFNEE consume
     enable clean RTXDI temporal consume
@@ -148,3 +178,6 @@ ReGIR CVars must not:
     enable best-light feedback
     suppress broad lights
     switch to fallback beauty or albedo
+    hide effective parameter overrides from r_pathTracingReGIRDump
+    allow a consumer to use different cell size, center mode, domain, or
+        lights per cell than the reported ReGIR settings

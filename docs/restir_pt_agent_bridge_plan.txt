@@ -201,7 +201,7 @@ Host-side files:
         - create/reuse/reset/clear helpers
 
     PathTraceRestirPT.h / .cpp or equivalent renderer integration file
-        - owns or references rtxdi::ReSTIRPTContext
+        - locally packs RTXDI_PTParameters
         - updates frame index and resampling mode
         - builds RTXDI_PTParameters constant buffer
         - dispatches initial/temporal/spatial/final passes
@@ -258,7 +258,7 @@ Exact names may differ to match the engine style, but keep this separation of re
 
 6. Use uint64_t for byte sizes in the new PT path.
 
-7. Use RTXDI_PTBufferIndices from rtxdi::ReSTIRPTContext. Do not hard-code slice indices beyond initial scaffolding/debug code.
+7. Use the local RTXDI_PTBufferIndices policy in PathTraceRestirPT. Do not compile or reintroduce NVIDIA Source/ReSTIRPT.cpp.
 
 8. The bridge is RAB_* callbacks. Implement the engine-to-RTXDI bridge; do not port the whole sample app blindly.
 
@@ -387,21 +387,18 @@ Goal:
     Store and update RTXDI ReSTIR PT parameters per frame.
 
 Actions:
-    - Add a renderer-owned or pass-owned rtxdi::ReSTIRPTContext.
-    - Construct with:
+    - Add or update renderer-owned RTXDI_PTParameters state only.
+    - Initialize dimensions with:
         RenderWidth
         RenderHeight
         CheckerboardSamplingMode
-    - On resize, recreate/reinitialize context.
+    - On resize, refresh local parameter packing state.
     - Each frame:
-        SetFrameIndex(frameIndex)
-        SetResamplingMode(...)
-        query GetReservoirBufferParameters()
-        query GetBufferIndices()
-        query GetInitialSamplingParameters()
-        query GetTemporalResamplingParameters()
-        query GetHybridShiftParameters()
-        query GetReconnectionParameters()
+        update frame index
+        update resampling mode
+        fill reservoir buffer parameters
+        fill buffer indices
+        fill initial, temporal, hybrid-shift, reconnection, boiling-filter, and spatial parameters
         query GetBoilingFilterParameters()
         query GetSpatialResamplingParameters()
     - Fill an RTXDI_PTParameters constant buffer.
@@ -787,7 +784,7 @@ Prerequisites:
     - valid previous G-buffer
     - valid motion vectors
     - correct frame index
-    - buffer indices from ReSTIRPTContext
+    - buffer indices from local RTXDI PT parameter packing
     - previous reservoir slice not cleared every frame
     - scene signature/hard reset logic connected
 
@@ -1132,7 +1129,7 @@ Baseline full frame sequence after all major steps:
     3. If signature changed, resized, or mode changed incompatibly:
         clear ReSTIR PT reservoir buffer;
         reset temporal history state.
-    4. Update ReSTIRPTContext frame index and mode.
+    4. Update local RTXDI PT frame index and mode.
     5. Upload RTXDI_PTParameters.
     6. Dispatch initial path tracing pass.
     7. Dispatch temporal resampling pass, if enabled.
@@ -1222,7 +1219,7 @@ Likely causes:
     - bad motion vectors
     - scene signature not clearing history
     - material/surface similarity too permissive
-    - frame index not updated through ReSTIRPTContext
+    - frame index not updated through local RTXDI PT parameter packing
 
 Failure: spatial light leaking across walls/edges.
 Likely causes:
@@ -1270,7 +1267,7 @@ Always check the local repo first. These web references describe the upstream NV
     https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/PT/Reservoir.hlsli
     https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/Utils/ReservoirAddressing.hlsli
     https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/RtxdiUtils.h
-    https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Source/ReSTIRPT.cpp
+    Do not compile or copy NVIDIA RTXDI Source/ReSTIRPT.cpp; it was removed from the active CMake path.
 
     RTXDI sample bridge files to study, not blindly copy:
     https://github.com/NVIDIA-RTX/RTXDI/tree/main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge
@@ -1323,7 +1320,7 @@ Recommended second instruction:
 
 Recommended third instruction:
 
-    "Implement Step 2 only. Add ReSTIRPTContext state and RTXDI_PTParameters upload plumbing, but do not dispatch shader passes yet."
+    "Implement Step 2 only. Add local RTXDI_PTParameters upload plumbing, but do not dispatch shader passes yet."
 
 ============================================================
 17. FINAL REMINDER

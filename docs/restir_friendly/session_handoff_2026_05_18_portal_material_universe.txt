@@ -1,0 +1,434 @@
+ReSTIR Portal/Material/Geometry Debug Handoff
+Date: 2026-05-18
+
+Repository:
+    E:/prog/rbdoom-3-bfg-rt
+
+Current branch at handoff time:
+    codex/restir-rab-reference-audit-experiment
+
+Recent commits at handoff time:
+    431b129f Capture RTXDI light universe audit fixes
+    4bcff909 Add PT initial temporal debug split
+    22357892 Add PT initial/final input debug split
+
+Dirty files at handoff time:
+    M  neo/renderer/NVRHI/PathTraceEmissiveCandidates.cpp
+    M  neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    M  neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    M  neo/shaders/builtin/pathtracing/pathtrace_restir_reference_temporal_debug.hlsli
+    ?? docs/restir_friendly/material_universe_rtxdi_remix_audit.txt
+    ?? docs/restir_friendly/session_handoff_2026_05_18_portal_material_universe.txt
+
+Do not revert dirty files unless explicitly asked. They may contain active
+diagnostic work from another agent.
+
+
+Core Rule For The Next Agent
+============================
+
+This phase is not open-ended ReSTIR design. Treat NVIDIA RTXDI and RTX Remix as
+the source of truth for structure and contracts. Do not invent ReSTIR math,
+normalization, reservoir rules, fallback lighting, or new remap semantics.
+
+The next agent should work one mechanical slice at a time:
+
+1. Read the required docs.
+2. Audit the exact current code.
+3. Implement one narrow diagnostic or wiring fix.
+4. Build/deploy if code changed.
+5. Stop and ask the user to visually inspect.
+
+Do not claim visual success. The user validates in-game.
+
+
+Build And Deploy
+================
+
+Build from:
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build command:
+    cmake --build --preset win64-pt-dev-release
+
+After building, copy:
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+
+to:
+    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+After shader changes, copy the contents of:
+    E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+to:
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Important: copy the contents, not the folder itself. A previous session nested
+renderprogs2 inside renderprogs2 and caused stale shader confusion.
+
+
+Reference Checkouts
+===================
+
+RTXDI reference:
+    E:/prog/references/RTXDI-main
+
+Important RTXDI files:
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Material.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Surface.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/RasterizedGBuffer.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+
+RTX Remix reference:
+    E:/prog/references/dxvk-remix-git
+
+Important Remix files:
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_types.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_texture_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_accel_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+
+
+Read First
+==========
+
+General path tracing:
+    docs/pathtracing.txt
+    docs/pathtrace_modules.txt
+
+Current ReSTIR/RAB context:
+    docs/restir_friendly/README.txt
+    docs/restir_friendly/light_universe_rtxdi_remix_audit.txt
+    docs/restir_friendly/geometry_universe_rtxdi_remix_audit.txt
+    docs/restir_friendly/material_universe_rtxdi_remix_audit.txt
+    docs/restir_friendly/session_handoff_2026_05_18_portal_material_universe.txt
+
+Older RAB maps:
+    docs/ReSTIR/restir_pt_external_rab_inputs.txt
+    docs/ReSTIR/restir_pt_rab_io_supply_map.txt
+    docs/ReSTIR/restir_pt_smoke_to_rab_crossings.txt
+
+
+Current User Observations
+=========================
+
+The user has narrowed the active failure to a ReSTIR-wide temporal/domain
+problem, not merely a new DI/GI implementation bug.
+
+Observed behavior:
+
+- Debug mode 12 can become cyan while stationary.
+- Movement produces orange or magenta noise/strobing depending on which light
+  domains are enabled.
+- Portal regions strongly correlate with failure.
+- Some portal crossings are clean, so "crossing any portal" is not inherently
+  broken.
+- Bad portal regions seem to corrupt adjacent regions.
+- Looking at a surface through a portal, then moving closer into a different
+  portal zone, changes the green/cyan or orange/cyan ratio.
+- With analytic lights disabled, stationary often becomes 100% cyan, but
+  portal/motion failures remain and show as emissive failures.
+- Debug mode 18's old accumulator is broken by the same locations.
+- That means the problem is upstream of the newest RTXDI temporal code.
+- Turning normal maps off produces lots of magenta in ReSTIR mode 12.
+- Turning normal maps back on does not recover, even after loading another
+  level.
+
+Important interpretation:
+
+The portal issue can plausibly be caused by frame-local compact material,
+texture, emissive, or unified-light indices changing when portal/area selection
+changes. Safe portals may simply preserve enough of the same compact domain,
+while bad portals cause the list to reorder or lose entries when deeper areas
+drop out.
+
+
+Mode 12 Diagnostic Color Meanings
+=================================
+
+These meanings are based on the current diagnostic split in
+pathtrace_restir_reference_temporal_debug.hlsli:
+
+- cyan:
+    Accepted temporal candidate, no remap failure, no history growth.
+
+- green:
+    No remap failure and temporal history grew.
+
+- orange:
+    Selected previous light is an emissive unified light and previous-to-current
+    unified light translation failed.
+
+- magenta:
+    Selected previous light is an analytic unified light and previous-to-current
+    unified light translation failed.
+
+- blue:
+    Previous light index is outside previous unified light count.
+
+- gray:
+    Analytic light state incompatible.
+
+- white:
+    Invalid sampled light data.
+
+Primary diagnostic mode:
+    r_pathTracingRestirPTTemporalNeighborDebugMode 2
+
+Useful runtime toggles the user has used:
+    r_pathTracingRestirPTUnifiedLightLoad 1
+    r_pathTracingRestirPTUnifiedLightSample 1
+    r_pathTracingRestirPTDiDebugView 12
+    r_pathTracingLightUniverseDump 1
+    r_pathTracingAnalyticLightScale 0
+
+
+Current Strongest Finding
+=========================
+
+The strongest concrete bug candidate is an emissive remap ordering mismatch in
+PathTraceSmokeSceneBuild.cpp.
+
+Current suspicious graph:
+
+1. Build raw current emissive triangle records.
+2. Read previous emissive triangles from m_smokePreviousEmissiveTriangles.
+3. BuildSmokeEmissiveLightRemap(rawCurrent, previousMerged).
+4. Mutate/rebuild current emissives via m_smokeLightUniverse.MergeFrameCandidates.
+5. BuildPathTraceUnifiedLights(postMergeCurrent, previousMerged, rawRemap, ...).
+6. Store postMergeCurrent as next frame's previous emissive list.
+
+This means the remap can describe a different current emissive array than the
+array actually uploaded and sampled through the unified light buffer.
+
+That directly matches orange mode-12 failures: previous emissive light cannot
+translate to current unified emissive light.
+
+The dedicated audit is:
+    docs/restir_friendly/geometry_universe_rtxdi_remix_audit.txt
+
+
+Recommended First Slice
+=======================
+
+GU-01A: move emissive remap construction after light-universe merge.
+
+Rules:
+
+- Do not change ReSTIR math.
+- Do not change reservoir finalization.
+- Do not change light sampling policy.
+- Do not change temporal rejection logic.
+- Do not remove legacy split outputs.
+- Preserve current debug views.
+
+Implementation shape:
+
+1. Build raw emissive candidates as today.
+2. Run m_smokeLightUniverse.MergeFrameCandidates(...) to produce the actual
+   uploaded current emissive domain.
+3. Rebuild emissiveInventoryStats, lightCandidates, and emissiveDistribution
+   from that post-merge current list as current code already expects.
+4. BuildSmokeEmissiveLightRemap(postMergeCurrentEmissiveTriangles,
+   previousEmissiveTriangles).
+5. BuildPathTraceUnifiedLights(postMergeCurrentEmissiveTriangles,
+   previousEmissiveTriangles, postMergeRemap, ...).
+6. Upload the post-merge remap.
+7. Store the exact same post-merge current list into
+   m_smokePreviousEmissiveTriangles.
+
+Expected diagnostic result:
+
+- Orange should fall sharply if stale-remap ordering is the main defect.
+- If orange remains, inspect currentMissing/currentDuplicate/incompatible in the
+  emissive remap dump and audit rigid-route instance identity stability.
+
+
+Material Universe Finding
+=========================
+
+The material universe can plausibly cause or amplify the portal bug.
+
+Key points from:
+    docs/restir_friendly/material_universe_rtxdi_remix_audit.txt
+
+rbdoom currently lets frame-local or table-local material state participate in
+temporal identity:
+
+- PathTracePrimarySurfacesAreSimilar rejects if materialId, materialIndex, or
+  surfaceClass differ.
+- Emissive identity includes materialIndex.
+- Emissive remap compatibility requires materialId, universeMaterialIndex, and
+  emissiveTextureIndex to match.
+
+RTXDI does not use material ids or compact table indices for ReSTIR material
+similarity. It compares material properties: roughness, specular luminance, and
+diffuse luminance.
+
+RTX Remix is a better model for an old/uncooperative game:
+
+- persistent material/texture identity is separate from per-frame buffer index;
+- textures and materials are kept alive explicitly;
+- scene reset and cache lifetime are explicit;
+- original game material/texture hashes are used for identity/categories.
+
+The user's normal-map toggle poisoning behavior strongly suggests a missing
+reset/invalidation boundary. Changing normal-map policy changes the current
+RAB surface normal/material semantics but does not obviously clear all dependent
+previous history domains.
+
+
+Recommended Material Followups
+==============================
+
+Do not do these before GU-01A unless the user explicitly redirects.
+
+MU-01A:
+    Add debug-only surface-similarity cause reporting:
+    materialId, materialIndex, surfaceClass, normal, roughness.
+    Test whether materialIndex changes with portal region and causes rejection.
+
+MU-02A:
+    Add a CPU material-contract generation diagnostic that includes:
+        r_pathTracingUseNormalMaps
+        r_pathTracingNormalMapFlipGreen
+        r_pathTracingUseSpecularMaps
+        r_pathTracingUseEmissiveMaps
+        r_pathTracingTextureDecode
+        r_pathTracingMaterialUniverseTable
+        SmokeMaterialTextureRegistryGeneration
+        material universe stats
+    Log when it changes.
+
+MU-03A:
+    Proof-only reset: when material contract generation changes, clear ReSTIR/PT
+    reservoirs, primary-surface history, previous unified light domains, and
+    previous emissive/analytic remap inputs.
+
+MU-04A:
+    One-shot/low-frequency dump of emissive remap incompatible records with:
+        current/previous materialId
+        current/previous materialIndex
+        current/previous universeMaterialIndex
+        current/previous emissiveTextureIndex
+        material name
+        emissive texture name
+        identity hash
+        surface class
+
+
+Possible Portal Mechanism
+=========================
+
+The user's theory is plausible:
+
+Safe portals may happen to preserve the same compact material/light domain.
+Bad portals may cull a deeper area or 4th portal back, causing the frame-local
+material/emissive/unified-light list to reorder or drop entries.
+
+If previous reservoirs or remap compatibility use:
+
+- materialIndex
+- emissiveTextureIndex
+- unified light index
+- a remap built against a different current list
+
+then ReSTIR will reject or fail previous-to-current translation. The visual
+result is orange/magenta/blue strobing depending on which domain fails.
+
+This is not "textures" in the simple visual sense. It is texture/material/light
+identity being represented by unstable compact indices.
+
+
+Do Not Do
+=========
+
+- Do not rewrite BRDF/material math first.
+- Do not add fallback lighting to hide black/orange/magenta failures.
+- Do not loosen reuse gates as a real fix without proving which field rejects.
+- Do not merge DI/GI reservoirs.
+- Do not remove modes 53-55 diagnostics.
+- Do not switch mode 56 final resolve until the user visually accepts earlier
+  debug/compare output.
+- Do not copy/paste NVIDIA RTXDI, RTX Remix, Q2RTX, or paper code.
+- Do not claim visual success. Tell the user what to compare.
+- Do not stage or commit docs/pathtracing_handoff.txt unless explicitly asked.
+
+
+Suggested New-Agent Prompt
+==========================
+
+Paste this into a fresh Codex session:
+
+    You are continuing rbdoom-3-bfg-rt ReSTIR/RAB portal-domain debugging.
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Current branch:
+        codex/restir-rab-reference-audit-experiment
+
+    Prepared game folder:
+        E:/prog/rbdoom-3-BFG-prebuilt
+
+    Build from:
+        E:/prog/rbdoom-3-bfg-rt/neo
+
+    Build command:
+        cmake --build --preset win64-pt-dev-release
+
+    Deploy exe after build:
+        copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Deploy shaders after shader changes:
+        copy the contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+        to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+        Do not nest renderprogs2 inside renderprogs2.
+
+    First read:
+        docs/pathtracing.txt
+        docs/pathtrace_modules.txt
+        docs/restir_friendly/session_handoff_2026_05_18_portal_material_universe.txt
+        docs/restir_friendly/geometry_universe_rtxdi_remix_audit.txt
+        docs/restir_friendly/material_universe_rtxdi_remix_audit.txt
+        docs/restir_friendly/light_universe_rtxdi_remix_audit.txt
+
+    Reference checkouts:
+        RTXDI: E:/prog/references/RTXDI-main
+        RTX Remix: E:/prog/references/dxvk-remix-git
+
+    Critical rule:
+        Do not invent ReSTIR math or new policies. NVIDIA RTXDI and RTX Remix
+        are structural references. Implement one narrow slice, build/deploy,
+        then stop for user visual testing.
+
+    Current best diagnosis:
+        Orange mode-12 failures mean previous emissive unified light cannot map
+        to current unified light. The strongest concrete bug candidate is that
+        BuildSmokeEmissiveLightRemap may be built before
+        m_smokeLightUniverse.MergeFrameCandidates mutates the current emissive
+        list, while BuildPathTraceUnifiedLights later uploads the post-merge
+        list using the stale pre-merge remap.
+
+    Commissioned first slice:
+        GU-01A only. Move emissive remap construction so it is built from the
+        same post-merge current emissive list and previous emissive list that
+        BuildPathTraceUnifiedLights uses. Do not change ReSTIR math, sampling
+        policy, reservoir finalization, or debug color meanings. Preserve legacy
+        split outputs.
+
+    After building/deploying, tell the user to test:
+        r_pathTracingRestirPTUnifiedLightLoad 1
+        r_pathTracingRestirPTUnifiedLightSample 1
+        r_pathTracingRestirPTDiDebugView 12
+        r_pathTracingRestirPTTemporalNeighborDebugMode 2
+        r_pathTracingLightUniverseDump 1
+
+    What to look for:
+        Orange should fall sharply if the stale emissive remap order was the
+        main issue. If orange persists, do not guess; next slice should dump
+        emissive remap incompatible records and audit rigid-route identity.
+

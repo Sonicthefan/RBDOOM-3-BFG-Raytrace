@@ -1,0 +1,225 @@
+Remix-Shaped Light Universe Contract Matrix
+==========================================
+
+Goal
+----
+
+Build a trustworthy RTXDI-facing light universe for rbdoom that follows the
+RTX Remix light-manager contract closely enough to compare against RTX Portal
+and RTX Remix debugging behavior.
+
+
+Contract C-01: Current Light Producer Input
+-------------------------------------------
+
+rbdoom producers:
+
+    PathTraceDoomLights.cpp
+    PathTraceSmokeSceneBuild.cpp
+    PathTraceLightUniverse.cpp
+    PathTraceUnifiedLight.cpp
+
+Required input:
+
+    current Doom analytic light records
+    current emissive light records, after analytic proof
+    stable source identity
+    light type
+    payload fields needed by RAB
+    current source-domain count
+
+Pass:
+
+    source inventory is broad enough for real lighting
+    proposal count and RTXDI-facing dense count are not confused
+    every emitted current light has a replayable RAB payload
+
+Fail:
+
+    authored universe is shrunk to hide noise
+    old NEE records are used as light identity
+    portal/mirror/subview accidents are promoted as the active solution
+
+
+Contract C-02: Dense Current And Previous Domains
+-------------------------------------------------
+
+Reference shape:
+
+    RTX Remix LightManager::prepareSceneData
+    RTX Remix common_bindings.slangh lights / previousLights
+
+Required output:
+
+    dense current light payload array
+    dense previous light payload array
+    current active light count
+    previous active light count
+    typed ranges over the current dense array
+
+Pass:
+
+    current reservoir light indices index the current dense array
+    previous reservoir light indices index the previous dense array
+    disabled/off lights do not leave live dense slots unless explicitly encoded
+        as valid zero-payload diagnostics
+
+Fail:
+
+    shader-facing previous payloads are sized from a stale candidate slot
+        concept
+    persistent authored registry order is treated as the RTXDI light index
+    missing/off/diagnostic records alter unrelated dense indices
+
+
+Contract C-03: Two-Way Light Mapping
+------------------------------------
+
+Reference shape:
+
+    RTX Remix RAB_TranslateLightIndex
+    RTXDI DI TemporalResampling.hlsli
+
+Required output:
+
+    current-to-previous map for bias correction
+    previous-to-current map for previous reservoir reuse
+    explicit invalid sentinel for unmapped lights
+
+Pass:
+
+    a current dense index maps to its previous dense index when the same light
+        exists in both domains
+    a previous dense index maps to its current dense index when the same light
+        exists in both domains
+    a failed mapping rejects only that previous/current light candidate
+
+Fail:
+
+    mapping validity is decided by broad authored-registry diagnostics instead
+        of actual current/previous dense-domain membership
+    one animated or temporary light invalidates unrelated stable lights
+    mapping requires full-map brute force or broad suppression
+
+
+Contract C-04: Animated Payloads
+--------------------------------
+
+Reference shape:
+
+    Remix keeps buffer identity while payload changes.
+
+Required behavior:
+
+    color/intensity/radius/position changes are payload changes
+    payload changes do not invalidate identity by themselves
+    payload-only changes may update payload signatures and diagnostics
+
+Pass:
+
+    animated room lights keep mapping when their identity remains stable
+    material-register animation can be replaced by game-authored color for
+        diagnostics without changing mapping semantics
+
+Fail:
+
+    every radiance change invalidates remap
+    animated payload churn is treated as structural identity failure
+    animation from one light leaks into other light payloads
+
+
+Contract C-05: Spawn / Despawn / Effect Lights
+----------------------------------------------
+
+Reference shape:
+
+    Remix maps unmatched new lights to invalid until matched; disappearance is
+    local.
+
+Required behavior:
+
+    spawned lights can enter the current dense array
+    despawned lights can remain only in previous dense array for translation
+        rejection
+    unmatched lights map invalid without poisoning unrelated lights
+
+Pass:
+
+    sparks, robot lights, and effect lights cause only local current-only noise
+    stable room lights keep valid mappings while effects spawn/despawn
+
+Fail:
+
+    temporary effects change stable room-light remaps
+    unmapped current-only lights reset the whole temporal domain
+    broad effect suppression is required for stable room-light accumulation
+
+
+Contract C-06: RAB Bridge
+-------------------------
+
+Required shader behavior:
+
+    RAB_LoadLightInfo(index, false) loads current dense payload
+    RAB_LoadLightInfo(index, true) loads previous dense payload
+    RAB_TranslateLightIndex(index, true) maps current to previous
+    RAB_TranslateLightIndex(index, false) maps previous to current
+
+Pass:
+
+    RTXDI temporal can translate and replay lights without knowing rbdoom's
+        source registry internals
+    failed translation rejects only the previous sample
+
+Fail:
+
+    RAB reloads legacy split payload arrays through unstable compact indices
+    shader code has to inspect authored-registry invalid reasons to translate
+    final resolve uses a different light domain than temporal
+
+
+Contract C-07: Reset And Lifetime
+---------------------------------
+
+Required behavior:
+
+    map change clears current/previous/mapping state
+    render-world change clears current/previous/mapping state
+    buffer resize does not expose stale payloads as valid
+    first frame after reset is explicitly current-only
+
+Pass:
+
+    one-shot dumps report clear reason and dense counts
+    stale previous-map lights cannot be translated
+
+Fail:
+
+    old map lights survive as valid previous payloads
+    history resets hide a broken remap contract
+
+
+Contract C-08: Diagnostics Versus Proof
+---------------------------------------
+
+Required diagnostics:
+
+    dense current count
+    dense previous count
+    mapped current-to-previous count
+    mapped previous-to-current count
+    current-only count
+    previous-only count
+    invalid duplicate identity count
+    payload-only signature change
+    structural signature change
+
+Pass:
+
+    dumps explain why a light maps or does not map
+    visual proof still comes from raw temporal accumulation
+
+Fail:
+
+    green status bands, CPU dumps, or allocation success are reported as
+        accumulation proof

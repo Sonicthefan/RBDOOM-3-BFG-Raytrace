@@ -188,7 +188,8 @@ Acceptance Criteria
   the small per-vertex sample count.
 - `r_pathTracingSecondaryNeeMode 0` or the new analytic-specific off state
   actually disables secondary analytic NEE.
-- Legacy full analytic NEE remains available.
+- Legacy full analytic NEE is not the retained replacement path; any inspection
+  of it is historical/debug evidence only.
 - Sample PDFs/weights are either correct for sampled evaluation or explicitly
   marked as legacy-only and not reused by sampled mode.
 - Performance changes are tested with PT retail, not Debug.

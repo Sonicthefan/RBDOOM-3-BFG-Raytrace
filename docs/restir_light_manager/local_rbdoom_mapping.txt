@@ -1,0 +1,182 @@
+rbdoom Local Mapping For RTX Remix-Shaped Light Manager
+======================================================
+
+Purpose
+-------
+
+This file maps the new manager contract onto rbdoom. It is not a request to
+invent a parallel renderer. It is a request to feed a Remix-shaped light
+manager from rbdoom's existing Doom/emissive data.
+
+
+Current Starting Point After LM-08
+==================================
+
+The repo already has:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    uploaded manager current/previous/map buffers
+    r_pathTracingRestirLightManagerDump
+    r_pathTracingRestirLightManagerRAB
+    a mode-56 manager map debug view
+    partial structural/mapping/payload signatures
+
+Treat these as scaffolding. They are allowed to be rewritten internally to
+match the contract. Do not keep the old behavior merely because it is already
+implemented.
+
+
+Existing rbdoom Outputs To Preserve
+===================================
+
+Do not delete these until a manager replacement is accepted:
+
+    smokeEmissiveTriangleBuffer
+    smokePreviousEmissiveTriangleBuffer
+    smokeEmissiveRemapBuffer
+    smokeEmissiveDistributionBuffer
+    smokeLightCandidateBuffer
+    smokeDoomAnalyticLightBuffer
+    smokeDoomAnalyticPreviousLightBuffer
+    smokeDoomAnalyticCurrentIdentityBuffer
+    smokeDoomAnalyticPreviousIdentityBuffer
+    smokeDoomAnalyticRemapBuffer
+    smokeUnifiedLightBuffer
+    smokeUnifiedPreviousLightBuffer
+    smokeUnifiedLightRemapBuffer
+
+These are legacy/fallback/debug outputs. They are not the target identity
+domain.
+
+
+Manager Location
+================
+
+Use the existing scaffold:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+
+Do not create a new unrelated light manager unless explicitly asked. The pivot
+is to change this scaffold's contract and data ownership.
+
+
+Doom Adapter Inputs
+===================
+
+The manager consumes observations. It should not consume random frame-local
+arrays as identity.
+
+Emissive observation:
+
+    source PathTraceSmokeEmissiveTriangle
+    source type emissive
+    current source index for payload load only
+    identityHashLo/identityHashHi when nonzero
+    material id and material/universe index for diagnostics
+    instance id and primitive id
+    surface class
+    current payload hash
+
+Doom analytic observation:
+
+    source PathTraceDoomAnalyticLightCandidate
+    source type Doom analytic
+    current source index for payload load only
+    Doom analytic identity record when present
+    entity/lightDef/renderLight identity when present
+    continuity flags
+    current payload hash
+
+
+Identity Priority
+=================
+
+Doom analytic lights:
+
+    1. stable identity already emitted by PathTraceDoomLights
+    2. entity plus lightDef identity when valid
+    3. renderLight identity only when lifecycle is stable enough
+    4. no similarity fallback unless a future slice explicitly asks for it
+
+Emissive lights:
+
+    1. identityHashLo/identityHashHi when nonzero
+    2. stable static world primitive identity
+    3. rigid entity plus local primitive identity when continuity is proven
+    4. dynamic/skinned/particle identity only when explicitly proven stable
+    5. otherwise current-only or previous-only with invalid map
+
+Never use uploaded array index, portal-selected order, material table index, or
+draw-surface order as the only persistent identity.
+
+
+Dynamic Light Policy
+====================
+
+Classify every dynamic record before mapping:
+
+    stable mapped
+    stable payload changed
+    current-only new
+    previous-only missing
+    remap-invalid temporary
+    remap-invalid projectile
+    remap-invalid duplicate
+    remap-invalid unknown identity
+    remap-invalid unsupported source
+
+Payload changes are not map incompatibility by themselves:
+
+    radiance/color changed
+    intensity changed
+    radius changed
+    position changed
+    direction changed
+    material emission changed
+
+These should be reported as payload changes while the stable identity still
+maps.
+
+
+Scene-Build Integration Point
+=============================
+
+Update the manager in PathTraceSmokeSceneBuild after emissive and Doom analytic
+candidate lists exist, before sceneInputs and GPU upload items are finalized.
+
+The target sequence is:
+
+    build Doom/emissive observations
+    update manager-owned current and previous domains
+    build manager currentToPrevious and previousToCurrent maps
+    compute structural / mapping / payload signatures
+    upload manager buffers for debug and opt-in RAB
+    keep legacy split outputs alive
+    do not let legacy arrays define manager identity
+
+
+Shader Integration Point
+========================
+
+The target shader boundary is:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Required behavior:
+
+    RAB_LoadLightInfo(index, false)
+        loads current manager domain
+
+    RAB_LoadLightInfo(index, true)
+        loads previous manager domain
+
+    RAB_TranslateLightIndex(index, true)
+        reads manager currentToPrevious map
+
+    RAB_TranslateLightIndex(index, false)
+        reads manager previousToCurrent map
+
+Invalid maps return invalid sentinel. Do not hide invalid maps with fallback
+lights.

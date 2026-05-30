@@ -1,0 +1,76 @@
+GI Reference-Style Bypass Audit Notes
+=====================================
+
+Date: 2026-05-19
+
+Scope
+-----
+
+This is the required pre-coding audit for the GI reference-style bypass slice.
+It records the current page ownership before any shader/C++ changes.
+
+Audit Answers
+-------------
+
+1. Which buffer page currently contains GI initial output in mode 56?
+
+    GI initial output is written through StoreRestirPTInitialReservoir to
+    RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex. In the
+    current mode-56 TemporalAndSpatial context this is RTXDI PT page 0.
+
+2. Which pass writes it?
+
+    The mode-56 standalone GI initial prepass writes it through
+    pathtrace_restir_indirect_initial_producer.rt.hlsl, which includes
+    pathtrace_smoke.rt.hlsl with RB_PT_RESTIR_INDIRECT_INITIAL_PRODUCER_ONLY.
+    The active shader function is ProduceRestirPTIndirectInitialReservoirFromSurface.
+
+3. Which dispatch domain does GI use?
+
+    GI uses full-resolution output pixels when r_pathTracingRestirPTGiRaySparsity
+    is 1. With sparsity above 1, the producer dispatch domain is sparse in X and
+    maps each dispatched lane back to a full-resolution representative pixel.
+    The reservoir position remains the full-resolution representative pixel.
+
+4. Which RTXDI buffer indices are currently used by DI in the same frame?
+
+    In mode 56, the DI path uses the normal RestirPTParams.bufferIndices from
+    the RTXDI TemporalAndSpatial context:
+
+        initialPathTracerOutputBufferIndex  = 0
+        temporalResamplingInputBufferIndex  = 1
+        temporalResamplingOutputBufferIndex = 0
+        spatialResamplingInputBufferIndex   = 0
+        spatialResamplingOutputBufferIndex  = 1
+        finalShadingInputBufferIndex        = 1
+
+5. Can GI reuse the existing PT reservoir page indices safely?
+
+    GI can reuse the same page-number pattern only inside a separate GI reservoir
+    buffer and a separate full-resolution RTXDI_PTParameters instance. It cannot
+    safely share the DI RestirPTReservoirs buffer because DI temporal/spatial
+    prepasses overwrite the same page chain. It also cannot safely share the DI
+    RTXDI_PTParameters when the direct domain is scaled, because those reservoir
+    dimensions are the direct-lighting domain, while GI is full-resolution or
+    sparse-full-resolution.
+
+6. Which final resolve load should represent GI final-shading input after the
+   bypass exists?
+
+    The proof path should load GI from the GI reservoir buffer at the GI
+    RTXDI_PTParameters.bufferIndices.finalShadingInputBufferIndex. In the
+    current TemporalAndSpatial setup that is page 1. The old local path should
+    keep loading LoadRestirPTInitialReservoir until the proof CVar is enabled.
+
+Implementation Boundary
+-----------------------
+
+The narrow safe slice is:
+
+    GI initial page 0 in the GI reservoir buffer
+        -> RTXDI PT temporal resampling into GI page 0
+        -> RTXDI PT spatial resampling into GI page 1
+        -> proof-gated combined resolve load from GI final page 1
+
+The direct/DI RTXDI page chain stays on the existing RestirPTReservoirs buffer.
+The legacy local GI debug path stays available.

@@ -19,6 +19,7 @@ Producer:
 
 Required input:
 
+    current Remix/RAB light-manager records when available
     current analytic light records
     current emissive light records
     global light identity
@@ -30,6 +31,10 @@ Required input:
 Pass:
 
     ReGIR declares exactly which current light domains it consumes
+    preferred standalone source is the current Remix/RAB light-manager payload
+        domain, with any legacy split-buffer fallback named in the dump
+    standalone ReGIR may request that payload domain without enabling PDFNEE,
+        clean RTXDI temporal, RRX pages, spatial reuse, or best-light feedback
     global light identity is preserved
     analytic and emissive domains can be debugged independently
 
@@ -88,17 +93,23 @@ Required behavior:
     maps current world position to a stable cell id
     reports out-of-volume as invalid
     exposes a debug color for cell id / cell boundary behavior
+    reports the effective center mode and center used by the shader
 
 Pass:
 
     cell colors are stable in world space while the camera moves
     cell size / center changes are reflected immediately
+    static/manual center stability is proven before camera-centered mode is
+        accepted as a diagnostic
+    map-bounds center reports whether the finite grid is clamped inside larger
+        map bounds around the current view position
     out-of-volume pixels are loud
 
 Fail:
 
     cells are screen-space anchored
     cells strobe randomly while standing still
+    center or cell size changes without a matching dump field
     invalid cells silently fall back to beauty or albedo
 
 
@@ -116,7 +127,8 @@ Required behavior:
     consume view reads them
     each cell slot evaluates multiple current light proposals
     each selected entry stores global light identity and invSourcePdf or an
-    equivalent explicit source-weight term
+        equivalent explicit source-weight term
+    deterministic stability views do not use frameIndex to choose a slot
 
 Pass:
 
@@ -128,6 +140,7 @@ Pass:
 Fail:
 
     cells populate only after visiting mode 56, view 72, PDFNEE, or RRX
+    selected slot changes solely because frameIndex advanced
     selected identity is compact-only and cannot be replayed by RAB
     build dispatch reads previous frame as proof
 
@@ -146,6 +159,7 @@ Required behavior:
     every selected cell candidate has a stated source distribution
     invSourcePdf is available to the later current-pixel consumer
     power/RIS weighting is explicit before being enabled
+    slot-selection PDF is included in the consumer source distribution
 
 Pass:
 
@@ -167,6 +181,8 @@ Fail:
         actual deterministic slot count when lightsPerCell is odd
     split-domain sourcePdf includes a class term but the future consumer cannot
         name the matching slot/class selection policy
+    a consumer silently uses a different lightsPerCell, domain, center mode, or
+        cell size than the ReGIR dump reports
 
 
 Contract C-06: RAB Replay Boundary
@@ -187,12 +203,14 @@ Pass:
 
     ReGIR candidate identity can be replayed through shared RAB helpers
     debug views prove identity and source PDF before PDFNEE consumes them
+    current-frame mean contribution is stable enough before PDFNEE consumes it
 
 Fail:
 
     ReGIR computes final direct lighting internally for proof
     ReGIR duplicates RAB helper math without equivalence proof
     PDFNEE consumes ReGIR before standalone replay proof exists
+    PDFNEE consumes a frame-indexed one-slot ReGIR selector as a quality proof
 
 
 Contract C-07: Reset And Lifetime

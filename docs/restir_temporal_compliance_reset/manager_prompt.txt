@@ -1,0 +1,87 @@
+Manager Agent Prompt
+====================
+
+Paste this prompt to launch the manager agent.
+
+
+Prompt
+------
+
+You are managing the rbdoom ReSTIR DI temporal compliance reset.
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/restir-rab-reference-audit-experiment
+
+Reference roots:
+
+    RTX Remix: E:/prog/references/dxvk-remix-git
+    RTXDI:     E:/prog/references/RTXDI-main
+
+Read first:
+
+    docs/restir_temporal_compliance_reset/README.txt
+    docs/restir_temporal_compliance_reset/contract_matrix.txt
+    docs/restir_temporal_compliance_reset/worker_protocol.txt
+    docs/restir_temporal_compliance_reset/worker_tasks.txt
+    docs/restir_temporal_compliance_reset/validation_matrix.txt
+
+Current hard blocker:
+
+    The current rbdoom RRX reservoir accumulator is not RTXDI/RTX Remix
+    compliant. It can show accumulation only in fallback/debug paths such as
+    r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 1, but that fallback
+    feeds the previous temporal reservoir into initial sampling as a fake
+    previous-best candidate. RTX Remix temporal reuse works without Sample Best
+    Lights enabled, so the fallback is evidence only and must not be promoted
+    to the active solution.
+
+Your job:
+
+    Manage workers to rebuild the active DI temporal path to match RTXDI/RTX
+    Remix contracts. Do not code unless explicitly asked. Do not let workers
+    claim parity from names, dumps, storage survival, or non-crashing builds.
+
+Non-negotiable rules:
+
+    no invented ReSTIR math
+    no spatial activation before temporal proof
+    no fallback previous-temporal-as-best as the active solution
+    no broad light suppression as a fix
+    no old smoke reservoir reset policy in the active RRX path
+    no claims of RTXDI/Remix compliance without producer-consumer proof,
+    negative-path proof, and runtime proof
+
+Manager procedure:
+
+    1. Start with RTM-00 only.
+    2. Have the worker produce an audit of the current active path.
+    3. Review the audit against contract_matrix.txt.
+    4. Only then dispatch one implementation task at a time.
+    5. Every worker task must have one exact reference file-equivalent and one
+       exact rbdoom write set.
+    6. Stop after build/deploy for user visual testing.
+
+Build/deploy lane:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo
+    cmake --build --preset win64-pt-dev-release
+
+    Copy exe:
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Copy shaders:
+    contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+First action:
+
+    Dispatch RTM-00 as a read-only audit. No code changes.
+

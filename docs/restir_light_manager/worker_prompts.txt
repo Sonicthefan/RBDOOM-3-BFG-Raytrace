@@ -1,0 +1,810 @@
+Paste-Ready Worker Prompts
+==========================
+
+Use one prompt per worker. Replace CURRENT_BRANCH if needed.
+
+Do not use old LM prompts for new work. The active sequence is LU-RM.
+
+Every worker final response must include proof status:
+
+    active consumer proof
+        exact file/line evidence that the new output is read by the next active
+        rbdoom module, shader binding, RAB callback, or dispatch path
+
+    negative-path proof
+        exact behavior when mapping/identity fails. For light/reservoir work,
+        failed translation must reject only the selected candidate/sample
+
+    runtime diagnostic proof
+        dump/debug evidence separating storage survival, mapping failure,
+        payload churn, global clear, and inactive consumer state
+
+If a task is explicitly scaffold-only, the worker must say these proofs are not
+yet present. Do not claim feature parity from class names, buffers, dumps, raw
+storage, or a non-crashing build.
+
+
+LU-RM-00 Prompt
+===============
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-00 only: Starting-State Audit.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Buffers.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+Inspect:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Report only:
+
+    - old-domain dependencies that still define identity or clears
+    - manager outputs that are already usable
+    - first unsafe behavior to replace
+    - recommended next LU-RM slice
+
+Forbidden:
+
+    - no code changes
+    - no doc changes
+    - no build
+
+
+LU-RM-01 Prompt
+===============
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-01 only: Manager Contract Records.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_lights.h
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+
+Implement exactly:
+
+    - reshape manager records so stable identity fields are separate from
+      frame-local source indices
+    - keep source indices only as payload-load routing fields
+    - add explicit continuity class fields or flags
+    - keep invalid reason flags explicit
+    - keep payload-changed flags explicit and non-structural
+    - preserve GPU-facing layout assertions
+    - no shader behavior change
+
+Forbidden:
+
+    - do not copy RTX Remix code
+    - do not change ReSTIR math
+    - do not change RAB routing
+    - do not change reservoir clear behavior
+    - do not add similarity matching
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Final response must include:
+
+    - changed files
+    - build result
+    - any layout/assertion notes
+    - blockers
+
+
+LU-RM-02 Prompt
+===============
+
+Use this after LU-RM-01 is accepted.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-02 only: Doom And Emissive Adapter Inputs.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_lights.h
+    E:/prog/references/RTXDI-main/Samples/FullSample/Source/RenderPasses/PrepareLightsPass.cpp
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    narrow Doom/emissive headers only if required for existing identity structs
+
+Implement exactly:
+
+    - manager observations from existing emissive triangles
+    - manager observations from existing Doom analytic candidates
+    - stable Doom identity classification from existing PathTraceDoomLights output
+    - unknown/temporary/unsupported records marked invalid with explicit reasons
+    - payload changes tracked separately from identity changes
+    - low-noise dump counts
+    - legacy split outputs preserved
+
+Forbidden:
+
+    - no final routing changes
+    - no reservoir clear changes
+    - no ReSTIR math changes
+    - no fallback guessing
+    - no similarity matching
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Final response must include:
+
+    - changed files
+    - build result
+    - exact dump fields for user testing
+    - blockers
+
+
+LU-RM-03 Prompt
+===============
+
+Use this after LU-RM-01 and LU-RM-02 are accepted.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-03 only: Manager-Owned Current Previous Domains.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Buffers.hlsli
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Implement exactly:
+
+    - manager-owned current domain
+    - manager-owned previous domain
+    - currentToPrevious map
+    - previousToCurrent map
+    - invalid sentinel for unmapped records
+    - stable identity maps even when payload changed
+    - payloadChangedMapped diagnostic count
+    - invalid reason counts for rejected dynamic records
+
+Forbidden:
+
+    - no shader routing changes
+    - no reservoir clear changes
+    - no ReSTIR math changes
+    - no similarity fallback
+    - no fallback lights
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Final response must include:
+
+    - changed files
+    - build result
+    - exact dump fields for user testing
+    - blockers
+
+
+LU-RM-04 Prompt
+===============
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-04 only: Signature Split With Evidence.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Implement exactly:
+
+    - structural signature
+    - mapping/identity signature
+    - animated payload signature
+    - one-shot dump showing which signature changed
+    - top-record summary for records that would have changed the old
+      payload-heavy reservoir signature
+    - keep current clear behavior unless this prompt is explicitly changed
+
+Forbidden:
+
+    - no ReSTIR math changes
+    - no reservoir finalization changes
+    - no broad clear-policy change
+    - no shader changes
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Final response must include:
+
+    - changed files
+    - build result
+    - exact dump CVar/output fields
+    - blockers
+
+
+LU-RM-05 Prompt
+===============
+
+Use this only after LU-RM-04 evidence is accepted by the user.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-05 only: Structural-Only Global Clears.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+
+Implement exactly:
+
+    - use structural incompatibility only for global reservoir scene clears
+    - keep mapping/identity changes diagnostic
+    - keep animated payload changes diagnostic
+    - deleted/incompatible records map invalid locally
+    - preserve legacy split outputs
+
+Forbidden:
+
+    - no ReSTIR math changes
+    - no reservoir finalization changes
+    - no fallback lights
+    - no hiding invalid maps
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    copy exe to prepared game folder
+
+Final response must include:
+
+    - changed files
+    - build result
+    - deploy result
+    - exact dump/test CVars
+    - blockers
+
+
+LU-RM-06 Prompt
+===============
+
+Use this after the manager current/previous domains and maps are accepted.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-06 only: RAB Manager Route Hardening.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Buffers.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_LightInfo.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo*.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/*.hlsli only if required
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    binding/resource files only if required
+
+Implement exactly:
+
+    - preserve r_pathTracingRestirLightManagerRAB as opt-in
+    - current loads read manager current domain
+    - previous loads read manager previous domain
+    - translations use manager maps only when manager RAB is enabled
+    - invalid translations return invalid sentinel
+    - non-sampleable records load empty
+    - no fallback to legacy split/unified buffers while manager RAB is enabled
+
+Forbidden:
+
+    - no ReSTIR math changes
+    - no reservoir finalization changes
+    - no sampling policy changes
+    - no global clear-policy changes
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    copy exe to prepared game folder
+    copy renderprogs2 contents after shader build
+
+Final response must include:
+
+    - changed files
+    - build result
+    - deploy result
+    - exact CVar and debug views for user testing
+    - blockers
+
+
+LU-RM-07 Prompt
+===============
+
+Use this after manager map behavior is stable enough for visual inspection.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-RM-07 only: Debug Acceptance Views.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/Debug/*
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    CVar files only if new view controls are required
+
+Implement exactly:
+
+    - debug view for current light type
+    - debug view for previous light type
+    - debug view for current-to-previous map status
+    - debug view for previous-to-current map status
+    - visible state for payload changed but identity stable
+    - visible state for dynamic identity invalid and remap rejected
+    - visible state or dump field for global reservoir-clear reason
+    - preserve existing debug color meanings unless this prompt is explicitly changed
+
+Forbidden:
+
+    - no final output changes
+    - no ReSTIR math changes
+    - no reservoir finalization changes
+    - no sampling-policy changes
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    copy exe to prepared game folder
+    copy renderprogs2 contents after shader build
+
+Final response must include:
+
+    - changed files
+    - build result
+    - deploy result
+    - exact debug views/CVars
+    - blockers
+
+
+LU-BR-00 Prompt
+===============
+
+Use this before assigning any bridge implementation slice.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-BR-00 only: Remix Producer Consumer Bridge Audit.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_light_manager/worker_protocol.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Inspect rbdoom:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Report only:
+
+    - exact Remix LightManager producer outputs
+    - exact RtxContext constants/descriptors that consume them
+    - exact RAB functions that read current lights, previous lights, and maps
+    - first DI/GI temporal consumers that depend on those RAB functions
+    - rbdoom gaps between PathTraceRestirLightManager and that contract
+    - recommended next LU-BR slice
+
+Forbidden:
+
+    - no code changes
+    - no doc changes
+    - no build
+    - no invented ReSTIR policy
+
+
+LU-BR-01 Prompt
+===============
+
+Use this after LU-BR-00 is accepted.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-BR-01 only: Manager Active Domain Shape.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_light_manager/worker_protocol.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/RtxdiApplicationBridge.slangh
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+
+Implement exactly:
+
+    - separate active sampleable current/previous domains from diagnostics
+    - active domains include only records RAB may sample
+    - disabled or zero-intensity records are invalid for active sampling
+    - stable identity remains separate from active buffer index
+    - currentToPrevious and previousToCurrent maps are over active domains
+    - dump counts for active, diagnostic, inactive, zero, disabled, and invalid
+    - add placeholder metadata for light type ranges
+
+Forbidden:
+
+    - do not copy RTX Remix source
+    - do not change shaders
+    - do not change ReSTIR math
+    - do not change reservoir clears
+    - do not add similarity matching
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Final response must include:
+
+    - changed files
+    - build result
+    - active-domain counts/dump fields
+    - any layout/assertion notes
+    - blockers
+
+
+LU-BR-02 Prompt
+===============
+
+Use this after LU-BR-01 is accepted.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-BR-02 only: Manager-Owned Payload Buffers.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_light_manager/worker_protocol.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/RtxdiApplicationBridge.slangh
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+Implement exactly:
+
+    - manager-owned active current light payload buffer
+    - manager-owned active previous light payload buffer
+    - upload resources for both buffers
+    - explicit current and previous active payload counts
+    - manager maps aligned to those active payload buffers
+    - dump fields proving record counts, payload counts, and map counts agree
+    - preserve legacy split outputs
+
+Forbidden:
+
+    - do not switch RAB consumers yet
+    - do not change ReSTIR math
+    - do not change reservoir finalization
+    - do not delete legacy split/unified buffers
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Final response must include:
+
+    - changed files
+    - build result
+    - exact new buffers/resources
+    - exact dump fields for user testing
+    - blockers
+
+
+LU-BR-03 Prompt
+===============
+
+Use this after LU-BR-02 is accepted.
+
+You are working in:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+
+    CURRENT_BRANCH
+
+Task:
+
+    LU-BR-03 only: RtxContext/RAB Bridge Switch.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_light_manager/worker_protocol.txt
+    docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo*.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+Implement exactly:
+
+    - preserve r_pathTracingRestirLightManagerRAB as opt-in
+    - current-domain load reads manager current payload buffer
+    - previous-domain load reads manager previous payload buffer
+    - currentToPrevious translate reads manager current-to-previous map
+    - previousToCurrent translate reads manager previous-to-current map
+    - invalid translate returns invalid sentinel
+    - non-sampleable or out-of-range records load empty/invalid
+    - no fallback to legacy split/unified buffers while manager RAB is enabled
+
+Forbidden:
+
+    - do not change ReSTIR math
+    - do not change sampling policy
+    - do not change reservoir finalization
+    - do not change global clear policy
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    copy exe to prepared game folder
+    copy renderprogs2 contents after shader build
+
+Final response must include:
+
+    - changed files
+    - build result
+    - deploy result
+    - exact CVar and debug views for user testing
+    - blockers

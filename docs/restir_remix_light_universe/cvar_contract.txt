@@ -1,0 +1,139 @@
+Remix-Shaped Light Universe CVar Contract
+========================================
+
+Purpose
+-------
+
+Reserve a narrow CVar surface for the new Remix-shaped light-universe lane.
+
+These CVars must not enable spatial reuse, best-light feedback, denoising,
+fallback lighting, or mode-56 routing.
+
+
+Naming
+------
+
+Use this prefix unless a manager explicitly changes it:
+
+    r_pathTracingRemixLightUniverse*
+
+
+Required CVars
+--------------
+
+r_pathTracingRemixLightUniverseEnable
+
+    0 = disabled
+    1 = build/update Remix-shaped dense light domains and allow debug views
+
+    Default: 0
+
+
+r_pathTracingRemixLightUniverseUseForCleanRtxdiDi
+
+    0 = clean RTXDI DI keeps its existing light domain
+    1 = clean RTXDI DI consumes the Remix-shaped dense analytic domain
+
+    Default: 0
+
+    This is not allowed before RLU-02 passes.
+
+
+r_pathTracingRemixLightUniverseDebugView
+
+    0 = disabled
+    1 = route/status sentinel
+    2 = dense current light identity
+    3 = dense previous light identity
+    4 = current-to-previous map result
+    5 = previous-to-current map result
+    6 = current-only / previous-only / mapped classification
+    7 = payload signature / animated-payload classification
+    8 = spawn/despawn/effect-light classification
+    9 = raw RAB replay validity
+
+    Default: 0
+
+
+r_pathTracingRemixLightUniverseDomain
+
+    0 = Doom analytic only
+    1 = emissive only
+    2 = analytic + emissive unified
+
+    Default: 0
+
+    Analytic-only must pass before emissive or unified mode is used for proof.
+
+
+r_pathTracingRemixLightUniverseDoomColorSource
+
+    0 = material shader-register color
+    1 = game current renderLight color
+    2 = game authored/base color gated by current level/hidden state
+
+    Default: 1 for diagnostic baseline unless the manager changes it.
+
+    This controls payload diagnostics only. It must not change identity mapping.
+
+
+r_pathTracingRemixLightUniverseDump
+
+    0 = disabled
+    1 = one-shot dump
+    2 = continuous dump, only when explicitly requested
+
+    Default: 0
+
+    Required dump fields:
+
+        enabled
+        domain
+        dense current count
+        dense previous count
+        current-to-previous mapped count
+        previous-to-current mapped count
+        current-only count
+        previous-only count
+        invalid duplicate identity count
+        payload-only signature
+        structural signature
+        mapping signature
+        clear/reset reason
+        first failing contract
+
+
+r_pathTracingRemixLightUniverseStrictRemixMapping
+
+    0 = allow diagnostic compatibility mode
+    1 = mapping validity is based only on current/previous dense-domain identity
+
+    Default: 1
+
+    Compatibility mode may be used for dumps, not for proof.
+
+
+Future / Not First Slice
+------------------------
+
+Do not add these until analytic temporal proof passes:
+
+    spatial reuse toggle
+    best-light feedback toggle
+    denoiser/confidence/gradient toggle
+    portal-ranking source distribution toggle
+    ReGIR/NEE source distribution toggle
+
+
+Forbidden CVar Behavior
+-----------------------
+
+Remix light-universe CVars must not:
+
+    route through debugMode 56
+    enable spatial reuse
+    enable best-light feedback
+    enable fallback beauty or albedo
+    broadly suppress lights
+    silently force full-map/full-domain mode
+    make a status-color view count as temporal proof

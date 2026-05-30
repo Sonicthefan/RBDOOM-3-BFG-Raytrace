@@ -1,0 +1,315 @@
+Remix-Shaped Light Universe Worker Tasks
+=======================================
+
+Run tasks in order. Do not skip ahead.
+
+
+RLU-00: Read-Only Remix Contract Audit
+--------------------------------------
+
+Goal:
+
+    Audit the current rbdoom light-universe/remap producers against RTX Remix
+    and RTXDI temporal light-index translation.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceDoomLights.h
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Allowed write set:
+
+    docs/restir_remix_light_universe only
+
+Forbidden:
+
+    no code changes
+    no build
+
+Acceptance:
+
+    report exact current producer deviations
+    report exact replacement write set
+    report exact RAB consumer boundary
+    report first missing contract
+
+
+RLU-01: Dense Domain CPU Shell
+------------------------------
+
+Goal:
+
+    Add a default-off CPU shell for dense current/previous light domains and
+    two-way mapping, with no active shader consume.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    docs/restir_remix_light_universe
+
+Required:
+
+    CVars from cvar_contract.txt
+    dense current payload vector
+    dense previous payload vector
+    current-to-previous map
+    previous-to-current map
+    invalid sentinel
+    one-shot dump
+    disabled state
+
+Forbidden:
+
+    no clean RTXDI consume yet
+    no shader temporal changes
+    no spatial/best-light changes
+
+Acceptance:
+
+    build/deploy succeeds
+    dump proves dense counts, mappings, and reset behavior
+
+
+RLU-02: Doom Analytic Remix Mapping
+-----------------------------------
+
+Goal:
+
+    Populate the dense domain from real Doom analytic lights and map current to
+    previous by stable light identity.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceDoomLights.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    docs/restir_remix_light_universe
+
+Required:
+
+    analytic-only dense current domain
+    analytic-only dense previous domain
+    two-way mapping by stable renderLight/entity identity
+    animated payload is payload-only, not structural invalidation
+    spawned/despawned effects are local current-only/previous-only events
+
+Acceptance:
+
+    user dump shows stable room lights remain mapped while animated/effect
+    lights do not poison unrelated mappings
+
+
+RLU-03: Clean RTXDI View-12 Opt-In Consumer
+-------------------------------------------
+
+Goal:
+
+    Add an opt-in clean RTXDI DI route that consumes the Remix-shaped analytic
+    light universe instead of the old Doom analytic remap producer.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Required rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    docs/restir_remix_light_universe
+
+Required:
+
+    opt-in CVar only
+    old path is legacy/debug only and is not proof or replacement fallback
+    bypass remains diagnostic
+    RAB_TranslateLightIndex maps through dense Remix-shaped maps
+    no RTXDI math changes
+
+Acceptance:
+
+    build/deploy succeeds
+    stop for user visual test of view 12 temporal off/on
+
+
+RLU-04: Animated Payload / Effect-Light Proof
+---------------------------------------------
+
+Goal:
+
+    Add focused diagnostics proving payload animation and spawn/despawn events
+    are local.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    docs/restir_remix_light_universe
+
+Required:
+
+    payload-only signature
+    structural signature
+    mapping signature
+    current-only/previous-only counters
+    duplicate identity counters
+
+Acceptance:
+
+    user can correlate sparks/robot lights with local mapping events while
+    stable room lights remain mapped
+
+
+RLU-05: Emissive Domain Addition
+--------------------------------
+
+Goal:
+
+    Add emissive lights to the Remix-shaped universe after analytic proof.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/common_bindings.slangh
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    docs/restir_remix_light_universe
+
+Required:
+
+    final merged emissive list only
+    typed analytic/emissive ranges
+    no change to analytic temporal proof math
+
+Acceptance:
+
+    emissive debug mapping works without regressing analytic proof
+
+
+RLU-06: Unified Runtime RAB Bridge
+----------------------------------
+
+Goal:
+
+    Route active RAB light loading and translation through the Remix-shaped
+    dense current/previous/mapping domain.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    docs/restir_remix_light_universe
+
+Required:
+
+    RAB_LoadLightInfo current/previous dense-domain paths
+    RAB_TranslateLightIndex current-to-previous and previous-to-current paths
+    typed ranges remain inspectable
+
+Acceptance:
+
+    shader consumers no longer require legacy split payload reloads for the
+    active proof path
+
+
+RLU-07: RTX Portal / Remix Comparison Notes
+-------------------------------------------
+
+Goal:
+
+    Document which rbdoom debug views and dumps correspond to RTX Portal /
+    RTX Remix light-manager and RTXDI debugging concepts.
+
+Allowed write set:
+
+    docs/restir_remix_light_universe only
+
+Forbidden:
+
+    no implementation
+    no build
+
+Acceptance:
+
+    exact rbdoom CVar/debug view crosswalk
+    exact Remix/RTXDI reference file-equivalents
+    explicit gaps that cannot be compared yet

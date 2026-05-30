@@ -407,7 +407,7 @@ Forbidden:
 
     - do not connect to PT temporal/spatial
     - do not alter final resolve
-    - do not remove the old NEE path
+    - do not use the old NEE path as the replacement/default/proof path
 
 LU-03A: Opt-In RTXDI-Shaped Path Tracer NEE Producer
 ----------------------------------------------------
@@ -418,9 +418,11 @@ Goal:
 
     Add an opt-in path tracer NEE producer that uses the RTXDI DI initial
     sampling feed instead of rbdoom's current hand-written local RIS stream.
-    The old rbdoom NEE path remains the default. This slice only changes the
-    producer behind a cvar; it does not change temporal/spatial reuse or final
-    resolve behavior.
+    This historical slice predates the working RLU -> clean RTXDI DI path.
+    The old rbdoom NEE path is not the replacement/default/proof path. Any
+    replacement work must start from the current RLU dense light domain and the
+    clean DI consumer contract; it does not change temporal/spatial reuse or
+    final resolve behavior.
 
 Observed reason for this slice:
 
@@ -558,8 +560,8 @@ Forbidden:
     - do not change reservoir finalization math
     - do not alter finalShadingInputBufferIndex usage
     - do not add environment/infinite/BRDF/RIS/ReGIR
-    - do not remove old rbdoom NEE code
-    - do not make the new NEE producer default-on
+    - do not use old rbdoom NEE code as the replacement/default/proof path
+    - make one reviewed replacement enable CVar activate useful defaults
 
 User inspection instructions:
 
@@ -588,16 +590,18 @@ Do not start until LU-03A has been visually accepted.
 
 Goal:
 
-    Make the RTXDI-shaped unified NEE producer the normal path for ReSTIR/PT
-    mode 56 testing, while preserving the old rbdoom RIS producer behind an
-    explicit fallback cvar. This is still a feeder-layer cleanup. It must not
-    add temporal/spatial reuse or change final resolve behavior.
+    Historical note: this slice predates the working RLU -> clean RTXDI DI
+    path. Do not preserve the old rbdoom RIS producer as the replacement
+    fallback/default/proof path. Current replacement work must use the RLU
+    dense domain and clean DI consumer contract, and must not add
+    temporal/spatial reuse or change final resolve behavior in the same slice.
 
 Observed reason for this slice:
 
     The old rbdoom NEE feed has shown incorrect luminance and flickering in the
-    A/B views. The RTXDI-shaped unified NEE producer appears visually stable and
-    better suited as the single input source for later reservoir-chain work.
+    A/B views and is discarded as a replacement route. Replacement work must use
+    the current working RLU -> clean RTXDI DI contract as the baseline, not this
+    old feed.
 
 Reference files to check before coding:
 

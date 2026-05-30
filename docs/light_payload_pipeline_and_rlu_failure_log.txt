@@ -1,0 +1,614 @@
+Light Payload Pipeline and RLU Failure Log
+==========================================
+
+Purpose
+-------
+
+This note maps how rbdoom path-tracing light payloads move from CPU scene
+extraction into shader-side RAB/RTXDI consumers, then records the failure modes
+seen while bringing the Remix-shaped Light Universe (RLU), domain 2, clean
+RTXDI DI, emissives, and the replacement PDF+NEE current producer online.
+
+This is a handoff document. It is not a new proof route and it does not widen
+the current restrictions:
+
+    no invented ReSTIR math
+    no RTXDI reservoir math changes
+    no spatial reuse before temporal proof
+    no mode-56 proof route
+    no previous-temporal-as-best proof
+    no broad light suppression as a fix
+    no full-map/full-domain brute force as the fix
+    no old PDFNEE/ReGIR route as proof
+
+
+CPU Light Sources
+-----------------
+
+The path-tracing scene build creates two main light source families before any
+RTXDI reservoir work happens.
+
+Doom analytic lights:
+
+    CPU producer:
+        neo/renderer/NVRHI/PathTraceDoomLights.cpp
+        BuildPathTraceDoomAnalyticLightCandidates(...)
+
+    GPU payload:
+        PathTraceDoomAnalyticLightCandidate
+
+    Current buffers:
+        DoomAnalyticLights
+        DoomAnalyticCurrentIdentities
+
+    Previous/remap buffers:
+        DoomAnalyticPreviousLights
+        DoomAnalyticPreviousIdentities
+        DoomAnalyticRemap
+
+    Important fields:
+        originAndRadius.xyz      light position
+        originAndRadius.w        analytic sphere radius
+        colorAndIntensity.rgb    authored RGB contribution
+        doomRadiusAndArea.x      Doom influence radius
+        doomRadiusAndArea.y      CPU-provided area used by clean RTXDI
+        renderLightIndex         stable source identity component
+        entityNumber             stable source identity component
+        flags                    validity/sampleability bits
+
+Emissive triangle lights:
+
+    CPU producer:
+        neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+        raw emissive extraction and emissive inventory path
+
+    GPU payload:
+        PathTraceSmokeEmissiveTriangle
+
+    Current/previous buffers:
+        SmokeEmissiveTriangles
+        SmokePreviousEmissiveTriangles
+        SmokeEmissiveRemap
+
+    Important fields:
+        centerAndArea.xyz                 triangle center
+        centerAndArea.w                   triangle area
+        normalAndLuminance.xyz            triangle normal
+        estimatedRadianceAndLuminance.rgb estimated emissive radiance
+        sampleWeightAndPdf                sampling weight/pdf metadata
+        materialIndex/materialId          material lookup identity
+        instanceId/primitiveIndex         geometry identity
+
+The old RT smoke emissive light universe is not the owner for the RLU lane.
+It is cleared during scene build; raw emissive extraction remains an input to
+the Remix-shaped manager.
+
+
+Unified Light Records
+---------------------
+
+The shared dense light payload shape is:
+
+    PathTraceUnifiedLightRecord
+
+Defined in:
+
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_UnifiedLightRecord.hlsli
+
+The record is a 112-byte, 16-byte-aligned HLSL StructuredBuffer contract. It
+stores payload-like fields plus stable source identity:
+
+    positionAndRadius
+    normalAndArea
+    radianceAndLuminance
+    uvOrDoomParams
+    type
+    sourceIndex
+    flags
+    materialOrLightId
+    instanceId
+    primitiveIndex
+    identityA
+    identityB
+    sourcePdf
+    sourceWeight
+    previousIndex
+
+Record type values:
+
+    0 = invalid
+    1 = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE
+    2 = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC
+
+For RLU domain 2 the dense index is not a source-local index:
+
+    dense index       reservoir identity and RLU current/previous map key
+    record.sourceIndex local source payload index
+
+For Doom analytic records:
+
+    record.sourceIndex indexes DoomAnalyticLights or DoomAnalyticPreviousLights
+    dense index remains the selected reservoir lightIndex
+
+For emissive records:
+
+    record.sourceIndex indexes SmokeEmissiveTriangles or
+    SmokePreviousEmissiveTriangles
+    dense index remains the selected reservoir lightIndex
+
+Do not subtract emissive counts from dense RLU indices in the RLU replay path.
+That conversion belongs only to older split-domain debug paths.
+
+
+Remix Light Universe Producer
+-----------------------------
+
+The Remix-shaped light manager is prepared in:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    m_remixLightManager.PrepareSceneData(...)
+
+Inputs:
+
+    current emissive triangles
+    previous emissive triangles
+    emissive remap
+    current Doom analytic lights
+    previous Doom analytic lights
+    current Doom analytic identities
+    previous Doom analytic identities
+    Doom analytic remap
+    typed sample-count requests
+    domain selector
+    strict mapping flag
+
+Domain meaning:
+
+    domain 0 = Doom analytic only
+    domain 1 = emissive only
+    domain 2 = unified emissive + Doom analytic
+
+Outputs:
+
+    dense current light payload buffer
+    dense previous light payload buffer
+    current-to-previous dense index map
+    previous-to-current dense index map
+    typed ranges:
+        emissive offset/count/sampleCount
+        Doom analytic offset/count/sampleCount
+    structural/mapping/payload signatures
+    payload-only change diagnostics
+    per-type mapping diagnostics
+
+The shader ABI still uses several names containing "RestirLightManager", but
+those buffers are now populated from the Remix Light Universe payloads:
+
+    PathTraceRestirLightManagerCurrentPayload
+    PathTraceRestirLightManagerPreviousPayload
+    PathTraceRestirLightManagerCurrentToPrevious
+    PathTraceRestirLightManagerPreviousToCurrent
+
+The legacy ReSTIR light manager is cleared in this path. Those buffer names are
+an ABI bridge, not the owner.
+
+
+GPU Upload and Binding Surface
+------------------------------
+
+Scene build uploads the relevant current/previous source payloads and dense
+manager payloads together:
+
+    SmokeEmissiveTriangles
+    SmokePreviousEmissiveTriangles
+    DoomAnalyticLights
+    DoomAnalyticPreviousLights
+    DoomAnalyticCurrentIdentities
+    DoomAnalyticPreviousIdentities
+    DoomAnalyticRemap
+    PathTraceUnifiedLights
+    PathTraceUnifiedPreviousLights
+    PathTraceUnifiedLightRemap
+    PathTraceRestirLightManagerCurrentPayload
+    PathTraceRestirLightManagerPreviousPayload
+    PathTraceRestirLightManagerCurrentToPrevious
+    PathTraceRestirLightManagerPreviousToCurrent
+
+The RLU clean-DI path needs the dense payload counts and map counts to be the
+real uploaded counts. Passing light counts as map counts hides map-size
+mismatches and can allow shader reads past an uploaded map buffer.
+
+
+Shader RAB Loading
+------------------
+
+Main runtime loader:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    RAB_LoadLightInfo(uint index, bool previousFrame)
+
+The loader selects between:
+
+    RAB_LoadSplitLightInfo
+        old split emissive/analytic arrays
+
+    RAB_LoadUnifiedLightInfo
+        PathTraceUnifiedLights / PathTraceUnifiedPreviousLights
+
+    RAB_LoadRestirLightManagerLightInfo
+        current/previous dense RLU payload buffers
+
+In active RLU mode, the selected reservoir lightIndex is a dense RLU index.
+The RAB loader must preserve that lightIndex for reservoir identity and only
+use sourceIndex to reach source-local payload arrays where the specific branch
+requires it.
+
+Runtime generic Doom analytic builder:
+
+    RAB_BuildLightInfoFromDoomAnalyticPayload(...)
+
+Clean RTXDI analytic builder:
+
+    pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    PathTraceCleanRoomBuildAnalyticLightInfo(...)
+
+These are not identical contracts. The clean builder uses the uploaded Doom
+payload with:
+
+    radius          = max(originAndRadius.w, 0.01)
+    influenceRadius = max(doomRadiusAndArea.x, radius)
+    area            = max(doomRadiusAndArea.y, 1.0e-4)
+    radiance        = colorAndIntensity.rgb * analytic intensity scale
+    weight          = luminance(radiance) * area * influenceRadius
+
+The generic runtime helper historically reconstructed area as sphere area and
+used slightly different radius/influence semantics. That is enough to change
+analytic light shape/brightness when comparing to clean view 12.
+
+
+Sampling, Target PDF, and Final Contribution
+--------------------------------------------
+
+Shader-side RAB replay is the only place where the payload becomes lighting.
+
+The shared sequence is:
+
+    RAB_LoadLightInfo
+    RAB_SamplePolymorphicLight or RAB_SampleActiveRrxPolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RAB_GetReflectedBsdfRadianceForSurface
+    RAB_GetSelectedNeeVisibility / RAB_GetStrictLightSampleVisibility
+    RTXDI_StreamSample
+    RTXDI_FinalizeResampling
+
+For Doom analytic lights:
+
+    RAB_SampleDoomAnalyticSphereLight samples the analytic sphere/cone and
+    outputs solidAnglePdf, sample position, sample radiance, and flags.
+
+For emissive triangles:
+
+    RAB_SampleEmissiveTriangleLight samples the triangle-center proxy and uses
+    area, facing, radiance, and the two-sided emissive flag.
+
+Target PDF is not source PDF:
+
+    targetPdf is based on reflected BSDF radiance divided by solidAnglePdf
+    sourcePdf is the probability of proposing the selected light/sample
+    reservoir weight/invPdf is finalized from streamed target/source weights
+
+Changing any one of light payload loading, sample replay, targetPdf, sourcePdf,
+visibility, or final resolve can produce visually plausible but non-equivalent
+lighting.
+
+
+Clean RTXDI DI Consumer
+-----------------------
+
+Clean shader:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+CPU constants and binding:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+
+Current surface input:
+
+    PrimarySurfaceHistoryCurrent
+
+Main current producer:
+
+    PathTraceCleanRoomRunInitialProducer(...)
+
+It builds an RTXDI local light region:
+
+    non-RLU: analytic domain [0, analyticCount)
+    RLU domain 0/2: Doom analytic typed RLU range
+
+It then calls:
+
+    RTXDI_ComputeInitialSamplingMisData
+    RTXDI_InitRandomSampler
+    RTXDI_SampleLocalLights
+
+The first stable proof target is:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingRemixLightUniverseDomain 0 or 2
+    no spatial reuse
+    no best-light feedback
+    no denoiser/confidence path
+
+External current path:
+
+    PathTraceCleanRoomRunExternalPdfNeeCurrentProducer(...)
+
+This does not build the current reservoir itself. It reads the already packed
+current reservoir page at:
+
+    CleanRtxdiDiCurrentReservoirs / u69
+
+It then reloads the selected light and replays the selected sample through the
+clean RAB path before temporal reuse.
+
+
+Replacement PDF+NEE RLU Current Producer
+----------------------------------------
+
+Current shader:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+
+Current entry:
+
+    PathTraceRestirPdfNeeRluBuildCurrentReservoir(...)
+
+Output:
+
+    CleanRtxdiDiCurrentReservoirs / u69
+
+Current intended helper sequence:
+
+    RTXDI_DIInitialSamplingParameters
+    RTXDI_RandomSamplerState
+    typed or dense RLU range sampling
+    RAB_Load/RAB sample/target helpers
+    RTXDI_StreamSample
+    RTXDI_FinalizeResampling
+    RTXDI_PackDIReservoir
+
+The old PDFNEE verifier views are not a valid lighting baseline. In
+particular, verifier view 1 is a route/status pattern and is not equivalent to
+clean RTXDI view 12. The accepted comparison target is clean RTXDI DI view 12
+using the current RLU domain.
+
+Source-policy state:
+
+    sourcePolicy 0 = full dense RLU uniform baseline
+    sourcePolicy 1 = typed range-stratified current policy
+
+In domain 2, policy 0 can spend proposals on emissive records even when
+emissive contribution is zero. That can make Doom analytic lighting appear to
+vanish. Policy 1 is the normal replacement-current producer policy and should
+be set explicitly when old configs may have persisted policy 0:
+
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 1
+
+
+What Broke During RLU / Domain 2 Work
+-------------------------------------
+
+The failures below are grouped by cause, not chronology.
+
+Map counts passed as light counts:
+
+    PathTraceSmokeDispatch.cpp passed cleanRluCurrentLightCount and
+    cleanRluPreviousLightCount as RLU map counts. The shader used those counts
+    for bounds checks before reading current-to-previous and previous-to-current
+    buffers. If a map-size mismatch happened, this could hide it and permit
+    out-of-bounds shader reads. The dump also reported the wrong counts.
+
+Stale RLU diagnostics when the route was inactive:
+
+    Clean DI dumps printed rluLocal fields from m_remixLightManager.GetStats()
+    even when the clean RLU route was inactive. That mixed stale or legacy
+    manager stats into validation output and made clean dumps look like they
+    were proving the active route when they were not.
+
+RAB source marker claimed dense RLU while RLU was disabled:
+
+    useRemixLightManagerRabSource was gated only by
+    r_pathTracingRemixLightManagerRAB. Since that CVar defaulted on, shader
+    constants could advertise "source 2 = Remix dense" while the producer was
+    actually in legacy compatibility mode. That weakened RLU-06 style proof.
+
+Per-type diagnostics were computed but not surfaced:
+
+    The manager had per-type mapped/current-only/previous-only/payload-changed
+    diagnostics, but the dump initially did not print them. Without those
+    fields, domain 2 could not prove emissive-vs-analytic split behavior.
+
+Dump CVar ran every frame:
+
+    A dump path behaved like a persistent per-frame log instead of a one-shot
+    dump, spamming output and making it harder to identify the first contract
+    failure.
+
+Reservoir upload size crash:
+
+    A clean RTXDI DI run hit:
+
+        writeBuffer: dataSize + destOffsetBytes is greater than the buffer size
+
+    The practical fix was to stop hiding real uploaded/map counts and keep the
+    CPU write set/counts aligned with the buffers the shader actually reads.
+
+History reset/rollover every few seconds:
+
+    Early RLU clean view 12 runs accumulated briefly and then reset. The stable
+    fix was to keep identity/mapping signatures separate from payload-only
+    animation, so legal color/radius/intensity animation did not become a
+    structural reset reason for unrelated stable lights.
+
+Payload-only animation treated as proof failure:
+
+    Doom analytic payload changes are legal when identity remains compatible.
+    Color/intensity/radius/position can change without invalidating remaps.
+    Treating payload change as structural churn caused flicker, resets, or
+    poisoning across unrelated lights.
+
+Dense index treated as analytic local index:
+
+    In domain 2 the dense RLU index includes emissive records before Doom
+    analytic records. Any code that used the dense index to access
+    DoomAnalyticLights or DoomAnalyticCurrentIdentities read the wrong analytic
+    payload. This produced wrong brightness, wrong shape, invalid samples, and
+    accumulation failures.
+
+Subtracting emissive count in the RLU path:
+
+    Subtracting emissiveCount from selectedLightIndex is only valid in old
+    split-domain debug code. In dense RLU replay, record.sourceIndex already
+    carries the local payload index. Subtracting again corrupts the source
+    lookup.
+
+Doom analytic RLU builder reconstructed from packed fields:
+
+    Building domain-2 Doom analytic RAB_LightInfo from
+    PathTraceUnifiedLightRecord fields instead of the original
+    DoomAnalyticLights[sourceIndex] payload diverged from the known-good clean
+    analytic path. The symptom was Doom analytics with different shape and
+    brightness in domain 2 compared to domain 0 or clean direct analytic mode.
+
+Generic runtime analytic builder did not match clean builder:
+
+    The runtime helper used sphere-area reconstruction and different
+    radius/influence handling. Clean view 12 used doomRadiusAndArea.y as area
+    and clamped influence to at least radius. This mismatch mattered when the
+    external PDF+NEE current producer tried to create clean-compatible current
+    reservoirs.
+
+External current producer inherited older PDFNEE assumptions:
+
+    The replacement producer reused pieces from the old PDFNEE/NEE verifier
+    family. The old verifier views are not clean RTXDI baselines; view 1 in
+    particular is a status/checker route. Treating those views as lighting
+    references led debugging toward the wrong target.
+
+Full dense source policy starved analytics:
+
+    With domain 2 and emissive scale zero, sourcePolicy 0 can propose many
+    emissive records with zero target contribution. Analytics then appear to
+    vanish or become far darker when externalPdfNeeCurrent is enabled. The
+    typed policy avoids that by sampling non-empty typed ranges explicitly.
+
+Surface/material flag mismatch:
+
+    The external producer writes PrimarySurfaceHistoryCurrent before clean DI
+    consumes it. If the producer builds the primary surface with normal,
+    specular, emissive, or texture flags different from the clean consumer's
+    assumptions, targetPdf and reflected radiance can diverge even with
+    identical light payloads. This is especially visible around normal-mapped
+    surfaces and character edges.
+
+Visibility policy mismatch:
+
+    The external producer can store visibility into the packed reservoir and
+    clean can either recompute or reuse stored visibility. Mixing strict
+    visibility, selected NEE visibility, and clean replay visibility without a
+    single contract changes which samples survive and can look like missing
+    lights.
+
+Changing history signatures to include too much:
+
+    Adding broad RLU structural/mapping/count data to clean history signatures
+    made previously working modes reset or poison accumulation. History
+    signatures must separate structural remap validity from payload-only churn
+    and must not use unrelated domain changes as a blanket reset trigger.
+
+Changing temporal accumulation to hide current-frame mismatch:
+
+    Several attempted fixes made accumulation behavior worse across modes
+    without fixing domain 2. The underlying rule is: if current-frame
+    lighting differs, temporal reuse is not the fix. Temporal should only be
+    tested after current-frame light load, sample, targetPdf, sourcePdf, and
+    visibility match the clean reference.
+
+Sampling the wrong analytic range:
+
+    Domain 2 current count is emissives plus analytics. Clean RTXDI view 12
+    samples the Doom analytic typed RLU range for analytic proof, not the whole
+    dense domain unless explicitly testing a unified producer. Candidate counts
+    and normalization must be based on the actual sampled range, not the full
+    dense count, when the proof target is analytic-only.
+
+Lifecycle/residency emissive failures:
+
+    Some emissive attempts failed before RAB replay: emissives appeared near
+    player start but not deeper in the level, old emissives were not removed as
+    the player left, and loading a new level could leave stale filled state so
+    the new level had no useful emissives. That is a lifecycle/extraction/
+    upload boundary bug, not a shading formula bug.
+
+Emissive sidedness and material texture failures:
+
+    Many Doom emissive faces are not consistently wound toward the viewer.
+    Emissive triangle replay therefore needs the two-sided emissive contract
+    when used as area lights. Separate from sidedness, colored/textured
+    emissives exposed material/texture residency and emissive-texture sampling
+    problems; simple white/black-white emissives could work while vending
+    machines, colored panels, and grated panels failed.
+
+Portal-cell dependent symptoms:
+
+    Some broken surfaces changed color or inverted diagnostic bands when
+    crossing a portal boundary. That points to source membership, surface
+    record, or visibility-domain mismatch rather than random temporal drift.
+    It should not be treated as proof of correct temporal accumulation.
+
+Old mode routes created false confidence:
+
+    Mode 56, old PDFNEE lightMode 8/9, ReGIR consume, and old portal pools can
+    produce non-crashing or colorful diagnostics. They are not valid proof for
+    the clean RLU/domain-2 path. Use them only as negative evidence when they
+    expose where old assumptions differ from clean RTXDI.
+
+
+Current Debugging Rules of Thumb
+--------------------------------
+
+When domain 2 breaks but domain 0 works:
+
+    first check whether dense index and sourceIndex are being mixed
+    then check whether the Doom analytic branch uses the original source
+        payload or reconstructed packed fields
+    then check whether current/previous dense maps translate dense-to-dense
+    do not tune temporal accumulation first
+
+When externalPdfNeeCurrent breaks but domain 2 clean current works:
+
+    compare the replacement current producer to clean view 12
+    force/check r_pathTracingRestirPdfNeeVerifierSourcePolicy 1
+    verify selected dense light identity, sample UV, targetPdf, invPdf, M,
+        visibility, and final contribution
+    do not use old verifier view 1 as a lighting reference
+
+When emissives break:
+
+    separate lifecycle/extraction/upload from RAB replay
+    check current emissive inventory and RLU domain 1 first
+    check typed range counts and map counts
+    check two-sided emissive behavior
+    check texture residency/material emissive sampling separately
+
+When accumulation breaks after a current-frame edit:
+
+    revert suspicion to current-frame reservoir equivalence
+    prove current-only lighting first
+    only then re-enable temporal reuse
+    do not include payload-only animation in structural reset signatures
+

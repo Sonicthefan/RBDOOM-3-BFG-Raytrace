@@ -310,7 +310,8 @@ Acceptance Criteria
   include/module, not scattered through `pathtrace_smoke.rt.hlsl`.
 - `pathtrace_smoke.rt.hlsl` calls the module through a narrow mode 18 entry
   point.
-- Legacy full selected-light NEE remains available.
+- Legacy full selected-light NEE is not the retained replacement path; any
+  inspection of it is historical/debug evidence only.
 - Sampled secondary NEE traces a bounded number of visibility rays per path
   vertex.
 - Sampled NEE applies PDF compensation or clearly documented equivalent

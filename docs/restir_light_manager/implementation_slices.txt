@@ -1,0 +1,619 @@
+Implementation Slices For RTX Remix-Shaped Light Manager
+========================================================
+
+Purpose
+-------
+
+The old LM-01 through LM-08 sequence is complete enough to serve as scaffold,
+but it is no longer the design direction. Do not assign new workers LM-09.
+
+Assign exactly one LU-RM slice per worker. The goal is to rebuild the manager
+contract in the RTX Remix shape while preserving Doom-specific adapter logic.
+
+Do not define success as "the old rbdoom reservoir path stops flickering after
+one more patch." The old path is too entangled with broad light counts,
+portal-domain membership, and reset signatures. Use it as evidence and fallback
+only. The implementation direction is to grow a new Remix-compliant chain from
+PathTraceRestirLightManager until the manager-owned outputs can replace the old
+ReSTIR light path.
+
+Portal RTX / RTX Remix runtime debug toggles are part of planning. Before
+claiming a layer is optional or required, compare against the reference runtime
+when possible:
+
+    - disable/toggle the reference feature in Remix
+    - observe whether the same artifact class appears
+    - if the artifact appears, promote that layer earlier in LU-RM ordering
+    - if visual impact is low, defer it behind manager/RAB correctness
+
+Every LU-RM layer that connects to a downstream lighting module must start by
+checking the RTX Remix producer and immediate consumer pair. For light-manager
+work that means:
+
+    LightManager::prepareSceneData outputs
+    RtxContext constants and descriptor bindings
+    RtxdiApplicationBridge.slangh light reads and translation
+    the first RTXDI/ReSTIR pass that consumes those reads
+
+The worker must document the producer outputs and consumer reads before
+changing rbdoom behavior. Matching that interface is what keeps later modules
+free of invented ReSTIR math.
+
+Initial acceptance is narrow:
+
+    - basic diffuse DI/GI only
+    - Remix-shaped temporal reprojection/reuse first
+    - stable enough output for DLSS RR to consume
+    - defer less important Remix features until that baseline works
+
+Treat temporal reprojection as the single most critical slice family. If the
+DI/GI temporal path cannot maintain stable history like Remix, downstream
+denoisers and DLSS RR are not expected to fix it.
+
+Use the RTX Remix temporal reuse viewer as the acceptance reference. During
+rapid or erratic camera movement, the reference keeps most of the frame
+temporally usable. rbdoom does not pass the temporal slice if its equivalent
+debug view collapses across most of the screen under similar motion.
+
+
+Completed Historical State
+==========================
+
+LM-01 through LM-08 produced:
+
+    CPU manager scaffold
+    identity/remap diagnostics
+    GPU debug buffers
+    debug map view
+    opt-in RAB route
+    partial structural/mapping/payload signature split
+
+The pivot starts from this code. Workers may rewrite its internals when their
+slice owns those files.
+
+
+LU-RM-00: Starting-State Audit
+=============================
+
+Goal:
+
+    Read-only audit. Report exactly where current code still lets old rbdoom
+    light arrays define manager identity or reservoir clears.
+
+Owned files:
+
+    none
+
+Steps:
+
+    1. Read all files in docs/restir_light_manager.
+    2. Read docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt.
+    3. Inspect PathTraceRestirLightManager.*.
+    4. Inspect PathTraceSmokeSceneBuild.cpp light-manager and reservoir
+       signature sections.
+    5. Inspect RAB_LightLoadRuntime.hlsli manager route.
+    6. Report:
+
+           old-domain dependency list
+           current manager outputs already usable
+           first unsafe behavior to replace
+
+Forbidden:
+
+    no edits
+    no build
+
+
+LU-RM-01: Manager Contract Records
+==================================
+
+Goal:
+
+    Reshape PathTraceRestirLightManager records around a Remix-style manager
+    contract. No shader behavior change.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+
+Steps:
+
+    1. Separate stable identity fields from frame-local source indices.
+    2. Keep source indices only as payload-load routing fields.
+    3. Add explicit continuity class:
+
+           stable
+           current-only
+           previous-only
+           remap-invalid
+
+    4. Add explicit invalid reason flags for temporary/projectile/duplicate/
+       unknown/unsupported/incompatible/deleted.
+    5. Add explicit payload-changed flags that do not imply remap invalid.
+    6. Preserve GPU struct size/alignment checks for any GPU-facing records.
+    7. Do not route new behavior yet.
+
+Forbidden:
+
+    no RAB changes
+    no reservoir clear changes
+    no ReSTIR math changes
+    no similarity fallback
+
+
+LU-RM-02: Doom And Emissive Adapter Inputs
+==========================================
+
+Goal:
+
+    Feed the manager with Doom/emissive observations that classify identity and
+    payload separately. Do not use portal-selected/uploaded array order as
+    identity.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.*
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    narrow Doom/emissive headers only if needed for existing identity structs
+
+Steps:
+
+    1. Build manager observations from existing emissive triangles and Doom
+       analytic candidates.
+    2. Mark stable Doom identities from existing PathTraceDoomLights output.
+    3. Mark unknown/temporary/unsupported records invalid with explicit reasons.
+    4. Mark payload changes separately from identity changes.
+    5. Add low-noise dump counts.
+    6. Preserve legacy split outputs.
+
+Forbidden:
+
+    no final routing changes
+    no reservoir clear changes
+    no ReSTIR math changes
+    no fallback guessing
+
+
+LU-RM-03: Manager-Owned Current Previous Domains
+================================================
+
+Goal:
+
+    Build manager-owned current and previous domains plus bidirectional maps.
+    Stable identity maps even when payload changed.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.*
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Steps:
+
+    1. Keep previous manager domain independent of current frame upload order.
+    2. Match current observations to previous manager records by stable identity.
+    3. Produce currentToPrevious and previousToCurrent maps.
+    4. Use invalid sentinel for missing, deleted, temporary, duplicate,
+       projectile, unknown, unsupported, or explicitly incompatible records.
+    5. Do not make color/intensity/radius/position payload changes invalidate
+       a stable identity map.
+    6. Dump counts:
+
+           stableMapped
+           payloadChangedMapped
+           currentOnly
+           previousOnly
+           invalidByReason
+           mapInvalidCurrent
+           mapInvalidPrevious
+
+Forbidden:
+
+    no shader routing changes
+    no reservoir clear changes
+    no ReSTIR math changes
+    no similarity fallback
+
+
+LU-RM-04: Signature Split With Evidence
+=======================================
+
+Goal:
+
+    Make structural, mapping/identity, and animated-payload signatures visible
+    without changing global clear behavior unless the user explicitly asks.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.*
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Steps:
+
+    1. Compute:
+
+           structural signature
+           mapping/identity signature
+           animated payload signature
+
+    2. Dump changed flags for each signature.
+    3. Add top-record summary for records that would have changed the old
+       payload-heavy reservoir signature.
+    4. Keep the current clear behavior unless the prompt explicitly says to
+       switch to structural-only clears.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no reservoir finalization changes
+    no broad clear-policy change unless explicitly requested
+
+
+LU-RM-05: Structural-Only Global Clears
+=======================================
+
+Goal:
+
+    Stop animated payload changes from causing global reservoir clears after
+    LU-RM-04 evidence shows classification is correct.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceRestirLightManager.*
+
+Steps:
+
+    1. Use only structural incompatibility for global reservoir scene clears.
+    2. Keep mapping/identity changes visible but not global clears.
+    3. Keep payload changes visible but not global clears.
+    4. Deleted/incompatible lights must map invalid locally.
+    5. Build/deploy and stop for user visual testing.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no hiding invalid maps
+    no fallback lights
+
+Acceptance:
+
+    Offscreen and on-screen flickering dynamic lights no longer force
+    whole-domain reservoir refreshes. Dynamic lights that actually changed the
+    local lighting may reject touched samples/reservoirs, but unrelated
+    reservoir history survives.
+
+
+LU-RM-06: RAB Manager Route Hardening
+=====================================
+
+Goal:
+
+    Ensure opt-in RAB routing consumes only manager-owned current/previous
+    domains and maps.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo*.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/*.hlsli as required
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    binding/resource files only if required
+
+Steps:
+
+    1. Preserve r_pathTracingRestirLightManagerRAB as opt-in.
+    2. Check the RTX Remix LightManager -> RtxContext -> RAB consumer contract
+       and list the exact producer outputs and consumer reads in the final
+       response.
+    3. Current load reads manager current domain.
+    4. Previous load reads manager previous domain.
+    5. Translates use manager maps.
+    6. Invalid translate returns invalid sentinel.
+    7. Non-sampleable records load empty.
+    8. Do not fall back to legacy split/unified buffers while manager RAB is
+       enabled.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no reservoir finalization changes
+    no sampling policy changes
+
+
+LU-RM-07: Debug Acceptance Views
+================================
+
+Goal:
+
+    Expose enough debug visibility to confirm the manager behaves like the
+    Remix/RTXDI contract before making it default.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/Debug/*
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    CVar files only if new view controls are required
+
+Steps:
+
+    Add or preserve views for:
+
+        current light type
+        previous light type
+        current-to-previous map status
+        previous-to-current map status
+        payload changed but identity stable
+        dynamic identity invalid and remap rejected
+        global reservoir-clear reason
+
+Forbidden:
+
+    no final output changes
+    no ReSTIR math changes
+    no debug color meaning changes for existing views unless requested
+
+
+Bridge Work-Agent Tasks
+=======================
+
+Use these LU-BR tasks after the current LU-RM scaffold work. They are written
+for worker agents that need small, rigid steps. Assign one LU-BR task per
+worker. Do not ask a worker to "port Remix" or "fix ReSTIR lighting" in one
+pass.
+
+
+LU-BR-00: Remix Producer Consumer Bridge Audit
+==============================================
+
+Goal:
+
+    Read-only audit of the exact bridge between RTX Remix LightManager and its
+    immediate shader consumers. This task exists to stop later workers from
+    inventing a different contract.
+
+Owned files:
+
+    none
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Steps:
+
+    1. List LightManager producer outputs:
+
+           current active light buffer
+           previous active light buffer
+           active current light count
+           bidirectional mapping layout
+           per-type ranges
+           per-type RTXDI/RIS sample counts
+           invalid mapping sentinel
+
+    2. List RtxContext consumer bindings/constants.
+    3. List RAB light-load and light-translate reads.
+    4. List the first DI and GI temporal consumers that depend on those reads.
+    5. Compare rbdoom's current PathTraceRestirLightManager route against that
+       bridge and report missing outputs.
+
+Forbidden:
+
+    no code edits
+    no doc edits unless the prompt explicitly asks for them
+    no build
+
+
+LU-BR-01: Manager Active Domain Shape
+=====================================
+
+Goal:
+
+    Separate manager active sampleable domains from diagnostic/legacy records.
+    This is the CPU-side shape required before building manager-owned payload
+    buffers.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+
+Steps:
+
+    1. Keep diagnostic records if they already exist, but add explicit active
+       current and active previous domains for records that RAB may sample.
+    2. Active domains include only sampleable records for the current contract.
+       Disabled or zero-intensity records must be invalid for active sampling.
+    3. Keep stable identity separate from active buffer index.
+    4. Preserve currentToPrevious and previousToCurrent maps over active
+       domains.
+    5. Add or preserve counts for:
+
+           active current
+           active previous
+           diagnostic current
+           diagnostic previous
+           inactive/zero/disabled
+           invalid by reason
+
+    6. Add placeholder metadata for light type ranges, even if all initial
+       records use a single rbdoom local-light range.
+
+Forbidden:
+
+    no shader route changes
+    no reservoir clear changes
+    no ReSTIR math changes
+    no similarity matching
+
+
+LU-BR-02: Manager-Owned Payload Buffers
+=======================================
+
+Goal:
+
+    Produce manager-owned current and previous light payload buffers equivalent
+    to Remix's current/previous light buffers. RAB should still remain on its
+    existing route until the user accepts this slice.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.h
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+Steps:
+
+    1. Build active current payload records from the active manager domain.
+    2. Build active previous payload records from the previous manager domain.
+    3. Preserve legacy split outputs.
+    4. Upload new buffers with explicit current/previous counts.
+    5. Keep manager maps aligned to the new active payload buffers.
+    6. Add dump fields proving current count, previous count, map counts, and
+       payload buffer counts agree.
+
+Forbidden:
+
+    no RAB consumer switch yet
+    no ReSTIR math changes
+    no reservoir finalization changes
+    no deletion of legacy split/unified buffers
+
+
+LU-BR-03: RtxContext/RAB Bridge Switch
+======================================
+
+Goal:
+
+    When r_pathTracingRestirLightManagerRAB is enabled, make RAB consume the
+    manager-owned active current/previous payload buffers and manager maps with
+    Remix-equivalent semantics.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo*.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+Steps:
+
+    1. Preserve r_pathTracingRestirLightManagerRAB as opt-in.
+    2. Current-domain load reads manager current payload buffer.
+    3. Previous-domain load reads manager previous payload buffer.
+    4. currentToPrevious translate reads manager current-to-previous map.
+    5. previousToCurrent translate reads manager previous-to-current map.
+    6. Invalid translate returns invalid sentinel.
+    7. Non-sampleable or out-of-range records load empty/invalid.
+    8. While manager RAB is enabled, do not fall back to legacy split/unified
+       payload arrays.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no sampling policy changes
+    no reservoir finalization changes
+    no global clear-policy changes
+
+
+LU-BR-04: Light-Type Range And Sample-Count Contract
+====================================================
+
+Goal:
+
+    Add the minimum active-domain light type range and sample-count metadata
+    needed for a Remix-shaped downstream DI/GI path. This is a contract slice,
+    not a sampling-policy rewrite.
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRestirLightManager.*
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    shader constant/binding files only if needed
+
+Steps:
+
+    1. Add active-domain ranges for rbdoom's initial local-light categories.
+    2. Publish range offsets/counts in a shader-visible constant or buffer.
+    3. Keep current sampling behavior unless a downstream pass explicitly reads
+       the new metadata.
+    4. Dump active range counts.
+
+Forbidden:
+
+    no invented light sampling weights
+    no ReSTIR math changes
+    no final output dependency until the debug contract is accepted
+
+
+LU-BR-05: Temporal Reuse Acceptance Debug
+=========================================
+
+Goal:
+
+    Add a rbdoom debug view comparable to the RTX Remix temporal reuse viewer
+    for the basic diffuse DI/GI target.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/Debug/* if present
+    CVar files only if a new view selector is required
+
+Steps:
+
+    1. Show previous-surface validity.
+    2. Show motion-vector reprojection validity.
+    3. Show previous-to-current light translation validity.
+    4. Show temporal reservoir acceptance/rejection.
+    5. Keep existing debug color meanings unless the prompt explicitly updates
+       them.
+
+Acceptance:
+
+    During rapid or erratic camera movement, most of the frame should remain
+    temporally usable in comparable places where RTX Remix's temporal reuse
+    viewer remains usable. A mostly failed screen is not accepted.
+
+Forbidden:
+
+    no final output changes
+    no ReSTIR math changes
+    no reservoir finalization changes
+
+
+LU-BR-06: Basic Diffuse DI/GI Bridge Smoke Test
+===============================================
+
+Goal:
+
+    Use the manager-owned bridge to drive only the minimum basic diffuse DI/GI
+    path needed to judge whether ReSTIR history is sane enough for DLSS RR.
+
+Owned files:
+
+    To be specified after LU-BR-03 through LU-BR-05 are accepted.
+
+Steps:
+
+    1. Keep scope to basic diffuse DI/GI.
+    2. Keep dynamic light changes local through translation/validation.
+    3. Verify offscreen animated analytic lights do not force whole-domain
+       reservoir refresh.
+    4. Verify visible changed lights do not clear unrelated reservoir history.
+    5. Stop for user visual testing.
+
+Forbidden:
+
+    no full Remix feature parity work
+    no denoiser tuning as a substitute for broken temporal reuse
+    no DLSS RR validation until the ReSTIR temporal debug view is sane

@@ -20,11 +20,87 @@ Important correction:
         docs/restir_remix_rebuild/conformance_correction_overview.txt
         docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
         docs/restir_remix_rebuild/worker_prompt_rrx_conformance.txt
+        docs/restir_remix_rebuild/rrx_cf_05_active_di_previous_best_initial_sampling.txt
+        docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+        docs/restir_remix_rebuild/worker_prompt_rrx_di_overlap_solution.txt
 
     The current missing acceptance boundary is active producer-to-consumer
     parity: the Remix manager outputs must feed the active shader-visible RAB
     light domains, and the RRX DI temporal consumer must locally reject failed
     light translations instead of relying on broad smoke/ReSTIR clears.
+
+Current purge/default phase:
+
+    Use this before commissioning more quality work:
+
+        docs/restir_remix_rebuild/rrx_purge_legacy_light_reservoir_defaults.txt
+        docs/restir_remix_rebuild/worker_prompt_rrx_purge_legacy_defaults.txt
+        docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+        docs/restir_remix_rebuild/worker_prompt_rrx_di_overlap_solution.txt
+
+    RRX-PURGE supersedes older opt-in wording for the active RRX lane. The
+    Remix-shaped light manager and RRX reservoir resource owner should become
+    the default active path. Old smoke/unified/split light paths may remain only
+    as explicitly named legacy comparison/debug paths and must not silently
+    participate in RRX validation.
+
+Current overlap/temporal phase:
+
+    Mode 56 view 72 is now the active RRX DI proof view, but overlap zones are
+    still temporal-only and do not consume a Remix-style DI spatial output page.
+    Do not tune temporal thresholds. Commission:
+
+        RRX-OV-01:
+            disable the fake projected-previous-temporal-reservoir-as-best-light
+            default path
+
+        RRX-OV-02:
+            activate Remix-shaped DI spatial reuse and make view 72/final
+            consumer read spatial output
+
+    Use:
+
+        docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+        docs/restir_remix_rebuild/worker_prompt_rrx_di_overlap_solution.txt
+
+
+RRX-PURGE: Legacy Cull And Default Activation
+---------------------------------------------
+
+Use:
+
+    docs/restir_remix_rebuild/rrx_purge_legacy_light_reservoir_defaults.txt
+
+Launch prompt:
+
+    docs/restir_remix_rebuild/worker_prompt_rrx_purge_legacy_defaults.txt
+
+Why this exists:
+
+    Recent testing showed that old pre-Remix light/reservoir machinery can
+    still contaminate active RRX results through hidden fallback routes,
+    broad-reset inputs, and old mode-56 accumulation. This makes visual
+    results impossible to trust.
+
+Required result:
+
+    Active RRX uses PathTraceRemixLightManager and
+    PathTraceRemixRtxdiResources by default. Old smoke/unified/split fallback
+    behavior is removed from active RRX or isolated as explicitly named legacy
+    comparison.
+
+First slice:
+
+    RRX-PURGE-01 only: make active source defaults point at the Remix manager
+    and RRX resource owner, update CVar wording, and prove the default runtime
+    dump reports activeLightSource=remix-light-manager.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no dynamic-light suppression
+    no hidden fallback to old light sources
+    no old mode-56 accumulation as RRX proof
 
 
 Debug Probe Slices
@@ -39,6 +115,43 @@ the new PathTraceRemixRtxdiResources DI reservoir owner without running initial
 sampling, temporal reuse, spatial reuse, visibility, final shading, or DLSS RR.
 Run these before deeper DI activation if the current question is whether the
 new reservoir domain is still being broadly flushed by dynamic light churn.
+
+
+RRX-CF-05: Active DI Previous-Best Initial Sampling
+---------------------------------------------------
+
+Use:
+
+    docs/restir_remix_rebuild/rrx_cf_05_active_di_previous_best_initial_sampling.txt
+
+Why this exists:
+
+    The inactive DI initial-sampling contract already documents Remix-style
+    previous-best behavior, but the active mode-56 RRX DI path still builds a
+    fresh current reservoir first and only compares against previous history
+    afterward. RTX Remix injects the translated previous best light into
+    current-frame initial sampling before temporal reuse.
+
+Required result:
+
+    The active rbdoom DI initial reservoir builder must accept or resolve a
+    previous-best light, translate it previous->current through RAB light
+    mapping, build it as a normal single-light reservoir candidate, and combine
+    it through RTXDI helper reservoir math.
+
+Forbidden:
+
+    no forced previous-light selection
+    no new mismatch policy
+    no broad reservoir clear
+    no dynamic-light suppression
+    no GI/spatial/final-shading changes
+
+Validation:
+
+    Preserve mode 56 views 68 and 69. Success is a reduction in
+    orange/current-prev mismatch and tuple disagreement in the same bad spots,
+    not merely green storage-only views.
 
 
 RRX-00: File Graph And Contract Freeze

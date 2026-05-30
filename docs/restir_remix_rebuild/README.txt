@@ -58,11 +58,31 @@ Read Order
 8. docs/restir_remix_rebuild/worker_prompt_rrx_00.txt
 9. docs/restir_remix_rebuild/rrx_probe_reservoir_persistence.txt
 10. docs/restir_light_manager/session_recovery_dynamic_analytic_bug_2026_05_19.txt
+11. docs/restir_remix_rebuild/rrx_cf_05_active_di_previous_best_initial_sampling.txt
+12. docs/restir_remix_rebuild/rrx_purge_legacy_light_reservoir_defaults.txt
+13. docs/restir_remix_rebuild/worker_prompt_rrx_purge_legacy_defaults.txt
+14. docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+15. docs/restir_remix_rebuild/worker_prompt_rrx_di_overlap_solution.txt
 
 The conformance correction files supersede any older task wording that treats
 diagnostic-only manager/resource scaffolding as complete RTX Remix parity.
 Future workers must prove active producer-to-consumer behavior, not only object
 existence or dump output.
+
+Current phase:
+
+    docs/restir_remix_rebuild/rrx_purge_legacy_light_reservoir_defaults.txt
+    docs/restir_remix_rebuild/worker_prompt_rrx_purge_legacy_defaults.txt
+    docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+    docs/restir_remix_rebuild/worker_prompt_rrx_di_overlap_solution.txt
+
+This phase supersedes older opt-in activation wording for the active RRX lane.
+The old pre-Remix light/reservoir path may remain only as explicitly named
+legacy comparison/debug code. It must not silently feed, reset, accumulate, or
+validate the active Remix-manager/RRX reservoir route.
+The overlap/temporal solution docs supersede attempts to tune temporal
+thresholds: first remove the fake previous-temporal-reservoir-as-best-light
+shortcut, then activate Remix-shaped DI spatial reuse.
 
 Use older docs/restir_light_manager material only as evidence of the failed
 path and current scaffolding. Do not continue old LM/LU prompt sequences unless
@@ -143,3 +163,10 @@ Non-Negotiable Rules
 7. User visual testing remains required.
 
    Renderer-facing slices stop after build/deploy and report exact test CVars.
+
+8. Active RRX must not be mixed with old proof mechanisms.
+
+   Do not use old mode-56 SmokeAccumulation, old smoke reservoir signatures,
+   old unified/split fallback light loading, or m_restirLightManager fallback
+   as evidence that the Remix-manager/RRX path works. If a legacy path remains,
+   it must be explicitly named as legacy/debug and isolated from active RRX.

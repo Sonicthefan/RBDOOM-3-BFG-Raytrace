@@ -235,7 +235,8 @@ Success Criteria
 
 - Secondary/reflection analytic NEE no longer loops every uploaded analytic
   light by default.
-- A legacy full-loop analytic mode remains available for visual comparison.
+- The legacy full-loop analytic mode is not a retained replacement path; any
+  inspection of it is historical/debug evidence only.
 - Sampled analytic mode has bounded proposal and visibility-ray counts while
   the eligible authored-light universe remains broad.
 - The sample record makes PDF/weight semantics explicit and cannot be mistaken

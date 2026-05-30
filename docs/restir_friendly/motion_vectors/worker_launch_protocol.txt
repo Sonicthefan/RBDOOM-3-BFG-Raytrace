@@ -1,0 +1,436 @@
+Motion Vector Worker Launch Protocol
+====================================
+Date: 2026-05-19
+Updated: 2026-05-21
+
+Purpose
+-------
+
+This file explains how the coordinating agent should launch implementation
+workers for the motion-vector work. The goal is to reproduce the effective
+workflow:
+
+    coordinator researches and chooses the slice
+    worker implements one bounded task
+    coordinator reviews, builds/deploys, and asks the user to test
+
+Workers must not be asked to design strategy while coding.
+
+
+Current Active Worker: MV-RRX-01 Exported Producer Parity
+---------------------------------------------------------
+
+Use this before any older MV-00A/MV-01A task on the current branch.
+
+The current failure is not simply "motion vectors are bad." The specific
+problem is that the older debug modes can look solved while the active RRX
+input path still consumes holes or bad data from the exported
+PathTraceMotionVectors / PathTraceMotionVectorMask buffers.
+
+The worker-facing task and paste-ready prompt are in:
+
+    docs/restir_friendly/motion_vectors/exported_rrx_motion_alignment_tasks.txt
+
+Coordinator instruction:
+
+    Launch MV-RRX-01 exactly as written in that file. Do not ask the worker to
+    design a broader motion-vector system. Do not combine it with MV-RRX-02.
+
+Reason:
+
+    MV-RRX-01 fixes the producer contract first. MV-RRX-02 then feeds the full
+    motion.xyz contract into RRX temporal reuse. Doing both at once would make
+    user visual evidence ambiguous.
+
+
+Coordinator Rules
+-----------------
+
+The coordinator owns:
+
+- choosing the next slice
+- reading the reference files
+- deciding the intended shape
+- keeping the worktree safe
+- reviewing worker changes
+- building/deploying
+- explaining exactly what the user should test
+
+The worker owns only:
+
+- the concrete files named in its prompt
+- the exact implementation checklist in its prompt
+- reporting changed paths and any blockers
+
+Do not launch a worker with a broad request like:
+
+    "Fix motion vectors against RTXDI."
+
+Do launch a worker with a bounded request like:
+
+    "In pathtrace_smoke_rab_motion_supplier.hlsli only, add diagnostic status
+    codes that distinguish offscreen previous xy from behind-camera projection.
+    Do not change behavior."
+
+
+Worker Prompt Required Fields
+-----------------------------
+
+Every worker prompt must include these fields:
+
+1. Repository:
+
+       E:/prog/rbdoom-3-bfg-rt
+
+2. Slice id:
+
+       Example: MV-00A
+
+3. Mission:
+
+       One sentence. No strategy language.
+
+4. Read first:
+
+       Exact docs and exact source files.
+
+5. Reference files:
+
+       Exact RTXDI/RTX Remix files relevant to the slice.
+
+6. Owned write set:
+
+       Exact rbdoom files the worker may edit.
+
+7. Forbidden changes:
+
+       Reservoir math, unrelated modules, broad refactors, fallback hacks,
+       code copied from NVIDIA, and worktree cleanup.
+
+8. Implementation checklist:
+
+       Concrete steps the worker should do.
+
+9. Verification:
+
+       Local compile/build command if applicable, or "no build required" for
+       docs-only/diagnostic-code-not-built assignments.
+
+10. Final response requirements:
+
+       Changed paths, whether build passed, and blockers. No broad proposal.
+
+11. Shared-worktree warning:
+
+       "You are not alone in the codebase. Do not revert edits made by others.
+       Work with existing changes and list any conflict."
+
+
+When To Use Workers
+-------------------
+
+Use one worker when:
+
+- the slice has a clear owned write set;
+- the worker can make progress without further design decisions;
+- the coordinator can review the diff afterward.
+
+Use two workers only when write sets are disjoint. Example:
+
+- Worker A: shader diagnostics only.
+- Worker B: documentation/test instructions only.
+
+Do not run two workers against the same shader file at the same time.
+
+Do not delegate the immediate blocker if the coordinator needs that answer
+before doing anything else. In that case, the coordinator should inspect it
+directly.
+
+
+Current First Worker: MV-00A Diagnostic-Only Contract Audit
+-----------------------------------------------------------
+
+Use this if the current branch has not yet added split motion-vector projection
+diagnostics.
+
+Worker prompt:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Slice:
+        MV-00A
+
+    Mission:
+        Add diagnostic-only motion-vector failure classification; do not change
+        motion-vector behavior.
+
+    Read first:
+        docs/pathtracing.txt
+        docs/pathtrace_modules.txt
+        docs/restir_friendly/motion_vectors/README.txt
+        docs/restir_friendly/motion_vectors/motion_vector_reference_guide.txt
+        docs/restir_friendly/motion_vectors/worker_launch_protocol.txt
+
+    Reference files:
+        E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/GBufferHelpers.hlsli
+        E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/TemporalResampling.hlsl
+        E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/TemporalResampling.hlsli
+        E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/geometry_resolver.slangh
+        E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+
+    Owned write set:
+        neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+        neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+        docs/restir_friendly/motion_vectors/motion_vector_reference_guide.txt
+
+    Forbidden changes:
+        Do not change reservoir math.
+        Do not change temporal thresholds.
+        Do not change light sampling.
+        Do not change final resolve.
+        Do not change motion-vector behavior in this slice.
+        Do not copy/paste NVIDIA code.
+        Do not revert edits made by others.
+
+    Implementation checklist:
+        1. Locate the current projection/motion-vector failure status path.
+        2. Add or reuse diagnostic status names for:
+           missing previous camera,
+           previous position behind previous camera,
+           previous xy outside previous frame,
+           static previous range mismatch,
+           static material/class mismatch,
+           packed object missing previous motion,
+           valid vector.
+        3. Preserve existing returned bool behavior and existing vector output.
+        4. Update debug color/status mapping only if needed to expose the new
+           categories.
+        5. Update the guide with exact status names and file locations.
+
+    Verification:
+        If shader code changed, build from E:/prog/rbdoom-3-bfg-rt/neo with:
+            cmake --build --preset win64-pt-dev-release
+        If the build succeeds, do not deploy unless explicitly told by the
+        coordinator.
+
+    Final response:
+        List changed files.
+        State whether behavior changed. It should be "no".
+        State whether build passed or was not run.
+        List blockers only if real.
+
+    Shared-worktree warning:
+        You are not alone in the codebase. Do not revert edits made by others.
+        Work with existing changes and list any conflict.
+
+
+Next Worker: MV-01A Offscreen Previous XY Producer Fix
+-----------------------------------------------------
+
+Use this only after MV-00A diagnostics are reviewed or if the coordinator has
+confirmed equivalent diagnostics already exist.
+
+Worker prompt:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Slice:
+        MV-01A
+
+    Mission:
+        Stop treating finite offscreen previous xy as motion-vector producer
+        failure; leave previous-pixel bounds rejection to the consumer.
+
+    Read first:
+        docs/pathtracing.txt
+        docs/pathtrace_modules.txt
+        docs/restir_friendly/motion_vectors/README.txt
+        docs/restir_friendly/motion_vectors/motion_vector_reference_guide.txt
+        docs/restir_friendly/motion_vectors/worker_launch_protocol.txt
+
+    Reference files:
+        E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/GBufferHelpers.hlsli
+        E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/TemporalResampling.hlsl
+        E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/TemporalResampling.hlsli
+
+    Owned write set:
+        neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+        neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+    Forbidden changes:
+        Do not change reservoir math.
+        Do not change temporal thresholds.
+        Do not change surface similarity policy.
+        Do not change light sampling.
+        Do not clamp previous xy to the frame edge.
+        Do not convert offscreen xy to zero motion.
+        Do not copy/paste NVIDIA code.
+        Do not revert edits made by others.
+
+    Implementation checklist:
+        1. Find the projection helper that converts world/previous position to
+           previous pixel and depth.
+        2. Preserve rejection for missing previous camera and behind-camera
+           previous positions.
+        3. For finite projected NDC outside [-1, 1], still return a valid
+           motion vector:
+               xy = previousPixelCenter - currentPixelCenter
+               z  = previousLinearDepth - currentLinearDepth
+        4. Mark offscreen previous xy through diagnostics, not producer failure.
+        5. Ensure consumers still do their own previous-pixel bounds checks.
+        6. Do not alter dynamic/skinned previous-position logic except where it
+           passes through the shared projection boundary.
+
+    Verification:
+        Build from E:/prog/rbdoom-3-bfg-rt/neo:
+            cmake --build --preset win64-pt-dev-release
+
+    Final response:
+        List changed files.
+        State exactly how offscreen xy is represented.
+        State whether build passed.
+        State what the coordinator should ask the user to inspect.
+
+    Shared-worktree warning:
+        You are not alone in the codebase. Do not revert edits made by others.
+        Work with existing changes and list any conflict.
+
+
+Next Worker: MV-02A Static Camera Motion
+----------------------------------------
+
+Use this only after MV-01A has been visually accepted or explicitly rejected
+with useful diagnostics.
+
+Worker prompt:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Slice:
+        MV-02A
+
+    Mission:
+        Make static world geometry produce camera motion from current world
+        position and previous camera projection instead of requiring previous
+        static vertex identity.
+
+    Read first:
+        docs/pathtracing.txt
+        docs/pathtrace_modules.txt
+        docs/restir_friendly/motion_vectors/README.txt
+        docs/restir_friendly/motion_vectors/motion_vector_reference_guide.txt
+        docs/restir_friendly/motion_vectors/worker_launch_protocol.txt
+
+    Reference files:
+        E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/GBufferHelpers.hlsli
+        E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/PT/TemporalResampling.hlsl
+        E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/surface/surface_interaction.slangh
+        E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/concept/camera/camera.slangh
+
+    Owned write set:
+        neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+        neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+
+    Forbidden changes:
+        Do not change dynamic rigid/skinned previous-position logic.
+        Do not remove previous-static diagnostics.
+        Do not change reservoir math.
+        Do not change temporal thresholds.
+        Do not change light sampling.
+        Do not copy/paste NVIDIA code.
+        Do not revert edits made by others.
+
+    Implementation checklist:
+        1. Identify static world surface classes in the current motion supplier.
+        2. For static world geometry, set previous world position equal to
+           current world position.
+        3. Project that position through the previous camera to create
+           screen-space motion.
+        4. Preserve a diagnostic path showing where previous-static identity
+           lookup would have failed.
+        5. Leave dynamic/skinned surfaces on the existing previous-position
+           path.
+
+    Verification:
+        Build from E:/prog/rbdoom-3-bfg-rt/neo:
+            cmake --build --preset win64-pt-dev-release
+
+    Final response:
+        List changed files.
+        State exactly which surface classes use static camera motion.
+        State whether build passed.
+        State what the coordinator should ask the user to inspect.
+
+    Shared-worktree warning:
+        You are not alone in the codebase. Do not revert edits made by others.
+        Work with existing changes and list any conflict.
+
+
+Coordinator Review Checklist
+----------------------------
+
+After a worker returns:
+
+1. Inspect the diff.
+2. Confirm it only touched the owned write set.
+3. Confirm forbidden areas were not changed.
+4. Confirm no NVIDIA code was pasted.
+5. Confirm behavior matches the slice.
+6. Build/deploy if not already done.
+7. Tell the user exactly what to test.
+8. Stop for user visual feedback.
+
+
+User Test Text For MV-01A/MV-02A
+--------------------------------
+
+After deployment, ask the user to test:
+
+    r_pathTracingRestirPTUnifiedLightLoad 1
+    r_pathTracingRestirPTUnifiedLightSample 1
+    r_pathTracingRestirPTDiDebugView 12
+    r_pathTracingRestirPTTemporalNeighborDebugMode 2
+    r_pathTracingMotionVectorExport 1
+
+Ask them to compare:
+
+- stationary wall
+- strafe side to side
+- walk toward a room edge
+- pan across a doorway
+- cross a known bad portal region
+
+Expected useful feedback:
+
+- Are invalid/orange/magenta regions reduced?
+- Do offscreen/newly revealed edges show long-vector behavior instead of zero?
+- Do safe portals remain safe?
+- Do bad portals still corrupt adjacent areas?
+
+
+User Test Text For MV-RRX-01
+----------------------------
+
+After deployment, ask the user to test:
+
+    r_pathTracingMotionVectorDisableRigid 0
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTDiDebugView 70
+
+Ask them to inspect known large routed-rigid problem objects, doors, and room
+edges while standing still, strafing, walking forward/back, and panning.
+
+Expected useful feedback:
+
+- Does column 1 show fewer hard holes on large routed-rigid objects?
+- Does column 1 line up more closely with old mode 47 behavior?
+- Do columns 2 and 3 still report consumer-side reset/history holes?
+- Does disabling rigid still only remove data instead of improving temporal
+  coverage?
+
+If column 1 improves but columns 2/3 remain bad, MV-RRX-01 likely did its job
+and MV-RRX-02 or a later consumer-side task should be considered next.

@@ -1,0 +1,175 @@
+Remix-Shaped Light Universe I/O Whitelist
+========================================
+
+This whitelist applies only to the Remix-shaped light-universe lane.
+
+
+Allowed Inputs
+--------------
+
+I-01: Current Doom Analytic Light Records
+
+    Allowed sources:
+        PathTraceDoomLights.cpp
+        BuildPathTraceDoomAnalyticLightCandidates declared output
+        game metadata needed for stable identity and payload diagnostics
+
+    Forbidden use:
+        broad suppression as a fix
+        old NEE records as identity
+        mirror/subview domain as proof
+
+
+I-02: Current Emissive Light Records
+
+    Allowed sources:
+        final merged emissive list after emissive universe merge
+        current emissive identity/remap data, after analytic proof
+
+    Forbidden use:
+        emissive integration before analytic proof
+        pre-merge emissive lists as the final RTXDI domain
+
+
+I-03: Previous Dense Light Domain
+
+    Meaning:
+        Previous frame payloads owned by this Remix-shaped producer.
+
+    Allowed use:
+        RAB_LoadLightInfo(index, previousFrame=true)
+        current-to-previous mapping validation
+
+    Forbidden use:
+        previous domain in initial sampling
+        fabricated previous payloads as proof
+
+
+I-04: Stable Light Identity Inputs
+
+    Allowed fields:
+        renderLight index where stable
+        entity number where stable
+        emissive persistent identity where available
+        explicit class/type
+
+    Forbidden use:
+        compact candidate slot as identity
+        material index or texture index as sole identity
+        radiance/color as identity
+
+
+I-05: Current Primary Surface
+
+    Allowed use:
+        debug RAB replay validity
+        clean RTXDI initial sampling, after handoff
+
+    Forbidden use:
+        fallback beauty/albedo output
+
+
+I-06: RTXDI / RAB Helper Boundary
+
+    Allowed helpers:
+        RAB_LoadLightInfo
+        RAB_TranslateLightIndex
+        RAB_SamplePolymorphicLight
+        RAB_GetLightSampleTargetPdfForSurface
+
+    Forbidden use:
+        invented targetPdf or sourcePdf math
+        copied RTXDI/Remix source text
+
+
+Allowed Outputs
+---------------
+
+O-01: Dense Current Light Payload Buffer
+
+    Required fields:
+        replayable RAB payload
+        stable class/type
+        stable source identity
+        dense current index
+
+
+O-02: Dense Previous Light Payload Buffer
+
+    Required fields:
+        previous-frame replayable RAB payload
+        stable class/type
+        stable source identity
+        dense previous index
+
+
+O-03: Two-Way Light Mapping
+
+    Required fields:
+        current-to-previous map
+        previous-to-current map
+        explicit invalid sentinel
+
+
+O-04: Light Ranges And Counts
+
+    Required fields:
+        analytic range/count
+        emissive range/count, after analytic proof
+        total dense count
+
+
+O-05: Debug Views
+
+    Required views:
+        route/status
+        current identity
+        previous identity
+        mapping classification
+        payload-only/structural change classification
+        RAB replay validity
+
+
+O-06: CPU Dump
+
+    Required fields:
+        all cvar state
+        dense counts
+        map counts
+        current-only/previous-only counts
+        signatures
+        first failing contract
+
+
+Forbidden Inputs
+----------------
+
+Do not consume:
+
+    old rbdoom selected-light NEE records
+    old smoke fallback output
+    mode-56 RRX debug output
+    spatial reservoir pages
+    best-light buffers
+    denoiser/confidence/gradient buffers
+    mirror/subview state as proof
+    full-map brute-force domain as proof
+
+
+Forbidden Outputs
+-----------------
+
+Do not output:
+
+    spatial proof
+    best-light proof
+    denoised output
+    fallback beauty or albedo
+    synthetic-light temporal compliance claims
+
+
+Reject Condition
+----------------
+
+Reject any worker result that cannot list every consumed input and written
+output by whitelist id.

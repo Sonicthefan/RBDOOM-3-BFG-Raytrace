@@ -70,14 +70,30 @@ r_pathTracingCleanRtxdiDiView
         1 = full-screen route sentinel
         2 = primary-surface adapter status
         3 = analytic-light adapter status
-        4 = initial-reservoir fields
-        5 = temporal-reservoir fields
-        6 = selected-light identity
-        7 = reservoir M/history
-        8 = reservoir weight/targetPdf
+        4 = raw flat-diffuse analytic DI, temporal off/current only
+        5 = raw flat-diffuse analytic DI, temporal on
+        6 = raw flat-diffuse split view, current-only vs temporal
+        7 = selected-light identity and reservoir M/history
+        8 = reservoir weight/targetPdf and rejection status
+
+    Current diagnostic subviews:
+        r_pathTracingCleanRtxdiDiView8Band -1 = stacked view-8 bands
+        r_pathTracingCleanRtxdiDiView8Band 0..7 = one legacy temporal/PDF band
+            full-screen
+        r_pathTracingCleanRtxdiDiView8Band 8 = selected-sample black-output
+            classifier; with temporal on, left is current and right is temporal
+
+    Stage availability:
+        1 is the RDI-01 route sentinel.
+        2-8 are reserved contract values. Before the matching staged producer
+        exists, they must route to an explicit deferred/not-available clean-room
+        status, not to fallback lighting or an existing ReSTIR/RRX debug view.
 
     Rule:
         Views must write every pixel and may not show fallback lighting.
+        Views 4-6 are the only user-facing accumulation proof views. Status
+        colors, reservoir bands, dumps, buffer survival, or green valid pixels
+        are diagnostics only and must not be reported as temporal accumulation.
 
 
 r_pathTracingCleanRtxdiDiTemporal
@@ -94,6 +110,32 @@ r_pathTracingCleanRtxdiDiTemporal
     Rule:
         When 0, output must be current-only initial reservoir diagnostics.
         When 1, output may use previous-frame reservoir data.
+
+
+r_pathTracingCleanRtxdiDiInitialVisibility
+
+    Type:
+        integer/bool
+
+    Default:
+        0
+
+    Meaning:
+        Enables RTXDI initial selected-sample visibility in the clean DI
+        initial producer.
+
+    Rule:
+        This is a diagnostic/parity switch, not a standalone proof of Remix
+        temporal behavior. It must not be claimed as a fix unless temporal-on
+        output visibly changes from black/noisy invalid samples to stable raw
+        flat-diffuse accumulation on real Doom analytic lighting.
+
+    Current finding:
+        In rbdoom clean view 12, the switch reaches the shader and is reported
+        in r_pathTracingCleanRtxdiDiDump as initialVisibility=1, but it did not
+        visibly improve the current clean temporal path. Treat that as evidence
+        that the temporal surface/reprojection/visibility consumer still
+        deviates from Remix/RRX.
 
 
 r_pathTracingCleanRtxdiDiSpatial
@@ -201,6 +243,13 @@ r_pathTracingCleanRtxdiDiDump
         dispatch dimensions
         active shader route
 
+Historical note:
+
+    r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent was an old analytic PDFNEE
+    consume diagnostic. It is not the replacement producer contract, not proof
+    for RLU current-frame estimator work, and must not be required by the
+    normal clean-room DI path.
+
 
 Forbidden CVar Coupling
 -----------------------
@@ -226,6 +275,7 @@ The intended clean-room validation baseline is:
     r_pathTracingCleanRtxdiDiEnable 1
     r_pathTracingCleanRtxdiDiView 5
     r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiInitialVisibility 0
     r_pathTracingCleanRtxdiDiSpatial 0
     r_pathTracingCleanRtxdiDiBestLights 0
     r_pathTracingCleanRtxdiDiDenoiser 0
@@ -235,6 +285,18 @@ The intended clean-room validation baseline is:
 Temporal-off comparison:
 
     r_pathTracingCleanRtxdiDiTemporal 0
+
+Initial-visibility parity check:
+
+    r_pathTracingCleanRtxdiDiInitialVisibility 1
+    r_pathTracingCleanRtxdiDiDump 1
+
+Expected dump field:
+
+    initialVisibility=1
+
+This check only proves the switch is wired. It does not prove temporal
+accumulation.
 
 No-light negative path:
 
@@ -246,4 +308,3 @@ Review Rule
 
 Reject any worker result that activates clean-room DI through mode 56 or an
 existing RRX debug view instead of this CVar namespace.
-

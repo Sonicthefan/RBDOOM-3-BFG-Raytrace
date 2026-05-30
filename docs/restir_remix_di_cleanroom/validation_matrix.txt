@@ -21,10 +21,50 @@ Use Portal RTX / RTX Remix as behavior reference with:
 The target is not identical visual content. The target is matching temporal
 behavior:
 
-    current-only raw DI is noisy
-    temporal reuse visibly reduces noise over frames
-    camera motion shows expected reservoir reprojection behavior
+    current-only raw flat-diffuse DI is noisy at 1 sample per pixel
+    temporal reuse visibly reduces that light noise over frames
+    camera motion shows expected reservoir tracking/reprojection behavior
     disocclusion/current-only areas do not show fallback scene lighting
+
+
+Primary Human Proof
+-------------------
+
+The primary proof is raw lighting, not a status dashboard.
+
+As soon as analytic lights or emissive lights are connected to a clean-room DI
+sample, the worker must provide a basic flat-diffuse validation view:
+
+    constant diffuse reflectance
+    physically based direct-light estimate from the selected DI sample
+    one sampled light candidate per pixel in the temporal-off view
+    same resolve path for temporal off and temporal on
+    analytic lights first
+    no material albedo, textures, path-traced beauty, fallback lighting,
+        denoiser, spatial, best lights, or brightness ramps
+
+Temporal accumulation is validated only by this behavior:
+
+    temporal off:
+        noisy current-only direct lighting
+
+    temporal on:
+        same mean lighting, visibly reduced noise over frames
+
+    camera movement:
+        lighting tracks through motion/reprojection
+        disocclusion edges and failed reprojection return to current-only noise
+
+The following are diagnostics only and cannot be used as temporal accumulation
+proof:
+
+    false-color status views
+    reservoir field bands
+    selected-light identity colors
+    CPU dumps
+    green valid pixels
+    buffer/page survival
+    non-crashing builds
 
 
 Hard Pass For RDI-06
@@ -35,8 +75,11 @@ Pass only if all are true:
     clean-room path owns every pixel
     invalid pixels are explicit colors
     no albedo or fallback scene lighting is visible in proof view
-    temporal off produces current-only noisy/unstable reservoir output
-    temporal on produces visible temporal settling/accumulation
+    temporal off produces raw flat-diffuse 1 spp current-only noisy lighting
+    temporal on produces raw flat-diffuse noisy-to-less-noisy accumulation
+    temporal on preserves mean brightness rather than fading from black or
+        averaging luminance through a filter
+    camera motion shows tracking/reprojection behavior, not a static overlay
     spatial is off
     best lights are off
     previous-temporal-as-best is off and unused
@@ -55,6 +98,11 @@ Fail if any are true:
 
     output looks like base albedo or normal lit game image
     empty reservoir pixels reveal a rendered scene underneath
+    worker claims temporal accumulation from status colors, field bands, dumps,
+        or buffer/page survival
+    temporal on fades from black to lit instead of reducing noise around the
+        same direct-light estimate
+    temporal on changes brightness because of a luminance averaging filter
     temporal proof requires spatial
     temporal proof requires best lights
     temporal proof requires denoiser/confidence
@@ -63,6 +111,8 @@ Fail if any are true:
     worker changed reservoir/weight/targetPdf/history math
     worker added a synthetic reservoir builder
     worker added a history brightness ramp
+    worker claims initial visibility fixed temporal behavior without visible
+        raw flat-diffuse accumulation
     worker routed clean-room proof through mode 56 or r_pathTracingRestirPTDiDebugView
     worker consumed a forbidden input class from io_whitelist.txt
     temporal reuse exists but no owned clean-room DI initial / NEE-equivalent
@@ -82,11 +132,24 @@ Required controls:
 
     clean-room DI path enable
     temporal reuse enable/disable
+    initial selected-sample visibility enable/disable
     spatial forced off
     best lights forced off
     fallback lighting forced off in proof view
     analytic-only first-light mode
-    reservoir-only debug view
+    raw flat-diffuse current-only validation view
+    raw flat-diffuse temporal validation view
+    reservoir/status debug views, diagnostics only
+
+Initial-visibility validation:
+
+    r_pathTracingCleanRtxdiDiInitialVisibility 1 must be visible in
+    r_pathTracingCleanRtxdiDiDump as initialVisibility=1.
+
+    Passing this check only proves the toggle reaches the clean initial
+    producer. It is not a temporal proof unless the raw flat-diffuse temporal
+    view also shows visible noisy-to-less-noisy accumulation on real Doom
+    analytic lighting.
 
 Exact names are assigned by the implementation task, but they must be reported
 in the worker result only if cvar_contract.txt is updated first. Otherwise use
@@ -96,7 +159,7 @@ the exact r_pathTracingCleanRtxdiDi* names.
 Visual Status Colors
 --------------------
 
-The proof view must document exact colors for:
+Status views must document exact colors for:
 
     invalid surface
     unsupported surface
@@ -112,7 +175,8 @@ The proof view must document exact colors for:
     reservoir weight band
 
 Colors must be loud enough that fallback lighting cannot be mistaken for a
-status.
+status. These views are preflight diagnostics only. They do not prove temporal
+accumulation.
 
 
 Negative-Path Tests
@@ -124,16 +188,17 @@ Every worker implementation result must include these tests:
         expected: no-light status, not albedo
 
     Disable temporal:
-        expected: current-only reservoir status/noisy output
+        expected: raw flat-diffuse current-only 1 spp noisy lighting
 
     Enable temporal:
-        expected: temporal-reused status in stable pixels
+        expected: same raw lighting with visible noise reduction over frames
 
     Rapid camera pan:
-        expected: current-only/disocclusion status at reprojection misses
+        expected: tracking/reprojection behavior, with current-only noisy
+            disocclusion at misses
 
     Static camera:
-        expected: temporal settling over frames
+        expected: noisy-to-less-noisy direct lighting over frames
 
     Zero/invalid targetPdf diagnostic, if available:
         expected: explicit zero-target status

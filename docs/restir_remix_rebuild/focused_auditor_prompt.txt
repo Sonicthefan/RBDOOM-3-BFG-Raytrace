@@ -1,0 +1,179 @@
+Focused Auditor Prompt: RRX / RTX Remix Conformance
+===================================================
+
+Use this prompt for a read-only auditor agent whose only job is to check
+rbdoom's current ReSTIR/RTXDI light and reservoir path against RTX Remix /
+RTXDI contract flow.
+
+
+Prompt
+------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    Read-only focused conformance audit. Do not modify files. Do not build.
+    Do not propose new renderer policy or new ReSTIR math.
+
+Goal:
+
+    Audit whether rbdoom's current code actually follows the RTX Remix / RTXDI
+    producer-to-consumer contracts for the light-manager and reservoir path.
+    Ignore broad architecture commentary unless it directly supports one of
+    the four required audit areas below.
+
+Reference roots:
+
+    RTX Remix:
+        E:/prog/references/dxvk-remix-git
+
+    RTXDI:
+        E:/prog/references/RTXDI-main
+
+rbdoom areas to inspect:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.*
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    neo/renderer/NVRHI/PathTraceRestirLightManager.*
+    neo/shaders/builtin/pathtracing/RtxdiBridge/
+    neo/shaders/builtin/pathtracing/remix_bridge/
+    neo/shaders/builtin/pathtracing/remix_rtxdi/
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+
+Reference areas to inspect:
+
+    src/dxvk/rtx_render/rtx_scene_manager.cpp
+    src/dxvk/rtx_render/rtx_light_manager.cpp
+    src/dxvk/rtx_render/rtx_context.cpp
+    src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+
+
+Audit Areas
+-----------
+
+Audit exactly these four areas.
+
+1. Producer-to-consumer flow
+
+    For each relevant RTX Remix responsibility, list:
+
+        Remix producer
+        Remix consumer
+        rbdoom producer
+        rbdoom consumer
+        whether rbdoom's consumer is active, diagnostic-only, inactive, or
+        legacy fallback
+
+    Focus on:
+
+        current light buffer
+        previous light buffer
+        light mapping buffer
+        active light count
+        per-type ranges/sample counts if present
+        DI reservoir domain
+        temporal reuse input/output pages
+
+2. Active consumption proof
+
+    For every rbdoom output that claims to match Remix, provide exact file/line
+    evidence showing the next active rbdoom consumer reads it.
+
+    If the output is only dumped, only allocated, only in an inactive shader, or
+    only used by a probe/debug path, mark it as not active.
+
+    Do not accept class names, buffer existence, nonzero counts, or successful
+    dumps as active consumption proof.
+
+3. Negative-path behavior
+
+    Compare RTXDI/RTX Remix failure behavior against rbdoom behavior.
+
+    Required cases:
+
+        current light cannot map to previous
+        previous reservoir selected light cannot map to current
+        previous light payload exists but identity/remap fails
+        dynamic light payload changes while identity/remap survives
+        resource/output incompatibility requires a real reset
+
+    For each case, state whether rbdoom:
+
+        rejects only the local candidate/sample
+        marks only the affected reservoir/sample invalid
+        broadly clears the reservoir domain
+        falls back to old smoke/ReSTIR behavior
+        has no active implementation
+
+4. Runtime classification
+
+    Audit whether rbdoom has runtime diagnostics that can distinguish:
+
+        storage survived
+        mapping failed
+        payload changed
+        global clear happened
+        consumer inactive
+
+    For each diagnostic view or dump, state what it proves and what it does not
+    prove. A raw reservoir storage view proves storage only; it does not prove
+    temporal reuse correctness.
+
+
+Output Format
+-------------
+
+Return findings first, ordered by severity:
+
+    P1: Conformance failure or missing active consumer that can make the current
+        path misleading or non-functional.
+
+    P2: Missing diagnostic or deferred negative-path proof that can hide future
+        failures.
+
+    P3: Documentation or naming issue that may confuse workers but does not
+        directly affect current behavior.
+
+For each finding include:
+
+    title
+    severity
+    rbdoom file/line evidence
+    RTX Remix or RTXDI file/line evidence
+    why this violates or fails to prove the contract
+    exact next corrective slice, if obvious
+
+Then include a short table:
+
+    Contract item | rbdoom producer | rbdoom active consumer | status |
+    evidence
+
+End with:
+
+    "Do not claim conformance until:"
+
+and list the missing active consumer proof, negative-path proof, or runtime
+classification proof.
+
+
+Hard Limits
+-----------
+
+Do not edit files.
+Do not build.
+Do not recommend new ReSTIR math.
+Do not recommend broad dynamic-light suppression.
+Do not use "game does not crash" as evidence.
+Do not use "buffer exists" as evidence.
+Do not use "dump prints plausible values" as evidence.
+Do not use "raw reservoir survives" as evidence of temporal correctness.

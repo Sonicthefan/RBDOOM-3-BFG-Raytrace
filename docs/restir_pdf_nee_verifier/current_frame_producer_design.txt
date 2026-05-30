@@ -11,6 +11,17 @@ The producer replaces the old PDFNEE/NEE attempts. It does not extend their
 light modes, ReGIR routes, portal pools, split-domain fallback, old NEE
 records, or old contribution output.
 
+Current status note:
+
+    This design remains the baseline shape for selected-light identity,
+    reservoir output, targetPdf, solidAnglePdf, visibility, and final
+    contribution. The sourcePolicy 1 proposal distribution has moved beyond
+    this RLU-01 design and is documented in
+    rlu_04_current_status_and_parity_notes.txt.
+
+    The active blocker is current-domain Doom analytic parity with clean RTXDI
+    DI view 12, not temporal accumulation.
+
 
 Default Behavior
 ----------------

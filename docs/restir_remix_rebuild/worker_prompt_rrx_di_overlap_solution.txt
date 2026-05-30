@@ -1,0 +1,155 @@
+Worker Prompt: RRX DI Overlap/Temporal Solution
+===============================================
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    Do RRX-OV-01 only unless the user explicitly asks for RRX-OV-02 in the same
+    pass.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+    docs/restir_remix_rebuild/remix_file_graph.txt
+    docs/restir_remix_rebuild/implementation_slices.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Critical context:
+
+    Mode 56 view 72 is now the active RRX DI final-consumer proof path, but
+    overlapping lights still do not converge. Do not tune temporal thresholds
+    or invent reservoir math. The current active path is temporal-only and uses
+    a non-Remix previous-best approximation: projected previous temporal
+    reservoir is fed back as previous-best. Remix previous-best comes from a
+    separate best-light product, not the temporal reservoir.
+
+Before editing, write a short plan in your response:
+
+    Remix file-equivalent being matched
+    rbdoom file being edited
+    exact input contract
+    exact output contract
+    forbidden areas you will not touch
+
+RRX-OV-01 owned write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/renderer/NVRHI/PathTraceCVars.cpp only if a CVar default/help text must
+        change
+    docs/pathtracing.txt only if CVar behavior changes
+
+RRX-OV-01 required implementation:
+
+    1. Stop using the projected previous temporal reservoir as the default
+       previous-best candidate for RestirPTRrxDiBuildInitialReservoir.
+
+    2. Keep real RTXDI temporal reuse active.
+
+    3. Preserve future support for a real RtxdiBestLights input.
+
+    4. If an A/B CVar is added or reused, it must be debug-only, off by default,
+       and clearly documented as a non-Remix approximation.
+
+    5. Keep previous-best debug fields honest: no source means
+       previousBestSourceValid=0.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no target PDF or weight changes
+    no temporal threshold tuning
+    no light suppression
+    no spatial reuse in RRX-OV-01
+    no old smoke reservoir fallback
+
+Build/deploy:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy exe:
+
+        E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    If shaders changed, copy contents of:
+
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+    to:
+
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+Final response must include:
+
+    files changed
+    exact previous-best behavior before/after
+    active consumer proof with file/line evidence
+    negative-path proof
+    build/deploy result
+    runtime CVars to test
+    whether RRX-OV-02 spatial reuse remains required
+
+
+Follow-up Prompt For RRX-OV-02
+------------------------------
+
+Use this only after RRX-OV-01 is reviewed.
+
+Task:
+
+    RRX-OV-02 only: activate Remix-shaped RRX DI spatial reuse and make view 72
+    / the RRX final consumer read the spatial output reservoir.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/rrx_di_overlap_temporal_solution.txt
+    docs/restir_remix_rebuild/remix_file_graph.txt
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/lighting.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/SpatialResampling.hlsli
+
+Owned write set:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_preview_resolve.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    docs/pathtracing.txt
+
+Required implementation:
+
+    Activate RTXDI_DISpatialResampling for the RRX DI reservoir pages and make
+    the final consumer read spatial output. Use RTXDI/Remix helper math only.
+    Add diagnostics proving temporal valid, spatial valid, spatial selected
+    light, spatial weight, and final consumer source.
+
+Forbidden:
+
+    no hand-rolled spatial math
+    no old smoke spatial reservoir fallback
+    no GI, gradients, best-light, DLSS RR, or denoiser work
+    no ReSTIR threshold tuning unless copied from the documented Remix/RTXDI
+    parameter contract

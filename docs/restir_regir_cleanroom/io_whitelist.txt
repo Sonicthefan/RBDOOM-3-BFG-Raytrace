@@ -12,12 +12,13 @@ I-01: Current Camera / View State
     Allowed fields:
         current view origin
         current projection dimensions
-        current frame index
+        current frame index for dumps and stochastic sample UVs only
 
     Forbidden use:
         previous camera as proof
         motion vectors
         temporal reprojection
+        selected ReGIR slot choice in a stability proof
 
 
 I-02: Current Surface World Position
@@ -38,13 +39,16 @@ I-02: Current Surface World Position
 I-03: Current Light Domain
 
     Allowed sources:
+        current Remix/RAB light-manager records
+        current unified/RAB light records only if explicitly declared
         current Doom analytic light records
         current emissive records
-        current unified/RAB light records only if explicitly declared
 
     Required declaration:
         active domain and count
         global identity mapping
+        whether ReGIR requested the current Remix/RAB light-manager payload
+            domain or fell back to legacy split buffers
 
     Forbidden use:
         previous light domain
@@ -62,9 +66,12 @@ I-04: ReGIR Parameters
         lights per cell
         build sample count
         light domain selector
+        selected-slot policy
 
     Forbidden use:
         hidden hard-coded parameters not reported by dump
+        consumer-side overrides that change cell size, center mode, domain, or
+            lights per cell without being reported
 
 
 I-05: RTXDI / RAB Light Helpers
@@ -91,6 +98,8 @@ O-01: ReGIR Candidate Buffer
         global light identity or explicit invalid identity
         source distribution / invSourcePdf or equivalent explicit weight
         cell/candidate slot ownership
+        light class
+        valid/empty reason
 
 
 O-02: ReGIR Debug Views
@@ -104,6 +113,8 @@ O-02: ReGIR Debug Views
         selected emissive identity
         sourcePdf / invSourcePdf
         fallback / empty reason
+        deterministic selected-slot stability (debugView 9)
+        cell-local mean contribution across all valid slots (debugView 10)
 
 
 O-03: CPU Dump
@@ -115,6 +126,11 @@ O-03: CPU Dump
         buffer size
         light domain counts
         dispatch dimensions
+        effective center mode and center
+        effective cell size
+        effective lights per cell
+        selected-slot policy
+        consumer overrides, or "none"
         first failing contract
 
 

@@ -1,0 +1,372 @@
+Clean RTXDI View 12 Emergency Handoff
+=====================================
+
+Repo:
+    E:/prog/rbdoom-3-bfg-rt
+
+Branch:
+    codex/restir-rab-reference-audit-experiment
+
+Latest relevant commits:
+    ece1919a Add clean RTXDI analytic diagnostics
+    cb8fa626 Restore clean RTXDI mode 12 analytic path
+
+Purpose of this file:
+    Preserve the current findings, emergency debug CVars, and next-step
+    guidance for a fresh agent. The chat that produced this state is overloaded;
+    do not rediscover the same facts by repeating broad ReSTIR rewrites.
+
+
+Current High-Level State
+========================
+
+The clean RTXDI DI path can prove accumulation with synthetic lights, but real
+Doom analytic lights in view 12 remain unstable.
+
+Important current observations:
+
+1. Synthetic view 11 can accumulate.
+   This proves the RTXDI temporal machinery can work under a clean synthetic
+   light/surface contract.
+
+2. Real Doom analytic view 12 is still not reliably accumulating.
+   Single isolated Doom lights were once observed working in older test states,
+   but in the current state the user reports even single Doom lights can break.
+   Do not assume overlap-only failure.
+
+3. Full-map / full analytic brute force is worse.
+   A full-map brute force test roughly doubled the noise. The view-12 full
+   analytic domain toggle also made things worse. This rules out "just include
+   all lights" as a solution.
+
+4. The mirror glitch is real but not a solution.
+   The mirror can produce strong apparent accumulation, sometimes around 90%
+   except for very bright areas near lights. A weaker "half glitch" from a
+   different portal can produce around 50%. But this is an accidental state
+   perturbation, not a compliant RTXDI solution.
+
+5. Mirror dump evidence says the mirror changes the analytic domain.
+   Example dump while looking at mirror:
+       subview=1 mirror=1 area=23 drawSurfs=129
+       cleanCurrentAnalytic=100
+       cleanPortalAnalytic=31
+       cleanAnalyticRemap=545
+
+   Same spot with mirror offscreen:
+       subview=0 mirror=0 area=28 drawSurfs=27
+       cleanCurrentAnalytic=101
+       cleanPortalAnalytic=5
+       cleanAnalyticRemap=546
+
+   This is the key fact: the mirror path changes the portal/area analytic
+   domain. It is not merely denoising or reusing the same data better.
+
+6. Subview/mirror toggle findings:
+       r_pathTracingCleanRtxdiDiSubviewDispatch 1
+           Primary driver of the mirror glitch.
+
+       r_pathTracingCleanRtxdiDiSubviewSurfacePromote 1
+           Adds another layer of denoising, but cannot help without subview
+           dispatch.
+
+       r_pathTracingCleanRtxdiDiSubviewReservoirPromote
+           Not identified as the main driver.
+
+   Away from mirrors, these toggles have no impact, as expected.
+
+7. Target floor made things noisier and erased the mirror glitch.
+   r_pathTracingCleanRtxdiDiDoomTargetFloor 1 promotes weak/bad Doom analytic
+   samples and removes useful target filtering. Keep it off for baseline tests.
+
+8. BRDF gate relaxation fixed some binary diagnostics but did not fix view 12.
+   r_pathTracingCleanRtxdiDiRelaxBrdfGates 1 can make view 15 greener, proving
+   some RAB receiver gates are real. It did not restore stable view-12 temporal
+   accumulation by itself.
+
+
+Important Code Locations
+========================
+
+Clean RTXDI shader:
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Clean RTXDI dispatch and domain selection:
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+
+Clean RTXDI CVars:
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Shared RAB target/BRDF helpers touched by diagnostics:
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightTarget.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Brdf.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_SurfaceCore.hlsli
+
+
+Emergency Debug CVars
+=====================
+
+Baseline for view 12 retest:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingCleanRtxdiDiView12FullAnalyticDomain 0
+    r_pathTracingCleanRtxdiDiRelaxBrdfGates 0
+    r_pathTracingCleanRtxdiDiDoomTargetFloor 0
+    r_pathTracingCleanRtxdiDiSubviewDispatch 1
+    r_pathTracingCleanRtxdiDiSubviewReservoirPromote 1
+    r_pathTracingCleanRtxdiDiSubviewSurfacePromote 1
+
+Mirror/subview isolation:
+
+    r_pathTracingCleanRtxdiDiSubviewDispatch 0
+        Blocks clean RTXDI from running during mirror/subviews.
+
+    r_pathTracingCleanRtxdiDiSubviewReservoirPromote 0
+        Allows subview dispatch but blocks subview temporal-reservoir promotion.
+
+    r_pathTracingCleanRtxdiDiSubviewSurfacePromote 0
+        Allows subview dispatch but blocks subview primary-surface promotion.
+
+Observed result:
+    Subview dispatch is the primary mirror-glitch driver. Surface promotion is a
+    secondary layer. These toggles do not help away from mirrors.
+
+Analytic domain toggle:
+
+    r_pathTracingCleanRtxdiDiView12FullAnalyticDomain 1
+        Forces view 12 to use the full current Doom analytic domain instead of
+        portal-region analytic domain.
+
+Observed result:
+    Made noise worse. Keep off unless specifically repeating the A/B.
+
+Diagnostic math toggles:
+
+    r_pathTracingCleanRtxdiDiRelaxBrdfGates 1
+        Runtime diagnostic. Relaxes clean RTXDI RAB receiver gates by allowing
+        translucent surfaces and removing some geometric/view hemisphere
+        rejection. Default is 0.
+
+    r_pathTracingCleanRtxdiDiDoomTargetFloor 1
+        Runtime diagnostic. Gives valid Doom analytic samples a nonzero target
+        floor. Default is 0.
+
+Observed result:
+    Target floor made view 12 noisier and erased the mirror glitch. Keep off for
+    baseline.
+
+One-shot dump:
+
+    r_pathTracingCleanRtxdiDiDump 1
+
+Read these fields:
+    viewDef subview
+    mirror
+    superView
+    area
+    drawSurfs
+    cleanCurrentAnalytic
+    cleanPortalAnalytic
+    cleanCurrentAnalyticIdentity
+    cleanPreviousAnalytic
+    cleanPreviousAnalyticIdentity
+    cleanAnalyticRemap
+    cleanHistoryResetCount
+    cleanHistorySignature
+    cleanCandidates
+
+
+Diagnostic Views
+================
+
+    r_pathTracingCleanRtxdiDiView 12
+        Real Doom analytic temporal view. This is the main failing view.
+
+    r_pathTracingCleanRtxdiDiView 13
+        One-sample real Doom analytic scalar diagnostic.
+
+    r_pathTracingCleanRtxdiDiView 14
+        Center/crosshair-surface target-factor diagnostic. It now draws uniform
+        horizontal bands from the center surface/light pair, not a translucent
+        overlay.
+
+    r_pathTracingCleanRtxdiDiView 15
+        Binary gate diagnostic. Green/red bands for:
+            1. surface and light domain valid
+            2. opaque diffuse BRDF supported
+            3. replayable light sample
+            4. radiance > 0
+            5. light hemisphere passes
+            6. view hemisphere passes
+            7. BRDF luminance > epsilon
+            8. left targetPdf > epsilon, right reflected luminance > epsilon
+
+View 15 findings:
+    Cases with red 5,7,8 indicate light hemisphere / BRDF / target failure.
+    Cases with red 2,7,8 indicate BRDF support rejection, likely surface class
+    or receiver classification. RelaxBrdfGates can clear some of this, but that
+    does not fix view 12.
+
+
+Interpretation of "Analytic Domain"
+===================================
+
+The analytic domain is the set of Doom analytic lights RTXDI is allowed to draw
+candidate lights from for a pixel/view.
+
+Current relevant domains:
+
+    cleanCurrentAnalytic
+        All uploaded Doom analytic lights currently known to the renderer.
+
+    cleanPortalAnalytic
+        Smaller portal/area subset considered relevant to the active view.
+
+    mirror/subview domain
+        Different portal/area subset produced by the mirror render view.
+
+Domain failure modes:
+
+    Too small:
+        Missing the light that actually illuminates the surface.
+
+    Too large:
+        Many irrelevant lights are sampled, noise increases, current reservoirs
+        become poor.
+
+    Unstable:
+        History resets, light identity remap changes, or previous reservoirs do
+        not map cleanly.
+
+The mirror appears useful because it accidentally produces a more favorable
+portal/subview domain, not because it reveals a correct RTXDI path.
+
+
+What Not To Do
+==============
+
+Do not claim RTXDI/Remix parity from any of these diagnostics.
+
+Do not turn on spatial reuse as a workaround.
+
+Do not use the old previous-temporal-as-best fallback as the active solution.
+
+Do not broadly suppress lights as a "fix".
+
+Do not promote r_pathTracingCleanRtxdiDiDoomTargetFloor 1 into production
+logic. It made noise worse.
+
+Do not keep chasing mirror toggles as the main fix. The dump shows the more
+important issue is analytic-domain shape/stability and proposal quality.
+
+Do not use full-map/full-domain brute force as the next solution. It was tested
+and worsened noise.
+
+
+Update: Initial Visibility / Temporal Contract
+==============================================
+
+As of 2026-05-28, rbdoom has a clean DI diagnostic switch:
+
+    r_pathTracingCleanRtxdiDiInitialVisibility
+
+The switch reaches the clean shader and the dump reports:
+
+    initialVisibility=1
+
+However, testing showed no visible improvement in clean view 12. The RTX Remix
+debug menu's DI "Initial Visibility" toggle can make a large quality difference
+when temporal reuse is enabled, but rbdoom's clean temporal path appears too far
+from the Remix/RRX temporal surface contract for the switch to help by itself.
+
+Do not spend the next task on another standalone visibility toggle. The next
+useful work is to audit and recover the clean temporal surface/reprojection/
+visibility contract against:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
+
+Keep the RLU-backed current light domain. Do not return to the old Doom analytic
+portal-domain producer as the active fix.
+
+
+Likely Next Work
+================
+
+First goal:
+    Restore a trustworthy single Doom analytic light baseline in view 12 with
+    all diagnostic math hacks off.
+
+Start from:
+    r_pathTracingCleanRtxdiDiView12FullAnalyticDomain 0
+    r_pathTracingCleanRtxdiDiRelaxBrdfGates 0
+    r_pathTracingCleanRtxdiDiDoomTargetFloor 0
+
+Then verify:
+    view 15 is green for the test surface/light
+    view 12 accumulates with one isolated Doom analytic light
+
+If view 15 is green but view 12 still fails:
+    The failure is downstream of RAB sample/target: temporal combine, history
+    copy/reuse, identity/remap, or resolve.
+
+If view 15 is red:
+    The failure is upstream: surface classification, BRDF support, light sample,
+    or target evaluation.
+
+Second goal:
+    Replace the mirror accident with a controlled current-producer/domain test.
+    Recommended CVar-controlled proposal modes for view 12:
+
+        0 = current behavior
+        1 = first contributing Doom analytic light only
+        2 = best contributing light from a bounded scan
+        3 = deterministic stable contributing light
+
+    If one of these accumulates, the blocker is proposal/domain quality. If none
+    accumulates, focus downstream on temporal history/remap/resolve.
+
+Possible controlled prepass experiment:
+    Before main view 12, run a hidden clean current-only analytic prepass using
+    a selected domain and optional surface-history promotion, then run normal
+    view 12. This would make the mirror accident explicit and testable.
+
+
+Build and Deploy Lane
+=====================
+
+Build from:
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Command:
+    cmake --build --preset win64-pt-dev-release
+
+Copy exe:
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to
+    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Copy shaders:
+    contents of
+    E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to
+    E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.
+
+
+Worktree Note
+=============
+
+At the time this handoff was created, the working tree already contained many
+unrelated modified docs and untracked files from previous workers. Recent code
+state was committed in:
+
+    ece1919a Add clean RTXDI analytic diagnostics
+
+If committing new code, stage only the intended files. Do not sweep unrelated
+docs/untracked files into a renderer commit.

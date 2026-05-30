@@ -166,8 +166,10 @@ solid-angle PDF.
 - Mode 20 single-frame reservoir direct emissive lighting from the current
   light-candidate contract. Spatial and temporal reuse are still off.
 - Host-side RTXDI ReSTIR PT scaffolding. A separate packed PT reservoir buffer
-  and RTXDI_PTParameters constant buffer are allocated/updated from
-  rtxdi::ReSTIRPTContext. The shader build now emits two RT smoke libraries:
+  and RTXDI_PTParameters constant buffer are allocated/updated by local
+  parameter packing. The old RTXDI runtime context and NVIDIA
+  `Source/ReSTIRPT.cpp` host accumulator are not part of the build. The shader
+  build now emits two RT smoke libraries:
   `pathtrace_smoke.rt.bin` for the core mode 18/mode 20/integrator/debug path,
   `pathtrace_smoke_mode18_restir_hybrid.rt.bin` for opt-in mode 18 primary
   direct-lighting ReSTIR integration,
@@ -1503,35 +1505,21 @@ Denoise/upscale/Ray Reconstruction reservation:
   does not enable mode-56 dispatch planning, RRX reservoirs, spatial reuse,
   best lights, denoising, or the old rbdoom NEE records.
 
-  Light modes 4-6 validate Doom analytic NEE through the required RAB bridge
-  calls: `RAB_LoadLightInfo`, `RAB_SamplePolymorphicLight`,
-  `RAB_GetLightSampleTargetPdfForSurface`, and
-  `RAB_GetReflectedBsdfRadianceForSurface`. LightMode 7 validates the
-  current-frame emissive domain through weighted emissive-triangle sampling and
-  selected-light replay. For PDFNEE-09, the verifier also writes a
-  clean-compatible RTXDI DI current reservoir page at `u69` using
-  `RTXDI_EmptyDIReservoir`, `RTXDI_StreamSample`,
-  `RTXDI_FinalizeResampling`, and `RTXDI_PackDIReservoir`.
-
-  The `u69` handoff is deliberately narrower than the visual verifier. Analytic
-  lightModes 4-6 pack a zero-based Doom analytic light index for the clean
-  accumulator, even though the verifier internally replays split-domain RAB
-  light indices. Emissive lightMode 7 still writes an invalid/empty clean
-  reservoir until the clean sentinel has a reviewed emissive RAB light-info
-  bridge; use lightMode 7 for PDF/NEE visual validation, not as clean DI
-  accumulator proof.
+  These verifier modes predate the working RLU -> clean RTXDI DI path and are
+  discarded as replacement implementation routes. The replacement
+  current-frame producer must select from the RLU dense current domain, replay
+  the selected light through the active RRX RAB bridge, and write a clean DI
+  current reservoir page at `u69` with dense RLU identity. Do not use the old
+  PDFNEE-09 handoff, split-domain analytic identity, or old rbdoom NEE records
+  as proof for the replacement path.
 
 - r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent
-  Defaults to 0. Clean-room RTXDI DI consume-mode switch. When enabled, the
-  clean route first dispatches a same-frame PDFNEE producer prepass that writes
-  `CleanRtxdiDiCurrentReservoirs` at `u69`, barriers that page, then dispatches
-  the clean sentinel to consume it instead of rebuilding its own initial
-  reservoir. This is a PDFNEE-09 handoff diagnostic for analytic PDFNEE current
-  pages only. It does not enable mode 56, and it does not make lightMode 7
-  emissive reservoirs consumable by the clean accumulator. Accumulation
-  failures after a correct current-only clean view should be investigated in
-  clean history/page rotation/reprojection, not treated as current-frame PDFNEE
-  estimator proof.
+  Defaults to 0. Historical clean-room consume-mode diagnostic for the old
+  analytic PDFNEE prepass. It is not the replacement producer contract, not a
+  default path, and not proof of the RLU current-frame estimator. Replacement
+  work must use the RLU dense current domain and active RRX RAB bridge, then
+  write the clean DI current reservoir page without depending on this old
+  PDFNEE-09 external handoff or temporal accumulation behavior.
 
 - r_pathTracingReservoirDump
   One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized
@@ -3271,7 +3259,7 @@ For ReSTIR PT initial-sampling reservoir validation:
 The host side now builds a CPU ReSTIR PT pass plan for modes 26-33 and 50-51 before the
 legacy smoke raygen dispatch. The plan names the active initial, temporal,
 spatial, shading, visibility, primary-surface, or source-attribution stage, chooses the
-RTXDI ReSTIRPTContext resampling mode, and records the RTXDI reservoir buffer
+local RTXDI PT parameter resampling mode, and records the RTXDI reservoir buffer
 indices that the current shader path will use. This is a pass-split scaffold,
 not a production pass split: modes 26-33 and 50-51 still run through the existing debug
 raygen paths. Use `r_pathTracingRestirPTPassDump 1` for a one-shot console dump

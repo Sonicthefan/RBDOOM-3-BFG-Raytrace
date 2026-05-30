@@ -630,6 +630,36 @@ float idConsoleLocal::DrawFPS( float y )
 				cleanGui.cleanHistoryResetCount,
 				cleanGui.cleanHistorySignature,
 				cleanGui.temporalFlags );
+			if( cleanGui.temporalAuditEnabled )
+			{
+				ImGui::Separator();
+				ImGui::Text( "Temporal audit: %s pixels=%u avgM previous/output=%.2f/%.2f",
+					cleanGui.temporalAuditValid ? "ready" : "waiting for readback",
+					cleanGui.temporalAuditPixels,
+					cleanGui.temporalAuditAvgPreviousM,
+					cleanGui.temporalAuditAvgOutputM );
+				const float auditDenom = cleanGui.temporalAuditPixels > 0 ? static_cast<float>( cleanGui.temporalAuditPixels ) : 1.0f;
+				ImGui::Text( "input currentValid=%.1f%% currentM=%.1f%% surface=%.1f%%",
+					100.0f * static_cast<float>( cleanGui.temporalAuditCurrentValid ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditCurrentCandidate ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditSurfaceValid ) / auditDenom );
+				ImGui::Text( "motion valid=%.1f%% cameraFallback=%.1f%% prevInBounds=%.1f%%",
+					100.0f * static_cast<float>( cleanGui.temporalAuditMotionValid ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditCameraFallback ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditPreviousPixelInBounds ) / auditDenom );
+				ImGui::Text( "previous surface=%.1f%% reservoir=%.1f%% lightMap=%.1f%% targetAtCurrent=%.1f%%",
+					100.0f * static_cast<float>( cleanGui.temporalAuditPreviousSurfaceValid ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditPreviousReservoirValid ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditPreviousLightMapped ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditPreviousTargetAtCurrent ) / auditDenom );
+				ImGui::Text( "sdk called=%.1f%% samplePixel=%.1f%% outputValid=%.1f%% selectedPrev=%.1f%% reusedPrev=%.1f%% changed=%.1f%%",
+					100.0f * static_cast<float>( cleanGui.temporalAuditSdkCalled ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditSdkTemporalSamplePixelValid ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditOutputReservoirValid ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditSdkSelectedPrevious ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditSdkReusedPrevious ) / auditDenom,
+					100.0f * static_cast<float>( cleanGui.temporalAuditOutputChanged ) / auditDenom );
+			}
 			ImGui::Separator();
 			ImGui::Text( "scene=%d shader=%d binding=%d table=%d outputTex=%d",
 				cleanGui.sceneBuilt ? 1 : 0,

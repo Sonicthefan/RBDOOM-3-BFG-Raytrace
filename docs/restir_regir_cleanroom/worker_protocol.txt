@@ -15,6 +15,8 @@ The worker must state:
     exact whitelist outputs written
     active light domain
     cell mapping contract
+    center mode and effective center contract
+    selected-slot policy
     candidate source PDF contract
     resource lifetime contract
     forbidden files/functions
@@ -34,6 +36,27 @@ Only when a task explicitly names them:
     ReGIR CVars
     minimal shader build additions
     documentation in this folder
+
+
+Default Behavior
+----------------
+
+Workers must build ReGIR so default CVars mean default functionality.
+
+Acceptable:
+
+    r_pathTracingReGIREnable 1 builds and updates the normal candidate cache
+        from the active Remix/RAB light universe
+    extra CVars select diagnostics, dumps, forced test domains, or cell overlays
+    default parameters are usable for the current Doom scale
+
+Unacceptable:
+
+    cells populate only after a debug view is selected
+    useful behavior requires a long CVar recipe
+    selected lights replay only when another module's debug route is enabled
+    default behavior silently drops lights without an explicit source
+        distribution contract and proof
 
 
 Forbidden Edits
@@ -71,6 +94,8 @@ Unacceptable implementation:
     hidden math changes
     unreviewed weighted source PDFs
     final lighting inside the ReGIR module
+    frame-indexed slot selection as a stability proof
+    hidden consumer parameter overrides
 
 
 Proof Report Format
@@ -90,6 +115,7 @@ Every implementation report must include:
         cell count
         lights per cell
         build samples
+        effective consumer overrides, or "none"
 
     candidate table
         selected global light index
@@ -97,6 +123,7 @@ Every implementation report must include:
         sourcePdf / invSourcePdf
         cell id
         candidate slot
+        selected-slot policy
 
     negative paths
         disabled
@@ -111,6 +138,9 @@ Every implementation report must include:
         expected output
         observed output
         why it is not fallback albedo/beauty
+        whether selected slot and identity remain stable while frameIndex
+            advances
+        whether mean contribution has unexplained hard cell seams
 
 
 Diagnostic Limits
@@ -122,6 +152,7 @@ The following are diagnostic only:
     non-crashing builds
     allocation success
     status colors alone
+    a single selected slot without mean-contribution or multi-slot proof
 
 They cannot prove viable ReGIR behavior without world-space cell and candidate
 identity visualization.
@@ -135,6 +166,10 @@ Stop immediately if:
     source PDF cannot be stated
     selected identity cannot replay as a global RAB light index
     cells are screen-space anchored
+    selected slot changes solely because frameIndex advanced
+    hard cell seams dominate the current-frame mean contribution
+    a consumer silently changes cell size, center mode, domain, or lights per
+        cell
     output uses fallback albedo/beauty
     PDFNEE or temporal is required to make the cache look correct
     broad light suppression is proposed as the fix

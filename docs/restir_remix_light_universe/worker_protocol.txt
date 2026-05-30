@@ -1,0 +1,155 @@
+Remix-Shaped Light Universe Worker Protocol
+==========================================
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact Remix reference file-equivalent
+    exact RTXDI SDK reference file, if temporal or reservoir behavior is touched
+    exact rbdoom write set
+    exact rbdoom read-only files
+    exact CVars
+    exact whitelist inputs consumed
+    exact whitelist outputs written
+    dense current-domain contract
+    dense previous-domain contract
+    two-way mapping contract
+    animated payload policy
+    spawn/despawn policy
+    forbidden files/functions
+    expected runtime proof
+
+If any item is unknown, stop and report the missing information.
+
+
+Allowed Edits
+-------------
+
+Only when a task explicitly names them:
+
+    Remix-shaped light manager code
+    unified light record adapters
+    resource/binding code for current/previous/mapping buffers
+    RAB runtime light loading/translation adapters
+    clean RTXDI opt-in adapter code
+    CVars for this lane
+    debug views for this lane
+    documentation in this folder
+
+
+Forbidden Edits
+---------------
+
+Do not edit unless a task explicitly names them:
+
+    RTXDI reservoir math
+    clean RTXDI temporal accumulator math
+    spatial reuse code
+    best-light feedback
+    denoiser/confidence/gradient paths
+    mode-56 routing
+    old NEE selected-light records
+    GI/reflection reservoir paths
+    unrelated material/geometry systems
+
+
+Clean-Room Rule
+---------------
+
+The worker may use Remix and RTXDI files as reference file-equivalents for
+contract shape. Do not copy source text into rbdoom.
+
+Acceptable implementation:
+
+    rbdoom-owned names and structures
+    dense current/previous domains
+    explicit two-way mappings
+    invalid sentinels for unmapped lights
+    exact reference citations by path
+
+Unacceptable implementation:
+
+    pasted reference code
+    hidden ReSTIR math changes
+    broad light suppression
+    full-map brute force as the fix
+    mirror/subview glitch as proof
+    temporal proof from status colors or dumps
+
+
+Proof Report Format
+-------------------
+
+Every implementation report must include:
+
+    producer route
+        CPU producer
+        source light domain
+        dense current/previous buffers
+        mapping buffer
+
+    mapping table
+        current count
+        previous count
+        current-to-previous mapped count
+        previous-to-current mapped count
+        current-only count
+        previous-only count
+        invalid duplicate count
+
+    payload table
+        payload-only signature
+        structural signature
+        mapping signature
+        animated payload examples
+        spawn/despawn examples
+
+    negative paths
+        disabled
+        no lights
+        current-only light
+        previous-only light
+        duplicate identity
+        map/render-world reset
+        invalid RAB replay
+
+    visual proof
+        exact CVars
+        temporal off expectation
+        temporal on expectation
+        observed user-facing output
+        why it is not fallback albedo/beauty/status color
+
+
+Diagnostic Limits
+-----------------
+
+The following are diagnostic only:
+
+    CPU dumps
+    GUI numbers
+    debug heatmaps
+    non-crashing builds
+    allocation survival
+    valid buffer names
+
+They cannot prove RTXDI/Remix compliance without visible real Doom analytic
+noisy-to-less-noisy temporal accumulation.
+
+
+Stop Conditions
+---------------
+
+Stop immediately if:
+
+    current and previous dense domains cannot be stated
+    two-way mapping cannot be stated
+    selected identity cannot replay through RAB
+    animated payload churn invalidates unrelated lights
+    proof requires broad suppression, spatial, best lights, mirror behavior, or
+        full-map brute force
+    output uses fallback albedo/beauty
+    reference behavior is unclear

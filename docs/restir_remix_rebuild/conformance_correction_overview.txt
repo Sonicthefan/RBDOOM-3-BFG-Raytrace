@@ -1,0 +1,257 @@
+RRX Conformance Correction Overview
+===================================
+
+Purpose
+-------
+
+This document corrects the failed interpretation of the earlier RRX/LU-BR
+work. The goal is not to add more scaffolding. The goal is to make the rbdoom
+implementation conform to the RTX Remix sections that were already selected as
+file-equivalent targets.
+
+Earlier workers implemented some objects with the right names and some useful
+diagnostics, but stopped before the active producer-to-consumer behavior that
+actually protects reservoirs from dynamic light churn.
+
+Read this file before commissioning any further RRX task.
+
+
+Current Failure
+---------------
+
+Do not describe the current state as "Remix light manager implemented" without
+qualifiers.
+
+The current tree contains:
+
+    PathTraceRemixFramePrepare
+    PathTraceRemixLightManager
+    PathTraceRemixRtxdiResources
+    remix_bridge shader headers
+    inactive or probe-only remix_rtxdi shader contracts
+
+But the active path still has these gaps:
+
+    1. The Remix frame prepare and light manager dumps still identify the path
+       as cpu-diagnostics-only.
+
+       Current rbdoom evidence:
+
+           neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+               Remix frame prepare dump: behavior=cpu-diagnostics-only
+               Remix light manager dump: behavior=cpu-diagnostics-only
+
+    2. The active RAB upload path still gathers records from
+       m_restirLightManager after the Remix manager has run.
+
+       Current rbdoom evidence:
+
+           neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+               m_restirLightManager.BeginFrame()
+               m_restirLightManager.UpdateFromObservations(...)
+               GetActiveCurrentLightRecords()
+               GetActivePreviousLightRecords()
+               GetActiveCurrentToPreviousRemap()
+               GetActivePreviousToCurrentRemap()
+
+    3. The old smoke reservoir path still builds broad reset signatures that
+       include camera and old analytic-light count state.
+
+       Current rbdoom evidence:
+
+           neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+               reservoirDispatchSignature
+               m_smokeDoomAnalyticLightCount
+               smokeReservoirNeedsClear
+               RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE
+
+    4. The RRX resource owner is partly correct but is not proof of active
+       RTXDI temporal behavior by itself. It allocates/owns DI/GI domains and
+       ignores old smoke reset reasons, but a bound reservoir domain is not the
+       same as a Remix-equivalent temporal consumer.
+
+       Current rbdoom evidence:
+
+           neo/renderer/NVRHI/PathTraceRemixRtxdiResources.cpp
+               RemixRtxdiAllowedResetReasons(...)
+               RemixRtxdiIgnoredSmokeResetReasons(...)
+               PrepareDomain(...)
+
+
+Review Failure To Prevent
+-------------------------
+
+The previous implementation and compliance review both accepted structural
+resemblance as proof. That is not sufficient for this renderer stack.
+
+These statements are not conformance proof:
+
+    there is a RemixLightManager object
+    there are current/previous arrays
+    there are remap buffers
+    the dump prints plausible counts
+    raw reservoir storage survives
+    the game does not crash
+
+They become useful only when tied to an active consumer and reference-equivalent
+failure behavior.
+
+Every future review must answer:
+
+    1. Who consumes this output right now?
+
+       Give exact file/line evidence. Diagnostic-only dumps and inactive shader
+       files do not count.
+
+    2. What happens on the important negative path?
+
+       For this light/reservoir chain, invalid light translation must reject
+       only the selected previous candidate/sample. It must not request a broad
+       reservoir-domain clear.
+
+    3. What runtime diagnostic distinguishes the failure class?
+
+       The diagnostic must separate storage survival, mapping failure, payload
+       churn, global clear, and inactive consumer state. A raw reservoir view
+       proves storage only; it does not prove temporal correctness.
+
+If any answer is missing, the correct review result is P1 incomplete
+conformance unless the task was explicitly scoped as a diagnostic-only
+scaffold.
+
+Debug-view caution:
+
+    Do not treat adjacent mode-56 subviews as interchangeable. RRX reservoir
+    raw/storage views prove storage and page plumbing only. They do not prove
+    active RAB translation parity or temporal reuse behavior.
+
+    For RRX-CF-03, the validation view must exercise active RAB light loading
+    and current/previous light-index translation. If that view uses tiled panes,
+    only the status/summary panes are expected to show the round-trip success
+    color; index panes may intentionally use hash colors.
+
+
+Reference Behavior To Match
+---------------------------
+
+RTX Remix does not solve changing lights by globally clearing the whole RTXDI
+reservoir domain.
+
+The relevant reference chain is:
+
+    RTX Remix:
+
+        src/dxvk/rtx_render/rtx_scene_manager.cpp
+            SceneManager::prepareSceneData
+
+        src/dxvk/rtx_render/rtx_light_manager.cpp
+            LightManager::dynamicLightMatching
+            LightManager::prepareSceneData
+            current light buffer
+            previous light buffer
+            light mapping buffer
+
+        src/dxvk/rtx_render/rtx_context.cpp
+            binds current lights, previous lights, light mapping
+
+        src/dxvk/shaders/rtx/pass/common_bindings.slangh
+            exposes lights, previousLights, lightMapping
+
+        src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+            RAB_TranslateLightIndex
+
+        src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+            temporal reuse pass
+
+    RTXDI:
+
+        submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+            translates current selected light into previous domain
+            translates previous reservoir light into current domain
+            invalid mapping rejects that candidate locally
+
+The important behavior is local invalidation:
+
+    previous reservoir selected light maps to current:
+        reuse can continue for that candidate
+
+    previous reservoir selected light does not map to current:
+        that previous sample/candidate is rejected
+        the whole reservoir domain is not cleared
+
+    light payload changes but identity/remap survives:
+        payload is evaluated in the correct current/previous domain
+        global reservoir clear is not allowed
+
+
+Conformance Definition
+----------------------
+
+Do not accept a task as Remix-conformant unless all applicable items below are
+true.
+
+1. The exact Remix file-equivalent is named.
+
+2. The rbdoom module owns the same responsibility as the Remix file-equivalent.
+
+3. The rbdoom outputs are consumed by the next active rbdoom module, not only
+   printed in a diagnostic dump.
+
+4. Current and previous light domains are separate.
+
+5. Bidirectional light mapping is shader-visible.
+
+6. RAB light loading uses the requested domain.
+
+7. RAB light translation returns the invalid sentinel for missing mappings.
+
+8. Temporal reuse handles failed translation locally.
+
+9. Dynamic light payload changes do not enter a global reservoir clear reason.
+
+10. Old smoke reservoir signatures do not govern the new RRX DI/GI reservoir
+    domains.
+
+
+What Workers Must Stop Doing
+----------------------------
+
+Workers must not:
+
+    call diagnostic-only scaffolding "implemented"
+    satisfy a Remix task by routing back through the old smoke/ReSTIR manager
+    replace local invalidation with broad dynamic-light suppression
+    add a debug view that reads old RestirPT reservoirs and call it an RRX test
+    claim feature parity before an active consumer reads the new outputs
+    hand-roll reservoir math because the bridge is inconvenient
+
+
+Correction Strategy
+-------------------
+
+Use the correction task file:
+
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+
+The sequence is intentionally narrow:
+
+    RRX-CF-01
+        Freeze the active producer-consumer gap in the current checkout.
+
+    RRX-CF-02
+        Route the active light/RAB upload source to the Remix manager contract.
+
+    RRX-CF-03
+        Prove shader-side RAB loads and translations consume the Remix manager
+        domains.
+
+    RRX-CF-04
+        Connect the RRX DI reservoir domain to an RTXDI-shaped temporal
+        consumer where failed light translation rejects only the candidate.
+
+    RRX-CF-05
+        Remove old smoke reset influence from the new RRX active validation
+        path and add dumps proving dynamic payload churn is not a global clear.
+
+Each task is a small worker slice. Do not combine them unless the user
+explicitly orders it.

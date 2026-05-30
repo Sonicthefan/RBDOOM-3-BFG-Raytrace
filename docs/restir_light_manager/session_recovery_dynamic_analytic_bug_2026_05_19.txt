@@ -1,0 +1,514 @@
+Session Recovery: Dynamic/Animated Analytic-Light Bug
+=====================================================
+
+Purpose
+-------
+
+This note recovers the Codex sessions that contain the dynamic/animated
+analytic-light bug trail from Tuesday, 2026-05-19. Use this as the compact
+handoff when another agent needs the evidence without reopening the original
+large sessions.
+
+
+Primary Session Artifacts
+-------------------------
+
+1. Light-manager scaffold and early review/fix chain:
+
+   C:\Users\lizard\.codex\sessions\2026\05\19\rollout-2026-05-19T20-09-24-019e3fb6-2e37-7213-a181-e63bc7ff6bb9.jsonl
+
+   Thread id:
+
+   019e3fb6-2e37-7213-a181-e63bc7ff6bb9
+
+   Session index name:
+
+   Add light manager scaffold
+
+2. Mode-56/clear-signature bug statement:
+
+   C:\Users\lizard\.codex\archived_sessions\rollout-2026-05-19T22-30-58-019e4037-cada-7d42-81ff-bd5b84227e4d.jsonl
+
+   Thread id:
+
+   019e4037-cada-7d42-81ff-bd5b84227e4d
+
+   Session index name:
+
+   Add mode 56 accumulation
+
+3. Starting-state audit and corrected identity/remap-gating follow-up:
+
+   C:\Users\lizard\.codex\sessions\2026\05\19\rollout-2026-05-19T23-20-29-019e4065-1e1b-7133-92fd-a25771851397.jsonl
+
+   Thread id:
+
+   019e4065-1e1b-7133-92fd-a25771851397
+
+   Session index name:
+
+   Audit light manager startup state
+
+
+Most Relevant Bug Evidence
+--------------------------
+
+In the light-manager scaffold session, the user reported the strongest runtime
+isolation result:
+
+    no we narrowed it down to analytic lights, halting all dynamic lights
+    stopped it
+
+The current tree does not contain a narrow PT-specific "halt dynamic light
+animation" CVar by that name. The closest surviving renderer-wide diagnostic is:
+
+    r_skipUpdates 1
+
+defined in neo/renderer/RenderSystem_init.cpp. It stops accepting entity and
+light updates, effectively making them static. If this was the CVar used in the
+lost test, it is evidence that changing dynamic/animated light state entering the
+renderer is enough to poison accumulation/reservoir history.
+
+In the archived mode-56 session, the user summarized the critical bug as:
+
+    its the analytic lights, we found it earlier, animated ones state lingers in
+    the light universe constantly triggering full refreshes
+
+The assistant response in that same session reframed the boundary:
+
+    Animated analytic-light payload/state churn must not enter the global
+    clear-driving structural signature. Structural identity, mapping identity,
+    and animated payload evidence need separate signatures. Animated color,
+    intensity, radius, position, or state changes should remain payload-side
+    diagnostics unless they represent a true structural/domain change.
+
+The user later clarified that this was worse than a ReSTIR-only failure:
+the same issue was traced into debug mode 18, whose simple accumulation path
+predates the current ReSTIR DI/GI reservoir stack. Treat mode 18 as proof that
+the poison can enter through shared PT analytic-light scene inputs or
+accumulation-validity state before RTXDI temporal/spatial reuse is involved.
+Fixes that only adjust ReSTIR reservoir math, mode-56 resolve, or DI/GI
+finalization will miss the root cause.
+
+
+Incorrect Emergency Fix To Avoid Repeating
+------------------------------------------
+
+After the "halting all dynamic lights stopped it" report, an emergency worker
+patch tried to reject Doom analytic remaps when color, intensity, position,
+influence radius, or sphere radius changed beyond
+r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance. That build reportedly
+compiled and was copied to the prepared game folder, but the direction was then
+reviewed as wrong for the RTXDI/RTX Remix-shaped contract.
+
+Do not restore that approach as the solution. It can reduce symptoms by turning
+animated payload changes into local remap invalidation, but the intended manager
+contract is stricter:
+
+    - stable light identity may remain mapped across animated payload changes
+    - animated payload changes are diagnostic/payload-side evidence
+    - only structural incompatibility may force global reservoir clears
+    - deleted/unsupported/unknown/temporary/incompatible identities map invalid
+      locally
+
+The later fix in commit 005fec67 removed the DoomAnalyticLightStateCompatible
+remap gate from the manager. Current RecordsCompatible() only rejects source-type
+mismatch, which matches the recovered contract better than the emergency build.
+
+This matters because the lost proof identified the source of churn, not a valid
+policy for rejecting animated lights. The next slice should preserve the proof
+while avoiding the old strict compatibility workaround.
+
+
+Recovered Failure Model
+-----------------------
+
+The best recovered explanation is not simply "one bad light flickers." It is a
+shared PT light-domain contamination failure:
+
+    1. A dynamic/animated light enters the light universe.
+    2. Its animated payload changes every frame.
+    3. That changing state is treated as light-domain churn or reservoir-scene
+       incompatibility.
+    4. ReSTIR reservoirs are cleared globally, previous reservoirs cannot
+       translate their selected light safely, or simpler accumulators see the
+       analytic-light scene inputs as unstable.
+    5. The system has no RTXDI/Remix-style per-light dynamic translation policy,
+       so the damage is domain-wide instead of limited to the affected light.
+    6. Forcing out one offending dynamic light may only help briefly; another
+       dynamic/animated light can occupy the unstable role and continue causing
+       refreshes.
+
+This is why "halting all dynamic lights stopped it" is stronger evidence than
+any single remap count. The test stopped the upstream animated state from
+entering the renderer. It did not prove that rejecting animated lights is the
+right ReSTIR policy.
+
+The recovered user test says this bug was purely Doom analytic-light driven.
+Do not reassign this specific failure to emissive persistence unless a new test
+proves it.
+
+The relevant rbdoom path is PathTraceDoomLights.cpp:
+
+    - it keeps a persistent authored analytic-light registry
+    - it builds current/previous Doom analytic entries
+    - dynamic or unproven analytic lights are tracked separately from static
+      authored lights
+    - the old split/unified paths still expose remap-valid, candidate index,
+      uploaded-domain behavior, and analytic payload changes to downstream code
+
+If animated analytic state is interpreted as identity churn, mapping churn,
+structural churn, or an accumulation-validity change, it can poison temporal
+history even when the offending light is off screen. That includes mode 18's
+basic accumulator and the ReSTIR reservoir paths. Forcing out one analytic
+light may only let another dynamic analytic light become the next source of
+churn.
+
+PathTraceLightUniverse.cpp has an adjacent dynamic-emissive persistence pattern,
+but that is not the recovered cause of this issue. Mention it only when auditing
+general light-domain design, not when explaining the analytic-light accumulator
+failure.
+
+The downstream reset path is broad:
+
+    PathTraceSmokeSceneBuild.cpp computes a reservoir scene signature.
+    PathTraceSmokeResources.cpp compares that signature against the previous
+    frame and, when it changes, sets:
+
+        smokeReservoirNeedsClear
+        restirPTReservoirNeedsClear
+        restirPTDiReservoirNeedsClear
+        restirPTGiReservoirNeedsClear
+
+Therefore any light-domain value that incorrectly reaches the clear-driving
+signature can wipe DI and GI history together. The correct design is to keep
+animated light state in a payload signature/debug path, keep stable identities
+mapped where continuity is valid, and let failed translations kill only the
+candidate reservoir that selected the deleted/unsupported/incompatible light.
+
+
+Exact rbdoom Mechanism To Audit
+-------------------------------
+
+The recovered bug most likely enters through the analytic-light animation path,
+not through camera movement or emissives:
+
+    1. Doom updates renderer light state through idRenderWorldLocal::UpdateLightDef.
+       The normal renderer explicitly treats unchanged light shape as a cheap
+       update because shader parms are evaluated every frame. Setting
+       r_skipUpdates 1 stops these entity/light updates, which matches the
+       isolation result.
+
+    2. PathTraceDoomLights.cpp evaluates animated light state in
+       EvaluateDoomLightColor(). It calls lightShader->EvaluateRegisters() using
+       light->parms.shaderParms, viewDef->renderView.shaderParms, render time,
+       and referenceSound. Flicker, scripted on/off, sound-reactive changes, and
+       light-level changes therefore become per-frame color/intensity changes.
+
+    3. BuildPathTraceDoomAnalyticLightCandidates() passes
+       restirPTAnalyticLightCandidates as forceEnable. With the current default
+       r_pathTracingRestirPTAnalyticLightCandidates 1, ReSTIR PT debug modes can
+       set:
+
+           preserveZeroRadianceSlots = true
+           stableReservoirOrder = true
+           includeOutOfSelectedArea = true
+
+       This keeps analytic slots stable for debugging, but it also means
+       offscreen or currently-off analytic lights may still be represented in
+       the analytic universe/upload path.
+
+    4. UpdateDoomPersistentAuthoredLightRegistry() processes all renderWorld
+       lightDefs, not only current candidate lights. It stores currentActive,
+       currentSampleable, currentSelectedArea, currentColor, current radius, and
+       continuity in the persistent authored-light entry.
+
+       Current sampleability is based on structural validity, suppression, and
+       active radiance. It does not require selectedArea or direct influence on
+       the current reservoir surface. Out-of-selected-area state is recorded as
+       an invalid reason, but that reason does not necessarily stop an identity
+       from being marked sampleable/remap-valid in the old split/unified route.
+
+    5. BuildDoomAnalyticIdentityFlags() exposes only VALID, SAMPLEABLE, and
+       REMAP_VALID. The RAB shader checks those flags, not a full
+       "does this light influence this reservoir/surface now" predicate.
+
+    6. The old split RAB route still runs RAB_DoomAnalyticLightStateCompatible()
+       during light-index translation. That strict compatibility check compares
+       color, intensity, position, influence radius, and sphere radius. It can
+       reject animated phases every frame, but that is a symptom-management
+       workaround, not the RTXDI/Remix-style solution. It kills reuse for
+       animated lights instead of separating identity, payload, visibility, and
+       per-light influence.
+
+    7. When any of this analytic-light churn reaches a clear-driving signature
+       or broad reservoir reset decision, the reset is domain-wide:
+       smoke, ReSTIR PT, DI, and GI reservoir clears are all requested together.
+
+       Because mode 18 was also observed failing, do not stop the audit at that
+       ReSTIR clear path. Also check whether the same analytic-light churn
+       reaches the shared PT scene-input signature, accumulation reset decision,
+       or any mode-18 accumulation-validity predicate.
+
+This explains the observed behavior: one dynamic analytic light can poison the
+whole light/reservoir domain; removing or forcing it out may only let another
+animated analytic light become the next source of churn.
+
+
+Portal-Walk Trace Focus
+-----------------------
+
+The likely trace is not just "what light is visible on screen." It is:
+
+    dynamic Doom light -> portal-walk-selected analytic domain ->
+    persistent analytic universe -> shared PT reservoir/accumulation state
+
+Current rbdoom behavior to inspect:
+
+    1. BuildPathTraceDoomAnalyticLightCandidates() builds a
+       DoomLightPortalSelection using r_pathTracingLightAreaPortalSteps,
+       currently clamped to 0..8 and commonly run at 4 portal steps.
+
+    2. CollectDoomLightRecords() iterates every renderWorld lightDef. The
+       portal walk marks record.selectedArea, record.connectedArea, selection
+       area, and portal depth. It does not mean only directly visible lights
+       exist in the analytic-light state.
+
+    3. BuildAnalyticDoomLightRecords() filters the uploaded candidate list.
+       In ReSTIR debug/forceEnable mode it can preserve zero-radiance slots,
+       stabilize order, and include out-of-selected-area records. In the normal
+       path it filters more aggressively.
+
+    4. UpdateDoomAnalyticLightUniverse() still receives the full raw records
+       list, not only the filtered uploaded candidates. That means dynamic or
+       animated analytic lights found across the portal walk, or present in the
+       renderWorld light list, can affect the persistent analytic universe even
+       when they are not the visible light a user is staring at.
+
+    5. The old design has no robust RTXDI/Remix-style answer to "dynamic light
+       is present, possibly visible, but only influences some reservoirs." It
+       has broad state, flags, candidate lists, remaps, and reset signatures. If
+       dynamic on/off or flicker state leaks into any broad signature or
+       accumulation-validity decision, the result is a global refresh instead of
+       a local invalid light translation or local stale-sample rejection.
+
+This is why a four-portal-deep light domain can explain a static-wall failure:
+the selected analytic domain is larger than the visible surface, and the old
+shared PT accumulator/reservoir design can react to dynamic analytic lights in
+that domain as if the whole temporal state became incompatible.
+
+
+Current PT Reset Conditions
+---------------------------
+
+The current code has several independent "dump history" paths. A worker should
+not assume that all resets come from ReSTIR DI/GI:
+
+    1. Mode 18 accumulation resets when its accumulation signature changes.
+       PathTraceSmokeDispatch.cpp hashes:
+
+           debug mode
+           output width/height
+           camera origin, basis, and FOV
+           r_forceAmbient
+           toy light/emissive scales
+           analytic light intensity scale
+           effective analytic light intensity scale
+           toy max ray distance
+           m_smokeDoomAnalyticLightCount
+           r_pathTracingAnalyticLightMaxGpu
+           reservoir candidate trial count
+           requested light count
+           toy light trace cap
+           light selection mode
+           fake PBR specular flag
+           accumulation enable flag
+           safety-disable mask
+           integrator settings
+
+       Therefore mode 18 can lose accumulation if a dynamic analytic light
+       changes the uploaded Doom analytic light count, even if the visible wall,
+       camera, and material are stable.
+
+    2. The old smoke reservoir dispatch signature also hashes camera state,
+       light scales, m_smokeDoomAnalyticLightCount, and analytic max-GPU count.
+       If that signature changes, only smokeReservoirNeedsClear is set and
+       RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE is marked. This is not the
+       same as a ReSTIR DI/GI clear, but it is still a PT reservoir reset path.
+
+    3. The shared reservoir-scene signature hashes material table signature,
+       static BLAS signature, and the ReSTIR light-manager structural signature.
+       If it changes in PathTraceSmokeResources.cpp, the code sets all of:
+
+           smokeReservoirNeedsClear
+           restirPTReservoirNeedsClear
+           restirPTDiReservoirNeedsClear
+           restirPTGiReservoirNeedsClear
+
+       and marks RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE.
+
+    4. The scene transition signature also includes lightMembership and
+       doomAnalyticLightCount. The lightMembership signature is currently fed by
+       light-universe generation, emissive counts, Doom analytic light count,
+       and Doom analytic remap count. This path affects scene package retirement
+       and transition handling.
+
+    5. Output-sized resource reset, scene-dependent reset, or invalid ReSTIR PT
+       context dimensions set ReSTIR PT reservoir clear flags and primary
+       surface history clears. r_pathTracingDisableReservoirWrites also forces
+       smoke and ReSTIR reservoir clear flags to stay set while writes are
+       disabled.
+
+This makes the old design fragile for dynamic analytic lights. An animated
+Doom light does not need to be visible or selected by a final reservoir to cause
+damage. If its on/off state changes membership, uploaded count, or remap count
+inside the portal-walk light domain, rbdoom can reset mode 18 accumulation, the
+old smoke reservoir, scene transition state, or all ReSTIR PT reservoirs through
+separate broad gates.
+
+The inverse is also important: simply excluding unseen dynamic lights is not a
+correct final design. A dynamic light may be on screen and valid. The expected
+behavior is that only reservoirs/samples whose selected light or lighting
+validation actually depends on that changed light lose reuse. The whole
+reservoir domain must not be dumped merely because a visible dynamic light
+animated.
+
+RTX Remix avoids this class of failure with a stricter light-manager contract:
+
+    - off lights are rejected before they enter the active light buffer
+    - dynamic light matching runs before garbage collection
+    - current and previous light buffers are swapped explicitly
+    - a light mapping buffer is initialized to invalid for all entries
+    - only active written lights receive current/previous map entries
+    - RAB_TranslateLightIndex reads that map and returns invalid for missing
+      mappings
+    - RTXDI temporal reuse translates the previous best light per pixel; failed
+      translation rejects that selected light path, not the whole reservoir set
+    - ReSTIR GI lighting validation uses RTXDI gradient strata
+      (RTXDI_GRAD_FACTOR x RTXDI_GRAD_FACTOR regions) to discard stale samples
+      when direct lighting changed in the affected screen region
+
+The rbdoom rebuild should copy that contract shape, not the source code:
+animated analytic payload changes must not become global clears; deleted,
+offscreen, off, or non-influencing dynamic analytic lights must become invalid
+translations for the affected reservoirs only.
+
+
+Follow-Up Findings In Thread 019e4065
+-------------------------------------
+
+The LU-RM-00 audit found these old-domain dependencies:
+
+    - Emissive manager input still came from the old light-universe output after
+      m_smokeLightUniverse.MergeFrameCandidates(...).
+    - Doom analytic identity still came from doomAnalyticRemap.currentCandidateIdentities.
+    - Manager records still stored sourceIndex and used it later to index legacy
+      payload arrays.
+    - The risky behavior was old rbdoom light arrays and old remap outcomes still
+      influencing manager identity/mapping and reservoir clear reasoning.
+
+Two P1 defects were then identified and fixed:
+
+1. Doom analytic remapping was still blocked by the old Doom remap-valid bit.
+
+   Defect:
+
+       PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID failure was imported into
+       the new manager observation and turned into REMAP_INVALID, defeating the
+       manager pivot.
+
+   Fix:
+
+       Old Doom remap failures became diagnostic-only by default. Only true
+       continuity/identity failures remain manager remap blockers: duplicate key,
+       unknown entity, and unproven continuity.
+
+2. Emissive remapping was still blocked by frame-local material/routing fields.
+
+   Defect:
+
+       materialId, universeMaterialIndex, and emissiveTextureIndex were stored
+       as compatibility keys and required to match before remapping. These are
+       exactly the unstable routing/payload fields the new manager should not use
+       as identity.
+
+   Fix:
+
+       Stable emissive identity maps by identityHashLo/identityHashHi. Material,
+       texture, radiance, and routing changes remain payload-side evidence.
+
+The follow-up commit that contains the two P1 fixes plus HLSL naming alignment is:
+
+    005fec67 Fix light manager identity remap gating
+
+
+Commit Trail Around The Bug
+---------------------------
+
+Relevant commits on codex/restir-rab-reference-audit-experiment:
+
+    ea23a61f Add CPU ReSTIR light manager scaffold
+    47a9e79a Respect Doom analytic remap validity in light manager
+    5459e39e Respect emissive compatibility in light manager
+    08880173 Reduce emissive payload-change diagnostic noise
+    6026ae2d Share Doom analytic invalid reason bits
+    417e2f62 Upload ReSTIR light manager debug buffers
+    2566dfad Add ReSTIR light manager debug view
+    6ca7e792 Harden ReSTIR light manager debug bounds
+    051e9cf7 Add opt-in ReSTIR light manager RAB routing
+    cbc45ae0 Add mode 56 debug accumulation
+    422ca237 Split ReSTIR light manager reservoir signatures
+    fb06ed61 Refine ReSTIR light manager records
+    005fec67 Fix light manager identity remap gating
+
+
+Agent Search Hints
+------------------
+
+Useful search terms in the recovered JSONL files:
+
+    dynamic
+    animated ones state lingers
+    full refreshes
+    structural signature
+    payload signature
+    clear-driving structural signature
+    PATH_TRACE_DOOM_ANALYTIC_IDENTITY_REMAP_VALID
+    material routing fields
+    identity remap gating
+    stable manager identity
+
+
+Paste-Ready Prompt For Another Agent
+------------------------------------
+
+You are working in E:\prog\rbdoom-3-bfg-rt on branch
+codex/restir-rab-reference-audit-experiment.
+
+Read first:
+
+    docs/restir_light_manager/README.txt
+    docs/restir_light_manager/reference_contract.txt
+    docs/restir_light_manager/local_rbdoom_mapping.txt
+    docs/restir_light_manager/implementation_slices.txt
+    docs/restir_light_manager/session_recovery_dynamic_analytic_bug_2026_05_19.txt
+
+Primary recovered sessions:
+
+    C:\Users\lizard\.codex\archived_sessions\rollout-2026-05-19T22-30-58-019e4037-cada-7d42-81ff-bd5b84227e4d.jsonl
+    C:\Users\lizard\.codex\sessions\2026\05\19\rollout-2026-05-19T23-20-29-019e4065-1e1b-7133-92fd-a25771851397.jsonl
+
+Task context:
+
+    The critical bug was animated/dynamic analytic-light state lingering in the
+    light universe and constantly triggering full refreshes. The corrected
+    design direction is to split structural identity, mapping identity, and
+    animated payload signatures. Animated analytic payload changes must not drive
+    global reservoir clears.
+
+Constraints:
+
+    Do not treat old Doom remap-valid failures as manager remap blockers unless
+    they are real continuity/identity failures. Do not use frame-local emissive
+    material/texture/universe routing fields as stable identity. Do not change
+    ReSTIR math or RAB routing unless the current slice explicitly owns it.

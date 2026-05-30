@@ -1,0 +1,107 @@
+Worker Prompt: RRX-PURGE Legacy Cull And Defaults
+=================================================
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    Do RRX-PURGE-01 only unless the user explicitly expands scope.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/rrx_purge_legacy_light_reservoir_defaults.txt
+    docs/restir_remix_rebuild/remix_file_graph.txt
+    docs/restir_remix_rebuild/obscure_issue_log.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Critical context:
+
+    The old pre-Remix light/reservoir path is no longer trusted for the active
+    RRX lane. Do not preserve hidden fallback behavior just because it avoids
+    black output. The active RRX path must use PathTraceRemixLightManager and
+    PathTraceRemixRtxdiResources by default. Legacy paths may remain only as
+    explicitly named comparison/debug paths.
+
+Owned write set for RRX-PURGE-01:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h only if comments/externs change
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp only if dump wording or
+        active-source reporting must change
+    docs/pathtracing.txt only for changed CVar/default documentation
+
+Before editing, write a short plan in your response:
+
+    Remix file-equivalent being matched
+    rbdoom file being edited
+    exact input contract
+    exact output contract
+    forbidden areas you will not touch
+
+Required implementation:
+
+    1. Make r_pathTracingRemixLightManagerRAB default to active for the RRX
+       lane.
+
+    2. Make r_pathTracingRemixRtxdiResourcesEnable default to active for the
+       RRX lane.
+
+    3. Update CVar descriptions so these are no longer described as opt-in
+       requirements for the normal RRX route.
+
+    4. Ensure a clean runtime dump can prove activeLightSource=remix-light-manager
+       without manually setting the old activation stack.
+
+    5. If legacy comparison remains available, label it as legacy/debug. Do not
+       allow silent fallback from active RRX to old smoke/unified/split light
+       paths.
+
+Forbidden:
+
+    no ReSTIR math changes
+    no reservoir finalization changes
+    no light-selection policy changes
+    no dynamic-light suppression
+    no debug-view redesign
+    no old mode-56 accumulation changes in this slice
+    no broad purge beyond RRX-PURGE-01
+
+Build/deploy:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo:
+
+        cmake --build --preset win64-pt-dev-release
+
+    Copy exe:
+
+        E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    If shaders changed, copy contents of:
+
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+
+    to:
+
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+Final response must include:
+
+    files changed
+    exact defaults changed
+    exact active-source proof with file/line evidence
+    build/deploy result
+    runtime dump CVars to use
+    any remaining old-smoke dependency

@@ -21,10 +21,12 @@ Read order
 2. docs/restir_friendly/unified_light_record_contract.txt
 3. docs/restir_friendly/layered_debug_gates.txt
 4. docs/restir_friendly/mechanical_light_universe_slices.txt
-5. docs/restir_friendly/new_agent_prompt.txt
-6. docs/ReSTIR/restir_pt_chain_after_light_universe.txt
-7. docs/ReSTIR/restir_pt_rab_io_supply_map.txt
-8. docs/ReSTIR/restir_pt_smoke_to_rab_crossings.txt
+5. docs/restir_friendly/rrx_light_sampling_range_conformance_tasks.txt
+6. docs/restir_friendly/rrx_doom_analytic_sphere_conformance_tasks.txt
+7. docs/restir_friendly/new_agent_prompt.txt
+8. docs/ReSTIR/restir_pt_chain_after_light_universe.txt
+9. docs/ReSTIR/restir_pt_rab_io_supply_map.txt
+10. docs/ReSTIR/restir_pt_smoke_to_rab_crossings.txt
 
 Reference root
 --------------

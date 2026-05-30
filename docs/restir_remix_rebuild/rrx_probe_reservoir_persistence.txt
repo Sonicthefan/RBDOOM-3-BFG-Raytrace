@@ -1,0 +1,410 @@
+RRX-PROBE Reservoir Persistence Slices
+======================================
+
+Purpose
+-------
+
+These slices test the new Remix/RRX reservoir owner without implementing DI
+initial sampling, temporal reuse, spatial reuse, final shading, visibility, or
+DLSS RR integration.
+
+The current mode-56 view 59 is useful only as an intermediate check because it
+uses the existing mode-56 DI temporal reservoir pages. It does not prove that
+PathTraceRemixRtxdiResources owns a stable reservoir domain.
+
+The RRX-PROBE slices must bind and use the actual DI domain owned by:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+
+If a worker cannot bind that domain into the debug shader, it must stop. Do not
+replace this test with old RestirPTDiReservoirs, RestirPTReservoirs, smoke
+reservoirs, or mode-18 accumulation.
+
+
+Global Rules
+------------
+
+The probe is not ReSTIR lighting. It is a reservoir lifetime and mapping test.
+
+Forbidden:
+
+    no RTXDI initial sampling
+    no RTXDI temporal resampling
+    no RTXDI spatial resampling
+    no final shading
+    no visibility ray
+    no target PDF calculation
+    no MIS
+    no DLSS RR output change
+    no old smoke reservoir clear policy
+    no use of m_smokeDoomAnalyticLightCount as temporal validity
+    no broad dynamic-light suppression
+
+Allowed:
+
+    bind the new RRX DI reservoir buffer into the mode-56 debug shader
+    pass the RRX DI reservoir buffer parameters and page indices
+    write a small deterministic diagnostic DI reservoir payload
+    read the previous diagnostic page on the next frame
+    translate previous light IDs through the light-manager current/previous maps
+    visualize only reservoir persistence and remap classification
+
+The probe may use RTXDI packing/unpacking helpers for the DI reservoir storage
+format. It must not call RTXDI sampling or reuse helpers.
+
+
+Required Runtime Switches
+-------------------------
+
+The probe must be inactive unless the user explicitly selects its debug view.
+
+Use mode 56 subviews, not new global debug modes:
+
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTDiDebugView 60    // single-light heartbeat
+    r_pathTracingRestirPTDiDebugView 61    // many-light heartbeat
+    r_pathTracingRestirPTDiDebugView 62    // many-light churn classifier
+
+The worker may add these subviews by extending the existing clamp and CVar help
+text. Do not repurpose view 58 or view 59.
+
+Recommended test setup:
+
+    r_pathTracingDebugMode 56
+    r_pathTracingRestirPTMode56Accumulation 1
+    r_pathTracingRestirPTMode56AccumulationMaxFrames 256
+    r_pathTracingDLSSRRGuideDebugView 0
+    r_pathTracingRestirPTGiDebugView 0
+
+
+RRX-PROBE-01: Single-Light Heartbeat
+------------------------------------
+
+Goal:
+
+    Prove the new RRX DI reservoir buffer is actually bound, writable,
+    readable, double-buffered, and not instantly cleared.
+
+Input contract:
+
+    current light-manager payload buffer
+    previous light-manager payload buffer
+    current-to-previous light-manager map
+    previous-to-current light-manager map
+    RRX DI reservoir buffer from PathTraceRemixRtxdiResources
+    RRX DI reservoir buffer parameters
+    frame index
+    output size/checkerboard state
+
+Output contract:
+
+    one mode-56 DI debug subview only
+    a full-screen color visualization
+    no final lighting output change when the subview is not selected
+
+Procedure:
+
+    1. Bind the RRX DI reservoir domain into the smoke/mode-56 debug binding
+       set at a new explicit UAV slot. Do not replace RestirPTDiReservoirs.
+
+    2. Pass the RRX DI reservoir parameters and page indices to the shader.
+       Use page 0 as the current diagnostic page and page 1 as the previous
+       diagnostic page for this probe unless the resource owner exposes a more
+       precise current/previous page contract.
+
+    3. In view 60 only, select one stable light through the light-manager RAB
+       path. Prefer the first loadable current light that has a valid
+       current-to-previous mapping.
+
+    4. Store a diagnostic RTXDI DI reservoir payload in the current RRX page.
+       The payload must contain only:
+
+           selected light index
+           M/history count
+           fixed harmless UV
+           fixed positive target/weight fields needed for valid packing
+
+       Do not compute lighting.
+
+    5. Read the previous RRX page for the same pixel. Translate the previous
+       stored light index to the current frame through the light-manager map.
+
+    6. If the translated previous light equals the current selected light,
+       increment M up to the configured max history. Otherwise reset M to 1.
+
+Color contract:
+
+    green  = previous probe remapped to the same current light and M grew
+    blue   = no previous probe, first frame, or previous page empty
+    orange = previous probe existed but did not remap to the same current light
+    red    = RRX DI reservoir unavailable, clear-pending, or bad dimensions
+    purple = light-manager enabled but no usable mapped light found
+
+Acceptance:
+
+    Stationary camera in a stable area should converge to green.
+    Dynamic light animation should not globally turn the screen red/orange if
+    the RRX owner is decoupled from old broad reset gates.
+
+Stop after build/deploy and user visual testing.
+
+
+RRX-PROBE-02: Many-Light Heartbeat
+----------------------------------
+
+Goal:
+
+    Stress the dynamic-light/remap failure mode across many sampled lights
+    without entering real ReSTIR.
+
+Input contract:
+
+    same as RRX-PROBE-01
+
+Output contract:
+
+    one mode-56 DI debug subview only
+    a full-screen color visualization
+    no final lighting output change when the subview is not selected
+
+Procedure:
+
+    1. Keep the RRX-PROBE-01 binding and page contract.
+
+    2. In view 61 only, each pixel deterministically selects a light from the
+       full light-manager sample domain using a stable pixel hash. The hash may
+       vary by pixel but must not vary by frame.
+
+    3. The selected light must come from the light-manager current payload/range
+       data. Skip invalid/unloadable records with a small bounded probe loop.
+
+    4. Store the selected light index in the current RRX DI diagnostic page.
+
+    5. Read the previous RRX DI diagnostic page for the same pixel. Translate
+       the previous stored light index to current through the light-manager
+       previous-to-current map.
+
+    6. Keep history only when the translated previous light matches the current
+       deterministic light for that pixel. Increment M on keep; reset M to 1 on
+       mismatch.
+
+Color contract:
+
+    green  = previous probe survived and remapped to this pixel's current light
+    blue   = no previous probe, first frame, or previous page empty
+    orange = previous probe existed but selected light changed/remap mismatch
+    red    = RRX DI reservoir unavailable, clear-pending, or bad dimensions
+    purple = no usable light after bounded probing
+
+Acceptance:
+
+    In the dynamic-light failure scenes, most stable screen regions should stay
+    green if the new reservoir owner and light-manager maps are not being
+    globally poisoned. Local orange/purple is acceptable where the selected
+    light truly lacks current/previous continuity.
+
+Stop after build/deploy and user visual testing.
+
+
+RRX-PROBE-03: Many-Light Churn Classifier
+-----------------------------------------
+
+Goal:
+
+    If RRX-PROBE-02 shows resets or widespread mismatch, split the reason into
+    reservoir clear, missing mapping, payload animation, and compatibility
+    changes.
+
+Input contract:
+
+    same as RRX-PROBE-02, plus current/previous light-manager record metadata:
+
+        identity keys
+        compatibility keys
+        payload hashes
+        source type
+        flags/invalid reason flags
+
+Output contract:
+
+    one mode-56 DI debug subview only
+    a full-screen color visualization
+    no final lighting output change when the subview is not selected
+
+Procedure:
+
+    1. Keep the many-light deterministic selection from RRX-PROBE-02.
+
+    2. When a previous probe fails to keep history, classify the reason in this
+       order:
+
+           previous reservoir/page empty
+           previous stored light index out of range
+           previous-to-current map invalid
+           current-to-previous map invalid for the current deterministic light
+           source type or compatibility key changed
+           identity survived but payload hash changed
+           identity/remap survived and only M/history failed
+
+    3. Do not clear or repair the reservoir from this classifier. Only write
+       the next diagnostic probe exactly as RRX-PROBE-02 does.
+
+Color contract:
+
+    green   = survived and remapped
+    blue    = no previous reservoir/page empty
+    orange  = previous light missing from current frame
+    yellow  = current deterministic light missing from previous frame
+    red     = RRX reservoir unavailable or clear-pending
+    magenta = payload changed but identity/remap survived
+    cyan    = source type or compatibility changed
+    white   = invalid/out-of-range metadata
+
+Acceptance:
+
+    This view should explain any broad RRX-PROBE-02 failure without guessing.
+    Widespread red means resource lifetime/clear policy is still wrong.
+    Widespread orange/yellow means light-manager identity/remap continuity is
+    still wrong. Widespread magenta with stable green elsewhere means payload
+    animation is being detected locally rather than as a structural reset.
+
+
+Worker Prompts
+--------------
+
+Paste this prompt for RRX-PROBE-01:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Task:
+        RRX-PROBE-01 only: add a debug-only single-light heartbeat view for the
+        new Remix/RRX DI reservoir owner.
+
+    Read first:
+        docs/pathtracing.txt
+        docs/restir_remix_rebuild/README.txt
+        docs/restir_remix_rebuild/worker_protocol.txt
+        docs/restir_remix_rebuild/implementation_slices.txt
+        docs/restir_remix_rebuild/rrx_probe_reservoir_persistence.txt
+
+    Reference roots:
+        RTXDI: E:/prog/references/RTXDI-main
+        RTX Remix: E:/prog/references/dxvk-remix-git
+
+    Critical constraints:
+        Do not implement ReSTIR initial sampling, temporal reuse, spatial reuse,
+        final shading, visibility, target PDFs, MIS, or DLSS RR changes.
+        Do not use RestirPTDiReservoirs, RestirPTReservoirs, smoke reservoirs,
+        or mode-18 accumulation as the tested reservoir. The point is to bind
+        and test PathTraceRemixRtxdiResources' DI reservoir domain.
+
+    Expected implementation:
+        Bind the RRX DI reservoir domain into mode 56 at a new explicit UAV
+        slot, pass its reservoir parameters/page info, add
+        r_pathTracingRestirPTDiDebugView 60, write/read a deterministic
+        diagnostic DI reservoir probe, and visualize persistence using the
+        color contract in RRX-PROBE-01.
+
+    Build/deploy:
+        Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+            cmake --build --preset win64-pt-dev-release
+        Copy the exe to:
+            E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+        If shaders changed, copy the contents of:
+            E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+        to:
+            E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+        Do not nest renderprogs2 inside renderprogs2.
+
+    Stop after RRX-PROBE-01. Report files changed, build/deploy result, and the
+    exact CVars for user visual testing.
+
+
+Paste this prompt for RRX-PROBE-02 after RRX-PROBE-01 is accepted:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Task:
+        RRX-PROBE-02 only: extend the debug-only RRX DI reservoir heartbeat from
+        one stable light to many deterministic per-pixel lights.
+
+    Read first:
+        docs/pathtracing.txt
+        docs/restir_remix_rebuild/README.txt
+        docs/restir_remix_rebuild/worker_protocol.txt
+        docs/restir_remix_rebuild/implementation_slices.txt
+        docs/restir_remix_rebuild/rrx_probe_reservoir_persistence.txt
+
+    Critical constraints:
+        Build on the accepted RRX-PROBE-01 binding and page contract. Do not
+        implement RTXDI/ReSTIR initial sampling, temporal reuse, spatial reuse,
+        visibility, final shading, target PDFs, MIS, or DLSS RR changes. Do not
+        use old smoke reservoirs or RestirPTDiReservoirs as the tested domain.
+
+    Expected implementation:
+        Add r_pathTracingRestirPTDiDebugView 61. Each pixel deterministically
+        selects one loadable light from the full light-manager current sample
+        domain using a stable pixel hash, stores that light ID in the new RRX DI
+        diagnostic reservoir page, reads the previous page, remaps previous to
+        current through the light-manager map, and colors persistence according
+        to the RRX-PROBE-02 color contract.
+
+    Build/deploy:
+        Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+            cmake --build --preset win64-pt-dev-release
+        Copy the exe to:
+            E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+        If shaders changed, copy the contents of:
+            E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+        to:
+            E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+        Do not nest renderprogs2 inside renderprogs2.
+
+    Stop after RRX-PROBE-02. Report files changed, build/deploy result, and the
+    exact CVars for user visual testing.
+
+
+Paste this prompt for RRX-PROBE-03 only if RRX-PROBE-02 shows broad failure:
+
+    Repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    Task:
+        RRX-PROBE-03 only: add a many-light churn classifier for the debug-only
+        RRX DI reservoir heartbeat.
+
+    Read first:
+        docs/pathtracing.txt
+        docs/restir_remix_rebuild/README.txt
+        docs/restir_remix_rebuild/worker_protocol.txt
+        docs/restir_remix_rebuild/implementation_slices.txt
+        docs/restir_remix_rebuild/rrx_probe_reservoir_persistence.txt
+
+    Critical constraints:
+        Build on the accepted RRX-PROBE-02 deterministic many-light probe. Do
+        not implement RTXDI/ReSTIR sampling/reuse/shading. Do not repair or
+        suppress dynamic lights. This is classification only.
+
+    Expected implementation:
+        Add r_pathTracingRestirPTDiDebugView 62. Keep the same many-light
+        deterministic selection and RRX DI reservoir write path. When a
+        previous probe fails to keep history, classify the failure using the
+        RRX-PROBE-03 ordered reason list: empty page, previous index out of
+        range, previous-to-current map invalid, current-to-previous map invalid,
+        source/compatibility changed, payload changed, or invalid metadata.
+
+    Build/deploy:
+        Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+            cmake --build --preset win64-pt-dev-release
+        Copy the exe to:
+            E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+        If shaders changed, copy the contents of:
+            E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+        to:
+            E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+        Do not nest renderprogs2 inside renderprogs2.
+
+    Stop after RRX-PROBE-03. Report files changed, build/deploy result, and the
+    exact CVars for user visual testing.

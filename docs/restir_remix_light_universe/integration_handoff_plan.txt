@@ -1,0 +1,142 @@
+Remix-Shaped Light Universe Integration Handoff Plan
+===================================================
+
+Current Diagnosis
+-----------------
+
+Clean RTXDI DI view 12 can accumulate real Doom analytic lights when
+`r_pathTracingCleanRtxdiDiBypassLightUniverse 1` is enabled.
+
+The bypass does not replace RTXDI temporal math. It replaces the old persistent
+Doom analytic remap with a compact current/previous mapping built from actual
+uploaded light payload identity.
+
+Therefore the current blocker is the old light-universe/remap producer contract,
+not proof that RTXDI temporal or final resolve are broadly broken.
+
+
+Reference Contract To Preserve
+------------------------------
+
+RTX Remix exposes:
+
+    current light buffer
+    previous light buffer
+    light mapping buffer
+    light count and typed ranges
+
+The shader bridge exposes:
+
+    RAB_LoadLightInfo(index, false)
+    RAB_LoadLightInfo(index, true)
+    RAB_TranslateLightIndex(index, true)
+    RAB_TranslateLightIndex(index, false)
+
+RTXDI temporal uses that bridge to:
+
+    translate current selected light to previous for bias correction
+    translate previous reservoir light to current for target-at-current
+    reject only the previous sample when translation fails
+
+
+Do Not Preserve From The Old Path
+---------------------------------
+
+Do not preserve these as active RTXDI remap policy:
+
+    persistent authored registry order as shader-facing light index
+    candidate slot as identity
+    zero-radiance/off/missing diagnostic entries as dense active lights
+    remap validity blocked by broad selected-area diagnostics
+    payload animation treated as remap invalidation
+    full-map/full-domain brute force
+
+These may remain as diagnostics if they are not the RTXDI-facing contract.
+
+
+Proposed Replacement Shape
+--------------------------
+
+Step 1:
+
+    Build dense current analytic payloads from the same candidate source that
+    current clean RTXDI can already shade.
+
+Step 2:
+
+    Keep the previous frame's dense payloads owned by the new Remix-shaped
+    producer.
+
+Step 3:
+
+    Build two maps by stable identity:
+
+        current index -> previous index
+        previous index -> current index
+
+    Identity should prefer stable renderLight/entity identity for Doom analytic
+    lights. Payload values such as color/radiance must not be identity.
+
+Step 4:
+
+    Invalid mappings are local. A new spark is current-only. A despawned spark
+    is previous-only. Stable room lights remain mapped.
+
+Step 5:
+
+    Expose the new domain to clean RTXDI DI with a default-off CVar. Keep old
+    path and bypass available for A/B until visual proof passes.
+
+
+First Worker Slice
+------------------
+
+Start with RLU-00 only:
+
+    read-only audit
+    no code changes
+    no build
+    exact reference files
+    exact rbdoom read set
+    exact proposed write set
+    first missing contract
+
+Only after RLU-00 is accepted should RLU-01 start implementation.
+
+
+Stop Conditions
+---------------
+
+Stop if:
+
+    the current/previous dense domains cannot be named
+    the mapping table cannot be built without authored-registry diagnostics
+    selected lights cannot replay through RAB
+    animated payloads invalidate unrelated stable lights
+    the visual proof requires spatial, best lights, broad suppression,
+        mirror/subview behavior, or full-map brute force
+
+
+Build / Deploy Handoff
+----------------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Copy exe:
+
+    E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to
+    E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Copy shaders:
+
+    contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.

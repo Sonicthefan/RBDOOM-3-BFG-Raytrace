@@ -133,6 +133,26 @@ Every implementation report must include:
     what the user should see with temporal on
         what the user should see with temporal off
 
+    raw accumulation proof, required as soon as lights or emissives produce
+        visible radiance:
+        flat diffuse material response with a constant diffuse color
+        physically based direct-light estimate from the selected DI sample
+        one sampled light candidate per pixel for the temporal-off baseline
+        same resolve code for temporal off and temporal on
+        temporal off is noisy/current-only
+        temporal on reduces noise over frames without changing mean brightness
+        camera motion shows reservoir tracking/reprojection behavior
+        disocclusions and failed reprojection return to current-only noise
+
+    diagnostic-only proof, never sufficient for temporal accumulation claims:
+        status colors
+        reservoir field bands
+        green valid pixels
+        CPU dumps
+        buffer allocation/survival
+        non-crashing builds
+        names matching RTXDI or Remix
+
 
 Stop Conditions
 ---------------
@@ -140,6 +160,12 @@ Stop Conditions
 Stop immediately if:
 
     a proof view shows albedo or normal scene lighting
+    a temporal accumulation claim is based on status colors, field bands, dumps,
+        or buffer survival instead of raw noisy-to-less-noisy lighting
+    raw flat-diffuse temporal-on output changes average brightness instead of
+        reducing noise around the same lighting estimate
+    temporal proof uses luminance averaging, denoising, or history brightness
+        ramps instead of reservoir temporal reuse
     temporal proof requires spatial
     temporal proof requires best lights
     previous-temporal-as-best is needed for accumulation

@@ -1,12 +1,9 @@
 #pragma once
 
-// Host-side RTXDI ReSTIR PT context and parameter upload scaffold.
+// Host-side RTXDI ReSTIR PT parameter upload scaffold.
 //
-// This owns no shader pass. It keeps RTXDI's runtime context, buffer-index
-// selection, and PT parameter packing separate from the existing smoke reservoir
-// and dispatch constants.
-
-#include <memory>
+// This owns no shader pass. It keeps buffer-index selection and PT parameter
+// packing separate from the existing smoke reservoir and dispatch constants.
 
 #include <Rtxdi/PT/ReSTIRPT.h>
 
@@ -27,7 +24,6 @@ struct RtRestirPTContextUpdateDesc
 
 struct RtRestirPTContextState
 {
-    std::unique_ptr<rtxdi::ReSTIRPTContext> context;
     RTXDI_PTParameters parameters = {};
     uint32_t width = 0;
     uint32_t height = 0;
@@ -40,5 +36,4 @@ struct RtRestirPTContextState
 };
 
 size_t GetRestirPTParametersSize();
-void FillRestirPTParameters(RTXDI_PTParameters& parameters, const rtxdi::ReSTIRPTContext& context);
 bool UpdateRestirPTContextState(RtRestirPTContextState& state, const RtRestirPTContextUpdateDesc& desc);

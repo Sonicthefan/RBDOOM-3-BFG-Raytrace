@@ -62,6 +62,27 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
     unsigned int cleanHistoryResetCount = 0;
     unsigned long long cleanHistorySignature = 0;
     unsigned int temporalFlags = 0;
+    bool temporalAuditEnabled = false;
+    bool temporalAuditValid = false;
+    unsigned int temporalAuditPixels = 0;
+    unsigned int temporalAuditCurrentValid = 0;
+    unsigned int temporalAuditCurrentCandidate = 0;
+    unsigned int temporalAuditSurfaceValid = 0;
+    unsigned int temporalAuditMotionValid = 0;
+    unsigned int temporalAuditCameraFallback = 0;
+    unsigned int temporalAuditPreviousPixelInBounds = 0;
+    unsigned int temporalAuditPreviousSurfaceValid = 0;
+    unsigned int temporalAuditPreviousReservoirValid = 0;
+    unsigned int temporalAuditPreviousLightMapped = 0;
+    unsigned int temporalAuditPreviousTargetAtCurrent = 0;
+    unsigned int temporalAuditSdkCalled = 0;
+    unsigned int temporalAuditSdkTemporalSamplePixelValid = 0;
+    unsigned int temporalAuditOutputReservoirValid = 0;
+    unsigned int temporalAuditSdkSelectedPrevious = 0;
+    unsigned int temporalAuditSdkReusedPrevious = 0;
+    unsigned int temporalAuditOutputChanged = 0;
+    float temporalAuditAvgPreviousM = 0.0f;
+    float temporalAuditAvgOutputM = 0.0f;
     float regirCellSize = 0.0f;
     unsigned int regirGridX = 0;
     unsigned int regirGridY = 0;
@@ -73,4 +94,5 @@ struct PathTraceCleanRtxdiDiGuiSnapshot
 };
 
 void PathTraceCleanRtxdiDiPublishGuiSnapshot(const PathTraceCleanRtxdiDiGuiSnapshot& snapshot);
+void PathTraceCleanRtxdiDiPublishTemporalAudit(const PathTraceCleanRtxdiDiGuiSnapshot& snapshot);
 bool PathTraceCleanRtxdiDiGetGuiSnapshot(PathTraceCleanRtxdiDiGuiSnapshot& snapshot);

@@ -147,6 +147,15 @@ Every implementation report must include:
         observed output
         why it is not fallback albedo/beauty
 
+    analytic parity proof, when Doom analytic lights are involved
+        clean RTXDI DI view 12 reference behavior
+        PDFNEE/RLU producer behavior
+        dense current RLU lightIndex
+        RLU record sourceIndex
+        direct DoomAnalyticLights[sourceIndex] payload fields
+        clean and PDFNEE RAB_LightInfo field comparison
+        solidAnglePdf, targetPdf, reflectedRadiance, visibility, finalContribution
+
 
 Diagnostic Limits
 -----------------
@@ -173,6 +182,8 @@ Stop immediately if:
     source PDF does not sum to 1.0 for the proposal domain
     targetPdf and final contribution use different light samples
     solidAnglePdf is missing
+    PDFNEE current Doom analytic lighting does not match clean RTXDI DI view 12
+        for the same RLU current analytic domain
     output uses fallback albedo/beauty
     temporal is required to make the current-frame estimator look correct
     broad light suppression is proposed as the fix

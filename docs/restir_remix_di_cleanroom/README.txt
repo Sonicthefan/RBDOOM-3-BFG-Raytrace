@@ -67,6 +67,19 @@ Target behavior:
 This is the minimum useful baseline. Spatial and best lights are quality/perf
 work after this baseline is proven.
 
+The human-facing accumulation proof is a raw flat-diffuse direct-light view.
+Once the clean-room path can sample analytic lights or emissive lights, it must
+show:
+
+    temporal off: one sampled light candidate per pixel, noisy direct lighting
+    temporal on: the same lighting estimate becoming less noisy over frames
+    camera motion: temporal tracking/reprojection behavior and noisy
+        disocclusion where history is invalid
+
+Status colors, reservoir field bands, dumps, green valid pixels, and
+non-crashing builds are diagnostics only. They must not be reported as proof of
+functional temporal accumulation.
+
 
 Reference Roots
 ---------------
@@ -111,6 +124,9 @@ Do not:
     add luminance averaging or history brightness ramps
     suppress broad classes of lights to make a proof pass
     claim compliance from names, buffer survival, green views, or no crash
+    claim temporal accumulation from status/debug displays
+    hide accumulation proof behind a dashboard that cannot show noisy lighting
+        becoming less noisy
     omit the clean-room DI initial / NEE-equivalent producer
 
 
@@ -120,13 +136,18 @@ First Milestone
 Milestone M1 is not beauty output.
 
 M1 succeeds only when rbdoom has a new clean-room Remix-shaped DI initial plus
-temporal path whose reservoir-only debug output:
+temporal path whose raw flat-diffuse validation output:
 
     owns every pixel
-    shows explicit invalid colors
-    shows current-only vs temporal-reused pixels
+    uses analytic lights first
+    uses one sampled light candidate per pixel for temporal-off validation
+    shows noisy current-only direct lighting when temporal is disabled
+    shows the same lighting becoming less noisy when temporal is enabled
+    tracks/reprojects while moving, with current-only noise at disocclusions
     accumulates temporally with spatial and best lights disabled
-    turns current-only/noisy when temporal is disabled
     turns invalid when light input is disabled
     is controlled by r_pathTracingCleanRtxdiDi* CVars
     never falls back to albedo or normal scene lighting
+
+Reservoir/status debug output is still required for diagnosing failures, but it
+is not sufficient for the M1 accumulation claim.

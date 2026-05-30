@@ -1,0 +1,146 @@
+Start Here: Storage
+
+63: previous-page heartbeat.
+
+Green: previous page y has a valid probe and history is surviving.
+Blue: previous page is empty/zero.
+Orange: previous page has data, but not the expected valid probe.
+Red: RRX DI reservoir resource unavailable.
+64: same-dispatch page x write/read.
+
+Green: page x write/read works.
+Orange: page x echo failed.
+Red: resource unavailable.
+65: current page x raw fields. Four quadrants:
+
+Top-left white = packed data nonzero, black = zero.
+Top-right red = valid reservoir, green = light data present, blue = light index variation.
+Bottom-left blue = expected probe magic, orange = UV data but not probe, black = empty.
+Bottom-right red = weightSum > 0, green = M/history, blue = targetPdf > 0.
+66: previous page y raw fields, same quadrant meaning as 65.
+
+If 65 looks alive but 66 is empty/black/blue-absent after a few frames, history page ownership is the failure.
+Active Temporal
+5. 61: initial survivor / replay attribution. Eight vertical bands:
+
+Band 0: initial selected light type.
+Band 1: temporal output selected light type or temporal failure status.
+Band 2: replay status.
+Bands 3-4: emissive and Doom analytic candidate survival.
+Band 5: light-info invalid mask.
+Band 6: sample invalid reasons.
+Band 7: zero targetPdf reasons.
+If bands 0-4 are mostly dead/dark/red, current reservoir construction or sampling is failing.
+68: temporal local invalidation.
+
+Left half: why temporal accepts/rejects.
+Right half: temporal output heat.
+Left bands:
+0 projection valid
+1 previous sample used
+2 previous-to-current translation valid
+3 current-to-previous translation valid
+4 selected light stable vs changed
+5-8 previous-best fallback bits; with fallback 0, these are diagnostic only.
+Right half:
+Black = invalid output.
+Red = targetPdf heat.
+Green = history/M.
+Blue = weightSum.
+If right half never gets green/history, temporal is not accumulating.
+70: temporal input evidence, 14 vertical bands:
+
+0 helper motion source
+1 helper motion vector
+2 reset mask, green safe / orange unsafe
+3 previous surface valid
+4 depth check using old zero-z expectation
+5 depth check using active motion.z expectation
+6 normal check
+7 previous sample used
+8 temporal output valid
+9 output selected-light identity hash
+10 exported motion source
+11 exported motion vector
+12 current record source
+13 current record status
+Look for the first band that turns red/orange/dark across most useful surfaces.
+
+Active Temporal
+5. 61: initial survivor / replay attribution. Eight vertical bands:
+
+Band 0: initial selected light type.
+Band 1: temporal output selected light type or temporal failure status.
+Band 2: replay status.
+Bands 3-4: emissive and Doom analytic candidate survival.
+Band 5: light-info invalid mask.
+Band 6: sample invalid reasons.
+Band 7: zero targetPdf reasons.
+If bands 0-4 are mostly dead/dark/red, current reservoir construction or sampling is failing.
+68: temporal local invalidation.
+
+Left half: why temporal accepts/rejects.
+Right half: temporal output heat.
+Left bands:
+0 projection valid
+1 previous sample used
+2 previous-to-current translation valid
+3 current-to-previous translation valid
+4 selected light stable vs changed
+5-8 previous-best fallback bits; with fallback 0, these are diagnostic only.
+Right half:
+Black = invalid output.
+Red = targetPdf heat.
+Green = history/M.
+Blue = weightSum.
+If right half never gets green/history, temporal is not accumulating.
+70: temporal input evidence, 14 vertical bands:
+
+0 helper motion source
+1 helper motion vector
+2 reset mask, green safe / orange unsafe
+3 previous surface valid
+4 depth check using old zero-z expectation
+5 depth check using active motion.z expectation
+6 normal check
+7 previous sample used
+8 temporal output valid
+9 output selected-light identity hash
+10 exported motion source
+11 exported motion vector
+12 current record source
+13 current record status
+Look for the first band that turns red/orange/dark across most useful surfaces.
+Weights
+8. 75: weight-chain audit.
+
+Bands 0-5 should show nontrivial heat if initial/current reservoir math is alive.
+Band 6 is previous-best pressure; with fallback off it should mostly be dark.
+Band 7 packs previous/current/temporal weights into RGB.
+If bands 0-5 are dead, do not blame temporal reuse yet.
+76: selected-light weight audit.
+Band 0 selected source: green emissive, cyan Doom analytic, magenta previous-best.
+With fallback off, magenta previous-best is suspicious.
+Bands 2-6 show targetPdf/source/RIS/final weights.
+Final Consumer
+10. 72: final temporal contribution.
+
+Top strip is status.
+Rest of screen is actual contribution; black means not evaluated.
+Important top colors:
+Green/cyan light-type color = evaluated.
+Dark gray = reservoir invalid.
+Purple = light info invalid.
+Orange = sampled light invalid.
+Yellow = zero solid angle.
+Brown = zero selection PDF.
+Red = zero targetPdf.
+Blue = zero NdotL.
+Dark red = visibility rejected.
+73: left half status, right half magnitude.
+If left is good but right is black/dim, replay has a contribution issue.
+If left is dark gray, reservoir never reached final consumer valid.
+74: selected-light identity.
+Left half should show stable hashed colors if selected light identity is present.
+Right half modulates that identity by contribution.
+If it shows status colors instead of hashes, final consumer lacks a selected light.

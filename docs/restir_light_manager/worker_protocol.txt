@@ -1,0 +1,196 @@
+Worker Protocol For RTX Remix-Shaped Light Manager
+==================================================
+
+Purpose
+-------
+
+Workers must follow this protocol exactly. The recurring failure mode is that
+workers improvise renderer policy while coding.
+
+The active slice family is LU-RM. The old LM-01 through LM-08 sequence is
+historical scaffold only.
+
+
+Prompt Requirements
+===================
+
+Every worker prompt must include:
+
+    repository:
+        E:/prog/rbdoom-3-bfg-rt
+
+    branch:
+        current branch from git status
+
+    task:
+        exactly one LU-RM slice id from implementation_slices.txt
+
+    read first:
+        docs/restir_light_manager/README.txt
+        docs/restir_light_manager/reference_contract.txt
+        docs/restir_light_manager/local_rbdoom_mapping.txt
+        docs/restir_light_manager/implementation_slices.txt
+        docs/restir_friendly/light_universe_heavy_rebuild_from_references.txt
+
+    references:
+        exact RTXDI files needed for the slice
+        exact RTX Remix files needed for the slice
+
+    owned files:
+        exact files the worker may edit
+
+    forbidden:
+        no RTXDI/RTX Remix copy paste
+        no ReSTIR math changes
+        no reservoir finalization changes
+        no sampling policy changes
+        no material/mesh/BLAS/TLAS rewrite
+        no deleting legacy split outputs
+        no similarity matching unless the slice explicitly asks for it
+        no continuing old LM design ideas unless the LU-RM slice says to reuse
+        a scaffold piece
+
+    verification:
+        build command or no-build instruction
+        deploy instruction if shader/exe changes require it
+
+    final response:
+        changed files
+        build result
+        deploy result if applicable
+        exact cvars/debug views for user testing
+        blockers
+
+
+Worker Behavior Rules
+=====================
+
+1. Match output shape, not reference layout.
+
+   RTX Remix and RTXDI define the manager/RAB contract. rbdoom implementation
+   remains rbdoom-native.
+
+   Do not define the task as repeatedly patching the old rbdoom
+   reservoir/light path until it behaves. Build a new Remix-compliant chain
+   from the light manager. Keep the old path only as fallback, comparison, and
+   failure evidence until the new path is accepted.
+
+   For every slice that connects a new downstream lighting module, inspect the
+   RTX Remix producer and immediate consumer first. List the exact producer
+   outputs and consumer reads in the final response. For the light-manager
+   boundary, this means LightManager::prepareSceneData, RtxContext constants and
+   bindings, RtxdiApplicationBridge.slangh, and the first RTXDI/ReSTIR pass that
+   consumes the RAB reads.
+
+   The first target is not full RTX Remix feature parity. The first target is
+   basic diffuse DI/GI with Remix-grade temporal reprojection/reuse and a sane
+   DLSS RR input. If a worker's change does not protect temporal history, it is
+   secondary unless the assigned slice explicitly says otherwise.
+
+   Use the RTX Remix temporal reuse viewer as a visual acceptance reference.
+   A rbdoom temporal view that collapses over most of the screen during rapid
+   or erratic camera motion fails, even if the final output is partly hidden by
+   reconstruction.
+
+2. Doom is adapter data.
+
+   Doom entity identity, portal diagnostics, temporary-light classification,
+   and emissive identity feed the manager. They do not define new ReSTIR math
+   or global refresh policy.
+
+3. Keep identity separate from payload.
+
+   Payload changes are diagnostics and current/previous payload data. They do
+   not by themselves invalidate stable identity maps.
+
+4. Use explicit invalid reasons.
+
+   Unknown, temporary, projectile, duplicate, deleted, unsupported, and
+   incompatible records must map invalid with reasons. Do not guess fallback
+   matches.
+
+5. Preserve legacy fallback until accepted.
+
+   The old split/unified outputs stay available for comparison until the user
+   accepts the manager route.
+
+6. Use Remix debug toggles as priority evidence.
+
+   If the user reports that toggling a Portal RTX / RTX Remix feature changes
+   the artifact class, treat that as ordering evidence for the LU-RM plan. Do
+   not invent an rbdoom-only substitute until the reference behavior is
+   understood.
+
+7. Low-noise diagnostics only.
+
+   Prefer one-shot dumps and compact reason counts. Do not add per-light spam
+   unless explicitly requested.
+
+8. Structural resemblance is not compliance.
+
+   Do not accept a slice because it has a manager-shaped class, current and
+   previous arrays, remap buffers, dumps with plausible values, or a successful
+   build. Those checks only prove scaffolding.
+
+   A conforming slice must prove the assigned contract in the active flow:
+
+       active consumer proof
+           exact file/line evidence that the new output is read by the next
+           active rbdoom module, shader binding, RAB callback, or dispatch path
+
+       negative-path proof
+           exact behavior when a mapping, identity, or compatibility check
+           fails. For light/reservoir work, failed translation must reject only
+           the selected candidate/sample, not broadly clear history
+
+       runtime diagnostic proof
+           a dump or debug view separating storage survival, mapping failure,
+           payload change, global clear, and inactive consumer state
+
+   If any of these are absent, the slice is diagnostic-only or incomplete. Mark
+   it P1 in review unless the task explicitly said it was only a scaffold.
+
+
+Build And Deploy Rules
+======================
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe after successful build:
+
+    copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders after shader changes:
+
+    copy contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.
+
+
+Review Checklist
+================
+
+Before accepting worker output, verify:
+
+    - Did the worker implement exactly one LU-RM slice?
+    - Did the worker touch only owned files?
+    - Did the worker avoid ReSTIR math changes?
+    - Did the worker preserve legacy split outputs?
+    - Did the worker keep payload changes separate from identity mapping?
+    - Did the worker avoid fallback guesses?
+    - Did the worker prove active consumption rather than only object/dump
+      existence?
+    - Did the worker document the negative path and show local rejection where
+      the reference requires it?
+    - Did the worker provide diagnostics that separate storage, mapping,
+      payload, global clear, and inactive-consumer states?
+    - Did the worker build/deploy only when appropriate?
+    - Did the final response list exact testing cvars?

@@ -294,9 +294,10 @@ ReSTIR PT integration has completed the first ten bridge steps:
 - Step 1: separate host-side packed ReSTIR PT reservoir allocation in
   `PathTraceRestirPTReservoirs.*`. It uses `RTXDI_PackedPTReservoir`,
   RTXDI reservoir addressing parameters, and the stock two PT reservoir slices.
-- Step 2: pass-owned `rtxdi::ReSTIRPTContext` and `RTXDI_PTParameters` upload
-  plumbing in `PathTraceRestirPT.*`, with resampling mode still forced to
-  `ReSTIRPT_ResamplingMode::None`.
+- Step 2: local `RTXDI_PTParameters` upload plumbing in
+  `PathTraceRestirPT.*`. The old pass-owned RTXDI runtime context was removed;
+  do not compile or reintroduce NVIDIA's `Source/ReSTIRPT.cpp` host
+  accumulator.
 - Step 3: shader ABI binding only. The smoke ray tracing binding set now binds
   `RTXDI_PTParameters` at b28 and
   `RWStructuredBuffer<RTXDI_PackedPTReservoir>` at u29. The shader defines

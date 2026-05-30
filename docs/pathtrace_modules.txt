@@ -729,10 +729,11 @@ PathTraceReservoirs.cpp
     reset signature.
 
 PathTraceRestirPT.h
-    Host-side RTXDI ReSTIR PT context scaffold. Owns the pass-local
-    rtxdi::ReSTIRPTContext state, cached RTXDI_PTParameters block, dimensions,
-    checkerboard mode, resampling mode, and frame index used for RTXDI temporal
-    random state. It also carries the diagnostic temporal-reservoir reuse gate
+    Host-side RTXDI ReSTIR PT parameter scaffold. Owns the cached
+    RTXDI_PTParameters block, dimensions, checkerboard mode, resampling mode,
+    and frame index used for RTXDI temporal random state. The previous
+    pass-local RTXDI runtime context and NVIDIA Source/ReSTIRPT.cpp host
+    accumulator were removed. It also carries the diagnostic temporal-reservoir reuse gate
     used to reject previous-frame PT reservoirs without disabling current
     initial-reservoir generation, plus the branch-local temporal fallback gate.
     Initial mode is ReSTIRPT_ResamplingMode::None.
@@ -883,15 +884,13 @@ pathtrace_pdf_nee_verifier.rt.hlsl
     prepasses, best lights, denoiser/confidence/gradient inputs, fallback
     beauty/albedo output, or old rbdoom NEE records as proof.
 
-    The shader validates source PDF, `solidAnglePdf`, target PDF,
-    selected-light replay, visibility, and final NEE/direct contribution for
-    the standalone verifier modes. Analytic modes 4-6 consume split-domain RAB
-    light indices internally but write the PDFNEE-09 clean handoff page at
-    `CleanRtxdiDiCurrentReservoirs`/u69 using zero-based Doom analytic light
-    indices and RTXDI helper calls. Emissive mode 7 remains a visual
-    current-frame verifier path; it does not yet produce a clean-consumable
-    emissive reservoir because the clean sentinel has no reviewed emissive
-    light-info bridge.
+    The old standalone verifier modes predate the working Remix Light Universe
+    path. They are discarded as implementation routes for the replacement
+    current-frame producer. The replacement target is the RLU dense current
+    domain, the active RRX RAB helper bridge, and a clean DI current reservoir
+    page at `CleanRtxdiDiCurrentReservoirs`/u69 with dense RLU identity. Do not
+    use the old PDFNEE-09 clean handoff, split-domain analytic identity, or old
+    rbdoom NEE records as replacement proof.
 
 cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
     Clean-room RTXDI DI sentinel shader library. CMake builds
@@ -900,14 +899,12 @@ cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
     views 1-10. Its normal current/temporal diagnostics still rebuild their
     own initial reservoir.
 
-    `r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent 1` switches the sentinel to
-    run a same-frame PDFNEE producer prepass, barrier u69, and consume the
-    freshly produced current page instead of overwriting it. That consume path
-    is intentionally limited to the analytic clean-domain reservoir indices
-    written by PDFNEE lightModes 4-6. If current-only consume works but temporal
-    accumulation fails to track, debug the clean page rotation, previous-valid
-    state, primary-surface history, motion vectors, and analytic identity remap
-    rather than changing the PDFNEE estimator.
+    The old `r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent` handoff is an
+    analytic-only PDFNEE diagnostic and is not the replacement current-frame
+    producer contract. Replacement work must write a clean-consumable current
+    page from the RLU dense current domain without relying on the old external
+    PDFNEE prepass, mode-56 routing, split-domain identity, or temporal
+    accumulation changes.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
@@ -1690,7 +1687,7 @@ successful scene commit.
 RTXDI-compatible ReSTIR PT host plumbing now exists separately from the smoke
 reservoirs. PathTraceRestirPTReservoirs allocates a packed
 RTXDI_PackedPTReservoir buffer sized by RTXDI's tiled reservoir parameters and
-two PT reservoir slices. PathTraceRestirPT owns an RTXDI ReSTIRPTContext and
+two PT reservoir slices. PathTraceRestirPT locally packs and
 uploads an RTXDI_PTParameters constant buffer each smoke dispatch, with
 resampling mode still forced to None. The smoke ray tracing binding set and
 shader now expose the Step 3 RTXDI PT reservoir ABI at b28/u29 and compile
@@ -1738,7 +1735,7 @@ the smoke raygen dispatch. The pass plan records whether the current mode is an
 initial-reservoir writer, temporal-reservoir writer, reservoir-shading preview,
 primary-surface debug view, source-attribution view, or visibility-tracing
 preview. PathTraceSmokeDispatch uses this plan to choose the RTXDI
-ReSTIRPTContext resampling mode and to dump the RTXDI initial/temporal/final
+PT parameter resampling mode and to dump the RTXDI initial/temporal/final
 buffer indices with `r_pathTracingRestirPTPassDump 1`. The shader still executes
 the existing validation paths inside one dispatch, so the pass plan is a data
 contract for the next split rather than a behavior change.

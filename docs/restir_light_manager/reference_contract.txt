@@ -1,0 +1,366 @@
+Reference Contract For RTX Remix-Shaped Light Manager
+=====================================================
+
+Purpose
+-------
+
+This file defines the contract rbdoom must produce. RTX Remix is the hostile
+game light-manager guide. RTXDI is the shader/RAB/ReSTIR consumer contract.
+
+Do not copy reference source. Match the contract.
+
+
+Primary Design Rule
+-------------------
+
+Build a manager-owned light domain first, then adapt Doom into it.
+
+Do not keep patching rbdoom's old light arrays until they happen to behave.
+The old arrays remain available for comparison and fallback, but the accepted
+ReSTIR path should consume manager-owned current/previous light domains and
+manager-owned maps.
+
+
+RTXDI Contract
+==============
+
+Reference files:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Source/RenderPasses/PrepareLightsPass.cpp
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Buffers.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_LightInfo.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/SpatioTemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/PT/HybridShift.hlsli
+
+Required shader-facing contract:
+
+1. Current and previous light records are separate domains.
+
+   A current index is current-domain only. A previous index is previous-domain
+   only.
+
+2. RAB_LoadLightInfo(index, previousFrame) loads from the requested domain.
+
+   previousFrame == false:
+       load manager currentLightRecords[index]
+
+   previousFrame == true:
+       load manager previousLightRecords[index]
+
+3. RAB_TranslateLightIndex(index, currentToPrevious) uses uploaded maps.
+
+   currentToPrevious == true:
+       return currentToPreviousLightMap[index], or invalid
+
+   currentToPrevious == false:
+       return previousToCurrentLightMap[index], or invalid
+
+4. Failed light translation kills only the candidate reservoir.
+
+   Do not globally clear reservoirs because one light is deleted,
+   unsupported, temporary, or incompatible.
+
+5. Animated payload changes are legal.
+
+   A stable light may change radiance, color, intensity, position, radius, or
+   shaping. Stable identity still maps. Current/previous payloads are evaluated
+   in their appropriate domains.
+
+6. Visible dynamic lights are legal.
+
+   Do not solve dynamic-light instability by excluding every on-screen or
+   potentially visible dynamic light. If a dynamic light is valid and active,
+   it may remain in the active domain. A changed light can invalidate the
+   reservoirs/samples that selected or validated against it, but it must not
+   dump the whole reservoir domain.
+
+
+RTX Remix Contract
+==================
+
+Reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_lights.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+
+Required manager behavior:
+
+1. Frame preparation is manager-driven.
+
+   rbdoom should mimic this responsibility split for lights only:
+
+       collect Doom/emissive observations
+       classify identity and continuity
+       match current observations against previous manager records
+       keep current and previous manager domains
+       build explicit maps
+       expose diagnostics
+       upload GPU buffers
+
+2. Identity is separate from frame-local submission.
+
+   Portal selection, visible draw order, uploaded array slot, and candidate
+   order are proposal/filter data. They are not persistent light identity.
+
+3. Buffer index is mutable state.
+
+   Matched lights may keep or change buffer indices, but index remapping is
+   explicit. The shader must not infer identity from slot order.
+
+4. Dynamic matching is conservative.
+
+   Use Doom identity first. Similarity fallback is allowed only in an explicit
+   future slice.
+
+5. Deleted, temporary, duplicate, projectile, or unknown-continuity lights map
+   invalid.
+
+   Invalid maps are visible diagnostics and per-candidate rejection, not global
+   clears.
+
+6. Lighting-change validation is local.
+
+   RTX Remix does not use visible dynamic-light animation as a reason to clear
+   every reservoir. DI temporal reuse maps previous best lights per pixel.
+   ReSTIR GI lighting validation uses RTXDI gradient strata to reject stale
+   samples in affected screen regions. rbdoom does not need to copy that code,
+   but the accepted contract must preserve the same scoping: dynamic-light
+   changes may invalidate touched samples/reservoirs, not the entire domain.
+
+
+Immediate Consumer Contract
+===========================
+
+Before building any downstream rbdoom lighting module, check both RTX Remix
+LightManager and the next consumer layer it feeds. The point is to freeze the
+interface so later work can preserve RTXDI/ReSTIR math instead of inventing
+new policy.
+
+Reference path:
+
+    SceneManager::prepareSceneData
+        -> LightManager::dynamicLightMatching
+        -> LightManager::prepareSceneData
+        -> RtxContext raytrace constants and descriptor bindings
+        -> RtxdiApplicationBridge.slangh
+        -> RTXDI initial/temporal/spatial passes
+        -> ReSTIR GI validation/reuse where enabled
+
+LightManager output contract to match structurally:
+
+    current light buffer
+    previous light buffer
+    light mapping buffer
+    active light count
+    per-type light ranges
+    per-type RTXDI/RIS sample counts
+    current-to-previous map entries
+    previous-to-current map entries
+    invalid sentinel for missing mappings
+
+RtxContext / shader binding contract to match structurally:
+
+    constants.lightCount is the active current light count
+    BINDING_LIGHT_DATA_BUFFER is the current light buffer
+    BINDING_PREVIOUS_LIGHT_DATA_BUFFER is the previous light buffer
+    BINDING_LIGHT_MAPPING is the bidirectional light mapping buffer
+    RAB_GetMemoryPolymorphicLight(index, false) reads current lights
+    RAB_GetMemoryPolymorphicLight(index, true) reads previous lights
+    RAB_TranslateLightIndex(index, currentToPrevious) reads the mapping buffer
+
+Worker rule:
+
+    Do not implement the next rbdoom lighting-chain layer until the worker has
+    listed the exact Remix producer outputs and exact Remix consumer reads for
+    that layer. rbdoom may use different structs and files, but the contract
+    must be equivalent before any ReSTIR math is touched.
+
+Compliance rule:
+
+    A matching producer shape is not enough. A slice is not accepted as
+    Remix/RTXDI-conformant until the next active rbdoom consumer reads the new
+    output and the reference failure path is preserved.
+
+    For light-manager and reservoir work, reviewers must require:
+
+        1. active consumer proof:
+           exact file/line evidence that shader-visible buffers, RAB callbacks,
+           or dispatch code consume the manager-owned current/previous domains
+           and maps
+
+        2. negative-path proof:
+           exact behavior for invalid light translation, deleted lights,
+           unsupported lights, or incompatible mappings. Invalid translation is
+           local candidate/sample rejection, not a global reservoir clear
+
+        3. runtime diagnostic proof:
+           a dump or debug view that separates:
+               storage survived
+               mapping failed
+               payload changed
+               global clear happened
+               consumer inactive
+
+    If a task only adds scaffolding, inactive shaders, or dumps, it must say so
+    plainly and must not be described as feature/math parity.
+
+Initial consumer target:
+
+    Match only the contracts needed for basic diffuse DI/GI first. Do not block
+    the baseline on less important Remix features. The baseline is accepted only
+    when the ReSTIR output is temporally stable enough to be a sane DLSS RR
+    input.
+
+    Temporal reprojection is the most important consumer contract. DI temporal
+    reuse, GI temporal reuse, previous-surface lookup, motion vectors, and
+    light-index translation must be treated as one critical path. DLSS RR is a
+    downstream reconstruction consumer, not a substitute for broken ReSTIR
+    temporal history.
+
+Temporal acceptance benchmark:
+
+    The RTX Remix temporal reuse viewer is the comparison target. In reference
+    testing it keeps most of the frame functional during rapid, erratic camera
+    movement. rbdoom's corresponding debug view must show comparable temporal
+    coverage for the basic diffuse DI/GI target before downstream modules are
+    considered ready.
+
+
+Detailed Remix Bridge Mechanics
+===============================
+
+This is the exact bridge shape workers must analyze before changing rbdoom's
+next lighting-chain layer. The names below identify reference responsibilities,
+not rbdoom code that should be copied.
+
+Producer side:
+
+    SceneManager::prepareSceneData calls the light manager before ray tracing
+    constants and descriptor bindings are finalized. The light manager performs
+    dynamic matching, swaps current and previous light buffers, linearizes the
+    active light set, builds active type ranges, writes GPU light records, and
+    writes the light mapping buffer.
+
+Active-light rule:
+
+    The shader-facing light count is the active current-light count. Disabled
+    or zero-intensity lights are not sampleable active records. They may still
+    exist as manager-side objects, but their buffer index/mapping result is
+    invalid for RAB/RTXDI sampling.
+
+Previous-buffer rule:
+
+    Previous lights are a real previous domain, not a reinterpretation of the
+    current frame's slots. The previous buffer survives long enough for temporal
+    reuse to load previous payloads by previous-domain index.
+
+Mapping-buffer layout:
+
+    The Remix bridge stores both map directions in one mapping buffer:
+
+        mapping[0 .. currentActiveCount - 1]
+            current-domain index -> previous-domain index
+
+        mapping[currentActiveCount .. currentActiveCount + previousActiveCount - 1]
+            previous-domain index -> current-domain index
+
+    rbdoom may keep separate currentToPrevious and previousToCurrent buffers,
+    or may pack them. Either layout is acceptable only if RAB_TranslateLightIndex
+    exposes the same semantics. Failed translation must return the invalid
+    light sentinel.
+
+Per-type ranges:
+
+    The manager computes light-type ranges over the active current buffer, then
+    RtxContext derives RTXDI/RIS sample counts from those ranges. rbdoom does
+    not need full type parity in the first slice, but the active manager output
+    must leave a place for type ranges and sample-count distribution before
+    workers rebuild the downstream sampling path.
+
+Consumer side:
+
+    RtxContext publishes:
+
+        active light count
+        current light buffer descriptor
+        previous light buffer descriptor
+        bidirectional mapping descriptor
+        light type ranges / sample counts
+
+    RtxdiApplicationBridge reads:
+
+        RAB_GetMemoryPolymorphicLight(index, false)
+            current light buffer at current-domain index
+
+        RAB_GetMemoryPolymorphicLight(index, true)
+            previous light buffer at previous-domain index
+
+        RAB_TranslateLightIndex(index, true)
+            current-domain index -> previous-domain index
+
+        RAB_TranslateLightIndex(index, false)
+            previous-domain index -> current-domain index
+
+Temporal consequence:
+
+    RTXDI temporal reuse maps a previous reservoir's selected light into the
+    current domain before replay. If the selected light cannot translate, that
+    candidate fails locally. It is not a signal to clear every reservoir.
+
+GI validation consequence:
+
+    Remix's ReSTIR GI path has local lighting-change validation through
+    gradient strata. rbdoom does not need to implement that in the first light
+    manager bridge slice, but workers must not replace it with a global dynamic
+    light reset. The correct direction is local stale-sample rejection.
+
+Current rbdoom gap to close:
+
+    The present manager route is still mostly metadata over legacy emissive and
+    Doom analytic arrays. RAB can translate manager records, but manager-enabled
+    light loads still route back into old split payload buffers by
+    payloadSourceIndex. The accepted bridge must eventually provide
+    manager-owned active current/previous payload buffers so RAB no longer
+    depends on legacy slot order while manager mode is enabled.
+
+
+rbdoom Contract To Produce
+==========================
+
+The accepted manager must produce:
+
+    currentLightRecords
+    previousLightRecords
+    currentToPreviousLightMap
+    previousToCurrentLightMap
+    currentLightCount
+    previousLightCount
+    stable identity diagnostics
+    current-only and previous-only diagnostics
+    payload-changed diagnostics
+    remap invalid reason diagnostics
+    global reservoir-clear reason diagnostics
+
+Payload and mapping separation:
+
+    structural signature:
+        buffer format, dimensions, map/render-world identity, capacity/layout,
+        hard incompatibilities
+
+    mapping/identity signature:
+        current/previous record identity, continuity class, map status, invalid
+        reasons
+
+    animated payload signature:
+        radiance/color/weight/position/radius/material-emission changes that
+        are legal per-light payload updates
+
+Only the structural signature may drive a global reservoir clear.

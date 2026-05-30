@@ -20,6 +20,18 @@ Do not use temporal accumulation as evidence for this task. Do not use status
 colors, green bands, dumps, or buffer survival as evidence. The proof is raw
 flat-diffuse one-sample direct lighting with a documented estimator chain.
 
+Current blocker:
+
+    the PDFNEE/RLU current producer's analytic-light result must match the
+    known-good clean RTXDI DI view 12 analytic-light result before any temporal
+    or accumulation claim is accepted. If a Doom analytic light is absent,
+    brighter, dimmer, or shaped differently in PDFNEE than in clean view 12,
+    the fault is still in the current producer/load/replay contract.
+
+The legacy PDFNEE verifier views are not the baseline for this comparison.
+They may be inspected only as failure evidence. Clean RTXDI DI view 12 using
+the current RLU domain is the visual and replay reference.
+
 
 Boundary
 --------
@@ -59,7 +71,7 @@ Default CVars must mean default functionality:
 
     one enable CVar activates the module's intended current-frame estimator
     default domain/source choices are the production path
-    default source PDF is full-domain uniform over current RLU dense count
+    default source policy is the current accepted RLU producer policy
     default output is the useful lighting/reservoir result
     the module works without requiring a sequence of extra diagnostic CVars
 
@@ -126,6 +138,11 @@ The verifier must use or exactly match the existing rbdoom RAB bridge:
 Local duplicate replacements are not acceptable unless the worker proves exact
 equivalence line-by-line against the shared RAB helper contract.
 
+For current-domain Doom analytic parity, matching the clean view-12 direct
+DoomAnalyticLights[sourceIndex] load is allowed only as a clean-compatible RAB
+equivalent. It must preserve the dense RLU lightIndex as reservoir identity and
+must not become an old split-domain fallback.
+
 First-source policy:
 
     proposal domain = dense current RLU lightIndex range
@@ -138,6 +155,20 @@ The first producer must not use payload sourcePdf/sourceWeight as its proposal
 PDF. Doom analytic payload sourcePdf can be zero. Typed-range uniform,
 bounded per-range, payload-weighted, portal, alias-table, and ReGIR policies
 are deferred until a separate source PDF proof exists.
+
+Current accepted source-policy state:
+
+    sourcePolicy 0 remains the full dense RLU uniform baseline from RLU-02
+    sourcePolicy 1 is the RLU-04 range-stratified current policy
+    sourcePolicy 1 samples raw current RLU typed ranges and computes sourcePdf
+        from streamed range sample counts, not from payload sourcePdf,
+        payload sourceWeight, ReGIR weights, portals, or old NEE records
+
+Do not describe sourcePolicy 1 as fixed 50/50 unless the implementation is
+explicitly changed back to that policy. The current route dump reports:
+
+    sourcePdfFormula=rangeSampleCount/(rangeCount*totalProposalSamples)
+    invSourcePdfFormula=(rangeCount*totalProposalSamples)/rangeSampleCount
 
 
 What Lives Where
@@ -165,6 +196,18 @@ Shader RAB bridge owns:
 Do not expect the CPU light manager to contain a complete PDF + NEE solution.
 The viable estimator is the producer-consumer chain across CPU payloads and
 shader RAB callbacks.
+
+Current Doom analytic parity rule:
+
+    clean RTXDI DI view 12 is the reference for current-domain Doom analytic
+    light loading. In mixed RLU/domain-2 current-frame replay, clean view 12
+    can resolve the dense RLU record's sourceIndex through the uploaded
+    DoomAnalyticLights payload for current-frame analytic light info.
+
+    The PDFNEE/RLU producer must match that clean current-domain analytic load,
+    sample, targetPdf, and contribution path. A mismatch between legacy
+    PDFNEE analytic views and clean view 12 is not a temporal problem and must
+    not be fixed by accumulator tuning.
 
 
 Standing Restrictions
@@ -257,6 +300,8 @@ Read all files in this folder before starting:
     integration_handoff_plan.txt
     current_frame_producer_design.txt
     rlu_02_implementation_notes.txt
+    rlu_03_implementation_notes.txt
+    rlu_04_current_status_and_parity_notes.txt
     validation_matrix.txt
     worker_protocol.txt
     worker_tasks.txt

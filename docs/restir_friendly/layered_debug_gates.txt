@@ -182,9 +182,10 @@ Current status:
 
 Next slice:
 
-    LU-03B makes the RTXDI-shaped unified NEE producer the normal ReSTIR/PT
-    mode 56 test feed when unified load/sample are enabled, while preserving
-    the old rbdoom RIS producer behind an explicit fallback/debug toggle.
+    Historical note: LU-03B predates the working RLU -> clean RTXDI DI path.
+    Do not preserve the old rbdoom RIS producer as the replacement
+    fallback/default/proof path; current replacement work must use the RLU
+    dense domain and clean DI consumer contract.
 
 Required shape:
 
@@ -199,7 +200,7 @@ Required shape:
 Constraints:
 
     - local unified lights only
-    - old NEE remains available as a fallback/debug comparison
+    - old NEE is not a fallback, default path, or proof path
     - RTXDI-shaped NEE requires unified load and unified sample gates
     - no environment/infinite/BRDF/RIS/ReGIR
     - no temporal/spatial/final resolve changes

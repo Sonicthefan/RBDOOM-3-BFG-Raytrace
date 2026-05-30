@@ -147,11 +147,15 @@ I-08: Visibility Ray API
 
     Allowed use:
         DI initial if initial visibility is enabled
+        DI temporal only when required by the RTXDI/Remix temporal visibility
+            contract
         DI final/debug replay only when explicitly testing visibility
 
     Forbidden use:
         no fallback direct lighting accumulation
         no beauty shading
+        no visibility toggle claim without raw flat-diffuse temporal
+            accumulation proof
 
 
 I-09: Shared Low-Level Direct-Light Helpers
@@ -217,7 +221,34 @@ O-03: Clean-Room Debug Output
         no fallback scene lighting
 
 
-O-04: One-Shot CPU Dump
+O-04: Raw Flat-Diffuse DI Validation Output
+
+    Written by:
+        clean-room DI validation resolve
+
+    Read source:
+        clean-room current or temporal DI reservoir page
+        current primary surface position/normal only
+        current light universe only for replaying the selected sample
+
+    Requirements:
+        one sampled light candidate per pixel for the current-only baseline
+        constant flat diffuse reflectance, not material albedo or textures
+        physically based direct-light estimate from the selected DI sample
+        same resolve code for temporal off and temporal on
+        temporal off remains noisy/current-only
+        temporal on reduces noise over frames without changing mean brightness
+        camera motion shows tracking/reprojection behavior and disocclusion
+
+    Forbidden:
+        no albedo modulation
+        no path-traced beauty underneath
+        no fallback direct lighting
+        no denoiser, spatial, best-light, or history brightness ramp
+        no status-color dashboard as the primary accumulation proof
+
+
+O-05: One-Shot CPU Dump
 
     Written by:
         clean-room dump CVar only
@@ -322,6 +353,28 @@ Reservoir-Only Debug Resolve:
         GI/direct lighting fallback
         path-traced beauty output
         SmokeAccumulation
+
+
+Raw Flat-Diffuse DI Validation Resolve:
+
+    may read:
+        I-01 current primary surface for position and normals only
+        I-04 current light universe for selected-light replay only
+        I-06 clean-room current or temporal DI reservoir page
+        I-08 visibility ray API only if the validation mode explicitly tests
+            visible direct lighting
+        I-09 shared low-level direct-light helpers
+
+    must write:
+        O-04 raw flat-diffuse DI validation output
+
+    must not read:
+        material albedo or textures for color
+        old NEE selected-light records
+        fallback output
+        path-traced beauty output
+        denoiser/confidence buffers
+        spatial or best-light buffers
 
 
 Review Rule

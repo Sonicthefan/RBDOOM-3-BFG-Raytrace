@@ -1,0 +1,546 @@
+Heavy Light Universe Rebuild From RTXDI And RTX Remix
+=====================================================
+
+Purpose
+-------
+
+This is the heavy-handed rebuild guide for rbdoom's ReSTIR light universe.
+Use it when the current light-universe behavior is too contaminated by dynamic
+light churn to salvage incrementally.
+
+The goal is not a new lighting algorithm. The goal is to make rbdoom's light
+domain obey the same structural contract that RTXDI expects and that RTX Remix
+uses for hostile game light streams:
+
+    stable current light buffer
+    stable previous light buffer
+    bidirectional current/previous light-index mapping
+    per-light invalidation when mapping fails
+    per-pixel or region-local stale-sample rejection when changed lighting
+    affects only part of the screen
+    no global reservoir refresh for animated light payload changes
+
+This guide assumes the legacy rbdoom reservoir/light chain is not worth
+repairing as the final design. Keep it alive only for comparison, debugging,
+and fallback while a new Remix-compliant chain is built outward from the light
+manager. Do not spend worker slices inventing local fixes for legacy reset
+behavior unless they are explicitly marked as temporary diagnostics.
+
+Use Portal RTX / RTX Remix debug toggles as feature triage. The reference runtime
+can toggle many RTXDI, ReSTIR GI, gradient, denoiser, and validation features.
+When the user reports that disabling a reference feature reproduces rbdoom's
+artifact class, promote that feature into the early rbdoom rebuild plan. When a
+feature has little visual impact in the reference, defer it until the manager
+contract and RAB route are correct.
+
+Before implementing any next lighting-chain module, inspect the matching RTX
+Remix producer and immediate consumer. For the first bridge this is:
+
+    LightManager::prepareSceneData
+        -> RtxContext constants and descriptor bindings
+        -> RtxdiApplicationBridge.slangh
+        -> RTXDI initial/temporal reuse and ReSTIR GI validation consumers
+
+The rbdoom light manager must output an equivalent contract before downstream
+modules are rebuilt. This is the guardrail that lets later workers preserve
+RTXDI/RTX Remix math instead of adding rbdoom-specific lighting policy.
+
+Do not attempt full RTX Remix feature parity in the first rebuilt chain. The
+initial target is basic diffuse DI/GI, a sane ReSTIR signal, and DLSS RR input
+that is not poisoned by broken history. Less important Remix features should be
+added back only after this baseline is stable.
+
+Temporal reprojection/reuse is the critical path. User reference testing found
+Remix's ReSTIR temporal path doing most of the visible stabilization work. Treat
+DI temporal reuse, GI temporal reuse, motion vectors, previous-surface lookup,
+and light-index translation as the highest-priority contract cluster. If this
+cluster is not on par with Remix, the ReSTIR renderer is not considered working.
+
+Use RTX Remix's temporal reuse viewer as the visual reference. Under rapid,
+erratic movement, the reference keeps most of the frame temporally usable. A
+rbdoom debug view that loses most of the frame under the same stress is not
+close enough for DLSS RR validation or downstream feature work.
+
+Recovered Analytic-Light Failure Model
+--------------------------------------
+
+The recovered accumulation failure was specifically Doom analytic-light domain
+contamination:
+
+    - a dynamic/animated analytic light enters the persistent analytic domain
+    - its payload animation changes every frame
+    - that changing payload is allowed to affect identity, mapping, or a
+      clear-driving reservoir scene signature
+    - broad DI/GI reservoir clears follow, or shared PT accumulation inputs are
+      treated as unstable
+    - forcing out one analytic light may only replace the offender with another
+      dynamic analytic light that has the same failure mode
+
+This is not only a ReSTIR renderer failure. The same bug was traced into debug
+mode 18, which uses a much simpler accumulation path than the current mode-56
+ReSTIR DI/GI chain. Therefore the rebuild target starts at the shared
+analytic-light universe and scene-input boundary. ReSTIR reservoir behavior is
+a downstream victim, not the only place to patch.
+
+The fix is not to ban dynamic analytic lights from ReSTIR or to reject every
+animated payload change. RTXDI/RTX Remix-style behavior keeps identity/mapping
+separate from payload and handles failed translation per light. Animated payload
+changes may change target evaluation, proposal weight, or shading. They must
+not by themselves poison the whole analytic-light domain or clear every
+reservoir.
+
+Do not narrow this into an "exclude unseen dynamic lights" fix. That is only an
+isolation tool. A valid dynamic light may be on screen and should still be
+usable. The reference-shaped requirement is that only the reservoirs, pixels,
+or validation regions that depended on the changed light lose reuse.
+
+rbdoom-specific mechanism to preserve in worker prompts:
+
+    - Doom analytic animation enters through light shader register evaluation
+      and game light parms, not through emissive inventory
+    - the analytic-light domain is built from renderWorld lights labelled by
+      the r_pathTracingLightAreaPortalSteps portal walk, not from a strict
+      screen-visible-light list
+    - ReSTIR PT analytic debug routing can preserve zero-radiance slots and
+      include out-of-selected-area lights for stable ordering
+    - UpdateDoomAnalyticLightUniverse receives the full raw Doom light record
+      list, so the persistent analytic universe can see lights beyond the final
+      filtered candidate upload
+    - current sampleability/remap flags do not prove that the light influences a
+      current reservoir surface
+    - strict current/previous payload compatibility only hides the bug by
+      rejecting animated phases; it is not the target design
+    - the correct target is an explicit current/previous analytic-light mapping
+      where missing, off, non-influencing, or invalid analytic lights translate
+      to invalid per reservoir instead of causing global clears
+    - mode 18 must remain part of validation because it proves whether the
+      shared analytic-light input has stopped poisoning basic accumulation
+
+Trace dynamic-light failures through the shared PT reservoir boundary:
+
+    1. Find the dynamic or animated Doom analytic light.
+    2. Record whether the portal walk marks it selected, connected, or outside
+       the selected domain, including portal depth.
+    3. Record whether it enters the full raw analytic records list, the filtered
+       candidate upload, and the persistent analytic universe.
+    4. Record whether its animated on/off, color, intensity, radius, or
+       sampleable state changes any broad light membership, reservoir scene, or
+       accumulation-validity signature.
+    5. The expected RTXDI/Remix-shaped result is local invalid translation or
+       stable payload update for that light, not a global accumulator/reservoir
+       refresh.
+    6. If the light is visible and actually changes lighting, the expected
+       result is still local: affected samples/reservoirs may be rejected, but
+       unrelated reservoirs keep history.
+
+Known rbdoom reset gates that must be measured:
+
+    - mode 18 accumulation resets when the accumulation signature changes; that
+      signature includes m_smokeDoomAnalyticLightCount
+    - the old smoke reservoir dispatch signature also includes
+      m_smokeDoomAnalyticLightCount and clears the smoke reservoir on change
+    - the reservoir-scene signature clears smoke, ReSTIR PT, ReSTIR DI, and
+      ReSTIR GI reservoirs together when material/static-BLAS/light-manager
+      structural inputs change
+    - scene transition state includes the lightMembership signature and
+      doomAnalyticLightCount; lightMembership currently includes light-universe
+      generation, emissive counts, Doom analytic count, and Doom analytic remap
+      count
+    - output resize, scene-dependent reset, invalid ReSTIR PT context size, and
+      r_pathTracingDisableReservoirWrites also force reservoir/history clears
+
+The worker must distinguish count/membership churn from payload animation.
+Dynamic analytic payload changes should not alter these broad reset inputs
+unless the light truly entered or left the active light domain by the same
+rules RTXDI/RTX Remix would use for active-light mapping.
+
+RTX Remix reference behavior to mirror structurally:
+
+    - DI temporal reuse maps a previous best light through RAB_TranslateLightIndex
+      per pixel; failed translation invalidates that selected-light path
+    - GI lighting validation uses RTXDI gradients stored at
+      RTXDI_GRAD_FACTOR x RTXDI_GRAD_FACTOR screen strata; high lighting-change
+      gradients reject stale samples for affected regions
+    - neither mechanism is equivalent to clearing every reservoir because a
+      dynamic light exists or animates on screen.
+
+Non-Negotiable Constraints
+--------------------------
+
+1. Do not change ReSTIR math.
+
+   Do not alter reservoir weights, target PDFs, MIS terms, visibility rules,
+   temporal thresholds, spatial thresholds, finalization, or RTXDI helper logic.
+   If a value is unknown, expose it as unknown/invalid. Do not invent it.
+
+2. Use RTXDI and RTX Remix as rigid structural guides.
+
+   Do not copy/paste licensed source into rbdoom. Read the reference code for
+   shape, ownership, and dataflow, then implement rbdoom-native equivalents.
+
+3. Preserve rbdoom file structure.
+
+   Keep the work inside the existing module boundaries unless a small helper is
+   necessary:
+
+       neo/renderer/NVRHI/PathTraceLightUniverse.h
+       neo/renderer/NVRHI/PathTraceLightUniverse.cpp
+       neo/renderer/NVRHI/PathTraceUnifiedLight.h
+       neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+       neo/renderer/NVRHI/PathTraceDoomLights.h
+       neo/renderer/NVRHI/PathTraceDoomLights.cpp
+       neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+       neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfo*.hlsli
+       neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSampling*.hlsli
+
+   Do not create a parallel replacement renderer, new ReSTIR policy layer, or
+   unrelated light system.
+
+4. Preserve legacy split outputs while rebuilding.
+
+   The current split buffers must keep working until the replacement path has
+   debug visibility and user acceptance:
+
+       SmokeEmissiveTriangles
+       SmokePreviousEmissiveTriangles
+       SmokeEmissiveRemap
+       DoomAnalyticLights
+       DoomAnalyticPreviousLights
+       DoomAnalyticCurrentIdentities
+       DoomAnalyticPreviousIdentities
+       DoomAnalyticRemap
+
+5. Stop treating dynamic light payload animation as a scene reset.
+
+   Flickering color, intensity, radius, material emission, or animated light
+   payload changes may change sampling weights and shading. They must not by
+   themselves force a full reservoir-domain clear.
+
+
+Reference Shape To Match
+------------------------
+
+RTXDI sample files:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Source/RenderPasses/PrepareLightsPass.cpp
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_Buffers.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+Required shape:
+
+    - current-frame light records are written into a current light region
+    - previous-frame light records remain available in a previous light region
+    - the application writes previous-to-current and current-to-previous maps
+    - mappings use an invalid sentinel for missing lights
+    - temporal reuse translates a previous reservoir light index into the
+      current domain before replay
+    - if translation fails, only that reservoir candidate is killed
+
+RTX Remix files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_scene_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_lights.h
+
+Required hostile-game behavior:
+
+    - keep light identity separate from this-frame visibility
+    - preserve a mutable buffer index for matched lights
+    - swap current/previous light buffers each frame
+    - build a mapping buffer over active current and previous lights
+    - match dynamic lights by stable identity first, then conservative
+      similarity only when identity is not available
+    - use invalid mapping for deleted or incompatible lights instead of global
+      temporal reset
+
+
+rbdoom Doom 3 Nuances
+---------------------
+
+Doom 3 is not a clean RTXDI sample scene. The rebuild must account for these
+engine-specific facts without changing RTXDI math.
+
+1. Renderer lights can flicker as authored behavior.
+
+   Scripted light animations, broken bulbs, alarms, muzzle flashes, moving
+   machinery, and material-driven emissive changes can change radiance every
+   frame. That is payload animation, not proof that the light identity changed.
+
+2. Doom renderer-light visibility is not a stable ReSTIR identity domain.
+
+   A light can be absent from the current selected portal area, hidden by old
+   area culling, or not submitted by a frame-local path while still being the
+   same physical light for temporal purposes.
+
+3. Portal selection is a proposal/filter domain, not a light identity domain.
+
+   Portal-area selection can decide which lights are attractive to sample this
+   frame. It must not delete identities needed to translate previous reservoirs.
+
+4. Dynamic Doom lights need explicit continuity classification.
+
+   Stable entity-backed lights can be mapped across frames. Temporary lights,
+   projectiles, muzzle flashes, duplicate helper lights, and unknown-entity
+   records must map invalid unless continuity is proven.
+
+5. Emissive surfaces and Doom analytic lights are different producers but one
+   RTXDI local-light domain.
+
+   Emissive triangles and analytic lights may keep separate legacy buffers, but
+   RAB/RTXDI should see one unified current/previous light index space.
+
+6. Frame-local array index is not identity.
+
+   Material table index, emissive array slot, draw-surface order, dynamic
+   geometry order, light-candidate order, and uploaded buffer offset can change.
+   They are payload/routing fields, not persistent identity by themselves.
+
+7. Map or render-world change remains a hard reset.
+
+   Changing map, render world, output size, incompatible buffer layout, or
+   structural record format can clear reservoirs. A flickering offscreen dynamic
+   light cannot.
+
+
+What To Replace
+---------------
+
+The following current behavior should be treated as disposable in the heavy
+rebuild:
+
+    - dynamic emissive persistence that carries stale dynamic records as part
+      of the same structure used to decide global reservoir scene validity
+    - hashing full animated emissive/light payload into the reservoir scene
+      signature
+    - hashing light-universe generation into the scene-input light membership
+      signature when generation increments every merge
+    - using the portal-selected uploaded light list as the RTXDI identity
+      universe
+    - shader-side scans as a production substitute for a bidirectional mapping
+      buffer
+
+The following must remain or be replaced only after an accepted equivalent
+exists:
+
+    - split emissive buffers
+    - split Doom analytic buffers
+    - existing debug views and cvars
+    - mode 18 behavior
+    - existing RAB sampling math and RTXDI reservoir calls
+
+
+Target rbdoom Structure
+-----------------------
+
+Keep this structure even if the internals are rebuilt.
+
+1. PathTraceLightUniverse
+
+   Owns persistent light-domain state for emissive contributors:
+
+       current records
+       previous records
+       stable identity keys
+       payload data
+       compatibility flags
+       current-to-previous map
+       previous-to-current map
+
+   It may still build diagnostics about portal area, selected area, and upload
+   eligibility. Those diagnostics must not define the identity universe.
+
+2. PathTraceDoomLights
+
+   Owns Doom analytic light identity and continuity:
+
+       entity/lightDef identity
+       current payload
+       previous payload
+       current/previous compatibility
+       dynamic/temporary/unknown invalid reasons
+
+   The output should classify every active authored light as one of:
+
+       stable mapped
+       payload changed but identity stable
+       current-only new
+       previous-only missing
+       remap-invalid temporary
+       remap-invalid duplicate
+       remap-invalid unknown continuity
+
+3. PathTraceUnifiedLight
+
+   Combines emissive and Doom analytic records into one RTXDI-style local-light
+   domain:
+
+       PathTraceUnifiedLights
+       PathTraceUnifiedPreviousLights
+       PathTraceUnifiedCurrentToPrevious
+       PathTraceUnifiedPreviousToCurrent
+
+   The maps are explicit CPU-built buffers. Do not rely on shader scans as the
+   production path.
+
+4. RAB_LightLoadRuntime
+
+   Must match RTXDI semantics:
+
+       RAB_LoadLightInfo(index, false)
+           loads current-domain index
+
+       RAB_LoadLightInfo(index, true)
+           loads previous-domain index
+
+       RAB_TranslateLightIndex(index, currentToPrevious)
+           uses the uploaded map and returns invalid when no compatible record
+           exists in the other frame
+
+   It must not silently reinterpret a previous-frame index as a current-frame
+   index or hide invalid remaps with fallback lights.
+
+5. PathTraceSmokeSceneBuild / PathTraceSmokeResources
+
+   Must separate:
+
+       structural domain signature:
+           buffer format, resource dimensions, map/render-world identity,
+           capacity/layout, hard incompatibilities
+
+       light mapping signature:
+           current/previous record identity and compatibility summary for debug
+
+       animated payload signature:
+           radiance/color/weight/position changes that are legal per-light
+           updates and must not globally clear reservoirs
+
+   ReSTIR reservoirs clear only on structural incompatibility. Light payload
+   changes are handled by remap/replay/target evaluation.
+
+
+Required Debug Gates
+--------------------
+
+Before the rebuilt domain drives final output, add debug visibility for:
+
+    1. current light type
+    2. previous light type
+    3. current-to-previous map status
+    4. previous-to-current map status
+    5. dynamic payload changed but identity stable
+    6. dynamic identity invalid and remap rejected
+    7. global reservoir-clear reason
+    8. top dynamic records that would have changed the old reservoir signature
+
+The important acceptance signal is not a pretty final image. The first
+acceptance signal is that flickering offscreen dynamic lights no longer cause
+whole-frame reservoir refreshes, while reservoirs that selected deleted or
+incompatible lights become invalid locally.
+
+
+Implementation Slices
+---------------------
+
+LU-HR-00: document and dump current poison source
+
+    - no behavior change
+    - add or use existing dumps to identify whether dynamic emissive, Doom
+      analytic, or unified-light payload changes are changing the old reservoir
+      scene signature
+    - report counts and top records, not per-frame spam
+
+LU-HR-01: split signatures
+
+    - no ReSTIR behavior change yet
+    - compute structural, mapping, and animated-payload signatures separately
+    - keep the old clear behavior until the debug proves the classification
+    - expose one-shot dump fields showing which signature changed
+
+LU-HR-02: explicit unified bidirectional remap buffers
+
+    - keep legacy split outputs
+    - build current and previous unified light arrays
+    - build current-to-previous and previous-to-current maps on CPU
+    - add debug views for both map directions
+    - do not route final RTXDI temporal reuse through the new maps until user
+      accepts the debug view
+
+LU-HR-03: RTXDI RAB load semantics
+
+    - make RAB_LoadLightInfo(index, previousFrame) domain-correct
+    - make RAB_TranslateLightIndex use explicit maps
+    - invalid translation kills only the candidate reservoir
+    - do not change reservoir math or finalization
+
+LU-HR-04: stop global clears for animated payload
+
+    - structural signature changes still clear reservoirs
+    - animated light payload changes do not globally clear reservoirs
+    - deleted/incompatible lights map invalid
+    - build/deploy and stop for user visual testing
+
+LU-HR-05: tighten Doom dynamic continuity
+
+    - classify stable entity-backed lights separately from temporary effects
+    - keep unknown/projectile/duplicate/temporary remap-invalid
+    - preserve debug counts for each rejection reason
+    - no fallback guessing
+
+
+Worker Instructions
+-------------------
+
+Workers must receive only one slice at a time.
+
+Every worker prompt must include:
+
+    - repository path
+    - current branch
+    - exact slice id
+    - exact owned files
+    - exact reference files
+    - forbidden changes:
+        no ReSTIR math changes
+        no reservoir finalization changes
+        no sampling-policy changes
+        no debug color meaning changes unless requested
+        no deletion of legacy split outputs
+    - final response requirements:
+        changed files
+        build status
+        deployed artifacts, if built
+        exact debug cvars/views for user testing
+
+Do not ask a worker to "make the light universe like RTXDI." That invites
+improvisation. Ask for one mechanical slice from the list above.
+
+
+Runtime Test Focus
+------------------
+
+Use scenes that previously poisoned accumulation:
+
+    - static wall while offscreen dynamic lights flicker
+    - portal boundary with same visible wall but different selected domain
+    - moving machinery/robot room
+    - scripted flickering lights
+    - a stable Doom analytic point light
+    - an intentionally temporary/muzzle/projectile light if available
+
+Test both:
+
+    - debug mode 18 with its basic accumulation enabled
+    - debug mode 56 ReSTIR views that consume the same rebuilt light manager
+
+Expected after LU-HR-04:
+
+    - reservoir clear reason does not change every frame because an offscreen
+      dynamic light flickers
+    - mode 18 can accumulate while the camera and visible surface are stable
+    - current/previous light maps remain stable for stable identities
+    - deleted temporary lights show invalid remap locally
+    - ReSTIR temporal history can grow when camera and surface history are valid

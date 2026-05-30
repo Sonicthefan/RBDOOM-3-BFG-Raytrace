@@ -1,0 +1,293 @@
+RRX DI Overlap/Temporal Solution
+================================
+
+Purpose
+-------
+
+Mode 56 DI debug view 72 now uses the RRX final-consumer path by default, but
+overlapping light sources still fail to converge visually. The important
+observation is:
+
+    separated lights can accumulate in RRX debug/final-consumer views
+    overlapping lights fight or dither indefinitely
+    the same selected-light reservoir can look stable in raw/debug views
+
+Do not treat this as a reason to tune temporal thresholds or invent ReSTIR
+math. The current active view-72 path is still missing Remix's spatial-output
+stage and uses a temporary previous-best shortcut that is not equivalent to
+RTX Remix.
+
+
+Current Diagnosis
+-----------------
+
+1. The active view-72 path is temporal-only.
+
+   rbdoom view 72 consumes:
+
+       RestirPTRrxDiEvaluateFinalConsumer
+       -> RestirPTRrxDiTryGenerateTemporalReservoir
+       -> RemixRtxdiRunTemporalReuseCore
+
+   It does not consume an RRX DI spatial output reservoir page.
+
+   RTX Remix's final direct-light consumer samples RTXDI from the spatial
+   output page. Temporal reuse alone is not expected to make heavily overlapping
+   light sources look like Portal RTX.
+
+2. The active rbdoom path uses a non-Remix previous-best approximation.
+
+   RestirPTRrxDiTryGenerateTemporalReservoir currently projects the previous
+   RRX temporal reservoir and passes it to RestirPTRrxDiBuildInitialReservoir as
+   previousBestReservoir. The local code comment already says this is a
+   proof-slice approximation because rbdoom has no bound RtxdiBestLights buffer.
+
+   RTX Remix previous-best input is a separate best-light/gradient product, not
+   the previous temporal reservoir itself. Feeding temporal history back into
+   initial sampling can lock overlap zones onto one previous selected light and
+   make other contributors fight forever.
+
+3. A single ReSTIR DI reservoir stores one selected light plus weight.
+
+   The visual mixture of overlapping lights comes from stochastic selection
+   plus temporal reuse, spatial reuse, selected-light visibility, and denoising.
+   The worker must not try to "blend lights inside the reservoir."
+
+
+Authoritative References
+------------------------
+
+RTX Remix:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/lighting.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_direct.slangh
+    E:/prog/references/dxvk-remix-git/submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+
+RTXDI:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/SpatialResampling.hlsli
+
+rbdoom active files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_preview_resolve.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+
+
+RRX-OV-01: Disable Fake Previous-Best By Default
+------------------------------------------------
+
+Goal:
+
+    Remove the non-Remix feedback path where the projected previous temporal
+    reservoir is used as the previous-best initial-sampling candidate.
+
+Reason:
+
+    Remix's previous-best candidate comes from a separate best-light product.
+    rbdoom currently substitutes the projected previous temporal reservoir.
+    In overlapping-light areas this can bias current initial sampling toward
+    one previous winner and prevent normal stochastic convergence.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/renderer/NVRHI/PathTraceCVars.cpp only if a CVar default/help text must
+        change
+    docs/pathtracing.txt only if CVar behavior changes
+
+Required implementation:
+
+    1. Do not feed projectedPreviousReservoir into
+       RestirPTRrxDiBuildInitialReservoir as previousBestReservoir for the
+       default active RRX path.
+
+    2. Preserve a debug-only way to re-enable the old approximation if useful
+       for A/B testing, but label it clearly as non-Remix and off by default.
+
+    3. Do not disable real RTXDI temporal reuse.
+
+    4. Do not remove support for a future real RtxdiBestLights input.
+
+    5. Keep previous-best debug fields meaningful:
+
+           previousBestSourceValid should be 0 when no real/debug previous-best
+           source is supplied.
+
+Forbidden:
+
+    no ReSTIR weight changes
+    no target PDF changes
+    no forced random light selection
+    no dynamic-light suppression
+    no temporal threshold tuning
+    no spatial reuse implementation in this slice
+
+Validation:
+
+    Build and deploy.
+
+    Test with:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTDiDebugView 72
+        r_pathTracingRestirPTDiDebugView 68
+        r_pathTracingRestirPTDiDebugView 75
+        r_pathTracingRestirPTDiDebugView 76
+
+    Expected:
+
+        view 72 still renders RRX DI final-consumer output
+        view 68 previous-best bands no longer show fake previous-best activity
+        overlapping-light areas should show less one-light lock-in, although
+        full visual convergence is not expected until RRX-OV-02
+
+
+RRX-OV-02: Activate RRX DI Spatial Reuse For Final Consumer
+-----------------------------------------------------------
+
+Goal:
+
+    Make the active RRX final-consumer/proof path read a Remix-style DI spatial
+    output reservoir, not only the temporal output reservoir.
+
+Reason:
+
+    RTX Remix final direct lighting samples RTXDI from the spatial output page.
+    Spatial reuse is the stage that lets neighboring pixels share and average
+    selected-light reservoirs. Without it, overlapping light sources can remain
+    temporally stable but visually noisy or locked to one contributor.
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_preview_resolve.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_restir_combined_resolve.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    shader registration/build files only if required
+    docs/pathtracing.txt for new/changed debug CVars or view semantics
+
+Required implementation:
+
+    1. Identify the active RRX DI temporal output page and active RRX DI spatial
+       output page in PathTraceRemixRtxdiResources.
+
+    2. Run spatial reuse after temporal reuse for active RRX DI. Use the
+       existing Remix-shaped spatial contract:
+
+           remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl
+           RTXDI_DISpatialResampling
+
+       Do not hand-roll neighbor combine math.
+
+    3. Supply current neighboring surfaces through the existing RAB surface
+       bridge or a narrow active equivalent. If exact Remix confidence data is
+       not fully available, start with a documented conservative confidence
+       default that does not change RTXDI math. Do not invent a new confidence
+       algorithm.
+
+    4. Store the spatial result to the RRX DI spatial output page.
+
+    5. Make view 72 and the RRX final consumer read the spatial output reservoir
+       when spatial reuse is enabled. If spatial reuse is unavailable, show a
+       clear inactive/fallback diagnostic instead of silently using old smoke
+       spatial reservoirs.
+
+    6. Add a diagnostic view or dump that distinguishes:
+
+           temporal reservoir valid
+           spatial reservoir valid
+           spatial sample count
+           spatial output selected light
+           spatial output weight
+           final consumer source = temporal or spatial
+
+Forbidden:
+
+    no hand-rolled spatial reservoir math
+    no old smoke spatial reservoir fallback
+    no old mode-56 accumulation proof
+    no GI work
+    no gradients/best-light implementation in this slice
+    no DLSS RR claims
+    no denoiser tuning
+    no dynamic-light suppression
+
+Validation:
+
+    Build and deploy.
+
+    Test with:
+
+        r_pathTracingDebugMode 56
+        r_pathTracingRestirPTDiDebugView 72
+        r_pathTracingRestirPTDiDebugView 68
+        r_pathTracingRestirPTDiDebugView 75
+        r_pathTracingRestirPTDiDebugView 76
+        r_pathTracingRemixRtxdiResourcesDump 1
+        r_pathTracingRestirLightManagerDump 1
+
+    Expected:
+
+        activeLightSource=remix-light-manager
+        Remix RTXDI resources enabled=1 ready=1
+        RRX clear reasons are resource/output or explicit allowed reset, not
+        old smoke signatures
+        view 72 consumes the spatial output reservoir
+        overlapping-light areas show improved convergence compared with
+        temporal-only view 72
+
+    If overlap is still poor after spatial reuse, stop and report. The next
+    likely missing stages are real best-light/gradient/confidence output and
+    selected-light initial visibility, not temporal threshold tuning.
+
+
+Stop Conditions
+---------------
+
+Stop and report instead of widening if:
+
+    spatial reuse cannot access current neighboring RAB surfaces
+    the active RRX reservoir page layout is unclear
+    the only available route uses old smoke spatial reservoirs
+    a worker feels tempted to tune target PDFs, weights, or thresholds
+    the final consumer cannot be switched to spatial output without ambiguity
+
+
+Build And Deploy
+----------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders after shader changes:
+
+    copy the contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.

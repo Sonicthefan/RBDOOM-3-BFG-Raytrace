@@ -1,0 +1,509 @@
+RRX Conformance Correction Tasks
+================================
+
+Use these tasks to correct the missing RTX Remix conformance in the light
+manager and reservoir path.
+
+These tasks supersede any older wording that treats RRX-01 through RRX-08 as
+complete Remix parity. Older work may be useful scaffolding, but acceptance now
+requires active producer-to-consumer behavior.
+
+
+Global Rules
+------------
+
+Reference roots:
+
+    RTX Remix: E:/prog/references/dxvk-remix-git
+    RTXDI:     E:/prog/references/RTXDI-main
+
+rbdoom root:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Required first read:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/conformance_correction_overview.txt
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+
+Forbidden for every task:
+
+    no copy/paste from RTX Remix or RTXDI source
+    no invented ReSTIR math
+    no broad dynamic-light suppression
+    no old smoke reservoir clear policy in the new RRX path
+    no final-image/DLSS RR claims unless the task explicitly reaches that layer
+    no combining DI and GI reservoir domains
+    no deleting legacy outputs unless explicitly commissioned
+
+Required review proof for every task:
+
+    active consumer proof
+        exact file/line evidence that the new output is consumed by the next
+        active rbdoom module, shader binding, RAB callback, or dispatch path.
+        If the task is read-only or diagnostic-only, state that explicitly.
+
+    negative-path proof
+        exact behavior for the relevant reference failure case. For light and
+        reservoir tasks, failed light translation must reject only the selected
+        candidate/sample, not broadly clear the domain. If deferred, state the
+        follow-up task that owns it.
+
+    runtime diagnostic proof
+        dump/debug evidence that can distinguish storage survived, mapping
+        failed, payload changed, global clear happened, and consumer inactive.
+
+Reviews must mark missing proof as P1 incomplete conformance. Do not downgrade
+it because the code has plausible structures or runs without crashing.
+
+Build/deploy when code changes:
+
+    Build from:
+        E:/prog/rbdoom-3-bfg-rt/neo
+
+    Build command:
+        cmake --build --preset win64-pt-dev-release
+
+    Deploy exe:
+        copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+        to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Deploy shaders after shader changes:
+        copy the contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+        to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+
+RRX-CF-01: Active Gap Audit
+---------------------------
+
+Goal:
+
+    Produce a precise current-checkout audit of where the Remix manager/RRX
+    resources stop being active and where old rbdoom smoke/ReSTIR paths resume.
+
+Why:
+
+    The previous implementation failed by treating scaffolding as parity.
+    Before more code is written, the worker must freeze the active boundary in
+    exact producer-to-consumer terms.
+
+Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_scene_manager.cpp
+    src/dxvk/rtx_render/rtx_light_manager.cpp
+    src/dxvk/rtx_render/rtx_context.cpp
+    src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+
+Owned files:
+
+    docs/restir_remix_rebuild/rrx_conformance_active_gap_audit.txt
+
+Procedure:
+
+    1. Inspect the current rbdoom paths that prepare:
+
+           PathTraceRemixFramePrepare
+           PathTraceRemixLightManager
+           PathTraceRemixRtxdiResources
+           PathTraceRestirLightManager
+           old smoke reservoir signatures
+           mode-56 RAB/light upload bindings
+
+    2. Write a table with these columns:
+
+           Remix responsibility
+           rbdoom current producer
+           rbdoom current consumer
+           active or diagnostic-only
+           old smoke dependency
+           exact file/line evidence
+           required correction task
+
+    3. Specifically answer:
+
+           Which light manager feeds current shader-visible RAB records?
+           Which buffer/domain does debug view 60 read?
+           Which buffer/domain do raw views 65/66 read?
+           Which code can still clear old smoke/ReSTIR reservoirs broadly?
+           Which code can clear RRX reservoirs?
+           Is failed light translation local or broad for each path?
+
+    4. Do not edit code.
+
+Acceptance:
+
+    The audit must identify the exact first active boundary where the Remix
+    manager output is not consumed.
+
+Forbidden:
+
+    no code changes
+    no build required
+    no speculative fixes
+
+
+RRX-CF-02: Active Light Source Switch
+-------------------------------------
+
+Goal:
+
+    Make the active shader-visible light/RAB upload source consume
+    PathTraceRemixLightManager outputs instead of the older
+    PathTraceRestirLightManager outputs, behind an explicit opt-in CVar.
+
+Why:
+
+    Feature parity is impossible while PathTraceRemixLightManager is only a
+    diagnostic producer and active RAB records come from m_restirLightManager.
+
+Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_light_manager.cpp
+    src/dxvk/rtx_render/rtx_context.cpp
+    src/dxvk/shaders/rtx/pass/common_bindings.slangh
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.*
+    CVar files only if a new opt-in CVar is required
+    docs/restir_remix_rebuild/* status notes only
+
+Required input contract:
+
+    PathTraceRemixLightManager current light payloads
+    PathTraceRemixLightManager previous light payloads
+    current-to-previous map
+    previous-to-current map
+    light ranges
+    sample counts
+    existing rbdoom upload/binding route for RAB light records
+
+Required output contract:
+
+    In opt-in mode, the shader-visible RAB light records, previous records,
+    and maps are sourced from PathTraceRemixLightManager.
+
+    Legacy split outputs remain available when the opt-in mode is disabled.
+
+Procedure:
+
+    1. Add or reuse a clearly named opt-in CVar for the active Remix manager
+       light/RAB source. Default must be off unless the user explicitly orders
+       default-on.
+
+    2. In PathTraceSmokeSceneBuild.cpp, locate the exact point where
+       m_restirLightManager outputs are copied into shader-visible records.
+
+    3. Add a narrow branch:
+
+           opt-in disabled:
+               keep existing behavior
+
+           opt-in enabled:
+               use m_remixLightManager current/previous payloads and maps
+               use m_remixLightManager ranges/sample counts where the upload
+               contract has fields for them
+
+    4. Do not change reservoir math, temporal reuse, spatial reuse, final
+       resolve, or visibility.
+
+    5. Add one dump line or extend an existing dump so it reports:
+
+           activeLightSource=legacy-restir-manager or remix-light-manager
+           current count
+           previous count
+           currentToPrevious mapped/invalid
+           previousToCurrent mapped/invalid
+           payloadOnlyChange
+           structuralSignatureChanged
+           mappingSignatureChanged
+           payloadSignatureChanged
+
+Acceptance:
+
+    With the opt-in CVar enabled, dumps must prove the active shader-visible
+    light/RAB source is PathTraceRemixLightManager.
+
+    Dynamic payload-only changes must not be reported as structural resets.
+
+Forbidden:
+
+    no reservoir clear changes
+    no temporal reuse implementation
+    no spatial reuse implementation
+    no copying RTX Remix code
+
+
+RRX-CF-03: Active RAB Translation Parity Probe
+----------------------------------------------
+
+Goal:
+
+    Prove shader-side RAB light loading and RAB light translation consume the
+    active Remix-manager current/previous domains and maps.
+
+Why:
+
+    A CPU-side source switch is not enough. The shader must demonstrate the
+    same domain semantics as Remix RtxdiApplicationBridge.
+
+Remix file-equivalent:
+
+    src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Owned files:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    existing mode-56 debug shader files only as required for the probe
+    CVar/help text only if a new mode-56 subview is required
+
+Required input contract:
+
+    shader-visible current light payload buffer
+    shader-visible previous light payload buffer
+    shader-visible current-to-previous map
+    shader-visible previous-to-current map
+    active light source selected by RRX-CF-02
+
+Required output contract:
+
+    A mode-56 debug subview that visualizes:
+
+        current selected light index
+        previous stored/translated index
+        previous-to-current translated index
+        current-to-previous translated index
+        load success from current domain
+        load success from previous domain
+
+    If this is implemented as view 67, view 67 is the RAB translation parity
+    view. It is not a raw reservoir view. Raw RRX reservoir storage views are
+    separate diagnostics, currently in the 63-66 range, and must not be used as
+    RRX-CF-03 success evidence.
+
+Procedure:
+
+    1. Use the active RAB functions, not a duplicate CPU-side table.
+
+    2. For each pixel or a deterministic screen pattern, choose a loadable
+       current light from the active manager domain.
+
+    3. Translate current-to-previous, load previous-domain payload if valid,
+       translate previous-to-current, and compare with the original current
+       light.
+
+    4. Add colors that distinguish:
+
+           green  = round trip valid
+           blue   = no previous mapping but current load valid
+           orange = previous exists but maps to a different current light
+           red    = current load failed or buffers unavailable
+           purple = previous load failed despite a valid map
+
+    5. Do not write or clear reservoirs in this task.
+
+Acceptance:
+
+    Stationary scenes with stable mapped lights should show successful
+    round-trip status in the parity/status panes. If the view is tiled into
+    index panes, the whole screen is not expected to be green because current,
+    previous, and round-trip index panes may intentionally use hash colors.
+
+    Success is:
+
+        current-domain load succeeds
+        current-to-previous translation is valid for stable mapped lights
+        previous-domain load succeeds when the map is valid
+        previous-to-current translation returns the original current light
+        invalid mappings are classified as mapping failures, not reservoir
+        storage failures
+
+    Dynamic payload animation may change payload diagnostics but must not make
+    the parity/status panes red/orange unless identity/remap really fails.
+
+Forbidden:
+
+    no reservoir writes
+    no RTXDI temporal/spatial calls
+    no fallback to old split Doom analytic remap as proof of parity
+    no using raw reservoir views 63-66 as RRX-CF-03 validation
+
+
+RRX-CF-04: Active DI Temporal Local-Invalidation Path
+-----------------------------------------------------
+
+Goal:
+
+    Connect the RRX DI reservoir domain to an RTXDI-shaped temporal consumer
+    that handles light translation failure locally, not as a global clear.
+
+Why:
+
+    This is the behavior that was omitted. RTX Remix parity is not present
+    until a previous reservoir selected light is translated through RAB inside
+    temporal reuse, and invalid translation rejects only that candidate.
+
+Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.*
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_*.hlsli as required
+    shader project/CMake files only if required
+
+Required input contract:
+
+    RRX DI reservoir buffer and RTXDI reservoir parameters
+    active Remix-manager current/previous light domains and maps
+    current surface bridge, even if minimal
+    previous surface/reprojection bridge, even if a diagnostic minimal bridge
+    frame constants needed by RTXDI temporal helper
+
+Required output contract:
+
+    RRX DI temporal output reservoir page
+    debug classification for:
+
+        previous reservoir absent
+        previous light translation valid
+        previous light translation invalid
+        current selected light current-to-previous invalid
+        local candidate rejected
+        reservoir domain globally cleared
+
+Procedure:
+
+    1. Do not hand-roll temporal reservoir math. Use the RTXDI helper contract
+       already mirrored by the inactive RRX temporal shader.
+
+    2. Bind the RRX DI reservoir domain owned by PathTraceRemixRtxdiResources.
+       Do not use RestirPTDiReservoirs, RestirPTReservoirs, smoke reservoirs,
+       or mode-18 accumulation as the tested domain.
+
+    3. Ensure the temporal shader calls the RAB light translation path used by
+       RRX-CF-03.
+
+    4. Add a debug output that proves invalid mapping rejects only the selected
+       previous candidate. It must not request a whole-domain clear.
+
+    5. Keep final resolve and DLSS RR out of this task.
+
+Acceptance:
+
+    Dynamic light animation does not globally clear the RRX DI reservoir
+    domain. Failed light mappings appear as local rejection classifications.
+
+Forbidden:
+
+    no spatial reuse
+    no GI reuse
+    no final shading
+    no DLSS RR claims
+    no invented reservoir combine/finalization math
+
+
+RRX-CF-05: Broad-Clear Firewall And Diagnostics
+-----------------------------------------------
+
+Goal:
+
+    Add diagnostics and guardrails proving old smoke reset signatures do not
+    govern the new active RRX reservoir path.
+
+Why:
+
+    The old path can still clear smoke/ReSTIR reservoirs broadly. That may
+    remain for legacy debug modes, but it must not control the RRX path once
+    RRX-CF-04 is active.
+
+Remix file-equivalents:
+
+    src/dxvk/rtx_render/rtx_context.cpp
+    src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+
+Owned files:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp only for diagnostics/gates
+    neo/renderer/NVRHI/PathTraceFrameResources.* only if reset reason reporting
+    needs an RRX-specific field
+
+Required input contract:
+
+    rbdoom reset reason flags
+    RRX DI/GI resource-domain reset reasons
+    old smoke reservoir scene/dispatch signature reset reasons
+    Remix light manager structural/mapping/payload signatures
+
+Required output contract:
+
+    A dump that reports separately:
+
+        old smoke reset reasons
+        RRX allowed reset reasons
+        RRX ignored smoke reset reasons
+        RRX DI clear pending
+        RRX GI clear pending
+        light structural/mapping/payload signature changes
+        payloadOnlyChange
+        active temporal path clear request source
+
+Procedure:
+
+    1. Keep old smoke reset behavior intact for legacy paths unless the user
+       explicitly commissions removal.
+
+    2. Ensure RRX active resources ignore:
+
+           RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE
+           RT_FRAME_RESET_RESERVOIR_DISPATCH_SIGNATURE
+           m_smokeDoomAnalyticLightCount changes
+
+       unless a later audited structural incompatibility says otherwise.
+
+    3. Add one debug dump that makes accidental future regressions obvious.
+
+    4. Do not change RTXDI math or shader reuse policy.
+
+Acceptance:
+
+    With dynamic analytic light animation occurring, the dump can show payload
+    signature changes, but RRX global clear reasons must remain unchanged unless
+    output/resource compatibility actually changed.
+
+Forbidden:
+
+    no dynamic-light suppression
+    no final resolve changes
+    no spatial/GI expansion
+    no legacy output removal
+
+
+Recommended Order
+-----------------
+
+Run in order:
+
+    RRX-CF-01
+    RRX-CF-02
+    RRX-CF-03
+    RRX-CF-04
+    RRX-CF-05
+
+Do not skip RRX-CF-01 unless the current agent has already produced the exact
+active boundary table in this checkout.

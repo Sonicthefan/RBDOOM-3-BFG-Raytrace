@@ -201,7 +201,8 @@ Do not do these in the first NEE extraction task:
 - do not redesign geometry, BVH, or portal walking
 - do not compact the primary payload unless strictly necessary
 - do not remove legacy debug modes
-- do not remove the legacy full selected-light loop until sampled NEE is tested
+- do not treat the legacy full selected-light loop as the retained replacement
+  path; any inspection of it is historical/debug evidence only
 - do not treat secondary NEE disabled as the final solution
 - do not scatter new NEE implementation code through `pathtrace_smoke.rt.hlsl`
 - do not move NEE to a new C++ pass or shader pipeline in the first sampled

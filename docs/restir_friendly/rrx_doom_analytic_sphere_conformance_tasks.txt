@@ -1,0 +1,449 @@
+RRX Doom Analytic Sphere Conformance Tasks
+=========================================
+Date: 2026-05-22
+
+Purpose
+-------
+
+This document defines the next narrow implementation plan for Doom analytic
+lights in the active RRX / ReSTIR-friendly light path.
+
+The current Doom analytic light path is prototype scaffolding. It represents
+Doom lights as crude analytic spheres and adapts them into RAB_LightInfo, but
+it is not yet equivalent to RTX Remix's imported/game light representation.
+The closest Remix equivalent is a sphere light with shaping disabled.
+
+This task does not rebuild all Remix light types. It makes Doom point lights
+behave like a disciplined sphere-light contract, while preserving Doom-specific
+radius/falloff semantics where rbdoom already depends on them.
+
+
+Reference Files
+---------------
+
+Read these files before editing.
+
+RTX Remix CPU light representation:
+
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_lights.h
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_lights.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_lights_data.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_remix_api.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_light_manager.cpp
+
+RTX Remix shader light representation:
+
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\concept\light\light.h
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\concept\light\sphere_light.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\concept\light\polymorphic_light.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\algorithm\rtxdi\RtxdiApplicationBridge.slangh
+
+rbdoom current Doom analytic path:
+
+    neo\renderer\NVRHI\PathTraceDoomLights.h
+    neo\renderer\NVRHI\PathTraceDoomLights.cpp
+    neo\renderer\NVRHI\PathTraceUnifiedLight.h
+    neo\renderer\NVRHI\PathTraceUnifiedLight.cpp
+    neo\renderer\NVRHI\PathTraceRemixLightManager.cpp
+    neo\shaders\builtin\pathtracing\pathtrace_nee.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightInfoCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightTarget.hlsli
+
+
+Reference Behavior To Match
+---------------------------
+
+RTX Remix imported/game local lights have these relevant properties:
+
+1. CPU lights are typed.
+
+   Remix uses RtLight variants: Sphere, Rect, Disk, Cylinder, and Distant.
+   A sphere light carries position, radiance, radius, optional shaping, and
+   validation/sanitization before GPU upload.
+
+2. GPU lights are polymorphic.
+
+   Remix writes a 64-byte MemoryPolymorphicLight payload. Shader-side code
+   decodes the type and routes sampling/weighting through the corresponding
+   light helper. For this task, only the sphere-light behavior is relevant.
+
+3. Sampling and target weighting are paired.
+
+   Remix sphere sampling samples the visible sphere solid angle, reports a
+   solid-angle PDF, computes a radiance sample, and target weighting uses the
+   same sphere-light model.
+
+4. Identity is separate from payload changes.
+
+   The light manager preserves current/previous mapping through buffer indices
+   and remaps. Payload changes are not supposed to imply a broad reservoir
+   reset.
+
+
+rbdoom Current Mismatch
+----------------------
+
+The current rbdoom path is not a Remix-style polymorphic light representation.
+
+It currently has:
+
+    PathTraceDoomAnalyticLightCandidate
+    PathTraceUnifiedLightRecord
+    RAB_LightInfo
+    RAB_SampleDoomAnalyticSphereLight
+
+This is enough to sample a crude sphere-like light, but it is missing a clear
+contract for:
+
+    sphere-light parameter validation
+    physical sphere radius versus Doom influence radius
+    Doom radius/falloff behavior
+    stable payload semantics for animated lights
+    target-PDF parity with the sampled light model
+    diagnostics proving analytic samples survive RAB sampling and target PDF
+
+The native rbdoom Doom NEE path in pathtrace_nee.hlsli already contains Doom
+influence behavior. The RAB analytic path must not silently drop those
+semantics while claiming to represent Doom lights.
+
+
+Required End State
+------------------
+
+The active RRX path should see Doom analytic lights as a stable sphere-light
+contract:
+
+    Doom light candidate
+        -> validated sphere-compatible payload
+        -> current/previous mapped light-manager record
+        -> RAB_LoadLightInfo
+        -> RAB_SamplePolymorphicLight
+        -> RAB_GetLightSampleTargetPdfForSurface
+
+Only Doom point/sphere lights are in scope.
+
+Out of scope:
+
+    Rect lights
+    Disk lights
+    Cylinder lights
+    Distant lights
+    light shaping
+    NEE cache
+    best-light sampling
+    temporal reuse policy
+    spatial reuse policy
+    DLSS RR input changes
+    reservoir finalization changes
+
+
+Task RRX-AL-01: Audit Current Analytic Sphere Contract
+------------------------------------------------------
+
+Goal:
+
+    Produce a code-local understanding before changing behavior.
+
+Read and compare:
+
+    Remix RtSphereLight CPU fields and validation.
+    Remix sphere_light.slangh sampling and weight functions.
+    rbdoom PathTraceDoomAnalyticLightCandidate fields.
+    rbdoom BuildUnifiedDoomAnalyticLightRecord.
+    rbdoom RAB_BuildLightInfoFromUnifiedRecord.
+    rbdoom RAB_SampleDoomAnalyticSphereLight.
+    rbdoom native BuildSmokeDoomAnalyticLightSample.
+
+Required checks:
+
+    Identify where rbdoom stores physical sphere radius.
+    Identify where rbdoom stores Doom influence radius.
+    Identify where rbdoom applies Doom falloff.
+    Identify where rbdoom applies intensity scale.
+    Identify where analytic light sample validity can fail.
+    Identify whether current and previous payloads can differ without remap
+    failure.
+
+Stop condition:
+
+    If the worker cannot point to the exact current shader code that samples
+    Doom analytic lights in RAB, stop and report. Do not edit by guessing.
+
+
+Task RRX-AL-02: Harden CPU Sphere-Compatible Payload
+----------------------------------------------------
+
+Goal:
+
+    Make the CPU payload for Doom analytic lights explicitly sphere-compatible
+    and validated before RAB consumes it.
+
+Owned files:
+
+    neo\renderer\NVRHI\PathTraceDoomLights.cpp
+    neo\renderer\NVRHI\PathTraceUnifiedLight.cpp
+    neo\renderer\NVRHI\PathTraceUnifiedLight.h
+
+Required behavior:
+
+    Preserve current Doom analytic candidate generation and identity/remap
+    scaffolding.
+    Preserve full authored Doom analytic light universe; do not prune lights
+    for quality.
+    Ensure the unified Doom analytic record has:
+        position
+        physical sphere radius
+        area derived from physical sphere radius
+        radiance or color/intensity after current rbdoom convention
+        Doom influence radius
+        source identity fields
+        stable previousIndex when remappable
+        positive sourceWeight only when sampleable
+    Reject or mark unsampleable records with invalid/zero radius, invalid
+    influence radius, non-finite position, or non-positive radiance.
+
+Layout rule:
+
+    Prefer using the existing PathTraceUnifiedLightRecord fields if they are
+    sufficient. Do not change its size unless absolutely required. If layout
+    changes are required, update the matching HLSL layout and static_assert in
+    the same slice.
+
+Forbidden behavior:
+
+    Do not add random analytic-light priority.
+    Do not cap or remove dynamic lights to hide the problem.
+    Do not classify payload changes as structural reset triggers.
+    Do not delete legacy split Doom analytic outputs.
+
+
+Task RRX-AL-03: Make Shader Sampling Sphere-Contract Clean
+----------------------------------------------------------
+
+Goal:
+
+    Make RAB_SampleDoomAnalyticSphereLight match a disciplined sphere-light
+    sampling contract, using Remix sphere-light behavior as the structural
+    guide and rbdoom native Doom NEE as the Doom-specific influence guide.
+
+Owned files:
+
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightTarget.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+
+Required behavior:
+
+    Keep RAB_SamplePolymorphicLight as the public entry point.
+    Keep emissive triangle sampling unchanged.
+    For Doom analytic sphere lights:
+        validate surface and light info
+        reject samples outside Doom influence radius if native Doom semantics
+        require that behavior
+        sample the sphere solid angle consistently
+        report a valid sample position, normal, radiance, distance, and
+        solidAnglePdf
+        apply Doom influence/falloff consistently with native Doom analytic
+        NEE, not as an undocumented extra multiplier
+        make target PDF use the same radiance/PDF model as the sample
+
+Reference constraint:
+
+    Use RTX Remix sphere_light.slangh as the structural reference for sphere
+    sampling. Do not copy the source. Translate the behavior into rbdoom's
+    existing RAB_LightSample and RAB_Surface types.
+
+Forbidden behavior:
+
+    Do not change RTXDI reservoir math.
+    Do not alter temporal reuse thresholds.
+    Do not change RRX page ownership or clear policy.
+    Do not change DLSS RR inputs.
+    Do not add full Remix rect/disk/cylinder/distant support in this slice.
+
+
+Task RRX-AL-04: Add Analytic Survival Diagnostics
+-------------------------------------------------
+
+Goal:
+
+    Make it visible whether analytic lights survive the RAB sampling and target
+    PDF path.
+
+Preferred diagnostic:
+
+    Extend an existing mode-56 RRX debug subview if there is already an
+    analytic-light attribution view.
+
+Acceptable diagnostic states:
+
+    selected emissive
+    selected Doom analytic
+    invalid light info
+    invalid light sample
+    zero target PDF
+    outside Doom influence radius
+    non-finite payload
+
+Forbidden diagnostic work:
+
+    Do not add per-pixel terminal spam.
+    Do not make a broad new debug system.
+    Do not reuse a color meaning from an existing view with a different meaning.
+
+Success condition:
+
+    In a scene with active Doom analytic lights, the user can determine whether
+    analytic lights are:
+        entering initial sampling
+        surviving RAB_SamplePolymorphicLight
+        producing positive target PDF
+        being selected into the reservoir
+
+
+Validation
+----------
+
+Build from:
+
+    E:\prog\rbdoom-3-bfg-rt\neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+    to
+    E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Deploy shaders after shader edits:
+
+    Copy the contents of:
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+    to:
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.
+
+Runtime cvars:
+
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingRestirPTUnifiedLightLoad 1
+    r_pathTracingRestirPTUnifiedLightSample 1
+    r_pathTracingRestirLightManagerDump 1
+    r_pathTracingRemixLightManagerDump 1
+
+Recommended checks:
+
+    Confirm r_pathTracingRemixLightManagerDump still reports bounded sample
+    counts for emissive and Doom analytic ranges.
+    Confirm no broad reservoir clears are introduced.
+    Confirm emissive behavior is not worsened.
+    Confirm the diagnostic view shows whether Doom analytic samples survive
+    light info, light sample, target PDF, and selection.
+
+Expected result:
+
+    This slice may improve analytic-light contribution. It is mainly a contract
+    correction. It is not expected to fully solve temporal reuse, view 69
+    strobing, DLSS RR boiling, or all analytic-light quality issues by itself.
+
+
+Paste-Ready Worker Prompt
+-------------------------
+
+Repository:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/restir-rab-reference-audit-experiment
+
+Task:
+
+    Implement RRX-AL-01 through RRX-AL-04 from:
+
+        docs\restir_friendly\rrx_doom_analytic_sphere_conformance_tasks.txt
+
+Read first:
+
+    docs\pathtracing.txt
+    docs\pathtrace_modules.txt
+    docs\restir_friendly\rrx_doom_analytic_sphere_conformance_tasks.txt
+    docs\restir_friendly\rrx_light_sampling_range_conformance_tasks.txt
+
+References:
+
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_lights.h
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_lights.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\concept\light\sphere_light.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\concept\light\polymorphic_light.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\algorithm\rtxdi\RtxdiApplicationBridge.slangh
+
+Owned files:
+
+    neo\renderer\NVRHI\PathTraceDoomLights.cpp
+    neo\renderer\NVRHI\PathTraceUnifiedLight.h
+    neo\renderer\NVRHI\PathTraceUnifiedLight.cpp
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightTarget.hlsli
+    If needed for diagnostics only:
+        neo\shaders\builtin\pathtracing\pathtrace_restir_local_debug_reservoirs.hlsli
+        neo\renderer\NVRHI\PathTraceCVars.cpp
+
+Shared worktree warning:
+
+    Other agents may have touched unrelated docs and shader diagnostics. Do not
+    revert unrelated changes. Only edit the owned files above unless a missing
+    helper forces a tiny adjacent include/header change, and report that clearly.
+
+Implementation rules:
+
+    Do not copy RTX Remix source code.
+    Do not invent ReSTIR math.
+    Do not change temporal reuse, spatial reuse, reservoir finalization, final
+    resolve, DLSS RR inputs, motion-vector export, or RRX clear policy.
+    Do not implement rect, disk, cylinder, distant, or shaping support.
+    Do not remove or cap Doom analytic lights to hide instability.
+    Preserve legacy split Doom analytic outputs.
+    Preserve the RRX-LS range/sample-count behavior.
+
+Required outcome:
+
+    Doom analytic lights use a sphere-light-compatible RAB contract.
+    Doom influence radius/falloff is explicit and not silently dropped.
+    Shader sampling and target PDF use the same analytic-light model.
+    Diagnostics can distinguish analytic light info failure, sample failure,
+    zero target PDF, and successful analytic selection.
+
+Build:
+
+    From E:\prog\rbdoom-3-bfg-rt\neo run:
+        cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    Copy:
+        E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+    to:
+        E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+    If shaders changed, copy the contents of:
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+    to:
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Final response:
+
+    List changed files.
+    State exactly how Doom analytic lights are now represented.
+    State whether PathTraceUnifiedLightRecord layout changed.
+    State how Doom influence radius/falloff is applied.
+    State what diagnostic view/cvar proves analytic survival.
+    State build result.

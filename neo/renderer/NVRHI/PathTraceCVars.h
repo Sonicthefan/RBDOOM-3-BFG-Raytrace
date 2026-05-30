@@ -235,6 +235,7 @@ extern idCVar r_pathTracingCleanRtxdiDiDoomColorSource;
 extern idCVar r_pathTracingCleanRtxdiDiRequireProvenDoomLights;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory;
+extern idCVar r_pathTracingCleanRtxdiDiTemporalAudit;
 extern idCVar r_pathTracingRestirPTView68Dump;
 extern idCVar r_pathTracingRestirPTView68DumpX;
 extern idCVar r_pathTracingRestirPTView68DumpY;

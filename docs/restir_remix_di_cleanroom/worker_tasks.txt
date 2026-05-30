@@ -164,6 +164,13 @@ Requirements:
     invalid/no-light state is loud
     targetPdf zero state is loud
     visibility accepted/rejected state is visible
+    once a light sample is replayed into visible radiance, the worker must also
+        provide a raw flat-diffuse analytic validation view:
+            constant diffuse reflectance
+            physically based direct-light estimate
+            one sampled analytic light candidate per pixel
+            no material albedo, textures, fallback lighting, denoiser, spatial,
+                or best-light input
 
 Forbidden:
 
@@ -214,6 +221,12 @@ Requirements:
         is enabled
     every pixel writes either valid reservoir or explicit invalid state
     reservoir-only debug shows selected-light identity and fields
+    raw flat-diffuse current-only validation view is mandatory:
+        one sampled analytic light candidate per pixel
+        constant diffuse reflectance
+        physically based direct-light estimate from the current reservoir
+        visibly noisy under a static camera
+        no status colors used as accumulation proof
     no previous reservoir is read
     no previous-best input is used
 
@@ -267,6 +280,15 @@ Requirements:
     failed previous light translation rejects only previous sample
     debug output shows current-only vs temporal-reused
     temporal can be disabled to produce current-only noisy output
+    raw flat-diffuse temporal validation view is mandatory:
+        same flat diffuse resolve as RDI-04
+        temporal off shows the current-only 1 spp noisy analytic result
+        temporal on shows the same mean lighting with noise reduced over frames
+        camera motion shows temporal tracking/reprojection behavior
+        disocclusion and failed projection become current-only/noisy, not
+            fallback lighting
+    split-screen current-only vs temporal is strongly preferred for user
+        validation
 
 Forbidden:
 
@@ -274,6 +296,8 @@ Forbidden:
     no best lights
     no fallback albedo
     no history brightness ramp
+    no luminance averaging filter presented as temporal accumulation
+    no false-color status dashboard presented as temporal accumulation
     no threshold tuning as a fix
     no previous-temporal-as-best
 
@@ -297,11 +321,127 @@ Requirements:
     shader contents copied without nesting
     hashes verified
     exact cvars provided
+    user-facing validation instructions include:
+        raw flat-diffuse current-only view
+        raw flat-diffuse temporal view
+        expected noisy-to-less-noisy behavior under a static camera
+        expected reservoir tracking/reprojection behavior while moving
+        exact statement that status/debug views are diagnostics only
     no commit until user confirms visual behavior
 
 Stop:
 
     stop after build/deploy for user visual testing
+
+
+RDI-07: Remix/RRX Temporal Surface Contract Recovery
+----------------------------------------------------
+
+Type:
+
+    read-only audit first, then narrow implementation only after the boundary is
+    proven
+
+Goal:
+
+    Recover clean view-12 temporal behavior by making the clean DI temporal
+    surface/reprojection/visibility contract match RTX Remix and the local
+    RRX/Remix-shaped temporal path closely enough for RTXDI temporal reuse and
+    initial visibility to matter.
+
+    This task is unlocked when RDI-06-style runtime testing proves that the
+    clean current producer is active but real Doom analytic temporal output
+    still does not visibly accumulate.
+
+    Current evidence:
+
+        r_pathTracingCleanRtxdiDiInitialVisibility reaches the shader and is
+        reported by r_pathTracingCleanRtxdiDiDump as initialVisibility=1.
+        It did not visibly improve clean view 12 with real Doom analytic
+        lighting. In RTX Remix, the comparable Initial Visibility toggle has
+        a large impact when temporal reuse is enabled. Therefore the blocker is
+        likely not the toggle itself, but the clean temporal consumer/surface
+        contract around it.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+
+Additional reference files:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_initial_sampling.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_SurfaceBridge.hlsli
+    neo/shaders/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_Visibility.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+
+Allowed rbdoom write set after audit:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+
+Audit requirements:
+
+    Compare clean view 12 against Remix/RRX for:
+        current surface loading and primary-surface field completeness
+        previous surface loading and previous-pixel lookup
+        motion-vector interpretation
+        expected previous depth / hit-distance handling
+        current reservoir read
+        previous reservoir read
+        selected light replay on the current surface
+        selected light replay on the previous/temporal surface when required
+        current-to-previous and previous-to-current light mapping
+        initial selected-sample visibility
+        temporal selected-sample visibility / discard policy
+
+    Identify the first exact contract boundary:
+        A. clean current reservoir is already bad
+        B. clean current reservoir is valid but visibility/PDF/replay is bad
+        C. previous surface or motion-vector remap differs from Remix/RRX
+        D. previous reservoir/light translation differs from Remix/RRX
+        E. final resolve differs after a valid temporal reservoir
+
+Implementation requirements:
+
+    Keep the RLU-backed current light domain.
+    Keep clean current reservoir ownership.
+    Reuse shared rbdoom surface/visibility adapters where they already match
+        the RRX/Remix-shaped path.
+    Preserve r_pathTracingCleanRtxdiDiInitialVisibility as a diagnostic/parity
+        switch.
+    Preserve r_pathTracingCleanRtxdiDiView8Band 8 as the current-vs-temporal
+        selected-sample failure classifier.
+    Provide a split current-vs-temporal raw flat-diffuse validation view.
+
+Forbidden:
+
+    no spatial
+    no best lights
+    no full-map/full-domain brute force as a fix
+    no broad light suppression
+    no target-floor or BRDF-gate diagnostic hack as a fix
+    no threshold tuning before the surface/reprojection contract is matched
+    no old previous-temporal-as-best fallback
+    no replacing RLU with old Doom analytic portal-domain producers
+    no claims from status colors, dumps, buffer survival, or non-crashing builds
+
+Stop:
+
+    Stop after build/deploy for user visual testing. Do not commit until the
+    user confirms visible noisy-to-less-noisy temporal accumulation on real
+    Doom analytic lighting.
 
 
 Deferred Tasks

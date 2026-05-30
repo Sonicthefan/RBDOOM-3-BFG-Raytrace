@@ -1,0 +1,196 @@
+DI Temporal Contract Matrix
+===========================
+
+This matrix defines what must match before anyone may claim RTXDI or RTX Remix
+compliance.
+
+
+Contract 1: UI/Runtime Control
+------------------------------
+
+Reference:
+
+    dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.h
+
+Reference behavior:
+
+    Temporal Reuse toggles enableRtxdiTemporalReuse.
+    The temporal shader still dispatches when the toggle is off.
+    The shader receives maxHistoryLength = configured value when on, else 0.
+
+rbdoom requirement:
+
+    The active DI temporal pass must have one clear CVar controlling real
+    temporal history length/enablement.
+    Turning the toggle off must not silently switch to old smoke behavior or
+    fallback previous-best behavior.
+
+Proof required:
+
+    file/line where CVar enters constants
+    file/line where shader uses maxHistoryLength or equivalent RTXDI parameter
+    runtime test showing mode 72 changes when temporal history is disabled
+
+
+Contract 2: Initial Sampling Output
+-----------------------------------
+
+Reference:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+
+Reference behavior:
+
+    Initial sampling builds the current reservoir.
+    It writes to the temporal output page.
+    Best-light sampling is optional and not required for temporal reuse.
+    Initial sampling can use a previous best light only from the dedicated
+    RtxdiBestLights path, not by loading the previous temporal reservoir.
+
+rbdoom requirement:
+
+    Active initial sampling must build a valid current DI reservoir using the
+    Remix light-manager/RAB light buffers.
+    It must work with best-light disabled.
+    It must not require r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest.
+
+Proof required:
+
+    current reservoir valid in overlapping-light scenes
+    candidate count and M semantics documented against RTXDI reference
+    selected light, targetPdf, weightSum, M visible in a debug view
+    no dependency on previous temporal reservoir as a best-light input
+
+
+Contract 3: Temporal Reuse
+--------------------------
+
+Reference:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+Reference behavior:
+
+    Temporal reuse loads the current reservoir from the initial output.
+    It reprojects using screen-space motion.
+    It searches nearby previous pixels around the reprojected position.
+    It validates previous surfaces with depth and normal checks.
+    It loads a previous reservoir from the configured previous-history page.
+    It maps previous light index into the current light domain.
+    It recomputes targetPdf on the current surface.
+    It combines current and previous reservoirs through RTXDI.
+    It finalizes through RTXDI bias correction.
+
+rbdoom requirement:
+
+    The active path must call the RTXDI DI temporal resampling helper, or a
+    clean-room equivalent with identical inputs, outputs, and math.
+    Any rbdoom wrapper must preserve the RTXDI negative paths.
+    Failed previous light translation must kill only the previous sample, not
+    the whole reservoir domain.
+
+Proof required:
+
+    current reservoir before temporal
+    previous reservoir sampled by temporal
+    previous->current light translation result
+    previous selected light targetPdf recomputed on current surface
+    output reservoir M/targetPdf/weightSum after finalize
+    mode 72 accumulation with previous-best debug disabled
+
+
+Contract 4: Persistent History Page Ownership
+---------------------------------------------
+
+Reference:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+
+Reference behavior:
+
+    RTXDI_GetTemporalInputPage() returns previous ping-pong history.
+    RTXDI_GetTemporalOutputPage() returns transient temporal output.
+    RTXDI_GetSpatialInputPage() reads transient temporal output.
+    RTXDI_GetSpatialOutputPage() writes current ping-pong history.
+
+Important warning:
+
+    Do not change rbdoom page roles in the active path until there is a
+    matching pass sequence. A previous attempt to force Remix page roles without
+    a complete pass graph destroyed all observed accumulation.
+
+rbdoom requirement:
+
+    First audit the current active page graph.
+    Then introduce any Remix page-role correction only in an isolated new path
+    or slice that proves each producer and consumer in order.
+
+Proof required:
+
+    page role table per dispatch
+    producer pass that writes each page
+    consumer pass that reads each page
+    runtime view proving previous-frame history survives
+
+
+Contract 5: Final Replay / Mode 72
+----------------------------------
+
+Reference:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_spatial_reuse.comp.slang
+    rbdoom mode 72 final consumer path
+
+Reference behavior:
+
+    Final lighting consumes the selected reservoir sample and reconstructs
+    lighting with the same light domain and target/sample PDFs expected by the
+    reservoir.
+
+rbdoom requirement:
+
+    Mode 72 must consume the same temporal reservoir identity that 73/74 prove.
+    It must not silently consume spatial while temporal is under test.
+    It must not rely on mode-56 accumulation to hide failure.
+
+Proof required:
+
+    72 selected-light identity matches 74 in a diagnostic subview
+    72 replay without visibility works
+    72 replay with BRDF/normal works
+    72 replay with selection/solid-angle weighting works
+    72 replay with visibility works
+
+
+Contract 6: Optional Best Lights
+--------------------------------
+
+Reference:
+
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Reference behavior:
+
+    RtxdiBestLights is a dedicated downscaled feedback texture.
+    It is produced by the gradient/best-light pass.
+    It is optional. Temporal reuse still functions when Sample Best Lights is
+    disabled.
+
+rbdoom requirement:
+
+    Do not substitute previous temporal reservoir as RtxdiBestLights.
+    If a best-light feature is implemented, it must be a separate resource with
+    its own producer/consumer proof.
+
+Proof required:
+
+    temporal works with best-light disabled
+    best-light enabled changes candidate quality but is not required for basic
+    history reuse
+

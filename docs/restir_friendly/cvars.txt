@@ -1,0 +1,6 @@
+r_pathTracingAnalyticLightScale 0
+r_pathTracingRestirPTUnifiedLightLoad 1
+r_pathTracingRestirPTUnifiedLightSample 1
+r_pathTracingRestirPTUnifiedPrevToCurrentScan 1
+r_pathTracingRestirPTDiDebugView 12
+r_pathTracingRestirPTTemporalNeighborDebugMode 2

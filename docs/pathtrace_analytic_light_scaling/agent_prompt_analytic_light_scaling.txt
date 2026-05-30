@@ -106,7 +106,8 @@ Expected first useful result:
 
     Secondary/reflection analytic NEE sampled mode loops by analytic sample
     count, not uploaded analytic light count. Off mode actually disables
-    secondary analytic NEE. Legacy full mode remains available for comparison.
+    secondary analytic NEE. Legacy full mode is not a retained replacement
+    path; any inspection of it is historical/debug evidence only.
     The eligible light universe remains broad; only per-vertex proposal
     evaluation is bounded.
 

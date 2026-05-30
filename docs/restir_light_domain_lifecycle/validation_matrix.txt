@@ -1,0 +1,221 @@
+ReSTIR Light-Domain Lifecycle Validation Matrix
+===============================================
+
+All runtime validation is performed in:
+
+    E:/prog/rbdoom-3-BFG-prebuilt
+
+
+Proof Standard
+--------------
+
+Success is a truthful active light domain, not accumulation.
+
+Required evidence:
+
+    reset state is correct on map/renderWorld changes
+    current domains update as the player moves
+    previous domains are invalidated when continuity is not valid
+    remaps match the final current payload list
+    analytics do not depend on emissive domain state
+    emissives do not corrupt analytic ranges or budgets
+
+Runtime dumps are necessary but not sufficient. At least one split-domain
+visual liveness test must accompany the dumps for each implemented repair
+slice.
+
+
+Rung V-01: Read-Only Baseline
+-----------------------------
+
+Purpose:
+
+    Confirm the current producer-consumer chain and identify the first
+    lifecycle or remap break.
+
+Expected:
+
+    exact map-change reset delta
+    exact Doom analytic reset key
+    exact emissive remap ordering
+    exact manager/unified route selected by CVars
+
+Pass:
+
+    audit names the first failing contract and no code is changed.
+
+Fail:
+
+    worker jumps into math, temporal, or broad light filtering.
+
+
+Rung V-02: Map Reset Negative Path
+----------------------------------
+
+Purpose:
+
+    Prove stale previous-map domains cannot survive a map/renderWorld change.
+
+Expected first frame after map change:
+
+    previous emissive count = 0 or explicitly invalid
+    previous analytic count = 0 or explicitly invalid
+    sceneInputs.valid is false before the new domain commit
+    old retired packages cannot feed active light buffers
+
+Pass:
+
+    old-map lights do not appear in new-map dumps or visuals.
+
+Fail:
+
+    spawn-area lights or previous emissives survive into a different map.
+
+
+Rung V-03: Analytic-Only Liveness
+---------------------------------
+
+Purpose:
+
+    Re-establish the known working analytic domain without emissive coupling.
+
+Expected:
+
+    current analytic count updates as the player moves
+    previous analytic count/remap follows same-map continuity
+    analytic range offset/count is valid
+    emissive count and remap cannot affect the result
+
+Pass:
+
+    analytic lights remain visible/updating across areas.
+
+Fail:
+
+    analytics freeze, disappear, or depend on emissive state.
+
+
+Rung V-04: Emissive Final-Domain Remap
+--------------------------------------
+
+Purpose:
+
+    Prove emissive remap is built from the final uploaded current emissive
+    list.
+
+Expected:
+
+    raw emissive count may differ from final emissive count
+    remap size matches final current emissive count
+    manager payloads and unified records use the same final list
+
+Pass:
+
+    no pre-merge remap is consumed by any manager.
+
+Fail:
+
+    remap describes an older current list than the uploaded list.
+
+
+Rung V-05: Emissive-Only Liveness
+---------------------------------
+
+Purpose:
+
+    Prove emissive domain updates independently.
+
+Expected:
+
+    emissive current count updates as the player moves
+    previous emissive count/remap follows same-map continuity
+    analytic count/range cannot affect emissive-only proof
+
+Pass:
+
+    emissive lights remain visible/updating across valid areas.
+
+Fail:
+
+    emissives work only in a few map locations because stale or filtered state
+    dominates the final domain.
+
+
+Rung V-06: Analytics With Emissives Present But Zero-Sampled
+------------------------------------------------------------
+
+Purpose:
+
+    Detect unified bridge contamination before emissive sampling participates.
+
+Expected:
+
+    emissive payloads may exist
+    emissive sample budget = 0
+    analytic range/count/budget/output matches analytic-only baseline
+
+Pass:
+
+    analytics behave identically to V-03.
+
+Fail:
+
+    mere presence of emissive records changes analytic range, offsets, budgets,
+    or liveness.
+
+
+Rung V-07: Unified Analytic + Emissive Domain
+---------------------------------------------
+
+Purpose:
+
+    Prove the combined payload list after split domains pass.
+
+Expected:
+
+    emissive range offset/count valid
+    analytic range offset/count valid
+    sample budgets nonzero only when enabled
+    current/previous remaps account for appended unified layout
+
+Pass:
+
+    analytics and emissives both update as the player moves.
+
+Fail:
+
+    one domain absorbs, freezes, or invalidates the other.
+
+
+Rung V-08: Handoff To PDF + NEE
+-------------------------------
+
+Purpose:
+
+    Prepare the verified current domain for the PDF + NEE verifier.
+
+Expected:
+
+    exact verified domain route
+    exact buffer/count/range
+    exact disabled domains
+    exact negative paths
+
+Pass:
+
+    PDF + NEE agent can consume a truthful current light domain without
+    touching lifecycle code.
+
+Fail:
+
+    lifecycle repair is incomplete and PDF + NEE must guess about active light
+    ownership.
+
+
+Hard Stop
+---------
+
+Stop at the first failing rung.
+
+Do not continue to PDF + NEE or temporal to make a stale light domain appear
+functional.

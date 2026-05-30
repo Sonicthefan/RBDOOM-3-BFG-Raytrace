@@ -1,0 +1,192 @@
+ReSTIR Light-Domain Lifecycle I/O Whitelist
+===========================================
+
+This whitelist applies only to lifecycle, remap, and light-domain bridge
+repair. It is not a PDF + NEE or temporal whitelist.
+
+
+Allowed Inputs
+--------------
+
+I-01: Map / Render-World Identity
+
+    Allowed fields:
+        renderWorld pointer
+        mapName
+        mapTimeStamp
+
+    Required use:
+        reset decisions for scene light-domain state and Doom analytic universe
+        state.
+
+
+I-02: Raw Current Emissive Inventory
+
+    Meaning:
+        Current-frame emissive triangles before light-universe merge/filter.
+
+    Allowed use:
+        inventory diagnostics
+        final-domain construction input
+
+    Forbidden use:
+        building a remap for a different later-mutated current list.
+
+
+I-03: Final Current Emissive Domain
+
+    Meaning:
+        The exact emissive list after light-universe merge/filter/persistence.
+
+    Required use:
+        emissive remap construction
+        manager payload construction
+        unified light construction
+        upload buffers
+
+
+I-04: Previous Emissive Domain
+
+    Meaning:
+        Previous-frame emissive list from the same map and same finalized
+        producer domain.
+
+    Allowed use:
+        current-to-previous remap
+
+    Forbidden use:
+        first frame after map change
+        after producer-domain ordering changes without invalidation
+
+
+I-05: Current Doom Analytic Domain
+
+    Meaning:
+        Current-frame Doom analytic candidates and identities.
+
+    Required use:
+        analytic-only proof
+        analytic manager payloads
+        unified analytic append domain
+
+
+I-06: Previous Doom Analytic Domain
+
+    Meaning:
+        Previous-frame Doom analytic universe from the same map identity.
+
+    Allowed use:
+        analytic remap and continuity proof
+
+    Forbidden use:
+        same renderWorld pointer with changed mapName/mapTimeStamp
+
+
+I-07: Manager/Unified Route CVars
+
+    Allowed CVars:
+        r_pathTracingRemixLightManagerRAB
+        r_pathTracingRestirLightManagerRAB
+        r_pathTracingRestirPTUnifiedLightLoad
+        r_pathTracingRestirPTUnifiedLightSample
+        lifecycle verifier CVars defined in this folder
+
+    Required use:
+        route declaration and proof only.
+
+
+Forbidden Inputs
+----------------
+
+Do not consume as proof:
+
+    temporal reservoir pages
+    spatial reservoir pages
+    previous-best fallback candidates
+    denoiser/confidence/gradient buffers
+    old smoke reservoir reset policy
+    fallback albedo/beauty output
+    mode-56 status colors
+    PDF + NEE verifier output as lifecycle evidence
+
+
+Allowed Outputs
+---------------
+
+O-01: Lifecycle Dump
+
+    Required fields:
+        map identity
+        reset reason
+        sceneInputs.valid before/after
+        previous emissive count before/after
+        previous analytic count before/after
+        manager clear state
+        retired package count before/after
+
+
+O-02: Domain Truth Dump
+
+    Required fields:
+        raw emissive count
+        final emissive count
+        previous emissive count
+        current analytic count
+        previous analytic count
+        unified current/previous count
+        manager current/previous payload count
+        active payload count mismatch
+
+
+O-03: Remap Truth Dump
+
+    Required fields:
+        current-to-previous size
+        previous-to-current size
+        mapped count
+        invalid count
+        current-only count
+        previous-only count
+        duplicate/unknown/incompatible counts
+
+
+O-04: Split-Domain Visual Proof
+
+    Allowed purpose:
+        show that analytic-only and emissive-only domains remain independently
+        alive across player movement.
+
+    Restriction:
+        visual proof must be paired with O-01 through O-03. It cannot stand
+        alone.
+
+
+O-05: Handoff Report
+
+    Required fields:
+        exact verified payload buffer
+        exact count
+        exact range offset/count
+        exact CVar route
+        exact forbidden domains not used
+
+
+Forbidden Outputs
+-----------------
+
+Do not output or claim:
+
+    PDF correctness
+    NEE correctness
+    temporal accumulation correctness
+    spatial correctness
+    best-light correctness
+    denoised correctness
+    RTXDI/Remix compliance
+
+
+Reject Condition
+----------------
+
+Reject any worker result that cannot list every consumed input and written
+output by whitelist id.

@@ -1,0 +1,374 @@
+Worker Prompts For RRX Conformance Correction
+=============================================
+
+Use one prompt per worker. Do not paste multiple tasks into one worker unless
+the user explicitly wants a combined pass.
+
+
+RRX-CF-01 Prompt
+----------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-CF-01 only: audit the current active producer-consumer gap between the
+    Remix-shaped manager/resources and the active rbdoom RAB/reservoir paths.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/conformance_correction_overview.txt
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Critical constraints:
+
+    Read-only audit. Do not edit code. Do not build. Do not propose new ReSTIR
+    math. Do not treat diagnostic-only scaffolding as active parity.
+
+Expected output file:
+
+    docs/restir_remix_rebuild/rrx_conformance_active_gap_audit.txt
+
+Required content:
+
+    A table with:
+
+        Remix responsibility
+        rbdoom current producer
+        rbdoom current consumer
+        active or diagnostic-only
+        old smoke dependency
+        exact file/line evidence
+        required correction task
+
+    Explicitly answer:
+
+        Which light manager feeds shader-visible RAB records?
+        Which reservoir domain do mode-56 probe views read?
+        Which paths can still broad-clear old smoke/ReSTIR reservoirs?
+        Which paths can clear RRX reservoirs?
+        Where does failed light translation become local rejection?
+
+Final response:
+
+    Report the audit file written and the first code slice that should follow.
+    State whether active consumer proof, negative-path proof, and runtime
+    diagnostic proof currently exist or are missing.
+
+
+RRX-CF-02 Prompt
+----------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-CF-02 only: add an opt-in active light/RAB source switch so the
+    shader-visible light records and remaps can come from
+    PathTraceRemixLightManager instead of m_restirLightManager.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/conformance_correction_overview.txt
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+    docs/restir_remix_rebuild/rrx_conformance_active_gap_audit.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Owned write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.*
+    CVar files only if required
+    docs/restir_remix_rebuild/* status notes only
+
+Critical constraints:
+
+    Do not change reservoir clear policy. Do not implement temporal reuse,
+    spatial reuse, visibility, final resolve, or DLSS RR changes. Do not remove
+    legacy outputs. Add an opt-in switch; default off unless explicitly told
+    otherwise.
+
+Expected implementation:
+
+    With the new opt-in enabled, the active shader-visible current light
+    records, previous light records, current-to-previous map, and
+    previous-to-current map are sourced from PathTraceRemixLightManager.
+    Dumps must report activeLightSource and the current/previous/map counts.
+
+Build/deploy:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+        cmake --build --preset win64-pt-dev-release
+
+    Copy the exe to:
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    If shaders changed, copy the contents of:
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to:
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+Final response:
+
+    Report files changed, exact CVar, build/deploy result, and the dump line
+    proving activeLightSource=remix-light-manager. Include active consumer
+    proof with file/line evidence. State that negative-path proof remains
+    deferred to RRX-CF-03/RRX-CF-04 unless this task directly proves it.
+
+
+RRX-CF-03 Prompt
+----------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-CF-03 only: add an active RAB translation parity probe that proves the
+    shader reads the Remix-manager current/previous light domains and maps.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/conformance_correction_overview.txt
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+    docs/restir_remix_rebuild/rrx_conformance_active_gap_audit.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Owned write set:
+
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_LightBridge.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    existing mode-56 debug shader files only as required
+    CVar/help text only if a new subview is required
+
+Critical constraints:
+
+    No reservoir writes. No RTXDI temporal/spatial calls. No final resolve or
+    DLSS RR changes. Use the active RAB functions, not a duplicate CPU table.
+
+Expected implementation:
+
+    Add or reuse a mode-56 DI debug subview that picks a deterministic current
+    light, translates current-to-previous, loads previous-domain payload if
+    valid, translates previous-to-current, and colors the round trip:
+
+        green  = round trip valid
+        blue   = no previous mapping but current load valid
+        orange = previous exists but maps to a different current light
+        red    = current load failed or buffers unavailable
+        purple = previous load failed despite a valid map
+
+    If using r_pathTracingRestirPTDiDebugView 67, it must be the active RAB
+    translation parity view. Do not validate RRX-CF-03 with raw reservoir views
+    63-66. Those prove RRX storage/page plumbing only, not RAB translation
+    parity.
+
+Validation note:
+
+    A tiled parity view is allowed and may show index-hash colors in some panes.
+    Do not require the entire screen to be green. Success is the status/summary
+    pane showing valid current load, valid current-to-previous translation,
+    valid previous-domain load when mapped, and previous-to-current round trip
+    back to the selected current light.
+
+Build/deploy:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+        cmake --build --preset win64-pt-dev-release
+
+    Copy the exe to:
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    If shaders changed, copy the contents of:
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to:
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+Final response:
+
+    Report files changed, debug view number, build/deploy result, and exact
+    CVars for visual testing. Include active consumer proof that the probe uses
+    the active RAB functions, negative-path proof for invalid translation, and
+    runtime diagnostic proof showing the view separates load failure, mapping
+    failure, and valid round trip.
+
+
+RRX-CF-04 Prompt
+----------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-CF-04 only: connect the RRX DI reservoir domain to an RTXDI-shaped
+    temporal consumer that performs local failed-light-translation rejection.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/conformance_correction_overview.txt
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+    docs/restir_remix_rebuild/rrx_conformance_active_gap_audit.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Owned write set:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiDispatch.*
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    neo/shaders/builtin/pathtracing/remix_rtxdi/rtxdi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_*.hlsli as required
+    shader project/CMake files only if required
+
+Critical constraints:
+
+    Do not hand-roll reservoir math. Do not use old RestirPTDiReservoirs,
+    RestirPTReservoirs, smoke reservoirs, or mode-18 accumulation as the tested
+    domain. No spatial reuse, GI, final shading, or DLSS RR claims.
+
+Expected implementation:
+
+    Bind PathTraceRemixRtxdiResources' DI reservoir domain, call the
+    RTXDI-shaped temporal helper path through the RAB light translation from
+    RRX-CF-03, and add debug classification for previous-light translation
+    valid/invalid. Invalid light mapping must reject only the selected previous
+    candidate; it must not request a whole-domain clear.
+
+Build/deploy:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+        cmake --build --preset win64-pt-dev-release
+
+    Copy the exe to:
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    If shaders changed, copy the contents of:
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to:
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+Final response:
+
+    Report files changed, build/deploy result, debug view/CVars, and whether
+    the debug output distinguishes local rejection from global clear. Include
+    active consumer proof for the RRX DI temporal path, negative-path proof for
+    failed previous-light translation, and runtime diagnostic proof separating
+    storage, mapping, payload, global clear, and inactive-consumer states.
+
+
+RRX-CF-05 Prompt
+----------------
+
+Repository:
+
+    E:/prog/rbdoom-3-bfg-rt
+
+Task:
+
+    RRX-CF-05 only: add the broad-clear firewall diagnostics proving old smoke
+    reset signatures do not govern the active RRX reservoir path.
+
+Read first:
+
+    docs/pathtracing.txt
+    docs/restir_remix_rebuild/README.txt
+    docs/restir_remix_rebuild/worker_protocol.txt
+    docs/restir_remix_rebuild/conformance_correction_overview.txt
+    docs/restir_remix_rebuild/rrx_conformance_correction_tasks.txt
+    docs/restir_remix_rebuild/rrx_conformance_active_gap_audit.txt
+
+Reference roots:
+
+    RTXDI: E:/prog/references/RTXDI-main
+    RTX Remix: E:/prog/references/dxvk-remix-git
+
+Owned write set:
+
+    neo/renderer/NVRHI/PathTraceRemixRtxdiResources.*
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp only for diagnostics/gates
+    neo/renderer/NVRHI/PathTraceFrameResources.* only if reset reason reporting
+    needs an RRX-specific field
+
+Critical constraints:
+
+    Keep old smoke reset behavior intact for legacy paths unless explicitly
+    commissioned otherwise. Do not suppress dynamic lights. Do not change RTXDI
+    math, final resolve, spatial reuse, or GI.
+
+Expected implementation:
+
+    Add a dump separating:
+
+        old smoke reset reasons
+        RRX allowed reset reasons
+        RRX ignored smoke reset reasons
+        RRX DI/GI clear pending
+        light structural/mapping/payload signature changes
+        payloadOnlyChange
+        active temporal path clear request source
+
+    Ensure RRX active resources ignore old smoke reservoir scene/dispatch
+    signature reset reasons and m_smokeDoomAnalyticLightCount churn unless a
+    later audited structural incompatibility says otherwise.
+
+Build/deploy:
+
+    Build from E:/prog/rbdoom-3-bfg-rt/neo with:
+        cmake --build --preset win64-pt-dev-release
+
+    Copy the exe to:
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    If shaders changed, copy the contents of:
+        E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to:
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+    Do not nest renderprogs2 inside renderprogs2.
+
+Final response:
+
+    Report files changed, build/deploy result, dump CVar, and sample expected
+    dump fields. Include active consumer proof for the path being guarded,
+    negative-path proof that old smoke reset reasons do not trigger RRX clears,
+    and runtime diagnostic proof showing allowed versus ignored reset reasons.

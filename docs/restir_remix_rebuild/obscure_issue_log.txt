@@ -83,4 +83,62 @@ P2: The contribution path still uses rbdoom-local visibility via TraceSmokeShado
  It is documented in obscure_issue_log.txt, so I would not block testing on it, but don’t call this full Remix/RAB final-shading parity yet.
 P2: r_pathTracingRemixRtxdiResourcesEnable now changes output behavior, not just resource ownership.
 That is okay for this experimental path, but the cvar name is misleading if it survives beyond the test slice.
-A later cleanup should split “allocate RRX resources” from “use RRX DI for mode 56 direct lighting.”
+A later cleanup should split allocate-RRX-resources from use-RRX-DI-for-mode-56-direct-lighting.
+
+
+Portal RTX Best-Light And Initial Visibility Observation
+-------------------------------------------------------
+
+Status:
+
+    Recorded only. This is useful behavior, but current Portal RTX testing says
+    it is not the source of reservoir persistence.
+
+Reference locations:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_rtxdi_rayquery.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/submodules/rtxdi/rtxdi-sdk/include/rtxdi/ResamplingFunctions.slangh
+    E:/prog/references/dxvk-remix-git/submodules/rtxdi/rtxdi-sdk/include/rtxdi/Reservoir.slangh
+
+Observation:
+
+    Portal RTX's Lighting -> RTXDI -> Sample Best Lights checkbox controls
+    rtx.di.enableBestLightSampling. When disabled, the shader-side
+    previous-best-light path is not consumed by initial sampling or temporal
+    reuse, although the gradient pass may still write the best-light texture if
+    denoiser gradients are enabled.
+
+    The checkbox below it, Initial Visibility, controls
+    rtx.di.enableInitialVisibility. Remix defines RTXDI_DEFER_INITIAL_VISIBILITY
+    for the initial sampling shader, so it does not trace every random/best
+    light candidate. It first chooses the initial reservoir winner, then traces
+    one visibility ray to that selected light through
+    RTXDI_UpdateSelectedReservoirVisibility. If the selected sample is fully
+    invisible, RTXDI_StoreVisibilityInReservoir invalidates only that selected
+    reservoir sample by setting the light index invalid and weight sum to zero.
+
+User test result:
+
+    With Portal RTX, disabling best-light sampling did not make the accumulator
+    give up or flush reservoirs. It did reduce quality in sparse areas. In one
+    sparse traced area, best-light sampling produced noticeably more useful
+    samples only when Initial Visibility was also enabled.
+
+Interpretation:
+
+    Best-light sampling plus selected-light initial visibility is a quality and
+    candidate-validation feature. It is not the mechanism that prevents broad
+    reservoir clearing. Reservoir persistence appears to come from Remix's
+    ownership/invalidation architecture: dynamic light/object churn updates
+    payloads and mappings, while failed visibility or failed remap rejects only
+    the selected candidate/sample locally.
+
+Guardrail:
+
+    Do not use Portal RTX stability with best-light disabled as evidence that
+    rbdoom can skip local selected-sample visibility forever. Also do not chase
+    best-light sampling as the primary fix for global reservoir flushes. Broad
+    clears tied to old smoke signatures, dynamic-light payload churn, or scene
+    generation remain nonconformant with the observed Remix behavior.

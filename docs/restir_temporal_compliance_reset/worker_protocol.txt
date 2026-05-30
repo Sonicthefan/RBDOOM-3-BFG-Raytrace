@@ -1,0 +1,113 @@
+Worker Protocol
+===============
+
+Every worker must follow this protocol.
+
+
+Before Editing
+--------------
+
+The worker must state:
+
+    task id
+    exact RTX Remix file-equivalent
+    exact RTXDI file-equivalent, if math is involved
+    rbdoom files it will edit
+    active input contract
+    active output contract
+    forbidden areas it will not touch
+
+If any item is unknown, stop and report the missing information.
+
+
+Allowed Reference Use
+---------------------
+
+Use RTX Remix for file responsibility, pass graph, resources, and runtime
+control semantics.
+
+Use RTXDI for reservoir math, finalization, target PDF handling, bias
+correction, and temporal/spatial resampling behavior.
+
+Do not copy licensed source text into rbdoom. Implement a clean-room equivalent
+that preserves contract and math.
+
+
+Forbidden Actions
+-----------------
+
+Workers must not:
+
+    claim compliance from similarly named files or buffers
+    claim compliance from green storage-only debug views
+    tune thresholds to hide bad temporal behavior
+    feed previous temporal reservoirs as best lights except in the existing
+    debug-only fallback
+    turn on spatial as a fix for broken temporal
+    use old smoke reservoir signatures as active RRX validity
+    route mode 72 through spatial while debugging temporal
+    clamp all lights or suppress all dynamics as a final fix
+    change ReSTIR math
+    broaden scope to GI, reflections, DLSS RR, or denoising
+
+
+Required Proofs
+---------------
+
+Every implementation result must include:
+
+    active producer-to-consumer proof
+        file/line where output is written
+        file/line where the next active path reads it
+
+    negative-path proof
+        what happens when previous light translation fails
+        what happens when previous surface is invalid
+        what happens when targetPdf is zero
+
+    runtime proof
+        exact cvars
+        expected debug view colors or fields
+        what user should observe in mode 72
+        what user should observe in 73/74
+
+
+Review Severity
+---------------
+
+Mark P1 if:
+
+    mode 72 still relies on r_pathTracingRestirPTRrxDebugPreviousTemporalAsBest 1
+    active temporal path requires spatial to be enabled
+    previous reservoir history is not consumed by RTXDI temporal reuse
+    failed light translation clears broad reservoir history
+    worker cannot prove active producer-to-consumer flow
+
+Mark P2 if:
+
+    diagnostics are unclear but active path may still work
+    best-light feedback is deferred but temporal works without it
+    spatial parity is deferred after temporal proof
+
+
+Build And Deploy
+----------------
+
+Build from:
+
+    E:/prog/rbdoom-3-bfg-rt/neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    copy E:/prog/rbdoom-3-bfg-rt/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    to E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+Deploy shaders after shader changes:
+
+    copy the contents of E:/prog/rbdoom-3-bfg-rt/base/renderprogs2
+    to E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+

@@ -82,9 +82,14 @@ Forbidden Patterns
 Workers must not:
 
     tune around black/noisy output
+    tune temporal thresholds to hide overlap-light reservoir fighting
+    feed previous temporal reservoirs back as Remix previous-best unless a task
+    explicitly marks it as a debug-only non-Remix approximation
     invent new ReSTIR math
     add broad dynamic-light suppression
     route new ReSTIR reservoirs through old smoke reservoir clear policy
+    keep old light/reservoir fallback active in the default RRX path
+    use old mode-56 accumulation to prove RRX reservoir stability
     use Doom analytic count changes as temporal validity
     remove legacy outputs unless explicitly commissioned
     claim DLSS RR validation before DI/GI temporal debug views are sane

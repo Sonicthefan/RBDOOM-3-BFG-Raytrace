@@ -182,9 +182,87 @@ Fail:
     analytic source PDF is read from manager sourcePdf when that value is zero
     Doom analytic payload sourcePdf=0 is used as the proposal PDF
     typed-range uniform, bounded per-range, payload-weighted, alias-table,
-        portal, or ReGIR sampling is used as the first producer policy
+        portal, or ReGIR sampling is used as the first producer policy before
+        the full-domain uniform RLU baseline is accepted
     source PDF changes after sampling without matching reservoir weight
     ReGIR, portal candidates, or old NEE output are used as the default source
+
+
+Contract C-04B: Range-Stratified RLU Source PDF
+-----------------------------------------------
+
+Applies after PDFNEE-RLU-02 is accepted. This is the current policy-1 contract
+for the checked-out replacement producer.
+
+Required source:
+
+    current RLU emissive typed range
+    current RLU Doom analytic typed range
+
+Required proof:
+
+    raw current RLU typed ranges are used, not legacy sampling-gated ranges
+    every non-empty sampled range states its rangeSampleCount
+    totalProposalSamples is the sum of streamed range sample counts
+    lightIndex is sampled uniformly inside each active range
+    sourcePdf = rangeSampleCount / (rangeCount * totalProposalSamples)
+    invSourcePdf = (rangeCount * totalProposalSamples) / rangeSampleCount
+    selected reservoir identity remains dense current RLU lightIndex
+
+Pass:
+
+    one-class scenes match the stated rangeSampleCount/rangeCount PDF
+    multi-range scenes produce a normalized sourcePdf table over all streamed
+        proposals
+    targetPdf, visibility, final contribution, RTXDI helper sequence, and
+        stored current reservoir M are unchanged from PDFNEE-RLU-02
+
+Fail:
+
+    policy is documented as fixed 50/50 while the implementation uses
+        rangeSampleCount/totalProposalSamples
+    payload radiance, ReGIR cell weight, portal distance, or alias-table
+        probability is used in this task
+    sourcePdf is computed from rangeCount alone when multiple ranges are active
+    selected light identity becomes class-local instead of dense RLU current
+        lightIndex
+
+
+Contract C-04C: Clean View-12 Analytic Parity
+---------------------------------------------
+
+Current blocker:
+
+    PDFNEE/RLU current-frame Doom analytic lighting must match clean RTXDI DI
+    view 12 before temporal consume or accumulator behavior is debugged.
+
+Required comparison:
+
+    same current RLU dense lightIndex
+    same RLU record sourceIndex
+    same current DoomAnalyticLights payload when clean view 12 uses sourceIndex
+    same RAB_LightInfo fields: valid, position, radius, influenceRadius, area,
+        radiance, weight, flags
+    same RAB_SampleActiveRrxPolymorphicLight replay at the selected sample UV
+    same solidAnglePdf
+    same targetPdf
+    same reflected radiance and final contribution
+
+Pass:
+
+    a Doom analytic selected through PDFNEE is neither absent nor visibly
+        different from the same light in clean RTXDI DI view 12 with temporal
+        disabled
+    differences are explained by sourcePolicy sample choice/noise only, not by
+        different light payload interpretation
+
+Fail:
+
+    legacy PDFNEE verifier view is used as the baseline instead of clean view 12
+    active RRX unified-record loading rejects or reshapes a current Doom
+        analytic that clean view 12 accepts through DoomAnalyticLights
+    temporal, motion vectors, max history, depth thresholds, denoising, or
+        fallback lighting are changed before current analytic parity passes
 
 
 Contract C-05: Target PDF

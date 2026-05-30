@@ -126,6 +126,8 @@ Required:
 Acceptance:
 
     user can visually confirm world-space cells are stable while moving
+    dump reports the effective center mode and center position
+    static-center validation passes before camera-centered snapping is accepted
 
 
 REGIR-03: Analytic Candidate Cache Build
@@ -169,10 +171,13 @@ Required:
     debugView 5 selected analytic identity
     debugView 7 sourcePdf / invSourcePdf
     explicit empty-cell reason
+    deterministic selected-slot policy for stability views
 
 Acceptance:
 
     analytic-only cells populate and selected identities are stable
+    selected analytic slot and identity do not change solely because frameIndex
+    advanced while the camera and light domain were stationary
 
 
 REGIR-04: Emissive Candidate Cache Build
@@ -209,11 +214,14 @@ Required:
     debugView 6 selected emissive identity
     sourcePdf / invSourcePdf proof
     empty-cell reason
+    deterministic selected-slot policy for stability views
 
 Acceptance:
 
     emissive-only cells populate from a cold load without activating PDFNEE,
     mode 56, view 72, or RRX first
+    selected emissive slot and identity do not change solely because frameIndex
+    advanced while the camera and light domain were stationary
 
 
 REGIR-05: Split-Domain Debug Proof
@@ -244,20 +252,70 @@ Required:
     debug identity labels distinguish analytic vs emissive
     selected global identity is replayable through RAB
     sourcePdf / invSourcePdf is stated per domain/source distribution
+    slot/class selection policy is deterministic and states the class mass
 
 Acceptance:
 
     mixed-domain debug views are visually coherent and do not rely on broad
     light suppression
+    split-domain selection does not strobe from frameIndex alone
 
 
-REGIR-06: PDFNEE Handoff Plan Only
+REGIR-06: Current-Frame Source Stability Proof
+----------------------------------------------
+
+Goal:
+
+    Prove the ReGIR cache is stable enough to become a PDFNEE current-frame
+    source distribution.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    docs/restir_regir_cleanroom
+
+Required:
+
+    debugView 9 deterministic selected-slot diagnostic with no frameIndex term
+    debugView 10 cell-local mean-contribution diagnostic that evaluates all
+        valid slots
+    dump of effective cell size, center mode, light domain, lights per cell,
+        slot policy, and any consumer override
+    explicit stop condition for hard mean-contribution seams
+
+Forbidden:
+
+    no PDFNEE consume as proof
+    no clean RTXDI temporal consume
+    no spatial reuse
+    no denoiser/confidence/gradient proof
+    no broad light suppression
+
+Acceptance:
+
+    stationary surfaces keep selected slot and selected identity stable while
+    frameIndex advances
+    mean-contribution diagnostic is stable enough for a PDFNEE current-frame
+    source test, or the task stops with a documented continuity failure
+
+
+REGIR-07: PDFNEE Handoff Plan Only
 ----------------------------------
 
 Goal:
 
     Document how PDFNEE may consume ReGIR as an optional source distribution
-    after standalone debug views pass.
+    after standalone debug views and current-frame source stability pass.
 
 Allowed write set:
 
@@ -276,4 +334,94 @@ Acceptance:
     exact PDFNEE consumer input
     exact negative path
     exact first runtime proof CVars
+    exact deterministic slot policy and multi-slot quality proof
+    explicit ban on frame-indexed slot selection for stability proof
+    explicit ban on hidden consumer overrides of ReGIR parameters
     stop before build/deploy
+
+
+REGIR-08: RLU-Owned Light Source Conversion
+-------------------------------------------
+
+Goal:
+
+    Make the ReGIR module behave like r_pathTracingRemixLightUniverse: ReGIR
+    owns only cell mapping and cell-local candidate slots, while the Remix
+    Light Universe owns light identity, current/previous mapping, type ranges,
+    bounded sample counts, and payload continuity.
+
+    This task removes the active ReGIR route's ability to become a second light
+    universe. It must not prove quality through temporal, PDFNEE, clean RTXDI,
+    or debugMode 56. It is a current-frame source-domain repair only.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/Presampling/PresampleReGIR.hlsl
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.cpp
+    neo/renderer/NVRHI/PathTraceReGIR.h
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_restir_local_debug_reservoirs.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_ReGIR.hlsli
+    docs/restir_regir_cleanroom
+
+Required:
+
+    ReGIR debug/build views 7, 9, and 10 require the current Remix/RAB light
+        universe. If it is unavailable, the route must fail loudly or return an
+        empty diagnostic result; it must not fall back to DoomAnalyticLights,
+        SmokeEmissiveTriangles, the purged legacy light manager, or a local
+        split-domain light table.
+    candidate.lightIndex is the dense current RLU index
+    candidate.globalIdentity is the dense current RLU index
+    candidate.lightClass is derived from the RLU payload/type range
+    analytic/emissive ranges come from the active RLU range helpers
+    bounded per-type sample counts come from the active RLU sample-count
+        helpers
+    selected candidate replay uses the same active RRX RAB load/sample/PDF
+        boundary as the functioning RLU route, not duplicated local light math
+    r_pathTracingReGIRDump names:
+        lightSource=current-remix-rab-light-universe
+        whether legacy fallback is disabled
+        current RLU count and type ranges
+        selected dense current index
+        selected type
+        selected sourcePdf / invSourcePdf policy
+
+Forbidden:
+
+    no legacy split-array fallback in active ReGIR views 7, 9, or 10
+    no deriving globalIdentity as emissiveCount + analyticIndex
+    no local previous/current remap table owned by ReGIR
+    no broad light suppression to hide unstable candidates
+    no portal-only domain as the ReGIR source of truth
+    no PDFNEE consume as proof
+    no clean RTXDI temporal consume as proof
+    no debugMode 56 / mode 72 as proof for this task
+    no spatial reuse
+
+Acceptance:
+
+    With r_pathTracingReGIRLightDomain 2 and the RLU route active, ReGIR dumps
+    show the same dense RLU source domain used by r_pathTracingRemixLightUniverse.
+    Stationary debug views do not strobe because ReGIR is consulting a different
+    light universe or local light identity scheme.
+    If remaining flicker tracks animated payload radiance from RLU, the worker
+    reports it as payload animation rather than identity/domain contamination.
+    Stop after build/deploy for user visual testing.

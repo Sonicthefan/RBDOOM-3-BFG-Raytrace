@@ -1,0 +1,276 @@
+ReSTIR Light-Domain Lifecycle Worker Tasks
+==========================================
+
+Run one task at a time. Stop after the first failing task or after build/deploy
+for user visual testing.
+
+
+LDLC-00: Read-Only Lifecycle And Bridge Audit
+---------------------------------------------
+
+Goal:
+
+    Produce a producer-consumer map for map reset, emissive final-domain remap,
+    Doom analytic universe reset, and active manager/unified payload routing.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+    neo/renderer/NVRHI/PathTraceRestirLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSceneInputs.h
+
+Allowed write set:
+
+    none
+
+Required output:
+
+    exact map/renderWorld reset behavior
+    exact state not cleared by the partial reset
+    exact Doom analytic reset key
+    exact order of emissive inventory, merge, remap, manager build, upload
+    exact active RAB light-manager route CVars
+    first failing lifecycle contract
+
+
+LDLC-01: Full Map / Render-World Light-Domain Reset
+---------------------------------------------------
+
+Goal:
+
+    Replace or factor the partial map/renderWorld-change clear so stale light
+    domains cannot survive into a new map.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+
+Forbidden:
+
+    no reservoir math changes
+    no PDF + NEE changes
+    no temporal changes
+    no clear-every-frame workaround
+
+Acceptance:
+
+    first frame after map/renderWorld change has no stale previous emissive,
+    unified, manager, or retired-package light state.
+
+
+LDLC-02: Doom Analytic Map Identity Reset
+-----------------------------------------
+
+Goal:
+
+    Reset the Doom analytic universe when map identity changes, not only when
+    renderWorld pointer changes.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceDoomLights.cpp
+
+Forbidden:
+
+    no analytic light suppression
+    no PDF + NEE changes
+    no temporal changes
+
+Acceptance:
+
+    spawn-area analytic lights from one map cannot survive into another map
+    through persistent authored state, stable keys, or previous entries.
+
+
+LDLC-03: Emissive Final-Domain Remap Ordering
+---------------------------------------------
+
+Goal:
+
+    Ensure emissive remap is built after the final current emissive domain is
+    finalized, and every manager/unified consumer receives that same list.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+
+Forbidden:
+
+    no broad emissive filtering
+    no RAB shader changes
+    no PDF + NEE changes
+    no temporal changes
+
+Acceptance:
+
+    raw emissive count, final emissive count, remap size, manager payload
+    count, and unified payload count are internally consistent.
+
+
+LDLC-04: Split-Domain Diagnostic CVars And Dumps
+------------------------------------------------
+
+Goal:
+
+    Add minimal diagnostics to prove analytic-only, emissive-only, and unified
+    domains independently.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager_gui.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+
+Forbidden:
+
+    no estimator math changes
+    no temporal route
+    no spatial route
+    no mode-56 proof route
+
+Acceptance:
+
+    one-shot dump reports lifecycle, domain, remap, range, and payload mismatch
+    data for the selected domain.
+
+
+LDLC-05: Analytic-Only Liveness Proof
+-------------------------------------
+
+Goal:
+
+    Prove the analytic domain still updates across player movement with
+    emissive participation disabled.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Allowed rbdoom write set:
+
+    diagnostics only from LDLC-04 write set if missing
+
+Forbidden:
+
+    no analytic suppression
+    no PDF + NEE changes
+    no temporal changes
+
+Acceptance:
+
+    analytic current count, range, payload, and visual liveness update across
+    areas.
+
+
+LDLC-06: Emissive-Only Liveness Proof
+-------------------------------------
+
+Goal:
+
+    Prove the emissive domain updates across player movement using the repaired
+    final-domain remap ordering.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+
+Allowed rbdoom write set:
+
+    diagnostics only from LDLC-04 write set if missing
+
+Forbidden:
+
+    no broad emissive suppression
+    no PDF + NEE changes
+    no temporal changes
+
+Acceptance:
+
+    emissive current count, previous count, remap, range, payload, and visual
+    liveness update across valid areas.
+
+
+LDLC-07: Unified Bridge Contamination Test
+------------------------------------------
+
+Goal:
+
+    Prove analytics remain identical when emissive records are present but
+    emissive sampling is disabled, then prove both domains can coexist.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    diagnostics only from LDLC-04 write set if missing
+
+Forbidden:
+
+    no PDF + NEE changes
+    no temporal changes
+    no hiding failure by disabling one domain permanently
+
+Acceptance:
+
+    analytics-only baseline equals analytics-with-emissives-present-zero-sampled
+    in counts, ranges, budgets, and visual liveness; unified mode then shows
+    valid ranges for both domains.
+
+
+LDLC-08: PDF + NEE Handoff Report Only
+--------------------------------------
+
+Goal:
+
+    Write the exact handoff contract for the PDF + NEE agent.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Allowed write set:
+
+    docs/restir_light_domain_lifecycle only
+    docs/restir_pdf_nee_verifier only if the manager explicitly asks
+
+Forbidden:
+
+    no implementation
+    no temporal edits
+    no estimator edits
+
+Acceptance:
+
+    exact verified current-domain buffer/count/range/CVar route and negative
+    paths are documented for the PDF + NEE worker.

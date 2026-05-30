@@ -1,0 +1,396 @@
+RRX Light Sampling Range Conformance Tasks
+=========================================
+Date: 2026-05-22
+
+Purpose
+-------
+
+This document defines the next narrow implementation slice for the active RRX
+DI reservoir path.
+
+The current rbdoom RRX DI reservoir path can store and reuse reservoir records,
+but its initial light sampling still does not match the RTX Remix / RTXDI light
+contract. The active shader samples the current light manager as one flat list
+with:
+
+    sampleCount = min(currentCount, 32)
+
+That is not how RTX Remix feeds RTXDI. Remix groups lights into typed ranges,
+assigns bounded per-range sample counts, guarantees at least one sample for
+each non-empty type, and exposes those ranges through RAB_GetLightRange for the
+RTXDI helpers.
+
+This task is not a reservoir redesign. It is a conformance correction for how
+the existing light-manager output is consumed by initial sampling.
+
+
+Reference Files
+---------------
+
+Read these files before editing.
+
+RTX Remix:
+
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_light_manager.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\algorithm\rtxdi\RtxdiApplicationBridge.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\pass\rtxdi\rtxdi_initial_sampling.comp.slang
+
+RTXDI:
+
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\LightSampling\UniformSampling.hlsli
+
+rbdoom:
+
+    neo\renderer\NVRHI\PathTraceRemixLightManager.cpp
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+    neo\shaders\builtin\pathtracing\pathtrace_restir_local_debug_reservoirs.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightSamplingCore.hlsli
+
+
+Reference Behavior To Match
+---------------------------
+
+RTX Remix light handling has three relevant contracts:
+
+1. Active lights are grouped into typed ranges.
+
+   Remix counts active lights by type, assigns each type a sequential range,
+   writes the typed light records into those ranges, and builds current-to-
+   previous plus previous-to-current light mapping.
+
+2. Initial RTXDI sample counts are distributed across ranges.
+
+   Remix derives a requested sample density from the requested initial sample
+   count and the total active light count. Each non-empty range receives at
+   least one RTXDI sample. Empty ranges receive zero samples.
+
+3. Shaders consume ranges through RAB.
+
+   Remix RAB_GetLightRange returns first index, count, and sample count for a
+   light type. RTXDI initial sampling uses the RAB contract instead of a custom
+   flat-list walk over every light.
+
+Do not copy RTX Remix code. Reproduce the contract in rbdoom's style.
+
+
+Current rbdoom Mismatch
+----------------------
+
+The active RRX DI initial reservoir builder currently lives in:
+
+    neo\shaders\builtin\pathtracing\pathtrace_restir_local_debug_reservoirs.hlsli
+
+Function:
+
+    RestirPTRrxDiBuildInitialReservoir
+
+The current code:
+
+    uses RAB_GetCurrentRestirLightManagerCount()
+    sets sampleCount = min(currentCount, 32)
+    chooses samples from one combined flat light domain
+    streams each candidate with invSourcePdf/currentCount
+
+This makes analytic lights compete against emissives in a single capped list.
+In the current observed scene, the manager dump showed:
+
+    emissive range count: 666
+    Doom analytic range count: 450
+    total active count: 1116
+
+A flat 32-sample cap can underrepresent or miss one type in ways Remix avoids
+with per-type sample distribution.
+
+
+Required End State
+------------------
+
+The RRX DI initial reservoir path must consume the light-manager range/sample
+contract instead of sampling the flat combined domain directly.
+
+The shader must sample at least these two current rbdoom ranges:
+
+    emissive triangle range
+    Doom analytic range
+
+Each non-empty range must receive at least one sample when the total initial
+sample budget is non-zero. Source PDF / inverse source PDF must account for
+the range size and sample count in the same way the existing flat path accounts
+for the full current count.
+
+The current/previous light index mapping behavior must remain unchanged.
+
+The previous-best-light path must remain separate. Do not make this task about
+best-light sampling or Portal RTX's gradient/confidence pass.
+
+
+Task RRX-LS-01: Audit Existing rbdoom Range Contract
+----------------------------------------------------
+
+Goal:
+
+    Confirm what rbdoom currently uploads as the active RRX light range and
+    sample-count contract.
+
+Files to inspect:
+
+    neo\renderer\NVRHI\PathTraceRemixLightManager.cpp
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+    neo\shaders\builtin\pathtracing\RtxdiBridge\RAB_LightLoadRuntime.hlsli
+
+Required checks:
+
+    Verify the current emissive range offset/count reaches the shader.
+    Verify the Doom analytic range offset/count reaches the shader.
+    Verify the current sample-count fields reach the shader.
+    Determine whether the uploaded sample counts are bounded sample counts or
+    are currently just aliases for range counts.
+
+Stop condition:
+
+    If sample counts are aliases for raw range counts, do not make the shader
+    take hundreds of samples per pixel. Move to RRX-LS-02 first.
+
+
+Task RRX-LS-02: Make CPU Sample Contract Bounded
+------------------------------------------------
+
+Goal:
+
+    Make the rbdoom light-manager sample contract Remix-shaped: bounded total
+    initial samples distributed across non-empty ranges.
+
+Owned files:
+
+    neo\renderer\NVRHI\PathTraceRemixLightManager.cpp
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+
+Expected behavior:
+
+    Use the existing RRX DI initial sample budget if one already exists.
+    If no explicit RRX initial sample count exists, keep the current effective
+    cap of 32 as the temporary requested total.
+    Distribute that total across active ranges proportional to range count.
+    Guarantee at least one sample for each non-empty range when requested total
+    is non-zero.
+    Clamp so no range asks for more samples than it has lights.
+
+Forbidden behavior:
+
+    Do not use raw range count as per-pixel sample count.
+    Do not add a new light weighting policy.
+    Do not bias analytic lights by hand.
+    Do not change reservoir temporal reuse.
+    Do not change final resolve.
+
+Debug output:
+
+    Existing light-manager dumps must show the bounded sample contract. The
+    dump should make it obvious when the active scene has emissive and Doom
+    analytic ranges and both receive non-zero sample counts.
+
+
+Task RRX-LS-03: Consume Ranges In RRX DI Initial Sampling
+---------------------------------------------------------
+
+Goal:
+
+    Replace the flat combined-list loop in RestirPTRrxDiBuildInitialReservoir
+    with a per-range loop over the light-manager sample contract.
+
+Owned file:
+
+    neo\shaders\builtin\pathtracing\pathtrace_restir_local_debug_reservoirs.hlsli
+
+Required behavior:
+
+    Read current emissive range offset/count/sample count.
+    Read current Doom analytic range offset/count/sample count.
+    For each non-empty range with non-zero sample count:
+        choose a random start inside that range
+        stride through that range
+        load the current-frame light by unified light index
+        sample the light through existing RAB light sampling helpers
+        stream the candidate into the reservoir with source PDF corrected for
+        that range's count and sample count
+
+The total result should still be one RTXDI_DIReservoir for the pixel.
+
+Previous-best behavior:
+
+    Keep the existing previous-best candidate handling after random/ranged
+    sampling. Continue using existing light-index translation. Do not rewrite
+    previous-best as part of this slice.
+
+Forbidden behavior:
+
+    Do not add new target-PDF math.
+    Do not change RAB_GetLightSampleTargetPdfForSurface.
+    Do not change RAB_SamplePolymorphicLight behavior.
+    Do not change temporal reuse thresholds.
+    Do not change debug color meanings for existing views.
+
+
+Task RRX-LS-04: Add Minimal Diagnostic Proof
+--------------------------------------------
+
+Goal:
+
+    Make it visible that the active RRX initial reservoir is actually sampling
+    both ranges.
+
+Preferred implementation:
+
+    Extend an existing RRX DI debug readout only if there is already a compact
+    place for initial-sampling diagnostics.
+
+Acceptable diagnostic data:
+
+    selected light type
+    selected light unified index
+    emissive samples requested
+    Doom analytic samples requested
+    per-pixel winning source type
+
+Forbidden diagnostic work:
+
+    Do not create a large new debug system.
+    Do not add terminal spam per pixel.
+    Do not make diagnostics depend on user-specific screen coordinates unless
+    the existing debug infrastructure already does so.
+
+
+Validation
+----------
+
+Build from:
+
+    E:\prog\rbdoom-3-bfg-rt\neo
+
+Build command:
+
+    cmake --build --preset win64-pt-dev-release
+
+Deploy exe:
+
+    E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+    to
+    E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+Deploy shaders after shader edits:
+
+    Copy the contents of:
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+    to:
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.
+
+Runtime cvars:
+
+    r_pathTracingRemixLightManagerRAB 1
+    r_pathTracingRestirPTUnifiedLightLoad 1
+    r_pathTracingRestirPTUnifiedLightSample 1
+    r_pathTracingRestirPTDiDebugView 56
+    r_pathTracingRestirLightManagerDump 1
+
+Recommended visual checks:
+
+    Confirm emissive reservoir accumulation still behaves at least as well as
+    before this slice.
+    Confirm Doom analytic lights can appear in the active RRX reservoir path.
+    Confirm the light-manager dump reports non-zero bounded sample counts for
+    both emissive and Doom analytic ranges in a scene that has both.
+
+Expected result:
+
+    This slice is a sampling-contract correction. It is not expected to solve
+    all temporal reuse or analytic-light quality issues by itself.
+
+
+Paste-Ready Worker Prompt
+-------------------------
+
+Repository:
+
+    E:\prog\rbdoom-3-bfg-rt
+
+Branch:
+
+    codex/restir-rab-reference-audit-experiment
+
+Task:
+
+    Implement RRX-LS-01 through RRX-LS-03 from:
+
+        docs\restir_friendly\rrx_light_sampling_range_conformance_tasks.txt
+
+Read first:
+
+    docs\pathtracing.txt
+    docs\pathtrace_modules.txt
+    docs\restir_friendly\rrx_light_sampling_range_conformance_tasks.txt
+
+References:
+
+    E:\prog\references\dxvk-remix-git\src\dxvk\rtx_render\rtx_light_manager.cpp
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\algorithm\rtxdi\RtxdiApplicationBridge.slangh
+    E:\prog\references\dxvk-remix-git\src\dxvk\shaders\rtx\pass\rtxdi\rtxdi_initial_sampling.comp.slang
+    E:\prog\references\RTXDI-main\Libraries\Rtxdi\Include\Rtxdi\DI\InitialSampling.hlsli
+
+Owned files:
+
+    neo\renderer\NVRHI\PathTraceRemixLightManager.cpp
+    neo\renderer\NVRHI\PathTraceSmokeDispatch.cpp
+    neo\shaders\builtin\pathtracing\pathtrace_restir_local_debug_reservoirs.hlsli
+
+Shared worktree warning:
+
+    Other agents may have touched unrelated docs and shader diagnostics. Do not
+    revert unrelated changes. Only edit the owned files above unless a missing
+    helper forces a tiny adjacent include/header change, and report that clearly.
+
+Implementation rules:
+
+    Do not copy RTX Remix source code.
+    Do not invent ReSTIR math.
+    Do not change temporal reuse, spatial reuse, reservoir finalization, final
+    resolve, DLSS RR inputs, motion-vector export, or debug color meanings.
+    Do not add an analytic-light priority hack.
+    Do not use raw range counts as per-pixel sample counts.
+    Preserve existing previous-best candidate handling.
+
+Required outcome:
+
+    The active RRX DI initial reservoir samples the light manager by typed
+    ranges instead of one flat 32-sample combined list.
+    Non-empty emissive and Doom analytic ranges both receive non-zero bounded
+    sample counts when total requested samples are non-zero.
+    The light-manager dump exposes the bounded sample counts.
+
+Build:
+
+    From E:\prog\rbdoom-3-bfg-rt\neo run:
+        cmake --build --preset win64-pt-dev-release
+
+Deploy:
+
+    Copy:
+        E:\prog\rbdoom-3-bfg-rt\build-win64-pt-dev\Release\RBDoom3BFG.exe
+    to:
+        E:\prog\rbdoom-3-BFG-prebuilt\RBDoom3BFG.exe
+
+    If shaders changed, copy the contents of:
+        E:\prog\rbdoom-3-bfg-rt\base\renderprogs2
+    to:
+        E:\prog\rbdoom-3-BFG-prebuilt\base\renderprogs2
+
+Final response:
+
+    List changed files.
+    State whether sample counts were already bounded or had to be corrected.
+    State whether the shader now loops per range.
+    State build result.
+    State any visual test cvars the coordinator should use.

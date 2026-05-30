@@ -54,16 +54,20 @@ Expected:
     visible surfaces show stable cell colors/boundaries
     moving the camera does not screen-lock the grid
     changing cell size changes the view predictably
+    selected center mode is reported, and camera-centered snapping is visible
+        in the dump when it occurs
     out-of-volume is loud
 
 Pass:
 
-    user can visually inspect sane grid/onion behavior
+    user can visually inspect sane grid/onion behavior in a static-center mode
+    before any camera-centered mode is accepted
 
 Fail:
 
     cells strobe while standing still
     cells are screen-space anchored
+    grid center or cell size changes without a matching dump field
     invalid cells fall back to albedo/beauty
 
 
@@ -79,6 +83,7 @@ Expected:
     occupancy view becomes populated near analytic-light influence
     selected analytic identity view is coherent across nearby cells
     sourcePdf / invSourcePdf view is nonzero for valid selected entries
+    selected slot policy is stable while frameIndex advances
 
 Pass:
 
@@ -88,6 +93,7 @@ Fail:
 
     selected identity cannot be replayed as a global RAB light index
     cells populate only after another debug route activates lights
+    selected slot or identity changes while stationary because of frameIndex
 
 
 Rung V-04: Emissive Candidate Cache
@@ -101,6 +107,7 @@ Expected:
 
     emissive-only domain populates without analytic lights enabled
     selected emissive identity is visible and stable
+    selected slot policy is stable while frameIndex advances
     empty cells are loud
 
 Pass:
@@ -110,6 +117,7 @@ Pass:
 Fail:
 
     emissives populate only after PDFNEE, mode 56, or view 72 is visited
+    selected slot or identity changes while stationary because of frameIndex
 
 
 Rung V-05: Split Analytic + Emissive Domain
@@ -125,6 +133,8 @@ Expected:
     domain selector separates analytic and emissive entries
     identity view labels the selected class
     source distribution is stated for each selected candidate
+    slot/class selection policy is deterministic and names the exact class mass
+    per-slot mean contribution can be inspected without stochastic slot churn
 
 Pass:
 
@@ -135,14 +145,49 @@ Fail:
 
     analytic lights are mislabeled as emissives or vice versa
     broad suppression hides overlap instead of representing it
+    frameIndex participates in selected slot/class choice for a stability view
+    mean contribution shows unexplained hard seams at cell borders
 
 
-Rung V-06: PDFNEE Handoff Plan Only
+Rung V-06: Current-Frame Source Stability
+-----------------------------------------
+
+Purpose:
+
+    Prove the ReGIR cache is stable enough to be used as a PDFNEE current-frame
+    source distribution.
+
+Expected:
+
+    debugView 9 deterministic per-cell slot-selection view
+    debugView 10 cell-local mean-contribution view that evaluates all valid
+        slots
+    no frameIndex term in the deterministic slot-selection view
+    no hidden override of cell size, center mode, domain, or lights per cell
+    a stated plan for multi-slot streaming or neighbor/cell blending if hard
+        seams appear in the mean view
+
+Pass:
+
+    stationary surfaces keep the same selected slot/identity while frameIndex
+    advances, and the mean-contribution view is stable enough for a current
+    frame PDFNEE source test
+
+Fail:
+
+    selected candidate changes solely because the frame number advanced
+    a consumer path silently forces a different lights-per-cell or domain
+    hard cell seams dominate the mean-contribution view
+    the worker proposes temporal accumulation to hide current-frame instability
+
+
+Rung V-07: PDFNEE Handoff Plan Only
 -----------------------------------
 
 Purpose:
 
-    Plan how PDFNEE will consume ReGIR after standalone debug proof.
+    Plan how PDFNEE will consume ReGIR after standalone debug proof and the
+    current-frame source-stability proof.
 
 Expected:
 
@@ -159,6 +204,44 @@ Pass:
 Fail:
 
     worker edits PDFNEE or temporal code in this rung
+    plan allows frame-indexed slot churn as a proof path
+    plan allows one selected slot as the only PDFNEE quality proof
+
+
+Rung V-08: RLU-Owned Light Source Conversion
+--------------------------------------------
+
+Purpose:
+
+    Prove ReGIR is a cell cache over the current Remix Light Universe, not a
+    second light universe with its own identity, remap, or fallback domain.
+
+Expected:
+
+    debug/build views 7, 9, and 10 require current-remix-rab-light-universe
+    candidate lightIndex and globalIdentity are dense current RLU indices
+    candidate type/class is derived from the RLU payload/range
+    analytic and emissive ranges come from the active RLU range helpers
+    bounded sample counts come from the active RLU sample-count helpers
+    selected candidates replay through the same active RRX RAB boundary used by
+        the functioning RLU route
+    ReGIR dump reports legacy fallback disabled, current RLU count, type
+        ranges, selected dense index, selected type, and sourcePdf policy
+
+Pass:
+
+    stationary ReGIR views no longer strobe from a different light-domain or
+    local-identity scheme, and remaining animation is attributable to RLU
+    payload animation rather than ReGIR domain contamination
+
+Fail:
+
+    any active ReGIR view falls back to DoomAnalyticLights,
+        SmokeEmissiveTriangles, or the purged legacy light manager
+    ReGIR computes a local previous/current remap
+    ReGIR derives globalIdentity from an emissiveCount + analyticIndex scheme
+    mode 56, PDFNEE, clean RTXDI temporal, spatial reuse, or broad light
+        suppression is used as proof
 
 
 Hard Stop
@@ -166,6 +249,9 @@ Hard Stop
 
 Stop at the first failing rung.
 
-Do not connect ReGIR to PDFNEE until V-00 through V-05 pass.
+Do not connect ReGIR to PDFNEE until V-00 through V-06 pass.
 
 Do not continue to temporal to make a wrong ReGIR candidate cache look stable.
+
+Do not use ReGIR as a quality source after V-08 unless it is backed by the
+current Remix Light Universe domain and has no active legacy fallback.

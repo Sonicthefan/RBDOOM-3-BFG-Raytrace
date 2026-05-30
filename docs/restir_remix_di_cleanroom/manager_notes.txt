@@ -14,6 +14,27 @@ The existing RRX path has produced repeated false positives:
 
 Do not ask workers to "fix accumulation" in that path.
 
+Do not accept a temporal claim from a debug dashboard. The first time a worker
+connects analytic lights or emissive lights to visible radiance, require a raw
+flat-diffuse validation view:
+
+    temporal off = one sampled light candidate per pixel, noisy direct lighting
+    temporal on = same mean lighting with noise reduced over frames
+    camera motion = visible tracking/reprojection and noisy disocclusion
+
+False-color status displays, reservoir bands, dumps, green pixels, and buffer
+survival are diagnostics only.
+
+Current manager note, 2026-05-28:
+
+    r_pathTracingCleanRtxdiDiInitialVisibility is wired and visible in dumps as
+    initialVisibility=1, but did not visibly improve clean view 12. RTX Remix's
+    comparable Initial Visibility option matters when temporal reuse is active,
+    so the next worker must focus on RDI-07: matching the clean temporal
+    surface/reprojection/visibility contract to RTX Remix and the local
+    RRX/Remix-shaped temporal path. Do not dispatch another standalone
+    visibility-toggle task.
+
 
 Recommended Dispatch Order
 --------------------------
@@ -32,6 +53,8 @@ Implementation order:
     RDI-04
     RDI-05
     RDI-06
+    RDI-07 if RDI-06/current runtime testing still fails real Doom analytic
+        temporal accumulation
 
 RDI-04 is mandatory. It is the clean-room path's NEE-equivalent direct-light
 sampling stage. Reject any attempt to skip it and start temporal reuse from old
@@ -81,6 +104,10 @@ Paste this into a new worker after filling in TASK_ID:
         lighting for proof.
         Do not edit existing RRX synthetic patch code unless the task names it.
         Do not claim success from visually plausible output.
+        Do not claim temporal accumulation from status colors, reservoir bands,
+        dumps, green valid pixels, or buffer survival.
+        As soon as lights or emissives produce visible radiance, provide raw
+        flat-diffuse 1 spp current-only and temporal-on validation views.
         Output must be reservoir-owned and every invalid path must be explicit.
 
     Before editing, report:
@@ -98,6 +125,8 @@ Reject a worker result if it:
 
     changes math without an explicit approved contract
     uses "looks right" as proof
+    claims temporal accumulation without raw noisy-to-less-noisy lighting
+    uses false-color status/debug views as accumulation proof
     hides invalid pixels with albedo/fallback lighting
     enables spatial or best lights before temporal proof
     edits outside the declared write set
