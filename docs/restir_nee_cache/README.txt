@@ -31,7 +31,8 @@ Primary implementation target:
 
 Fallback implementation target, only if the primary target fails:
 
-    full ReGIR/onion or bounded grid proposal provider
+    full ReGIR/onion or bounded grid proposal provider only as a later escape
+        hatch after cache importance/RIS has been attempted
     still selecting dense RLU identities
     still preserving exact source PDF and fallback mixture contracts
     still not owning final direct-light contribution
@@ -61,10 +62,10 @@ Current NEECACHE-01 ABI document:
 
     provider_abi.txt
 
-Current first missing contract after the NEECACHE-06 cache/fallback provider
-diagnostic:
+Current first missing contract after the NEECACHE-07 PDFNEE current-frame
+consume bridge:
 
-    pdfnee-consumer-not-implemented-neecache-07
+    importance-ris-proposal-selection-neecache-08
 
 NEECACHE-02 adds only the standalone cell-mapping debug route. NEECACHE-03
 adds a debug-primary-hit task accumulator in task slot 0 for each mapped cell.
@@ -72,13 +73,21 @@ NEECACHE-04 populates current-RLU emissive candidate records in the candidate
 buffer and exposes debugView 5. NEECACHE-05 adds current-RLU Doom analytic
 candidate records and exposes debugViews 6, 7, and 10. NEECACHE-06 writes
 PathTraceNeeCacheProviderResults at u74 and exposes debugViews 8 and 9 for the
-cache/fallback source and fallback reason. It does not feed PDFNEE.
+cache/fallback source and fallback reason. NEECACHE-07 lets the replacement
+PDFNEE current producer select that provider with
+r_pathTracingRestirPdfNeeVerifierSourcePolicy 2. PDFNEE binds u74 as SRV t74
+for provider readiness/debug parity and binds the fixed candidate list as SRV
+t77, then performs the cache/fallback draw per pixel so one preselected cell
+result cannot make the cache grid visible. PDFNEE still owns reservoir
+construction, visibility, and RAB lighting replay.
 
-NEECACHE-05/06 candidate data is invalidated on current RLU structural,
-mapping, payload, and payloadOnlyChange flags. Dense RLU replay through RAB is
-the light dereference boundary, but it does not make stale per-cell task values,
-candidate weights, or provider results valid across animated Doom-light payload
-changes.
+NEECACHE-05/06 candidate data is invalidated on current RLU structural, mapping,
+payload, and payload-only changes. Payload-only animation can move or retune
+lights without changing dense identity, so persistent cell candidate relevance
+must not survive those frames. Dense RLU replay through RAB remains the light
+dereference boundary, and both the provider and PDFNEE consumer recompute
+current cell weights before selection. Stored candidate weights are build-time
+hints, not consume proof.
 
 Reusable analytic-light consumers must additionally honor the RLU stability
 classification on each dense Doom analytic payload. The full/current RLU typed

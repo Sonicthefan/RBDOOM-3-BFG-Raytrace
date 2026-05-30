@@ -344,6 +344,7 @@ Allowed rbdoom write set:
     neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
     neo/renderer/NVRHI/PathTraceSmokeResources.cpp
     neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
     neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
     docs/restir_nee_cache
 
@@ -352,6 +353,13 @@ Required:
     temporal off
     spatial off
     selected dense RLU identity
+    sourcePolicy 2 selects the NEE cache provider
+    provider result buffer is bound to PDFNEE as SRV t74
+    candidate buffer is bound to PDFNEE as SRV t77
+    PDFNEE maps primary-hit world position to the same log/hash cache cell
+    PDFNEE draws a per-pixel proposal from the cell candidate list or fallback
+        domain so cache cells do not become visible sample blocks
+    sourcePdf/invSourcePdf include cache/fallback mixture probability
     visibility separate
     RAB owns solidAnglePdf, targetPdf, reflected radiance
     RTXDI current reservoir construction unchanged except source proposal
@@ -365,31 +373,63 @@ Forbidden:
 Acceptance:
 
     build/deploy succeeds
+    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
+    PDFNEE dump reports candidateSrv=t77
+    PDFNEE dump reports neeCacheProvider requested/ready=1/1 when enabled
     stop for user visual test
 
 
-NEECACHE-08: Full ReGIR / Onion Fallback Provider
--------------------------------------------------
+NEECACHE-08: Importance / RIS Proposal Selection
+------------------------------------------------
 
 Goal:
 
-    If NEECACHE-02 through NEECACHE-07 prove the Remix-style cache is too
-    sparse or unstable, add a full ReGIR/onion provider behind the same source
-    interface.
+    Turn the sourcePolicy 2 PDFNEE consume bridge into a real current-frame
+    RIS proposal source over the cache/fallback distribution instead of a
+    single light draw from the mapped cache cell.
 
 Reference file-equivalent:
 
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    docs/restir_nee_cache
 
 Required:
 
-    same dense RLU identity output
-    same sourcePdf/fallback contract
-    same RAB replay boundary
-    full provider selectable by mode only
+    cache build updates persistent candidate slots instead of clearing and
+        rewriting a deterministic slot set per visible cell
+    slot replacement uses bounded RIS over the configured source domain
+    slot admission uses stable dense-identity target slots, duplicate refresh,
+        empty-slot fill, and materially-stronger target replacement
+    cache reads reject hash-cell collisions by comparing stored cell hash with
+        the currently mapped world cell
+    sourcePolicy 2 streams multiple proposals per pixel
+    proposal count comes from r_pathTracingRestirPdfNeeVerifierSamples
+    cache candidates are sampled by current importance weight
+    fallback proposals remain in the same mixture
+    every streamed proposal carries its exact sourcePdf/invSourcePdf
+    RTXDI_StreamSample / RTXDI_FinalizeResampling do the RIS selection
+    selected identity remains dense current RLU index
+    RAB replay boundary remains unchanged
+    temporal and spatial remain off
 
 Acceptance:
 
-    provider swap does not change PDFNEE reservoir consumer
+    build/deploy succeeds
+    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
+    PDFNEE dump reports producerHelperSequence contains nee-cache-ris
+    changing r_pathTracingRestirPdfNeeVerifierSamples changes proposal quality
+        without changing the source domain contract
+
+
+Later Escape Hatch: Full ReGIR / Onion Provider
+-----------------------------------------------
+
+Only if importance/RIS over the log/hash cache is still insufficient, add a
+full ReGIR/onion provider behind the same source-provider interface. That
+fallback is not the next rung after NEECACHE-07.

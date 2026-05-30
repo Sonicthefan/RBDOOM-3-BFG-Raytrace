@@ -281,44 +281,79 @@ Contract C-07: PDFNEE Consumer Handoff
 
 Required behavior:
 
-    PDFNEE consumes the cache only after standalone proof
+    PDFNEE consumes the cache only through sourcePolicy 2
+    PDFNEE reads PathTraceNeeCacheProviderResults as SRV t74
+    PDFNEE reads PathTraceNeeCacheCandidates as SRV t77
+    PDFNEE maps the current surface to the same NEE cache log/hash cell
     selected identity remains dense current RLU index
+    sourcePdf/invSourcePdf come from the per-pixel candidate/fallback draw
+        and include the cache/fallback mixture probability
     RTXDI current reservoir construction remains compliant
 
 Pass:
 
+    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
+    PDFNEE dump reports candidateSrv=t77
+    PDFNEE dump reports neeCacheProvider requested/ready=1/1 when the provider
+        is enabled and built
     PDFNEE source policy can switch cache/fallback off for A/B
     disabling cache but keeping fallback matches current RLU uniform baseline
     enabling cache changes only proposal distribution and reported sourcePdf
+    one preselected cell result is not reused by every pixel in the cell
 
 Fail:
 
     cache changes clean RTXDI temporal accumulation
     cache writes directly to temporal pages
     PDFNEE uses a different domain than the cache dump reports
+    sourcePolicy 2 silently falls back to typed RLU sampling when the provider
+        result buffer is unavailable
 
 
-Contract C-08: Full ReGIR Fallback Provider
--------------------------------------------
+Contract C-08: Importance / RIS Proposal Selection
+--------------------------------------------------
 
-Required if screen-space/log-hash cache fails:
+Required behavior:
 
-    build a full ReGIR/onion/bounded-grid proposal provider
-    select dense RLU identities
-    preserve exact sourcePdf and fallback mixture
-    keep the same PDFNEE source-provider interface
+    sourcePolicy 2 streams multiple cache/fallback proposals per pixel
+    proposal count comes from the existing PDFNEE sample count
+    candidate importance is current-frame replay/weight based
+    fallback is part of the same source mixture
+    each streamed proposal has exact sourcePdf/invSourcePdf
+    RTXDI reservoir RIS chooses the current-frame selected light
+    selected identity remains dense current RLU index
+    RAB owns light sampling, targetPdf, reflected radiance, and visibility
 
 Pass:
 
-    provider can be swapped without changing RAB replay or reservoir consume
+    increasing samples improves proposal quality/noise without changing the
+        light universe or source domain
+    cache/fallback mixture PDFs remain explicit
+    no direct-light contribution is computed inside the cache
 
 Fail:
 
-    fallback provider becomes a separate light universe
-    fallback provider hides missing source PDF behind debug-only output
+    one mapped cell selects only one proposal for PDFNEE
+    cached candidateWeight is trusted without current replay/weighting
+    sourcePdf is only the candidate generation PDF
 
 
-Contract C-09: Reset And Lifetime
+Contract C-09: Full ReGIR / Onion Escape Hatch
+----------------------------------------------
+
+Required only if the importance/RIS cache path still fails:
+
+    full ReGIR/onion/bounded-grid provider behind the same source interface
+    same dense RLU identity output
+    same sourcePdf/fallback contract
+    same RAB replay boundary
+
+Fail:
+
+    escape hatch becomes the next step before RIS is attempted
+
+
+Contract C-10: Reset And Lifetime
 ---------------------------------
 
 Required behavior:

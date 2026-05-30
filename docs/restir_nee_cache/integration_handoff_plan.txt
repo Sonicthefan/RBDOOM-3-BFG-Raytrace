@@ -84,18 +84,24 @@ PDFNEE still owns:
     RTXDI current reservoir construction
 
 
-First Consume Shape
--------------------
+Current Consume Shape
+---------------------
 
-The first PDFNEE consume task should:
+NEECACHE-07 adds the first current-frame consume bridge:
 
-    add a source policy for NEE cache provider
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 2 selects the NEE cache
+        provider
+    PDFNEE reads PathTraceNeeCacheProviderResults at t74
+    PDFNEE reads PathTraceNeeCacheCandidates at t77
+    PDFNEE maps the primary-hit world position to the same log/hash cell
+    PDFNEE draws a per-pixel cache/fallback proposal from the mapped cell and
+        streams selectedDenseRluIndex into the existing RTXDI current reservoir
+        path using the selected proposal's invSourcePdf
     keep temporal off
     keep spatial off
-    use the cache/fallback provider output as source proposal
-    include fallback-only A/B
-    include cache-only diagnostic but label it biased/diagnostic
     dump effective cache parameters and mixture probabilities
+    report neeCacheProvider requested/ready and candidateSrv=t77 in the PDFNEE
+        dump
 
 It must not:
 
@@ -124,6 +130,7 @@ PDFNEE must handle:
     solidAnglePdf <= 0
     visibility rejection
     scene/map/light-domain reset
+    sourcePolicy 2 with an unavailable provider result buffer
 
 
 First Runtime Proof
@@ -136,9 +143,12 @@ Standalone NEE cache proof first:
     r_pathTracingNeeCacheDebugView 2 through 10
     r_pathTracingNeeCacheDump 1
 
-Only after those pass:
+Current consume validation:
 
-    PDFNEE NEE-cache source policy
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 2
+    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
+    PDFNEE dump reports neeCacheProvider requested/ready=1/1
+    PDFNEE dump reports candidateSrv=t77
     temporal off
     raw current-frame output
     noisy but plausible lighting
@@ -163,12 +173,13 @@ Stop before PDFNEE integration if:
     output falls back to beauty/albedo
 
 
-Fallback Provider Rule
-----------------------
+Next Provider Rule
+------------------
 
-If the Remix-style learned cache is too sparse, do not rewrite PDFNEE.
+If the first sourcePolicy 2 consume pass is too sparse, do not jump directly
+to a full ReGIR/onion provider.
 
-Instead, implement the full ReGIR/onion provider behind the same producer
+The next rung is proper importance/RIS selection behind the same producer
 output:
 
     selected dense RLU identity
@@ -176,5 +187,8 @@ output:
     source label
     fallback mixture
 
-The PDFNEE consumer must not know whether the provider is Remix-style cache or
-full ReGIR except through the reported source label and dump fields.
+PDFNEE should stream multiple cache/fallback proposals per pixel using
+r_pathTracingRestirPdfNeeVerifierSamples, then let RTXDI_StreamSample and
+RTXDI_FinalizeResampling choose the current-frame reservoir sample. A full
+ReGIR/onion provider remains a later escape hatch only after RIS over the
+log/hash cache fails.

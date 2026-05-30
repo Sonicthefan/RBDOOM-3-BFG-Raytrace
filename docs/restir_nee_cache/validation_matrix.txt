@@ -175,8 +175,10 @@ Expected:
         stableCacheable
     currentSampleable but unstableDynamic analytics can still be direct-light
         fallback inputs, but cannot be stored in persistent candidate cells
-    RLU structural, mapping, payload, and payloadOnlyChange flags invalidate
-        provider, cell, task, and candidate buffers
+    RLU structural, mapping, payload, and payloadOnly flags invalidate provider,
+        cell, task, and candidate buffers
+    RLU payloadOnlyChange clears persistent candidate identities so animated
+        light payload changes cannot leave stale cell relevance alive
     provider selection rejects any buffered candidate that cannot replay through
         RAB_LoadActiveRrxLightInfo in the current frame
     provider selection recomputes candidate weight from the current RLU payload
@@ -210,9 +212,10 @@ Fail:
     analytic candidate brightness/shape diverges from RLU/RAB replay
     animated zero-energy lights poison unrelated cell identities
     payload position/radiance/sourceWeight changes reshuffle source identities
-    payloadOnlyChange is treated as safe cache reuse
-    cached candidateWeight is used as provider consume proof without current
-        RAB replay and current-payload reweighting
+    payloadOnlyChange is treated as safe cache reuse or only current-payload
+        reweighting without clearing persistent candidate contents
+    cached candidateWeight is used as provider or PDFNEE consume proof without
+        current RAB replay and current-payload reweighting
     broad lights are suppressed to make the view look correct
 
 
@@ -262,10 +265,29 @@ Expected:
     spatial off
     clean RTXDI temporal untouched
     selected dense RLU identity
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 2 selects the provider lane
+    PDFNEE binding layout exposes PathTraceNeeCacheProviderResults at t74
+    PDFNEE binding layout exposes PathTraceNeeCacheCells at t75
+    PDFNEE binding layout exposes PathTraceNeeCacheCandidates at t77
+    PDFNEE maps the surface world position through the same NEE cache log/hash
+        cell mapping used by debug/provider views
+    cache candidate reads reject hash-cell collisions where the stored cell
+        hash does not match the currently mapped world cell
+    PDFNEE draws per-pixel proposals from the cell candidate distribution or
+        the fallback domain instead of reusing one selected provider result for
+        every pixel in the cell
+    sourcePdf/invSourcePdf includes the cache/fallback mixture probability
     RAB owns solidAnglePdf, targetPdf, reflected radiance, and visibility
 
 Pass:
 
+    build/deploy succeeds
+    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
+    PDFNEE dump reports candidateSrv=t77
+    PDFNEE dump reports neeCacheProvider requested/ready=1/1 when the cache is
+        enabled and built
+    cache cell boundaries are not directly visible as synchronized sample
+        strobe in the PDFNEE output
     user sees current-frame noise behavior change plausibly without changing
     the mean lighting contract
 
@@ -273,29 +295,51 @@ Fail:
 
     implementation edits temporal accumulation
     PDFNEE uses different source settings than the cache dump
+    sourcePolicy 2 silently falls back to typed RLU sampling when the provider
+        is unavailable
 
 
-Rung V-08: Full ReGIR / Onion Fallback Provider
------------------------------------------------
+Rung V-08: Importance / RIS Proposal Selection
+----------------------------------------------
 
 Purpose:
 
-    If the Remix-style learned cache is too sparse, add a full ReGIR/onion
-    provider behind the same source-provider interface.
+    Prove sourcePolicy 2 is a real RIS proposal source over the current
+    cache/fallback distribution, not a single selected light from the mapped
+    cache cell.
 
 Expected:
 
-    same dense RLU identity output
-    same sourcePdf/fallback contract
+    sourcePolicy 2 streams multiple proposals per pixel
+    proposal count follows r_pathTracingRestirPdfNeeVerifierSamples
+    cache candidates are populated by persistent per-hit bounded RIS slot
+        updates over the source domain
+    candidate admission refreshes duplicates, uses stable identity-owned target
+        slots, fills empty slots, and replaces an occupied target slot only with
+        a materially stronger current candidate
+    PDFNEE samples populated cache candidates by current replay/importance
+        weight
+    fallback proposals remain mixed with fallbackProbability
+    every streamed proposal has exact sourcePdf/invSourcePdf
+    RTXDI_StreamSample and RTXDI_FinalizeResampling perform RIS
+    dense current RLU identity output
     same RAB replay boundary
+    temporal and spatial remain off
 
 Pass:
 
-    provider can be swapped without changing PDFNEE reservoir consumer
+    changing PDFNEE sample count changes sourcePolicy 2 quality/noise
+    dump reports the RIS helper sequence
+    dump reports persistent-slot bounded-RIS candidate build policy
+    retained candidates survive new samples unless a stronger candidate is
+        admitted
+    no cell-sized one-light projection remains as the dominant behavior
 
 Fail:
 
-    fallback provider creates a second light universe or private lighting path
+    sourcePolicy 2 streams only one cache/fallback proposal per pixel
+    sourcePdf omits the cache/fallback mixture probability
+    RIS is faked by final direct-light contribution inside the cache
 
 
 Hard Stop

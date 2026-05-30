@@ -1180,6 +1180,9 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(70));
     pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(71));
     pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(73));
+    pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
+    pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
+    pdfNeeVerifierBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     m_smokePdfNeeVerifierBindingLayout = device->createBindingLayout(pdfNeeVerifierBindingLayoutDesc);
     if (!m_smokePdfNeeVerifierBindingLayout)
     {

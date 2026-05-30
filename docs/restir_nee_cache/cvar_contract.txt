@@ -29,7 +29,7 @@ r_pathTracingNeeCacheMode
 
     0 = disabled
     1 = Remix-style log/hash learned cache
-    2 = RTXDI-style onion/full ReGIR fallback provider
+    2 = reserved for later RTXDI-style onion/full ReGIR escape hatch
     3 = bounded regular grid diagnostic
 
     Default: 1
@@ -157,12 +157,28 @@ r_pathTracingNeeCacheDump
         first missing contract
 
 
+PDFNEE Consume CVar
+-------------------
+
+r_pathTracingRestirPdfNeeVerifierSourcePolicy
+
+    Existing PDFNEE current-producer source-policy CVar. NEECACHE-07 adds only
+    this value:
+
+        2 = consume PathTraceNeeCacheProviderResults as the current-frame
+            proposal source
+
+    Source policy 2 requires r_pathTracingNeeCacheEnable 1 and a ready provider
+    result buffer for the frame. When unavailable, dumps must report
+    firstMissingContract=nee-cache-provider-not-ready-neecache-07 instead of
+    silently falling back to typed RLU sampling.
+
+
 Future / Not First Slice
 ------------------------
 
 Do not add until standalone debug proof passes:
 
-    PDFNEE consume toggle
     temporal feedback toggle
     spatial reuse toggle
     best-light feedback toggle

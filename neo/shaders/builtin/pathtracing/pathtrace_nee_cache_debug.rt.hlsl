@@ -656,6 +656,12 @@ PathTraceNeeCacheCandidateRecord PathTraceNeeCacheSelectWeightedCandidateForCell
     zeroCurrentWeightCount = 0u;
     float totalWeight = 0.0;
 
+    const PathTraceNeeCacheCellRecord storedCell = PathTraceNeeCacheCells[cell.cellIndex];
+    if (storedCell.flags == 0u || storedCell.hash != cell.hash)
+    {
+        return selected;
+    }
+
     [loop]
     for (uint slot = 0u; slot < candidateSlots; ++slot)
     {
@@ -1045,6 +1051,132 @@ PathTraceNeeCacheCandidateRecord PathTraceNeeCacheMakeEmptyCandidate(uint cellIn
     return candidate;
 }
 
+uint PathTraceNeeCacheHitUpdateSeed(PathTraceNeeCacheCellDebug cell)
+{
+    const uint3 localQuantized = uint3(saturate(cell.localUv) * 1023.0);
+    uint hash = cell.hash ^ (PathTraceNeeCacheFrameIndex() * 747796405u);
+    hash ^= localQuantized.x * 2246822519u;
+    hash ^= localQuantized.y * 3266489917u;
+    hash ^= localQuantized.z * 668265263u;
+    hash ^= hash >> 16u;
+    hash *= 2246822519u;
+    hash ^= hash >> 13u;
+    hash *= 3266489917u;
+    hash ^= hash >> 16u;
+    return hash;
+}
+
+uint PathTraceNeeCacheRisProposalCount(uint rangeCount, uint lightClass)
+{
+    if (rangeCount == 0u)
+    {
+        return 0u;
+    }
+
+    const uint classBudget =
+        lightClass == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC
+            ? (uint)max(RestirLightManagerSampleInfo.y, 0.0)
+            : (lightClass == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE
+                ? (uint)max(RestirLightManagerSampleInfo.x, 0.0)
+                : (uint)max(RestirLightManagerSampleInfo.z, 0.0));
+    const uint fallbackBudget = max(PathTraceNeeCacheCandidateSlotCount() * 4u, 8u);
+    return min(rangeCount, max(classBudget, fallbackBudget));
+}
+
+PathTraceNeeCacheCandidateRecord PathTraceNeeCacheBuildRisCandidateFromRange(
+    PathTraceNeeCacheCellDebug cell,
+    uint slot,
+    uint rangeOffset,
+    uint rangeCount,
+    uint requiredClass,
+    float classProbability,
+    uint seed)
+{
+    const uint slotIndex = cell.cellIndex * PathTraceNeeCacheCandidateSlotCount() + slot;
+    PathTraceNeeCacheCandidateRecord selected = PathTraceNeeCacheMakeEmptyCandidate(cell.cellIndex, slot);
+    if (rangeCount == 0u)
+    {
+        return selected;
+    }
+
+    const uint proposalCount = PathTraceNeeCacheRisProposalCount(rangeCount, requiredClass);
+    if (proposalCount == 0u)
+    {
+        return selected;
+    }
+
+    const float proposalInvSourcePdf = (float)rangeCount / max(max(classProbability, 1.0e-8) * (float)proposalCount, 1.0e-8);
+    float risWeightSum = 0.0;
+    float selectedWeight = 0.0;
+    uint acceptedProposalCount = 0u;
+
+    [loop]
+    for (uint proposalIndex = 0u; proposalIndex < proposalCount; ++proposalIndex)
+    {
+        const uint proposalHash = seed ^ (slot * 1013904223u) ^ (proposalIndex * 2654435761u);
+        const uint denseIndex = rangeOffset + (proposalHash % rangeCount);
+        const PathTraceUnifiedLightRecord record = PathTraceRestirLightManagerCurrentPayload[denseIndex];
+        if (requiredClass != 0u && record.type != requiredClass)
+        {
+            continue;
+        }
+
+        float candidateWeight = 0.0;
+        if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+        {
+            if (!PathTraceNeeCacheAnalyticStableCacheable(record) ||
+                !PathTraceNeeCacheAnalyticStructurallyValid(record))
+            {
+                continue;
+            }
+            candidateWeight = PathTraceNeeCacheAnalyticCandidateWeight(record, cell);
+        }
+        else if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+        {
+            const float sourceWeight = max(record.sourceWeight, record.radianceAndLuminance.w);
+            const float area = max(record.normalAndArea.w, 0.0);
+            if (sourceWeight <= 0.0 || area <= 1.0e-6)
+            {
+                continue;
+            }
+            candidateWeight = PathTraceNeeCacheEmissiveCandidateWeight(record, cell);
+        }
+        else
+        {
+            continue;
+        }
+
+        if (candidateWeight <= 0.0)
+        {
+            continue;
+        }
+
+        const float risWeight = candidateWeight * proposalInvSourcePdf;
+        ++acceptedProposalCount;
+        risWeightSum += risWeight;
+        const float selector = PathTraceNeeCacheHashToUnitFloat(proposalHash ^ 0x9e3779b9u);
+        if (acceptedProposalCount == 1u || selector < risWeight / max(risWeightSum, 1.0e-8))
+        {
+            selected.denseRluIndex = denseIndex;
+            selected.lightClass = record.type;
+            selected.candidateWeight = candidateWeight;
+            selectedWeight = candidateWeight;
+        }
+    }
+
+    if (acceptedProposalCount == 0u || selected.denseRluIndex == 0xffffffffu || selectedWeight <= 0.0 || risWeightSum <= 0.0)
+    {
+        return PathTraceNeeCacheMakeEmptyCandidate(cell.cellIndex, slot);
+    }
+
+    selected.sourcePdf = selectedWeight / max(risWeightSum, 1.0e-8);
+    selected.invSourcePdf = risWeightSum / max(selectedWeight, 1.0e-8);
+    selected.cellIndex = cell.cellIndex;
+    selected.candidateSlot = slot;
+    selected.flags = 1u;
+    return selected;
+}
+
 float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, uint view)
 {
     const uint candidateSlots = PathTraceNeeCacheCandidateSlotCount();
@@ -1061,6 +1193,18 @@ float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, 
     const bool sourceAllowsAnalytic = PathTraceNeeCacheSourceDomainAllowsAnalytic();
     const uint activeEmissiveRangeCount = sourceAllowsEmissive ? emissiveRangeCount : 0u;
     const uint activeAnalyticRangeCount = sourceAllowsAnalytic ? analyticRangeCount : 0u;
+
+    const PathTraceNeeCacheCellRecord previousCell = PathTraceNeeCacheCells[cell.cellIndex];
+    if (previousCell.flags != 0u && previousCell.hash != cell.hash)
+    {
+        [loop]
+        for (uint clearSlot = 0u; clearSlot < candidateSlots; ++clearSlot)
+        {
+            PathTraceNeeCacheCandidates[baseSlot + clearSlot] = PathTraceNeeCacheMakeEmptyCandidate(cell.cellIndex, clearSlot);
+        }
+        PathTraceNeeCacheProviderResults[cell.cellIndex] =
+            PathTraceNeeCacheMakeInvalidProviderResult(cell.cellIndex, PATH_TRACE_NEE_CACHE_FALLBACK_EMPTY_CELL);
+    }
 
     PathTraceNeeCacheCells[cell.cellIndex].flags = 1u;
     PathTraceNeeCacheCells[cell.cellIndex].hash = cell.hash;
@@ -1083,6 +1227,137 @@ float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, 
         PathTraceNeeCacheWriteProviderResult(cell);
         return float4(0.34, 0.04, 0.55, 1.0);
     }
+
+    const uint updateSeed = PathTraceNeeCacheHitUpdateSeed(cell);
+    const uint updateSlot = updateSeed % candidateSlots;
+    PathTraceNeeCacheCandidateRecord updatedCandidate = PathTraceNeeCacheMakeEmptyCandidate(cell.cellIndex, updateSlot);
+    if (PathTraceNeeCacheSourceDomain() == 0u)
+    {
+        const uint combinedRangeOffset = activeEmissiveRangeCount > 0u ? emissiveRangeOffset : analyticRangeOffset;
+        const uint combinedRangeCount = activeEmissiveRangeCount + activeAnalyticRangeCount;
+        updatedCandidate = PathTraceNeeCacheBuildRisCandidateFromRange(
+            cell,
+            updateSlot,
+            combinedRangeOffset,
+            combinedRangeCount,
+            0u,
+            1.0,
+            updateSeed);
+    }
+    else if (PathTraceNeeCacheSourceDomain() == 1u)
+    {
+        updatedCandidate = PathTraceNeeCacheBuildRisCandidateFromRange(
+            cell,
+            updateSlot,
+            emissiveRangeOffset,
+            activeEmissiveRangeCount,
+            PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE,
+            1.0,
+            updateSeed);
+    }
+    else if (PathTraceNeeCacheSourceDomain() == 2u)
+    {
+        updatedCandidate = PathTraceNeeCacheBuildRisCandidateFromRange(
+            cell,
+            updateSlot,
+            analyticRangeOffset,
+            activeAnalyticRangeCount,
+            PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC,
+            1.0,
+            updateSeed);
+    }
+    else
+    {
+        const bool chooseAnalytic =
+            activeAnalyticRangeCount > 0u &&
+            (activeEmissiveRangeCount == 0u || PathTraceNeeCacheHashToUnitFloat(updateSeed ^ 0x85ebca6bu) >= 0.5);
+        const float classProbability = PathTraceNeeCacheTypedClassProbability(chooseAnalytic, activeEmissiveRangeCount, activeAnalyticRangeCount);
+        updatedCandidate = PathTraceNeeCacheBuildRisCandidateFromRange(
+            cell,
+            updateSlot,
+            chooseAnalytic ? analyticRangeOffset : emissiveRangeOffset,
+            chooseAnalytic ? activeAnalyticRangeCount : activeEmissiveRangeCount,
+            chooseAnalytic ? PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC : PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE,
+            classProbability,
+            updateSeed);
+    }
+
+    bool updatedReplayValid = false;
+    const float updatedCurrentWeight = PathTraceNeeCacheCurrentCandidateWeight(updatedCandidate, cell, currentRluCount, updatedReplayValid);
+    if (updatedReplayValid && updatedCurrentWeight > 0.0)
+    {
+        const uint stableTargetSlot =
+            ((updatedCandidate.denseRluIndex ^ (updatedCandidate.denseRluIndex >> 16u) ^ cell.hash) % candidateSlots);
+        uint admitSlot = 0xffffffffu;
+        uint duplicateSlot = 0xffffffffu;
+        uint emptySlot = 0xffffffffu;
+        bool targetSlotReplaceable = false;
+
+        [loop]
+        for (uint admitScanSlot = 0u; admitScanSlot < candidateSlots; ++admitScanSlot)
+        {
+            const PathTraceNeeCacheCandidateRecord existingCandidate = PathTraceNeeCacheCandidates[baseSlot + admitScanSlot];
+            bool existingReplayValid = false;
+            const float existingWeight = PathTraceNeeCacheCurrentCandidateWeight(existingCandidate, cell, currentRluCount, existingReplayValid);
+            if (!existingReplayValid || existingWeight <= 0.0)
+            {
+                if (admitScanSlot == stableTargetSlot)
+                {
+                    targetSlotReplaceable = true;
+                }
+                else if (emptySlot == 0xffffffffu)
+                {
+                    emptySlot = admitScanSlot;
+                }
+                continue;
+            }
+
+            if (existingCandidate.denseRluIndex == updatedCandidate.denseRluIndex)
+            {
+                duplicateSlot = admitScanSlot;
+            }
+            if (admitScanSlot == stableTargetSlot)
+            {
+                targetSlotReplaceable = updatedCurrentWeight > existingWeight * 2.0;
+            }
+        }
+
+        if (duplicateSlot != 0xffffffffu)
+        {
+            admitSlot = duplicateSlot;
+        }
+        else if (targetSlotReplaceable)
+        {
+            admitSlot = stableTargetSlot;
+        }
+        else if (emptySlot != 0xffffffffu)
+        {
+            admitSlot = emptySlot;
+        }
+
+        if (admitSlot != 0xffffffffu)
+        {
+            updatedCandidate.cellIndex = cell.cellIndex;
+            updatedCandidate.candidateSlot = admitSlot;
+            updatedCandidate.candidateWeight = updatedCurrentWeight;
+            PathTraceNeeCacheCandidates[baseSlot + admitSlot] = updatedCandidate;
+        }
+    }
+
+    uint persistentCandidateCount = 0u;
+    [loop]
+    for (uint countSlot = 0u; countSlot < candidateSlots; ++countSlot)
+    {
+        const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + countSlot];
+        if (PathTraceNeeCacheCandidateUsable(candidate, currentRluCount))
+        {
+            ++persistentCandidateCount;
+        }
+    }
+
+    PathTraceNeeCacheCells[cell.cellIndex].candidateCount = persistentCandidateCount;
+    PathTraceNeeCacheWriteProviderResult(cell);
+    return float4(0.02, 0.18 + 0.06 * persistentCandidateCount, 0.26, 1.0);
 
     float bestEmissiveWeight = 0.0;
     uint bestEmissiveDenseIndex = 0xffffffffu;
@@ -1632,7 +1907,6 @@ void RayGen()
         }
         return;
     }
-
     const uint2 pixel = DispatchRaysIndex().xy + PathTraceNeeCacheDispatchTileOffset();
     const uint2 dimensions = PathTraceNeeCacheFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
