@@ -152,7 +152,7 @@ PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTrace
     }
     else
     {
-        desc.firstMissingContract = "cell-mapping-not-implemented-neecache-02";
+        desc.firstMissingContract = "emissive-candidates-not-implemented-neecache-04";
     }
     return desc;
 }
@@ -209,6 +209,7 @@ void PathTraceNeeCacheState::Clear()
     settings = PathTraceNeeCacheSettings();
     resourceDesc = PathTraceNeeCacheResourceDesc();
     allocationSerial = 0u;
+    taskClearPending = false;
 }
 
 bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathTraceNeeCacheSettings& nextSettings, const PathTraceNeeCacheResourceDesc& nextDesc)
@@ -223,6 +224,7 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         taskBuffer = nullptr;
         candidateBuffer = nullptr;
         placeholderSrvBuffer = nullptr;
+        taskClearPending = false;
         return true;
     }
 
@@ -291,6 +293,7 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
     if (allocated && ready)
     {
         ++allocationSerial;
+        taskClearPending = true;
     }
     return ready;
 }

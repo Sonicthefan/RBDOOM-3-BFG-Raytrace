@@ -61,12 +61,13 @@ Current NEECACHE-01 ABI document:
 
     provider_abi.txt
 
-Current first missing contract after the NEECACHE-02 debug route:
+Current first missing contract after the NEECACHE-03 task diagnostic:
 
-    task-accumulation-not-implemented-neecache-03
+    emissive-candidates-not-implemented-neecache-04
 
-NEECACHE-02 adds only the standalone cell-mapping debug route. It does not
-populate task or candidate records and it does not feed PDFNEE.
+NEECACHE-02 adds only the standalone cell-mapping debug route. NEECACHE-03
+adds a debug-primary-hit task accumulator in task slot 0 for each mapped cell.
+It does not populate candidate records and it does not feed PDFNEE.
 
 
 Reference Roots

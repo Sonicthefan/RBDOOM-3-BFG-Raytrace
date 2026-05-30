@@ -16,7 +16,8 @@ Status:
     resolved by NEECACHE-01 CPU/resource shell
     see provider_abi.txt
     NEECACHE-02 binds the debug route for cell mapping only
-    current next missing contract is task-accumulation-not-implemented-neecache-03
+    NEECACHE-03 adds task-slot accumulation diagnostics only
+    current next missing contract is emissive-candidates-not-implemented-neecache-04
 
 First missing contract to resolve:
 
@@ -76,7 +77,7 @@ Producer:
 Required behavior:
 
     r_pathTracingNeeCacheDebugView 1 shows route/status
-    r_pathTracingNeeCacheDebugView 2 shows cell id and cell boundaries
+    r_pathTracingNeeCacheDebugView 2 shows cell id
     r_pathTracingNeeCacheDebugView 3 shows empty occupancy
     no task or candidate cache records are read for this proof
     output is SmokeOutput only
@@ -160,6 +161,10 @@ Fail:
 Contract C-03: Task Accumulation
 --------------------------------
 
+Status:
+
+    resolved by NEECACHE-03 diagnostic task route
+
 Reference shape:
 
     Remix NEE cache task slots and accumulated values
@@ -174,8 +179,9 @@ Required output:
 
 Pass:
 
-    visible/secondary useful NEE events can increase task values
-    stale tasks decay or clear on reset
+    debug-primary visible hit events can increase task values
+    stale tasks clear on allocation or scene reset
+    task writes are atomic enough to avoid visible read/modify/write flicker
     task accumulation map is debug-only and not final lighting proof
 
 Fail:

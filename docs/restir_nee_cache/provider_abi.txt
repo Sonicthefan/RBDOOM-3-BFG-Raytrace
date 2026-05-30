@@ -177,6 +177,7 @@ Debug views:
     1 route/status
     2 cell id
     3 empty occupancy
+    4 task accumulation
 
 This route traces primary scene hits to recover world position, hashes the
 position into a log-distance cell, writes only SmokeOutput, and leaves all final
@@ -187,6 +188,44 @@ Visual calibration:
     cellResolution 8 with minRange 256 is the current default because user
     visual inspection matched the Remix reference cell scale. Higher
     cellResolution values intentionally make cells smaller.
+
+
+Task Accumulation Diagnostic
+----------------------------
+
+NEECACHE-03 uses the existing task buffer at u76.
+
+Insert policy:
+
+    debug-primary-visible-hit-slot0-atomic-count
+
+For each primary hit in debugView 4, the shader maps the world position to a
+cache cell, writes task slot 0 for that cell, and atomically increments a
+diagnostic hit-count accumulator. The task class is diagnostic only:
+
+    taskClass = 1
+    denseRluIndex = 0xffffffff
+
+Decay policy:
+
+    full-cell-prepass-decay-7of8
+
+Before debugView 4 draws the screen, the same RT debug shader runs a decay
+prepass over the physical cell range. One dispatch lane owns one physical cell
+and decays stale diagnostic counts by 7/8 per elapsed frame. The visible draw
+path then performs only atomic hit-count increments and color reads, so the
+screen cannot observe a transient per-pixel decay lock.
+
+Reset policy:
+
+    clear-task-and-cell-buffers-on-allocation-or-scene-reset
+
+The CPU clears task and cell buffers after cache resource allocation. Scene
+resource reset destroys the cache state and forces a fresh clear on the next
+allocation.
+
+This diagnostic does not prove candidate quality, source PDFs, RAB replay, or
+final direct lighting.
 
 
 Buffer Lifetime

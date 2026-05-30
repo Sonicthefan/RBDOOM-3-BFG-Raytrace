@@ -103,11 +103,107 @@ float4 PathTraceNeeCacheMissColor(uint view)
     {
         return float4(0.02, 0.06, 0.16, 1.0);
     }
+    if (view == 4u)
+    {
+        return float4(0.01, 0.01, 0.03, 1.0);
+    }
     if (view == 3u)
     {
         return float4(0.06, 0.04, 0.02, 1.0);
     }
     return float4(0.0, 0.0, 0.0, 1.0);
+}
+
+uint PathTraceNeeCacheTaskSlotCount()
+{
+    return max((uint)NeeCacheInfo2.x, 1u);
+}
+
+uint PathTraceNeeCacheCandidateSlotCount()
+{
+    return max((uint)NeeCacheInfo1.w, 1u);
+}
+
+uint PathTraceNeeCacheFrameIndex()
+{
+    return (uint)NeeCacheInfo3.w;
+}
+
+uint PathTraceNeeCacheDebugDispatchMode()
+{
+    return (uint)NeeCacheInfo3.x;
+}
+
+float3 PathTraceNeeCacheTaskHeat(float value)
+{
+    value = saturate(value);
+    if (value < 0.5)
+    {
+        return lerp(float3(0.02, 0.08, 0.28), float3(0.08, 0.75, 0.55), value * 2.0);
+    }
+    return lerp(float3(0.08, 0.75, 0.55), float3(1.0, 0.58, 0.08), (value - 0.5) * 2.0);
+}
+
+void PathTraceNeeCacheDecayTaskCell(uint cellIndex)
+{
+    const uint taskSlots = PathTraceNeeCacheTaskSlotCount();
+    const uint taskIndex = cellIndex * taskSlots;
+    if (PathTraceNeeCacheTasks[taskIndex].flags == 0u)
+    {
+        return;
+    }
+
+    const uint frameIndex = PathTraceNeeCacheFrameIndex();
+    const uint previousFrame = PathTraceNeeCacheTasks[taskIndex].reserved1;
+    if (previousFrame == frameIndex)
+    {
+        return;
+    }
+
+    const uint frameGap = frameIndex > previousFrame ? min(frameIndex - previousFrame, 16u) : 1u;
+    uint count = PathTraceNeeCacheTasks[taskIndex].reserved0;
+    [loop]
+    for (uint i = 0u; i < frameGap; ++i)
+    {
+        count = (count * 7u) / 8u;
+    }
+
+    PathTraceNeeCacheTasks[taskIndex].reserved0 = count;
+    PathTraceNeeCacheTasks[taskIndex].reserved1 = frameIndex;
+    PathTraceNeeCacheTasks[taskIndex].accumulatedValue = saturate(log2((float)count + 1.0) / 16.0);
+    PathTraceNeeCacheTasks[taskIndex].decayState = 0.875;
+    if (count == 0u)
+    {
+        PathTraceNeeCacheTasks[taskIndex].flags = 0u;
+        PathTraceNeeCacheCells[cellIndex].flags = 0u;
+        PathTraceNeeCacheCells[cellIndex].taskCount = 0u;
+    }
+}
+
+float PathTraceNeeCacheAccumulatePrimaryHitTask(PathTraceNeeCacheCellDebug cell)
+{
+    const uint taskSlots = PathTraceNeeCacheTaskSlotCount();
+    const uint taskIndex = cell.cellIndex * taskSlots;
+    const uint frameIndex = PathTraceNeeCacheFrameIndex();
+    uint previousCount = 0u;
+    InterlockedAdd(PathTraceNeeCacheTasks[taskIndex].reserved0, 1u, previousCount);
+    const uint nextCount = min(previousCount + 1u, 1048575u);
+    const float value = saturate(log2((float)nextCount + 1.0) / 16.0);
+
+    PathTraceNeeCacheTasks[taskIndex].denseRluIndex = 0xffffffffu;
+    PathTraceNeeCacheTasks[taskIndex].taskClass = 1u;
+    PathTraceNeeCacheTasks[taskIndex].accumulatedValue = value;
+    PathTraceNeeCacheTasks[taskIndex].decayState = 1.0;
+    PathTraceNeeCacheTasks[taskIndex].cellIndex = cell.cellIndex;
+    PathTraceNeeCacheTasks[taskIndex].flags = 1u;
+
+    PathTraceNeeCacheCells[cell.cellIndex].flags = 1u;
+    PathTraceNeeCacheCells[cell.cellIndex].hash = cell.hash;
+    PathTraceNeeCacheCells[cell.cellIndex].taskOffset = taskIndex;
+    PathTraceNeeCacheCells[cell.cellIndex].taskCount = 1u;
+    PathTraceNeeCacheCells[cell.cellIndex].candidateOffset = cell.cellIndex * PathTraceNeeCacheCandidateSlotCount();
+    PathTraceNeeCacheCells[cell.cellIndex].candidateCount = 0u;
+    return value;
 }
 
 float4 PathTraceNeeCacheDebugColor(float3 worldPosition, uint view)
@@ -143,12 +239,30 @@ float4 PathTraceNeeCacheDebugColor(float3 worldPosition, uint view)
         const float3 emptyColor = lerp(float3(0.18, 0.12, 0.05), float3(0.75, 0.48, 0.14), ((cell.hash >> 11u) & 15u) / 15.0);
         return float4(boundary > 0.0 ? float3(1.0, 0.92, 0.35) : emptyColor, 1.0);
     }
+    if (view == 4u)
+    {
+        const float taskValue = PathTraceNeeCacheAccumulatePrimaryHitTask(cell);
+        return float4(PathTraceNeeCacheTaskHeat(taskValue), 1.0);
+    }
     return float4(0.04, 0.04, 0.04, 1.0);
 }
 
 [shader("raygeneration")]
 void RayGen()
 {
+    if (PathTraceNeeCacheDebugDispatchMode() == 2u)
+    {
+        const uint2 dispatchPixel = DispatchRaysIndex().xy;
+        const uint2 dispatchDimensions = DispatchRaysDimensions().xy;
+        const uint linearDispatchIndex = dispatchPixel.x + dispatchPixel.y * dispatchDimensions.x;
+        const uint cellCount = max((uint)NeeCacheInfo1.z, 1u);
+        if (linearDispatchIndex < cellCount)
+        {
+            PathTraceNeeCacheDecayTaskCell(linearDispatchIndex);
+        }
+        return;
+    }
+
     const uint2 pixel = DispatchRaysIndex().xy + PathTraceNeeCacheDispatchTileOffset();
     const uint2 dimensions = PathTraceNeeCacheFullOutputSize();
     if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)

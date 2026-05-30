@@ -165,6 +165,10 @@ Acceptance:
 NEECACHE-03: Task Accumulation Buffer
 -------------------------------------
 
+Status:
+
+    implemented as debug-primary-hit task accumulation
+
 Goal:
 
     Add task slots and accumulation/decay/reset diagnostics.
@@ -200,6 +204,8 @@ Forbidden:
 Acceptance:
 
     task accumulation map changes coherently and clears on reset
+    dump names taskInsertPolicy, taskDecayPolicy, and taskResetPolicy
+    debugView 4 reports task=NEECACHE-03
 
 
 NEECACHE-04: Emissive Candidate List

@@ -142,6 +142,7 @@ struct PathTraceNeeCacheState
     PathTraceNeeCacheSettings settings;
     PathTraceNeeCacheResourceDesc resourceDesc;
     uint64_t allocationSerial = 0u;
+    bool taskClearPending = false;
 
     void Clear();
     bool EnsureResources(nvrhi::IDevice* device, const PathTraceNeeCacheSettings& nextSettings, const PathTraceNeeCacheResourceDesc& nextDesc);
