@@ -5,7 +5,7 @@ Purpose
 -------
 
 This file defines the future handoff from standalone ReGIR debug proof to the
-PDFNEE verifier. It is a plan only until REGIR-00 through REGIR-05 pass.
+PDFNEE verifier. It is a plan only until REGIR-00 through REGIR-06 pass.
 
 
 Producer Output
@@ -55,10 +55,13 @@ The first PDFNEE consume task should:
 
     add a new PDFNEE lightMode or domain mode for ReGIR source
     keep temporal off
-    stream ReGIR-selected candidates through RTXDI_StreamSample
+    stream multiple ReGIR cell candidates through RTXDI_StreamSample, or prove
+        an explicitly documented deterministic single-slot diagnostic first
     include a documented full-domain fallback candidate
     write empty reservoirs for invalid ReGIR cells
-    compare mean against a known current-frame PDFNEE view
+    compare ReGIR cell-local mean against a known current-frame PDFNEE view
+    dump the effective cell size, center mode, light domain, lights per cell,
+        slot policy, and any consumer overrides
 
 It must not:
 
@@ -67,6 +70,9 @@ It must not:
     enable spatial reuse
     enable best-light feedback
     route through mode 56
+    select candidate slots from frameIndex for the stability proof
+    silently force a different cell size, domain, or lights per cell than the
+        ReGIR dump reports
 
 
 Negative Paths
@@ -93,7 +99,7 @@ Standalone ReGIR proof first:
 
     r_pathTracingDebugMode 0
     r_pathTracingReGIREnable 1
-    r_pathTracingReGIRDebugView 2 through 8
+    r_pathTracingReGIRDebugView 2 through 10
     r_pathTracingReGIRLightDomain 0, 1, then 2
     r_pathTracingReGIRDump 1
 
@@ -114,22 +120,24 @@ Stop Conditions
 Stop before PDFNEE integration if:
 
     cells are screen-space anchored
+    cells or selected slots strobe while standing still
     selected identity is not global/replayable
     sourcePdf / invSourcePdf is missing
+    hard cell seams dominate the current-frame mean contribution view
     emissives require another debug mode to populate first
     old map candidates survive reset
     ReGIR debug output falls back to beauty/albedo
 
 
-REGIR-06 Exact Handoff Contract
+REGIR-07 Exact Handoff Contract
 -------------------------------
 
 Status:
 
     planning artifact only
-    no implementation in REGIR-06
-    no build/deploy in REGIR-06
-    standalone REGIR-00 through REGIR-05 have runtime proof before this plan is
+    no implementation in REGIR-07
+    no build/deploy in REGIR-07
+    standalone REGIR-00 through REGIR-06 have runtime proof before this plan is
         used for a consumer implementation
 
 
@@ -155,8 +163,10 @@ The accepted standalone ReGIR producer is:
         stride 32 bytes
 
     required read domains:
-        current Doom analytic lights from register(t27)
-        current emissive triangles from register(t16)
+        preferred: current Remix/RAB light-manager payloads from register(t66)
+        fallback only when declared in the dump:
+            current Doom analytic lights from register(t27)
+            current emissive triangles from register(t16)
         no previous-frame light domain
         no PDFNEE current reservoir
         no RRX pages
@@ -165,8 +175,9 @@ The accepted candidate record fields are:
 
     lightIndex:
         source-domain index for the selected record
-        analytic domain: zero-based Doom analytic candidate index
-        emissive domain: zero-based current emissive triangle index
+        preferred RAB light-manager domain: dense current payload index
+        fallback analytic domain: zero-based Doom analytic candidate index
+        fallback emissive domain: zero-based current emissive triangle index
 
     lightClass:
         0 = none / invalid
@@ -248,9 +259,14 @@ distribution. In split mode, candidate.sourcePdf is valid only if the consumer
 selects slots with the same class mass implied by deterministic slot parity and
 the actual lightsPerCell slot counts. It must not treat candidate.sourcePdf as
 proof that the shader sampled an independent analytic/emissive class bit during
-candidate construction. The standalone view 7 proof uses
-cellHash % lightsPerCell and does not fall back to another class if that slot is
-invalid.
+candidate construction.
+
+Frame index must not participate in the deterministic slot-selection proof.
+The standalone sourcePdf proof may use slot 0 or cellHash % lightsPerCell, but
+that is only a replayability and PDF proof. It is not sufficient evidence that
+one selected slot can feed PDFNEE. If cellHash % lightsPerCell selects an
+invalid slot, the invalid state must be reported; do not silently fall back to
+another class or reinterpret the selected record as a full-domain sample.
 
 
 Exact PDFNEE Consumer Input
@@ -287,9 +303,13 @@ The consumer must derive:
         from current surface world position using the same ReGIR cell mapping
 
     selected candidate:
-        one valid candidate from the current cell
-        first implementation may use slot 0 or a documented cell-local hash
-        later implementation may stream multiple cell slots through RTXDI
+        first diagnostic may read slot 0 or a documented cell-local hash
+        first PDFNEE quality proof must stream multiple valid slots from the
+            current cell through RTXDI, or explicitly stop as diagnostic-only
+        frameIndex must not change the chosen slot in the stability proof
+        if hard cell seams remain visible in the mean view, the task must stop
+            and design neighbor/cell blending or another reference-backed
+            continuity step before clean temporal consume
 
     replayed light:
         RAB_LoadLightInfo(candidate.globalIdentity, false)
@@ -326,6 +346,8 @@ PDFNEE owns:
 
     current primary surface
     sample UV policy for light replay
+    deterministic slot policy for the stability proof
+    multi-slot streaming policy for the first quality proof
     RAB_LoadLightInfo
     RAB_SamplePolymorphicLight
     RAB_GetLightSampleTargetPdfForSurface
@@ -365,6 +387,29 @@ It must not:
     enable RRX pages
     suppress broad lights
     output fallback beauty/albedo
+    use frameIndex to choose the ReGIR slot for the stability proof
+    hide parameter overrides from dumps or GUI
+
+
+Current-Frame Stability Gate
+----------------------------
+
+Before mode 9 can be treated as a PDFNEE quality path, it must pass a
+current-frame stability gate:
+
+    selected slot and selected globalIdentity are unchanged for a stationary
+        surface while frameIndex advances
+    a mean-contribution view evaluates every valid slot in the current cell
+    hard cell seams in the mean-contribution view are explained or fixed before
+        the path is consumed by clean RTXDI temporal
+    effective cell size, center mode, light domain, lights per cell, and slot
+        policy are printed in the dump
+    map/static center policy and the effective center are printed in the dump
+    no consumer path silently replaces the user-visible ReGIR parameters
+
+If this gate fails, stop in PDFNEE current-frame diagnostics. Do not use clean
+RTXDI temporal, spatial reuse, denoising, or broad light suppression to hide the
+failure.
 
 
 Negative Path Contract
@@ -414,7 +459,20 @@ Before any PDFNEE consume implementation, re-run standalone ReGIR proof:
     r_pathTracingReGIRDebugView 7
     r_pathTracingReGIRDump 1
 
-The first future PDFNEE consume proof should use:
+Then prove source stability:
+
+    debugView 9 deterministic selected-slot diagnostic
+    debugView 10 cell-local mean-contribution diagnostic
+    stationary camera for at least several seconds
+    no selected-slot changes caused only by frameIndex
+    no hidden changes to cell size, domain, center mode, or lights per cell
+
+Until that gate passes, any existing PDFNEE lightMode 9 route must stop with a
+loud diagnostic such as regir-v06-standalone-required. It must not build or
+consume ReGIR candidates through PDFNEE as quality proof.
+
+Historical blocked ReGIR/PDFNEE consume sketch, not a current PDFNEE-RLU-05
+quality recipe:
 
     r_pathTracingDebugMode 0
     r_pathTracingReGIREnable 1
@@ -422,9 +480,13 @@ The first future PDFNEE consume proof should use:
     r_pathTracingRestirPdfNeeVerifierEnable 1
     r_pathTracingRestirPdfNeeVerifierLightMode 9
     r_pathTracingRestirPdfNeeVerifierView 2
-    r_pathTracingRestirPdfNeeVerifierSamples 1
     r_pathTracingRestirPdfNeeVerifierVisibility 1
     r_pathTracingRestirPdfNeeVerifierDump 1
+
+Do not use this for current PDFNEE/RLU parity testing. lightMode 9 is a
+discarded implementation route for the current task. Current PDFNEE/RLU quality
+checks should use the replacement RLU current producer defaults: Samples 32
+normally, Samples 64 for complex-scene diagnostics.
 
 Expected first proof:
 
@@ -434,6 +496,7 @@ Expected first proof:
     no temporal accumulation
     no mode 56
     no RRX reservoir pages
+    no frame-indexed ReGIR slot selection in the stability proof
 
 
 Implementation Stop Conditions
@@ -444,11 +507,16 @@ Stop before implementation if:
     the consumer cannot name the exact cell mapping used to select a slot
     the consumer cannot state sourcePdf for every selected candidate
     the selected identity is not replayable through RAB_LoadLightInfo
+    selected slot changes solely because frameIndex advanced
+    the first quality proof would consume only one stochastic cell slot
+    ReGIR mean contribution shows unexplained hard cell seams
+    the implementation silently overrides ReGIR cell size, domain, center mode,
+        or lights per cell
     the shader needs ReGIR debug colors as input
     the shader needs PDFNEE, clean RTXDI temporal, RRX, or mode 56 to make
         ReGIR candidates appear valid
     the implementation would connect ReGIR directly to temporal/spatial reuse
     the implementation would bypass RTXDI reservoir helpers
 
-REGIR-06 stops at this documentation artifact. Do not build, deploy, or edit
-PDFNEE shader code for REGIR-06.
+REGIR-07 stops at this documentation artifact. Do not build, deploy, or edit
+PDFNEE shader code for REGIR-07.

@@ -1151,9 +1151,9 @@ idCVar r_pathTracingRestirPdfNeeVerifierLightMode(
 
 idCVar r_pathTracingRestirPdfNeeVerifierSamples(
     "r_pathTracingRestirPdfNeeVerifierSamples",
-    "8",
+    "32",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Replacement RLU current producer candidate proposals per pixel; default 8 for the one-CVar full-domain RLU path, clamped 1..32" );
+    "Replacement RLU current producer candidate proposals per pixel; default 32 for the one-CVar RLU path, clamped 1..64; use 64 for complex-scene diagnostics" );
 
 idCVar r_pathTracingRestirPdfNeeVerifierVisibility(
     "r_pathTracingRestirPdfNeeVerifierVisibility",
@@ -1163,9 +1163,9 @@ idCVar r_pathTracingRestirPdfNeeVerifierVisibility(
 
 idCVar r_pathTracingRestirPdfNeeVerifierSourcePolicy(
     "r_pathTracingRestirPdfNeeVerifierSourcePolicy",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Replacement RLU current producer source policy: 0 full dense RLU uniform baseline, 1 typed 50/50 stratified over non-empty emissive and Doom analytic RLU ranges" );
+    "Replacement RLU current producer source policy: 0 full dense RLU uniform baseline, 1 RLU-04 range-stratified typed ranges using rangeSampleCount/(rangeCount*totalProposalSamples)" );
 
 idCVar r_pathTracingRestirPdfNeeVerifierDomain(
     "r_pathTracingRestirPdfNeeVerifierDomain",
@@ -1255,7 +1255,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..8; band 8 classifies selected-sample black output cause" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..9; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
@@ -1370,6 +1370,12 @@ idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory(
     "5",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room Remix DI diagnostic: RTXDI temporal maxHistoryLength parameter; default 5 limits stale history during movement; use 0 to run temporal while suppressing previous-reservoir history contribution" );
+
+idCVar r_pathTracingCleanRtxdiDiTemporalAudit(
+    "r_pathTracingCleanRtxdiDiTemporalAudit",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room RTXDI DI temporal audit: 0 off, 1 encode per-pixel accumulator gates into the clean output and aggregate them into the ImGui panel via readback" );
 
 idCVar r_pathTracingRestirPTView68Dump(
     "r_pathTracingRestirPTView68Dump",

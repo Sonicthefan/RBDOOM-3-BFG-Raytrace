@@ -8,13 +8,19 @@ Implemented path:
 This is the replacement current-frame producer path. It does not require the
 old PDFNEE view/lightMode recipe.
 
+Status:
+
+    This remains the sourcePolicy 0 baseline. The current default policy-1
+    producer state is documented in rlu_04_current_status_and_parity_notes.txt.
+
 Default proposal count:
 
-    r_pathTracingRestirPdfNeeVerifierSamples 8
+    r_pathTracingRestirPdfNeeVerifierSamples 32
 
-The default is eight uniform dense-RLU proposals per pixel. A single proposal is
-kept available as a diagnostic but was too sparse for a useful one-CVar
-full-domain current-frame image on scenes with hundreds of active Doom lights.
+The default is now 32 dense-RLU proposals per pixel. A single proposal is kept
+available as a diagnostic but was too sparse for a useful one-CVar full-domain
+current-frame image on scenes with hundreds of active Doom lights. The supported
+diagnostic ceiling is 64 proposals for more complex scenes.
 
 
 Producer Shader

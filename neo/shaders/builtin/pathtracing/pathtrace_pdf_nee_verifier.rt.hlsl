@@ -875,7 +875,7 @@ float4 EvaluatePathTracePdfNeeVerifierRoute(uint2 pixel, uint2 dimensions)
     const uint view = clamp((uint)max(RestirPdfNeeVerifierInfo.y, 0.0), 0u, 8u);
     const uint lightMode = clamp((uint)max(RestirPdfNeeVerifierInfo.z, 0.0), 0u, 9u);
     const uint domain = clamp((uint)max(RestirPdfNeeVerifierInfo.w, 0.0), 0u, 2u);
-    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 64u);
     const uint activeLightCount = PathTracePdfNeeVerifierActiveLightCount();
     const uint checker = ((pixel.x >> 4) ^ (pixel.y >> 4)) & 1u;
 
@@ -3870,7 +3870,7 @@ PathTracePdfNeeSyntheticResult PathTracePdfNeeEvaluateReGIRCandidate(RAB_Surface
 
 float3 PathTracePdfNeeEvaluateReGIRSampledContribution(RAB_Surface surface, uint2 pixel)
 {
-    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 64u);
     float3 sumContribution = float3(0.0, 0.0, 0.0);
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)

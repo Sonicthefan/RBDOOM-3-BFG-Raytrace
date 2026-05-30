@@ -19,7 +19,7 @@ One enable CVar must activate the replacement module's intended current-frame
 estimator with useful defaults:
 
     default source = current RLU dense domain
-    default source PDF = full-domain uniform over current RLU dense count
+    default source policy = current accepted RLU producer policy
     default output = useful current-frame lighting or clean-compatible current
         reservoir page
     diagnostics = optional only
@@ -65,6 +65,17 @@ They must not switch the default producer away from full-domain uniform RLU
 sampling. Typed-range, bounded per-range, payload-weighted, portal, and ReGIR
 sampling policies require separate manager-approved proof tasks before they can
 exist as diagnostics or alternatives.
+
+After PDFNEE-RLU-02 has been accepted, later RLU tasks may use a source-policy
+CVar for comparing:
+
+    full-domain uniform RLU baseline
+    an explicitly normalized typed/range proposal distribution
+
+If a typed/range policy is proven and made default, the full-domain uniform policy
+must remain available as a diagnostic comparison. The normal route must still
+be activated by r_pathTracingRestirPdfNeeVerifierEnable 1 and must not require
+a multi-CVar recipe.
 
 
 Discarded Legacy CVars And Recipes
@@ -119,11 +130,20 @@ already useful.
 
 The normal default uses:
 
-    r_pathTracingRestirPdfNeeVerifierSamples 8
+    r_pathTracingRestirPdfNeeVerifierSamples 32
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 1
 
-Lower or higher sample counts are diagnostic/quality controls only. The sample
-count does not change the proposal domain or source PDF; each streamed candidate
-is still sampled uniformly from the dense current RLU lightIndex range.
+Lower sample counts are diagnostic/quality controls only. Complex scenes may
+need 64 proposals to make the current-frame estimator representative; 64 is the
+supported diagnostic ceiling.
+
+Source policy:
+
+    0 = PDFNEE-RLU-02 full dense current RLU uniform baseline
+    1 = PDFNEE-RLU-04 range-stratified current RLU proposal distribution
+
+Policy 1 is the normal default after PDFNEE-RLU-04. Policy 0 must remain
+available as the baseline comparison.
 
 The normal visibility setting is:
 
@@ -135,8 +155,12 @@ visibility into targetPdf". Candidate streaming must compute targetPdf from:
     RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
 
 Selected-light replay must call RAB_GetSelectedNeeVisibility and store the
-result with RTXDI_StoreVisibilityInDIReservoir. Strict shadow-ray rungs are
-controlled by r_pathTracingRestirPTVisibilityPolicy.
+result with RTXDI_StoreVisibilityInDIReservoir. The replacement PDFNEE/RLU
+producer forces selected strict shadow visibility in its own constants when
+r_pathTracingRestirPdfNeeVerifierVisibility is 1, so the normal one-CVar path
+does not require a separate r_pathTracingRestirPTVisibilityPolicy recipe.
+r_pathTracingRestirPTVisibilityPolicy remains a diagnostic control for other
+ReSTIR PT paths and for proposal-stream strictness experiments.
 
 For non-emissive selected samples, strict visibility must ignore the originating
 RAB surface identity. This prevents source-surface self-occlusion from being
@@ -151,7 +175,7 @@ normal one-CVar producer output is zero contribution. Do not paint this as an
 error color in the default output; invalid-state colors belong in an explicit
 diagnostic classifier.
 
-The default source PDF policy is fixed for the first producer:
+The PDFNEE-RLU-02 source PDF policy is:
 
     proposal domain = dense current lightIndex range [0, currentRluLightCount)
     sourcePdf = 1.0 / currentRluLightCount
@@ -159,6 +183,28 @@ The default source PDF policy is fixed for the first producer:
 
 Do not read RLU payload sourcePdf/sourceWeight as the proposal PDF for the
 first producer.
+
+The superseded PDFNEE-RLU-03 typed policy used:
+
+    choose class with explicit classProbability
+    choose uniformly inside that class
+    sourcePdf = classProbability / classCount
+    invSourcePdf = classCount / classProbability
+
+The current PDFNEE-RLU-04 policy is not fixed 50/50. It streams a bounded
+sample count from each non-empty raw current RLU typed range and computes:
+
+    sourcePdf = rangeSampleCount / (rangeCount * totalProposalSamples)
+    invSourcePdf = (rangeCount * totalProposalSamples) / rangeSampleCount
+
+Here rangeSampleCount is the number of streamed proposals for that range after
+bounded sampling, rangeCount is the current RLU typed range size, and
+totalProposalSamples is the total streamed proposal count for the pixel. Do not
+substitute payload sourcePdf/sourceWeight, light power, ReGIR cell weights, or
+portal weights for this proposal PDF.
+
+If code or CVar help still describes policy 1 as 50/50, treat that text as
+stale unless the implementation is changed to match it.
 
 The current reservoir M contract must match the working RTXDI initial path:
 

@@ -290,6 +290,8 @@ RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
 #endif
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
 #include "Rtxdi/DI/Reservoir.hlsli"
+#include "Rtxdi/DI/ReSTIRDIParameters.h"
+#include "Rtxdi/Utils/RandomSamplerState.hlsli"
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
 #define RTXDI_LIGHT_RESERVOIR_BUFFER CleanRtxdiDiCurrentReservoirs
 #include "Rtxdi/DI/ReservoirStorage.hlsli"
@@ -3431,20 +3433,199 @@ float3 PathTraceRestirPdfNeeRluPreviewColor(float3 contribution)
     return clampedPositive / (clampedPositive + float3(1.0, 1.0, 1.0));
 }
 
-uint PathTraceRestirPdfNeeRluSeed(uint2 pixel, uint frameIndex, uint sampleIndex, uint salt)
+uint PathTraceRestirPdfNeeRluRangeOffset(uint rangeIndex)
 {
-    return pixel.x * 1973u ^
-        pixel.y * 9277u ^
-        frameIndex * 26699u ^
-        sampleIndex * 104729u ^
-        salt;
+    return (uint)max(RestirLightManagerRangeInfo[rangeIndex * 2u], 0.0);
 }
 
-float2 PathTraceRestirPdfNeeRluSampleUv(uint2 pixel, uint frameIndex, uint sampleIndex, uint lightIndex)
+uint PathTraceRestirPdfNeeRluRangeCount(uint rangeIndex)
 {
-    return float2(
-        SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel, frameIndex, sampleIndex, 0x9e3779b9u ^ lightIndex)),
-        SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel.yx, frameIndex, sampleIndex, 0x85ebca6bu ^ (lightIndex * 17u))));
+    return (uint)max(RestirLightManagerRangeInfo[rangeIndex * 2u + 1u], 0.0);
+}
+
+RTXDI_DIInitialSamplingParameters PathTraceRestirPdfNeeRluBuildInitialSamplingParameters(uint sampleCount)
+{
+    RTXDI_DIInitialSamplingParameters sampleParams = (RTXDI_DIInitialSamplingParameters)0;
+    sampleParams.numLocalLightSamples = sampleCount;
+    sampleParams.numInfiniteLightSamples = 0u;
+    sampleParams.numEnvironmentSamples = 0u;
+    sampleParams.numBrdfSamples = 0u;
+    sampleParams.brdfCutoff = 0.0;
+    sampleParams.brdfRayMinT = 0.0;
+    sampleParams.localLightSamplingMode = ReSTIRDI_LocalLightSamplingMode_UNIFORM;
+    sampleParams.enableInitialVisibility = 0u;
+    sampleParams.environmentMapImportanceSampling = 0u;
+    return sampleParams;
+}
+
+float2 PathTraceRestirPdfNeeRluRandomlySelectLocalLightUv(inout RTXDI_RandomSamplerState rng)
+{
+    return float2(RTXDI_GetNextRandom(rng), RTXDI_GetNextRandom(rng));
+}
+
+uint PathTraceRestirPdfNeeRluUploadedDoomAnalyticCount()
+{
+    return PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP)
+        ? 0u
+        : (uint)max(DoomAnalyticLightInfo.x, 0.0);
+}
+
+bool PathTraceRestirPdfNeeRluEmissiveContributionEnabled()
+{
+    return max(ToyPathInfo.z, 0.0) > 1.0e-6;
+}
+
+bool PathTraceRestirPdfNeeRluAnalyticPayloadValid(PathTraceDoomAnalyticLightCandidate light)
+{
+    const float3 radiance = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0));
+    const float radianceLuminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+    return all(light.originAndRadius.xyz == light.originAndRadius.xyz) &&
+        all(abs(light.originAndRadius.xyz) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) &&
+        all(radiance == radiance) &&
+        all(abs(radiance) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) &&
+        radianceLuminance > 0.0 &&
+        light.originAndRadius.w > 0.0 &&
+        light.originAndRadius.w < 3.402823e+38 &&
+        light.doomRadiusAndArea.x > 0.0 &&
+        light.doomRadiusAndArea.x < 3.402823e+38;
+}
+
+RAB_LightInfo PathTraceRestirPdfNeeRluBuildCleanAnalyticLightInfo(PathTraceDoomAnalyticLightCandidate light, uint denseRluIndex)
+{
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    if (!PathTraceRestirPdfNeeRluAnalyticPayloadValid(light))
+    {
+        return lightInfo;
+    }
+
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+    lightInfo.lightIndex = denseRluIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
+    lightInfo.flags = light.flags;
+    lightInfo.position = light.originAndRadius.xyz;
+    lightInfo.radius = max(light.originAndRadius.w, 0.01);
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
+    lightInfo.radiance = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0)) * max(DoomAnalyticLightInfo.z, 0.0);
+    lightInfo.influenceRadius = max(light.doomRadiusAndArea.x, lightInfo.radius);
+    lightInfo.area = max(light.doomRadiusAndArea.y, 1.0e-4);
+    lightInfo.weight = dot(lightInfo.radiance, float3(0.2126, 0.7152, 0.0722)) * lightInfo.area * lightInfo.influenceRadius;
+    return lightInfo;
+}
+
+RAB_LightInfo PathTraceRestirPdfNeeRluLoadCleanCompatibleLightInfo(uint lightIndex)
+{
+    if (lightIndex >= RAB_GetCurrentRestirLightManagerCount())
+    {
+        return RAB_EmptyLightInfo();
+    }
+
+    const PathTraceUnifiedLightRecord record = PathTraceRestirLightManagerCurrentPayload[lightIndex];
+    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        if (record.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX ||
+            record.sourceIndex >= PathTraceRestirPdfNeeRluUploadedDoomAnalyticCount())
+        {
+            return RAB_EmptyLightInfo();
+        }
+
+        return PathTraceRestirPdfNeeRluBuildCleanAnalyticLightInfo(DoomAnalyticLights[record.sourceIndex], lightIndex);
+    }
+
+    return RAB_LoadActiveRrxLightInfo(lightIndex, false);
+}
+
+bool PathTraceRestirPdfNeeRluStreamActiveLightAtUvIntoReservoir(
+    inout RTXDI_RandomSamplerState rng,
+    RAB_Surface surface,
+    uint lightIndex,
+    float2 uv,
+    float invSourcePdf,
+    inout RTXDI_DIReservoir reservoir)
+{
+    const RAB_LightInfo lightInfo = PathTraceRestirPdfNeeRluLoadCleanCompatibleLightInfo(lightIndex);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return false;
+    }
+
+    const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, uv);
+    if (!RAB_IsReplayableLightSample(lightSample) || lightSample.solidAnglePdf <= 0.0)
+    {
+        return false;
+    }
+
+    const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    if (targetPdf <= 0.0 || invSourcePdf <= 0.0)
+    {
+        return false;
+    }
+
+    RTXDI_StreamSample(
+        reservoir,
+        lightIndex,
+        uv,
+        RTXDI_GetNextRandom(rng),
+        targetPdf,
+        invSourcePdf);
+    return true;
+}
+
+void PathTraceRestirPdfNeeRluStreamActiveRangeIntoReservoir(
+    inout RTXDI_DIReservoir reservoir,
+    inout RTXDI_RandomSamplerState rng,
+    RAB_Surface surface,
+    uint rangeOffset,
+    uint rangeCount,
+    uint requestedSampleCount,
+    uint totalProposalSampleCount)
+{
+    if (rangeCount == 0u || requestedSampleCount == 0u || totalProposalSampleCount == 0u)
+    {
+        return;
+    }
+
+    const uint boundedSampleCount = min(requestedSampleCount, rangeCount);
+    if (boundedSampleCount == 0u)
+    {
+        return;
+    }
+
+    float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)rangeCount;
+    const float stride = max(1.0, (float)rangeCount / (float)boundedSampleCount);
+    const float invSourcePdf =
+        ((float)rangeCount * (float)totalProposalSampleCount) / max((float)boundedSampleCount, 1.0);
+
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < boundedSampleCount; ++sampleIndex)
+    {
+        const uint lightIndex = rangeOffset + min((uint)lightIndexInRange, rangeCount - 1u);
+        const float2 uv = PathTraceRestirPdfNeeRluRandomlySelectLocalLightUv(rng);
+        PathTraceRestirPdfNeeRluStreamActiveLightAtUvIntoReservoir(
+            rng,
+            surface,
+            lightIndex,
+            uv,
+            invSourcePdf,
+            reservoir);
+
+        lightIndexInRange += stride;
+        if (lightIndexInRange >= (float)rangeCount)
+        {
+            lightIndexInRange -= (float)rangeCount;
+        }
+    }
+}
+
+uint PathTraceRestirPdfNeeRluTypedRangeSampleCount(uint rangeCount, uint totalRangeCount, uint totalSampleCount)
+{
+    if (rangeCount == 0u || totalRangeCount == 0u || totalSampleCount == 0u)
+    {
+        return 0u;
+    }
+
+    const uint proportional = (uint)round(((float)rangeCount / (float)totalRangeCount) * (float)totalSampleCount);
+    return clamp(max(proportional, 1u), 1u, totalSampleCount);
 }
 
 RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
@@ -3476,35 +3657,68 @@ RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
     }
 
     const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
-    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 32u);
-    const float invSourcePdf = (float)currentRluLightCount;
+    const uint sampleCount = clamp((uint)max(RestirPdfNeeVerifierControlInfo.x, 1.0), 1u, 64u);
     const bool tracedVisibility = RestirPdfNeeVerifierControlInfo.y >= 0.5;
+    const uint sourcePolicy = (uint)clamp(floor(RestirPdfNeeVerifierControlInfo.z + 0.5), 0.0, 1.0);
+    RTXDI_DIInitialSamplingParameters sampleParams = PathTraceRestirPdfNeeRluBuildInitialSamplingParameters(sampleCount);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0x4d534449u);
+    uint totalProposalSampleCount = sampleParams.numLocalLightSamples;
 
-    [loop]
-    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
+    const uint emissiveOffset = PathTraceRestirPdfNeeRluRangeOffset(0u);
+    const uint emissiveCount = min(PathTraceRestirPdfNeeRluRangeCount(0u), currentRluLightCount - min(emissiveOffset, currentRluLightCount));
+    const uint doomAnalyticOffset = PathTraceRestirPdfNeeRluRangeOffset(1u);
+    const uint doomAnalyticCount = min(PathTraceRestirPdfNeeRluRangeCount(1u), currentRluLightCount - min(doomAnalyticOffset, currentRluLightCount));
+    const uint sampleableEmissiveCount = PathTraceRestirPdfNeeRluEmissiveContributionEnabled() ? emissiveCount : 0u;
+    const bool typedPolicy = sourcePolicy != 0u && (sampleableEmissiveCount > 0u || doomAnalyticCount > 0u);
+
+    if (typedPolicy)
     {
-        const float selection = SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel, frameIndex, sampleIndex, 0x51ed270bu));
-        const uint lightIndex = min((uint)(selection * (float)currentRluLightCount), currentRluLightCount - 1u);
-        const float2 sampleUv = PathTraceRestirPdfNeeRluSampleUv(pixel, frameIndex, sampleIndex, lightIndex);
-        float targetPdf = 0.0;
+        const uint totalTypedCount = sampleableEmissiveCount + doomAnalyticCount;
+        uint emissiveSampleCount = PathTraceRestirPdfNeeRluTypedRangeSampleCount(sampleableEmissiveCount, totalTypedCount, sampleCount);
+        uint doomAnalyticSampleCount = PathTraceRestirPdfNeeRluTypedRangeSampleCount(doomAnalyticCount, totalTypedCount, sampleCount);
 
-        const RAB_LightInfo lightInfo = RAB_LoadActiveRrxLightInfo(lightIndex, false);
-        if (RAB_IsLightInfoValid(lightInfo))
+        if (emissiveSampleCount + doomAnalyticSampleCount > sampleCount)
         {
-            const RAB_LightSample lightSample = RAB_SampleActiveRrxPolymorphicLight(lightInfo, surface, sampleUv);
-            if (RAB_IsReplayableLightSample(lightSample) && lightSample.solidAnglePdf > 0.0)
+            if (doomAnalyticSampleCount >= emissiveSampleCount && doomAnalyticSampleCount > 1u)
             {
-                targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+                --doomAnalyticSampleCount;
+            }
+            else if (emissiveSampleCount > 1u)
+            {
+                --emissiveSampleCount;
             }
         }
 
-        RTXDI_StreamSample(
+        totalProposalSampleCount = emissiveSampleCount + doomAnalyticSampleCount;
+        sampleParams = PathTraceRestirPdfNeeRluBuildInitialSamplingParameters(max(totalProposalSampleCount, 1u));
+
+        PathTraceRestirPdfNeeRluStreamActiveRangeIntoReservoir(
             reservoir,
-            lightIndex,
-            sampleUv,
-            SmokeHashToUnitFloat(PathTraceRestirPdfNeeRluSeed(pixel, frameIndex, sampleIndex, 0x27d4eb2du)),
-            targetPdf,
-            invSourcePdf);
+            rng,
+            surface,
+            emissiveOffset,
+            sampleableEmissiveCount,
+            emissiveSampleCount,
+            totalProposalSampleCount);
+        PathTraceRestirPdfNeeRluStreamActiveRangeIntoReservoir(
+            reservoir,
+            rng,
+            surface,
+            doomAnalyticOffset,
+            doomAnalyticCount,
+            doomAnalyticSampleCount,
+            totalProposalSampleCount);
+    }
+    else
+    {
+        PathTraceRestirPdfNeeRluStreamActiveRangeIntoReservoir(
+            reservoir,
+            rng,
+            surface,
+            0u,
+            currentRluLightCount,
+            sampleParams.numLocalLightSamples,
+            sampleParams.numLocalLightSamples);
     }
 
     if (!RTXDI_IsValidDIReservoir(reservoir) || reservoir.targetPdf <= 0.0)
@@ -3513,13 +3727,13 @@ RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
         return RTXDI_EmptyDIReservoir();
     }
 
-    RTXDI_FinalizeResampling(reservoir, 1.0, reservoir.M);
+    RTXDI_FinalizeResampling(reservoir, 1.0, (float)max(totalProposalSampleCount, 1u));
     reservoir.M = 1.0;
     reservoir.age = 0u;
     reservoir.spatialDistance = int2(0, 0);
 
     const uint selectedLightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
-    const RAB_LightInfo selectedLightInfo = RAB_LoadActiveRrxLightInfo(selectedLightIndex, false);
+    const RAB_LightInfo selectedLightInfo = PathTraceRestirPdfNeeRluLoadCleanCompatibleLightInfo(selectedLightIndex);
     if (!RAB_IsLightInfoValid(selectedLightInfo))
     {
         status = RT_PDF_NEE_RLU_STATUS_EMPTY_RESERVOIR;
@@ -3699,6 +3913,7 @@ void RayGen()
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
     float3 pdfNeeRluContribution = float3(0.0, 0.0, 0.0);
     uint pdfNeeRluStatus = RT_PDF_NEE_RLU_STATUS_VALID;
+    StoreRestirPTPrimarySurfaceHistory(pixel, primaryHistorySurface);
     const RTXDI_DIReservoir pdfNeeRluReservoir = PathTraceRestirPdfNeeRluBuildCurrentReservoir(
         primaryHistorySurface,
         pixel,

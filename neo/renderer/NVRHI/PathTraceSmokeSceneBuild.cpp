@@ -1477,14 +1477,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         pdfNeeVerifierSceneBuildLightMode == 7;
     const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiSceneBuildDomain = idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger());
-    const bool cleanRtxdiDiSceneBuildRluEmissives =
+    const bool pdfNeeRluCurrentProducerSceneBuildRequested =
         requestedDebugMode == 0 &&
-        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
-        r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
-        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 &&
-        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
-        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15) &&
-        (cleanRtxdiDiSceneBuildDomain == 1 || cleanRtxdiDiSceneBuildDomain == 2);
+        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
+    const int pdfNeeRluSceneBuildDomain = idMath::ClampInt(0, 2,
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
+            ? r_pathTracingRemixLightUniverseDomain.GetInteger()
+            : 2);
+    const bool pdfNeeRluSceneBuildEmissives =
+        pdfNeeRluCurrentProducerSceneBuildRequested &&
+        (pdfNeeRluSceneBuildDomain == 1 || pdfNeeRluSceneBuildDomain == 2);
+    const bool cleanRtxdiDiSceneBuildRluEmissives =
+        pdfNeeRluSceneBuildEmissives ||
+        (requestedDebugMode == 0 &&
+            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+            r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
+            r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 &&
+            r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
+            (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15) &&
+            (cleanRtxdiDiSceneBuildDomain == 1 || cleanRtxdiDiSceneBuildDomain == 2));
     const bool currentFrameStaticEmissiveProducerPolicy =
         restirPTDebugMode || pdfNeeVerifierStaticEmissiveProducerPolicy;
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
@@ -2503,10 +2514,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         regirLightUniverseRequested ||
         cleanRtxdiDiRluRequested ||
         pdfNeeRluCurrentProducerRequested;
+    const bool currentRluDenseProducerRequested =
+        cleanRtxdiDiRluRequested ||
+        pdfNeeRluCurrentProducerRequested;
     const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
-            : ((cleanRtxdiDiRluRequested || pdfNeeRluCurrentProducerRequested) ? 0 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
+            : (currentRluDenseProducerRequested ? 2 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
     const bool remixLightUniverseStrictMapping =
         r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
     const bool remixLightUniverseIncludeAnalytic =
@@ -2741,12 +2755,82 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 previous.identityA,
                 previous.identityB);
         };
+        auto duplicateIdentityCountForKey = [](const std::vector<PathTraceUnifiedLightRecord>& records, const PathTraceUnifiedLightRecord& key) {
+            uint32_t duplicateCount = 0u;
+            for (const PathTraceUnifiedLightRecord& record : records)
+            {
+                if (record.type == key.type &&
+                    record.identityA == key.identityA &&
+                    record.identityB == key.identityB &&
+                    record.materialOrLightId == key.materialOrLightId)
+                {
+                    ++duplicateCount;
+                }
+            }
+            return duplicateCount;
+        };
+        auto sourcePayloadIdentityMatches = [](const PathTraceUnifiedLightRecord& record, const PathTraceDoomAnalyticLightCandidate& payload) {
+            return record.materialOrLightId == payload.renderLightIndex &&
+                record.identityA == payload.renderLightIndex &&
+                record.identityB == payload.entityNumber;
+        };
+        auto printPreviousReplayFailure = [&](const char* reason, uint32_t currentIndex, uint32_t previousIndex, uint32_t previousToCurrentIndex) {
+            const PathTraceUnifiedLightRecord& current = restirLightManagerCurrentPayloadRecords[currentIndex];
+            const bool previousIndexValid = previousIndex < restirLightManagerPreviousPayloadRecords.size();
+            const PathTraceUnifiedLightRecord previous = previousIndexValid
+                ? restirLightManagerPreviousPayloadRecords[previousIndex]
+                : PathTraceUnifiedLightRecord();
+            const bool currentSourceValid = current.sourceIndex < doomAnalyticLights.size();
+            const bool previousSourceValid = previousIndexValid && previous.sourceIndex < doomAnalyticRemap.previousCandidates.size();
+            const uint32_t currentSourceRenderLightIndex = currentSourceValid
+                ? doomAnalyticLights[current.sourceIndex].renderLightIndex
+                : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            const uint32_t currentSourceEntityNumber = currentSourceValid
+                ? doomAnalyticLights[current.sourceIndex].entityNumber
+                : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            const uint32_t previousSourceRenderLightIndex = previousSourceValid
+                ? doomAnalyticRemap.previousCandidates[previous.sourceIndex].renderLightIndex
+                : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            const uint32_t previousSourceEntityNumber = previousSourceValid
+                ? doomAnalyticRemap.previousCandidates[previous.sourceIndex].entityNumber
+                : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            const uint32_t currentDuplicateIdentityCount = duplicateIdentityCountForKey(restirLightManagerCurrentPayloadRecords, current);
+            const uint32_t previousDuplicateIdentityCount = previousIndexValid
+                ? duplicateIdentityCountForKey(restirLightManagerPreviousPayloadRecords, previous)
+                : 0u;
+            const uint32_t duplicateIdentity = (currentDuplicateIdentityCount > 1u || previousDuplicateIdentityCount > 1u) ? 1u : 0u;
+            common->Printf(
+                "PathTracePrimaryPass: RLU domain2 Doom analytic previous replay failure reason=%s currentDenseIndex=%u previousDenseIndex=%u type current/previous=%u/%u sourceIndex current/previous=%u/%u identityA current/previous=%u/%u identityB current/previous=%u/%u materialOrLightId current/previous=%u/%u sourcePayload renderLightIndex current/previous=%u/%u entityNumber current/previous=%u/%u duplicateIdentity=%u duplicateIdentityCount current/previous=%u/%u currentToPrevious=%u previousToCurrent=%u behavior=pre-upload-rlu-domain2-previous-replay-audit\n",
+                reason,
+                currentIndex,
+                previousIndex,
+                current.type,
+                previousIndexValid ? previous.type : PATH_TRACE_UNIFIED_LIGHT_TYPE_INVALID,
+                current.sourceIndex,
+                previousIndexValid ? previous.sourceIndex : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+                current.identityA,
+                previousIndexValid ? previous.identityA : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+                current.identityB,
+                previousIndexValid ? previous.identityB : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+                current.materialOrLightId,
+                previousIndexValid ? previous.materialOrLightId : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+                currentSourceRenderLightIndex,
+                previousSourceRenderLightIndex,
+                currentSourceEntityNumber,
+                previousSourceEntityNumber,
+                duplicateIdentity,
+                currentDuplicateIdentityCount,
+                previousDuplicateIdentityCount,
+                previousIndex,
+                previousToCurrentIndex);
+        };
 
         uint32_t mappedDoomAnalyticPairs = 0u;
         uint32_t previousDoomBadRadius = 0u;
         uint32_t previousDoomBadSourceWeight = 0u;
         uint32_t previousDoomNonfinite = 0u;
         uint32_t typeMismatches = 0u;
+        uint32_t previousReplayFailures = 0u;
         uint32_t firstCurrentIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
         uint32_t firstPreviousIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
         uint32_t firstPreviousToCurrentIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
@@ -2766,6 +2850,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             const uint32_t previousIndex = restirLightManagerCurrentToPreviousRemap[currentIndex];
             if (previousIndex >= restirLightManagerPreviousPayloadRecords.size())
             {
+                ++previousReplayFailures;
+                printPreviousReplayFailure("currentToPrevious-invalid", currentIndex, previousIndex, PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX);
                 continue;
             }
 
@@ -2806,6 +2892,34 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     pairFailed = true;
                 }
             }
+            const bool currentSourceValid = current.sourceIndex < doomAnalyticLights.size();
+            const bool previousSourceValid = previous.sourceIndex < doomAnalyticRemap.previousCandidates.size();
+            const bool roundTripValid = previousToCurrentIndex == currentIndex;
+            const bool duplicateIdentity =
+                duplicateIdentityCountForKey(restirLightManagerCurrentPayloadRecords, current) > 1u ||
+                duplicateIdentityCountForKey(restirLightManagerPreviousPayloadRecords, previous) > 1u;
+            const bool currentSourceIdentityValid = currentSourceValid && sourcePayloadIdentityMatches(current, doomAnalyticLights[current.sourceIndex]);
+            const bool previousSourceIdentityValid = previousSourceValid && sourcePayloadIdentityMatches(previous, doomAnalyticRemap.previousCandidates[previous.sourceIndex]);
+            const bool replayFailed =
+                pairFailed ||
+                !roundTripValid ||
+                !currentSourceValid ||
+                !previousSourceValid ||
+                !currentSourceIdentityValid ||
+                !previousSourceIdentityValid ||
+                duplicateIdentity;
+            if (replayFailed)
+            {
+                ++previousReplayFailures;
+                const char* replayFailureReason =
+                    pairFailed ? "previous-payload-invalid" :
+                    (!roundTripValid ? "previousToCurrent-mismatch" :
+                    (!currentSourceValid ? "current-source-invalid" :
+                    (!previousSourceValid ? "previous-source-invalid" :
+                    (!currentSourceIdentityValid ? "current-source-identity-mismatch" :
+                    (!previousSourceIdentityValid ? "previous-source-identity-mismatch" : "duplicate-identity")))));
+                printPreviousReplayFailure(replayFailureReason, currentIndex, previousIndex, previousToCurrentIndex);
+            }
 
             if (pairFailed && firstFailCurrentIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
             {
@@ -2816,12 +2930,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
 
         common->Printf(
-            "PathTracePrimaryPass: RLU domain2 CPU mapped Doom analytic payload audit mappedPairs=%u previousBadRadius=%u previousBadSourceWeight=%u previousNonfinite=%u typeMismatches=%u currentPayloads=%u previousPayloads=%u currentToPrevious=%u previousToCurrent=%u behavior=pre-upload-rlu-domain2-payload-audit\n",
+            "PathTracePrimaryPass: RLU domain2 CPU mapped Doom analytic payload audit mappedPairs=%u previousBadRadius=%u previousBadSourceWeight=%u previousNonfinite=%u typeMismatches=%u previousReplayFailures=%u currentPayloads=%u previousPayloads=%u currentToPrevious=%u previousToCurrent=%u behavior=pre-upload-rlu-domain2-payload-audit\n",
             mappedDoomAnalyticPairs,
             previousDoomBadRadius,
             previousDoomBadSourceWeight,
             previousDoomNonfinite,
             typeMismatches,
+            previousReplayFailures,
             static_cast<uint32_t>(restirLightManagerCurrentPayloadRecords.size()),
             static_cast<uint32_t>(restirLightManagerPreviousPayloadRecords.size()),
             static_cast<uint32_t>(restirLightManagerCurrentToPreviousRemap.size()),

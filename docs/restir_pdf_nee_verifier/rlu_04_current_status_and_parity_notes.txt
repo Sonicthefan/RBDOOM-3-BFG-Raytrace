@@ -1,0 +1,205 @@
+PDFNEE-RLU-04 Current Status And Parity Notes
+=============================================
+
+Status
+------
+
+This file records the current checked-out replacement producer state. It
+supersedes older notes that describe sourcePolicy 1 as fixed 50/50 typed
+classes.
+
+Active one-CVar route:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+
+Normal defaults:
+
+    r_pathTracingRestirPdfNeeVerifierSamples 32
+    r_pathTracingRestirPdfNeeVerifierVisibility 1
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 1
+
+Complex-scene diagnostic ceiling:
+
+    r_pathTracingRestirPdfNeeVerifierSamples 64
+
+Current producer shader:
+
+    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
+
+Current implementation body:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+    RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+
+Current output:
+
+    CleanRtxdiDiCurrentReservoirs register(u69)
+    SmokeOutput diagnostic preview only
+
+The clean current reservoir page is the proof target. SmokeOutput is a visual
+diagnostic and must not be used as an unclamped raw mean proof.
+
+
+Source Policies
+---------------
+
+Policy 0:
+
+    PDFNEE-RLU-02 full dense current RLU uniform baseline.
+
+    proposal domain = [0, currentRluLightCount)
+    sourcePdf = 1.0 / currentRluLightCount
+    invSourcePdf = currentRluLightCount
+
+Policy 1:
+
+    PDFNEE-RLU-04 range-stratified current RLU proposal distribution.
+
+    proposal ranges:
+        raw current RLU emissive typed range
+        raw current RLU Doom analytic typed range
+
+    sourcePdf = rangeSampleCount / (rangeCount * totalProposalSamples)
+    invSourcePdf = (rangeCount * totalProposalSamples) / rangeSampleCount
+
+    rangeSampleCount is the bounded streamed proposal count for that range.
+    totalProposalSamples is the sum of streamed proposal counts for the pixel.
+
+Policy 1 is not fixed 50/50. If code comments, CVar help, dumps, or worker
+notes say fixed 50/50, update them or treat them as stale.
+
+Neither policy may read RLU payload sourcePdf/sourceWeight as the first
+producer proposal PDF. Doom analytic payload sourcePdf can be zero.
+
+
+Current Clean-Compatibility Rule
+--------------------------------
+
+The PDFNEE/RLU current producer must match the known-good clean RTXDI DI view
+12 current-domain analytic behavior.
+
+Clean view 12 is the reference because it already consumes the RLU dense light
+domain on real Doom lighting. Legacy PDFNEE verifier views are not reference
+lighting and cannot prove correctness.
+
+For mixed RLU/domain-2 current-frame Doom analytic replay, clean view 12 can
+use the RLU record sourceIndex to build current analytic light info from:
+
+    DoomAnalyticLights[sourceIndex]
+
+The PDFNEE/RLU producer must match the clean current-domain analytic load,
+sample, targetPdf, visibility, and final contribution path. If PDFNEE analytic
+lighting is missing lights, has different shapes, or has different brightness
+than clean view 12, the current producer is still wrong.
+
+
+Domain Alignment Requirement
+----------------------------
+
+RLU-05 comparisons are invalid unless PDFNEE/RLU and clean RTXDI DI view 12 are
+confirmed to be using the same current RLU domain and typed ranges.
+
+Important current scene-build behavior:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1 requests the RLU. If
+    r_pathTracingRemixLightUniverseEnable is 0, scene build now selects domain 2
+    for the PDFNEE/clean-RLU request path so the one-CVar producer uses the
+    mixed emissive + Doom analytic dense current domain by default.
+
+    The replacement PDFNEE/RLU domain-2 request also enables the scene-build
+    emissive inventory path needed by the mixed RLU dense domain. It must not
+    require the old PDFNEE lightMode 7 emissive route or explicit clean-RLU
+    CVars just to populate emissive candidates.
+
+    If r_pathTracingRemixLightUniverseEnable is 1, the explicit
+    r_pathTracingRemixLightUniverseDomain CVar remains authoritative.
+
+    With r_pathTracingRestirPdfNeeVerifierVisibility 1, the PDFNEE/RLU producer
+    forces selected strict shadow visibility in its own constants before storing
+    the selected-light visibility in the clean current reservoir.
+
+Domain 0 is Doom analytic only. Domain 2 is mixed emissive + Doom analytic.
+Both can be useful tests, but they must not be compared against each other.
+
+For a fair RLU-05 run, the worker must report:
+
+    r_pathTracingRemixLightUniverseEnable
+    r_pathTracingRemixLightUniverseDomain
+    RLU dump domain
+    current dense count
+    emissive range offset/count
+    Doom analytic range offset/count
+    PDFNEE dump rluDomain and rluRanges
+    clean view-12 RLU domain/range constants or dump
+
+Accepted parity comparisons:
+
+    domain 0 PDFNEE analytic-only RLU vs domain 0 clean view-12 analytic-only
+    domain 2 PDFNEE mixed RLU vs domain 2 clean view-12 mixed RLU
+
+Rejected comparison:
+
+    PDFNEE domain 0 vs clean view-12 domain 2, or the reverse.
+
+
+Historical Stale CVar Text
+---------------------------
+
+Older builds of the CVar help string for
+r_pathTracingRestirPdfNeeVerifierSourcePolicy described policy 1 as
+"typed 50/50 stratified". That text is stale wherever it appears.
+
+Use the shader dump and these docs instead:
+
+    sourcePolicy 1 = RLU-04 range-stratified current RLU proposal distribution
+    sourcePdf = rangeSampleCount / (rangeCount * totalProposalSamples)
+    invSourcePdf = (rangeCount * totalProposalSamples) / rangeSampleCount
+
+Do not use stale CVar help from older builds or branches as evidence that
+policy 1 is fixed 50/50.
+
+
+Do Not Debug This As Temporal Yet
+---------------------------------
+
+Do not fix the current mismatch by changing:
+
+    clean RTXDI DI temporal accumulation
+    motion vectors
+    depth thresholds
+    normal thresholds
+    max history
+    denoiser/confidence/gradient paths
+    fallback albedo or beauty output
+    broad light suppression
+
+Temporal accumulation may only be revisited after PDFNEE current analytic
+lighting matches clean RTXDI DI view 12 with temporal disabled.
+
+
+Required Parity Probe
+---------------------
+
+For a Doom analytic selected light that differs between PDFNEE and clean view
+12, record the following for the same dense current RLU lightIndex:
+
+    RLU record sourceIndex
+    RLU record flags
+    RLU record sourceWeight
+    RLU record position/radius
+    RLU record uvOrDoomParams.x influence radius
+    RLU record normalAndArea.w area
+    RLU record radianceAndLuminance
+    DoomAnalyticLights[sourceIndex] origin/radius
+    DoomAnalyticLights[sourceIndex] doomRadiusAndArea
+    DoomAnalyticLights[sourceIndex] colorAndIntensity
+    clean RAB_LightInfo fields
+    PDFNEE RAB_LightInfo fields
+    selected sample UV
+    solidAnglePdf
+    targetPdf
+    reflectedRadiance
+    visibility
+    finalContribution
+
+Stop at the first field that differs. The fix belongs at that boundary.

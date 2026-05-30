@@ -30,6 +30,7 @@ Read first:
     docs/restir_pdf_nee_verifier/validation_matrix.txt
     docs/restir_pdf_nee_verifier/worker_protocol.txt
     docs/restir_pdf_nee_verifier/worker_tasks.txt
+    docs/restir_pdf_nee_verifier/rlu_04_current_status_and_parity_notes.txt
 
 Known state:
 
@@ -42,11 +43,31 @@ Known state:
     NEE/direct-light contribution when selecting from the RLU dense current
     domain.
 
-    First replacement source PDF policy is already fixed: sample uniformly over
-    the full current RLU dense domain. For currentRluLightCount > 0, use
-    sourcePdf = 1/currentRluLightCount and
-    invSourcePdf = currentRluLightCount. Ignore RLU payload
-    sourcePdf/sourceWeight for the first producer.
+    SourcePolicy 0 is the full current RLU dense uniform baseline. SourcePolicy
+    1 is now the RLU-04 range-stratified current policy:
+
+        sourcePdf = rangeSampleCount/(rangeCount*totalProposalSamples)
+        invSourcePdf = (rangeCount*totalProposalSamples)/rangeSampleCount
+
+    Ignore RLU payload sourcePdf/sourceWeight for proposal PDF.
+
+    Current blocker: PDFNEE/RLU Doom analytic lighting must match clean RTXDI
+    DI view 12 for the same current RLU analytic domain. If lights are absent,
+    shaped differently, or have different brightness in PDFNEE, fix current
+    analytic load/replay parity before touching temporal accumulation.
+
+    First ambiguity to eliminate: domain alignment. With only
+    r_pathTracingRestirPdfNeeVerifierEnable 1, scene build selects mixed RLU
+    domain 2 when r_pathTracingRemixLightUniverseEnable is off. If
+    r_pathTracingRemixLightUniverseEnable is on, the explicit
+    r_pathTracingRemixLightUniverseDomain value remains authoritative. Do not
+    compare PDFNEE domain 0 against clean view-12 domain 2. Report the RLU
+    domain and typed ranges for both paths before making a visual claim.
+
+    Historical stale code text: older
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy CVar help may say policy 1 is
+    typed 50/50. Treat that wording as stale wherever it appears; RLU-04 policy
+    1 is range-stratified.
 
     The old PDFNEE/ReGIR verifier routes are discarded as implementation
     routes. Do not claim success from PDFNEE lightMode 8, PDFNEE lightMode 9,
@@ -86,8 +107,13 @@ Required bridge:
 
 First action:
 
-    Start with PDFNEE-RLU-00 only as a read-only RLU/clean-DI contract audit.
-    No code changes.
+    If starting from scratch, start with PDFNEE-RLU-00 only as a read-only
+    RLU/clean-DI contract audit. No code changes.
+
+    If continuing the current active issue, start with PDFNEE-RLU-05:
+    compare PDFNEE/RLU current Doom analytic lighting against clean RTXDI DI
+    view 12 for the same dense current RLU analytic domain before editing
+    temporal or accumulator code.
 
     Report:
 
