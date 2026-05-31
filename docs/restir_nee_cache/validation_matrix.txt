@@ -396,6 +396,16 @@ Pass:
 
     clean RTXDI DI dump reports cleanNeeCacheProvider requested/ready=1/1
         when the provider is enabled and ready
+    clean RTXDI DI dump reports buildPrepass=1 on first provider use, or
+        providerSnapshotHold=1 after the provider snapshot has been built,
+        without requiring band-10 visual refresh
+    entering clean-DI view 8 band 10 releases providerSnapshotHold so the
+        diagnostic visual refresh owns the shared cache buffers
+    leaving clean-DI view 8 band 10 reports band10ExitedClear=1 once and
+        clears the diagnostic-owned cache buffers before view 12 can hold a
+        clean provider snapshot again
+    frames that begin with taskClearPending report deferredByClear=1 and do not
+        consume or hold a new clean provider snapshot until the next clean frame
     clean RTXDI DI dump reports providerResultSrv=t74 cellSrv=t75
         candidateSrv=t77
     fallback-only provider matches current clean RTXDI DI full-RLU baseline

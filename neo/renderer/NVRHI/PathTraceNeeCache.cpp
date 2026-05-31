@@ -221,7 +221,9 @@ void PathTraceNeeCacheState::Clear()
     lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
     observedRluSignaturesValid = false;
     taskClearPending = false;
+    cleanProviderSnapshotHoldActive = false;
     secondaryVisualSnapshotHoldActive = false;
+    secondaryVisualBandActiveLastFrame = false;
 }
 
 bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathTraceNeeCacheSettings& nextSettings, const PathTraceNeeCacheResourceDesc& nextDesc)
@@ -243,7 +245,9 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
         observedRluSignaturesValid = false;
         taskClearPending = false;
+        cleanProviderSnapshotHoldActive = false;
         secondaryVisualSnapshotHoldActive = false;
+        secondaryVisualBandActiveLastFrame = false;
         return true;
     }
 
@@ -316,7 +320,9 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         pendingInvalidationFlags |= PATH_TRACE_NEE_CACHE_INVALIDATE_RESOURCE_ALLOCATION;
         lastInvalidationFlags = pendingInvalidationFlags;
         taskClearPending = true;
+        cleanProviderSnapshotHoldActive = false;
         secondaryVisualSnapshotHoldActive = false;
+        secondaryVisualBandActiveLastFrame = false;
     }
     return ready;
 }

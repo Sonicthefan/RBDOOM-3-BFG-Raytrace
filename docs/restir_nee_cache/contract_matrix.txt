@@ -377,6 +377,14 @@ Required behavior:
     provider outputs only dense current RLU identity and source PDF metadata
     r_pathTracingCleanRtxdiDiNeeCacheProvider enables the clean-DI provider
         path without reusing PDFNEE sourcePolicy
+    clean DI provider dispatches the NEE-cache candidate build prepass in
+        normal view 12 before first consuming provider/cell/candidate SRVs, then
+        may reuse the held provider snapshot until the provider is disabled or
+        the band-10 diagnostic takes ownership of the shared cache buffers
+    leaving clean-DI view 8 band 10 force-clears the diagnostic-owned cache
+        buffers before normal view 12 provider snapshot reuse resumes
+    frames that begin with a pending NEE cache clear defer the clean provider
+        build and fall back to existing clean initial sampling for that frame
     clean sentinel binds provider/cell/candidate buffers as SRV t74/t75/t77
     each pixel draws its own proposal from the mapped cell or full-RLU/typed
         fallback
@@ -397,7 +405,12 @@ Anti-cell-artifact requirements:
 Pass:
 
     clean DI dump reports cleanNeeCacheProvider requested/ready=1/1 and
-        providerResultSrv=t74 cellSrv=t75 candidateSrv=t77
+        buildPrepass=1 or providerSnapshotHold=1, plus providerResultSrv=t74
+        cellSrv=t75 candidateSrv=t77
+    clean DI dump reports band10ExitedClear=1 on the first frame after leaving
+        view 8 band 10
+    clean DI dump reports deferredByClear=1 on frames where a pending clear
+        suppresses same-frame provider build/hold
     clean DI view 12 changes only proposal quality when the provider is enabled
     fallback-only matches current full-RLU clean DI baseline
     cell boundaries are not visible as synchronized light-selection squares

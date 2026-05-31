@@ -94,7 +94,8 @@ enum PathTraceNeeCacheInvalidationFlags : uint32_t
     PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_MAPPING = 1u << 1,
     PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD = 1u << 2,
     PATH_TRACE_NEE_CACHE_INVALIDATE_RLU_PAYLOAD_ONLY = 1u << 3,
-    PATH_TRACE_NEE_CACHE_INVALIDATE_RESOURCE_ALLOCATION = 1u << 4
+    PATH_TRACE_NEE_CACHE_INVALIDATE_RESOURCE_ALLOCATION = 1u << 4,
+    PATH_TRACE_NEE_CACHE_INVALIDATE_DIAGNOSTIC_OWNERSHIP = 1u << 5
 };
 
 struct PathTraceNeeCacheSettings
@@ -160,7 +161,9 @@ struct PathTraceNeeCacheState
     uint32_t lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
     bool observedRluSignaturesValid = false;
     bool taskClearPending = false;
+    bool cleanProviderSnapshotHoldActive = false;
     bool secondaryVisualSnapshotHoldActive = false;
+    bool secondaryVisualBandActiveLastFrame = false;
 
     void Clear();
     bool EnsureResources(nvrhi::IDevice* device, const PathTraceNeeCacheSettings& nextSettings, const PathTraceNeeCacheResourceDesc& nextDesc);

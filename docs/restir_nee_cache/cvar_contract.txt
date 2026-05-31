@@ -201,6 +201,19 @@ r_pathTracingCleanRtxdiDiNeeCacheProvider
 
 This CVar must not change clean RTXDI temporal accumulation settings. The
 provider may only affect initial current-frame proposal distribution.
+When this CVar is enabled with r_pathTracingNeeCacheEnable 1, the clean DI
+route must dispatch the NEE-cache candidate build prepass before the first clean
+sentinel consume of t74/t75/t77, then may hold that provider snapshot while the
+provider remains enabled. Provider readiness must not depend on debugView,
+band-10 visual refresh, or any other diagnostic CVar. Disabling the provider
+must release the provider snapshot hold. Entering clean-DI view 8 band 10 also
+releases the provider snapshot hold because that diagnostic owns the shared
+cache buffers while its visual snapshot is active. Leaving clean-DI view 8 band
+10 must force-clear the diagnostic-owned cache buffers before view 12 can hold
+or consume a provider snapshot again. Any frame that begins with a pending NEE
+cache clear, including first allocation/load and the first frame after leaving
+band 10, must defer the clean provider build and use the existing clean initial
+proposal path for that frame.
 
 Required companion state:
 
