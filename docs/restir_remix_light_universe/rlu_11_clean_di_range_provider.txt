@@ -1,0 +1,69 @@
+RLU-11 Clean DI RLU Range Provider
+==================================
+
+Goal
+----
+
+Expose active RLU typed ranges and bounded proposal sample metadata to the
+clean RTXDI DI sentinel shader without changing reservoir behavior.
+
+
+CPU ABI
+-------
+
+The clean sentinel constant block now carries the same manager-owned metadata
+introduced by RLU-10:
+
+    CleanRtxdiDiRluRangeInfo.x = emissive dense offset
+    CleanRtxdiDiRluRangeInfo.y = emissive dense count
+    CleanRtxdiDiRluRangeInfo.z = Doom analytic dense offset
+    CleanRtxdiDiRluRangeInfo.w = Doom analytic dense count
+
+    CleanRtxdiDiRluSampleInfo.x = bounded emissive sample count
+    CleanRtxdiDiRluSampleInfo.y = bounded Doom analytic sample count
+    CleanRtxdiDiRluSampleInfo.z = total requested proposal count
+    CleanRtxdiDiRluSampleInfo.w = non-empty typed range count
+
+PathTraceSmokeDispatch fills these fields from PathTraceRemixLightManagerStats
+only when the clean route is using the active Remix RLU. Otherwise the fields
+are zero.
+
+
+Shader Provider
+---------------
+
+The clean sentinel shader now has helper accessors:
+
+    PathTraceCleanRoomRluTypedRange(lightType)
+    PathTraceCleanRoomRluTypedSampleCount(lightType)
+    PathTraceCleanRoomRluTotalSampleCount()
+    PathTraceCleanRoomRluNonEmptyRangeCount()
+    PathTraceCleanRoomRluTypedProposalInfo(...)
+    PathTraceCleanRoomRluTypedSourcePdf(lightType)
+
+The helpers clamp typed ranges to the current dense RLU count. They do not scan
+the payload buffer to rediscover ranges, and they do not create a private
+fallback light universe.
+
+
+Behavior Boundary
+-----------------
+
+This slice does not consume the helpers in initial sampling. Existing clean DI
+view behavior, selected light identity, temporal accumulation, PDFNEE, NEE
+cache, and ReGIR behavior are intentionally unchanged.
+
+Selected light identity remains the dense current RLU index. Follow-up RLU-12
+is responsible for changing initial proposal sampling to use these helpers.
+
+
+Source PDF Input
+----------------
+
+PathTraceCleanRoomRluTypedSourcePdf(lightType) exposes the current documented
+typed source PDF input:
+
+    rangeSampleCount / (rangeCount * totalProposalSamples)
+
+It returns zero when the RLU route is inactive, when the typed range is empty,
+when the bounded sample count is zero, or when total proposal samples is zero.

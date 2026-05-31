@@ -1,0 +1,101 @@
+RLU-10 Authoritative Range And Sample Metadata
+==============================================
+
+Goal
+----
+
+Make the RLU typed range and bounded sample metadata the shader-visible source
+of truth for follow-up clean DI proposal sampling.
+
+
+CPU Owner
+---------
+
+PathTraceRemixLightManager owns the active typed range and sample contract.
+After PrepareSceneData, PathTraceRemixLightManagerStats exposes:
+
+    emissiveRangeOffset
+    emissiveRangeCount
+    doomAnalyticRangeOffset
+    doomAnalyticRangeCount
+    emissiveSampleCount
+    doomAnalyticSampleCount
+    totalSampleCount
+    nonEmptyRangeCount
+
+These values come from the manager's dense typed ranges. They are not owned by
+NEE cache, ReGIR, PDFNEE, or clean DI.
+
+
+Shader ABI
+----------
+
+For the active Remix RLU source, PathTraceSmokeDispatch writes the manager
+metadata directly into the shared shader constants:
+
+    RestirLightManagerRangeInfo.x = emissive dense offset
+    RestirLightManagerRangeInfo.y = emissive dense count
+    RestirLightManagerRangeInfo.z = Doom analytic dense offset
+    RestirLightManagerRangeInfo.w = Doom analytic dense count
+
+    RestirLightManagerSampleInfo.x = bounded emissive sample count
+    RestirLightManagerSampleInfo.y = bounded Doom analytic sample count
+    RestirLightManagerSampleInfo.z = total requested proposal count
+    RestirLightManagerSampleInfo.w = non-empty typed range count
+
+The legacy RestirLightManager compatibility path keeps its older active-range
+gating because it is not the Remix dense-history contract.
+
+
+Shader Helpers
+--------------
+
+RAB_LightLoadRuntime.hlsli exposes the ABI through:
+
+    RAB_GetRestirLightManagerEmissiveRange()
+    RAB_GetRestirLightManagerDoomAnalyticRange()
+    RAB_GetRestirLightManagerEmissiveSampleCount()
+    RAB_GetRestirLightManagerDoomAnalyticSampleCount()
+    RAB_GetRestirLightManagerTotalSampleCount()
+    RAB_GetRestirLightManagerNonEmptyRangeCount()
+
+Consumers can compute proposal PDFs from range count, range sample count, and
+their explicit source policy. They must keep selected identities as dense RLU
+indices and replay through RAB.
+
+
+Diagnostics
+-----------
+
+r_pathTracingRemixLightUniverseDump 1 reports the manager-owned typed ranges
+and sample counts:
+
+    ranges emissive offset/count/samples
+    ranges doomAnalytic offset/count/samples
+    sampleContract total/nonEmpty
+
+r_pathTracingRestirPdfNeeVerifierDump 1 reports the shader constants consumed
+by the PDFNEE RLU producer:
+
+    rluRanges emissive=offset+count doomAnalytic=offset+count
+    rluSampleInfo emissive/doom/total/nonEmpty
+
+For active Remix RLU, these two dumps must agree for the same frame/route.
+
+
+Rules
+-----
+
+Zero-count typed ranges are valid. They must not cause the shader to invent a
+private fallback light domain.
+
+Normal shader operation must not scan the payload buffer to rediscover typed
+ranges.
+
+Range counts and bounded sample counts are different quantities. A consumer may
+use range count and range sample count to compute proposal probability, but it
+must not treat sample count as light count.
+
+NEE cache and ReGIR may consume the active RLU metadata for proposal
+experiments, including stable analytic filtering where explicitly documented,
+but they do not own the RLU range/sample contract.

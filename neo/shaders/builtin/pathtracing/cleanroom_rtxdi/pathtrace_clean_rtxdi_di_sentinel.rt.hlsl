@@ -226,6 +226,8 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint CleanRtxdiDiDoomAnalyticFullPreviousCount;
     uint CleanRtxdiDiRluDomain;
     uint CleanRtxdiDiRluDoomAnalyticParityProof;
+    float4 CleanRtxdiDiRluRangeInfo;
+    float4 CleanRtxdiDiRluSampleInfo;
     float4 CleanRtxdiDiTextureInfo;
     float4 CleanRtxdiDiPrevCameraOriginAndValid;
     float4 CleanRtxdiDiPrevCameraForwardAndTanX;
@@ -430,6 +432,92 @@ bool PathTraceCleanRoomRluDoomAnalyticRange(out uint firstLightIndex, out uint l
     firstLightIndex = first;
     lightCount = count;
     return true;
+}
+
+uint2 PathTraceCleanRoomRluTypedRange(uint lightType)
+{
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_REMIX_LIGHT_UNIVERSE) == 0u)
+    {
+        return uint2(0u, 0u);
+    }
+
+    uint2 range = uint2(0u, 0u);
+    if (lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        range = uint2(
+            (uint)max(CleanRtxdiDiRluRangeInfo.x, 0.0),
+            (uint)max(CleanRtxdiDiRluRangeInfo.y, 0.0));
+    }
+    else if (lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        range = uint2(
+            (uint)max(CleanRtxdiDiRluRangeInfo.z, 0.0),
+            (uint)max(CleanRtxdiDiRluRangeInfo.w, 0.0));
+    }
+
+    const uint first = min(range.x, CleanRtxdiDiRluCurrentLightCount);
+    const uint count = min(range.y, CleanRtxdiDiRluCurrentLightCount - first);
+    return uint2(first, count);
+}
+
+uint PathTraceCleanRoomRluTypedSampleCount(uint lightType)
+{
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_REMIX_LIGHT_UNIVERSE) == 0u)
+    {
+        return 0u;
+    }
+
+    if (lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return (uint)max(CleanRtxdiDiRluSampleInfo.x, 0.0);
+    }
+    if (lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return (uint)max(CleanRtxdiDiRluSampleInfo.y, 0.0);
+    }
+    return 0u;
+}
+
+uint PathTraceCleanRoomRluTotalSampleCount()
+{
+    return (CleanRtxdiDiFlags & CLEAN_FLAG_REMIX_LIGHT_UNIVERSE) != 0u
+        ? (uint)max(CleanRtxdiDiRluSampleInfo.z, 0.0)
+        : 0u;
+}
+
+uint PathTraceCleanRoomRluNonEmptyRangeCount()
+{
+    return (CleanRtxdiDiFlags & CLEAN_FLAG_REMIX_LIGHT_UNIVERSE) != 0u
+        ? (uint)max(CleanRtxdiDiRluSampleInfo.w, 0.0)
+        : 0u;
+}
+
+bool PathTraceCleanRoomRluTypedProposalInfo(
+    uint lightType,
+    out uint2 range,
+    out uint sampleCount,
+    out uint totalSampleCount,
+    out uint nonEmptyRangeCount)
+{
+    range = PathTraceCleanRoomRluTypedRange(lightType);
+    sampleCount = min(PathTraceCleanRoomRluTypedSampleCount(lightType), range.y);
+    totalSampleCount = PathTraceCleanRoomRluTotalSampleCount();
+    nonEmptyRangeCount = PathTraceCleanRoomRluNonEmptyRangeCount();
+    return range.y > 0u && sampleCount > 0u && totalSampleCount > 0u && nonEmptyRangeCount > 0u;
+}
+
+float PathTraceCleanRoomRluTypedSourcePdf(uint lightType)
+{
+    uint2 range;
+    uint sampleCount;
+    uint totalSampleCount;
+    uint nonEmptyRangeCount;
+    if (!PathTraceCleanRoomRluTypedProposalInfo(lightType, range, sampleCount, totalSampleCount, nonEmptyRangeCount))
+    {
+        return 0.0;
+    }
+
+    return (float)sampleCount / max((float)range.y * (float)totalSampleCount, 1.0e-8);
 }
 
 void PathTraceCleanRoomAnalyticDiagnosticRange(out uint firstLightIndex, out uint lightCount)

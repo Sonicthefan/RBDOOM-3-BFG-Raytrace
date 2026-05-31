@@ -279,6 +279,8 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t doomAnalyticFullPreviousCount = 0;
     uint32_t rluDomain = 0;
     uint32_t rluDoomAnalyticParityProof = 0;
+    float rluRangeInfo[4] = {};
+    float rluSampleInfo[4] = {};
     float textureInfo[4] = {};
     float prevCameraOriginAndValid[4] = {};
     float prevCameraForwardAndTanX[4] = {};
@@ -295,7 +297,7 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     float neeCacheInfo1[4] = {};
 };
 
-static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 384, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
+static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 416, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
 
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
 {
@@ -2737,6 +2739,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(66, m_smokeRestirLightManagerCurrentPayloadBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(67, m_smokeRestirLightManagerPreviousPayloadBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(74, pdfNeePrepassNeeCacheProviderSrv),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(75, pdfNeePrepassNeeCacheCellSrv),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(77, pdfNeePrepassNeeCacheCandidateSrv),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(41, m_smokeSkinnedTriangleDispatchIndexBuffer),
                 nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture),
                 nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture),
@@ -2755,10 +2760,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(73, pdfNeePrepassReGIRCandidateSrv),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(74, pdfNeePrepassNeeCacheProviderSrv),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(75, pdfNeePrepassNeeCacheCellSrv),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(77, pdfNeePrepassNeeCacheCandidateSrv)
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(73, pdfNeePrepassReGIRCandidateSrv)
             };
             nvrhi::BindingSetHandle pdfNeePrepassBindingSet = device->createBindingSet(pdfNeePrepassBindingSetDesc, m_smokePdfNeeVerifierBindingLayout);
             if (!pdfNeePrepassBindingSet)
@@ -3314,6 +3316,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.doomAnalyticFullPreviousCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
         cleanConstants.rluDomain = cleanRluRoute ? cleanRluStats.domain : 0u;
         cleanConstants.rluDoomAnalyticParityProof = 0u;
+        cleanConstants.rluRangeInfo[0] = static_cast<float>(cleanRluRoute ? cleanRluStats.emissiveRangeOffset : 0u);
+        cleanConstants.rluRangeInfo[1] = static_cast<float>(cleanRluRoute ? cleanRluStats.emissiveRangeCount : 0u);
+        cleanConstants.rluRangeInfo[2] = static_cast<float>(cleanRluRoute ? cleanRluStats.doomAnalyticRangeOffset : 0u);
+        cleanConstants.rluRangeInfo[3] = static_cast<float>(cleanRluRoute ? cleanRluStats.doomAnalyticRangeCount : 0u);
+        cleanConstants.rluSampleInfo[0] = static_cast<float>(cleanRluRoute ? cleanRluStats.emissiveSampleCount : 0u);
+        cleanConstants.rluSampleInfo[1] = static_cast<float>(cleanRluRoute ? cleanRluStats.doomAnalyticSampleCount : 0u);
+        cleanConstants.rluSampleInfo[2] = static_cast<float>(cleanRluRoute ? cleanRluStats.totalSampleCount : 0u);
+        cleanConstants.rluSampleInfo[3] = static_cast<float>(cleanRluRoute ? cleanRluStats.nonEmptyRangeCount : 0u);
         const int cleanTextureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0
             ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())
             : 0;
@@ -3933,6 +3943,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(66, m_smokeRestirLightManagerCurrentPayloadBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(67, m_smokeRestirLightManagerPreviousPayloadBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(74, pdfNeeNeeCacheProviderSrv),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(75, pdfNeeNeeCacheCellSrv),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(77, pdfNeeNeeCacheCandidateSrv),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(41, m_smokeSkinnedTriangleDispatchIndexBuffer),
             nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture),
             nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture),
@@ -3951,10 +3964,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(73, pdfNeeReGIRCandidateSrv),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(74, pdfNeeNeeCacheProviderSrv),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(75, pdfNeeNeeCacheCellSrv),
-            nvrhi::BindingSetItem::StructuredBuffer_SRV(77, pdfNeeNeeCacheCandidateSrv)
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(73, pdfNeeReGIRCandidateSrv)
         };
         pdfNeeVerifierBindingSet = device->createBindingSet(pdfNeeBindingSetDesc, m_smokePdfNeeVerifierBindingLayout);
         if (!pdfNeeVerifierBindingSet)
@@ -4677,10 +4687,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (rrxEmissiveSamplingEnabled || regirNeedsEmissiveRange || pdfNeeNeedsCurrentRluTypedRanges || neeCacheNeedsCurrentRluEmissiveRange) ? rawEmissiveRangeCount : 0u;
     const uint32_t activeDoomAnalyticRangeCount =
         (rrxDoomAnalyticSamplingEnabled || regirNeedsDoomAnalyticRange || pdfNeeNeedsCurrentRluTypedRanges || neeCacheNeedsCurrentRluDoomAnalyticRange) ? rawDoomAnalyticRangeCount : 0u;
+    const uint32_t shaderEmissiveRangeCount = useRemixLightManagerRabSource ? rawEmissiveRangeCount : activeEmissiveRangeCount;
+    const uint32_t shaderDoomAnalyticRangeCount = useRemixLightManagerRabSource ? rawDoomAnalyticRangeCount : activeDoomAnalyticRangeCount;
     constants.restirLightManagerRangeInfo[0] = static_cast<float>(rawEmissiveRangeOffset);
-    constants.restirLightManagerRangeInfo[1] = static_cast<float>(activeEmissiveRangeCount);
+    constants.restirLightManagerRangeInfo[1] = static_cast<float>(shaderEmissiveRangeCount);
     constants.restirLightManagerRangeInfo[2] = static_cast<float>(rawDoomAnalyticRangeOffset);
-    constants.restirLightManagerRangeInfo[3] = static_cast<float>(activeDoomAnalyticRangeCount);
+    constants.restirLightManagerRangeInfo[3] = static_cast<float>(shaderDoomAnalyticRangeCount);
     const uint32_t activeTotalRangeCount = activeEmissiveRangeCount + activeDoomAnalyticRangeCount;
     const uint32_t legacyRequestedTotal = RrxDiRequestedInitialSampleBudget(
         activeEmissiveRangeCount,
@@ -4699,12 +4711,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         : (useRemixLightManagerRabSource
             ? remixLightManagerStats.doomAnalyticSampleCount
             : RrxDiBoundedRangeSampleCount(activeDoomAnalyticRangeCount, activeTotalRangeCount, legacyRequestedTotal));
-    constants.restirLightManagerSampleInfo[0] = static_cast<float>(boundedEmissiveSampleCount);
-    constants.restirLightManagerSampleInfo[1] = static_cast<float>(boundedDoomAnalyticSampleCount);
-    constants.restirLightManagerSampleInfo[2] = static_cast<float>(boundedEmissiveSampleCount + boundedDoomAnalyticSampleCount);
-    constants.restirLightManagerSampleInfo[3] = static_cast<float>(
-        (activeEmissiveRangeCount > 0 ? 1u : 0u) +
-        (activeDoomAnalyticRangeCount > 0 ? 1u : 0u));
+    const uint32_t shaderEmissiveSampleCount = useRemixLightManagerRabSource ? remixLightManagerStats.emissiveSampleCount : boundedEmissiveSampleCount;
+    const uint32_t shaderDoomAnalyticSampleCount = useRemixLightManagerRabSource ? remixLightManagerStats.doomAnalyticSampleCount : boundedDoomAnalyticSampleCount;
+    const uint32_t shaderTotalSampleCount = useRemixLightManagerRabSource
+        ? remixLightManagerStats.totalSampleCount
+        : (boundedEmissiveSampleCount + boundedDoomAnalyticSampleCount);
+    const uint32_t shaderNonEmptyRangeCount = useRemixLightManagerRabSource
+        ? remixLightManagerStats.nonEmptyRangeCount
+        : ((activeEmissiveRangeCount > 0 ? 1u : 0u) + (activeDoomAnalyticRangeCount > 0 ? 1u : 0u));
+    constants.restirLightManagerSampleInfo[0] = static_cast<float>(shaderEmissiveSampleCount);
+    constants.restirLightManagerSampleInfo[1] = static_cast<float>(shaderDoomAnalyticSampleCount);
+    constants.restirLightManagerSampleInfo[2] = static_cast<float>(shaderTotalSampleCount);
+    constants.restirLightManagerSampleInfo[3] = static_cast<float>(shaderNonEmptyRangeCount);
     constants.restirPTInfo[0] = static_cast<float>(restirPTFrameIndex);
     constants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
     constants.restirPTInfo[2] = (restirPTPassPlan.flags & RT_RESTIR_PASS_TRACES_VISIBILITY) != 0 ? 1.0f : 0.0f;
@@ -4805,7 +4823,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             ? "nee-cache-provider"
             : (typedPolicy ? "typed-stratified-rlu" : "full-domain-uniform-rlu");
         common->Printf(
-            "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer route enable=%d requestedEnable=%d samples=%d visibility=%d sourcePolicy=%d(%s) debugMode=%d rluDomain=%u managerCount=%d previousCount=%d rluRanges emissive=%d+%d doomAnalytic=%d+%d neeCacheProvider requested/ready=%d/%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 classProbability emissive=%.3f doomAnalytic=%.3f sourcePdf=%s sourcePdfFormula=%s invSourcePdfFormula=%s producerHelperSequence=RTXDI_DIInitialSamplingParameters,RTXDI_RandomSamplerState,nee-cache-ris-candidate-or-fallback,RTXDI_StreamSample,RTXDI_FinalizeResampling reservoirM=1 normalizationDenominator=requestedLocalSamples selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=%s\n",
+            "PathTracePrimaryPass: ReSTIR PDF+NEE RLU current producer route enable=%d requestedEnable=%d samples=%d visibility=%d sourcePolicy=%d(%s) debugMode=%d rluDomain=%u managerCount=%d previousCount=%d rluRanges emissive=%d+%d doomAnalytic=%d+%d rluSampleInfo emissive/doom/total/nonEmpty=%d/%d/%d/%d neeCacheProvider requested/ready=%d/%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 classProbability emissive=%.3f doomAnalytic=%.3f sourcePdf=%s sourcePdfFormula=%s invSourcePdfFormula=%s producerHelperSequence=RTXDI_DIInitialSamplingParameters,RTXDI_RandomSamplerState,nee-cache-ris-candidate-or-fallback,RTXDI_StreamSample,RTXDI_FinalizeResampling reservoirM=1 normalizationDenominator=requestedLocalSamples selectedLightIdentity=dense-current-rlu-lightIndex solidAnglePdf=RAB_SampleActiveRrxPolymorphicLight targetPdf=RAB_GetLightSampleTargetPdfForSurface finalContribution=RAB_GetReflectedBsdfRadianceForSurface*reservoirInvPdf/solidAnglePdf*visibility cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanReservoirPage=u69 firstMissingContract=%s temporal=0 spatial=0 bestLights=0 denoiser=0 mode56=%d oldPdfNee=discarded task=%s\n",
             idStr::Icmp(firstMissingContract, "none") == 0 ? 1 : 0,
             r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
             pdfNeeVerifierSamples,
@@ -4820,6 +4838,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             emissiveCount,
             static_cast<int>(constants.restirLightManagerRangeInfo[2]),
             doomAnalyticCount,
+            static_cast<int>(constants.restirLightManagerSampleInfo[0]),
+            static_cast<int>(constants.restirLightManagerSampleInfo[1]),
+            static_cast<int>(constants.restirLightManagerSampleInfo[2]),
+            static_cast<int>(constants.restirLightManagerSampleInfo[3]),
             pdfNeeNeeCacheProviderRequested ? 1 : 0,
             pdfNeeNeeCacheProviderReady ? 1 : 0,
             emissiveClassProbability,
