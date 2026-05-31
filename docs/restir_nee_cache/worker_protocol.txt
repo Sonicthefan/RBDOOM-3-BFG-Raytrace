@@ -16,6 +16,10 @@ The worker must state:
     exact whitelist outputs written
     exact provider ABI, if task id is NEECACHE-01 or later
     exact shader struct/register layout, if task id is NEECACHE-01 or later
+    selected consumer lane:
+        GI / secondary NEE
+        clean RTXDI DI proposal
+        experimental PDFNEE visual
     source-provider boundary
     selected dense RLU identity contract
     sourcePdf / invSourcePdf contract
@@ -37,7 +41,10 @@ Only when a task explicitly names them:
     resource/binding code for cache buffers
     CVars for this lane
     debug views for this lane
-    PDFNEE source-provider adapter, after standalone proof
+    clean RTXDI DI proposal adapter, only when the task explicitly names it
+    GI / secondary NEE consume adapter, only when the task explicitly names it
+    PDFNEE source-provider adapter, after standalone proof, as preserved
+        experimental visual mode
     documentation in this folder
 
 
@@ -76,6 +83,9 @@ Unacceptable implementation:
     broad light suppression
     fallback beauty/albedo
     debug heatmap as quality proof
+    cell-owned finished reservoir
+    cell-owned final direct-light color for clean DI
+    deleting the experimental PDFNEE visual lane without an explicit task
 
 
 Proof Report Format
@@ -133,8 +143,10 @@ The following are diagnostic only:
     allocation survival
     valid buffer names
 
-They cannot prove final NEE quality without user visual testing of current
-PDFNEE output after the standalone source-provider proof passes.
+They cannot prove final NEE quality without user visual testing of the selected
+consumer lane. PDFNEE output is only proof for the preserved experimental
+visual lane. Clean DI proof must use clean RTXDI DI views. GI/secondary proof
+must use the path/indirect consumer.
 
 
 Stop Conditions
@@ -150,5 +162,7 @@ Stop immediately if:
     cache-only mode is needed for normal function
     debug view is required before the normal path populates
     RAB replay fails for valid candidates
+    clean DI proposal path consumes a finished reservoir from the provider
+    one cache cell deterministically drives every pixel to one light
     proof requires broad suppression, spatial, best lights, mode 56, or old
         PDFNEE/ReGIR routes

@@ -26,6 +26,22 @@ CPU/resource owner:
 
 No old ReGIR/PDFNEE verifier route owns this ABI.
 
+Consumer roles:
+
+    GI / secondary NEE:
+        default Remix-style NEE cache destination; consumes emissive
+        triangle/surface candidates with explicit PDFs and MIS.
+
+    Clean RTXDI DI proposal:
+        may consume dense current RLU identities and sourcePdf/invSourcePdf as
+        initial proposals only. Clean DI owns reservoir construction,
+        temporal/spatial reuse, visibility, and final shading.
+
+    PDFNEE visual:
+        preserved alternate sourcePolicy 2 testing lane. Keep it available for
+        image-quality and research comparisons, but do not treat it as the
+        default Remix-like consume path.
+
 
 Provider Function Boundary
 --------------------------
@@ -49,10 +65,70 @@ Output side:
 The provider returns identity and source-distribution metadata only. It does
 not compute final direct-light contribution, visibility, temporal reservoirs,
 spatial reservoirs, best-light state, or denoiser/confidence/gradient data.
+It must not return a finished DI reservoir or one deterministic cell-owned
+light for all pixels in a cell.
 
 
-PDFNEE Boundary
----------------
+Clean RTXDI DI Proposal Boundary
+--------------------------------
+
+Clean RTXDI DI may consume this provider only as an initial proposal source.
+
+Allowed output:
+
+    selectedDenseRluIndex
+    sourcePdf
+    invSourcePdf
+    sourceLabel
+    mixtureProbability
+    fallbackReason
+
+Required consume shape:
+
+    opt in with r_pathTracingCleanRtxdiDiNeeCacheProvider
+    bind provider result, cell, and candidate buffers as SRV t74/t75/t77 in
+        the clean RTXDI DI sentinel
+    map current surface world position to cache/proposal cell
+    draw a per-pixel stochastic candidate from the cell or full-RLU/typed
+        fallback
+    replay the selected dense RLU identity through the normal RAB helpers
+    stream the proposal through RTXDI_StreamSample / RTXDI_FinalizeResampling
+
+Forbidden consume shape:
+
+    read one preselected provider result for every pixel in a cell
+    consume a provider-owned finished reservoir
+    consume provider-computed final direct-light color
+    edit clean RTXDI temporal accumulation to hide proposal artifacts
+
+
+GI / Secondary NEE Boundary
+---------------------------
+
+The default Remix-style NEE cache consumer is the path/indirect integrator.
+In rbdoom that boundary is RAB_RecordSmokeNeeSample during ReSTIR PT initial
+path sampling. Legacy mode 18 is not part of the validation contract.
+
+The GI/secondary consumer may use:
+
+    emissive triangle/surface identity
+    selected candidate PDF
+    solidAnglePdf
+    emitted radiance
+    visibility result
+    MIS input
+    fallback reason
+
+This consumer must be testable independently from clean RTXDI DI and from the
+experimental PDFNEE visual lane.
+
+
+PDFNEE Visual Boundary
+----------------------
+
+This boundary is preserved as an alternate visual testing mode. Do not delete
+it unless a later task explicitly asks for that. Do not claim default Remix
+NEE-cache parity from this lane alone.
 
 Call/read site:
 
@@ -433,7 +509,7 @@ Provider result policy:
 
 This diagnostic does not consume old ReGIR/PDFNEE routes and does not perform
 final direct-light contribution inside the cache. The NEECACHE-07 PDFNEE bridge
-is a separate current-frame consumer of the same provider result buffer.
+is a separate alternate visual consumer of the same provider result buffer.
 
 DebugView 11 is a visual inspection route for the light data consumed by this
 diagnostic lane. It shades flat surfaces from the current candidate records and
@@ -467,9 +543,11 @@ Lifetime:
     Recreated when the fixed budget or stride changes.
     Cleared when resources are allocated, scene resources reset, or the current
     RLU structural, mapping, payload, or payload-only signature state changes.
-    Candidate identities remain dense current RLU indexes and every
-    provider/PDFNEE consume path must replay the current payload and recompute
-    current cell weight before selection.
+    Candidate identities remain dense current RLU indexes for DI/PDFNEE
+    proposal lanes, and every provider/PDFNEE consume path must replay the
+    current payload and recompute current cell weight before selection.
+    GI/secondary NEE triangle candidates must likewise replay current geometry
+    and material identity before use.
 
 Buffers:
 
@@ -549,7 +627,7 @@ The dump reports:
     shader struct and C++ mirror struct
     reserved binding slots
     provider function boundary
-    future PDFNEE boundary
+    future consumer boundaries
     sourceLabel enum
     fallbackReason enum
     resource counts and bytes

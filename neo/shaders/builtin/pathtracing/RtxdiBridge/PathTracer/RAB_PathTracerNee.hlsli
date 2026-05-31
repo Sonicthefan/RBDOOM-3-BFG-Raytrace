@@ -346,8 +346,253 @@ bool RAB_RecordSmokeRisNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface 
         ptRandContext.initialRandomSamplerState);
 }
 
+bool RAB_NeeCacheSecondaryConsumerReady()
+{
+    return NeeCacheConsumerInfo.x >= 0.5 &&
+        NeeCacheInfo0.x >= 0.5 &&
+        NeeCacheInfo3.y >= 0.5 &&
+        NeeCacheInfo3.z > 0.0 &&
+        NeeCacheInfo1.w > 0.0 &&
+        NeeCacheInfo2.w > 0.0;
+}
+
+float RAB_NeeCacheSecondaryEmissiveWeight(RAB_LightInfo lightInfo, PathTraceNeeCacheCellDebug cell)
+{
+    if (!RAB_IsLightInfoValid(lightInfo) ||
+        lightInfo.unifiedLightType != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
+        lightInfo.area <= 1.0e-6)
+    {
+        return 0.0;
+    }
+
+    const float3 cellCenter = (float3(cell.coord) + 0.5) * max(cell.cellSize, 1.0);
+    const float3 toCell = cellCenter - lightInfo.position;
+    const float distanceSquared = dot(toCell, toCell);
+    const float normalFacing = saturate(dot(RAB_LightInfoSafeNormalize(toCell, lightInfo.normal), lightInfo.normal));
+    const float cellRadius = max(cell.cellSize, 1.0) * 0.8660254;
+    const float luminance = max(RAB_Luminance(lightInfo.radiance), 0.0);
+    const float sourceWeight = max(lightInfo.weight, luminance);
+    return sourceWeight * lightInfo.area * (0.2 + 0.8 * normalFacing) /
+        max(distanceSquared + cellRadius * cellRadius, 1.0);
+}
+
+bool RAB_NeeCacheSecondaryCandidateUsable(
+    PathTraceNeeCacheCandidateRecord candidate,
+    uint currentRluLightCount,
+    out RAB_LightInfo lightInfo)
+{
+    lightInfo = RAB_EmptyLightInfo();
+    if (candidate.flags == 0u ||
+        candidate.denseRluIndex >= currentRluLightCount ||
+        candidate.lightClass != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
+        candidate.sourcePdf <= 0.0 ||
+        candidate.invSourcePdf <= 0.0)
+    {
+        return false;
+    }
+
+    lightInfo = RAB_LoadLightInfo(candidate.denseRluIndex, false);
+    return RAB_IsLightInfoValid(lightInfo) &&
+        lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+}
+
+bool RAB_NeeCacheSecondarySelectEmissiveCandidate(
+    inout RTXDI_RandomSamplerState rng,
+    PathTraceNeeCacheCellDebug cell,
+    uint currentRluLightCount,
+    out uint selectedDenseRluIndex,
+    out float selectedSourcePdf)
+{
+    selectedDenseRluIndex = RAB_INVALID_LIGHT_INDEX;
+    selectedSourcePdf = 0.0;
+
+    const uint candidateSlots = max((uint)max(NeeCacheInfo1.w, 0.0), 1u);
+    const uint baseSlot = cell.cellIndex * candidateSlots;
+    const PathTraceNeeCacheCellRecord storedCell = PathTraceNeeCacheCells[cell.cellIndex];
+    if (storedCell.flags == 0u || storedCell.hash != cell.hash)
+    {
+        return false;
+    }
+
+    float totalWeight = 0.0;
+    [loop]
+    for (uint slot = 0u; slot < candidateSlots; ++slot)
+    {
+        RAB_LightInfo lightInfo;
+        const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + slot];
+        if (RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, lightInfo))
+        {
+            totalWeight += RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
+        }
+    }
+
+    if (totalWeight <= 0.0)
+    {
+        return false;
+    }
+
+    const float threshold = RTXDI_GetNextRandom(rng) * totalWeight;
+    float cumulativeWeight = 0.0;
+    PathTraceNeeCacheCandidateRecord selectedCandidate = (PathTraceNeeCacheCandidateRecord)0;
+    selectedCandidate.denseRluIndex = RAB_INVALID_LIGHT_INDEX;
+
+    [loop]
+    for (uint selectSlot = 0u; selectSlot < candidateSlots; ++selectSlot)
+    {
+        RAB_LightInfo lightInfo;
+        const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + selectSlot];
+        if (!RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, lightInfo))
+        {
+            continue;
+        }
+
+        const float currentWeight = RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
+        if (currentWeight <= 0.0)
+        {
+            continue;
+        }
+        cumulativeWeight += currentWeight;
+        if (selectedCandidate.denseRluIndex == RAB_INVALID_LIGHT_INDEX && cumulativeWeight >= threshold)
+        {
+            selectedCandidate = candidate;
+        }
+    }
+
+    if (selectedCandidate.denseRluIndex == RAB_INVALID_LIGHT_INDEX)
+    {
+        return false;
+    }
+
+    float selectedIdentityWeight = 0.0;
+    [loop]
+    for (uint pdfSlot = 0u; pdfSlot < candidateSlots; ++pdfSlot)
+    {
+        RAB_LightInfo lightInfo;
+        const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + pdfSlot];
+        if (candidate.denseRluIndex == selectedCandidate.denseRluIndex &&
+            RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, lightInfo))
+        {
+            selectedIdentityWeight += RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
+        }
+    }
+
+    const float cacheProbability = 1.0 - saturate(NeeCacheInfo2.y);
+    selectedSourcePdf = cacheProbability * selectedIdentityWeight / max(totalWeight, 1.0e-8);
+    if (selectedSourcePdf <= 0.0)
+    {
+        return false;
+    }
+
+    selectedDenseRluIndex = selectedCandidate.denseRluIndex;
+    return true;
+}
+
+bool RAB_RecordNeeCacheSecondarySample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
+{
+    if (!RAB_NeeCacheSecondaryConsumerReady() ||
+        !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    const float fallbackProbability = saturate(NeeCacheInfo2.y);
+    if (RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState) < fallbackProbability)
+    {
+        return false;
+    }
+
+    const uint currentRluLightCount = (uint)max(NeeCacheInfo3.z, 0.0);
+    const PathTraceNeeCacheCellDebug cell = PathTraceNeeCacheMapWorldPositionToCell(
+        RAB_GetSurfaceWorldPos(surface),
+        CameraOriginAndTMax.xyz,
+        max((uint)NeeCacheInfo1.x, 1u),
+        max(NeeCacheInfo1.y, 1.0),
+        max((uint)NeeCacheInfo1.z, 1u));
+    if (cell.valid == 0u || cell.cellIndex >= (uint)max(NeeCacheInfo2.w, 0.0))
+    {
+        return false;
+    }
+
+    uint selectedDenseRluIndex;
+    float selectedSourcePdf;
+    if (!RAB_NeeCacheSecondarySelectEmissiveCandidate(
+        ptRandContext.initialRandomSamplerState,
+        cell,
+        currentRluLightCount,
+        selectedDenseRluIndex,
+        selectedSourcePdf))
+    {
+        return false;
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(selectedDenseRluIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo) ||
+        lightInfo.unifiedLightType != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return false;
+    }
+
+    const float2 lightUv = float2(
+        RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState),
+        RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState));
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, lightUv);
+    if (lightSample.valid == 0u || lightSample.solidAnglePdf <= 0.0)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float scatterPdf = RAB_GetSurfaceBrdfPdf(surface, lightDir);
+    const float neePdf = selectedSourcePdf * lightSample.solidAnglePdf;
+    if (scatterPdf <= 0.0 || neePdf <= 0.0)
+    {
+        return false;
+    }
+
+    const float visibility = NeeCacheConsumerInfo.z >= 0.5
+        ? (RAB_GetSelectedNeeVisibility(surface, lightSample) ? 1.0 : 0.0)
+        : 1.0;
+    if (visibility <= 0.0)
+    {
+        return false;
+    }
+
+    const float3 reflectedRadiance = RAB_GetReflectedBsdfRadianceForSurface(
+        lightSample.position,
+        lightSample.radiance,
+        surface);
+    const float misWeight = GetMISWeightForNEELight(
+        selectedDenseRluIndex,
+        lightSample,
+        RAB_GetSurfaceWorldPos(surface),
+        scatterPdf);
+    const float3 radianceOverPdf = reflectedRadiance * visibility * misWeight / max(neePdf, 1.0e-6);
+    if (RAB_Luminance(radianceOverPdf) <= 0.0)
+    {
+        return false;
+    }
+
+    RTXDI_SampledLightData sampledLightData = RTXDI_SampledLightData_CreateInvalidData();
+    RTXDI_SampledLightData_SetLightData(sampledLightData, selectedDenseRluIndex);
+    RTXDI_SampledLightData_SetUVData(sampledLightData, lightUv);
+
+    return ctx.RecordNeeLightSample(
+        sampledLightData,
+        radianceOverPdf,
+        neePdf,
+        scatterPdf,
+        lightSample,
+        ptRandContext.initialRandomSamplerState);
+}
+
 bool RAB_RecordSmokeNeeSample(inout RTXDI_PathTracerContext ctx, RAB_Surface surface, inout RTXDI_PathTracerRandomContext ptRandContext)
 {
+    if (RAB_RecordNeeCacheSecondarySample(ctx, surface, ptRandContext))
+    {
+        return true;
+    }
     if (RAB_UnifiedNeeProducerEnabled())
     {
         return RAB_RecordUnifiedNeeSample(ctx, surface, ptRandContext);

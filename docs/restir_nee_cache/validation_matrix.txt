@@ -7,12 +7,15 @@ Rung V-00: Read-Only Contract Audit
 Purpose:
 
     Compare Remix NEE cache, RTXDI ReGIR, current rbdoom ReGIR scaffolding,
-    current RLU, and current PDFNEE producer before implementation.
+    current RLU, current PDFNEE producer, clean RTXDI DI initial sampling,
+    and path/indirect integration before implementation.
 
 Pass:
 
     worker names exact reference files, rbdoom read set, proposed write set,
-    whitelist ids, CVars, source-provider boundary, and first missing contract
+    whitelist ids, CVars, source-provider boundary, the split between
+    GI/secondary NEE, clean DI proposals, and experimental PDFNEE visual mode,
+    and first missing contract
 
 Fail:
 
@@ -39,7 +42,10 @@ Pass:
 
     enabling/disabling changes only this lane's resources and dumps
     worker names shader struct, binding slots, buffer owner, provider
-    function boundary, and future PDFNEE call/read boundary
+    function boundary, and future consumer call/read boundaries for:
+        GI / secondary NEE
+        clean RTXDI DI proposal
+        experimental PDFNEE visual mode
 
 Fail:
 
@@ -224,7 +230,7 @@ Rung V-06: Cache/Fallback Mixture Proof
 
 Purpose:
 
-    Prove the provider remains covered and unbiased enough for PDFNEE consume.
+    Prove the provider remains covered and unbiased enough for its consumers.
 
 Expected:
 
@@ -252,12 +258,14 @@ Fail:
     missing candidates produce black/zero with no fallback
 
 
-Rung V-07: PDFNEE Current-Frame Consume
----------------------------------------
+Rung V-07: Experimental PDFNEE Current-Frame Consume
+----------------------------------------------------
 
 Purpose:
 
-    Let replacement PDFNEE consume the cache as one optional source provider.
+    Let replacement PDFNEE consume the cache as one optional source provider
+    for visual testing. This lane is preserved but is not the default Remix-like
+    NEE cache consumer.
 
 Expected:
 
@@ -290,6 +298,7 @@ Pass:
         strobe in the PDFNEE output
     user sees current-frame noise behavior change plausibly without changing
     the mean lighting contract
+    report explicitly states this is the alternate PDFNEE visual lane
 
 Fail:
 
@@ -297,16 +306,31 @@ Fail:
     PDFNEE uses different source settings than the cache dump
     sourcePolicy 2 silently falls back to typed RLU sampling when the provider
         is unavailable
+    worker deletes or disables this lane because it is not the default
+        architecture
+    worker claims Remix NEE-cache parity from this lane alone
 
 
-Rung V-08: Importance / RIS Proposal Selection
-----------------------------------------------
+Rung V-08: Experimental PDFNEE Importance / RIS Proposal Selection
+------------------------------------------------------------------
 
 Purpose:
 
     Prove sourcePolicy 2 is a real RIS proposal source over the current
     cache/fallback distribution, not a single selected light from the mapped
     cache cell.
+
+    This rung validates only the rbdoom research/visual lane. It must not be
+    used to claim RTX Remix NEE-cache parity, ReSTIR PT parity, or production
+    primary-DI readiness.
+
+Runtime result:
+
+    A valid NEECACHE-08 dump proves the RIS wrapper and sourcePolicy 2 plumbing
+    are active, but similar visual behavior to the previous direct NEE-cache
+    lane is not a deployment failure. If conservative RLU mapping/payload
+    invalidation is active, the lane may not retain enough useful state to
+    stabilize as primary DI.
 
 Expected:
 
@@ -334,12 +358,114 @@ Pass:
     retained candidates survive new samples unless a stronger candidate is
         admitted
     no cell-sized one-light projection remains as the dominant behavior
+    report says whether the remaining instability makes the lane research-only
 
 Fail:
 
     sourcePolicy 2 streams only one cache/fallback proposal per pixel
     sourcePdf omits the cache/fallback mixture probability
     RIS is faked by final direct-light contribution inside the cache
+    worker claims RTX Remix or ReSTIR PT use this NEE cache as primary DI
+    worker treats sourcePolicy 2 as the production proof path for primary DI
+    worker weakens RLU signature invalidation to make this visual lane retain
+        candidates without a separate proof against stale light poisoning
+
+
+Rung V-09: Clean RTXDI DI Spatial Proposal Provider
+---------------------------------------------------
+
+Purpose:
+
+    Prove clean RTXDI DI can use ReGIR-style spatial proposals from the
+    provider without making the provider a reservoir owner or visible cell-grid
+    lighting path.
+
+Expected:
+
+    clean RTXDI DI current reservoir construction remains the owner
+    provider returns dense current RLU identity and sourcePdf/invSourcePdf only
+    r_pathTracingCleanRtxdiDiNeeCacheProvider enables the provider path
+    clean sentinel binds provider/cell/candidate buffers as SRV t74/t75/t77
+    each pixel draws its own candidate from the mapped cell / fallback mixture
+    full-RLU or typed fallback remains explicit
+    selected candidate replays through normal RAB helpers
+    RTXDI_StreamSample and RTXDI_FinalizeResampling perform selection
+    clean DI temporal accumulation is unchanged
+
+Pass:
+
+    clean RTXDI DI dump reports cleanNeeCacheProvider requested/ready=1/1
+        when the provider is enabled and ready
+    clean RTXDI DI dump reports providerResultSrv=t74 cellSrv=t75
+        candidateSrv=t77
+    fallback-only provider matches current clean RTXDI DI full-RLU baseline
+    enabling cache proposals changes proposal distribution/noise, not the
+        light universe or reservoir page contract
+    selected-dense-index debug view is per-pixel stochastic/dithered and does
+        not show one deterministic light square per cell
+    clean RTXDI DI view 12 remains the proof target
+
+Fail:
+
+    provider returns a finished DI reservoir
+    provider computes final direct-light color for clean DI
+    all pixels in a cell reuse one selected light
+    cell boundaries are visible as synchronized light-selection squares
+    clean RTXDI temporal accumulation is edited to make the provider work
+
+
+Rung V-10: GI / Secondary NEE Cache Consumer
+--------------------------------------------
+
+Purpose:
+
+    Prove the Remix-like NEE cache is consumed by path/secondary NEE instead
+    of primary DI.
+
+Expected:
+
+    task feedback comes from real path/secondary events
+    emissive triangle/surface candidate consume is the first production target
+    selected candidate carries exact selection PDF, solidAnglePdf, emitted
+        radiance, visibility, and MIS inputs
+    bounce policy is explicit
+    disabling this consume path leaves clean RTXDI DI unchanged
+
+Pass:
+
+    GI/secondary NEE cache can be A/B tested independently from clean DI and
+        from PDFNEE sourcePolicy 2
+    stale/invalid candidates reject or fall back with explicit reason
+    no cached radiance is painted directly as final lighting
+
+First-slice runtime recipe:
+
+    r_pathTracingRemixLightUniverseEnable 1
+    r_pathTracingNeeCacheEnable 1
+    r_pathTracingNeeCacheSecondaryEnable 1
+    r_pathTracingNeeCacheSecondaryDump 1
+
+Isolation checks:
+
+    clean RTXDI DI may be disabled or left unchanged
+    r_pathTracingNeeCacheSecondaryEnable 0 returns to the existing ReSTIR PT
+        path-tracer NEE path
+    empty or stale cells must not black out lighting; they reject and fall back
+    the dump must report task=NEECACHE-10 and firstMissingContract=none before
+        visual A/B is meaningful
+    validation is normal-render A/B with r_pathTracingNeeCacheSecondaryEnable
+        0/1 until a dedicated NEE-cache secondary visualizer exists
+    firstMissingContract=no-emissive-secondary-consume-domain means the first
+        slice is correctly disabled because it only consumes emissive cache
+        candidates and the current RLU has no emissive range
+    legacy mode 18 is not a valid NEECACHE-10 validation route
+    ReSTIR PT debug modes 53-55 are not NEE-cache/RLU/clean-RTXDI proof views
+
+Fail:
+
+    GI cache replaces primary DI
+    cached candidate radiance is used without MIS/replay
+    stale map or animated-light candidates survive reset as valid lighting
 
 
 Hard Stop
@@ -347,5 +473,5 @@ Hard Stop
 
 Stop at the first failing rung.
 
-Do not continue to PDFNEE, temporal, spatial, best lights, or full ReGIR to
-hide a failing cell/candidate/PDF contract.
+Do not continue to PDFNEE, clean DI, GI/secondary consume, temporal, spatial,
+best lights, or full ReGIR to hide a failing cell/candidate/PDF contract.

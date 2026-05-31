@@ -4,14 +4,22 @@ Remix-Style NEE Cache CVar Contract
 Purpose
 -------
 
-Reserve a narrow CVar surface for the NEE cache proposal-provider lane.
+Reserve a narrow CVar surface for the NEE cache and related spatial proposal
+lanes.
 
 Default-functionality rule:
 
-    r_pathTracingNeeCacheEnable 1 must build/update the normal proposal
-    provider with useful defaults. DebugView, dump, forced mode, manual
-    parameters, and validation views are diagnostics only. They must not be
-    required before cells populate or candidates replay through RAB.
+    r_pathTracingNeeCacheEnable 1 must build/update the normal cache/provider
+    data with useful defaults. DebugView, dump, forced mode, manual parameters,
+    and validation views are diagnostics only. They must not be required before
+    cells populate or candidates replay through RAB.
+
+Consumer roles:
+
+    GI / secondary NEE consumes the Remix-like NEE cache.
+    Clean RTXDI DI may consume a separate lightweight spatial proposal provider
+        over dense current RLU identities.
+    PDFNEE sourcePolicy 2 is preserved as an alternate visual testing mode.
 
 
 Required CVars
@@ -20,7 +28,7 @@ Required CVars
 r_pathTracingNeeCacheEnable
 
     0 = disabled
-    1 = build/update the normal NEE cache proposal provider
+    1 = build/update the normal NEE cache / spatial proposal data
 
     Default: 0
 
@@ -160,6 +168,11 @@ r_pathTracingNeeCacheDump
 PDFNEE Consume CVar
 -------------------
 
+This lane is preserved for visual testing and research comparison. It is not
+the default Remix-style NEE cache consumer and must not be deleted.
+It must not be promoted to the production primary-DI route on the assumption
+that RTX Remix or ReSTIR PT already use the NEE cache that way.
+
 r_pathTracingRestirPdfNeeVerifierSourcePolicy
 
     Existing PDFNEE current-producer source-policy CVar. NEECACHE-07 adds only
@@ -172,6 +185,69 @@ r_pathTracingRestirPdfNeeVerifierSourcePolicy
     result buffer for the frame. When unavailable, dumps must report
     firstMissingContract=nee-cache-provider-not-ready-neecache-07 instead of
     silently falling back to typed RLU sampling.
+
+
+Future DI Proposal CVar
+-----------------------
+
+The clean DI spatial proposal provider should have its own opt-in CVar rather
+than reusing PDFNEE sourcePolicy.
+
+r_pathTracingCleanRtxdiDiNeeCacheProvider
+
+    0 = clean RTXDI DI uses its current proposal path
+    1 = clean RTXDI DI initial sampling may draw proposals from the spatial
+        provider / fallback mixture
+
+This CVar must not change clean RTXDI temporal accumulation settings. The
+provider may only affect initial current-frame proposal distribution.
+
+Required companion state:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingRemixLightUniverseEnable 1
+    r_pathTracingNeeCacheEnable 1
+
+Fallback-only A/B:
+
+    r_pathTracingNeeCacheFallbackProbability 1
+
+
+GI / Secondary NEE CVars
+------------------------
+
+r_pathTracingNeeCacheSecondaryEnable
+
+    0 = path/secondary NEE cache consume disabled
+    1 = path/secondary NEE may sample cache candidates according to the bounce
+        policy
+
+Default:
+
+    0
+
+r_pathTracingNeeCacheSecondaryDump
+
+    0 = no dump
+    1 = print the NEECACHE-10 secondary consumer contract once, then reset to 0
+
+Default:
+
+    0
+
+This is the default architectural destination for the NEE cache. It must be
+testable independently from clean RTXDI DI and from PDFNEE sourcePolicy 2.
+
+First production consume slice:
+
+    candidate class is restricted to current-RLU emissive candidates
+    replay goes through RAB_LoadLightInfo / RAB_SamplePolymorphicLight
+    contribution uses sourcePdf * solidAnglePdf and existing RAB MIS input
+    empty/stale/non-emissive candidates fall back to the existing secondary NEE
+        path
+    primary DI and clean RTXDI DI CVars are not required for this consumer
 
 
 Future / Not First Slice
@@ -197,6 +273,10 @@ NEE cache CVars must not:
     enable RRX reservoir pages
     enable spatial reuse
     enable best-light feedback
+    make PDFNEE sourcePolicy 2 the only normal consume path
+    use PDFNEE sourcePolicy 2 as proof of Remix/ReSTIR primary-DI parity
+    make clean DI consume a cell-owned finished reservoir
+    make all pixels in one cache cell consume one deterministic light
     suppress broad lights
     switch to fallback beauty or albedo
     hide effective parameter overrides from the dump

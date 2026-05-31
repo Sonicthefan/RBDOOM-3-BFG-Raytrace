@@ -969,6 +969,18 @@ idCVar r_pathTracingSecondaryAnalyticNeeSamples(
     CVAR_RENDERER | CVAR_INTEGER,
     "Number of uniformly sampled Doom analytic-light proposals evaluated per secondary/reflection NEE vertex when r_pathTracingSecondaryAnalyticNeeMode is 1" );
 
+idCVar r_pathTracingNeeCacheSecondaryEnable(
+    "r_pathTracingNeeCacheSecondaryEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable opt-in ReSTIR PT path-tracer NEE cache consumption through current RLU/RAB replay" );
+
+idCVar r_pathTracingNeeCacheSecondaryDump(
+    "r_pathTracingNeeCacheSecondaryDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump the ReSTIR PT GI/secondary NEE cache consumer contract once" );
+
 idCVar r_pathTracingIntegratorDump(
     "r_pathTracingIntegratorDump",
     "0",
@@ -1298,6 +1310,12 @@ idCVar r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI consumes the PDFNEE-produced current reservoir page at u69 instead of rebuilding its own initial reservoir; first slice supports analytic split-domain indices" );
+
+idCVar r_pathTracingCleanRtxdiDiNeeCacheProvider(
+    "r_pathTracingCleanRtxdiDiNeeCacheProvider",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI initial sampling may draw dense current RLU proposals from the NEE cache provider/fallback mixture; does not edit temporal or spatial reuse" );
 
 idCVar r_pathTracingCleanRtxdiDiDump(
     "r_pathTracingCleanRtxdiDiDump",

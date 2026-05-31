@@ -1,7 +1,9 @@
 Remix-Style NEE Cache I/O Whitelist
 ===================================
 
-This whitelist applies only to the NEE cache proposal-provider lane.
+This whitelist applies to the NEE cache and related spatial proposal lanes.
+Workers must name which consumer lane they are touching: GI / secondary NEE,
+clean RTXDI DI proposal, or experimental PDFNEE visual mode.
 
 
 Allowed Inputs
@@ -36,6 +38,7 @@ I-03: Candidate Feedback Events
 
     Allowed fields:
         dense RLU identity
+        emissive triangle/surface identity for GI / secondary NEE
         light class
         contribution/task value
         cell id
@@ -108,6 +111,9 @@ O-03: Candidate Buffer
 
 O-04: PDFNEE Source Provider Output
 
+    Role:
+        experimental visual testing mode only
+
     Required fields:
         selected dense RLU identity
         selected sourcePdf
@@ -115,6 +121,45 @@ O-04: PDFNEE Source Provider Output
         selected source label
         mixture probability
         fallback flag
+
+
+O-04A: Clean DI Proposal Output
+
+    Role:
+        initial proposal source for clean RTXDI DI
+
+    Required fields:
+        selected dense RLU identity
+        selected sourcePdf
+        selected invSourcePdf
+        selected source label
+        mixture probability
+        fallback reason
+
+    Clean DI binding:
+        provider result SRV t74
+        cell SRV t75
+        candidate SRV t77
+        opt-in CVar r_pathTracingCleanRtxdiDiNeeCacheProvider
+
+    Forbidden fields:
+        finished reservoir
+        final direct-light color
+
+
+O-04B: GI / Secondary NEE Candidate Output
+
+    Role:
+        Remix-style NEE cache consume by path/indirect integration
+
+    Required fields:
+        emissive triangle/surface identity
+        selection PDF
+        solidAnglePdf
+        emitted radiance
+        visibility result
+        MIS input
+        fallback reason
 
 
 O-05: Debug Views
@@ -156,6 +201,7 @@ Do not consume:
     best-light buffers
     denoiser/confidence/gradient buffers
     Doom portal candidate pools as the default source
+    provider-owned finished DI reservoirs
 
 
 Forbidden Outputs
@@ -169,6 +215,7 @@ Do not output:
     denoised output
     fallback beauty or albedo
     final direct-light color as cache proof
+    one deterministic selected light for every pixel in a cell
 
 
 Reject Condition

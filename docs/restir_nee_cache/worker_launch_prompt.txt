@@ -17,13 +17,18 @@ Branch:
 
 Task:
 
-    Work on the Remix-style NEE cache / RLU spatial proposal-provider lane.
-    The goal is to build a fixed-budget spatial proposal source over the
-    current RLU dense domain. It should first mimic Remix's useful NEE cache
-    behavior: log/hash cells, learned task values, emissive and analytic
-    candidates, exact source PDFs, and uniform/full-RLU fallback. If that
-    screen-space-discovered cache fails to deliver, the fallback plan is a
-    full ReGIR/onion provider behind the same source-provider interface.
+    Work on the Remix-style NEE cache / RLU spatial proposal-provider docs and
+    implementation tasks.
+
+    Default architecture:
+
+        Remix-style NEE cache feeds GI / secondary NEE.
+        Clean RTXDI DI gets a separate lightweight ReGIR-style spatial proposal
+        provider over dense current RLU identities.
+        Existing PDFNEE sourcePolicy 2 cache consume is preserved as an
+        alternate visual testing lane and must not be deleted.
+        RTX Remix and ReSTIR PT do not consume the Remix-style NEE cache as
+        their primary DI path; sourcePolicy 2 is rbdoom research/visual work.
 
 Read first:
 
@@ -40,8 +45,11 @@ Known state:
 
     The current accepted light identity is dense current RLU index. Clean RTXDI
     DI view 12 can consume RLU and accumulate real Doom lighting. Replacement
-    PDFNEE currently has functional current-frame plumbing but weak proposal
-    quality. The old PDFNEE/ReGIR verifier routes are diagnostic history only.
+    PDFNEE currently has functional current-frame plumbing and can be useful
+    for visual experiments, but it is no longer the default Remix-like NEE cache
+    destination and should not be promoted as production primary DI from
+    reference assumptions. The old PDFNEE/ReGIR verifier routes are diagnostic
+    history only.
 
 Standing restrictions:
 
@@ -57,6 +65,9 @@ Standing restrictions:
     no broad light suppression as a fix
     no copied Remix or RTXDI source text
     no final direct-light contribution inside the cache as proof
+    no cell-owned finished reservoir for clean DI
+    no deterministic one-light-per-cell DI consume
+    do not delete the PDFNEE visual lane unless explicitly instructed
 
 Reference file-equivalents:
 
@@ -78,6 +89,8 @@ First action:
     Report:
 
         exact proposal-provider boundary
+        exact split between GI/secondary NEE, clean DI proposals, and PDFNEE
+            visual consume
         exact provider ABI ambiguity to resolve in NEECACHE-01
         exact old ReGIR pieces to reuse or discard
         exact RLU input contract

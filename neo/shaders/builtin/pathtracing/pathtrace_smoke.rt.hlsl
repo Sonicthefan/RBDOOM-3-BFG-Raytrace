@@ -288,10 +288,6 @@ StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(
 ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
 RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
 #endif
-#ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
-#include "Rtxdi/DI/Reservoir.hlsli"
-#include "Rtxdi/DI/ReSTIRDIParameters.h"
-#include "Rtxdi/Utils/RandomSamplerState.hlsli"
 #include "RtxdiBridge/RAB_NeeCache.hlsli"
 struct PathTraceNeeCacheProviderResult
 {
@@ -330,10 +326,15 @@ struct PathTraceNeeCacheCellRecord
     uint reserved0;
     uint reserved1;
 };
-RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
 StructuredBuffer<PathTraceNeeCacheProviderResult> PathTraceNeeCacheProviderResults : register(t74);
 StructuredBuffer<PathTraceNeeCacheCellRecord> PathTraceNeeCacheCells : register(t75);
 StructuredBuffer<PathTraceNeeCacheCandidateRecord> PathTraceNeeCacheCandidates : register(t77);
+
+#ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
+#include "Rtxdi/DI/Reservoir.hlsli"
+#include "Rtxdi/DI/ReSTIRDIParameters.h"
+#include "Rtxdi/Utils/RandomSamplerState.hlsli"
+RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiCurrentReservoirs : register(u69);
 #define RTXDI_LIGHT_RESERVOIR_BUFFER CleanRtxdiDiCurrentReservoirs
 #include "Rtxdi/DI/ReservoirStorage.hlsli"
 #endif
@@ -414,6 +415,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 NeeCacheInfo1;
     float4 NeeCacheInfo2;
     float4 NeeCacheInfo3;
+    float4 NeeCacheConsumerInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;

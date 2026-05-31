@@ -4,11 +4,35 @@ Remix-Style NEE Cache / RLU Spatial Proposal Lane
 Purpose
 -------
 
-This folder defines a new rbdoom NEE proposal-provider lane.
+This folder defines the rbdoom Remix-style NEE cache and related spatial
+proposal work.
 
-The goal is to build a Remix-style NEE cache over the current Remix/RAB Light
-Universe (RLU) dense domain, then let PDFNEE consume it only as an optional
-source distribution after standalone proof.
+The default Remix-aligned goal is to build a NEE cache for GI / secondary
+direct-to-light sampling. The cache learns useful emissive triangle/surface
+candidates from path/secondary events, then the indirect integrator consumes
+those candidates as NEE proposals with explicit PDFs and MIS. It is not the
+default primary-DI lighting path.
+
+Primary DI still needs ReGIR-style spatial proposals, but that is a separate
+consumer role: clean RTXDI DI may use a lightweight spatial proposal provider
+that returns dense RLU light indices and source PDFs, then clean DI owns
+RTXDI_StreamSample, temporal/spatial reuse, visibility, and shading. DI must
+not consume a cell-owned finished reservoir or a cell-owned final light.
+
+The existing PDFNEE/cache consume path is preserved as an alternate visual
+testing mode. On some scenes it can produce very good raw image quality once
+settled, so do not delete it. It must remain fenced as experimental and must
+not be treated as the default Remix-like architecture until a later task proves
+how to stabilize and make it performant.
+
+Runtime note:
+
+    The PDFNEE sourcePolicy 2 lane is a rbdoom research/visual experiment. It
+    resembles some current-frame many-light proposal ideas, but RTX Remix does
+    not consume its NEE cache as primary DI, and ReSTIR PT / RTXDI do not supply
+    the missing stabilization and performance machinery for using this cache as
+    production primary DI. Do not continue by trying to force sourcePolicy 2
+    into the main DI path.
 
 This is not a continuation of the old PDFNEE/ReGIR verifier routes. Those
 routes are diagnostic history only. The current accepted lighting identity is
@@ -19,26 +43,46 @@ PDFNEE current-frame producer.
 Design Direction
 ----------------
 
-Primary implementation target:
+Default implementation target:
 
     fixed-budget Remix-style NEE cache
     camera-centered log/hash world cells
-    learned per-cell task values
-    separate emissive-triangle and analytic-light candidates
-    exact source PDF for every selected candidate
-    uniform/full-RLU fallback with explicit mixture PDF
+    learned per-cell task values from path/secondary events
+    emissive triangle/surface candidates first
+    exact source PDF and MIS inputs for every selected candidate
+    explicit fallback for empty or invalid cache cells
+    indirect/GI consumer boundary, not primary DI replacement
     debug views matching the useful Remix developer views
 
-Fallback implementation target, only if the primary target fails:
+Primary DI proposal target:
+
+    ReGIR-style spatial proposal provider over the current RLU dense domain
+    per-pixel stochastic candidate draw from the mapped cell or nearby cells
+    full-RLU fallback mixture with explicit sourcePdf/invSourcePdf
+    clean RTXDI DI initial sampling consumes the selected dense RLU identity
+    clean DI temporal/spatial accumulation remains unchanged
+    no cell-owned final light and no cell-owned finished reservoir
+
+Preserved alternate visual target:
+
+    PDFNEE sourcePolicy 2 / current-frame cache consume remains available for
+        image-quality experiments
+    it may use the same provider buffers and cache/fallback PDFs
+    it must stay opt-in and diagnostic/experimental
+    it must not become proof that the Remix-style GI cache or clean DI proposal
+        provider is complete
+    instability here does not prove the Remix GI/secondary NEE cache failed
+
+Fallback implementation target, only if the DI proposal target fails:
 
     full ReGIR/onion or bounded grid proposal provider only as a later escape
-        hatch after cache importance/RIS has been attempted
+        hatch after lightweight cache/cell proposal RIS has been attempted
     still selecting dense RLU identities
     still preserving exact source PDF and fallback mixture contracts
     still not owning final direct-light contribution
 
-The cache/grid is only a proposal source. It must not become a separate
-lighting path with private RAB math.
+The cache/grid/proposal provider is only a proposal source. It must not become
+a separate lighting path with private RAB math.
 
 
 First Missing Contract
@@ -62,10 +106,16 @@ Current NEECACHE-01 ABI document:
 
     provider_abi.txt
 
-Current first missing contract after the NEECACHE-07 PDFNEE current-frame
-consume bridge:
+Current first missing contract for the experimental PDFNEE visual lane after
+NEECACHE-08:
 
-    importance-ris-proposal-selection-neecache-08
+    none for the preserved visual/research path; do not treat sourcePolicy 2
+    as production primary-DI proof
+
+Current missing contract for Remix-aligned clean DI proposal integration:
+
+    runtime validation of r_pathTracingCleanRtxdiDiNeeCacheProvider in clean
+    RTXDI DI view 12
 
 NEECACHE-02 adds only the standalone cell-mapping debug route. NEECACHE-03
 adds a debug-primary-hit task accumulator in task slot 0 for each mapped cell.
@@ -74,12 +124,19 @@ buffer and exposes debugView 5. NEECACHE-05 adds current-RLU Doom analytic
 candidate records and exposes debugViews 6, 7, and 10. NEECACHE-06 writes
 PathTraceNeeCacheProviderResults at u74 and exposes debugViews 8 and 9 for the
 cache/fallback source and fallback reason. NEECACHE-07 lets the replacement
-PDFNEE current producer select that provider with
+PDFNEE current producer select that provider in the preserved alternate visual
+lane with
 r_pathTracingRestirPdfNeeVerifierSourcePolicy 2. PDFNEE binds u74 as SRV t74
 for provider readiness/debug parity and binds the fixed candidate list as SRV
 t77, then performs the cache/fallback draw per pixel so one preselected cell
 result cannot make the cache grid visible. PDFNEE still owns reservoir
-construction, visibility, and RAB lighting replay.
+construction, visibility, and RAB lighting replay. This is not the default
+Remix-style NEE cache consume path. NEECACHE-08 adds multiple RIS proposals per
+PDFNEE pixel for that preserved visual/research path. NEECACHE-09 adds the
+separate clean RTXDI DI opt-in
+r_pathTracingCleanRtxdiDiNeeCacheProvider, binds the NEE cache provider/cell/
+candidate buffers as SRV t74/t75/t77 in the clean sentinel, and streams selected
+dense current RLU identities through clean DI initial sampling.
 
 NEECACHE-05/06 candidate data is invalidated on current RLU structural, mapping,
 payload, and payload-only changes. Payload-only animation can move or retune
@@ -105,7 +162,7 @@ RTX Remix:
 
     E:/prog/references/dxvk-remix-git
 
-Primary Remix file-equivalents:
+Primary Remix NEE-cache file-equivalents:
 
     E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.h
     E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.cpp
@@ -116,6 +173,19 @@ Primary Remix file-equivalents:
     E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
     E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/nee_cache/update_nee_cache.comp.slang
     E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
+
+Remix consume ordering to preserve:
+
+    rtx_context.cpp dispatchPathTracing:
+        GBuffer
+        RTXDI DI
+        NEE cache
+        indirect/path integration
+
+    rtx_pathtracer_integrate_indirect.cpp:
+        NEE cache is compiled into and consumed by indirect integration.
+
+Do not reinterpret the Remix NEE cache as the primary DI pass.
 
 RTXDI SDK:
 
@@ -226,8 +296,20 @@ The user must be able to inspect:
     selected dense RLU identity
     RAB replay validity
 
-Only after that proof may PDFNEE consume the cache as an optional proposal
-source.
+After standalone proof, split work by consumer:
+
+    default Remix-like consumer:
+        GI / secondary NEE samples emissive triangle/surface cache candidates
+        with explicit PDFs and MIS
+
+    primary DI consumer:
+        clean RTXDI DI consumes only dense-RLU proposal identities/PDFs from a
+        lightweight ReGIR-style spatial provider, then clean DI owns the
+        reservoir and accumulation path
+
+    preserved alternate consumer:
+        PDFNEE sourcePolicy 2 may continue as an opt-in visual experiment and
+        should remain available for research comparisons
 
 
 Build / Deploy Lane
