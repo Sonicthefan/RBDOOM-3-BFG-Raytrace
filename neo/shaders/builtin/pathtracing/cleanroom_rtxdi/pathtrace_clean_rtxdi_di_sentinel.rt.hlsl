@@ -2548,6 +2548,164 @@ float3 PathTraceCleanRoomTargetInvPdfColor(float targetPdf, float invPdf)
         0.15);
 }
 
+bool PathTraceCleanRoomNeeCacheSelectBestSecondaryEmissiveCandidate(
+    PathTraceNeeCacheCellDebug cell,
+    out uint selectedDenseRluIndex,
+    out float selectedSourcePdf,
+    out float selectedWeight,
+    out float totalWeight,
+    out uint usableCount)
+{
+    selectedDenseRluIndex = 0xffffffffu;
+    selectedSourcePdf = 0.0;
+    selectedWeight = 0.0;
+    totalWeight = 0.0;
+    usableCount = 0u;
+
+    if (cell.valid == 0u || cell.cellIndex >= PathTraceCleanRoomNeeCacheCellCount())
+    {
+        return false;
+    }
+
+    const PathTraceNeeCacheCellRecord storedCell = CleanRtxdiDiNeeCacheCells[cell.cellIndex];
+    if (storedCell.flags == 0u || storedCell.hash != cell.hash)
+    {
+        return false;
+    }
+
+    const uint candidateSlots = PathTraceCleanRoomNeeCacheCandidateSlots();
+    const uint baseSlot = cell.cellIndex * candidateSlots;
+    [loop]
+    for (uint slot = 0u; slot < candidateSlots; ++slot)
+    {
+        const PathTraceNeeCacheCandidateRecord candidate = CleanRtxdiDiNeeCacheCandidates[baseSlot + slot];
+        if (candidate.lightClass != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
+            !PathTraceCleanRoomNeeCacheCandidateRecordUsable(candidate))
+        {
+            continue;
+        }
+
+        const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[candidate.denseRluIndex];
+        const float currentWeight = PathTraceCleanRoomNeeCacheEmissiveCandidateWeight(record, cell);
+        if (currentWeight <= 0.0)
+        {
+            continue;
+        }
+
+        usableCount++;
+        totalWeight += currentWeight;
+        if (currentWeight > selectedWeight)
+        {
+            selectedWeight = currentWeight;
+            selectedDenseRluIndex = candidate.denseRluIndex;
+        }
+    }
+
+    if (selectedDenseRluIndex == 0xffffffffu || totalWeight <= 0.0)
+    {
+        return false;
+    }
+
+    float selectedIdentityWeight = 0.0;
+    [loop]
+    for (uint pdfSlot = 0u; pdfSlot < candidateSlots; ++pdfSlot)
+    {
+        const PathTraceNeeCacheCandidateRecord candidate = CleanRtxdiDiNeeCacheCandidates[baseSlot + pdfSlot];
+        if (candidate.denseRluIndex != selectedDenseRluIndex ||
+            candidate.lightClass != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
+            !PathTraceCleanRoomNeeCacheCandidateRecordUsable(candidate))
+        {
+            continue;
+        }
+
+        const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[candidate.denseRluIndex];
+        selectedIdentityWeight += PathTraceCleanRoomNeeCacheEmissiveCandidateWeight(record, cell);
+    }
+
+    const float cacheProbability = 1.0 - saturate(CleanRtxdiDiNeeCacheInfo0.y);
+    selectedSourcePdf = cacheProbability * selectedIdentityWeight / max(totalWeight, 1.0e-8);
+    return selectedSourcePdf > 0.0;
+}
+
+float3 PathTraceCleanRoomNeeCacheSecondaryCandidateFieldColorFromSurface(PathTracePrimarySurfaceRecord surfaceRecord, uint2 pixel, uint2 dimensions)
+{
+    if (!PathTraceCleanRoomNeeCacheProviderEnabled())
+    {
+        return float3(0.55, 0.0, 0.85);
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(surfaceRecord);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return PathTraceCleanRoomStatusColor(CLEAN_INITIAL_STATUS_INVALID_SURFACE);
+    }
+
+    const PathTraceNeeCacheCellDebug cell = PathTraceNeeCacheMapWorldPositionToCell(
+        surface.worldPos,
+        CleanRtxdiDiCameraOriginAndValid.xyz,
+        max((uint)CleanRtxdiDiNeeCacheInfo1.x, 1u),
+        max(CleanRtxdiDiNeeCacheInfo1.y, 1.0),
+        PathTraceCleanRoomNeeCacheCellCount());
+    if (cell.valid == 0u || cell.cellIndex >= PathTraceCleanRoomNeeCacheCellCount())
+    {
+        return float3(0.95, 0.82, 0.05);
+    }
+
+    const PathTraceNeeCacheCellRecord storedCell = CleanRtxdiDiNeeCacheCells[cell.cellIndex];
+    if (storedCell.flags == 0u || storedCell.hash != cell.hash)
+    {
+        return float3(0.50, 0.10, 0.02);
+    }
+
+    uint selectedDenseRluIndex;
+    float selectedSourcePdf;
+    float selectedWeight;
+    float totalWeight;
+    uint usableCount;
+    if (!PathTraceCleanRoomNeeCacheSelectBestSecondaryEmissiveCandidate(
+        cell,
+        selectedDenseRluIndex,
+        selectedSourcePdf,
+        selectedWeight,
+        totalWeight,
+        usableCount))
+    {
+        const float occupancy = saturate((float)storedCell.candidateCount / max((float)PathTraceCleanRoomNeeCacheCandidateSlots(), 1.0));
+        return float3(0.02, 0.08 + occupancy * 0.20, 0.28 + occupancy * 0.32);
+    }
+
+    const uint third = max(dimensions.x / 3u, 1u);
+    if (pixel.x < third)
+    {
+        return float3(
+            0.05,
+            saturate((float)usableCount / max((float)PathTraceCleanRoomNeeCacheCandidateSlots(), 1.0)),
+            saturate((float)storedCell.candidateCount / max((float)PathTraceCleanRoomNeeCacheCandidateSlots(), 1.0)));
+    }
+    if (pixel.x < third * 2u)
+    {
+        const float3 identityColor = PathTraceCleanRoomHashColor(selectedDenseRluIndex);
+        const float3 cellColor = PathTraceNeeCacheCellColor(cell.hash);
+        return lerp(identityColor, cellColor, 0.35);
+    }
+
+    return float3(
+        PathTraceCleanRoomLog01(selectedSourcePdf, 2.0),
+        PathTraceCleanRoomLog01(selectedWeight, 12.0),
+        PathTraceCleanRoomLog01(totalWeight, 14.0));
+}
+
+float3 PathTraceCleanRoomNeeCacheSecondaryCandidateFieldColorForPixel(uint2 pixel, uint2 dimensions)
+{
+    PathTracePrimarySurfaceRecord surfaceRecord;
+    if (!PathTraceCleanRoomLoadSurfaceRecordSigned(int2(pixel), dimensions, false, surfaceRecord))
+    {
+        return PathTraceCleanRoomStatusColor(CLEAN_INITIAL_STATUS_INVALID_SURFACE);
+    }
+
+    return PathTraceCleanRoomNeeCacheSecondaryCandidateFieldColorFromSurface(surfaceRecord, pixel, dimensions);
+}
+
 float3 PathTraceCleanRoomRealAnalyticOneSampleDiagnosticColor(uint2 pixel, uint2 dimensions)
 {
     PathTraceCleanRtxdiDiInitialResult result = PathTraceCleanRoomRunSelectedInitialProducer(pixel, dimensions);
@@ -3552,6 +3710,11 @@ float3 PathTraceCleanRoomTemporalAuditColor(PathTraceCleanRtxdiDiInitialResult i
 
 float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, uint view)
 {
+    if (view == 8u && CleanRtxdiDiView8Band == 10u)
+    {
+        return PathTraceCleanRoomNeeCacheSecondaryCandidateFieldColorForPixel(pixel, dimensions);
+    }
+
     const uint reservoirIndex = PathTraceCleanRoomReservoirIndex(pixel, dimensions);
     PathTraceCleanRtxdiDiInitialResult result = PathTraceCleanRoomRunSelectedInitialProducer(pixel, dimensions);
     if (reservoirIndex < CleanRtxdiDiReservoirCount)
@@ -3588,6 +3751,11 @@ float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, u
 
 float3 PathTraceCleanRoomTemporalReservoirOutput(uint2 pixel, uint2 dimensions, uint view)
 {
+    if (view == 8u && CleanRtxdiDiView8Band == 10u)
+    {
+        return PathTraceCleanRoomNeeCacheSecondaryCandidateFieldColorForPixel(pixel, dimensions);
+    }
+
     const uint reservoirIndex = PathTraceCleanRoomReservoirIndex(pixel, dimensions);
     PathTraceCleanRtxdiDiInitialResult initial = PathTraceCleanRoomRunSelectedInitialProducer(pixel, dimensions);
     if (reservoirIndex < CleanRtxdiDiReservoirCount)
@@ -3804,6 +3972,12 @@ void RayGen()
     if (view < 1u || view > 15u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
+        return;
+    }
+
+    if (view == 8u && CleanRtxdiDiView8Band == 10u)
+    {
+        SmokeOutput[pixel] = float4(PathTraceCleanRoomNeeCacheSecondaryCandidateFieldColorForPixel(pixel, dimensions), 1.0);
         return;
     }
 

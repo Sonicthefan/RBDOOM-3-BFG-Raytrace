@@ -981,6 +981,12 @@ idCVar r_pathTracingNeeCacheSecondaryDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump the ReSTIR PT GI/secondary NEE cache consumer contract once" );
 
+idCVar r_pathTracingNeeCacheSecondaryVisualRefresh(
+    "r_pathTracingNeeCacheSecondaryVisualRefresh",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "NEECACHE-10 view 8 band 10 diagnostic refresh: 0 read existing cache, 1 one-shot refresh, 2 refresh every frame" );
+
 idCVar r_pathTracingIntegratorDump(
     "r_pathTracingIntegratorDump",
     "0",
@@ -1339,7 +1345,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..9; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..10; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",

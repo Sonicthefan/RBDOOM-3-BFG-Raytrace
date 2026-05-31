@@ -454,12 +454,18 @@ Isolation checks:
     the dump must report task=NEECACHE-10 and firstMissingContract=none before
         visual A/B is meaningful
     validation is normal-render A/B with r_pathTracingNeeCacheSecondaryEnable
-        0/1 until a dedicated NEE-cache secondary visualizer exists
+        0/1 plus clean-DI view 8 band 10 candidate-field diagnostics
     firstMissingContract=no-emissive-secondary-consume-domain means the first
         slice is correctly disabled because it only consumes emissive cache
         candidates and the current RLU has no emissive range
     legacy mode 18 is not a valid NEECACHE-10 validation route
     ReSTIR PT debug modes 53-55 are not NEE-cache/RLU/clean-RTXDI proof views
+    clean-DI view 8 band 10 is only a candidate-field visualizer: it must show
+        the visible primary surface mapped into cache cells and current-RLU
+        emissive candidate identities/PDF scale, not final secondary lighting
+    r_pathTracingNeeCacheSecondaryVisualRefresh 1 is a one-shot diagnostic
+        refresh with a held band-10 snapshot until the view is changed;
+        continuous refresh is not a performance baseline
 
 Fail:
 

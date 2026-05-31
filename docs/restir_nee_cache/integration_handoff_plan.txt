@@ -293,8 +293,20 @@ non-emissive, or non-replayable records fall back to the existing path-tracer
 NEE path. This slice must not replace primary DI or write clean DI reservoir
 pages. Legacy mode 18 is not a valid validation route for this task.
 ReSTIR PT debug modes 53-55 are not NEE-cache/RLU/clean-RTXDI proof views in
-the current branch; use route dumps and normal-render A/B until a dedicated
-secondary NEE cache visualizer is added.
+the current branch. The first dedicated visualizer is clean-DI view 8 forced
+band 10:
+
+    r_pathTracingCleanRtxdiDiView 8
+    r_pathTracingCleanRtxdiDiView8Band 10
+    r_pathTracingNeeCacheSecondaryVisualRefresh 1
+
+This view maps the visible primary surface into the same cache cells and shows
+current-RLU emissive candidate occupancy, deterministic dense-RLU identity, and
+sourcePdf/weight scale. It is a candidate-field diagnostic only; normal-render
+A/B remains the consume test until a true secondary-bounce visualizer is added.
+The visual refresh CVar is intentionally default-off because continuous refresh
+dispatches the cache candidate builder from the clean route and can be expensive
+when the view crosses portal-heavy surfaces.
 
 For the preserved PDFNEE visual lane, proper importance/RIS selection remains
 behind the same producer output:

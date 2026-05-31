@@ -170,6 +170,7 @@ extern idCVar r_pathTracingSecondaryAnalyticNeeMode;
 extern idCVar r_pathTracingSecondaryAnalyticNeeSamples;
 extern idCVar r_pathTracingNeeCacheSecondaryEnable;
 extern idCVar r_pathTracingNeeCacheSecondaryDump;
+extern idCVar r_pathTracingNeeCacheSecondaryVisualRefresh;
 extern idCVar r_pathTracingIntegratorDump;
 extern idCVar r_pathTracingReservoirTwoSidedEmissives;
 extern idCVar r_pathTracingReservoirCandidateTrials;

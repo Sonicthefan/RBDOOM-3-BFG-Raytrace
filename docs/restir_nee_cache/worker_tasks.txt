@@ -580,20 +580,29 @@ First slice:
     scenes whose current RLU has no emissive range must report
         firstMissingContract=no-emissive-secondary-consume-domain instead of
         claiming a meaningful consumer A/B
-    validation is route-dump plus normal-render A/B only until a dedicated
-        NEE-cache secondary visualizer exists
+    validation is route-dump, normal-render A/B, and the dedicated clean-DI
+        view 8 band 10 candidate-field diagnostic
     selected candidates replay through RAB_LoadLightInfo,
         RAB_SamplePolymorphicLight, RAB_GetReflectedBsdfRadianceForSurface,
         RAB_GetSelectedNeeVisibility, and GetMISWeightForNEELight
     primary legacy NEE calls and mode 18 remain excluded from the cache
         consumer validation path
     ReSTIR PT debug modes 53-55 are not proof views for this task
+    clean-DI view 8 band 10 shows the current-RLU emissive candidates the
+        secondary consumer can replay, but does not write final cached radiance
+        or prove secondary contribution by itself
+    r_pathTracingNeeCacheSecondaryVisualRefresh 1 refreshes that diagnostic
+        once and holds the snapshot while band 10 remains active; 2 is
+        continuous and may be expensive in portal-heavy views
 
 Acceptance:
 
     cache can be A/B tested independently from clean DI
     empty/stale candidates reject or fall back without black/fake lighting
     disabling GI/secondary NEE cache leaves clean DI behavior unchanged
+    r_pathTracingCleanRtxdiDiView 8 with r_pathTracingCleanRtxdiDiView8Band 10
+        shows non-solid candidate-field diagnostics when emissive RLU candidates
+        are present
 
 
 Later Escape Hatch: Full ReGIR / Onion Provider

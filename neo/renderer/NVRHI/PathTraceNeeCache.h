@@ -160,6 +160,7 @@ struct PathTraceNeeCacheState
     uint32_t lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
     bool observedRluSignaturesValid = false;
     bool taskClearPending = false;
+    bool secondaryVisualSnapshotHoldActive = false;
 
     void Clear();
     bool EnsureResources(nvrhi::IDevice* device, const PathTraceNeeCacheSettings& nextSettings, const PathTraceNeeCacheResourceDesc& nextDesc);

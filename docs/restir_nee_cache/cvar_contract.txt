@@ -237,6 +237,24 @@ Default:
 
     0
 
+r_pathTracingNeeCacheSecondaryVisualRefresh
+
+    0 = clean-DI view 8 band 10 reads the existing NEE cache buffers
+    1 = refresh the diagnostic candidate field once from the clean route, hold
+        that visual snapshot while clean-DI view 8 band 10 remains active, then
+        reset to 0
+    2 = refresh the diagnostic candidate field every frame
+
+Default:
+
+    0
+
+    The refresh path dispatches the NEE-cache candidate builder from the clean
+    route and can be expensive in portal-heavy views. Keep it off for normal
+    inspection; use 1 only when the band 10 view needs a fresh cache snapshot.
+    The held snapshot is diagnostic-only and is released when leaving band 10,
+    so normal provider invalidation resumes for production routes.
+
 This is the default architectural destination for the NEE cache. It must be
 testable independently from clean RTXDI DI and from PDFNEE sourcePolicy 2.
 
@@ -248,6 +266,26 @@ First production consume slice:
     empty/stale/non-emissive candidates fall back to the existing secondary NEE
         path
     primary DI and clean RTXDI DI CVars are not required for this consumer
+
+Dedicated diagnostic view:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 8
+    r_pathTracingCleanRtxdiDiView8Band 10
+    r_pathTracingNeeCacheSecondaryVisualRefresh 1
+
+    Band 10 is a clean-DI route diagnostic for the NEECACHE-10 candidate field.
+    It does not consume or modify clean DI reservoirs as secondary lighting.
+    It maps the visible primary surface to the NEE cache cell and shows the
+    current-RLU emissive candidates the secondary consumer can replay:
+
+        left third = valid emissive candidate occupancy for the cell
+        middle third = deterministic selected dense current RLU identity color
+        right third = selected sourcePdf and candidate weight scale
+
+    This is the only dedicated visualizer for the first NEECACHE-10 slice.
+    Legacy mode 18 and ReSTIR PT debug modes 53-55 are not valid NEE-cache
+    secondary proof views.
 
 
 Future / Not First Slice
