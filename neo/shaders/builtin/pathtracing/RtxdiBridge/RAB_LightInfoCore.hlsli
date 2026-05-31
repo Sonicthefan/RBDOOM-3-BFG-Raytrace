@@ -15,6 +15,21 @@ struct RAB_LightInfo
     float area;
     float3 radiance;
     float weight;
+#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
+    uint sourceIndex;
+    uint hasTriangleGeometry;
+    uint emissiveTextureIndex;
+    uint emissiveTextureWidth;
+    uint emissiveTextureHeight;
+    uint emissiveActiveStage;
+    float3 emissiveColor;
+    float3 trianglePosition0;
+    float2 triangleUv0;
+    float3 trianglePosition1;
+    float2 triangleUv1;
+    float3 trianglePosition2;
+    float2 triangleUv2;
+#endif
 };
 
 static const uint RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE = 0u;

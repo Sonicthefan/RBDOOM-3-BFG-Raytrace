@@ -263,9 +263,9 @@ idCVar r_pathTracingStaticAreaPreloadDump(
 
 idCVar r_pathTracingStaticGeometryPruneMissing(
     "r_pathTracingStaticGeometryPruneMissing",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Source3 static geometry cache policy: 1 prunes static drawSurf records not seen this frame to prevent active BLAS high-water growth; 0 keeps discovered static surfaces resident" );
+    "Source3 static geometry cache policy: 0 keeps discovered static surfaces resident; 1 prunes static drawSurf records not seen this frame for diagnostic active-BLAS high-water testing" );
 
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",

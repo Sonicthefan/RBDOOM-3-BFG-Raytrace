@@ -1,0 +1,71 @@
+RLU-12 Clean DI Typed Initial Sampling
+======================================
+
+Goal
+----
+
+Make clean RTXDI DI current-frame proposals sample the active RLU typed ranges
+instead of treating the active light universe as one uniform range.
+
+
+Implemented Boundary
+--------------------
+
+The normal clean RLU path in pathtrace_clean_rtxdi_di_sentinel.rt.hlsl now
+routes through a typed RLU initial producer when:
+
+    CleanRtxdiDiLightMode == 1
+    CLEAN_FLAG_REMIX_LIGHT_UNIVERSE is set
+    synthetic, external PDFNEE current, and NEE-cache provider routes are not
+        active
+
+Synthetic modes, direct legacy analytic mode, external PDFNEE current, and the
+NEE-cache provider route remain on their previous behavior.
+
+
+Proposal Policy
+---------------
+
+The typed producer queries the RLU-11 helper layer:
+
+    PathTraceCleanRoomRluTypedRange(lightType)
+    PathTraceCleanRoomRluTypedSampleCount(lightType)
+    PathTraceCleanRoomRluTotalSampleCount()
+    PathTraceCleanRoomRluTypedSourcePdf(lightType)
+
+It streams emissive candidates from the emissive dense range when non-empty and
+Doom analytic candidates from the Doom analytic dense range when non-empty.
+
+The source PDF input for a typed range is:
+
+    rangeSampleCount / (rangeCount * totalProposalSamples)
+
+The inverse source PDF passed to RTXDI_StreamSample is the reciprocal of that
+value. Zero-count ranges remain valid and simply stream no candidates.
+
+
+RAB And RTXDI Boundary
+----------------------
+
+Each selected dense candidate is replayed through:
+
+    RAB_LoadLightInfo(denseRluIndex, false)
+    RAB_SamplePolymorphicLight(...)
+    RAB_GetLightSampleTargetPdfForSurface(...)
+    RTXDI_StreamSample(...)
+    RTXDI_FinalizeResampling(...)
+
+Visibility is traced after the current reservoir is selected and is stored with
+RTXDI_StoreVisibilityInDIReservoir. It is not folded into targetPdf.
+
+The selected light identity remains the dense current RLU index.
+
+
+Non-Goals
+---------
+
+This task does not change temporal accumulation, spatial reuse, previous-best
+seeding, NEE-cache/ReGIR provider behavior, or the external PDFNEE current
+route.
+
+RLU-13 owns any previous-best initial-sampling seed work.

@@ -121,7 +121,76 @@ bool RAB_AllFinite3(float3 value)
     return all(value == value) && all(abs(value) < float3(3.402823e+38, 3.402823e+38, 3.402823e+38));
 }
 
-RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Surface surface)
+#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
+float4 RAB_CleanSampleTextureLoad(uint textureIndex, uint textureWidth, uint textureHeight, float2 wrappedTexCoord, bool bindlessEnabled, bool bilinearFilter)
+{
+    if (textureWidth == 0u || textureHeight == 0u)
+    {
+        return float4(1.0, 1.0, 1.0, 1.0);
+    }
+
+    const float2 scaled = wrappedTexCoord * float2(textureWidth, textureHeight) - (bilinearFilter ? float2(0.5, 0.5) : float2(0.0, 0.0));
+    if (!bilinearFilter)
+    {
+        const uint2 texel = min((uint2)floor(wrappedTexCoord * float2(textureWidth, textureHeight)), uint2(textureWidth - 1u, textureHeight - 1u));
+        return bindlessEnabled
+            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel, 0))
+            : SmokeFallbackTexture.Load(int3(0, 0, 0));
+    }
+
+    const int2 baseTexel = (int2)floor(scaled);
+    const float2 fracPart = frac(scaled);
+    const uint2 texel00 = uint2((baseTexel.x % (int)textureWidth + (int)textureWidth) % (int)textureWidth, (baseTexel.y % (int)textureHeight + (int)textureHeight) % (int)textureHeight);
+    const uint2 texel10 = uint2((texel00.x + 1u) % textureWidth, texel00.y);
+    const uint2 texel01 = uint2(texel00.x, (texel00.y + 1u) % textureHeight);
+    const uint2 texel11 = uint2((texel00.x + 1u) % textureWidth, (texel00.y + 1u) % textureHeight);
+    const float4 c00 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel00, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
+    const float4 c10 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel10, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
+    const float4 c01 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel01, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
+    const float4 c11 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel11, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
+    return lerp(lerp(c00, c10, fracPart.x), lerp(c01, c11, fracPart.x), fracPart.y);
+}
+
+float3 RAB_CleanSampleEmissiveRadianceAtUv(RAB_LightInfo lightInfo, float2 texCoord)
+{
+    const float emissiveScale = max(ToyPathInfo.z, 0.0);
+    if (emissiveScale <= 0.0 || lightInfo.emissiveActiveStage == 0u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const uint textureFlags = (uint)TextureInfo.w;
+    const bool useEmissiveMaps = (textureFlags & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) != 0u;
+    if (!useEmissiveMaps || lightInfo.emissiveTextureIndex == 0xffffffffu)
+    {
+        return max(lightInfo.radiance, float3(0.0, 0.0, 0.0));
+    }
+
+    const uint textureCount = (uint)TextureInfo.x;
+    const uint sampleMethod = (uint)TextureInfo.y;
+    if (sampleMethod == 0u || lightInfo.emissiveTextureIndex >= textureCount || !all(texCoord == texCoord) || any(abs(texCoord) > 65536.0))
+    {
+        return max(lightInfo.radiance, float3(0.0, 0.0, 0.0));
+    }
+
+    const bool bindlessEnabled = (textureFlags & 1u) != 0u;
+    const bool bilinearFilter = (textureFlags & 2u) != 0u;
+    const float2 wrappedTexCoord = frac(texCoord);
+    const float4 sampled = sampleMethod == 2u
+        ? RAB_CleanSampleTextureLoad(lightInfo.emissiveTextureIndex, lightInfo.emissiveTextureWidth, lightInfo.emissiveTextureHeight, wrappedTexCoord, bindlessEnabled, bilinearFilter)
+        : (bindlessEnabled
+            ? SmokeDiffuseTextures[NonUniformResourceIndex(lightInfo.emissiveTextureIndex)].SampleLevel(SmokeMaterialSampler, wrappedTexCoord, 0.0)
+            : SmokeFallbackTexture.SampleLevel(SmokeMaterialSampler, wrappedTexCoord, 0.0));
+    if (!all(sampled == sampled) || any(abs(sampled) > 65504.0))
+    {
+        return max(lightInfo.radiance, float3(0.0, 0.0, 0.0));
+    }
+
+    return max(lightInfo.emissiveColor, float3(0.0, 0.0, 0.0)) * saturate(sampled.rgb) * (1.75 * emissiveScale);
+}
+#endif
+
+RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Surface surface, float2 uv)
 {
     RAB_LightSample lightSample = RAB_EmptyLightSample();
     if (!RAB_IsLightInfoValid(lightInfo) || !RAB_IsSurfaceValid(surface))
@@ -129,7 +198,29 @@ RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Sur
         return lightSample;
     }
 
-    const float3 toLight = lightInfo.position - surface.worldPos;
+    float3 samplePosition = lightInfo.position;
+#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
+    float2 sampleTexCoord = lightInfo.triangleUv0;
+#endif
+#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
+    if (lightInfo.hasTriangleGeometry != 0u)
+    {
+        const float su = sqrt(saturate(uv.x));
+        const float b0 = 1.0 - su;
+        const float b1 = saturate(uv.y) * su;
+        const float b2 = 1.0 - b0 - b1;
+        samplePosition =
+            lightInfo.trianglePosition0 * b0 +
+            lightInfo.trianglePosition1 * b1 +
+            lightInfo.trianglePosition2 * b2;
+        sampleTexCoord =
+            lightInfo.triangleUv0 * b0 +
+            lightInfo.triangleUv1 * b1 +
+            lightInfo.triangleUv2 * b2;
+    }
+#endif
+
+    const float3 toLight = samplePosition - surface.worldPos;
     const float lightDistance = sqrt(max(dot(toLight, toLight), 1.0e-6));
     const float3 lightDir = toLight / lightDistance;
 
@@ -151,10 +242,14 @@ RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Sur
     lightSample.lightType = lightInfo.lightType;
     lightSample.lightIndex = lightInfo.lightIndex;
     lightSample.flags = lightInfo.flags;
-    lightSample.position = lightInfo.position;
+    lightSample.position = samplePosition;
     lightSample.normal = lightInfo.normal;
     lightSample.distance = lightDistance;
+#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
+    lightSample.radiance = RAB_CleanSampleEmissiveRadianceAtUv(lightInfo, sampleTexCoord);
+#else
     lightSample.radiance = lightInfo.radiance;
+#endif
     lightSample.areaPdf = 1.0 / max(lightInfo.area, 1.0e-4);
     lightSample.solidAnglePdf = max(lightDistance * lightDistance, 1.0e-4) / max(lightInfo.area * lightFacing, 1.0e-4);
     return lightSample;
@@ -240,7 +335,7 @@ RAB_LightSample RAB_SampleSplitPolymorphicLight(RAB_LightInfo lightInfo, RAB_Sur
 {
     if (lightInfo.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
-        return RAB_SampleEmissiveTriangleLight(lightInfo, surface);
+        return RAB_SampleEmissiveTriangleLight(lightInfo, surface, uv);
     }
     if (lightInfo.lightType == RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE)
     {
@@ -253,7 +348,7 @@ RAB_LightSample RAB_SampleUnifiedPolymorphicLight(RAB_LightInfo lightInfo, RAB_S
 {
     if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
-        return RAB_SampleEmissiveTriangleLight(lightInfo, surface);
+        return RAB_SampleEmissiveTriangleLight(lightInfo, surface, uv);
     }
     if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
     {

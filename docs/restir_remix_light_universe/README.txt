@@ -201,3 +201,4 @@ Follow-up task notes:
     rlu_09_payload_replay_hardening.txt
     rlu_10_authoritative_range_sample_metadata.txt
     rlu_11_clean_di_range_provider.txt
+    rlu_12_clean_di_typed_initial_sampling.txt

@@ -279,8 +279,6 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t doomAnalyticFullPreviousCount = 0;
     uint32_t rluDomain = 0;
     uint32_t rluDoomAnalyticParityProof = 0;
-    float rluRangeInfo[4] = {};
-    float rluSampleInfo[4] = {};
     float textureInfo[4] = {};
     float prevCameraOriginAndValid[4] = {};
     float prevCameraForwardAndTanX[4] = {};
@@ -295,9 +293,14 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     float restirPTSurfaceInfo[4] = {};
     float neeCacheInfo0[4] = {};
     float neeCacheInfo1[4] = {};
+    float rluRangeInfo[4] = {};
+    float rluSampleInfo[4] = {};
+    float toyPathInfo[4] = {};
+    float geometryInfo0[4] = {};
+    float geometryInfo1[4] = {};
 };
 
-static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 416, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
+static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 464, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
 
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
 {
@@ -1496,6 +1499,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanDumpCandidateOverride = static_cast<uint32_t>(idMath::ClampInt(1, 128, r_pathTracingCleanRtxdiDiCandidateCount.GetInteger()));
         const uint32_t cleanDumpRluDoomRangeOffset = Min(cleanDumpRluStats.doomAnalyticRangeOffset, cleanDumpRluCurrentLightCount);
         const uint32_t cleanDumpRluDoomRangeCount = Min(cleanDumpRluStats.doomAnalyticRangeCount, cleanDumpRluCurrentLightCount - cleanDumpRluDoomRangeOffset);
+        const uint32_t cleanDumpRluEmissiveRangeOffset = Min(cleanDumpRluStats.emissiveRangeOffset, cleanDumpRluCurrentLightCount);
+        const uint32_t cleanDumpRluEmissiveRangeCount = Min(cleanDumpRluStats.emissiveRangeCount, cleanDumpRluCurrentLightCount - cleanDumpRluEmissiveRangeOffset);
         const uint32_t cleanDumpCandidateDomainCount = cleanDumpRluRoute
             ? (cleanDumpRluDoomRangeCount > 0u ? cleanDumpRluDoomRangeCount : cleanDumpRluCurrentLightCount)
             : cleanDumpAnalyticDomainCount;
@@ -1522,7 +1527,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const PathTraceRemixLightEventSample& cleanDumpCurrentOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstCurrentOnly : cleanDumpEmptyRluSample;
         const PathTraceRemixLightEventSample& cleanDumpPreviousOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstPreviousOnly : cleanDumpEmptyRluSample;
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d cleanNeeCacheProvider requested/ready=%d/%d buildPrepass=%d startupDelay=%u startupRefresh=%u stableView=%d stableFrames=%u deferredByClear=%d providerSnapshotHold=%d band10ExitedClear=%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 fallbackProbability=%.3f sourceDomain=%d(%s) cellResolution=%d cleanNeeCacheProducer=nee-cache-stable-view-delayed-refresh-burst-or-existing-clean-initial,RTXDI_StreamSample,RTXDI_FinalizeResampling providerMissFallback=existing-clean-initial externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluRanges emissive=%u+%u doomAnalytic=%u+%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d cleanToyEmissiveScale=%.3f cleanAnalyticScale=%.3f cleanUseEmissiveMaps=%d cleanDisableEmissiveTriangles=%d cleanAnalyticCandidates=%d cleanNeeCacheProvider requested/ready=%d/%d buildPrepass=%d startupDelay=%u startupRefresh=%u stableView=%d stableFrames=%u deferredByClear=%d providerSnapshotHold=%d band10ExitedClear=%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 fallbackProbability=%.3f sourceDomain=%d(%s) cellResolution=%d cleanNeeCacheProducer=nee-cache-stable-view-delayed-refresh-burst-or-existing-clean-initial,RTXDI_StreamSample,RTXDI_FinalizeResampling providerMissFallback=existing-clean-initial externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
@@ -1555,6 +1560,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanDumpRluRoute ? cleanDumpRluPreviousLightCount : 0u,
             cleanDumpRluRoute ? cleanDumpRluCurrentToPreviousCount : 0u,
             cleanDumpRluRoute ? cleanDumpRluPreviousToCurrentCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluEmissiveRangeOffset : 0u,
+            cleanDumpRluRoute ? cleanDumpRluEmissiveRangeCount : 0u,
+            cleanDumpRluRoute ? cleanDumpRluDoomRangeOffset : 0u,
+            cleanDumpRluRoute ? cleanDumpRluDoomRangeCount : 0u,
             cleanDumpRluRoute ? cleanDumpRluStats.mappedPayloadChangedCount : 0u,
             cleanDumpRluRoute ? cleanDumpRluStats.currentOnlyCount : 0u,
             cleanDumpRluRoute ? cleanDumpRluStats.previousOnlyCount : 0u,
@@ -1596,6 +1605,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanDumpPreviousOnly.positionAndRadius[3],
             cleanDumpPreviousOnly.radianceAndLuminance[3],
             r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 ? 1 : 0,
+            idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat()),
+            idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat()),
+            r_pathTracingUseEmissiveMaps.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingDisableEmissiveTriangleSampling.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingAnalyticLightCandidates.GetInteger() != 0 ? 1 : 0,
             cleanDumpNeeCacheProviderRequested ? 1 : 0,
             cleanDumpNeeCacheProviderReady ? 1 : 0,
             cleanNeeCacheProviderBuildPrepassRequested ? 1 : 0,
@@ -3042,11 +3056,17 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeCleanRtxdiDiSentinelConstantsBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_smokeStaticVertexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, m_smokeStaticIndexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, m_smokeDynamicVertexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, m_smokeDynamicIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, m_smokeStaticTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, m_smokeDynamicTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, m_smokeMaterialTableBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, cleanFallbackTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, cleanOptionalSrv(m_smokeEmissiveTriangleBuffer)));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, m_smokeRigidRouteVertexBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, m_smokeRigidRouteIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, m_smokeRigidRouteTriangleMaterialIndexBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, m_smokeRigidRouteInstanceBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, m_smokeDoomAnalyticLightBuffer));
@@ -3086,12 +3106,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanState.bindings = { cleanBindingSet, m_smokeTextureDescriptorTable };
 
         commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeDynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeStaticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeMaterialTableBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokePreviousEmissiveTriangleBuffer, nvrhi::ResourceStates::ShaderResource);
         SetBufferStateIfPresent(commandList, m_smokeReGIRState.placeholderSrvBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
+        commandList->setBufferState(m_smokeRigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeRigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
         commandList->setBufferState(m_smokeDoomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -3308,22 +3334,30 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.staticTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
         cleanConstants.dynamicTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
         cleanConstants.rigidRouteTriangleCount = static_cast<uint32_t>(Max(0, m_sceneInputs.geometry.rigidRouteTriangleCount));
-        cleanConstants.currentEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
-        cleanConstants.previousEmissiveTriangleCount = static_cast<uint32_t>(Max(0, m_smokePreviousEmissiveTriangleCount));
+        const bool cleanDisableEmissiveTriangleSampling =
+            PathTraceSafetyDisabled(BuildPathTraceSafetyDisableMask(), RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING);
+        cleanConstants.currentEmissiveTriangleCount = cleanDisableEmissiveTriangleSampling ? 0u : static_cast<uint32_t>(Max(0, m_smokeEmissiveTriangleCount));
+        cleanConstants.previousEmissiveTriangleCount = cleanDisableEmissiveTriangleSampling ? 0u : static_cast<uint32_t>(Max(0, m_smokePreviousEmissiveTriangleCount));
         cleanConstants.rluDoomAnalyticRangeOffset = cleanRluRoute ? cleanRluStats.doomAnalyticRangeOffset : 0u;
         cleanConstants.rluDoomAnalyticRangeCount = cleanRluRoute ? cleanRluStats.doomAnalyticRangeCount : 0u;
         cleanConstants.doomAnalyticFullCurrentCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
         cleanConstants.doomAnalyticFullPreviousCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
         cleanConstants.rluDomain = cleanRluRoute ? cleanRluStats.domain : 0u;
         cleanConstants.rluDoomAnalyticParityProof = 0u;
+        const uint32_t cleanRluShaderEmissiveSampleCount = (cleanRluRoute && !cleanDisableEmissiveTriangleSampling) ? cleanRluStats.emissiveSampleCount : 0u;
+        const uint32_t cleanRluShaderDoomSampleCount = cleanRluRoute ? cleanRluStats.doomAnalyticSampleCount : 0u;
+        const uint32_t cleanRluShaderTotalSampleCount = cleanRluShaderEmissiveSampleCount + cleanRluShaderDoomSampleCount;
+        const uint32_t cleanRluShaderNonEmptyRangeCount =
+            (cleanRluShaderEmissiveSampleCount > 0u ? 1u : 0u) +
+            (cleanRluShaderDoomSampleCount > 0u ? 1u : 0u);
         cleanConstants.rluRangeInfo[0] = static_cast<float>(cleanRluRoute ? cleanRluStats.emissiveRangeOffset : 0u);
-        cleanConstants.rluRangeInfo[1] = static_cast<float>(cleanRluRoute ? cleanRluStats.emissiveRangeCount : 0u);
+        cleanConstants.rluRangeInfo[1] = static_cast<float>((cleanRluRoute && !cleanDisableEmissiveTriangleSampling) ? cleanRluStats.emissiveRangeCount : 0u);
         cleanConstants.rluRangeInfo[2] = static_cast<float>(cleanRluRoute ? cleanRluStats.doomAnalyticRangeOffset : 0u);
         cleanConstants.rluRangeInfo[3] = static_cast<float>(cleanRluRoute ? cleanRluStats.doomAnalyticRangeCount : 0u);
-        cleanConstants.rluSampleInfo[0] = static_cast<float>(cleanRluRoute ? cleanRluStats.emissiveSampleCount : 0u);
-        cleanConstants.rluSampleInfo[1] = static_cast<float>(cleanRluRoute ? cleanRluStats.doomAnalyticSampleCount : 0u);
-        cleanConstants.rluSampleInfo[2] = static_cast<float>(cleanRluRoute ? cleanRluStats.totalSampleCount : 0u);
-        cleanConstants.rluSampleInfo[3] = static_cast<float>(cleanRluRoute ? cleanRluStats.nonEmptyRangeCount : 0u);
+        cleanConstants.rluSampleInfo[0] = static_cast<float>(cleanRluShaderEmissiveSampleCount);
+        cleanConstants.rluSampleInfo[1] = static_cast<float>(cleanRluShaderDoomSampleCount);
+        cleanConstants.rluSampleInfo[2] = static_cast<float>(cleanRluShaderTotalSampleCount);
+        cleanConstants.rluSampleInfo[3] = static_cast<float>(cleanRluShaderNonEmptyRangeCount);
         const int cleanTextureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0
             ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())
             : 0;
@@ -3464,6 +3498,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.neeCacheInfo1[1] = neeCacheSettings.minRange;
         cleanConstants.neeCacheInfo1[2] = static_cast<float>(neeCacheDesc.cellCount);
         cleanConstants.neeCacheInfo1[3] = static_cast<float>(neeCacheDesc.providerResultCount);
+        cleanConstants.toyPathInfo[0] = 0.0f;
+        cleanConstants.toyPathInfo[1] = 0.0f;
+        cleanConstants.toyPathInfo[2] = idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat());
+        cleanConstants.toyPathInfo[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteInstanceCount));
+        cleanConstants.geometryInfo0[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticVertexCount));
+        cleanConstants.geometryInfo0[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticIndexCount));
+        cleanConstants.geometryInfo0[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.staticTriangleCount));
+        cleanConstants.geometryInfo0[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicVertexCount));
+        cleanConstants.geometryInfo1[0] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicIndexCount));
+        cleanConstants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
+        cleanConstants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
+        cleanConstants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
         commandList->setRayTracingState(cleanState);
 
@@ -4548,7 +4594,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode) ? 8u : 0u) |
         (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (integratorUsesSpecular && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode))) ? 16u : 0u) |
         (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode) ? 32u : 0u) |
-        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 20 || effectiveRestirPTMode || pdfNeeEmissiveVerifierRoute) ? 64u : 0u) |
+        (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || pdfNeeEmissiveVerifierRoute) ? 64u : 0u) |
         (toyFakePBRSpecularEnabled ? 128u : 0u);
     constants.textureInfo[3] = static_cast<float>(textureFlags);
     const bool previousHistoryViewValid =
