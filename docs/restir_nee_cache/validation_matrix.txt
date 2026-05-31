@@ -46,11 +46,16 @@ Pass:
         GI / secondary NEE
         clean RTXDI DI proposal
         experimental PDFNEE visual mode
+    structurally valid resources with current dense RLU and an active selected
+        source domain report firstMissingContract=none
 
 Fail:
 
     clean RTXDI, PDFNEE, temporal, spatial, or mode 56 behavior changes
     candidate algorithm work starts while provider ABI is ambiguous
+    resource descriptor reports old PDFNEE consumer or Doom-analytic-only
+        missing contracts when emissive-only or clean-DI proposal roles are
+        otherwise valid
 
 
 Rung V-02: Cell Mapping Debug
@@ -396,16 +401,36 @@ Pass:
 
     clean RTXDI DI dump reports cleanNeeCacheProvider requested/ready=1/1
         when the provider is enabled and ready
-    clean RTXDI DI dump reports buildPrepass=1 on first provider use, or
-        providerSnapshotHold=1 after the provider snapshot has been built,
-        without requiring band-10 visual refresh
+    provider pipeline initialization is allowed before the first buildable map
+        location/source domain, but providerReady remains false until the
+        provider result/cell/candidate buffers are valid for consumption
+    sourceDomain 0 can reach provider-ready once dense current RLU lightCount is
+        nonzero, even if typed ranges are not active yet; sourceDomain 1/2/3
+        still require their selected typed source range
+    on first provider request or fresh NEE-cache resource allocation, clean DI
+        dump reports startupDelay counting down from 20 and requested/ready=1/0
+        before the first provider snapshot is built
+    before the delayed refresh completes, camera movement/rotation reports
+        stableView=0, resets stableFrames, restarts startupDelay, and keeps
+        providerSnapshotHold=0
+    after providerSnapshotHold=1, camera movement may report stableView=0 but
+        must not disable the clean NEE-cache provider solely because the camera
+        moved
+    after startupDelay reaches zero, clean RTXDI DI dump reports startupRefresh
+        counting down from 8 with buildPrepass=1, then providerSnapshotHold=1
+        while the delayed refreshed snapshot is reused
     entering clean-DI view 8 band 10 releases providerSnapshotHold so the
         diagnostic visual refresh owns the shared cache buffers
     leaving clean-DI view 8 band 10 reports band10ExitedClear=1 once and
         clears the diagnostic-owned cache buffers before view 12 can hold a
         clean provider snapshot again
     frames that begin with taskClearPending report deferredByClear=1 and do not
-        consume or hold a new clean provider snapshot until the next clean frame
+        consume a new clean provider snapshot until the next clean frame, but
+        may run buildPrepass=1 after clearing so moving/animated scenes do not
+        wait for a quiet RLU-signature frame
+    resource-allocation and diagnostic-ownership clear frames may warm the
+        pipeline/cache buffers but must not set providerSnapshotHold=1 until a
+        later normal clean frame rebuilds the snapshot
     clean RTXDI DI dump reports providerResultSrv=t74 cellSrv=t75
         candidateSrv=t77
     fallback-only provider matches current clean RTXDI DI full-RLU baseline

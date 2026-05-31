@@ -98,6 +98,9 @@ enum PathTraceNeeCacheInvalidationFlags : uint32_t
     PATH_TRACE_NEE_CACHE_INVALIDATE_DIAGNOSTIC_OWNERSHIP = 1u << 5
 };
 
+static constexpr uint32_t PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES = 20u;
+static constexpr uint32_t PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_REFRESH_FRAMES = 8u;
+
 struct PathTraceNeeCacheSettings
 {
     bool enabled = false;
@@ -159,9 +162,16 @@ struct PathTraceNeeCacheState
     uint64_t observedRluPayloadSignature = 0u;
     uint32_t pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
     uint32_t lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    uint32_t cleanProviderStartupDelayFrames = 0u;
+    uint32_t cleanProviderStartupRefreshFrames = 0u;
+    uint32_t cleanProviderStableViewFrames = 0u;
+    float cleanProviderLastViewOrigin[3] = {};
+    float cleanProviderLastViewForward[3] = {};
     bool observedRluSignaturesValid = false;
     bool taskClearPending = false;
     bool cleanProviderSnapshotHoldActive = false;
+    bool cleanProviderRequestedLastFrame = false;
+    bool cleanProviderLastViewValid = false;
     bool secondaryVisualSnapshotHoldActive = false;
     bool secondaryVisualBandActiveLastFrame = false;
 

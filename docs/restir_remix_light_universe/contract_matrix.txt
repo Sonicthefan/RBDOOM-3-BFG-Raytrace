@@ -264,3 +264,117 @@ Fail:
 
     green status bands, CPU dumps, or allocation success are reported as
         accumulation proof
+
+
+Contract C-09: Active Polymorphic Buffer Ownership
+--------------------------------------------------
+
+Required shader-visible ownership:
+
+    register(t66) is the active current RLU polymorphic payload buffer
+    register(t67) is the active previous RLU polymorphic payload buffer
+    PathTraceUnifiedLights at t59/t60 are legacy/debug unless explicitly named
+        by a task
+    selected light identity is the dense current RLU index
+
+Pass:
+
+    clean DI, PDFNEE, NEE-cache, and ReGIR consumers load active lights through
+        RAB_LoadActiveRrxLightInfo or the equivalent active RAB load helper
+    light sampling uses RAB_SampleActiveRrxPolymorphicLight or
+        RAB_SamplePolymorphicLight over RAB-loaded dense RLU records
+    new modules consume the RLU rather than re-ingesting Doom analytics or
+        emissives privately
+
+Fail:
+
+    a consumer builds its own analytic/emissive light universe
+    a consumer uses sourceIndex to reload old Doom analytic arrays as the
+        normal path
+    NEE cache, ReGIR cells, portal pools, or split-domain arrays become the
+        default clean DI light universe
+
+
+Contract C-10: Authoritative Typed Ranges And Sample Counts
+-----------------------------------------------------------
+
+Required output:
+
+    RestirLightManagerRangeInfo.xy = emissive dense offset/count
+    RestirLightManagerRangeInfo.zw = Doom analytic dense offset/count
+    RestirLightManagerSampleInfo.x = bounded emissive initial sample count
+    RestirLightManagerSampleInfo.y = bounded Doom analytic initial sample count
+    RestirLightManagerSampleInfo.z = total requested proposal count
+    RestirLightManagerSampleInfo.w = non-empty typed range count
+
+Pass:
+
+    shader consumers can compute proposal PDFs from range count, range sample
+        count, and selected source policy
+    zero-count ranges are valid and do not trigger private fallback domains
+    dumps and shader helpers report the same range/sample contract
+
+Fail:
+
+    normal shader operation scans the payload buffer to rediscover ranges
+    range sample count and light count are conflated
+    typed range metadata is owned by NEE-cache or ReGIR instead of RLU
+
+
+Contract C-11: Clean DI Proposal Sampling From RLU
+--------------------------------------------------
+
+Required behavior:
+
+    clean RTXDI DI initial sampling takes proposal candidates from active RLU
+        typed ranges
+    sourcePdf is the actual proposal probability for the selected dense RLU
+        light
+    targetPdf comes from RAB_GetLightSampleTargetPdfForSurface
+    solidAnglePdf comes from RAB polymorphic light sampling
+    RTXDI helper reservoir math finalizes the current reservoir with M = 1
+
+Pass:
+
+    changing bounded sample counts predictably changes noise while preserving
+        mean lighting
+    emissive and analytic candidates can both enter the current reservoir when
+        their typed ranges are non-empty
+    current reservoir identity remains dense current RLU index
+
+Fail:
+
+    visibility is folded into targetPdf
+    final output clamping is used as raw current-frame proof
+    NEE-cache or ReGIR is required for normal clean DI function
+    sourcePdf is uniform when typed/range sampling selected the light through a
+        different proposal distribution
+
+
+Contract C-12: Previous-Best Initial-Sampling Seed
+--------------------------------------------------
+
+Required behavior:
+
+    previous-best feedback is applied during initial sampling, before temporal
+        reuse
+    previous-domain light index is translated with
+        RAB_TranslateLightIndex(previousLight, false)
+    the translated current-domain light is sampled and combined with random
+        candidates through RTXDI reservoir helpers
+    failed translation rejects only that previous-best candidate
+
+Pass:
+
+    previous-best seeding improves movement stability in overlapping-light
+        areas without changing stationary lighting mean
+    any rbdoom approximation that uses a previous temporal reservoir selected
+        light is labeled as an approximation, not full Remix best-light parity
+
+Fail:
+
+    temporal reuse is rewritten to compensate for bad current proposals
+    previous best skips RAB translation
+    previous-domain indices are used directly as current indices
+    compliance is claimed without a real best-light feedback source or without
+        explicitly documenting the approximation

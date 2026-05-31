@@ -313,3 +313,309 @@ Acceptance:
     exact rbdoom CVar/debug view crosswalk
     exact Remix/RTXDI reference file-equivalents
     explicit gaps that cannot be compared yet
+
+
+RLU-08: Active Buffer Ownership Cleanup
+---------------------------------------
+
+Goal:
+
+    Make the active polymorphic RLU buffer contract unambiguous for all
+    follow-up DI, PDFNEE, NEE-cache, and ReGIR work.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+
+Allowed write set:
+
+    docs/restir_remix_light_universe only
+
+Required:
+
+    identify t66 as the only active current polymorphic RLU payload buffer
+    identify t67 as the only active previous polymorphic RLU payload buffer
+    identify t59/t60 as legacy/debug unless explicitly owned by a later task
+    identify RAB_LoadActiveRrxLightInfo and RAB_SampleActiveRrxPolymorphicLight
+        as the required active replay boundary
+    identify NEE cache and ReGIR as proposal experiments, not replacement light
+        universes
+
+Forbidden:
+
+    no code changes
+    no build
+    no CVar changes
+
+Acceptance:
+
+    docs say future DI proposal work must consume dense RLU indices through
+    t66/t67 and RAB, not through private light ingestion or split fallbacks
+
+
+RLU-09: Payload Replay Hardening Audit
+--------------------------------------
+
+Goal:
+
+    Prove that current and previous RLU payloads are shader-replayable for
+    emissives and Doom analytics before any clean DI sampling changes.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    docs/restir_remix_light_universe
+
+Required:
+
+    audit current and previous payload fields before upload and after shader
+        replay
+    cover radius, influenceRadius, area, luminance, sourceWeight, flags,
+        sourceIndex, identityA, identityB, previousIndex
+    preserve animated payload changes as payload-only unless identity changes
+    prove failures are local to the selected light
+
+Forbidden:
+
+    no broad light suppression
+    no private analytic-light reload path
+    no shrinking authored Doom analytic lights to hide failures
+    no changing clean DI reservoir math
+
+Acceptance:
+
+    RLU dump and clean debug view agree that replayable analytics and emissives
+    remain valid while moving near animated lights, and unrelated lights are not
+    poisoned
+
+
+RLU-10: Authoritative Range And Sample Metadata
+-----------------------------------------------
+
+Goal:
+
+    Make typed RLU ranges and bounded sample counts the only source of truth for
+    follow-up clean DI proposal sampling.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+Required rbdoom read set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    docs/restir_remix_light_universe
+
+Required:
+
+    RestirLightManagerRangeInfo.xy is emissive dense offset/count
+    RestirLightManagerRangeInfo.zw is Doom analytic dense offset/count
+    RestirLightManagerSampleInfo.x is bounded emissive sample count
+    RestirLightManagerSampleInfo.y is bounded Doom analytic sample count
+    RestirLightManagerSampleInfo.z is total proposal count
+    RestirLightManagerSampleInfo.w is non-empty typed range count
+    zero-count ranges are valid and must not invent fallback light domains
+
+Forbidden:
+
+    no shader-side range scanning as normal function
+    no NEE-cache/ReGIR range ownership
+    no changing payload layout unless the audit proves a layout bug
+
+Acceptance:
+
+    dumps report the same typed ranges and sample counts that shader helpers
+    expose, and consumers can compute proposal PDFs from those values alone
+
+
+RLU-11: Clean DI RLU Range Provider
+-----------------------------------
+
+Goal:
+
+    Add a clean RTXDI DI helper layer that exposes Remix-style active light
+    ranges from RLU metadata without changing reservoir behavior.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Required rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    docs/restir_remix_light_universe
+
+Required:
+
+    helper for current RLU typed range by light class
+    helper for bounded sample count by light class
+    helper for active non-empty range count
+    helper for proposal probability / source PDF inputs used by clean DI
+    all selected identities remain dense current RLU indices
+
+Forbidden:
+
+    no NEE cache provider in the normal clean DI path
+    no ReGIR cell provider in the normal clean DI path
+    no old Doom analytic array sampling
+    no split-domain fallback for normal function
+    no final lighting or temporal changes in this slice
+
+Acceptance:
+
+    clean DI can query the active RLU ranges in shader code, but output remains
+    unchanged until RLU-12 consumes the helpers
+
+
+RLU-12: Clean DI Typed Initial Sampling
+---------------------------------------
+
+Goal:
+
+    Improve clean RTXDI DI current-frame proposals by sampling typed RLU ranges
+    instead of treating the active light universe as one undifferentiated
+    uniform region.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Required rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    docs/restir_remix_light_universe
+
+Required:
+
+    stream emissive candidates from the emissive dense range when non-empty
+    stream analytic candidates from the Doom analytic dense range when non-empty
+    use the bounded sample counts supplied by RLU metadata
+    compute sourcePdf from the actual proposal policy
+    keep targetPdf from RAB_GetLightSampleTargetPdfForSurface
+    keep solidAnglePdf from RAB_SampleActiveRrxPolymorphicLight /
+        RAB_SamplePolymorphicLight
+    finalize through RTXDI reservoir helpers and store M = 1
+
+Forbidden:
+
+    no hand-rolled target PDF
+    no visibility folded into targetPdf
+    no saturate-clamped output as proof
+    no NEE-cache/ReGIR as default proposal source
+    no temporal accumulation edits
+
+Acceptance:
+
+    clean RTXDI view 12 keeps the same mean lighting as the RLU baseline while
+    candidate count and typed range sample counts produce predictable noise
+    changes
+
+
+RLU-13: Clean DI Previous-Best Initial-Sampling Seed
+----------------------------------------------------
+
+Goal:
+
+    Add Remix-style previous-best seeding to clean RTXDI DI initial sampling
+    after typed RLU sampling is correct.
+
+Reference file-equivalent:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_initial_sampling.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/rtxdi_compute_gradients.comp.slang
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/Reservoir.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+
+Required rbdoom read set:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    docs/restir_remix_rebuild/rrx_cf_05_active_di_previous_best_initial_sampling.txt
+
+Allowed rbdoom write set:
+
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    docs/restir_remix_light_universe
+
+Required:
+
+    project current pixel to previous pixel using the existing motion contract
+    load previous selected light from an explicitly owned previous-best source
+    translate previous-domain light to current-domain light with
+        RAB_TranslateLightIndex(previousLight, false)
+    reject invalid previous best, failed translation, or unsupported portal
+        state locally
+    build the translated current light as a normal single-light candidate
+    combine it with random typed candidates through RTXDI reservoir helpers
+    set M = 1 for the produced current reservoir
+
+Forbidden:
+
+    no claiming full Remix best-light parity if the source is the previous
+        temporal reservoir instead of a real best-light feedback buffer
+    no temporal reuse rewrite in this slice
+    no spatial, gradient, confidence, or denoiser changes
+    no private previous-light reload path
+
+Acceptance:
+
+    temporal-on movement preserves accumulated lighting better than RLU-12 in
+    overlapping-light areas, without changing the stationary mean or poisoning
+    animated analytic lights

@@ -39,9 +39,12 @@ I-03: Previous Dense Light Domain
     Allowed use:
         RAB_LoadLightInfo(index, previousFrame=true)
         current-to-previous mapping validation
+        RLU-13 previous-best initial-sampling seed, only after translating the
+            previous-domain selected light to current domain with
+            RAB_TranslateLightIndex(previousLight, false)
 
     Forbidden use:
-        previous domain in initial sampling
+        previous domain in initial sampling outside the explicit RLU-13 seed
         fabricated previous payloads as proof
 
 
@@ -80,6 +83,27 @@ I-06: RTXDI / RAB Helper Boundary
     Forbidden use:
         invented targetPdf or sourcePdf math
         copied RTXDI/Remix source text
+
+
+I-07: Previous-Best Initial-Sampling Input
+
+    Allowed source:
+        explicitly owned previous-best feedback buffer, if added by a task
+        explicitly labeled previous temporal reservoir approximation, only for
+            RLU-13 and not as full Remix best-light parity
+
+    Required use:
+        project current pixel to previous pixel using the existing motion
+            contract
+        read previous-domain selected light
+        translate to current domain through RAB_TranslateLightIndex
+        reject failed translation locally
+
+    Forbidden use:
+        direct previous-domain index as current-domain index
+        temporal accumulator rewrite to hide bad current proposals
+        compliance claim without naming whether the source is real best-light
+            feedback or an approximation
 
 
 Allowed Outputs
@@ -150,7 +174,8 @@ Do not consume:
     old smoke fallback output
     mode-56 RRX debug output
     spatial reservoir pages
-    best-light buffers
+    best-light buffers unless the active task explicitly owns previous-best
+        initial-sampling feedback
     denoiser/confidence/gradient buffers
     mirror/subview state as proof
     full-map brute-force domain as proof
@@ -162,7 +187,7 @@ Forbidden Outputs
 Do not output:
 
     spatial proof
-    best-light proof
+    best-light proof for the early RLU mapping/payload stages
     denoised output
     fallback beauty or albedo
     synthetic-light temporal compliance claims

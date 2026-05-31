@@ -25,6 +25,15 @@ RTX Remix exposes:
     light mapping buffer
     light count and typed ranges
 
+In rbdoom this active shader-visible domain is t66/t67:
+
+    PathTraceRestirLightManagerCurrentPayload / CleanRtxdiDiRluCurrentLights
+    PathTraceRestirLightManagerPreviousPayload / CleanRtxdiDiRluPreviousLights
+
+These buffers are the normal active polymorphic light universe.  Follow-up DI,
+PDFNEE, NEE-cache, or ReGIR work must consume dense RLU indices through RAB
+instead of creating another normal light universe.
+
 The shader bridge exposes:
 
     RAB_LoadLightInfo(index, false)
@@ -87,6 +96,14 @@ Step 5:
     Expose the new domain to clean RTXDI DI with a default-off CVar. Keep old
     path and bypass available for A/B until visual proof passes.
 
+Step 6:
+
+    After RLU payload and mapping proof passes, expose authoritative typed
+    ranges and bounded sample counts to clean DI initial sampling.  Clean DI may
+    then improve proposals by sampling the active RLU ranges and, in a later
+    slice, by adding previous-best initial-sampling seeding.  This does not make
+    NEE-cache or ReGIR the primary DI light universe.
+
 
 First Worker Slice
 ------------------
@@ -113,8 +130,10 @@ Stop if:
     the mapping table cannot be built without authored-registry diagnostics
     selected lights cannot replay through RAB
     animated payloads invalidate unrelated stable lights
-    the visual proof requires spatial, best lights, broad suppression,
+    the early visual proof requires spatial, best lights, broad suppression,
         mirror/subview behavior, or full-map brute force
+    NEE-cache, ReGIR, portal pools, split-domain fallback, or old Doom analytic
+        reloads become the default clean DI light universe
 
 
 Build / Deploy Handoff

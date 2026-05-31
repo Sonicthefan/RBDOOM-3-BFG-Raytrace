@@ -38,19 +38,25 @@ Known state:
     Clean RTXDI view 12 accumulates real Doom analytic lights when
     r_pathTracingCleanRtxdiDiBypassLightUniverse 1 is enabled. The old
     persistent Doom analytic light-universe/remap path remains unstable.
+    The active shader-visible RLU payloads are t66/t67. Future DI proposal
+    work must consume those dense RLU buffers through RAB, not create a private
+    light universe from old Doom analytic arrays, NEE-cache, ReGIR, or portal
+    candidate pools.
 
 Standing restrictions:
 
     no invented ReSTIR math
     no RTXDI reservoir math changes
     no spatial reuse before temporal proof
-    no best-light feedback as proof
+    no best-light feedback as early RLU proof
     no denoiser/confidence/gradient proof
     no mode-56 route
-    no previous-temporal-as-best proof
+    no previous-temporal-as-best Remix compliance proof
     no full-map/full-domain brute force as the fix
     no broad light suppression as the fix
     no mirror/subview glitch as proof
+    no NEE-cache/ReGIR/split-domain/default portal-pool replacement for the
+        active RLU light universe
     no copied Remix or RTXDI source text
 
 Reference file-equivalents:

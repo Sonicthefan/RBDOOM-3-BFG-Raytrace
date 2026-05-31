@@ -1069,9 +1069,76 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanNeeCacheProviderRequestedEarly =
         cleanRtxdiDiRouteRequested &&
         r_pathTracingCleanRtxdiDiNeeCacheProvider.GetInteger() != 0;
+    const bool cleanNeeCacheProviderJustRequested =
+        cleanNeeCacheProviderRequestedEarly &&
+        !m_smokeNeeCacheState.cleanProviderRequestedLastFrame;
+    m_smokeNeeCacheState.cleanProviderRequestedLastFrame = cleanNeeCacheProviderRequestedEarly;
     if (!cleanNeeCacheProviderRequestedEarly)
     {
         m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
+        m_smokeNeeCacheState.cleanProviderStartupDelayFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderStableViewFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderLastViewValid = false;
+    }
+    else if (cleanNeeCacheProviderJustRequested)
+    {
+        m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
+        m_smokeNeeCacheState.cleanProviderStartupDelayFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES;
+        m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderStableViewFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderLastViewValid = false;
+    }
+    bool cleanNeeCacheProviderViewStable = false;
+    if (cleanNeeCacheProviderRequestedEarly && viewDef)
+    {
+        idVec3 cleanProviderForward = viewDef->renderView.viewaxis[0];
+        cleanProviderForward.Normalize();
+        const idVec3& cleanProviderOrigin = viewDef->renderView.vieworg;
+        if (m_smokeNeeCacheState.cleanProviderLastViewValid)
+        {
+            const float dx = cleanProviderOrigin.x - m_smokeNeeCacheState.cleanProviderLastViewOrigin[0];
+            const float dy = cleanProviderOrigin.y - m_smokeNeeCacheState.cleanProviderLastViewOrigin[1];
+            const float dz = cleanProviderOrigin.z - m_smokeNeeCacheState.cleanProviderLastViewOrigin[2];
+            const float movementSq = dx * dx + dy * dy + dz * dz;
+            const float forwardDot =
+                cleanProviderForward.x * m_smokeNeeCacheState.cleanProviderLastViewForward[0] +
+                cleanProviderForward.y * m_smokeNeeCacheState.cleanProviderLastViewForward[1] +
+                cleanProviderForward.z * m_smokeNeeCacheState.cleanProviderLastViewForward[2];
+            cleanNeeCacheProviderViewStable = movementSq <= 0.25f && forwardDot >= 0.9999f;
+        }
+        m_smokeNeeCacheState.cleanProviderLastViewOrigin[0] = cleanProviderOrigin.x;
+        m_smokeNeeCacheState.cleanProviderLastViewOrigin[1] = cleanProviderOrigin.y;
+        m_smokeNeeCacheState.cleanProviderLastViewOrigin[2] = cleanProviderOrigin.z;
+        m_smokeNeeCacheState.cleanProviderLastViewForward[0] = cleanProviderForward.x;
+        m_smokeNeeCacheState.cleanProviderLastViewForward[1] = cleanProviderForward.y;
+        m_smokeNeeCacheState.cleanProviderLastViewForward[2] = cleanProviderForward.z;
+        m_smokeNeeCacheState.cleanProviderLastViewValid = true;
+    }
+    if (!cleanNeeCacheProviderViewStable &&
+        cleanNeeCacheProviderRequestedEarly &&
+        !m_smokeNeeCacheState.cleanProviderSnapshotHoldActive)
+    {
+        m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
+        m_smokeNeeCacheState.cleanProviderStartupDelayFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES;
+        m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = 0u;
+        m_smokeNeeCacheState.cleanProviderStableViewFrames = 0u;
+    }
+    else if (cleanNeeCacheProviderViewStable)
+    {
+        ++m_smokeNeeCacheState.cleanProviderStableViewFrames;
+    }
+    const bool cleanNeeCacheProviderStartupDelayActive =
+        cleanNeeCacheProviderRequestedEarly &&
+        m_smokeNeeCacheState.cleanProviderStartupDelayFrames > 0u;
+    if (cleanNeeCacheProviderStartupDelayActive && cleanNeeCacheProviderViewStable)
+    {
+        --m_smokeNeeCacheState.cleanProviderStartupDelayFrames;
+        if (m_smokeNeeCacheState.cleanProviderStartupDelayFrames == 0u)
+        {
+            m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = false;
+            m_smokeNeeCacheState.cleanProviderStartupRefreshFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_REFRESH_FRAMES;
+        }
     }
     uint32_t neeCacheRluInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
     if (regirRemixLightManagerStats.structuralSignatureChanged != 0u)
@@ -1103,12 +1170,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         neeCacheSettings.enabled &&
         ((neeCacheSettings.debugView >= 1 && neeCacheSettings.debugView <= 12)) &&
         !neeCacheDebugForbiddenMode;
+    const bool neeCacheSelectedSourceDomainAvailable =
+        neeCacheRluInputs.remixDenseDomain &&
+        neeCacheRluInputs.currentLightCount > 0u &&
+        (neeCacheSettings.sourceDomain == 0 ||
+            (neeCacheSettings.sourceDomain == 1 && neeCacheRluInputs.emissiveRangeCount > 0u) ||
+            (neeCacheSettings.sourceDomain == 2 && neeCacheRluInputs.doomAnalyticRangeCount > 0u) ||
+            (neeCacheSettings.sourceDomain == 3 && (neeCacheRluInputs.emissiveRangeCount > 0u || neeCacheRluInputs.doomAnalyticRangeCount > 0u)));
     const bool neeCacheCandidateBuildRequested =
         neeCacheSettings.enabled &&
         !neeCacheDebugForbiddenMode &&
         neeCacheResourceReady &&
-        neeCacheRluInputs.remixDenseDomain &&
-        (neeCacheRluInputs.emissiveRangeCount > 0u || neeCacheRluInputs.doomAnalyticRangeCount > 0u);
+        neeCacheSelectedSourceDomainAvailable;
     const bool neeCacheSecondaryConsumeRequested =
         r_pathTracingNeeCacheSecondaryEnable.GetInteger() != 0 &&
         !neeCacheDebugForbiddenMode;
@@ -1128,16 +1201,32 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanNeeCacheProviderBuildDeferredByClear =
         cleanNeeCacheProviderRequestedEarly &&
         m_smokeNeeCacheState.taskClearPending;
+    const uint32_t cleanNeeCacheProviderDeferredClearFlags =
+        cleanNeeCacheProviderBuildDeferredByClear ? m_smokeNeeCacheState.pendingInvalidationFlags : PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    const bool cleanNeeCacheProviderClearFrameSnapshotUnsafe =
+        cleanNeeCacheProviderBuildDeferredByClear &&
+        (cleanNeeCacheProviderDeferredClearFlags &
+            (PATH_TRACE_NEE_CACHE_INVALIDATE_RESOURCE_ALLOCATION | PATH_TRACE_NEE_CACHE_INVALIDATE_DIAGNOSTIC_OWNERSHIP)) != 0u;
+    const bool cleanNeeCacheProviderStartupRefreshActive =
+        cleanNeeCacheProviderRequestedEarly &&
+        !cleanNeeCacheProviderStartupDelayActive &&
+        cleanNeeCacheProviderViewStable &&
+        m_smokeNeeCacheState.cleanProviderStartupRefreshFrames > 0u;
     const bool cleanNeeCacheProviderBuildPrepassRequested =
         cleanNeeCacheProviderRequestedEarly &&
         !neeCacheSecondaryVisualBandActive &&
         neeCacheCandidateBuildRequested &&
-        !cleanNeeCacheProviderBuildDeferredByClear &&
-        !m_smokeNeeCacheState.cleanProviderSnapshotHoldActive &&
+        !cleanNeeCacheProviderStartupDelayActive &&
+        (!m_smokeNeeCacheState.cleanProviderSnapshotHoldActive || cleanNeeCacheProviderStartupRefreshActive) &&
         !neeCacheSecondaryVisualSnapshotHold;
     const bool cleanNeeCacheBuildPrepassRequested =
         cleanNeeCacheProviderBuildPrepassRequested ||
         neeCacheSecondaryVisualRefreshRequested;
+    const bool cleanNeeCachePipelineWarmupRequested =
+        cleanNeeCacheProviderRequestedEarly &&
+        neeCacheSettings.enabled &&
+        neeCacheResourceReady &&
+        !neeCacheDebugForbiddenMode;
     const bool neeCacheRouteRequested = neeCacheDebugRouteRequested || neeCacheCandidateBuildRequested;
     auto printNeeCacheDump = [&](const char* stage, const char* earlyReturn)
     {
@@ -1418,8 +1507,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanDumpRluRoute &&
             neeCacheResourceReady &&
             neeCacheCandidateBuildRequested &&
+            !cleanNeeCacheProviderStartupDelayActive &&
             !cleanNeeCacheProviderBuildDeferredByClear &&
             !m_smokeNeeCacheState.taskClearPending &&
+            m_smokeNeeCacheState.cleanProviderSnapshotHoldActive &&
             m_smokeNeeCacheState.providerResultBuffer != nullptr &&
             m_smokeNeeCacheState.cellBuffer != nullptr &&
             m_smokeNeeCacheState.candidateBuffer != nullptr;
@@ -1429,7 +1520,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const PathTraceRemixLightEventSample& cleanDumpCurrentOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstCurrentOnly : cleanDumpEmptyRluSample;
         const PathTraceRemixLightEventSample& cleanDumpPreviousOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstPreviousOnly : cleanDumpEmptyRluSample;
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d cleanNeeCacheProvider requested/ready=%d/%d buildPrepass=%d deferredByClear=%d providerSnapshotHold=%d band10ExitedClear=%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 fallbackProbability=%.3f sourceDomain=%d(%s) cellResolution=%d cleanNeeCacheProducer=nee-cache-build-prepass-or-held-snapshot,nee-cache-provider-or-existing-clean-initial,RTXDI_StreamSample,RTXDI_FinalizeResampling providerMissFallback=existing-clean-initial externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d cleanNeeCacheProvider requested/ready=%d/%d buildPrepass=%d startupDelay=%u startupRefresh=%u stableView=%d stableFrames=%u deferredByClear=%d providerSnapshotHold=%d band10ExitedClear=%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 fallbackProbability=%.3f sourceDomain=%d(%s) cellResolution=%d cleanNeeCacheProducer=nee-cache-stable-view-delayed-refresh-burst-or-existing-clean-initial,RTXDI_StreamSample,RTXDI_FinalizeResampling providerMissFallback=existing-clean-initial externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
@@ -1506,6 +1597,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanDumpNeeCacheProviderRequested ? 1 : 0,
             cleanDumpNeeCacheProviderReady ? 1 : 0,
             cleanNeeCacheProviderBuildPrepassRequested ? 1 : 0,
+            m_smokeNeeCacheState.cleanProviderStartupDelayFrames,
+            m_smokeNeeCacheState.cleanProviderStartupRefreshFrames,
+            cleanNeeCacheProviderViewStable ? 1 : 0,
+            m_smokeNeeCacheState.cleanProviderStableViewFrames,
             cleanNeeCacheProviderBuildDeferredByClear ? 1 : 0,
             m_smokeNeeCacheState.cleanProviderSnapshotHoldActive ? 1 : 0,
             neeCacheSecondaryVisualBandExited ? 1 : 0,
@@ -2103,7 +2198,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanNeeCacheBuildPrepassRequested && !m_smokeNeeCacheDebugShaderTable)
+        if (cleanNeeCachePipelineWarmupRequested && !m_smokeNeeCacheDebugShaderTable)
         {
             InitRayTracingSmokeRestirPipeline(19);
         }
@@ -2401,9 +2496,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     commandList->setBufferState(m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::ShaderResource);
                     commandList->setBufferState(m_smokeNeeCacheState.candidateBuffer, nvrhi::ResourceStates::ShaderResource);
                     commandList->commitBarriers();
-                    if (cleanNeeCacheProviderBuildPrepassRequested)
+                    if (cleanNeeCacheProviderBuildPrepassRequested && !cleanNeeCacheProviderClearFrameSnapshotUnsafe)
                     {
-                        m_smokeNeeCacheState.cleanProviderSnapshotHoldActive = true;
+                        if (m_smokeNeeCacheState.cleanProviderStartupRefreshFrames > 0u)
+                        {
+                            --m_smokeNeeCacheState.cleanProviderStartupRefreshFrames;
+                        }
+                        m_smokeNeeCacheState.cleanProviderSnapshotHoldActive =
+                            m_smokeNeeCacheState.cleanProviderStartupRefreshFrames == 0u;
                     }
                     if (neeCacheSecondaryVisualRefresh == 1)
                     {
@@ -3077,8 +3177,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanRluRoute &&
             neeCacheResourceReady &&
             neeCacheCandidateBuildRequested &&
+            !cleanNeeCacheProviderStartupDelayActive &&
             !cleanNeeCacheProviderBuildDeferredByClear &&
             !m_smokeNeeCacheState.taskClearPending &&
+            m_smokeNeeCacheState.cleanProviderSnapshotHoldActive &&
             m_smokeNeeCacheState.providerResultBuffer != nullptr &&
             m_smokeNeeCacheState.cellBuffer != nullptr &&
             m_smokeNeeCacheState.candidateBuffer != nullptr;

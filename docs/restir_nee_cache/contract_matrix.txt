@@ -66,6 +66,9 @@ Pass:
         slots, buffer lifetime owner, and caller/callee relationship
     sourceLabel and fallbackReason have documented enum values
     disabled/invalid provider output is explicitly representable
+    structurally valid NEE-cache resources report firstMissingContract=none
+        when the selected current-RLU source domain is active; resource readiness
+        must not report old PDFNEE consumer or Doom-analytic-only contracts
 
 Fail:
 
@@ -74,6 +77,8 @@ Fail:
         contract
     sourcePdf/invSourcePdf/sourceLabel are reconstructed differently by each
         consumer
+    sourceDomain 0 or 1 is blocked only because the current RLU has no Doom
+        analytic range
 
 
 Contract C-00A: Cell Mapping Debug Route
@@ -377,14 +382,38 @@ Required behavior:
     provider outputs only dense current RLU identity and source PDF metadata
     r_pathTracingCleanRtxdiDiNeeCacheProvider enables the clean-DI provider
         path without reusing PDFNEE sourcePolicy
-    clean DI provider dispatches the NEE-cache candidate build prepass in
-        normal view 12 before first consuming provider/cell/candidate SRVs, then
-        may reuse the held provider snapshot until the provider is disabled or
-        the band-10 diagnostic takes ownership of the shared cache buffers
+    clean DI warms the NEE-cache build pipeline when the provider is requested
+        and resources are valid, even if the current map location has not yet
+        exposed an active candidate source domain
+    sourceDomain 0 may build/write provider results as soon as the dense
+        current RLU has any lights, because its full-RLU fallback is valid
+        without typed emissive/analytic ranges
+    typed-only source domains remain gated by the selected current-RLU typed
+        range: emissive for sourceDomain 1, stable Doom analytic for
+        sourceDomain 2, and either typed range for sourceDomain 3
+    when the clean-DI provider is first requested or its resources are newly
+        allocated, view 12 waits 20 clean frames before provider refresh so
+        startup light/RLU transitions cannot become a held provider snapshot
+    before a clean provider snapshot is complete, the startup delay and refresh
+        burst advance only while the view is stable; camera movement/rotation
+        restarts the delay so sweeping the camera cannot paint every seen cell
+        into a held snapshot
+    after the delayed refresh burst completes and providerSnapshotHold=1,
+        movement keeps using the held provider snapshot rather than disabling
+        the NEE-cache provider across all movement
+    after the delay, clean DI provider dispatches a bounded 8-frame refresh
+        burst in normal view 12 before settling into held reuse; this lets more
+        visible cells refresh without keeping the portal-heavy build active
+        indefinitely
     leaving clean-DI view 8 band 10 force-clears the diagnostic-owned cache
         buffers before normal view 12 provider snapshot reuse resumes
-    frames that begin with a pending NEE cache clear defer the clean provider
-        build and fall back to existing clean initial sampling for that frame
+    frames that begin with a pending NEE cache clear defer clean provider
+        consumption and fall back to existing clean initial sampling for that
+        frame; the clean build prepass may still run after the clear so
+        animation/movement does not wait for a quiet RLU-signature frame
+    resource-allocation and diagnostic-ownership clear frames are warmup-only:
+        they may initialize/clear buffers, but they must not become the held
+        clean provider snapshot consumed by view 12
     clean sentinel binds provider/cell/candidate buffers as SRV t74/t75/t77
     each pixel draws its own proposal from the mapped cell or full-RLU/typed
         fallback
@@ -405,8 +434,9 @@ Anti-cell-artifact requirements:
 Pass:
 
     clean DI dump reports cleanNeeCacheProvider requested/ready=1/1 and
-        buildPrepass=1 or providerSnapshotHold=1, plus providerResultSrv=t74
-        cellSrv=t75 candidateSrv=t77
+        buildPrepass=1 during startupRefresh or providerSnapshotHold=1 after
+        startupRefresh reaches zero, plus providerResultSrv=t74 cellSrv=t75
+        candidateSrv=t77
     clean DI dump reports band10ExitedClear=1 on the first frame after leaving
         view 8 band 10
     clean DI dump reports deferredByClear=1 on frames where a pending clear

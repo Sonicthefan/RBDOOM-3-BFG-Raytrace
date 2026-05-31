@@ -48,7 +48,7 @@ Do not edit unless a task explicitly names them:
     RTXDI reservoir math
     clean RTXDI temporal accumulator math
     spatial reuse code
-    best-light feedback
+    best-light feedback or previous-best initial-sampling feedback
     denoiser/confidence/gradient paths
     mode-56 routing
     old NEE selected-light records
@@ -76,6 +76,8 @@ Unacceptable implementation:
     hidden ReSTIR math changes
     broad light suppression
     full-map brute force as the fix
+    private replacement light universes in NEE-cache, ReGIR, old Doom analytic
+        arrays, split-domain fallbacks, or portal candidate pools
     mirror/subview glitch as proof
     temporal proof from status colors or dumps
 
@@ -149,7 +151,9 @@ Stop immediately if:
     two-way mapping cannot be stated
     selected identity cannot replay through RAB
     animated payload churn invalidates unrelated lights
-    proof requires broad suppression, spatial, best lights, mirror behavior, or
-        full-map brute force
+    early RLU proof requires broad suppression, spatial, best lights, mirror
+        behavior, or full-map brute force
+    a follow-up consumer tries to replace the active t66/t67 RLU domain instead
+        of consuming it through RAB
     output uses fallback albedo/beauty
     reference behavior is unclear

@@ -161,10 +161,167 @@ Fail:
     for the active proof path
 
 
+Rung V-07: Active Buffer Ownership
+----------------------------------
+
+Purpose:
+
+    Remove ambiguity about which shader buffers are the active polymorphic RLU
+    domain.
+
+Expected:
+
+    t66 is documented as the active current RLU payload buffer
+    t67 is documented as the active previous RLU payload buffer
+    t59/t60 are documented as legacy/debug unless explicitly owned
+    NEE cache and ReGIR are documented as proposal experiments, not replacement
+        light universes
+
+Pass:
+
+    worker can name the exact RLU producer-to-consumer path without mentioning
+    private Doom analytic reloads as the normal path
+
+Fail:
+
+    clean DI, PDFNEE, NEE-cache, or ReGIR tasks are allowed to create a separate
+    normal light universe
+
+
+Rung V-08: Payload Replay Hardening
+-----------------------------------
+
+Purpose:
+
+    Prove that active RLU payloads are valid before and after shader upload.
+
+Expected:
+
+    current and previous analytics expose valid radius, influenceRadius, area,
+    luminance, sourceWeight, flags, sourceIndex, and identity
+    current and previous emissives expose valid area, radiance/luminance,
+    sourceWeight, material/primitive identity, and previous remap
+    shader debug replay agrees with CPU dump for representative mapped lights
+
+Pass:
+
+    moving near animated lights does not poison unrelated lights, and failures
+    are local to the failed light or failed remap
+
+Fail:
+
+    a shader-visible payload differs from the CPU payload and the task proceeds
+    to sampling changes anyway
+
+
+Rung V-09: Typed Range Metadata
+-------------------------------
+
+Purpose:
+
+    Prove that RLU typed ranges and bounded sample counts are authoritative.
+
+Expected:
+
+    dumps report emissive and Doom analytic offset/count pairs
+    dumps report bounded sample counts for each type
+    shader helpers expose the same values
+    zero-count ranges are handled without fallback domains
+
+Pass:
+
+    sourcePdf for a selected dense RLU light can be derived from typed range
+    metadata and the selected proposal policy
+
+Fail:
+
+    a consumer scans payload records to rediscover the normal range contract
+    or uses NEE-cache/ReGIR ownership as the source of range truth
+
+
+Rung V-10: Clean DI Range Provider
+----------------------------------
+
+Purpose:
+
+    Add clean DI shader helpers for RLU typed ranges without changing output.
+
+Expected:
+
+    helpers return active range offset/count by light class
+    helpers return bounded sample count by light class
+    helpers expose non-empty range count and proposal probability inputs
+
+Pass:
+
+    build succeeds and clean RTXDI view 12 output remains unchanged until typed
+    sampling is enabled
+
+Fail:
+
+    helper addition changes reservoir selection, temporal reuse, or final
+    lighting before RLU-12
+
+
+Rung V-11: Clean DI Typed Initial Sampling
+------------------------------------------
+
+Purpose:
+
+    Improve clean RTXDI DI current proposals using active RLU typed ranges.
+
+Expected:
+
+    emissive and analytic typed ranges are sampled when present
+    sourcePdf matches the actual typed proposal policy
+    targetPdf and solidAnglePdf come from RAB replay
+    reservoir finalization stores M = 1
+
+Pass:
+
+    clean RTXDI view 12 has the same mean as the RLU baseline, and changing
+    candidate/sample counts changes noise predictably
+
+Fail:
+
+    visibility is part of targetPdf
+    selected identity is not a dense current RLU index
+    NEE-cache/ReGIR is required for normal clean DI function
+
+
+Rung V-12: Previous-Best Initial Sampling
+-----------------------------------------
+
+Purpose:
+
+    Seed clean DI initial sampling with a translated previous-best light after
+    typed RLU sampling is correct.
+
+Expected:
+
+    previous best is resolved before temporal reuse
+    previous-domain light is translated to current domain with RAB
+    translated current light is sampled as a single-light candidate
+    RTXDI reservoir helper math combines it with random typed proposals
+
+Pass:
+
+    movement stability improves in overlapping-light areas without regressing
+    stationary lighting or animated-light isolation
+
+Fail:
+
+    previous-domain light indices are used directly in the current domain
+    temporal reuse is rewritten to hide bad current proposals
+    a previous temporal reservoir source is called full Remix best-light parity
+
+
 Hard Stop
 ---------
 
 Stop at the first failing rung.
 
-Do not continue to spatial, best lights, ReGIR, PDFNEE, or emissive expansion
-to hide a failing analytic temporal mapping contract.
+Do not continue to spatial, denoiser, gradient/confidence, ReGIR-as-default-DI,
+PDFNEE-as-proof, or broad light suppression to hide a failing RLU or clean DI
+sampling contract.  Previous-best initial sampling is allowed only at V-12 after
+the active RLU payload, range, and typed proposal contracts pass.

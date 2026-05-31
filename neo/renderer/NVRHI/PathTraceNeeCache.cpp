@@ -146,17 +146,21 @@ PathTraceNeeCacheResourceDesc BuildPathTraceNeeCacheResourceDesc(const PathTrace
     {
         desc.firstMissingContract = "current-rlu-light-count";
     }
-    else if (settings.fallbackProbability <= 0.0f)
+    else if (settings.sourceDomain == 1 && rluInputs.emissiveRangeCount == 0u)
     {
-        desc.firstMissingContract = "fallback-probability-zero-diagnostic";
+        desc.firstMissingContract = "no-current-emissive-domain";
     }
-    else if (rluInputs.doomAnalyticRangeCount == 0u)
+    else if (settings.sourceDomain == 2 && rluInputs.doomAnalyticRangeCount == 0u)
     {
-        desc.firstMissingContract = "current-rlu-doom-analytic-range-empty-neecache-05";
+        desc.firstMissingContract = "no-current-analytic-domain";
+    }
+    else if (settings.sourceDomain == 3 && rluInputs.emissiveRangeCount == 0u && rluInputs.doomAnalyticRangeCount == 0u)
+    {
+        desc.firstMissingContract = "no-current-typed-source-domain";
     }
     else
     {
-        desc.firstMissingContract = "pdfnee-consumer-not-implemented-neecache-07";
+        desc.firstMissingContract = "none";
     }
     return desc;
 }
@@ -219,9 +223,16 @@ void PathTraceNeeCacheState::Clear()
     observedRluPayloadSignature = 0u;
     pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
     lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+    cleanProviderStartupDelayFrames = 0u;
+    cleanProviderStartupRefreshFrames = 0u;
+    cleanProviderStableViewFrames = 0u;
+    cleanProviderLastViewOrigin[0] = cleanProviderLastViewOrigin[1] = cleanProviderLastViewOrigin[2] = 0.0f;
+    cleanProviderLastViewForward[0] = cleanProviderLastViewForward[1] = cleanProviderLastViewForward[2] = 0.0f;
     observedRluSignaturesValid = false;
     taskClearPending = false;
     cleanProviderSnapshotHoldActive = false;
+    cleanProviderRequestedLastFrame = false;
+    cleanProviderLastViewValid = false;
     secondaryVisualSnapshotHoldActive = false;
     secondaryVisualBandActiveLastFrame = false;
 }
@@ -243,9 +254,16 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         observedRluPayloadSignature = 0u;
         pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
         lastInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
+        cleanProviderStartupDelayFrames = 0u;
+        cleanProviderStartupRefreshFrames = 0u;
+        cleanProviderStableViewFrames = 0u;
+        cleanProviderLastViewOrigin[0] = cleanProviderLastViewOrigin[1] = cleanProviderLastViewOrigin[2] = 0.0f;
+        cleanProviderLastViewForward[0] = cleanProviderLastViewForward[1] = cleanProviderLastViewForward[2] = 0.0f;
         observedRluSignaturesValid = false;
         taskClearPending = false;
         cleanProviderSnapshotHoldActive = false;
+        cleanProviderRequestedLastFrame = false;
+        cleanProviderLastViewValid = false;
         secondaryVisualSnapshotHoldActive = false;
         secondaryVisualBandActiveLastFrame = false;
         return true;
@@ -321,6 +339,10 @@ bool PathTraceNeeCacheState::EnsureResources(nvrhi::IDevice* device, const PathT
         lastInvalidationFlags = pendingInvalidationFlags;
         taskClearPending = true;
         cleanProviderSnapshotHoldActive = false;
+        cleanProviderStartupDelayFrames = PATH_TRACE_NEE_CACHE_CLEAN_PROVIDER_STARTUP_DELAY_FRAMES;
+        cleanProviderStartupRefreshFrames = 0u;
+        cleanProviderStableViewFrames = 0u;
+        cleanProviderLastViewValid = false;
         secondaryVisualSnapshotHoldActive = false;
         secondaryVisualBandActiveLastFrame = false;
     }

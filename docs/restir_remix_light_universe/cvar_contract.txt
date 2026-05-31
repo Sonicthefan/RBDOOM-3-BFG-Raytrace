@@ -6,8 +6,11 @@ Purpose
 
 Reserve a narrow CVar surface for the new Remix-shaped light-universe lane.
 
-These CVars must not enable spatial reuse, best-light feedback, denoising,
-fallback lighting, or mode-56 routing.
+These RLU ownership CVars must not enable spatial reuse, denoising, fallback
+lighting, mode-56 routing, or best-light feedback as part of the early light
+universe proof.  A later clean DI sampling task may add an explicitly named
+previous-best initial-sampling toggle, but it must not be required for basic RLU
+construction, mapping, or payload replay.
 
 
 Naming
@@ -116,10 +119,11 @@ r_pathTracingRemixLightUniverseStrictRemixMapping
 Future / Not First Slice
 ------------------------
 
-Do not add these until analytic temporal proof passes:
+Do not add these until analytic temporal proof passes and the task explicitly
+owns them:
 
     spatial reuse toggle
-    best-light feedback toggle
+    previous-best initial-sampling toggle
     denoiser/confidence/gradient toggle
     portal-ranking source distribution toggle
     ReGIR/NEE source distribution toggle
@@ -132,8 +136,9 @@ Remix light-universe CVars must not:
 
     route through debugMode 56
     enable spatial reuse
-    enable best-light feedback
+    enable best-light feedback as part of RLU proof
     enable fallback beauty or albedo
     broadly suppress lights
     silently force full-map/full-domain mode
     make a status-color view count as temporal proof
+    make NEE-cache or ReGIR the default clean DI light universe
