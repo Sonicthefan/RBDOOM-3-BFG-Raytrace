@@ -3318,16 +3318,16 @@ float3 PathTraceCleanRoomRluReplayNodeColor(
     {
         record = CleanRtxdiDiRluCurrentLights[lightIndex];
     }
-    if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
-    {
-        return float3(0.08, 0.22, 0.95);
-    }
-    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+        record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
         return float3(1.0, 0.0, 1.0);
     }
 
-    const uint sourceCount = previousFrame ? CleanRtxdiDiDoomAnalyticFullPreviousCount : CleanRtxdiDiDoomAnalyticFullCurrentCount;
+    const uint sourceCount =
+        record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE
+            ? (previousFrame ? CleanRtxdiDiPreviousEmissiveTriangleCount : CleanRtxdiDiCurrentEmissiveTriangleCount)
+            : (previousFrame ? CleanRtxdiDiDoomAnalyticFullPreviousCount : CleanRtxdiDiDoomAnalyticFullCurrentCount);
     if (record.sourceIndex >= sourceCount)
     {
         return float3(1.0, 0.82, 0.0);

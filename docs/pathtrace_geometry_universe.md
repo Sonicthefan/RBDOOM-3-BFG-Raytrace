@@ -114,6 +114,11 @@ Growth and allocation:
   counts before appending new static records.
 - Keep static vertex/index/class/material vectors bounded by the existing RT
   smoke caps until GPU buffer ownership moves into the universe.
+- In source3 drawSurf-mirror mode, the active static geometry cache is pruned to
+  surfaces seen in the current frame by default. This prevents portal traversal
+  from leaving old static surfaces in the active BLAS after returning to an
+  earlier area. The previous-frame CPU/GPU snapshot still supplies one-frame
+  history; this is not a persistent full-level static cache.
 - If future work adds per-level estimates, reserve static records and backing
   arrays at level-cache creation rather than growing them one surface at a time.
 

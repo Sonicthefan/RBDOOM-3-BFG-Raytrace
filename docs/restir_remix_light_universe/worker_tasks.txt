@@ -35,6 +35,10 @@ Allowed write set:
 
     docs/restir_remix_light_universe only
 
+Expected artifact:
+
+    docs/restir_remix_light_universe/rlu_07_remix_portal_debug_crosswalk.txt
+
 Forbidden:
 
     no code changes
@@ -341,6 +345,10 @@ Allowed write set:
 
     docs/restir_remix_light_universe only
 
+Expected artifact:
+
+    docs/restir_remix_light_universe/rlu_08_active_buffer_ownership.txt
+
 Required:
 
     identify t66 as the only active current polymorphic RLU payload buffer
@@ -391,6 +399,10 @@ Allowed rbdoom write set:
     neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
     neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
     docs/restir_remix_light_universe
+
+Expected artifact:
+
+    docs/restir_remix_light_universe/rlu_09_payload_replay_hardening.txt
 
 Required:
 

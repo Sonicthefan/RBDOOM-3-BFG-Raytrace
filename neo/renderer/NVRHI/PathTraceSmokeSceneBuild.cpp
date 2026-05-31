@@ -1935,6 +1935,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
         }
         m_smokeGeometryUniverse.EndFrame();
+        if (useDrawSurfMirrorDynamicFrame && r_pathTracingStaticGeometryPruneMissing.GetInteger() != 0)
+        {
+            staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
+        }
     }
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
@@ -2734,6 +2738,245 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         useRemixLightManagerRabSource ? m_remixLightManager.GetCurrentLightPayloads() : m_restirLightManager.GetActiveCurrentPayloadRecords();
     const std::vector<PathTraceUnifiedLightRecord>& restirLightManagerPreviousPayloadRecords =
         useRemixLightManagerRabSource ? m_remixLightManager.GetPreviousLightPayloads() : m_restirLightManager.GetActivePreviousPayloadRecords();
+    if (remixLightUniverseDump != 0 && remixLightManagerActiveStats.enabled != 0u)
+    {
+        auto recordFinite = [](const PathTraceUnifiedLightRecord& record) {
+            return
+                std::isfinite(record.positionAndRadius[0]) &&
+                std::isfinite(record.positionAndRadius[1]) &&
+                std::isfinite(record.positionAndRadius[2]) &&
+                std::isfinite(record.positionAndRadius[3]) &&
+                std::isfinite(record.normalAndArea[0]) &&
+                std::isfinite(record.normalAndArea[1]) &&
+                std::isfinite(record.normalAndArea[2]) &&
+                std::isfinite(record.normalAndArea[3]) &&
+                std::isfinite(record.radianceAndLuminance[0]) &&
+                std::isfinite(record.radianceAndLuminance[1]) &&
+                std::isfinite(record.radianceAndLuminance[2]) &&
+                std::isfinite(record.radianceAndLuminance[3]) &&
+                std::isfinite(record.uvOrDoomParams[0]) &&
+                std::isfinite(record.uvOrDoomParams[1]) &&
+                std::isfinite(record.uvOrDoomParams[2]) &&
+                std::isfinite(record.uvOrDoomParams[3]) &&
+                std::isfinite(record.sourcePdf) &&
+                std::isfinite(record.sourceWeight);
+        };
+        auto remixTypeIndex = [](uint32_t type) {
+            if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+            {
+                return static_cast<uint32_t>(PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE);
+            }
+            if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+            {
+                return static_cast<uint32_t>(PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC);
+            }
+            return static_cast<uint32_t>(PATH_TRACE_REMIX_LIGHT_TYPE_COUNT);
+        };
+        auto sourceCountForRecord = [&](
+            const PathTraceUnifiedLightRecord& record,
+            bool previousFrame) {
+            if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+            {
+                return previousFrame
+                    ? static_cast<uint32_t>(previousEmissiveTriangles.size())
+                    : static_cast<uint32_t>(emissiveTriangles.size());
+            }
+            if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+            {
+                return previousFrame
+                    ? static_cast<uint32_t>(doomAnalyticRemap.previousCandidates.size())
+                    : static_cast<uint32_t>(doomAnalyticLights.size());
+            }
+            return 0u;
+        };
+        auto recordReplayable = [&](const PathTraceUnifiedLightRecord& record, bool previousFrame) {
+            if (!recordFinite(record) ||
+                record.sourceIndex >= sourceCountForRecord(record, previousFrame) ||
+                record.sourceWeight <= 0.0f)
+            {
+                return false;
+            }
+            if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+            {
+                return record.normalAndArea[3] > 1.0e-6f &&
+                    record.radianceAndLuminance[3] > 0.0f;
+            }
+            if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+            {
+                return record.positionAndRadius[3] > 0.0f &&
+                    record.uvOrDoomParams[0] > 0.0f &&
+                    record.normalAndArea[3] > 1.0e-6f &&
+                    record.radianceAndLuminance[3] > 0.0f;
+            }
+            return false;
+        };
+        auto printReplaySample = [&](const char* label, uint32_t index, bool previousFrame) {
+            const std::vector<PathTraceUnifiedLightRecord>& records = previousFrame
+                ? restirLightManagerPreviousPayloadRecords
+                : restirLightManagerCurrentPayloadRecords;
+            if (index >= records.size())
+            {
+                return;
+            }
+            const PathTraceUnifiedLightRecord& record = records[index];
+            const uint32_t mappedIndex = previousFrame
+                ? (index < restirLightManagerPreviousToCurrentRemap.size() ? restirLightManagerPreviousToCurrentRemap[index] : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+                : (index < restirLightManagerCurrentToPreviousRemap.size() ? restirLightManagerCurrentToPreviousRemap[index] : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX);
+            common->Printf(
+                "PathTracePrimaryPass: RLU CPU payload replay audit %s frame=%s index=%u mappedIndex=%u replayable=%u type=%u sourceIndex=%u radius=%.6g influenceRadius=%.6g area=%.6g luminance=%.6g sourceWeight=%.6g flags=0x%x identity=%u:%u materialOrLightId=%u previousIndex=%u behavior=rlu-09-pre-upload-payload-replay-audit\n",
+                label,
+                previousFrame ? "previous" : "current",
+                index,
+                mappedIndex,
+                recordReplayable(record, previousFrame) ? 1u : 0u,
+                record.type,
+                record.sourceIndex,
+                record.positionAndRadius[3],
+                record.uvOrDoomParams[0],
+                record.normalAndArea[3],
+                record.radianceAndLuminance[3],
+                record.sourceWeight,
+                record.flags,
+                record.identityA,
+                record.identityB,
+                record.materialOrLightId,
+                record.previousIndex);
+        };
+
+        uint32_t currentReplayableByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+        uint32_t currentInvalidByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+        uint32_t previousReplayableByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+        uint32_t previousInvalidByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+        uint32_t mappedPairsByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+        uint32_t mappedReplayFailuresByType[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {};
+        uint32_t firstInvalidCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX
+        };
+        uint32_t firstInvalidPrevious[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX
+        };
+        uint32_t firstMappedFailureCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX
+        };
+        uint32_t firstMappedFailurePrevious[PATH_TRACE_REMIX_LIGHT_TYPE_COUNT] = {
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX,
+            PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX
+        };
+
+        for (uint32_t currentIndex = 0u; currentIndex < restirLightManagerCurrentPayloadRecords.size(); ++currentIndex)
+        {
+            const PathTraceUnifiedLightRecord& record = restirLightManagerCurrentPayloadRecords[currentIndex];
+            const uint32_t typeIndex = remixTypeIndex(record.type);
+            if (typeIndex >= PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                continue;
+            }
+            if (recordReplayable(record, false))
+            {
+                ++currentReplayableByType[typeIndex];
+            }
+            else
+            {
+                ++currentInvalidByType[typeIndex];
+                if (firstInvalidCurrent[typeIndex] == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+                {
+                    firstInvalidCurrent[typeIndex] = currentIndex;
+                }
+            }
+
+            const uint32_t previousIndex = currentIndex < restirLightManagerCurrentToPreviousRemap.size()
+                ? restirLightManagerCurrentToPreviousRemap[currentIndex]
+                : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+            if (previousIndex >= restirLightManagerPreviousPayloadRecords.size())
+            {
+                continue;
+            }
+            const PathTraceUnifiedLightRecord& previous = restirLightManagerPreviousPayloadRecords[previousIndex];
+            ++mappedPairsByType[typeIndex];
+            const bool roundTripValid =
+                previousIndex < restirLightManagerPreviousToCurrentRemap.size() &&
+                restirLightManagerPreviousToCurrentRemap[previousIndex] == currentIndex;
+            if (previous.type != record.type ||
+                !roundTripValid ||
+                !recordReplayable(previous, true))
+            {
+                ++mappedReplayFailuresByType[typeIndex];
+                if (firstMappedFailureCurrent[typeIndex] == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+                {
+                    firstMappedFailureCurrent[typeIndex] = currentIndex;
+                    firstMappedFailurePrevious[typeIndex] = previousIndex;
+                }
+            }
+        }
+
+        for (uint32_t previousIndex = 0u; previousIndex < restirLightManagerPreviousPayloadRecords.size(); ++previousIndex)
+        {
+            const PathTraceUnifiedLightRecord& record = restirLightManagerPreviousPayloadRecords[previousIndex];
+            const uint32_t typeIndex = remixTypeIndex(record.type);
+            if (typeIndex >= PATH_TRACE_REMIX_LIGHT_TYPE_COUNT)
+            {
+                continue;
+            }
+            if (recordReplayable(record, true))
+            {
+                ++previousReplayableByType[typeIndex];
+            }
+            else
+            {
+                ++previousInvalidByType[typeIndex];
+                if (firstInvalidPrevious[typeIndex] == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+                {
+                    firstInvalidPrevious[typeIndex] = previousIndex;
+                }
+            }
+        }
+
+        common->Printf(
+            "PathTracePrimaryPass: RLU CPU payload replay audit current replayable/invalid emissive=%u/%u doom=%u/%u previous replayable/invalid emissive=%u/%u doom=%u/%u mappedPairs emissive/doom=%u/%u mappedReplayFailures emissive/doom=%u/%u currentPayloads=%u previousPayloads=%u behavior=rlu-09-pre-upload-payload-replay-audit\n",
+            currentReplayableByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            currentInvalidByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            currentReplayableByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            currentInvalidByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            previousReplayableByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            previousInvalidByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            previousReplayableByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            previousInvalidByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            mappedPairsByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            mappedPairsByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            mappedReplayFailuresByType[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE],
+            mappedReplayFailuresByType[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC],
+            static_cast<uint32_t>(restirLightManagerCurrentPayloadRecords.size()),
+            static_cast<uint32_t>(restirLightManagerPreviousPayloadRecords.size()));
+        if (firstInvalidCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE] != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printReplaySample("firstInvalidCurrentEmissive", firstInvalidCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE], false);
+        }
+        if (firstInvalidCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC] != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printReplaySample("firstInvalidCurrentDoomAnalytic", firstInvalidCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC], false);
+        }
+        if (firstInvalidPrevious[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE] != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printReplaySample("firstInvalidPreviousEmissive", firstInvalidPrevious[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE], true);
+        }
+        if (firstInvalidPrevious[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC] != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printReplaySample("firstInvalidPreviousDoomAnalytic", firstInvalidPrevious[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC], true);
+        }
+        if (firstMappedFailureCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE] != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printReplaySample("firstMappedFailureCurrentEmissive", firstMappedFailureCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE], false);
+            printReplaySample("firstMappedFailurePreviousEmissive", firstMappedFailurePrevious[PATH_TRACE_REMIX_LIGHT_TYPE_EMISSIVE_TRIANGLE], true);
+        }
+        if (firstMappedFailureCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC] != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            printReplaySample("firstMappedFailureCurrentDoomAnalytic", firstMappedFailureCurrent[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC], false);
+            printReplaySample("firstMappedFailurePreviousDoomAnalytic", firstMappedFailurePrevious[PATH_TRACE_REMIX_LIGHT_TYPE_DOOM_ANALYTIC], true);
+        }
+    }
     if (remixLightUniverseDump != 0 && remixLightManagerActiveStats.enabled != 0u && remixLightManagerActiveStats.domain == 2u)
     {
         auto recordFinite = [](const PathTraceUnifiedLightRecord& record) {

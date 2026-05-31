@@ -50,6 +50,7 @@ extern idCVar r_pathTracingRigidResidencyDump;
 extern idCVar r_pathTracingStaticAreaPreload;
 extern idCVar r_pathTracingStaticAreaPreloadPortalSteps;
 extern idCVar r_pathTracingStaticAreaPreloadDump;
+extern idCVar r_pathTracingStaticGeometryPruneMissing;
 extern idCVar r_pathTracingSceneBoundsOverlay;
 extern idCVar r_pathTracingSceneBoundsOverlayMax;
 extern idCVar r_pathTracingSceneBoundsDepthTest;

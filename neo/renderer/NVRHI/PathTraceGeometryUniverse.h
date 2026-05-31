@@ -523,6 +523,7 @@ public:
     void Clear();
     void BeginFrame(uint64 frameIndex);
     void EndFrame();
+    bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
     bool HasStaticSurface(uint64 key) const;

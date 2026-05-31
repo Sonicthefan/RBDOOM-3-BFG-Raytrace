@@ -1,0 +1,263 @@
+RLU-07 RTX Portal / Remix Debug Crosswalk
+=========================================
+
+Task
+----
+
+RLU-07 is a documentation-only comparison pass. It maps rbdoom's current
+Remix-shaped light-universe diagnostics to the RTX Remix / RTX Portal concepts
+that are useful for side-by-side debugging.
+
+No implementation, build, CVar change, or shader edit belongs to this task.
+
+
+Reference File-Equivalents
+--------------------------
+
+RTX Remix / RTX Portal side:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_light_manager.h
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_context.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/common_bindings.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+
+RTXDI side:
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/TemporalResampling.hlsli
+
+rbdoom side:
+
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceRemixLightManager.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+
+Producer / Binding Crosswalk
+----------------------------
+
+RTX Remix:
+
+    current polymorphic light buffer
+    previous polymorphic light buffer
+    light mapping buffer
+    typed range metadata exposed through the application bridge
+
+rbdoom RLU:
+
+    current polymorphic RLU payload:
+        PathTraceRestirLightManagerCurrentPayload
+        CleanRtxdiDiRluCurrentLights
+        register(t66)
+
+    previous polymorphic RLU payload:
+        PathTraceRestirLightManagerPreviousPayload
+        CleanRtxdiDiRluPreviousLights
+        register(t67)
+
+    current-to-previous map:
+        CleanRtxdiDiRluCurrentToPrevious / active RAB light-manager map
+
+    previous-to-current map:
+        CleanRtxdiDiRluPreviousToCurrent / active RAB light-manager map
+
+    typed range metadata:
+        RestirLightManagerRangeInfo.xy = emissive dense offset/count
+        RestirLightManagerRangeInfo.zw = Doom analytic dense offset/count
+
+    bounded proposal metadata:
+        RestirLightManagerSampleInfo.x = bounded emissive sample count
+        RestirLightManagerSampleInfo.y = bounded Doom analytic sample count
+        RestirLightManagerSampleInfo.z = total bounded proposal count
+        RestirLightManagerSampleInfo.w = non-empty typed range count
+
+
+RAB Crosswalk
+-------------
+
+RTXDI / Remix bridge concept:
+
+    load current light by dense light index
+    load previous light by dense light index
+    translate current-domain selected light to previous domain
+    translate previous-domain selected light to current domain
+    sample polymorphic light through the bridge
+    ask the bridge for target PDF and reflected BSDF radiance
+
+rbdoom active RLU bridge:
+
+    RAB_LoadActiveRrxLightInfo(index, false)
+        loads current dense RLU payload from t66
+
+    RAB_LoadActiveRrxLightInfo(index, true)
+        loads previous dense RLU payload from t67
+
+    RAB_TranslateActiveRrxLightIndex(index, true)
+    RAB_TranslateLightIndex(index, true)
+        maps current dense index to previous dense index
+
+    RAB_TranslateActiveRrxLightIndex(index, false)
+    RAB_TranslateLightIndex(index, false)
+        maps previous dense index to current dense index
+
+    RAB_SampleActiveRrxPolymorphicLight(...)
+    RAB_SamplePolymorphicLight(...)
+        samples a RAB-loaded current or previous RLU light
+
+    RAB_GetLightSampleTargetPdfForSurface(...)
+    RAB_GetReflectedBsdfRadianceForSurface(...)
+        provide target-PDF and reflected-radiance inputs after replay
+
+
+rbdoom Runtime CVar Crosswalk
+-----------------------------
+
+RLU producer and mapping:
+
+    r_pathTracingRemixLightUniverseEnable 1
+        builds and uploads the Remix-shaped dense current/previous domains
+
+    r_pathTracingRemixLightUniverseDomain 0
+        Doom analytic only
+
+    r_pathTracingRemixLightUniverseDomain 1
+        emissive only
+
+    r_pathTracingRemixLightUniverseDomain 2
+        unified emissive + Doom analytic
+
+    r_pathTracingRemixLightUniverseDump 1
+        one-shot CPU dump for dense counts, typed ranges, maps, signatures,
+        payload change, duplicate identity, and analytic stability
+
+    r_pathTracingRemixLightUniverseStrictRemixMapping 1
+        mapping proof is based on dense current/previous identity, not legacy
+        authored-registry diagnostics
+
+Clean DI consume:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+        raw clean DI current/temporal proof view
+
+    r_pathTracingCleanRtxdiDiTemporal 0/1
+        A/B current-only noise against temporal accumulation
+
+    r_pathTracingCleanRtxdiDiDump 1
+        route, resource, range, map, and page dump for the clean DI lane
+
+    r_pathTracingCleanRtxdiDiView 8
+    r_pathTracingCleanRtxdiDiView8Band <band>
+        reservoir/debug bands only. These are diagnostic, not final proof.
+
+Current-frame proposal experiments:
+
+    r_pathTracingRestirPdfNeeVerifierEnable 1
+    r_pathTracingRestirPdfNeeVerifierSourcePolicy 1
+        PDFNEE/RLU current producer proof over active dense RLU identity
+
+    r_pathTracingNeeCacheEnable 1
+    r_pathTracingNeeCacheSourceDomain <domain>
+    r_pathTracingNeeCacheDebugView 5..12
+        NEE-cache proposal diagnostics over active RLU identity
+
+    r_pathTracingReGIRDebugView <view>
+        ReGIR debug route. This is a proposal experiment, not the default
+        clean DI light universe.
+
+
+Dump Field Crosswalk
+--------------------
+
+Remix-style dense current light count:
+
+    rbdoom dump field:
+        current=<N>
+        rlu current=<N>
+
+Remix-style dense previous light count:
+
+    rbdoom dump field:
+        previous=<N>
+        rlu previous=<N>
+
+Current-to-previous map:
+
+    rbdoom dump field:
+        maps currentToPrevious size/mapped/invalid/currentOnly=A/B/C/D
+
+Previous-to-current map:
+
+    rbdoom dump field:
+        previousToCurrent size/mapped/invalid/previousOnly=A/B/C/D
+
+Typed light ranges:
+
+    rbdoom dump field:
+        ranges emissive offset/count/samples=A/B/C
+        doomAnalytic offset/count/samples=A/B/C
+
+Payload and mapping signatures:
+
+    rbdoom dump field:
+        signatures structural/mapping/payload=A/B/C
+        changed=A/B/C
+        payloadOnlyChange=N
+
+Reusable analytic classification:
+
+    rbdoom dump field:
+        analyticStability currentSampleable/stableCacheable/unstableDynamic=A/B/C
+        reject noRemap/payloadChanged/unprovenContinuity/unknownIdentity/
+            duplicateIdentity/portalDisconnected/outOfSelectedArea=...
+
+
+Debug Equivalence Limits
+------------------------
+
+Comparable now:
+
+    dense current/previous light ownership
+    current-to-previous and previous-to-current translation
+    typed range offsets and counts
+    active RAB replay of selected dense light identity
+    payload-only versus structural/mapping signature changes
+    local current-only and previous-only events
+
+Not comparable yet:
+
+    Remix previous-best initial-sampling feedback
+    Remix denoiser/confidence/gradient behavior
+    spatial reuse behavior
+    RTX Portal-specific portal-light policy
+    final quality of NEE-cache or ReGIR proposal experiments
+
+Explicit gap:
+
+    rbdoom does not yet have a full Remix-style previous-best feedback source
+    wired into clean DI initial sampling. Any later approximation that uses a
+    previous temporal reservoir selected light must be labeled as an
+    approximation and must still translate previous-domain light identity
+    through RAB before sampling it in the current domain.
+
+
+Validation Use
+--------------
+
+Use this file to compare debug data, not to claim visual correctness by itself.
+
+Required visual proof still comes from clean RTXDI DI view 12 with:
+
+    real Doom analytic lights
+    temporal off = current-only noisy output
+    temporal on = visibly less noisy around the same mean
+    no spatial reuse
+    no best-light feedback for early RLU proof
+    no denoiser/confidence/gradient proof
+    no fallback beauty/albedo/status-color proof
+

@@ -962,6 +962,115 @@ void RtSmokeGeometryUniverse::EndFrame()
     m_frameActive = false;
 }
 
+bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
+{
+    if (m_staticSurfaceRecords.empty())
+    {
+        return false;
+    }
+
+    const int oldVertexCount = static_cast<int>(m_staticVertexCache.size());
+    const int oldIndexCount = static_cast<int>(m_staticIndexCache.size());
+    const int oldTriangleCount = static_cast<int>(m_staticTriangleClassCache.size());
+    const int oldMaterialTriangleCount = static_cast<int>(m_staticTriangleMaterialCache.size());
+
+    std::vector<RtSmokePersistentStaticSurfaceRecord> keptRecords;
+    std::vector<uint64> keptKeys;
+    std::unordered_map<uint64, size_t> keptLookup;
+    std::vector<PathTraceSmokeVertex> keptVertices;
+    std::vector<uint32_t> keptIndexes;
+    std::vector<uint32_t> keptTriangleClasses;
+    std::vector<uint32_t> keptTriangleMaterials;
+
+    keptRecords.reserve(m_staticSurfaceRecords.size());
+    keptKeys.reserve(m_staticSurfaceKeys.size());
+    keptLookup.reserve(m_staticSurfaceLookup.size());
+    keptVertices.reserve(m_staticVertexCache.size());
+    keptIndexes.reserve(m_staticIndexCache.size());
+    keptTriangleClasses.reserve(m_staticTriangleClassCache.size());
+    keptTriangleMaterials.reserve(m_staticTriangleMaterialCache.size());
+
+    bool changed = false;
+    for (const RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
+    {
+        if (!record.valid || !record.seenThisFrame)
+        {
+            changed = true;
+            continue;
+        }
+        if (!IsSmokeGeometryRangeValid(record.currentRange, oldVertexCount, oldIndexCount, oldTriangleCount, oldMaterialTriangleCount))
+        {
+            changed = true;
+            continue;
+        }
+
+        const int oldVertexOffset = record.currentRange.vertices.offset;
+        const int oldIndexOffset = record.currentRange.indexes.offset;
+        bool recordIndexesValid = true;
+        for (int index = 0; index < record.currentRange.indexes.count; ++index)
+        {
+            const uint32_t oldIndex = m_staticIndexCache[oldIndexOffset + index];
+            if (oldIndex < static_cast<uint32_t>(oldVertexOffset) ||
+                oldIndex >= static_cast<uint32_t>(oldVertexOffset + record.currentRange.vertices.count))
+            {
+                recordIndexesValid = false;
+                break;
+            }
+        }
+        if (!recordIndexesValid)
+        {
+            changed = true;
+            continue;
+        }
+
+        RtSmokePersistentStaticSurfaceRecord keptRecord = record;
+        keptRecord.currentRange.vertices.offset = static_cast<int>(keptVertices.size());
+        keptRecord.currentRange.indexes.offset = static_cast<int>(keptIndexes.size());
+        keptRecord.currentRange.triangles.offset = static_cast<int>(keptTriangleClasses.size());
+
+        keptVertices.insert(
+            keptVertices.end(),
+            m_staticVertexCache.begin() + oldVertexOffset,
+            m_staticVertexCache.begin() + oldVertexOffset + record.currentRange.vertices.count);
+
+        for (int index = 0; index < record.currentRange.indexes.count; ++index)
+        {
+            const uint32_t oldIndex = m_staticIndexCache[oldIndexOffset + index];
+            keptIndexes.push_back(static_cast<uint32_t>(keptRecord.currentRange.vertices.offset) + (oldIndex - static_cast<uint32_t>(oldVertexOffset)));
+        }
+
+        const int oldTriangleOffset = record.currentRange.triangles.offset;
+        keptTriangleClasses.insert(
+            keptTriangleClasses.end(),
+            m_staticTriangleClassCache.begin() + oldTriangleOffset,
+            m_staticTriangleClassCache.begin() + oldTriangleOffset + record.currentRange.triangles.count);
+        keptTriangleMaterials.insert(
+            keptTriangleMaterials.end(),
+            m_staticTriangleMaterialCache.begin() + oldTriangleOffset,
+            m_staticTriangleMaterialCache.begin() + oldTriangleOffset + record.currentRange.triangles.count);
+
+        keptRecord.dirty = true;
+        keptLookup[keptRecord.key] = keptRecords.size();
+        keptKeys.push_back(keptRecord.key);
+        keptRecords.push_back(keptRecord);
+    }
+
+    if (!changed && keptVertices.size() == m_staticVertexCache.size() && keptIndexes.size() == m_staticIndexCache.size())
+    {
+        return false;
+    }
+
+    m_staticSurfaceRecords.swap(keptRecords);
+    m_staticSurfaceLookup.swap(keptLookup);
+    m_staticSurfaceKeys.swap(keptKeys);
+    m_staticVertexCache.swap(keptVertices);
+    m_staticIndexCache.swap(keptIndexes);
+    m_staticTriangleClassCache.swap(keptTriangleClasses);
+    m_staticTriangleMaterialCache.swap(keptTriangleMaterials);
+    ++m_generation;
+    return true;
+}
+
 void RtSmokeGeometryUniverse::NotifyStaticCacheChanged()
 {
     ++m_generation;

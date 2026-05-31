@@ -1,0 +1,169 @@
+RLU-09 Payload Replay Hardening
+===============================
+
+Task
+----
+
+RLU-09 proves that active current and previous RLU payloads are replayable
+before follow-up clean DI proposal changes.
+
+This task does not change RTXDI reservoir math, temporal accumulation, spatial
+reuse, denoising, confidence, gradients, or final lighting.
+
+
+CPU Pre-Upload Audit
+--------------------
+
+`r_pathTracingRemixLightUniverseDump 1` now prints a generic RLU payload replay
+audit for every enabled RLU domain:
+
+    PathTracePrimaryPass: RLU CPU payload replay audit ...
+        current replayable/invalid emissive=A/B doom=C/D
+        previous replayable/invalid emissive=E/F doom=G/H
+        mappedPairs emissive/doom=I/J
+        mappedReplayFailures emissive/doom=K/L
+        behavior=rlu-09-pre-upload-payload-replay-audit
+
+The audit runs after the active `PathTraceRestirLightManager*` ABI vectors are
+assigned from the Remix light manager and before upload. It checks the active
+t66/t67 payload records that shaders will consume, not a private source-domain
+copy.
+
+Replayability checks:
+
+    common:
+        finite payload fields
+        sourceIndex inside the matching current/previous source list
+        sourceWeight > 0
+
+    Doom analytic:
+        radius > 0
+        influenceRadius > 0
+        area > 0
+        luminance > 0
+
+    emissive triangle:
+        area > 0
+        luminance > 0
+
+Mapped replay failures require a local failure:
+
+    current-to-previous map missing
+    previous-to-current round trip mismatch
+    previous type mismatch
+    previous payload not replayable
+
+When the audit finds the first invalid or mapped-failure record for either
+light type, it prints:
+
+    frame=current/previous
+    index
+    mappedIndex
+    replayable
+    type
+    sourceIndex
+    radius
+    influenceRadius
+    area
+    luminance
+    sourceWeight
+    flags
+    identityA:identityB
+    materialOrLightId
+    previousIndex
+
+
+Shader Replay Probe
+-------------------
+
+Clean RTXDI DI view 8 band 9 is the shader-side selected replay split
+diagnostic:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 8
+    r_pathTracingCleanRtxdiDiView8Band 9
+
+The view is split horizontally into four replay probes:
+
+    left quarter:
+        current selected dense RLU index loaded and sampled in the current
+        domain
+
+    second quarter:
+        current selected dense RLU index translated to previous and replayed
+        in the previous domain
+
+    third quarter:
+        previous reservoir selected dense RLU index loaded and sampled in the
+        previous domain
+
+    right quarter:
+        previous reservoir selected dense RLU index translated to current and
+        replayed in the current domain
+
+The probe now handles both Doom analytic and emissive RLU records through the
+same RAB replay boundary. It does not return success merely because the selected
+record is emissive.
+
+Expected healthy colors are target-PDF-coded green/orange. Failure colors mark
+missing selected identity, invalid sourceIndex, invalid RAB light, invalid
+polymorphic sample, missing map, type mismatch, or zero/NaN targetPdf.
+
+
+Proof Boundary
+--------------
+
+This task proves payload replay only:
+
+    dense current payload can replay through RAB
+    dense previous payload can replay through RAB
+    mapped current/previous pairs fail locally
+    emissive and Doom analytic records share the active t66/t67 boundary
+
+It does not prove:
+
+    final proposal quality
+    NEE-cache quality
+    ReGIR quality
+    previous-best seeding
+    spatial reuse
+    denoiser/confidence/gradient behavior
+
+
+Validation Sequence
+-------------------
+
+1. CPU payload audit:
+
+        r_pathTracingRemixLightUniverseEnable 1
+        r_pathTracingRemixLightUniverseDomain 2
+        r_pathTracingRemixLightUniverseDump 1
+
+    Expected:
+
+        behavior=rlu-09-pre-upload-payload-replay-audit
+        mappedReplayFailures emissive/doom=0/0 in a stable view
+        no broad invalid count unrelated to current-only or previous-only local
+            events
+
+2. Shader replay split:
+
+        r_pathTracingCleanRtxdiDiEnable 1
+        r_pathTracingCleanRtxdiDiView 8
+        r_pathTracingCleanRtxdiDiView8Band 9
+
+    Expected:
+
+        stable mapped selected lights replay in current and previous quarters
+        isolated failures correspond to invalid maps or local payload failures
+        emissive records do not bypass RAB replay
+
+3. Clean DI control:
+
+        r_pathTracingCleanRtxdiDiView 12
+
+    Expected:
+
+        normal current-frame and temporal behavior remains unchanged by this
+        audit-only hardening.
+

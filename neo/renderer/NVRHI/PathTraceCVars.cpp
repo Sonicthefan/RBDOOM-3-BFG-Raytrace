@@ -261,6 +261,12 @@ idCVar r_pathTracingStaticAreaPreloadDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump source3 static-world area preload stats once" );
 
+idCVar r_pathTracingStaticGeometryPruneMissing(
+    "r_pathTracingStaticGeometryPruneMissing",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Source3 static geometry cache policy: 1 prunes static drawSurf records not seen this frame to prevent active BLAS high-water growth; 0 keeps discovered static surfaces resident" );
+
 idCVar r_pathTracingSceneBoundsOverlay(
     "r_pathTracingSceneBoundsOverlay",
     "0",

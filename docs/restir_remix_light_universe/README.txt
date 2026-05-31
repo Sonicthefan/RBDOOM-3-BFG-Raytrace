@@ -193,3 +193,9 @@ Read all files in this folder before starting:
     worker_protocol.txt
     worker_tasks.txt
     worker_launch_prompt.txt
+
+Follow-up task notes:
+
+    rlu_07_remix_portal_debug_crosswalk.txt
+    rlu_08_active_buffer_ownership.txt
+    rlu_09_payload_replay_hardening.txt

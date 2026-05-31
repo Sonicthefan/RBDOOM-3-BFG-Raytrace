@@ -1,0 +1,207 @@
+RLU-08 Active Buffer Ownership Contract
+=======================================
+
+Task
+----
+
+RLU-08 is a documentation-only cleanup pass. It makes the active polymorphic
+light-universe ownership unambiguous for follow-up clean DI, PDFNEE, NEE-cache,
+and ReGIR work.
+
+No implementation, build, CVar change, or shader edit belongs to this task.
+
+
+Authoritative Active Domain
+---------------------------
+
+The active shader-visible RLU polymorphic light domain is:
+
+    current:
+        PathTraceRestirLightManagerCurrentPayload
+        CleanRtxdiDiRluCurrentLights
+        register(t66)
+
+    previous:
+        PathTraceRestirLightManagerPreviousPayload
+        CleanRtxdiDiRluPreviousLights
+        register(t67)
+
+The active selected-light identity is always a dense current RLU index when
+loading a current light, and a dense previous RLU index when loading a previous
+light.
+
+
+Legacy / Debug Inputs
+---------------------
+
+These are not the active polymorphic RLU domain unless a later task explicitly
+owns them:
+
+    PathTraceUnifiedLights at t59/t60
+    old split DoomAnalyticLights arrays
+    old PDFNEE lightMode 8/9 routes
+    old ReGIR candidate cache as a light universe
+    NEE-cache provider/cell/candidate buffers as a light universe
+    portal candidate pools
+    mode-56 debug routes
+
+They may remain bound for shared helper ABI compatibility or diagnostics, but
+future normal DI proposal work must not use them as a replacement for t66/t67.
+
+
+Required Replay Boundary
+------------------------
+
+Consumers must replay selected light identity through RAB:
+
+    RAB_LoadActiveRrxLightInfo(lightIndex, false)
+        load current dense RLU light
+
+    RAB_LoadActiveRrxLightInfo(lightIndex, true)
+        load previous dense RLU light
+
+    RAB_TranslateActiveRrxLightIndex(lightIndex, true)
+    RAB_TranslateLightIndex(lightIndex, true)
+        translate current dense RLU index to previous dense RLU index
+
+    RAB_TranslateActiveRrxLightIndex(lightIndex, false)
+    RAB_TranslateLightIndex(lightIndex, false)
+        translate previous dense RLU index to current dense RLU index
+
+    RAB_SampleActiveRrxPolymorphicLight(...)
+    RAB_SamplePolymorphicLight(...)
+        sample the RAB-loaded light
+
+    RAB_GetLightSampleTargetPdfForSurface(...)
+        target PDF comes from RAB replay
+
+    RAB_GetReflectedBsdfRadianceForSurface(...)
+        reflected radiance comes from RAB replay and surface material
+
+Consumers must not use sourceIndex as their selected identity. sourceIndex is
+only source-local payload metadata interpreted by the RLU/RAB replay path.
+
+
+Consumer Roles
+--------------
+
+Clean RTXDI DI:
+
+    Owns reservoir proposal streaming, RTXDI helper calls, temporal reuse, and
+    final clean DI output. It consumes dense RLU identity through RAB. It must
+    not build a private light universe from old Doom analytic or emissive
+    arrays.
+
+PDFNEE current producer:
+
+    May produce current-frame reservoir candidates from active RLU typed ranges.
+    It must store dense current RLU identity and replay through RAB.
+
+NEE cache:
+
+    Is a proposal-provider experiment. Persistent candidate records may store
+    dense current RLU identity only. It must use RLU stableCacheable flags for
+    reusable Doom analytics and replay candidates through RAB in the current
+    frame. The cache's cell grid owns spatial relevance; player-area portal
+    priority must not replace cell-local relevance.
+
+ReGIR:
+
+    Is a proposal-provider experiment. Cached candidates may store dense current
+    RLU identity only. ReGIR must not become the default clean DI light
+    universe.
+
+
+Typed Range Ownership
+---------------------
+
+RLU owns typed ranges and sample metadata:
+
+    RestirLightManagerRangeInfo.xy
+        emissive dense offset/count
+
+    RestirLightManagerRangeInfo.zw
+        Doom analytic dense offset/count
+
+    RestirLightManagerSampleInfo.x
+        bounded emissive sample count
+
+    RestirLightManagerSampleInfo.y
+        bounded Doom analytic sample count
+
+    RestirLightManagerSampleInfo.z
+        total bounded proposal count
+
+    RestirLightManagerSampleInfo.w
+        non-empty typed range count
+
+NEE-cache, ReGIR, PDFNEE, and clean DI may consume this metadata. They do not
+own the normal range contract and must not rediscover normal ranges by scanning
+payload buffers as their primary behavior.
+
+
+Allowed Consumer Pattern
+------------------------
+
+The normal consumer pattern is:
+
+    read RLU typed range metadata
+    choose a dense current RLU candidate according to the task-owned proposal
+        policy
+    compute sourcePdf from that proposal policy and RLU metadata
+    load selected light through RAB
+    sample polymorphic light through RAB
+    get targetPdf and reflected radiance through RAB
+    store selected dense current RLU index in the reservoir/provider record
+    translate previous/current dense indices through RAB maps when needed
+
+
+Forbidden Consumer Pattern
+--------------------------
+
+Reject follow-up work that:
+
+    stores source-local Doom analytic index as the selected light identity
+    subtracts emissiveCount from a dense RLU index in normal RLU replay
+    reloads DoomAnalyticLights[sourceIndex] from a consumer as the normal path
+    builds a private emissive or analytic domain for clean DI
+    treats NEE-cache, ReGIR, or portal pools as the active DI light universe
+    scans current payloads to invent the normal typed range contract
+    folds visibility into targetPdf
+    changes temporal accumulation to hide bad current proposals
+    uses spatial, denoiser, confidence, gradients, or mode 56 as RLU proof
+
+
+Current Known Boundary
+----------------------
+
+RLU side:
+
+    Owns dense current/previous payloads, two-way maps, typed ranges, bounded
+    sample metadata, stable analytic classification, and active RAB replay.
+
+Clean DI side:
+
+    Owns reservoir production and reuse. RLU-11 may add helper accessors without
+    changing output. RLU-12 may change current proposal sampling after the range
+    metadata is proven authoritative.
+
+NEE-cache / ReGIR side:
+
+    Own proposal experiments only. They may help evaluate candidate quality, but
+    they are not the proof that the active RLU light universe is correct.
+
+
+Acceptance
+----------
+
+Future tasks pass this ownership boundary only if they can state:
+
+    selected light identity is dense RLU index
+    current payload comes from t66
+    previous payload comes from t67
+    translations use RLU maps through RAB
+    sourcePdf comes from the task-owned proposal policy and RLU metadata
+    targetPdf and solidAnglePdf come from RAB replay
+    no private light universe replaces t66/t67
+
