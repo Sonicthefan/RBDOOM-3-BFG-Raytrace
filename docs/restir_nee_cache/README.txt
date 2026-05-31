@@ -114,8 +114,15 @@ NEECACHE-08:
 
 Current missing contract for Remix-aligned clean DI proposal integration:
 
-    runtime validation of r_pathTracingCleanRtxdiDiNeeCacheProvider in clean
-    RTXDI DI view 12
+    none for the completed NEECACHE-09 first slice; clean RTXDI DI view 12 has
+    validated r_pathTracingCleanRtxdiDiNeeCacheProvider with provider/cell/
+    candidate SRVs and fallback to the existing clean initial proposal path
+
+Current missing contract for Remix-aligned secondary/GI consumption:
+
+    none for the completed NEECACHE-10 first slice; the secondary consumer is
+    opt-in, current-RLU emissive-only, falls back on stale/empty candidates,
+    and has a clean-DI view 8 band 10 diagnostic snapshot path
 
 NEECACHE-02 adds only the standalone cell-mapping debug route. NEECACHE-03
 adds a debug-primary-hit task accumulator in task slot 0 for each mapped cell.
@@ -137,6 +144,9 @@ separate clean RTXDI DI opt-in
 r_pathTracingCleanRtxdiDiNeeCacheProvider, binds the NEE cache provider/cell/
 candidate buffers as SRV t74/t75/t77 in the clean sentinel, and streams selected
 dense current RLU identities through clean DI initial sampling.
+NEECACHE-10 adds the opt-in secondary/GI NEE consumer at the ReSTIR PT
+path-tracer NEE boundary and a held clean-DI view 8 band 10 candidate-field
+diagnostic snapshot for inspection without continuous refresh.
 
 NEECACHE-05/06 candidate data is invalidated on current RLU structural, mapping,
 payload, and payload-only changes. Payload-only animation can move or retune

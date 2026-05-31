@@ -25,18 +25,17 @@ Status:
     NEECACHE-04 adds the current-RLU emissive candidate map
     NEECACHE-05 adds the current-RLU Doom analytic candidate map
     NEECACHE-06 writes the provider result cache/fallback mixture
-    current PDFNEE alternate-lane next missing contract is
-        importance-ris-proposal-selection-neecache-08
+    current PDFNEE alternate-lane missing contract is
+        none for the preserved research/visual lane after NEECACHE-08
     current default-architecture missing contract is
-        split-consumer-boundaries-gisecondary-di-proposal-pdfnee-visual
+        none for the NEECACHE-09 clean DI first slice and NEECACHE-10
+        secondary/GI first slice
 
 First missing contract to resolve:
 
-    exact rbdoom-owned shader structs
-    exact binding/register slots
-    exact buffer ownership
-    exact producer function boundary
-    exact consumer function boundary
+    no required first-slice contract remains open; only the optional full
+    ReGIR/onion provider escape hatch remains if the lightweight provider is
+    judged insufficient
 
 Required provider result fields:
 
