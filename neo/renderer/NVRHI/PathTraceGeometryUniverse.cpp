@@ -5,6 +5,7 @@
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceCVars.h"
 #include "PathTraceAcceleration.h"
+#include "PathTraceAccelerationPlan.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceSurfaceClassification.h"
@@ -3257,6 +3258,50 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
     return materialIds;
 }
 
+RtSmokeRigidTlasPlan RtSmokeGeometryUniverse::BuildRigidTlasInstancePlan(
+    const RtPathTraceInstanceUniverse& instanceUniverse,
+    uint32_t firstInstanceId,
+    uint32_t instanceMask,
+    int maxInstances) const
+{
+    std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
+    BuildRigidRouteInstanceList(instanceUniverse, instances);
+    RtSmokeRigidTlasPlanDesc desc;
+    desc.rigidSourceMask = RT_PT_INSTANCE_SOURCE_RIGID;
+    desc.firstInstanceId = firstInstanceId;
+    desc.instanceMask = instanceMask;
+    desc.maxInstances = maxInstances;
+
+    RtSmokeRigidTlasPlan plan;
+    const int reserveCount = maxInstances > 0 && maxInstances < static_cast<int>(instances.size())
+        ? maxInstances
+        : static_cast<int>(instances.size());
+    plan.instances.reserve(reserveCount);
+    for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
+    {
+        RtSmokeRigidTlasObservation observation;
+        observation.meshHash = instance.meshHash;
+        observation.instanceId = instance.instanceId;
+        observation.sourceFlags = instance.sourceFlags;
+        observation.residencyEnabled = m_rigidResidencyEnabled;
+        memcpy(observation.objectToWorld, instance.objectToWorld, sizeof(observation.objectToWorld));
+        const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
+        if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
+        {
+            const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+            observation.hasMeshRecord = record.valid;
+            observation.meshSeenThisFrame = record.seenThisFrame;
+            observation.hasBlas = record.rigidBlas;
+            observation.routeRecordIndex = static_cast<uint32_t>(it->second);
+        }
+        if (!AppendSmokeRigidTlasPlanObservation(plan, desc, observation))
+        {
+            break;
+        }
+    }
+    return plan;
+}
+
 int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     const RtPathTraceInstanceUniverse& instanceUniverse,
     std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
@@ -3264,48 +3309,34 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     uint32_t instanceMask,
     int maxInstances) const
 {
-    int emittedInstances = 0;
-    std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
-    BuildRigidRouteInstanceList(instanceUniverse, instances);
-    for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
+    const RtSmokeRigidTlasPlan plan = BuildRigidTlasInstancePlan(instanceUniverse, firstInstanceId, instanceMask, maxInstances);
+    for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
-        if (maxInstances > 0 && emittedInstances >= maxInstances)
-        {
-            break;
-        }
-        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
         {
             continue;
         }
-
-        const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
-        {
-            continue;
-        }
-
-        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
-        if (!record.valid || (!m_rigidResidencyEnabled && !record.seenThisFrame) || !record.rigidBlas)
+        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
+        if (!record.valid || !record.rigidBlas)
         {
             continue;
         }
 
         nvrhi::rt::AffineTransform transform;
-        BuildRigidTlasAffineTransform(instance.objectToWorld, transform);
+        BuildRigidTlasAffineTransform(plannedInstance.transform, transform);
 
         nvrhi::rt::InstanceDesc instanceDesc;
         instanceDesc
-            .setInstanceID(firstInstanceId + static_cast<uint32_t>(emittedInstances))
-            .setInstanceMask(instanceMask)
-            .setInstanceContributionToHitGroupIndex(0)
+            .setInstanceID(plannedInstance.instanceId)
+            .setInstanceMask(plannedInstance.instanceMask)
+            .setInstanceContributionToHitGroupIndex(plannedInstance.hitGroupContribution)
             .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
             .setTransform(transform)
             .setBLAS(record.rigidBlas);
         instanceDescs.push_back(instanceDesc);
-        ++emittedInstances;
     }
 
-    return emittedInstances;
+    return plan.emittedInstances;
 }
 
 RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(

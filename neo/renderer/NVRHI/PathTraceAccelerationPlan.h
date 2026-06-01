@@ -1,0 +1,229 @@
+#pragma once
+
+// CPU-only acceleration planning for the PT smoke scene.
+//
+// These structs are intentionally plain data. They may be produced by a worker
+// from an immutable snapshot, but they never contain NVRHI handles, command
+// lists, binding resources, or live renderer/game pointers.
+
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <vector>
+
+struct RtSmokePlanVec3
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
+struct RtSmokePlanGeometryRange
+{
+    int vertexOffset = 0;
+    int vertexCount = 0;
+    int indexOffset = 0;
+    int indexCount = 0;
+    int triangleOffset = 0;
+    int triangleCount = 0;
+};
+
+struct RtSmokePlanStaticBlasSignature
+{
+    uint64_t hash = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+};
+
+struct RtSmokePlanStaticBlasSignatureDesc
+{
+    const void* vertices = nullptr;
+    size_t vertexStride = 0;
+    int totalVertexCount = 0;
+    const uint32_t* indexes = nullptr;
+    int totalIndexCount = 0;
+    const uint32_t* triangleClasses = nullptr;
+    const uint32_t* triangleMaterials = nullptr;
+    int totalTriangleCount = 0;
+    RtSmokePlanGeometryRange staticRange;
+    RtSmokePlanVec3 sceneOrigin;
+};
+
+struct RtSmokeStaticBlasSignatureSnapshot
+{
+    std::vector<uint8_t> vertexBytes;
+    size_t vertexStride = 0;
+    int totalVertexCount = 0;
+    std::vector<uint32_t> indexes;
+    std::vector<uint32_t> triangleClasses;
+    std::vector<uint32_t> triangleMaterials;
+    RtSmokePlanGeometryRange staticRange;
+    RtSmokePlanVec3 sceneOrigin;
+};
+
+struct RtSmokePlanStaticCacheInput
+{
+    bool hasStaticBlas = false;
+    bool cacheValid = false;
+    bool cacheResourcesReady = false;
+    bool staticCacheChanged = false;
+    uint64_t previousSignatureHash = 0;
+};
+
+struct RtSmokePlanBlasCreate
+{
+    bool enabled = false;
+    bool cacheHit = false;
+    int vertexCount = 0;
+    int indexCount = 0;
+    const char* debugName = nullptr;
+};
+
+struct RtSmokeAccelerationPlanInput
+{
+    RtSmokePlanStaticBlasSignatureDesc staticSignature;
+    RtSmokePlanStaticCacheInput staticCache;
+    int staticVertexCount = 0;
+    int staticIndexCount = 0;
+    int dynamicVertexCount = 0;
+    int dynamicIndexCount = 0;
+};
+
+struct RtSmokeAccelerationPlanSnapshot
+{
+    RtSmokeStaticBlasSignatureSnapshot staticSignature;
+    RtSmokePlanStaticCacheInput staticCache;
+    int staticVertexCount = 0;
+    int staticIndexCount = 0;
+    int dynamicVertexCount = 0;
+    int dynamicIndexCount = 0;
+};
+
+struct RtSmokeAccelerationPlan
+{
+    RtSmokePlanStaticBlasSignature staticSignature;
+    RtSmokePlanBlasCreate staticBlas;
+    RtSmokePlanBlasCreate dynamicBlas;
+    bool staticSignatureReused = false;
+    bool staticCacheHit = false;
+    bool hasStaticBlas = false;
+    bool hasDynamicBlas = false;
+};
+
+struct RtSmokeAccelerationPlanResult
+{
+    RtSmokeAccelerationPlan plan;
+    bool valid = false;
+};
+
+struct RtSmokeAccelerationPlanTimedResult
+{
+    RtSmokeAccelerationPlanResult result;
+    double workerExecutionMs = 0.0;
+};
+
+enum RtSmokePlanTlasInstanceKind : uint32_t
+{
+    RT_SMOKE_PLAN_TLAS_STATIC_BLAS = 0,
+    RT_SMOKE_PLAN_TLAS_DYNAMIC_BLAS = 1,
+    RT_SMOKE_PLAN_TLAS_RIGID_BLAS = 2
+};
+
+struct RtSmokePlanTlasInstance
+{
+    RtSmokePlanTlasInstanceKind kind = RT_SMOKE_PLAN_TLAS_STATIC_BLAS;
+    uint32_t instanceId = 0;
+    uint32_t instanceMask = 0;
+    uint32_t hitGroupContribution = 0;
+    uint32_t flags = 0;
+    uint64_t meshHash = 0;
+    uint64_t sourceInstanceId = 0;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    float transform[16] = {};
+};
+
+struct RtSmokeBaseTlasPlan
+{
+    RtSmokePlanTlasInstance instances[2];
+    int instanceCount = 0;
+};
+
+struct RtSmokeRigidTlasObservation
+{
+    uint64_t meshHash = 0;
+    uint64_t instanceId = 0;
+    uint32_t sourceFlags = 0;
+    bool hasMeshRecord = false;
+    bool meshSeenThisFrame = false;
+    bool residencyEnabled = false;
+    bool hasBlas = false;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    float objectToWorld[16] = {};
+};
+
+struct RtSmokeRigidTlasPlanDesc
+{
+    const RtSmokeRigidTlasObservation* observations = nullptr;
+    int observationCount = 0;
+    uint32_t rigidSourceMask = 0;
+    uint32_t firstInstanceId = 0;
+    uint32_t instanceMask = 0;
+    int maxInstances = 0;
+};
+
+struct RtSmokeRigidTlasPlan
+{
+    std::vector<RtSmokePlanTlasInstance> instances;
+    int visibleInstances = 0;
+    int rigidInstances = 0;
+    int emittedInstances = 0;
+    int rejectedNonRigid = 0;
+    int rejectedMissingMesh = 0;
+    int rejectedStaleMesh = 0;
+    int rejectedMissingBlas = 0;
+};
+
+struct RtSmokeUploadPlanMetadata
+{
+    bool skip = false;
+    size_t byteSize = 0;
+    size_t sourceOffsetBytes = 0;
+    uint64_t destOffsetBytes = 0;
+};
+
+uint64_t HashSmokePlanBytes(uint64_t hash, const void* data, size_t size);
+
+RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
+    const RtSmokePlanStaticBlasSignatureDesc& desc);
+
+RtSmokeAccelerationPlanSnapshot CaptureSmokeAccelerationPlanSnapshot(
+    const RtSmokeAccelerationPlanInput& input);
+
+uint64_t BuildSmokeAccelerationPlanInputToken(
+    const RtSmokeAccelerationPlanInput& input);
+
+RtSmokePlanStaticBlasSignature ComputeSmokeStaticBlasSignaturePlan(
+    const RtSmokePlanStaticBlasSignatureDesc& desc);
+
+RtSmokeAccelerationPlan BuildSmokeAccelerationPlan(
+    const RtSmokeAccelerationPlanInput& input);
+
+RtSmokeAccelerationPlanResult BuildSmokeAccelerationPlanResult(
+    const RtSmokeAccelerationPlanSnapshot& snapshot);
+
+RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBlas);
+
+bool AppendSmokeRigidTlasPlanObservation(
+    RtSmokeRigidTlasPlan& plan,
+    const RtSmokeRigidTlasPlanDesc& desc,
+    const RtSmokeRigidTlasObservation& observation);
+
+RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc);
+
+RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
+    size_t elementCount,
+    size_t elementSize,
+    bool skip,
+    int dirtyElementOffset,
+    int dirtyElementCount);

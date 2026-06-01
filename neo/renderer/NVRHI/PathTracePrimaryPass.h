@@ -7,7 +7,9 @@
 // lifetime, dispatch, readback, and diagnostics live in PathTrace* modules.
 
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceAccelerationPlan.h"
 #include "PathTraceDrawSurfCapture.h"
+#include "PathTraceCpuWork.h"
 #include "PathTraceEmissiveCandidates.h"
 #include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
@@ -24,6 +26,7 @@
 
 #include <nvrhi/nvrhi.h>
 #include <deque>
+#include <future>
 #include <vector>
 
 class idRenderBackend;
@@ -90,6 +93,15 @@ private:
     int m_smokeSceneSourceLast;
     int m_smokeSceneSource2RigidEntitiesLast;
     uint64 m_smokeSceneUniverseStaticBuildGeneration;
+    RtPathTraceCpuWorkState m_smokeCpuWorkState;
+    RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncGeneration;
+    RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncCachedGeneration;
+    RtPathTraceCpuWorkTiming m_smokeAccelerationPlanAsyncTiming;
+    RtSmokeAccelerationPlan m_smokeAccelerationPlanAsyncCachedPlan;
+    std::future<RtSmokeAccelerationPlanTimedResult> m_smokeAccelerationPlanFuture;
+    int m_smokeAccelerationPlanAsyncLaunchMs = 0;
+    bool m_smokeAccelerationPlanAsyncGenerationValid = false;
+    bool m_smokeAccelerationPlanAsyncCachedPlanValid = false;
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;
     ID_TIME_T m_smokeSceneMapTimeStamp = 0;

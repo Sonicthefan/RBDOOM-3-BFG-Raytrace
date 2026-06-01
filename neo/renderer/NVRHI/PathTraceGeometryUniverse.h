@@ -8,6 +8,7 @@
 // ranges without changing shader-visible behavior in this first step.
 
 #include "PathTraceGeometry.h"
+#include "PathTraceAccelerationPlan.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -588,6 +589,11 @@ public:
     void DumpRigidTlasPlanStats(const RtPathTraceRigidTlasPlanStats& stats, int sceneSource) const;
     bool IsRigidRouteReady(uint64 meshHash) const;
     std::vector<uint32_t> CollectRigidRouteMaterialIds(const RtPathTraceInstanceUniverse& instanceUniverse, int maxInstances) const;
+    RtSmokeRigidTlasPlan BuildRigidTlasInstancePlan(
+        const RtPathTraceInstanceUniverse& instanceUniverse,
+        uint32_t firstInstanceId,
+        uint32_t instanceMask,
+        int maxInstances) const;
     int BuildRigidTlasInstanceDescs(
         const RtPathTraceInstanceUniverse& instanceUniverse,
         std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,

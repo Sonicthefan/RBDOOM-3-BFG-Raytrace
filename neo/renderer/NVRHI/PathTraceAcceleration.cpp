@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceAcceleration.h"
+#include "PathTraceAccelerationPlan.h"
 
 #include <nvrhi/utils.h>
 
@@ -121,28 +122,19 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     }
     timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
 
+    const RtSmokeBaseTlasPlan baseTlasPlan = BuildSmokeBaseTlasPlan(desc.hasStaticBlas, desc.hasDynamicBlas);
     std::vector<nvrhi::rt::InstanceDesc> instanceDescs;
     instanceDescs.reserve(2 + (desc.extraTlasInstances ? desc.extraTlasInstances->size() : 0));
-    if (desc.hasStaticBlas)
+    for (int plannedIndex = 0; plannedIndex < baseTlasPlan.instanceCount; ++plannedIndex)
     {
+        const RtSmokePlanTlasInstance& plannedInstance = baseTlasPlan.instances[plannedIndex];
         nvrhi::rt::InstanceDesc instanceDesc;
         instanceDesc
-            .setInstanceID(0)
-            .setInstanceMask(0x01)
-            .setInstanceContributionToHitGroupIndex(0)
+            .setInstanceID(plannedInstance.instanceId)
+            .setInstanceMask(plannedInstance.instanceMask)
+            .setInstanceContributionToHitGroupIndex(plannedInstance.hitGroupContribution)
             .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
-            .setBLAS(desc.staticBlas);
-        instanceDescs.push_back(instanceDesc);
-    }
-    if (desc.hasDynamicBlas)
-    {
-        nvrhi::rt::InstanceDesc instanceDesc;
-        instanceDesc
-            .setInstanceID(1)
-            .setInstanceMask(0x01)
-            .setInstanceContributionToHitGroupIndex(0)
-            .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
-            .setBLAS(desc.dynamicBlas);
+            .setBLAS(plannedInstance.kind == RT_SMOKE_PLAN_TLAS_STATIC_BLAS ? desc.staticBlas : desc.dynamicBlas);
         instanceDescs.push_back(instanceDesc);
     }
     if (desc.extraTlasInstances)
@@ -192,35 +184,30 @@ RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(
     const RtSmokeGeometryRange& staticRange,
     const idVec3& sceneOrigin)
 {
+    RtSmokePlanStaticBlasSignatureDesc desc;
+    desc.vertices = vertexData.empty() ? nullptr : vertexData.data();
+    desc.vertexStride = sizeof(PathTraceSmokeVertex);
+    desc.totalVertexCount = static_cast<int>(vertexData.size());
+    desc.indexes = indexData.empty() ? nullptr : indexData.data();
+    desc.totalIndexCount = static_cast<int>(indexData.size());
+    desc.triangleClasses = triangleClassData.empty() ? nullptr : triangleClassData.data();
+    desc.triangleMaterials = triangleMaterialData.empty() ? nullptr : triangleMaterialData.data();
+    desc.totalTriangleCount = static_cast<int>(Min(triangleClassData.size(), triangleMaterialData.size()));
+    desc.staticRange.vertexOffset = staticRange.vertexOffset;
+    desc.staticRange.vertexCount = staticRange.vertexCount;
+    desc.staticRange.indexOffset = staticRange.indexOffset;
+    desc.staticRange.indexCount = staticRange.indexCount;
+    desc.staticRange.triangleOffset = staticRange.triangleOffset;
+    desc.staticRange.triangleCount = staticRange.triangleCount;
+    desc.sceneOrigin.x = sceneOrigin.x;
+    desc.sceneOrigin.y = sceneOrigin.y;
+    desc.sceneOrigin.z = sceneOrigin.z;
+
+    const RtSmokePlanStaticBlasSignature planSignature = ComputeSmokeStaticBlasSignaturePlan(desc);
     RtSmokeStaticBlasSignature signature;
-    signature.vertexCount = staticRange.vertexCount;
-    signature.indexCount = staticRange.indexCount;
-    signature.triangleCount = staticRange.triangleCount;
-
-    uint64 hash = 14695981039346656037ull;
-    hash = HashSmokeBytes(hash, &sceneOrigin.x, sizeof(sceneOrigin.x));
-    hash = HashSmokeBytes(hash, &sceneOrigin.y, sizeof(sceneOrigin.y));
-    hash = HashSmokeBytes(hash, &sceneOrigin.z, sizeof(sceneOrigin.z));
-    hash = HashSmokeBytes(hash, &signature.vertexCount, sizeof(signature.vertexCount));
-    hash = HashSmokeBytes(hash, &signature.indexCount, sizeof(signature.indexCount));
-    hash = HashSmokeBytes(hash, &signature.triangleCount, sizeof(signature.triangleCount));
-
-    if (staticRange.vertexCount > 0)
-    {
-        hash = HashSmokeBytes(hash, vertexData.data() + staticRange.vertexOffset, static_cast<size_t>(staticRange.vertexCount) * sizeof(vertexData[0]));
-    }
-
-    if (staticRange.indexCount > 0)
-    {
-        hash = HashSmokeBytes(hash, indexData.data() + staticRange.indexOffset, static_cast<size_t>(staticRange.indexCount) * sizeof(indexData[0]));
-    }
-
-    if (staticRange.triangleCount > 0)
-    {
-        hash = HashSmokeBytes(hash, triangleClassData.data() + staticRange.triangleOffset, static_cast<size_t>(staticRange.triangleCount) * sizeof(triangleClassData[0]));
-        hash = HashSmokeBytes(hash, triangleMaterialData.data() + staticRange.triangleOffset, static_cast<size_t>(staticRange.triangleCount) * sizeof(triangleMaterialData[0]));
-    }
-
-    signature.hash = hash;
+    signature.hash = static_cast<uint64>(planSignature.hash);
+    signature.vertexCount = planSignature.vertexCount;
+    signature.indexCount = planSignature.indexCount;
+    signature.triangleCount = planSignature.triangleCount;
     return signature;
 }

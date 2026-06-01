@@ -1,0 +1,190 @@
+PT CPU Worker Goal Details
+==========================
+
+Use this file as the detailed instruction payload for Codex Goal mode. The
+short Goal prompt should point here instead of trying to include every rule in
+the Goal input box.
+
+Workspace
+---------
+
+Preferred isolated checkout:
+
+    E:\prog\rbdoom-3-bfg-rt-code-worker
+
+Branch:
+
+    codex/code-only-worker
+
+Do not use the active graphics checkout build folders. Do not copy exe or shader
+artifacts to `E:\prog\rbdoom-3-BFG-prebuilt` unless explicitly asked.
+
+Read First
+----------
+
+- `docs/pathtrace_cpu_work_pipeline.md`
+- `docs/pathtrace_modules.txt`
+- `docs/pathtrace_geometry_universe.md`
+- `neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp`
+- `neo/renderer/NVRHI/PathTraceAcceleration.*`
+- `neo/renderer/NVRHI/PathTraceGeometryUniverse.*`
+- `neo/renderer/NVRHI/PathTraceSmokeResources.cpp`
+- `neo/renderer/NVRHI/PathTracePrimaryPass.h`
+
+Goal
+----
+
+Build the PT CPU worker/testing lane, then use it to extract BVH CPU planning
+from the render-thread monolith.
+
+The first useful result is a headless, non-graphical validation path for PT CPU
+planning. The second result is a narrow BVH CPU planning extraction that keeps
+all NVRHI/GPU submission on the render thread.
+
+Implementation Order
+--------------------
+
+1. Headless CPU harness
+
+- Add a small non-graphical harness or test executable that can run without
+  starting the game, opening a window, or creating a GPU device.
+- It should exercise deterministic CPU-only PT planning logic with synthetic
+  inputs.
+- Keep it narrow and easy to run from the worker checkout.
+- Prefer a CMake target if practical.
+
+2. CPU work infrastructure
+
+- Add the minimal reusable snapshot/result/generation/timing infrastructure from
+  `docs/pathtrace_cpu_work_pipeline.md`.
+- Suggested files:
+  - `neo/renderer/NVRHI/PathTraceCpuWork.h/.cpp`
+  - `neo/renderer/NVRHI/PathTraceAccelerationPlan.h/.cpp`
+- Snapshot data must be immutable.
+- Worker/result data must be plain CPU data only.
+- Render thread remains the owner of all NVRHI resource creation, uploads,
+  barriers, BLAS/TLAS creation, command-list work, and binding-set work.
+- Do not mutate `PathTraceGeometryUniverse` from a worker thread.
+
+3. Extract BVH CPU planning
+
+Move only CPU planning out of
+`PathTracePrimaryPass::BuildRayTracingSmokeTestScene`:
+
+- static BLAS signature computation,
+- static BLAS cache hit/miss decision,
+- static/dynamic BLAS create descriptor planning,
+- TLAS instance descriptor plan construction,
+- rigid TLAS route planning input/output boundary,
+- upload-item plan metadata.
+
+Leave these on the render thread:
+
+- NVRHI buffer creation/reuse,
+- `CreateSmokeBlas` while it creates NVRHI resources,
+- `writeBuffer`,
+- barriers,
+- `BuildBottomLevelAccelStruct`,
+- `buildTopLevelAccelStruct`,
+- binding-set/descriptor mutations.
+
+4. Multithreading readiness
+
+- Establish current/previous/pending style result ownership, even if the first
+  version still runs synchronously by default.
+- Add accept/reject logic based on generation tokens.
+- Late or stale worker results must not block or corrupt the frame.
+- If async execution is added, make it opt-in/diagnostic first.
+- Reuse existing engine job/thread primitives if practical, but do not overbuild
+  a generic scheduler.
+
+5. Prove without human help
+
+Run everything that can be validated non-visually:
+
+- configure/build the worker checkout,
+- build the headless harness target,
+- run the harness,
+- prove deterministic parity for old-vs-new CPU planning behavior where
+  possible,
+- report exact commands and output summary.
+
+Minimum Harness Cases
+---------------------
+
+- identical static inputs produce identical BLAS signatures,
+- relevant vertex/index/material/class changes alter the signature,
+- static cache hit/miss decision matches old logic,
+- TLAS plan includes expected base static/dynamic instances,
+- rigid TLAS plan accepts valid observations and rejects missing/stale ones,
+- stale generation tokens are rejected,
+- late results fall back without blocking.
+
+Current BVH Anchors
+-------------------
+
+- Main orchestration:
+  `neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp`,
+  `PathTracePrimaryPass::BuildRayTracingSmokeTestScene`.
+- Static signature/cache:
+  `ComputeSmokeStaticBlasSignature` call in the late BVH build region.
+- Static/dynamic BLAS creation:
+  `CreateSmokeBlas` calls.
+- Upload batch:
+  `UploadSmokeAccelerationBuffers` calls.
+- Rigid TLAS instances:
+  `BuildRigidTlasInstanceDescs`.
+- BLAS/TLAS submit:
+  `SubmitSmokeAccelerationBuilds`.
+- TLAS ownership:
+  `PathTraceSmokeResources.cpp` and `PathTracePrimaryPass.h`.
+- Rigid scaffold:
+  `PathTraceGeometryUniverse.h/.cpp`.
+
+Allowed Files
+-------------
+
+- `docs/pathtrace_cpu_work_pipeline.md`, only for scope corrections.
+- `neo/renderer/NVRHI/PathTraceCpuWork.*`
+- `neo/renderer/NVRHI/PathTraceAccelerationPlan.*`
+- narrow adapters in:
+  - `neo/renderer/NVRHI/PathTraceAcceleration.*`
+  - `neo/renderer/NVRHI/PathTraceGeometryUniverse.*`
+  - `neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp`
+  - `neo/renderer/NVRHI/PathTracePrimaryPass.h`
+  - `neo/renderer/NVRHI/PathTraceSmokeResources.cpp`
+- CMake files needed for the headless harness.
+
+Forbidden
+---------
+
+- shader files,
+- ReSTIR/RLU visual bridge behavior,
+- estimator/light transport behavior,
+- active graphics task docs,
+- deployment/runtime folder copies,
+- broad renderer rewrites,
+- claiming visual correctness.
+
+Success Criteria
+----------------
+
+- Headless harness exists and runs.
+- CPU planning boundary is explicit and documented in code/types.
+- BVH planning extraction preserves render-thread GPU submit ownership.
+- Build passes.
+- Harness output demonstrates non-graphical correctness.
+- Final report names remaining visual/runtime validation separately.
+
+Stop And Ask For Help If
+------------------------
+
+- correctness depends on screenshots or in-game visual judgment,
+- a GPU device or command list appears necessary inside worker code,
+- NVRHI thread safety becomes a blocker,
+- the extraction requires shader or estimator changes,
+- the active graphics branch has changed the same BVH files in a conflicting
+  way,
+- the harness cannot link without pulling in most of the game/runtime,
+- generation/lifetime safety cannot be proven from local code.
+

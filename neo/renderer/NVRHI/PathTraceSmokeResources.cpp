@@ -1898,6 +1898,8 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeStaticBlasCacheValid = false;
     m_smokeStaticBlasSignature = 0;
     m_smokeSceneUniverseStaticBuildGeneration = 0;
+    m_smokeAccelerationPlanAsyncGenerationValid = false;
+    m_smokeAccelerationPlanAsyncCachedPlanValid = false;
     m_smokeSceneRebuildLogged = false;
     m_smokeGeometryUniverse.Clear();
     m_smokeSkinnedSurfaceRecords.clear();

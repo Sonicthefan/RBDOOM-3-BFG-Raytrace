@@ -15,6 +15,10 @@ For persistent material guardrails around stable facts, descriptor ownership,
 reset boundaries, lookup identity, validation cost, thread ownership, allocation,
 and churn stats, see docs/pathtrace_material_universe.md.
 
+For the code-only CPU work lane, headless validation harness, and
+snapshot/result/render-thread-submit split for future PT worker tasks, see
+docs/pathtrace_cpu_work_pipeline.md.
+
 For game-driven material/register behavior such as switchable fluorescent lights
 and red/green door panels, see docs/pathtrace_interactive_surfaces.md.
 
