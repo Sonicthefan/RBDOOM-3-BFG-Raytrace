@@ -28,6 +28,12 @@ enabled:
 The spatial shader is separate from the sentinel shader because adding the
 spatial kernel to the sentinel exceeded the SPIR-V legalization ID limit.
 
+The first working spatial pass used fixed-radius ring offsets.  Visual testing
+showed that this can turn isolated fireflies into a circle-with-center-dot
+pattern because the reuse footprint becomes visible.  The current basic pass
+therefore uses disk-distributed offsets and chooses each neighbor offset
+independently per pixel.
+
 
 Runtime Defaults
 ----------------

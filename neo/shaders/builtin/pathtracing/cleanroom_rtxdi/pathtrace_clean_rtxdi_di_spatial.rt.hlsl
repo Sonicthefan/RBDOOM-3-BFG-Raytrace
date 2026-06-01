@@ -210,14 +210,14 @@ static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 
 static const float2 CLEAN_RTXDI_DI_SPATIAL_NEIGHBOR_OFFSETS[32] =
 {
-    float2( 0.130,  0.991), float2(-0.321,  0.947), float2( 0.586,  0.810), float2(-0.724,  0.690),
-    float2( 0.900,  0.436), float2(-0.963,  0.268), float2( 0.991, -0.130), float2(-0.947, -0.321),
-    float2( 0.810, -0.586), float2(-0.690, -0.724), float2( 0.436, -0.900), float2(-0.268, -0.963),
-    float2( 0.130, -0.991), float2(-0.130,  0.991), float2( 0.321, -0.947), float2(-0.586,  0.810),
-    float2( 0.724, -0.690), float2(-0.900,  0.436), float2( 0.963, -0.268), float2(-0.991, -0.130),
-    float2( 0.947,  0.321), float2(-0.810, -0.586), float2( 0.690,  0.724), float2(-0.436, -0.900),
-    float2( 0.268,  0.963), float2(-0.130, -0.991), float2( 0.586, -0.810), float2(-0.724, -0.690),
-    float2( 0.900, -0.436), float2(-0.963, -0.268), float2( 0.991,  0.130), float2(-0.321, -0.947)
+    float2( 0.096,  0.071), float2(-0.154,  0.141), float2( 0.032, -0.287), float2( 0.247,  0.246),
+    float2(-0.365, -0.065), float2( 0.362, -0.248), float2(-0.135,  0.492), float2(-0.282, -0.451),
+    float2( 0.553,  0.087), float2(-0.502,  0.321), float2( 0.160, -0.615), float2( 0.364,  0.563),
+    float2(-0.681, -0.157), float2( 0.648, -0.331), float2(-0.245,  0.718), float2(-0.390, -0.686),
+    float2( 0.793,  0.201), float2(-0.762,  0.356), float2( 0.313, -0.803), float2( 0.407,  0.779),
+    float2(-0.869, -0.272), float2( 0.857, -0.347), float2(-0.392,  0.849), float2(-0.393, -0.864),
+    float2( 0.908,  0.358), float2(-0.929,  0.306), float2( 0.488, -0.858), float2( 0.341,  0.930),
+    float2(-0.909, -0.442), float2( 0.981, -0.226), float2(-0.589,  0.829), float2(-0.242, -0.971)
 };
 
 float3 CleanSafeNormalize(float3 value, float3 fallback)
@@ -644,13 +644,11 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
     const uint targetHistoryLength = (uint)clamp(CleanRtxdiDiRestirPTSurfaceInfo.y, 1.0, 64.0);
     const uint spatialSamples = min(centerReservoir.M < targetHistoryLength ? max(requestedSamples, disocclusionSamples) : requestedSamples, 16u);
     const float radius = max(CleanRtxdiDiSpatialInfo.z, 1.0);
-    const uint startOffset = (uint)(RTXDI_GetNextRandom(rng) * 31.0) & 31u;
-
     float denominator = centerReservoir.targetPdf * centerReservoir.M;
     float selectedPdf = centerReservoir.targetPdf;
     for (uint i = 0u; i < spatialSamples; ++i)
     {
-        const uint offsetIndex = (startOffset + i) & 31u;
+        const uint offsetIndex = (uint)(RTXDI_GetNextRandom(rng) * 32.0) & 31u;
         const int2 neighborPixel = CleanClampPixel(int2(pixel) + int2(CLEAN_RTXDI_DI_SPATIAL_NEIGHBOR_OFFSETS[offsetIndex] * radius), dimensions);
         PathTracePrimarySurfaceRecord neighborSurface;
         if (!CleanLoadSurface((uint2)neighborPixel, dimensions, neighborSurface))
