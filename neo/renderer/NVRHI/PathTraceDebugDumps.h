@@ -173,6 +173,10 @@ struct RtSmokeSceneBuildSummaryLogDesc
     int dynamicVertexCount = 0;
     int instanceCount = 0;
     int rigidTlasInstanceCount = 0;
+    int staticBvhResidentBuckets = 0;
+    int staticBvhActiveBuckets = 0;
+    int staticBvhInactiveResidentBuckets = 0;
+    int staticBvhEmittedInstances = 0;
     bool staticMonolithicInactiveIncluded = false;
     bool staticRequiresBucketedBlas = false;
     bool bvhDirtyPreviousValid = false;
@@ -282,6 +286,10 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int dynamicVertexCount = 0;
     int instanceCount = 0;
     int rigidTlasInstanceCount = 0;
+    int staticBvhResidentBuckets = 0;
+    int staticBvhActiveBuckets = 0;
+    int staticBvhInactiveResidentBuckets = 0;
+    int staticBvhEmittedInstances = 0;
     bool staticMonolithicInactiveIncluded = false;
     bool staticRequiresBucketedBlas = false;
     bool bvhDirtyPreviousValid = false;
