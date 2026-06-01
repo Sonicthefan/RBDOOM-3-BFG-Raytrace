@@ -451,6 +451,32 @@ void TestUploadPlan()
     invalidDirtyPlanInput.dirtyTriangleCount = 99;
     const RtSmokeStaticDirtyUploadPlan invalidDirtyPlan = BuildSmokeStaticDirtyUploadPlan(invalidDirtyPlanInput);
     Check(!invalidDirtyPlan.dirtyRangesValid && !invalidDirtyPlan.useDirtyRangeUploads, "static dirty upload plan rejects invalid dirty ranges");
+
+    const uint32_t spanA[] = { 1, 2, 3, 4 };
+    const uint32_t spanB[] = { 5, 6 };
+    const RtSmokePlanDataSpan spans[] = {
+        { spanA, sizeof(spanA[0]), 4 },
+        { spanB, sizeof(spanB[0]), 2 }
+    };
+    const uint64_t spanSignature = BuildSmokePlanDataSpanSignature(spans, 2);
+    Check(spanSignature == BuildSmokePlanDataSpanSignature(spans, 2), "data span upload signature is deterministic");
+    const RtSmokePlanDataSpan truncatedSpans[] = {
+        { spanA, sizeof(spanA[0]), 3 },
+        { spanB, sizeof(spanB[0]), 2 }
+    };
+    Check(spanSignature != BuildSmokePlanDataSpanSignature(truncatedSpans, 2), "data span upload signature tracks element counts");
+
+    RtSmokePreviousStaticSnapshotUploadPlanInput previousStaticInput;
+    previousStaticInput.dataAvailable = true;
+    previousStaticInput.buffersReused = true;
+    previousStaticInput.previousUploadSignature = spanSignature;
+    previousStaticInput.currentUploadSignature = spanSignature;
+    Check(BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticInput).skipUpload, "previous static snapshot upload plan skips matching reused snapshot");
+    previousStaticInput.currentUploadSignature = spanSignature + 1;
+    Check(!BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticInput).skipUpload, "previous static snapshot upload plan uploads changed snapshot");
+    previousStaticInput.currentUploadSignature = spanSignature;
+    previousStaticInput.buffersReused = false;
+    Check(!BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticInput).skipUpload, "previous static snapshot upload plan requires reused buffers");
 }
 
 void TestGenerationAcceptance()

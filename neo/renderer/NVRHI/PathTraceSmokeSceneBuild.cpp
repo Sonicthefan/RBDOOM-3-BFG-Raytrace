@@ -374,6 +374,16 @@ std::vector<PathTraceRestirPreviousLightRecord> BuildRestirRecordsFromRemixPrevi
 }
 
 template< typename T >
+RtSmokePlanDataSpan MakeSmokePlanDataSpan(const std::vector<T>& data)
+{
+    RtSmokePlanDataSpan span;
+    span.data = data.empty() ? nullptr : data.data();
+    span.elementSize = sizeof(T);
+    span.elementCount = data.size();
+    return span;
+}
+
+template< typename T >
 RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
     nvrhi::BufferHandle buffer,
     const std::vector<T>& data,
@@ -589,34 +599,6 @@ std::vector<PathTraceEmissiveLightRemap> BuildSmokeEmissiveLightRemap(
     }
 
     return remap;
-}
-
-template< typename T >
-uint64 HashSmokeVectorData(uint64 hash, const std::vector<T>& data)
-{
-    const uint64 count = static_cast<uint64>(data.size());
-    hash = HashSmokeBytes(hash, &count, sizeof(count));
-    if (!data.empty())
-    {
-        hash = HashSmokeBytes(hash, data.data(), data.size() * sizeof(data[0]));
-    }
-    return hash;
-}
-
-uint64 ComputeSmokePreviousStaticSnapshotUploadSignature(
-    const std::vector<PathTraceSmokeVertex>& vertices,
-    const std::vector<uint32_t>& indexes,
-    const std::vector<uint32_t>& triangleClasses,
-    const std::vector<uint32_t>& triangleMaterials,
-    const std::vector<uint32_t>& triangleMaterialIndexes)
-{
-    uint64 hash = 14695981039346656037ull;
-    hash = HashSmokeVectorData(hash, vertices);
-    hash = HashSmokeVectorData(hash, indexes);
-    hash = HashSmokeVectorData(hash, triangleClasses);
-    hash = HashSmokeVectorData(hash, triangleMaterials);
-    hash = HashSmokeVectorData(hash, triangleMaterialIndexes);
-    return hash;
 }
 
 uint64 ComputeSmokeReservoirStructuralSignature(
@@ -4145,19 +4127,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !previousStaticTriangleClassCache.empty() &&
         !previousStaticTriangleMaterialCache.empty() &&
         !previousStaticTriangleMaterialIndexCache.empty();
+    const RtSmokePlanDataSpan previousStaticSnapshotSpans[] = {
+        MakeSmokePlanDataSpan(previousStaticVertexCache),
+        MakeSmokePlanDataSpan(previousStaticIndexCache),
+        MakeSmokePlanDataSpan(previousStaticTriangleClassCache),
+        MakeSmokePlanDataSpan(previousStaticTriangleMaterialCache),
+        MakeSmokePlanDataSpan(previousStaticTriangleMaterialIndexCache)
+    };
     const uint64 previousStaticSnapshotUploadSignature = previousStaticSnapshotDataAvailable
-        ? ComputeSmokePreviousStaticSnapshotUploadSignature(
-            previousStaticVertexCache,
-            previousStaticIndexCache,
-            previousStaticTriangleClassCache,
-            previousStaticTriangleMaterialCache,
-            previousStaticTriangleMaterialIndexCache)
+        ? BuildSmokePlanDataSpanSignature(
+            previousStaticSnapshotSpans,
+            static_cast<int>(sizeof(previousStaticSnapshotSpans) / sizeof(previousStaticSnapshotSpans[0])))
         : 0;
-    const bool skipPreviousStaticSnapshotUpload =
-        previousStaticSnapshotDataAvailable &&
-        previousStaticSnapshotBuffersReused &&
-        m_smokePreviousStaticSnapshotUploadSignature != 0 &&
-        m_smokePreviousStaticSnapshotUploadSignature == previousStaticSnapshotUploadSignature;
+    RtSmokePreviousStaticSnapshotUploadPlanInput previousStaticSnapshotUploadPlanInput;
+    previousStaticSnapshotUploadPlanInput.dataAvailable = previousStaticSnapshotDataAvailable;
+    previousStaticSnapshotUploadPlanInput.buffersReused = previousStaticSnapshotBuffersReused;
+    previousStaticSnapshotUploadPlanInput.previousUploadSignature = m_smokePreviousStaticSnapshotUploadSignature;
+    previousStaticSnapshotUploadPlanInput.currentUploadSignature = previousStaticSnapshotUploadSignature;
+    const RtSmokePreviousStaticSnapshotUploadPlan previousStaticSnapshotUploadPlan =
+        BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticSnapshotUploadPlanInput);
+    const bool skipPreviousStaticSnapshotUpload = previousStaticSnapshotUploadPlan.skipUpload;
     const int skinnedGpuComputeVertexCount = SmokeSkinnedGpuComputeVertexCount(skinnedGpuScaffold.dispatchRecords);
     const int skinnedGpuComputeMaxVertexCount = SmokeSkinnedGpuComputeMaxVertexCount(skinnedGpuScaffold.dispatchRecords);
     std::vector<PathTraceSkinnedSurfaceDispatchRecord> skinnedGpuComputeDispatchRecords = skinnedGpuScaffold.dispatchRecords;

@@ -216,6 +216,26 @@ struct RtSmokeStaticDirtyUploadPlan
     bool useDirtyRangeUploads = false;
 };
 
+struct RtSmokePlanDataSpan
+{
+    const void* data = nullptr;
+    size_t elementSize = 0;
+    size_t elementCount = 0;
+};
+
+struct RtSmokePreviousStaticSnapshotUploadPlanInput
+{
+    bool dataAvailable = false;
+    bool buffersReused = false;
+    uint64_t previousUploadSignature = 0;
+    uint64_t currentUploadSignature = 0;
+};
+
+struct RtSmokePreviousStaticSnapshotUploadPlan
+{
+    bool skipUpload = false;
+};
+
 uint64_t HashSmokePlanBytes(uint64_t hash, const void* data, size_t size);
 
 RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
@@ -254,3 +274,10 @@ RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
 
 RtSmokeStaticDirtyUploadPlan BuildSmokeStaticDirtyUploadPlan(
     const RtSmokeStaticDirtyUploadPlanInput& input);
+
+uint64_t BuildSmokePlanDataSpanSignature(
+    const RtSmokePlanDataSpan* spans,
+    int spanCount);
+
+RtSmokePreviousStaticSnapshotUploadPlan BuildSmokePreviousStaticSnapshotUploadPlan(
+    const RtSmokePreviousStaticSnapshotUploadPlanInput& input);

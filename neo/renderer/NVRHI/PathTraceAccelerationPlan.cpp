@@ -379,3 +379,38 @@ RtSmokeStaticDirtyUploadPlan BuildSmokeStaticDirtyUploadPlan(
         plan.dirtyRangesValid;
     return plan;
 }
+
+uint64_t BuildSmokePlanDataSpanSignature(
+    const RtSmokePlanDataSpan* spans,
+    int spanCount)
+{
+    uint64_t hash = 14695981039346656037ull;
+    if (!spans || spanCount <= 0)
+    {
+        return hash;
+    }
+
+    for (int spanIndex = 0; spanIndex < spanCount; ++spanIndex)
+    {
+        const RtSmokePlanDataSpan& span = spans[spanIndex];
+        const uint64_t count = static_cast<uint64_t>(span.elementCount);
+        hash = HashSmokePlanBytes(hash, &count, sizeof(count));
+        if (span.data && span.elementCount > 0 && span.elementSize > 0)
+        {
+            hash = HashSmokePlanBytes(hash, span.data, span.elementCount * span.elementSize);
+        }
+    }
+    return hash;
+}
+
+RtSmokePreviousStaticSnapshotUploadPlan BuildSmokePreviousStaticSnapshotUploadPlan(
+    const RtSmokePreviousStaticSnapshotUploadPlanInput& input)
+{
+    RtSmokePreviousStaticSnapshotUploadPlan plan;
+    plan.skipUpload =
+        input.dataAvailable &&
+        input.buffersReused &&
+        input.previousUploadSignature != 0 &&
+        input.previousUploadSignature == input.currentUploadSignature;
+    return plan;
+}
