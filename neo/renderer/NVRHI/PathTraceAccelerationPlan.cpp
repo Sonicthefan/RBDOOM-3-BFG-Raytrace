@@ -49,6 +49,19 @@ RtSmokePlanStaticBlasSignatureDesc MakeSignatureDescFromSnapshot(
     return desc;
 }
 
+RtSmokeRigidTlasPlanDesc MakeRigidTlasPlanDescFromSnapshot(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    RtSmokeRigidTlasPlanDesc desc;
+    desc.observations = snapshot.observations.empty() ? nullptr : snapshot.observations.data();
+    desc.observationCount = static_cast<int>(snapshot.observations.size());
+    desc.rigidSourceMask = snapshot.rigidSourceMask;
+    desc.firstInstanceId = snapshot.firstInstanceId;
+    desc.instanceMask = snapshot.instanceMask;
+    desc.maxInstances = snapshot.maxInstances;
+    return desc;
+}
+
 } // namespace
 
 uint64_t HashSmokePlanBytes(uint64_t hash, const void* data, size_t size)
@@ -322,6 +335,21 @@ bool AppendSmokeRigidTlasPlanObservation(
     return true;
 }
 
+RtSmokeRigidTlasPlanSnapshot CaptureSmokeRigidTlasPlanSnapshot(
+    const RtSmokeRigidTlasPlanDesc& desc)
+{
+    RtSmokeRigidTlasPlanSnapshot snapshot;
+    snapshot.rigidSourceMask = desc.rigidSourceMask;
+    snapshot.firstInstanceId = desc.firstInstanceId;
+    snapshot.instanceMask = desc.instanceMask;
+    snapshot.maxInstances = desc.maxInstances;
+    if (desc.observations && desc.observationCount > 0)
+    {
+        snapshot.observations.assign(desc.observations, desc.observations + desc.observationCount);
+    }
+    return snapshot;
+}
+
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc)
 {
     RtSmokeRigidTlasPlan plan;
@@ -343,6 +371,12 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& des
     }
 
     return plan;
+}
+
+RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    return BuildSmokeRigidTlasPlan(MakeRigidTlasPlanDescFromSnapshot(snapshot));
 }
 
 RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(

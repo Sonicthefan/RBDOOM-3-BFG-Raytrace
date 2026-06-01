@@ -187,6 +187,15 @@ struct RtSmokeRigidTlasPlanDesc
     int maxInstances = 0;
 };
 
+struct RtSmokeRigidTlasPlanSnapshot
+{
+    std::vector<RtSmokeRigidTlasObservation> observations;
+    uint32_t rigidSourceMask = 0;
+    uint32_t firstInstanceId = 0;
+    uint32_t instanceMask = 0;
+    int maxInstances = 0;
+};
+
 struct RtSmokeRigidTlasPlan
 {
     std::vector<RtSmokePlanTlasInstance> instances;
@@ -281,7 +290,13 @@ bool AppendSmokeRigidTlasPlanObservation(
     const RtSmokeRigidTlasPlanDesc& desc,
     const RtSmokeRigidTlasObservation& observation);
 
+RtSmokeRigidTlasPlanSnapshot CaptureSmokeRigidTlasPlanSnapshot(
+    const RtSmokeRigidTlasPlanDesc& desc);
+
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc);
+
+RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot);
 
 RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
     size_t elementCount,

@@ -3854,6 +3854,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelerationPlanInput.staticSignature.sceneOrigin.x = vec3_origin.x;
     accelerationPlanInput.staticSignature.sceneOrigin.y = vec3_origin.y;
     accelerationPlanInput.staticSignature.sceneOrigin.z = vec3_origin.z;
+    accelerationPlanInput.staticCache.hasStaticBlas = hasStaticBlas;
     accelerationPlanInput.staticCache.cacheValid = m_smokeStaticBlasCacheValid;
     accelerationPlanInput.staticCache.cacheResourcesReady =
         m_smokeStaticBlas &&

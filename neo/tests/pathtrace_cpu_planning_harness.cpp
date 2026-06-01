@@ -402,6 +402,14 @@ void TestRigidPlan()
     Check(plan.rejectedMissingBlas == 1, "rigid TLAS plan rejects missing BLAS handles before render submit");
     Check(plan.instances[0].instanceId == 2 && plan.instances[0].meshHash == 100, "rigid TLAS emitted instance metadata is deterministic");
 
+    const RtSmokeRigidTlasPlanSnapshot snapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
+    observations[0].hasBlas = false;
+    observations[0].meshHash = 999;
+    const RtSmokeRigidTlasPlan snapshotPlan = BuildSmokeRigidTlasPlan(snapshot);
+    Check(snapshotPlan.emittedInstances == 1 && snapshotPlan.instances[0].meshHash == 100, "owned rigid TLAS snapshot is immutable after source mutation");
+
+    observations[0].hasBlas = true;
+    observations[0].meshHash = 100;
     observations[2].residencyEnabled = true;
     observations[2].hasBlas = true;
     const RtSmokeRigidTlasPlan residentPlan = BuildSmokeRigidTlasPlan(desc);
