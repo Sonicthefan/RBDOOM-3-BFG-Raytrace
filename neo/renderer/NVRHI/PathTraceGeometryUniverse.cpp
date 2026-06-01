@@ -1198,6 +1198,49 @@ const std::vector<RtSmokePersistentStaticSurfaceRecord>& RtSmokeGeometryUniverse
     return m_staticSurfaceRecords;
 }
 
+void RtSmokeGeometryUniverse::BuildStaticTlasBucketObservations(
+    std::vector<RtSmokeStaticTlasBucketObservation>& buckets,
+    bool hasStaticBlas,
+    uint32_t activeReasonFlags) const
+{
+    buckets.clear();
+    buckets.reserve(m_staticSurfaceRecords.size());
+
+    const int vertexCount = static_cast<int>(m_staticVertexCache.size());
+    const int indexCount = static_cast<int>(m_staticIndexCache.size());
+    const int triangleCount = static_cast<int>(m_staticTriangleClassCache.size());
+    const int materialTriangleCount = static_cast<int>(m_staticTriangleMaterialCache.size());
+    for (size_t recordIndex = 0; recordIndex < m_staticSurfaceRecords.size(); ++recordIndex)
+    {
+        const RtSmokePersistentStaticSurfaceRecord& record = m_staticSurfaceRecords[recordIndex];
+        if (!record.valid ||
+            !IsSmokeGeometryRangeValid(record.currentRange, vertexCount, indexCount, triangleCount, materialTriangleCount))
+        {
+            continue;
+        }
+
+        RtSmokeStaticTlasBucketObservation bucket;
+        bucket.bucketKey = record.key;
+        bucket.resident = true;
+        bucket.active = record.seenThisFrame;
+        bucket.hasBlas = hasStaticBlas;
+        bucket.activeReasonFlags = record.seenThisFrame ? activeReasonFlags : 0u;
+        bucket.routeRecordIndex = static_cast<uint32_t>(recordIndex);
+        bucket.residentSurfaceCount = 1;
+        bucket.residentVertexCount = record.currentRange.vertices.count;
+        bucket.residentIndexCount = record.currentRange.indexes.count;
+        bucket.residentTriangleCount = record.currentRange.triangles.count;
+        if (record.seenThisFrame)
+        {
+            bucket.activeSurfaceCount = 1;
+            bucket.activeVertexCount = record.currentRange.vertices.count;
+            bucket.activeIndexCount = record.currentRange.indexes.count;
+            bucket.activeTriangleCount = record.currentRange.triangles.count;
+        }
+        buckets.push_back(bucket);
+    }
+}
+
 std::vector<uint64>& RtSmokeGeometryUniverse::StaticSurfaceKeys()
 {
     return m_staticSurfaceKeys;

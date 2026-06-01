@@ -4869,23 +4869,32 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.dynamicVertexCount = dynamicVertexCount;
     sceneLogDesc.instanceCount = instanceCount;
     sceneLogDesc.rigidTlasInstanceCount = static_cast<int>(rigidTlasRouteInstances.size());
-    RtSmokeStaticTlasBucketObservation staticActiveBucket;
-    staticActiveBucket.bucketKey = staticSignature.hash;
-    staticActiveBucket.resident = hasStaticBlas;
-    staticActiveBucket.active = hasStaticBlas && staticIndexCount > 0;
-    staticActiveBucket.hasBlas = staticBlasCacheHit || smokeStaticBlas != nullptr;
-    staticActiveBucket.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
-    staticActiveBucket.residentSurfaceCount = geometryUniverseStats.staticSurfaces;
-    staticActiveBucket.residentVertexCount = staticVertexCacheCount;
-    staticActiveBucket.residentIndexCount = staticIndexCacheCount;
-    staticActiveBucket.residentTriangleCount = staticTriangleCacheCount;
-    staticActiveBucket.activeSurfaceCount = classStats.staticWorldSurfaces;
-    staticActiveBucket.activeVertexCount = staticVertexCount;
-    staticActiveBucket.activeIndexCount = staticIndexCount;
-    staticActiveBucket.activeTriangleCount = staticIndexCount / 3;
+    std::vector<RtSmokeStaticTlasBucketObservation> staticActiveBuckets;
+    m_smokeGeometryUniverse.BuildStaticTlasBucketObservations(
+        staticActiveBuckets,
+        staticBlasCacheHit || smokeStaticBlas != nullptr,
+        RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA);
+    if (staticActiveBuckets.empty())
+    {
+        RtSmokeStaticTlasBucketObservation staticActiveBucket;
+        staticActiveBucket.bucketKey = staticSignature.hash;
+        staticActiveBucket.resident = hasStaticBlas;
+        staticActiveBucket.active = hasStaticBlas && staticIndexCount > 0;
+        staticActiveBucket.hasBlas = staticBlasCacheHit || smokeStaticBlas != nullptr;
+        staticActiveBucket.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+        staticActiveBucket.residentSurfaceCount = geometryUniverseStats.staticSurfaces;
+        staticActiveBucket.residentVertexCount = staticVertexCacheCount;
+        staticActiveBucket.residentIndexCount = staticIndexCacheCount;
+        staticActiveBucket.residentTriangleCount = staticTriangleCacheCount;
+        staticActiveBucket.activeSurfaceCount = classStats.staticWorldSurfaces;
+        staticActiveBucket.activeVertexCount = staticVertexCount;
+        staticActiveBucket.activeIndexCount = staticIndexCount;
+        staticActiveBucket.activeTriangleCount = staticIndexCount / 3;
+        staticActiveBuckets.push_back(staticActiveBucket);
+    }
     RtSmokeStaticTlasActiveSetPlanDesc staticActiveSetPlanDesc;
-    staticActiveSetPlanDesc.buckets = &staticActiveBucket;
-    staticActiveSetPlanDesc.bucketCount = 1;
+    staticActiveSetPlanDesc.buckets = staticActiveBuckets.data();
+    staticActiveSetPlanDesc.bucketCount = static_cast<int>(staticActiveBuckets.size());
     staticActiveSetPlanDesc.monolithicStaticBlas = true;
     staticActiveSetPlanDesc.hasStaticBlas = hasStaticBlas;
     const RtSmokeStaticTlasActiveSetPlan staticActiveSetPlan =

@@ -537,6 +537,10 @@ public:
 
     const RtSmokePersistentStaticSurfaceRecord* FindStaticSurface(uint64 key) const;
     const std::vector<RtSmokePersistentStaticSurfaceRecord>& StaticSurfaceRecords() const;
+    void BuildStaticTlasBucketObservations(
+        std::vector<RtSmokeStaticTlasBucketObservation>& buckets,
+        bool hasStaticBlas,
+        uint32_t activeReasonFlags) const;
 
     std::vector<uint64>& StaticSurfaceKeys();
     const std::vector<uint64>& StaticSurfaceKeys() const;
