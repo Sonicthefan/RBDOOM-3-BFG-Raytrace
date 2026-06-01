@@ -205,6 +205,8 @@ struct RtSmokeStaticTlasActiveSetPlanDesc
 struct RtSmokeStaticTlasActiveSetPlan
 {
     std::vector<RtSmokePlanTlasInstance> instances;
+    uint64_t activeSetSignature = 0;
+    uint64_t residentSetSignature = 0;
     int residentBuckets = 0;
     int activeBuckets = 0;
     int inactiveResidentBuckets = 0;
@@ -220,6 +222,31 @@ struct RtSmokeStaticTlasActiveSetPlan
     bool monolithicStaticBlas = true;
     bool inactiveResidentGeometryIncluded = false;
     bool requiresBucketedStaticBlas = false;
+};
+
+struct RtSmokeBvhDirtyTokenState
+{
+    uint64_t geometryContentSignature = 0;
+    uint64_t materialGeneration = 0;
+    uint64_t activeSetSignature = 0;
+    uint64_t tlasInstanceSignature = 0;
+};
+
+struct RtSmokeBvhDirtyPlanInput
+{
+    bool previousValid = false;
+    RtSmokeBvhDirtyTokenState previous;
+    RtSmokeBvhDirtyTokenState current;
+};
+
+struct RtSmokeBvhDirtyPlan
+{
+    bool geometryContentChanged = false;
+    bool materialChanged = false;
+    bool activeMembershipChanged = false;
+    bool tlasInstanceChanged = false;
+    bool blasInputDirty = false;
+    bool tlasDirty = false;
 };
 
 struct RtSmokeRigidTlasObservation
@@ -364,6 +391,9 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);
+
+RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
+    const RtSmokeBvhDirtyPlanInput& input);
 
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,

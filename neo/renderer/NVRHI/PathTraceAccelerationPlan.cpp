@@ -305,6 +305,8 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
 {
     RtSmokeStaticTlasActiveSetPlan plan;
     plan.monolithicStaticBlas = desc.monolithicStaticBlas;
+    plan.activeSetSignature = 1469598103934665603ull;
+    plan.residentSetSignature = 1469598103934665603ull;
     if (!desc.buckets || desc.bucketCount <= 0)
     {
         return plan;
@@ -320,6 +322,11 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
             continue;
         }
 
+        plan.residentSetSignature = HashSmokePlanBytes(plan.residentSetSignature, &bucket.bucketKey, sizeof(bucket.bucketKey));
+        plan.residentSetSignature = HashSmokePlanBytes(plan.residentSetSignature, &bucket.residentSurfaceCount, sizeof(bucket.residentSurfaceCount));
+        plan.residentSetSignature = HashSmokePlanBytes(plan.residentSetSignature, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
+        plan.residentSetSignature = HashSmokePlanBytes(plan.residentSetSignature, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
+        plan.residentSetSignature = HashSmokePlanBytes(plan.residentSetSignature, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
         ++plan.residentBuckets;
         plan.residentSurfaceCount += bucket.residentSurfaceCount;
         plan.residentVertexCount += bucket.residentVertexCount;
@@ -331,6 +338,12 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
             continue;
         }
 
+        plan.activeSetSignature = HashSmokePlanBytes(plan.activeSetSignature, &bucket.bucketKey, sizeof(bucket.bucketKey));
+        plan.activeSetSignature = HashSmokePlanBytes(plan.activeSetSignature, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
+        plan.activeSetSignature = HashSmokePlanBytes(plan.activeSetSignature, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
+        plan.activeSetSignature = HashSmokePlanBytes(plan.activeSetSignature, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
+        plan.activeSetSignature = HashSmokePlanBytes(plan.activeSetSignature, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
+        plan.activeSetSignature = HashSmokePlanBytes(plan.activeSetSignature, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
         ++plan.activeBuckets;
         plan.activeSurfaceCount += bucket.activeSurfaceCount;
         plan.activeVertexCount += bucket.activeVertexCount;
@@ -378,6 +391,34 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
             plan.activeIndexCount < plan.residentIndexCount ||
             plan.activeTriangleCount < plan.residentTriangleCount);
     plan.requiresBucketedStaticBlas = plan.inactiveResidentGeometryIncluded;
+    return plan;
+}
+
+RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
+    const RtSmokeBvhDirtyPlanInput& input)
+{
+    RtSmokeBvhDirtyPlan plan;
+    if (!input.previousValid)
+    {
+        plan.geometryContentChanged = true;
+        plan.materialChanged = true;
+        plan.activeMembershipChanged = true;
+        plan.tlasInstanceChanged = true;
+    }
+    else
+    {
+        plan.geometryContentChanged =
+            input.previous.geometryContentSignature != input.current.geometryContentSignature;
+        plan.materialChanged =
+            input.previous.materialGeneration != input.current.materialGeneration;
+        plan.activeMembershipChanged =
+            input.previous.activeSetSignature != input.current.activeSetSignature;
+        plan.tlasInstanceChanged =
+            input.previous.tlasInstanceSignature != input.current.tlasInstanceSignature;
+    }
+
+    plan.blasInputDirty = plan.geometryContentChanged || plan.materialChanged;
+    plan.tlasDirty = plan.blasInputDirty || plan.activeMembershipChanged || plan.tlasInstanceChanged;
     return plan;
 }
 

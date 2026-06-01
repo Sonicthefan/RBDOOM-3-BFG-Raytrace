@@ -548,6 +548,110 @@ void TestStaticActiveSetPlan()
     Check(surfaceDeltaPlan.inactiveResidentGeometryIncluded && surfaceDeltaPlan.requiresBucketedStaticBlas, "monolithic static active-set plan detects inactive retained surfaces even when vertex counts match");
 }
 
+void TestBvhDirtyPlan()
+{
+    RtSmokeBvhDirtyTokenState base;
+    base.geometryContentSignature = 10;
+    base.materialGeneration = 20;
+    base.activeSetSignature = 30;
+    base.tlasInstanceSignature = 40;
+
+    RtSmokeBvhDirtyPlanInput input;
+    input.previousValid = true;
+    input.previous = base;
+    input.current = base;
+    const RtSmokeBvhDirtyPlan unchangedPlan = BuildSmokeBvhDirtyPlan(input);
+    Check(!unchangedPlan.geometryContentChanged && !unchangedPlan.materialChanged &&
+        !unchangedPlan.activeMembershipChanged && !unchangedPlan.tlasInstanceChanged &&
+        !unchangedPlan.blasInputDirty && !unchangedPlan.tlasDirty,
+        "BVH dirty plan keeps unchanged tokens clean");
+
+    input.previousValid = false;
+    const RtSmokeBvhDirtyPlan firstFramePlan = BuildSmokeBvhDirtyPlan(input);
+    Check(firstFramePlan.geometryContentChanged && firstFramePlan.materialChanged &&
+        firstFramePlan.activeMembershipChanged && firstFramePlan.tlasInstanceChanged &&
+        firstFramePlan.blasInputDirty && firstFramePlan.tlasDirty,
+        "BVH dirty plan treats invalid previous state as dirty");
+
+    input.previousValid = true;
+    input.current = base;
+    input.current.geometryContentSignature = 11;
+    const RtSmokeBvhDirtyPlan geometryPlan = BuildSmokeBvhDirtyPlan(input);
+    Check(geometryPlan.geometryContentChanged && geometryPlan.blasInputDirty &&
+        geometryPlan.tlasDirty && !geometryPlan.activeMembershipChanged,
+        "BVH dirty plan maps geometry content changes to BLAS and TLAS work");
+
+    input.current = base;
+    input.current.materialGeneration = 21;
+    const RtSmokeBvhDirtyPlan materialPlan = BuildSmokeBvhDirtyPlan(input);
+    Check(materialPlan.materialChanged && materialPlan.blasInputDirty &&
+        materialPlan.tlasDirty && !materialPlan.activeMembershipChanged,
+        "BVH dirty plan maps material generation changes to BLAS and TLAS work");
+
+    input.current = base;
+    input.current.activeSetSignature = 31;
+    const RtSmokeBvhDirtyPlan activePlan = BuildSmokeBvhDirtyPlan(input);
+    Check(activePlan.activeMembershipChanged && activePlan.tlasDirty &&
+        !activePlan.blasInputDirty && !activePlan.geometryContentChanged,
+        "BVH dirty plan maps active-set changes to TLAS-only work");
+
+    input.current = base;
+    input.current.tlasInstanceSignature = 41;
+    const RtSmokeBvhDirtyPlan tlasPlan = BuildSmokeBvhDirtyPlan(input);
+    Check(tlasPlan.tlasInstanceChanged && tlasPlan.tlasDirty &&
+        !tlasPlan.blasInputDirty && !tlasPlan.geometryContentChanged,
+        "BVH dirty plan maps TLAS instance changes to TLAS-only work");
+
+    RtSmokeStaticTlasBucketObservation buckets[2];
+    buckets[0].bucketKey = 100;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE;
+    buckets[0].residentSurfaceCount = 1;
+    buckets[0].residentVertexCount = 10;
+    buckets[0].residentIndexCount = 30;
+    buckets[0].residentTriangleCount = 10;
+    buckets[0].activeSurfaceCount = 1;
+    buckets[0].activeVertexCount = 10;
+    buckets[0].activeIndexCount = 30;
+    buckets[0].activeTriangleCount = 10;
+
+    buckets[1].bucketKey = 200;
+    buckets[1].resident = true;
+    buckets[1].active = false;
+    buckets[1].hasBlas = true;
+    buckets[1].residentSurfaceCount = 1;
+    buckets[1].residentVertexCount = 20;
+    buckets[1].residentIndexCount = 60;
+    buckets[1].residentTriangleCount = 20;
+
+    RtSmokeStaticTlasActiveSetPlanDesc activeSetDesc;
+    activeSetDesc.buckets = buckets;
+    activeSetDesc.bucketCount = 2;
+    activeSetDesc.hasStaticBlas = true;
+    activeSetDesc.monolithicStaticBlas = false;
+    const RtSmokeStaticTlasActiveSetPlan baseActiveSetPlan = BuildSmokeStaticTlasActiveSetPlan(activeSetDesc);
+
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+    const RtSmokeStaticTlasActiveSetPlan reasonChangedPlan = BuildSmokeStaticTlasActiveSetPlan(activeSetDesc);
+    Check(baseActiveSetPlan.activeSetSignature != reasonChangedPlan.activeSetSignature &&
+        baseActiveSetPlan.residentSetSignature == reasonChangedPlan.residentSetSignature,
+        "static active-set signature tracks active reasons without changing resident signature");
+
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE;
+    buckets[1].active = true;
+    buckets[1].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_RESIDENCY;
+    buckets[1].activeSurfaceCount = buckets[1].residentSurfaceCount;
+    buckets[1].activeVertexCount = buckets[1].residentVertexCount;
+    buckets[1].activeIndexCount = buckets[1].residentIndexCount;
+    buckets[1].activeTriangleCount = buckets[1].residentTriangleCount;
+    const RtSmokeStaticTlasActiveSetPlan membershipChangedPlan = BuildSmokeStaticTlasActiveSetPlan(activeSetDesc);
+    Check(baseActiveSetPlan.activeSetSignature != membershipChangedPlan.activeSetSignature &&
+        baseActiveSetPlan.residentSetSignature == membershipChangedPlan.residentSetSignature,
+        "static active-set signature tracks active membership without changing resident signature");
+}
+
 void TestUploadPlan()
 {
     const RtSmokeUploadPlanMetadata fullUpload = BuildSmokeVectorUploadPlanMetadata(10, 4, false, -1, 0);
@@ -787,6 +891,7 @@ int main(int argc, char** argv)
     TestRigidPlan();
     TestRigidBlasBuildPlan();
     TestStaticActiveSetPlan();
+    TestBvhDirtyPlan();
     TestUploadPlan();
     TestGenerationAcceptance();
 
