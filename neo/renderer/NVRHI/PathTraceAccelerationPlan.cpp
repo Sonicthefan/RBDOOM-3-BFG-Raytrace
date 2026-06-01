@@ -391,6 +391,25 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
     return BuildSmokeRigidTlasPlan(MakeRigidTlasPlanDescFromSnapshot(snapshot));
 }
 
+RtSmokeRigidBlasBuildPlan BuildSmokeRigidBlasBuildPlan(
+    const RtSmokeRigidBlasBuildPlanInput& input)
+{
+    RtSmokeRigidBlasBuildPlan plan;
+    if (!input.submitBuilds)
+    {
+        plan.skipBuild = true;
+        return plan;
+    }
+
+    plan.createBlas = !input.hasBlas || !input.blasInputsCompatible;
+    plan.submitBuild =
+        input.forceRebuild ||
+        input.uploadRequired ||
+        plan.createBlas;
+    plan.skipBuild = !plan.submitBuild;
+    return plan;
+}
+
 RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
     size_t elementCount,
     size_t elementSize,

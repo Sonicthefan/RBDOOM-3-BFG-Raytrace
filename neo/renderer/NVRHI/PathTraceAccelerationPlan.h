@@ -208,6 +208,22 @@ struct RtSmokeRigidTlasPlan
     int rejectedMissingBlas = 0;
 };
 
+struct RtSmokeRigidBlasBuildPlanInput
+{
+    bool submitBuilds = false;
+    bool forceRebuild = false;
+    bool hasBlas = false;
+    bool uploadRequired = false;
+    bool blasInputsCompatible = false;
+};
+
+struct RtSmokeRigidBlasBuildPlan
+{
+    bool createBlas = false;
+    bool submitBuild = false;
+    bool skipBuild = false;
+};
+
 struct RtSmokeUploadPlanMetadata
 {
     bool skip = false;
@@ -300,6 +316,9 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& des
 
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
     const RtSmokeRigidTlasPlanSnapshot& snapshot);
+
+RtSmokeRigidBlasBuildPlan BuildSmokeRigidBlasBuildPlan(
+    const RtSmokeRigidBlasBuildPlanInput& input);
 
 RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
     size_t elementCount,

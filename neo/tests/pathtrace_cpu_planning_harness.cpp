@@ -434,6 +434,39 @@ void TestRigidPlan()
     Check(streamingPlan.emittedInstances == 1 && streamingPlan.instances[0].instanceId == 8, "streaming rigid TLAS planner emits deterministic instance id");
 }
 
+void TestRigidBlasBuildPlan()
+{
+    RtSmokeRigidBlasBuildPlanInput input;
+    input.submitBuilds = true;
+    input.hasBlas = true;
+    input.blasInputsCompatible = true;
+    const RtSmokeRigidBlasBuildPlan unchangedPlan = BuildSmokeRigidBlasBuildPlan(input);
+    Check(!unchangedPlan.createBlas && !unchangedPlan.submitBuild && unchangedPlan.skipBuild, "unchanged rigid BLAS skips build submission");
+
+    input.uploadRequired = true;
+    const RtSmokeRigidBlasBuildPlan uploadChangedPlan = BuildSmokeRigidBlasBuildPlan(input);
+    Check(!uploadChangedPlan.createBlas && uploadChangedPlan.submitBuild && !uploadChangedPlan.skipBuild, "changed rigid BLAS upload requests build submission");
+
+    input.uploadRequired = false;
+    input.forceRebuild = true;
+    const RtSmokeRigidBlasBuildPlan forcedPlan = BuildSmokeRigidBlasBuildPlan(input);
+    Check(!forcedPlan.createBlas && forcedPlan.submitBuild && !forcedPlan.skipBuild, "rigid BLAS force rebuild requests build submission");
+
+    input.forceRebuild = false;
+    input.blasInputsCompatible = false;
+    const RtSmokeRigidBlasBuildPlan incompatiblePlan = BuildSmokeRigidBlasBuildPlan(input);
+    Check(incompatiblePlan.createBlas && incompatiblePlan.submitBuild, "rigid BLAS descriptor incompatibility requests BLAS recreate and build");
+
+    input.hasBlas = false;
+    input.blasInputsCompatible = false;
+    const RtSmokeRigidBlasBuildPlan missingPlan = BuildSmokeRigidBlasBuildPlan(input);
+    Check(missingPlan.createBlas && missingPlan.submitBuild, "missing rigid BLAS requests create and build");
+
+    input.submitBuilds = false;
+    const RtSmokeRigidBlasBuildPlan gateOffPlan = BuildSmokeRigidBlasBuildPlan(input);
+    Check(!gateOffPlan.createBlas && !gateOffPlan.submitBuild && gateOffPlan.skipBuild, "rigid BLAS build gate skips build submission");
+}
+
 void TestUploadPlan()
 {
     const RtSmokeUploadPlanMetadata fullUpload = BuildSmokeVectorUploadPlanMetadata(10, 4, false, -1, 0);
@@ -671,6 +704,7 @@ int main(int argc, char** argv)
     TestAccelerationPlanInputToken();
     TestAsyncSnapshotPlanning();
     TestRigidPlan();
+    TestRigidBlasBuildPlan();
     TestUploadPlan();
     TestGenerationAcceptance();
 

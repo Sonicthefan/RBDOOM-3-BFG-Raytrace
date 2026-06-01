@@ -310,6 +310,8 @@ struct RtPathTraceRigidBlasGpuStats
     int blasHandlesReused = 0;
     int blasBuildsSubmitted = 0;
     int blasBuildsSkipped = 0;
+    int blasBuildsSkippedUnchanged = 0;
+    int blasRecreatedForInputChange = 0;
     int skippedNoDevice = 0;
     int skippedNoCommandList = 0;
     int skippedInvalid = 0;
@@ -628,6 +630,8 @@ public:
         nvrhi::rt::AccelStructDesc rigidBlasDesc;
         nvrhi::rt::AccelStructHandle rigidBlas;
         uint64 gpuUploadSignature = 0;
+        int gpuBlasVertexCount = 0;
+        int gpuBlasIndexCount = 0;
         bool gpuBuffersUploaded = false;
         bool gpuBlasCreated = false;
         idStr materialName;

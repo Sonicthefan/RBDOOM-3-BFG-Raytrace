@@ -2215,6 +2215,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
 
     std::vector<PathTraceSmokeVertex> localVertices;
     std::vector<uint32_t> localIndexes;
+    const bool forceRebuild = r_pathTracingRigidBlasGpuForceRebuild.GetInteger() != 0;
 
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
@@ -2312,46 +2313,73 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         }
 
         bool builtThisFrame = false;
-        if (submitBuilds)
+        const bool blasInputsCompatible =
+            record.rigidBlas &&
+            record.gpuBlasVertexCount == static_cast<int>(localVertices.size()) &&
+            record.gpuBlasIndexCount == static_cast<int>(localIndexes.size());
+        RtSmokeRigidBlasBuildPlanInput buildPlanInput;
+        buildPlanInput.submitBuilds = submitBuilds;
+        buildPlanInput.forceRebuild = forceRebuild;
+        buildPlanInput.hasBlas = record.rigidBlas != nullptr;
+        buildPlanInput.uploadRequired = uploadRequired;
+        buildPlanInput.blasInputsCompatible = blasInputsCompatible;
+        const RtSmokeRigidBlasBuildPlan buildPlan = BuildSmokeRigidBlasBuildPlan(buildPlanInput);
+        if (buildPlan.createBlas)
         {
-            if (!record.rigidBlas)
+            if (record.rigidBlas)
             {
-                RtSmokeBlasCreateDesc blasCreateDesc;
-                blasCreateDesc.device = device;
-                blasCreateDesc.vertexBuffer = record.rigidVertexBuffer;
-                blasCreateDesc.indexBuffer = record.rigidIndexBuffer;
-                blasCreateDesc.vertexCount = static_cast<int>(localVertices.size());
-                blasCreateDesc.indexCount = static_cast<int>(localIndexes.size());
-                blasCreateDesc.debugName = "PathTraceRigidMeshLocalBLAS";
-                const RtSmokeBlasCreateResult blasCreateResult = CreateSmokeBlas(blasCreateDesc);
-                if (blasCreateResult.Succeeded())
-                {
-                    record.rigidBlasDesc = blasCreateResult.accelStructDesc;
-                    record.rigidBlas = blasCreateResult.accelStruct;
-                    record.gpuBlasCreated = true;
-                    ++stats.blasHandlesCreated;
-                }
-                else
-                {
-                    ++stats.blasBuildsSkipped;
-                }
+                record.rigidBlas = nullptr;
+                record.rigidBlasDesc = nvrhi::rt::AccelStructDesc();
+                record.gpuBlasCreated = false;
+                record.gpuBlasVertexCount = 0;
+                record.gpuBlasIndexCount = 0;
+                ++stats.blasRecreatedForInputChange;
+            }
+
+            RtSmokeBlasCreateDesc blasCreateDesc;
+            blasCreateDesc.device = device;
+            blasCreateDesc.vertexBuffer = record.rigidVertexBuffer;
+            blasCreateDesc.indexBuffer = record.rigidIndexBuffer;
+            blasCreateDesc.vertexCount = static_cast<int>(localVertices.size());
+            blasCreateDesc.indexCount = static_cast<int>(localIndexes.size());
+            blasCreateDesc.debugName = "PathTraceRigidMeshLocalBLAS";
+            const RtSmokeBlasCreateResult blasCreateResult = CreateSmokeBlas(blasCreateDesc);
+            if (blasCreateResult.Succeeded())
+            {
+                record.rigidBlasDesc = blasCreateResult.accelStructDesc;
+                record.rigidBlas = blasCreateResult.accelStruct;
+                record.gpuBlasCreated = true;
+                record.gpuBlasVertexCount = static_cast<int>(localVertices.size());
+                record.gpuBlasIndexCount = static_cast<int>(localIndexes.size());
+                ++stats.blasHandlesCreated;
             }
             else
             {
-                ++stats.blasHandlesReused;
-            }
-
-            if (record.rigidBlas)
-            {
-                nvrhi::utils::BuildBottomLevelAccelStruct(commandList, record.rigidBlas, record.rigidBlasDesc);
-                ++stats.blasBuildsSubmitted;
-                builtThisFrame = true;
+                ++stats.blasBuildsSkipped;
             }
         }
-        else
+        else if (record.rigidBlas)
         {
-            ++stats.buildGateOff;
+            ++stats.blasHandlesReused;
+        }
+
+        if (buildPlan.submitBuild && record.rigidBlas)
+        {
+            nvrhi::utils::BuildBottomLevelAccelStruct(commandList, record.rigidBlas, record.rigidBlasDesc);
+            ++stats.blasBuildsSubmitted;
+            builtThisFrame = true;
+        }
+        else if (buildPlan.skipBuild)
+        {
             ++stats.blasBuildsSkipped;
+            if (!submitBuilds)
+            {
+                ++stats.buildGateOff;
+            }
+            else if (record.rigidBlas && !uploadRequired && !forceRebuild && blasInputsCompatible)
+            {
+                ++stats.blasBuildsSkippedUnchanged;
+            }
         }
 
         if (stats.sampleCount < RT_PT_RIGID_BLAS_GPU_SAMPLES)
@@ -2392,6 +2420,8 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
         record.rigidBlas = nullptr;
         record.rigidBlasDesc = nvrhi::rt::AccelStructDesc();
         record.gpuUploadSignature = 0;
+        record.gpuBlasVertexCount = 0;
+        record.gpuBlasIndexCount = 0;
         record.gpuBuffersUploaded = false;
         record.gpuBlasCreated = false;
     }
@@ -2399,12 +2429,13 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
 
 void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d meshRecords=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips)=%d/%d/%d/%d skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=oldStaticPlusDynamic\n",
+    common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d forceRebuild=%d meshRecords=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips unchanged/recreated)=%d/%d/%d/%d/%d/%d skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=oldStaticPlusDynamic\n",
         sceneSource,
         static_cast<unsigned long long>(stats.frameIndex),
         static_cast<unsigned long long>(stats.generation),
         scaffoldEnabled ? 1 : 0,
         submitBuilds ? 1 : 0,
+        r_pathTracingRigidBlasGpuForceRebuild.GetInteger() != 0 ? 1 : 0,
         stats.meshRecords,
         stats.validInputs,
         stats.invalidInputs,
@@ -2425,6 +2456,8 @@ void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGp
         stats.blasHandlesReused,
         stats.blasBuildsSubmitted,
         stats.blasBuildsSkipped,
+        stats.blasBuildsSkippedUnchanged,
+        stats.blasRecreatedForInputChange,
         stats.skippedNoDevice,
         stats.skippedNoCommandList,
         stats.skippedInvalid);

@@ -183,6 +183,12 @@ idCVar r_pathTracingRigidBlasGpuBuild(
     CVAR_RENDERER | CVAR_INTEGER,
     "Source3 rigid BLAS build-submit gate; requires r_pathTracingRigidBlasGpuScaffold 1" );
 
+idCVar r_pathTracingRigidBlasGpuForceRebuild(
+    "r_pathTracingRigidBlasGpuForceRebuild",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Force source3 rigid BLAS GPU rebuild submission every frame for diagnostics" );
+
 idCVar r_pathTracingRigidBlasGpuDump(
     "r_pathTracingRigidBlasGpuDump",
     "0",
