@@ -122,11 +122,12 @@ Do not:
     claim RTXDI/Remix compliance without visible noisy-to-less-noisy real
         Doom analytic accumulation
 
-Previous-best initial-sampling feedback is not part of the early RLU proof.  It
-is allowed only in a later clean DI sampling task that explicitly owns the
-previous-best input, translates it through RAB_TranslateLightIndex, combines it
-with RTXDI reservoir helpers, and labels any previous-temporal-reservoir source
-as an approximation rather than full Remix best-light parity.
+Previous-best initial-sampling feedback was deferred until the light universe
+contract could prove dense current/previous domains and two-way mapping.  RLU-13
+now owns the projected-previous-temporal-reservoir approximation.  It is
+default-on for clean DI view 12, translates through RAB_TranslateLightIndex,
+combines through RTXDI reservoir helpers, and must remain labelled as an
+approximation rather than full Remix best-light parity.
 
 
 Primary Proof
@@ -141,17 +142,24 @@ The first proof is:
     real Doom analytic lights
     temporal on and off using the same raw flat-diffuse resolve
     no spatial reuse
-    no best-light feedback
+    RLU-13 previous-best approximation on by default, opt-out for RLU-12
+        random-only regression testing
     no denoiser/confidence/gradient path
     no broad light suppression
     temporal off remains current-only noise
     temporal on visibly reduces noise around the same mean lighting
 
-After that proof is stable, follow-up tasks may improve clean RTXDI DI proposal
-quality by sampling the active RLU typed ranges and by adding Remix-style
-previous-best seeding.  Those tasks must keep RLU ownership separate from clean
-DI reservoir sampling: RLU owns light identity and payloads; clean RTXDI owns
-DI proposal sampling and reuse.
+The current default route is:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+    r_pathTracingCleanRtxdiDiBestLights 1
+
+RLU ownership remains separate from clean DI reservoir sampling: RLU owns light
+identity and payloads; clean RTXDI owns DI proposal sampling and reuse.
 
 
 Build / Deploy Lane
@@ -202,3 +210,4 @@ Follow-up task notes:
     rlu_10_authoritative_range_sample_metadata.txt
     rlu_11_clean_di_range_provider.txt
     rlu_12_clean_di_typed_initial_sampling.txt
+    rlu_13_clean_di_previous_best_initial_sampling.txt

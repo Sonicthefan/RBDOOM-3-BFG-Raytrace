@@ -37,9 +37,10 @@ r_pathTracingRemixLightUniverseUseForCleanRtxdiDi
     0 = clean RTXDI DI keeps its existing light domain
     1 = clean RTXDI DI consumes the Remix-shaped dense analytic domain
 
-    Default: 0
+    Default: 1
 
-    This is not allowed before RLU-02 passes.
+    This is now the default clean DI view-12 route.  Set to 0 only for
+    regression testing against the old clean DI light-domain path.
 
 
 r_pathTracingRemixLightUniverseDebugView
@@ -116,6 +117,24 @@ r_pathTracingRemixLightUniverseStrictRemixMapping
     Compatibility mode may be used for dumps, not for proof.
 
 
+Clean DI Default Route
+----------------------
+
+After RLU-13, the normal clean-room Remix DI lane is default-on:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+    r_pathTracingCleanRtxdiDiBestLights 1
+
+These are opt-out switches for diagnostics, not opt-in requirements for the
+current validation lane.  The previous-best switch is the RLU-13 projected
+previous temporal reservoir approximation; it is not a claim of full RTX Remix
+best-light feedback parity.
+
+
 Future / Not First Slice
 ------------------------
 
@@ -123,7 +142,6 @@ Do not add these until analytic temporal proof passes and the task explicitly
 owns them:
 
     spatial reuse toggle
-    previous-best initial-sampling toggle
     denoiser/confidence/gradient toggle
     portal-ranking source distribution toggle
     ReGIR/NEE source distribution toggle

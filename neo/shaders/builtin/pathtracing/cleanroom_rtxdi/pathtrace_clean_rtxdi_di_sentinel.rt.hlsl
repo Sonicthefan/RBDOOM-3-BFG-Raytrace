@@ -316,6 +316,7 @@ static const uint CLEAN_INITIAL_STATUS_EXTERNAL_UNSUPPORTED_LIGHT = 10u;
 static const uint CLEAN_FLAG_EXTERNAL_PDFNEE_CURRENT = 1u << 0u;
 static const uint CLEAN_FLAG_REMIX_LIGHT_UNIVERSE = 1u << 10u;
 static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
+static const uint CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 static const uint CLEAN_TEMPORAL_FLAG_ENABLE = 1u << 0u;
 static const uint CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID = 1u << 1u;
 static const uint CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;
@@ -357,6 +358,10 @@ struct PathTraceCleanRtxdiDiInitialResult
     float targetPdf;
     float invSourcePdf;
     float visibility;
+    uint previousBestSourceValid;
+    uint previousBestTranslationValid;
+    uint previousBestCandidateValid;
+    uint previousBestSelected;
 };
 
 struct PathTraceCleanRtxdiDiTemporalResult
@@ -387,6 +392,13 @@ bool PathTraceCleanRoomSyntheticOverlapMode()
 {
     return CleanRtxdiDiView == 11u;
 }
+
+bool PathTraceCleanRoomLoadMotion(
+    uint2 pixel,
+    PathTracePrimarySurfaceRecord currentSurface,
+    uint2 dimensions,
+    out float3 screenSpaceMotion,
+    out bool cameraReprojected);
 
 bool PathTraceCleanRoomRealAnalyticPointProxyMode()
 {
@@ -1902,6 +1914,114 @@ float2 PathTraceCleanRoomRandomLightUv(inout RTXDI_RandomSamplerState rng)
     return float2(RTXDI_GetNextRandom(rng), RTXDI_GetNextRandom(rng));
 }
 
+struct PathTraceCleanRoomPreviousBestSeed
+{
+    RTXDI_DIReservoir reservoir;
+    uint sourceValid;
+    uint translationValid;
+    uint candidateValid;
+    uint currentLightIndex;
+};
+
+bool PathTraceCleanRoomPreviousBestInitialSeedEnabled()
+{
+    return
+        (CleanRtxdiDiFlags & CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION) != 0u &&
+        (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID) != 0u &&
+        PathTraceCleanRoomRemixLightUniverseEnabled() &&
+        !PathTraceCleanRoomExternalPdfNeeCurrentEnabled() &&
+        !PathTraceCleanRoomNeeCacheProviderEnabled() &&
+        CleanRtxdiDiReservoirCount > 0u;
+}
+
+PathTraceCleanRoomPreviousBestSeed PathTraceCleanRoomResolvePreviousBestInitialSeed(
+    uint2 pixel,
+    uint2 dimensions,
+    PathTracePrimarySurfaceRecord currentSurface,
+    RAB_Surface surface,
+    inout RTXDI_RandomSamplerState rng)
+{
+    PathTraceCleanRoomPreviousBestSeed seed = (PathTraceCleanRoomPreviousBestSeed)0;
+    seed.reservoir = RTXDI_EmptyDIReservoir();
+    seed.currentLightIndex = 0xffffffffu;
+
+    if (!PathTraceCleanRoomPreviousBestInitialSeedEnabled())
+    {
+        return seed;
+    }
+
+    float3 screenSpaceMotion;
+    bool cameraReprojected = false;
+    if (!PathTraceCleanRoomLoadMotion(pixel, currentSurface, dimensions, screenSpaceMotion, cameraReprojected))
+    {
+        return seed;
+    }
+
+    const int2 previousPixel = int2(round(float2(pixel) + screenSpaceMotion.xy));
+    if (previousPixel.x < 0 ||
+        previousPixel.y < 0 ||
+        (uint)previousPixel.x >= dimensions.x ||
+        (uint)previousPixel.y >= dimensions.y)
+    {
+        return seed;
+    }
+
+    const RTXDI_DIReservoir previousReservoir =
+        RTXDI_LoadDIReservoir(PathTraceCleanRoomReservoirParams(dimensions), (uint2)previousPixel, 0u);
+    if (!RTXDI_IsValidDIReservoir(previousReservoir) || previousReservoir.M <= 0.0)
+    {
+        return seed;
+    }
+    seed.sourceValid = 1u;
+
+    const int translatedLightIndex =
+        RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(previousReservoir), false);
+    if (translatedLightIndex < 0 || (uint)translatedLightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return seed;
+    }
+    seed.translationValid = 1u;
+    seed.currentLightIndex = (uint)translatedLightIndex;
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(seed.currentLightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return seed;
+    }
+
+    const float2 uv = PathTraceCleanRoomRandomLightUv(rng);
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+    const float targetPdf = RAB_IsReplayableLightSample(lightSample)
+        ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
+        : 0.0;
+    if (targetPdf <= 1.0e-8)
+    {
+        return seed;
+    }
+
+    RTXDI_StreamSample(
+        seed.reservoir,
+        seed.currentLightIndex,
+        uv,
+        RTXDI_GetNextRandom(rng),
+        targetPdf,
+        1.0);
+    if (!RTXDI_IsValidDIReservoir(seed.reservoir))
+    {
+        seed.reservoir = RTXDI_EmptyDIReservoir();
+        return seed;
+    }
+
+    RTXDI_FinalizeResampling(seed.reservoir, 1.0, max(seed.reservoir.M, 1.0));
+    seed.reservoir.M = 1.0;
+    seed.reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+    seed.reservoir.spatialDistance = int2(0, 0);
+    seed.reservoir.age = 0u;
+    seed.reservoir.canonicalWeight = 1.0;
+    seed.candidateValid = 1u;
+    return seed;
+}
+
 bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
     inout RTXDI_DIReservoir reservoir,
     inout RTXDI_RandomSamplerState rng,
@@ -1909,7 +2029,9 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
     uint lightType,
     uint2 range,
     uint sampleCount,
-    uint totalSampleCount)
+    uint totalSampleCount,
+    bool excludeLight,
+    uint excludedLightIndex)
 {
     if (range.y == 0u || sampleCount == 0u || totalSampleCount == 0u)
     {
@@ -1936,25 +2058,28 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
     for (uint sampleIndex = 0u; sampleIndex < boundedSampleCount; ++sampleIndex)
     {
         const uint lightIndex = range.x + min((uint)lightIndexInRange, range.y - 1u);
-        const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
-        float targetPdf = 0.0;
-        const float2 uv = PathTraceCleanRoomRandomLightUv(rng);
-        if (RAB_IsLightInfoValid(lightInfo))
+        if (!(excludeLight && lightIndex == excludedLightIndex))
         {
-            const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
-            targetPdf = RAB_IsReplayableLightSample(lightSample)
-                ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
-                : 0.0;
-        }
+            const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+            float targetPdf = 0.0;
+            const float2 uv = PathTraceCleanRoomRandomLightUv(rng);
+            if (RAB_IsLightInfoValid(lightInfo))
+            {
+                const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+                targetPdf = RAB_IsReplayableLightSample(lightSample)
+                    ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
+                    : 0.0;
+            }
 
-        RTXDI_StreamSample(
-            reservoir,
-            lightIndex,
-            uv,
-            RTXDI_GetNextRandom(rng),
-            targetPdf,
-            invSourcePdf);
-        streamedAny = streamedAny || targetPdf > 0.0;
+            RTXDI_StreamSample(
+                reservoir,
+                lightIndex,
+                uv,
+                RTXDI_GetNextRandom(rng),
+                targetPdf,
+                invSourcePdf);
+            streamedAny = streamedAny || targetPdf > 0.0;
+        }
 
         lightIndexInRange += stride;
         if (lightIndexInRange >= (float)range.y)
@@ -2030,6 +2155,8 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
     }
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x524c553cu);
+    const PathTraceCleanRoomPreviousBestSeed previousBestSeed =
+        PathTraceCleanRoomResolvePreviousBestInitialSeed(pixel, dimensions, result.surface, surface, rng);
     const bool streamedEmissive = PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         result.reservoir,
         rng,
@@ -2037,7 +2164,9 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE,
         emissiveRange,
         emissiveSampleCount,
-        totalSampleCount);
+        totalSampleCount,
+        previousBestSeed.translationValid != 0u,
+        previousBestSeed.currentLightIndex);
     const bool streamedDoomAnalytic = PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         result.reservoir,
         rng,
@@ -2045,20 +2174,60 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC,
         doomAnalyticRange,
         doomAnalyticSampleCount,
-        totalSampleCount);
+        totalSampleCount,
+        previousBestSeed.translationValid != 0u,
+        previousBestSeed.currentLightIndex);
 
-    if (!streamedEmissive && !streamedDoomAnalytic)
+    result.previousBestSourceValid = previousBestSeed.sourceValid;
+    result.previousBestTranslationValid = previousBestSeed.translationValid;
+    result.previousBestCandidateValid = previousBestSeed.candidateValid;
+
+    if (!streamedEmissive && !streamedDoomAnalytic && previousBestSeed.candidateValid == 0u)
     {
         result.status = CLEAN_INITIAL_STATUS_ZERO_TARGET_PDF;
         return result;
     }
 
-    RTXDI_FinalizeResampling(result.reservoir, 1.0, (float)max(totalSampleCount, 1u));
-    result.reservoir.M = 1.0;
-    result.reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
-    result.reservoir.spatialDistance = int2(0, 0);
-    result.reservoir.age = 0u;
-    result.reservoir.canonicalWeight = 1.0;
+    if (RTXDI_IsValidDIReservoir(result.reservoir))
+    {
+        RTXDI_FinalizeResampling(result.reservoir, 1.0, (float)max(totalSampleCount, 1u));
+        result.reservoir.M = 1.0;
+        result.reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+        result.reservoir.spatialDistance = int2(0, 0);
+        result.reservoir.age = 0u;
+        result.reservoir.canonicalWeight = 1.0;
+    }
+
+    if (previousBestSeed.candidateValid != 0u)
+    {
+        RTXDI_DIReservoir combinedReservoir = RTXDI_EmptyDIReservoir();
+        if (RTXDI_IsValidDIReservoir(result.reservoir))
+        {
+            RTXDI_CombineDIReservoirs(
+                combinedReservoir,
+                result.reservoir,
+                RTXDI_GetNextRandom(rng),
+                result.reservoir.targetPdf);
+        }
+
+        const bool selectedPreviousBest = RTXDI_CombineDIReservoirs(
+            combinedReservoir,
+            previousBestSeed.reservoir,
+            RTXDI_GetNextRandom(rng),
+            previousBestSeed.reservoir.targetPdf);
+        if (RTXDI_IsValidDIReservoir(combinedReservoir))
+        {
+            RTXDI_FinalizeResampling(combinedReservoir, 1.0, 1.0);
+            combinedReservoir.M = 1.0;
+            combinedReservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+            combinedReservoir.spatialDistance = int2(0, 0);
+            combinedReservoir.age = 0u;
+            combinedReservoir.canonicalWeight = 1.0;
+            result.reservoir = combinedReservoir;
+            result.previousBestSelected = selectedPreviousBest ? 1u : 0u;
+        }
+    }
+
     result.status = RTXDI_IsValidDIReservoir(result.reservoir) ? CLEAN_INITIAL_STATUS_VALID : CLEAN_INITIAL_STATUS_ZERO_TARGET_PDF;
     if (result.status != CLEAN_INITIAL_STATUS_VALID)
     {
@@ -4117,7 +4286,7 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
         return PathTraceCleanRoomStatusColor(initial.status);
     }
 
-    const uint bandCount = 10u;
+    const uint bandCount = 15u;
     const bool forcedBand = CleanRtxdiDiView8Band < bandCount;
     const uint band = forcedBand ? CleanRtxdiDiView8Band : min((pixel.y * bandCount) / max(dimensions.y, 1u), bandCount - 1u);
     if (band == 8u)
@@ -4180,6 +4349,22 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
     {
         return PathTraceCleanRoomRluSelectedReplaySplitDiagnosticColor(initial, temporal, pixel, dimensions);
     }
+    if (band == 11u)
+    {
+        return PathTraceCleanRoomTemporalGateColor(initial.previousBestSourceValid != 0u ? CLEAN_TEMPORAL_DIAG_CURRENT_VALID : 0u, CLEAN_TEMPORAL_DIAG_CURRENT_VALID);
+    }
+    if (band == 12u)
+    {
+        return PathTraceCleanRoomTemporalGateColor(initial.previousBestTranslationValid != 0u ? CLEAN_TEMPORAL_DIAG_CURRENT_VALID : 0u, CLEAN_TEMPORAL_DIAG_CURRENT_VALID);
+    }
+    if (band == 13u)
+    {
+        return PathTraceCleanRoomTemporalGateColor(initial.previousBestCandidateValid != 0u ? CLEAN_TEMPORAL_DIAG_CURRENT_VALID : 0u, CLEAN_TEMPORAL_DIAG_CURRENT_VALID);
+    }
+    if (band == 14u)
+    {
+        return PathTraceCleanRoomTemporalGateColor(initial.previousBestSelected != 0u ? CLEAN_TEMPORAL_DIAG_CURRENT_VALID : 0u, CLEAN_TEMPORAL_DIAG_CURRENT_VALID);
+    }
 
     if (pixel.x < (dimensions.x >> 1u))
     {
@@ -4199,6 +4384,31 @@ float3 PathTraceCleanRoomTemporalAuditColor(PathTraceCleanRtxdiDiInitialResult i
         (float)temporal.flags / CLEAN_TEMPORAL_AUDIT_FLAG_SCALE,
         saturate(temporal.previousM / 64.0),
         saturate(temporal.reservoir.M / 64.0));
+}
+
+float3 PathTraceCleanRoomPreviousBestDiagnosticColor(PathTraceCleanRtxdiDiInitialResult result)
+{
+    if ((CleanRtxdiDiFlags & CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION) == 0u)
+    {
+        return float3(0.02, 0.04, 0.20);
+    }
+    if (CleanRtxdiDiView8Band == 11u)
+    {
+        return result.previousBestSourceValid != 0u ? float3(0.0, 0.90, 0.20) : float3(0.95, 0.04, 0.10);
+    }
+    if (CleanRtxdiDiView8Band == 12u)
+    {
+        return result.previousBestTranslationValid != 0u ? float3(0.0, 0.90, 0.20) : float3(0.95, 0.04, 0.10);
+    }
+    if (CleanRtxdiDiView8Band == 13u)
+    {
+        return result.previousBestCandidateValid != 0u ? float3(0.0, 0.90, 0.20) : float3(0.95, 0.04, 0.10);
+    }
+    if (CleanRtxdiDiView8Band == 14u)
+    {
+        return result.previousBestSelected != 0u ? float3(0.0, 0.90, 0.20) : float3(0.95, 0.04, 0.10);
+    }
+    return float3(0.02, 0.04, 0.20);
 }
 
 float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, uint view)
@@ -4236,6 +4446,10 @@ float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, u
         if (CleanRtxdiDiView8Band == 8u)
         {
             return PathTraceCleanRoomSelectedSampleFailureColor(result.surface, result.reservoir, result.status);
+        }
+        if (CleanRtxdiDiView8Band >= 11u && CleanRtxdiDiView8Band <= 14u)
+        {
+            return PathTraceCleanRoomPreviousBestDiagnosticColor(result);
         }
         return PathTraceCleanRoomReservoirWeightColor(result, pixel);
     }
@@ -4302,6 +4516,10 @@ float3 PathTraceCleanRoomTemporalReservoirOutput(uint2 pixel, uint2 dimensions, 
         if (CleanRtxdiDiView8Band == 7u)
         {
             return PathTraceCleanRoomNeeCacheProviderDiagnosticColor(initial);
+        }
+        if (CleanRtxdiDiView8Band >= 11u && CleanRtxdiDiView8Band <= 14u)
+        {
+            return PathTraceCleanRoomPreviousBestDiagnosticColor(initial);
         }
         return PathTraceCleanRoomTemporalDiagnosticColor(initial, temporal, pixel, dimensions);
     }

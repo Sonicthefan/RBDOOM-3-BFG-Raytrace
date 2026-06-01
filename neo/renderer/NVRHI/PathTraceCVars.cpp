@@ -1271,15 +1271,15 @@ idCVar r_pathTracingRestirPdfNeeVerifierDump(
 
 idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI path: explicit enable; does not route through mode 56 or existing RRX debug views" );
+    "Clean-room Remix DI path: default-on RLU view-12 route; set 0 to opt out for diagnostics; does not route through mode 56 or existing RRX debug views" );
 
 idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
-    "0",
+    "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 12 real analytic full-domain temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic" );
+    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",
@@ -1295,9 +1295,9 @@ idCVar r_pathTracingCleanRtxdiDiSpatial(
 
 idCVar r_pathTracingCleanRtxdiDiBestLights(
     "r_pathTracingCleanRtxdiDiBestLights",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Reserved clean-room Remix DI best-light feedback switch; must remain off until raw DI temporal proof works without it" );
+    "Clean-room Remix DI RLU-13 previous-best seed switch; default-on projected previous temporal reservoir approximation, not full Remix best-light parity; set 0 for RLU-12 random-only testing" );
 
 idCVar r_pathTracingCleanRtxdiDiDenoiser(
     "r_pathTracingCleanRtxdiDiDenoiser",
@@ -1351,7 +1351,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..10; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..14; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",

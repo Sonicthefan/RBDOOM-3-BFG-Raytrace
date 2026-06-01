@@ -39,6 +39,7 @@ const int RT_SMOKE_MAX_EMISSIVE_TRIANGLE_RECORDS = 65536;
 const uint32_t CLEAN_RTXDI_DI_FLAG_EXTERNAL_PDFNEE_CURRENT = 1u << 0u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_REMIX_LIGHT_UNIVERSE = 1u << 10u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
@@ -1547,7 +1548,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger(),
             r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger(),
             cleanDumpCandidateOverride,
-            idMath::ClampInt(-1, 10, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
+            idMath::ClampInt(-1, 14, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
             r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1 : 0,
             r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1 : 0,
             idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()),
@@ -3303,6 +3304,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_NEE_CACHE_PROVIDER;
         }
+        if (cleanRluRoute && r_pathTracingCleanRtxdiDiBestLights.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_PREVIOUS_BEST_APPROXIMATION;
+        }
         PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {};
         cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
         cleanConstants.status = cleanRtxdiDiView == 1 ? 1u : 2u;
@@ -3322,7 +3327,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.analyticRemapCount = cleanAnalyticRemapCount;
         cleanConstants.temporalFlags = cleanTemporalFlags;
         cleanConstants.historyResetCount = m_smokeCleanRtxdiDiHistoryResetCount;
-        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 10, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
+        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 14, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
         cleanConstants.resolveVisibilityReuse = r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1u : 0u;
         cleanConstants.resolveBrdfTarget = r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1u : 0u;
         cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));

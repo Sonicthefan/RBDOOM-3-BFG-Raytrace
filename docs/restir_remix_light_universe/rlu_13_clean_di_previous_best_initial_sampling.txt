@@ -1,0 +1,116 @@
+RLU-13 Clean DI Previous-Best Initial-Sampling Seed
+===================================================
+
+Implemented Boundary
+--------------------
+
+Clean RTXDI DI can now opt into a previous-best initial-sampling seed when:
+
+    r_pathTracingCleanRtxdiDiBestLights 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+    the active clean DI route is consuming the RLU dense domain
+    a previous clean DI reservoir page is valid
+
+The source is explicitly a rbdoom approximation:
+
+    projected previous temporal reservoir selected light
+
+It is not a real RTX Remix best-light feedback buffer and must not be reported
+as full Remix best-light parity.
+
+After validation, this route is default-on for clean DI view 12.  The switch is
+kept as an opt-out diagnostic for random-only RLU-12 comparisons:
+
+    r_pathTracingCleanRtxdiDiBestLights 0
+
+
+Producer / Consumer Contract
+----------------------------
+
+Input:
+
+    I-03 previous dense light domain
+    I-07 previous-best initial-sampling input, approximation branch
+    u71 CleanRtxdiDiPreviousReservoirs as projected previous temporal reservoir
+    current primary surface and existing motion-vector/camera reprojection path
+
+Output:
+
+    current initial reservoir in the dense current RLU light-index domain
+
+The previous selected light is interpreted as a previous-domain RLU index.  It
+is translated to current-domain identity with:
+
+    RAB_TranslateLightIndex(previousLight, false)
+
+Failed source lookup, failed translation, invalid current payload replay, and
+zero target PDF reject only the previous-best seed.  The random typed RLU
+proposal stream remains valid.
+
+
+Sampling Policy
+---------------
+
+The previous-best candidate is built as one current-domain light candidate:
+
+    RAB_LoadLightInfo(translatedCurrentLight, false)
+    RAB_SamplePolymorphicLight
+    RAB_GetLightSampleTargetPdfForSurface
+    RTXDI_StreamSample
+    RTXDI_FinalizeResampling
+
+It is then combined with the typed random RLU reservoir through
+RTXDI_CombineDIReservoirs and finalized as the current initial reservoir.  The
+translated previous-best current light is excluded from the random typed stream
+for this seed step.
+
+Visibility is still evaluated after the selected initial reservoir is chosen.
+It is not folded into targetPdf.
+
+
+Non-Goals
+---------
+
+This slice does not add:
+
+    a real Remix best-light feedback buffer
+    spatial reuse
+    gradient/confidence/denoiser proof
+    temporal reuse rewrites
+    mode-56 proof
+    emissive reconstruction
+
+Arbitrary mesh emissive replay remains deferred.
+
+
+Validation
+----------
+
+Expected runtime check:
+
+    clean RTXDI DI view 12
+    RLU dense route enabled
+    temporal on/off comparison available
+    r_pathTracingCleanRtxdiDiBestLights toggled 1/0 for regression comparison
+
+With the switch on, the default view-12 path tries the projected previous
+selected light during initial sampling.  With the switch off, RLU-12 typed
+random sampling remains available as the regression baseline.  Stationary mean
+lighting must not change, and any previous-best failure must be local to that
+candidate.
+
+View-8 forced-band telemetry:
+
+    r_pathTracingCleanRtxdiDiView 8
+    r_pathTracingCleanRtxdiDiBestLights 1
+    r_pathTracingCleanRtxdiDiView8Band 11
+        previous temporal reservoir source was valid
+    r_pathTracingCleanRtxdiDiView8Band 12
+        previous-domain selected light translated to current-domain light
+    r_pathTracingCleanRtxdiDiView8Band 13
+        translated current-domain light produced a valid one-light candidate
+    r_pathTracingCleanRtxdiDiView8Band 14
+        previous-best candidate was selected by the combine step
+
+Green means the band condition passed for the pixel.  Red means it failed.
+Dark blue means the previous-best approximation switch is off.
