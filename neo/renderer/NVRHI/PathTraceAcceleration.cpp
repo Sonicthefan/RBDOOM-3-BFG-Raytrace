@@ -120,16 +120,22 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
 
     const int accelSubmitStartMs = Sys_Milliseconds();
     const int blasSubmitStartMs = Sys_Milliseconds();
+    timing.staticBlasBuildSkipped = submitPlanInput.hasStaticBlas && !submitPlan.buildStaticBlas;
+    timing.dynamicBlasBuildSkipped = submitPlanInput.hasDynamicBlas && !submitPlan.buildDynamicBlas;
     if (submitPlan.buildStaticBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Static BLAS");
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.staticBlas, desc.staticBlasDesc);
+        timing.staticBlasBuildSubmitted = true;
+        timing.staticBlasBuildSkipped = false;
     }
 
     if (submitPlan.buildDynamicBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Dynamic BLAS");
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.dynamicBlas, desc.dynamicBlasDesc);
+        timing.dynamicBlasBuildSubmitted = true;
+        timing.dynamicBlasBuildSkipped = false;
     }
     timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
 

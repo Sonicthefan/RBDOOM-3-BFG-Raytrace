@@ -51,6 +51,10 @@ struct RtSmokeAccelSubmitTiming
     int tlasSubmitMs = 0;
     int accelSubmitMs = 0;
     int instanceCount = 0;
+    bool staticBlasBuildSubmitted = false;
+    bool staticBlasBuildSkipped = false;
+    bool dynamicBlasBuildSubmitted = false;
+    bool dynamicBlasBuildSkipped = false;
 };
 
 struct RtSmokeBufferUploadItem

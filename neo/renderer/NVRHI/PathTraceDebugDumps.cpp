@@ -502,6 +502,32 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
 {
     common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
         desc.staticIndexCount, desc.dynamicIndexCount, desc.instanceCount);
+    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
+        desc.classStats.staticWorldSurfaces,
+        desc.staticVertexCount,
+        desc.staticIndexCount,
+        desc.staticSurfaceCacheSize,
+        desc.staticVertexCacheCount,
+        desc.staticIndexCacheCount,
+        desc.dynamicVertexCount,
+        desc.dynamicIndexCount,
+        desc.instanceCount - desc.rigidTlasInstanceCount,
+        desc.rigidTlasInstanceCount,
+        desc.instanceCount,
+        desc.staticBlasBuildSubmitted ? 1 : 0,
+        desc.dynamicBlasBuildSubmitted ? 1 : 0,
+        desc.staticBlasBuildSkipped ? 1 : 0,
+        desc.dynamicBlasBuildSkipped ? 1 : 0,
+        static_cast<unsigned long long>(desc.staticUploadBytes),
+        static_cast<unsigned long long>(desc.previousStaticUploadBytes),
+        static_cast<unsigned long long>(desc.previousStaticUploadSkippedBytes),
+        static_cast<unsigned long long>(desc.dynamicUploadBytes),
+        static_cast<unsigned long long>(desc.rigidRouteUploadBytes),
+        desc.staticBlasSignatureMs,
+        desc.bufferUploadMs,
+        desc.blasSubmitMs,
+        desc.tlasSubmitMs,
+        desc.accelSubmitMs);
     common->Printf("PathTracePrimaryPass: RT smoke dynamic geometry rigid=%d(%di) skinnedCpu=%d(%di) skinnedRtCpu=%d(%di) skinnedLikelyBasePose=%d(%di) particle/alpha=%d(%di) unknown=%d(%di)\n",
         desc.dynamicStats.rigidSurfaces, desc.dynamicStats.rigidIndexes,
         desc.dynamicStats.skinnedCpuCurrentSurfaces, desc.dynamicStats.skinnedCpuCurrentIndexes,
@@ -1678,8 +1704,24 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.sourceIndexes = desc.sourceIndexes;
     sceneSummaryLog.anchorTriangle = desc.anchorTriangle;
     sceneSummaryLog.staticIndexCount = desc.staticIndexCount;
+    sceneSummaryLog.staticVertexCount = desc.staticVertexCount;
     sceneSummaryLog.dynamicIndexCount = desc.dynamicIndexCount;
+    sceneSummaryLog.dynamicVertexCount = desc.dynamicVertexCount;
     sceneSummaryLog.instanceCount = desc.instanceCount;
+    sceneSummaryLog.rigidTlasInstanceCount = desc.rigidTlasInstanceCount;
+    sceneSummaryLog.staticUploadBytes = desc.staticUploadBytes;
+    sceneSummaryLog.previousStaticUploadBytes = desc.previousStaticUploadBytes;
+    sceneSummaryLog.previousStaticUploadSkippedBytes = desc.previousStaticUploadSkippedBytes;
+    sceneSummaryLog.dynamicUploadBytes = desc.dynamicUploadBytes;
+    sceneSummaryLog.rigidRouteUploadBytes = desc.rigidRouteUploadBytes;
+    sceneSummaryLog.bufferUploadMs = desc.bufferUploadMs;
+    sceneSummaryLog.accelSubmitMs = desc.accelSubmitMs;
+    sceneSummaryLog.blasSubmitMs = desc.blasSubmitMs;
+    sceneSummaryLog.tlasSubmitMs = desc.tlasSubmitMs;
+    sceneSummaryLog.staticBlasBuildSubmitted = desc.staticBlasBuildSubmitted;
+    sceneSummaryLog.staticBlasBuildSkipped = desc.staticBlasBuildSkipped;
+    sceneSummaryLog.dynamicBlasBuildSubmitted = desc.dynamicBlasBuildSubmitted;
+    sceneSummaryLog.dynamicBlasBuildSkipped = desc.dynamicBlasBuildSkipped;
     sceneSummaryLog.classStats = *desc.classStats;
     sceneSummaryLog.skipStats = *desc.skipStats;
     sceneSummaryLog.dynamicStats = *desc.dynamicStats;
