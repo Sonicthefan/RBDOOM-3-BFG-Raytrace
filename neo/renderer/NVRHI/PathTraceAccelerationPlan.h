@@ -192,6 +192,19 @@ struct RtSmokeStaticTlasBucketObservation
     int activeTriangleCount = 0;
 };
 
+struct RtSmokeStaticTlasBucketObservationInput
+{
+    uint64_t bucketKey = 0;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t activeReasonFlags = 0;
+    int vertexCount = 0;
+    int indexCount = 0;
+    int triangleCount = 0;
+    bool valid = false;
+    bool seenThisFrame = false;
+    bool hasBlas = false;
+};
+
 struct RtSmokeStaticTlasActiveSetPlanDesc
 {
     const RtSmokeStaticTlasBucketObservation* buckets = nullptr;
@@ -460,6 +473,10 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
 
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);
+
+bool BuildSmokeStaticTlasBucketObservation(
+    const RtSmokeStaticTlasBucketObservationInput& input,
+    RtSmokeStaticTlasBucketObservation& observation);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);

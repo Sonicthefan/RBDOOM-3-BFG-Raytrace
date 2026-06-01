@@ -548,6 +548,48 @@ void TestStaticActiveSetPlan()
     Check(surfaceDeltaPlan.inactiveResidentGeometryIncluded && surfaceDeltaPlan.requiresBucketedStaticBlas, "monolithic static active-set plan detects inactive retained surfaces even when vertex counts match");
 }
 
+void TestStaticBucketObservation()
+{
+    RtSmokeStaticTlasBucketObservationInput input;
+    input.bucketKey = 900;
+    input.routeRecordIndex = 7;
+    input.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+    input.vertexCount = 12;
+    input.indexCount = 36;
+    input.triangleCount = 12;
+    input.valid = true;
+    input.seenThisFrame = true;
+    input.hasBlas = true;
+
+    RtSmokeStaticTlasBucketObservation observation;
+    Check(BuildSmokeStaticTlasBucketObservation(input, observation), "static bucket observation accepts valid resident surface range");
+    Check(observation.bucketKey == 900 && observation.routeRecordIndex == 7 &&
+        observation.resident && observation.active && observation.hasBlas,
+        "static bucket observation preserves resident active identity");
+    Check(observation.residentSurfaceCount == 1 && observation.residentVertexCount == 12 &&
+        observation.residentIndexCount == 36 && observation.residentTriangleCount == 12,
+        "static bucket observation records resident geometry counts");
+    Check(observation.activeSurfaceCount == 1 && observation.activeVertexCount == 12 &&
+        observation.activeIndexCount == 36 && observation.activeTriangleCount == 12 &&
+        observation.activeReasonFlags == input.activeReasonFlags,
+        "static bucket observation records active counts and reason flags");
+
+    input.seenThisFrame = false;
+    RtSmokeStaticTlasBucketObservation inactiveObservation;
+    Check(BuildSmokeStaticTlasBucketObservation(input, inactiveObservation), "static bucket observation accepts inactive resident surface range");
+    Check(inactiveObservation.resident && !inactiveObservation.active &&
+        inactiveObservation.activeSurfaceCount == 0 && inactiveObservation.activeReasonFlags == 0,
+        "static bucket observation separates inactive resident geometry from active membership");
+
+    input.valid = false;
+    RtSmokeStaticTlasBucketObservation invalidObservation;
+    Check(!BuildSmokeStaticTlasBucketObservation(input, invalidObservation), "static bucket observation rejects invalid records");
+
+    input.valid = true;
+    input.indexCount = 0;
+    Check(!BuildSmokeStaticTlasBucketObservation(input, invalidObservation), "static bucket observation rejects empty ranges");
+}
+
 void TestBvhDirtyPlan()
 {
     RtSmokeBvhDirtyTokenState base;
@@ -1033,6 +1075,7 @@ int main(int argc, char** argv)
     TestRigidPlan();
     TestRigidBlasBuildPlan();
     TestStaticActiveSetPlan();
+    TestStaticBucketObservation();
     TestBvhDirtyPlan();
     TestBvhFrameToken();
     TestBvhBucketableSignatures();

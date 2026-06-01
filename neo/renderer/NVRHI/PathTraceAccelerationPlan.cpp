@@ -394,6 +394,36 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     return plan;
 }
 
+bool BuildSmokeStaticTlasBucketObservation(
+    const RtSmokeStaticTlasBucketObservationInput& input,
+    RtSmokeStaticTlasBucketObservation& observation)
+{
+    observation = RtSmokeStaticTlasBucketObservation();
+    if (!input.valid || input.vertexCount <= 0 || input.indexCount <= 0 || input.triangleCount <= 0)
+    {
+        return false;
+    }
+
+    observation.bucketKey = input.bucketKey;
+    observation.resident = true;
+    observation.active = input.seenThisFrame;
+    observation.hasBlas = input.hasBlas;
+    observation.activeReasonFlags = input.seenThisFrame ? input.activeReasonFlags : 0u;
+    observation.routeRecordIndex = input.routeRecordIndex;
+    observation.residentSurfaceCount = 1;
+    observation.residentVertexCount = input.vertexCount;
+    observation.residentIndexCount = input.indexCount;
+    observation.residentTriangleCount = input.triangleCount;
+    if (input.seenThisFrame)
+    {
+        observation.activeSurfaceCount = 1;
+        observation.activeVertexCount = input.vertexCount;
+        observation.activeIndexCount = input.indexCount;
+        observation.activeTriangleCount = input.triangleCount;
+    }
+    return true;
+}
+
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input)
 {

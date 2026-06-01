@@ -1219,25 +1219,21 @@ void RtSmokeGeometryUniverse::BuildStaticTlasBucketObservations(
             continue;
         }
 
+        RtSmokeStaticTlasBucketObservationInput input;
+        input.bucketKey = record.key;
+        input.routeRecordIndex = static_cast<uint32_t>(recordIndex);
+        input.activeReasonFlags = activeReasonFlags;
+        input.vertexCount = record.currentRange.vertices.count;
+        input.indexCount = record.currentRange.indexes.count;
+        input.triangleCount = record.currentRange.triangles.count;
+        input.valid = true;
+        input.seenThisFrame = record.seenThisFrame;
+        input.hasBlas = hasStaticBlas;
         RtSmokeStaticTlasBucketObservation bucket;
-        bucket.bucketKey = record.key;
-        bucket.resident = true;
-        bucket.active = record.seenThisFrame;
-        bucket.hasBlas = hasStaticBlas;
-        bucket.activeReasonFlags = record.seenThisFrame ? activeReasonFlags : 0u;
-        bucket.routeRecordIndex = static_cast<uint32_t>(recordIndex);
-        bucket.residentSurfaceCount = 1;
-        bucket.residentVertexCount = record.currentRange.vertices.count;
-        bucket.residentIndexCount = record.currentRange.indexes.count;
-        bucket.residentTriangleCount = record.currentRange.triangles.count;
-        if (record.seenThisFrame)
+        if (BuildSmokeStaticTlasBucketObservation(input, bucket))
         {
-            bucket.activeSurfaceCount = 1;
-            bucket.activeVertexCount = record.currentRange.vertices.count;
-            bucket.activeIndexCount = record.currentRange.indexes.count;
-            bucket.activeTriangleCount = record.currentRange.triangles.count;
+            buckets.push_back(bucket);
         }
-        buckets.push_back(bucket);
     }
 }
 
