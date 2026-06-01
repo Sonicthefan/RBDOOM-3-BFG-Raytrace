@@ -192,6 +192,30 @@ struct RtSmokeUploadPlanMetadata
     uint64_t destOffsetBytes = 0;
 };
 
+struct RtSmokeStaticDirtyUploadPlanInput
+{
+    bool staticBlasCacheHit = false;
+    bool staticCacheChanged = false;
+    bool staticGeometryBuffersReused = false;
+    int staticDirtyCount = 0;
+    int dirtyVertexOffset = -1;
+    int dirtyVertexCount = 0;
+    size_t totalVertexCount = 0;
+    int dirtyIndexOffset = -1;
+    int dirtyIndexCount = 0;
+    size_t totalIndexCount = 0;
+    int dirtyTriangleOffset = -1;
+    int dirtyTriangleCount = 0;
+    size_t totalTriangleClassCount = 0;
+    size_t totalTriangleMaterialCount = 0;
+};
+
+struct RtSmokeStaticDirtyUploadPlan
+{
+    bool dirtyRangesValid = false;
+    bool useDirtyRangeUploads = false;
+};
+
 uint64_t HashSmokePlanBytes(uint64_t hash, const void* data, size_t size);
 
 RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
@@ -227,3 +251,6 @@ RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
     bool skip,
     int dirtyElementOffset,
     int dirtyElementCount);
+
+RtSmokeStaticDirtyUploadPlan BuildSmokeStaticDirtyUploadPlan(
+    const RtSmokeStaticDirtyUploadPlanInput& input);

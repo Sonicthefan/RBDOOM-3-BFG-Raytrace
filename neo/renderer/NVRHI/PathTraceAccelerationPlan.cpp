@@ -9,6 +9,14 @@ bool PlanRangeValid(int offset, int count, int totalCount)
     return offset >= 0 && count >= 0 && offset <= totalCount && count <= totalCount - offset;
 }
 
+bool PlanElementRangeValid(int elementOffset, int elementCount, size_t elementTotal)
+{
+    return elementOffset >= 0 &&
+        elementCount > 0 &&
+        static_cast<size_t>(elementOffset) <= elementTotal &&
+        static_cast<size_t>(elementCount) <= elementTotal - static_cast<size_t>(elementOffset);
+}
+
 void CopyIdentityTransform(float transform[16])
 {
     for (int index = 0; index < 16; ++index)
@@ -342,9 +350,7 @@ RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
 
     size_t uploadElementOffset = 0;
     size_t uploadElementCount = elementCount;
-    if (dirtyElementOffset >= 0 && dirtyElementCount > 0 &&
-        static_cast<size_t>(dirtyElementOffset) <= elementCount &&
-        static_cast<size_t>(dirtyElementCount) <= elementCount - static_cast<size_t>(dirtyElementOffset))
+    if (PlanElementRangeValid(dirtyElementOffset, dirtyElementCount, elementCount))
     {
         uploadElementOffset = static_cast<size_t>(dirtyElementOffset);
         uploadElementCount = static_cast<size_t>(dirtyElementCount);
@@ -354,4 +360,22 @@ RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
     metadata.sourceOffsetBytes = uploadElementOffset * elementSize;
     metadata.destOffsetBytes = static_cast<uint64_t>(metadata.sourceOffsetBytes);
     return metadata;
+}
+
+RtSmokeStaticDirtyUploadPlan BuildSmokeStaticDirtyUploadPlan(
+    const RtSmokeStaticDirtyUploadPlanInput& input)
+{
+    RtSmokeStaticDirtyUploadPlan plan;
+    plan.dirtyRangesValid =
+        PlanElementRangeValid(input.dirtyVertexOffset, input.dirtyVertexCount, input.totalVertexCount) &&
+        PlanElementRangeValid(input.dirtyIndexOffset, input.dirtyIndexCount, input.totalIndexCount) &&
+        PlanElementRangeValid(input.dirtyTriangleOffset, input.dirtyTriangleCount, input.totalTriangleClassCount) &&
+        PlanElementRangeValid(input.dirtyTriangleOffset, input.dirtyTriangleCount, input.totalTriangleMaterialCount);
+    plan.useDirtyRangeUploads =
+        !input.staticBlasCacheHit &&
+        input.staticCacheChanged &&
+        input.staticDirtyCount > 0 &&
+        input.staticGeometryBuffersReused &&
+        plan.dirtyRangesValid;
+    return plan;
 }

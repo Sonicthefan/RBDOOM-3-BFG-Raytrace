@@ -424,6 +424,33 @@ void TestUploadPlan()
 
     const RtSmokeUploadPlanMetadata zeroUpload = BuildSmokeVectorUploadPlanMetadata(0, 4, false, -1, 0);
     Check(!zeroUpload.skip && zeroUpload.byteSize == 0, "upload plan preserves zero-byte non-skip barriers");
+
+    RtSmokeStaticDirtyUploadPlanInput dirtyPlanInput;
+    dirtyPlanInput.staticCacheChanged = true;
+    dirtyPlanInput.staticGeometryBuffersReused = true;
+    dirtyPlanInput.staticDirtyCount = 1;
+    dirtyPlanInput.dirtyVertexOffset = 2;
+    dirtyPlanInput.dirtyVertexCount = 3;
+    dirtyPlanInput.totalVertexCount = 10;
+    dirtyPlanInput.dirtyIndexOffset = 3;
+    dirtyPlanInput.dirtyIndexCount = 6;
+    dirtyPlanInput.totalIndexCount = 18;
+    dirtyPlanInput.dirtyTriangleOffset = 1;
+    dirtyPlanInput.dirtyTriangleCount = 2;
+    dirtyPlanInput.totalTriangleClassCount = 6;
+    dirtyPlanInput.totalTriangleMaterialCount = 6;
+    const RtSmokeStaticDirtyUploadPlan dirtyPlan = BuildSmokeStaticDirtyUploadPlan(dirtyPlanInput);
+    Check(dirtyPlan.dirtyRangesValid && dirtyPlan.useDirtyRangeUploads, "static dirty upload plan accepts valid reused dirty ranges");
+
+    RtSmokeStaticDirtyUploadPlanInput cacheHitDirtyPlanInput = dirtyPlanInput;
+    cacheHitDirtyPlanInput.staticBlasCacheHit = true;
+    const RtSmokeStaticDirtyUploadPlan cacheHitDirtyPlan = BuildSmokeStaticDirtyUploadPlan(cacheHitDirtyPlanInput);
+    Check(cacheHitDirtyPlan.dirtyRangesValid && !cacheHitDirtyPlan.useDirtyRangeUploads, "static dirty upload plan skips dirty ranges on static BLAS cache hit");
+
+    RtSmokeStaticDirtyUploadPlanInput invalidDirtyPlanInput = dirtyPlanInput;
+    invalidDirtyPlanInput.dirtyTriangleCount = 99;
+    const RtSmokeStaticDirtyUploadPlan invalidDirtyPlan = BuildSmokeStaticDirtyUploadPlan(invalidDirtyPlanInput);
+    Check(!invalidDirtyPlan.dirtyRangesValid && !invalidDirtyPlan.useDirtyRangeUploads, "static dirty upload plan rejects invalid dirty ranges");
 }
 
 void TestGenerationAcceptance()

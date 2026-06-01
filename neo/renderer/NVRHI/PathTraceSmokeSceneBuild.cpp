@@ -285,14 +285,6 @@ PathTraceDoomAnalyticLightGpuRemap BuildCleanRtxdiDiBypassLightUniverseRemap(
     return remap;
 }
 
-bool SmokeUploadElementRangeValid(int elementOffset, int elementCount, size_t elementTotal)
-{
-    return elementOffset >= 0 &&
-        elementCount > 0 &&
-        static_cast<size_t>(elementOffset) <= elementTotal &&
-        static_cast<size_t>(elementCount) <= elementTotal - static_cast<size_t>(elementOffset);
-}
-
 uint32_t RestirSourceTypeFromUnifiedLightType(uint32_t type)
 {
     if (type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
@@ -4122,17 +4114,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         smokeStaticIndexBuffer && smokeStaticIndexBuffer == m_smokeStaticIndexBuffer &&
         smokeStaticTriangleClassBuffer && smokeStaticTriangleClassBuffer == m_smokeStaticTriangleClassBuffer &&
         smokeStaticTriangleMaterialBuffer && smokeStaticTriangleMaterialBuffer == m_smokeStaticTriangleMaterialBuffer;
-    const bool staticDirtyRangesValid =
-        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyVertexOffset, geometryUniverseStats.staticDirtyVertexCount, staticVertexCache.size()) &&
-        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyIndexOffset, geometryUniverseStats.staticDirtyIndexCount, staticIndexCache.size()) &&
-        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyTriangleOffset, geometryUniverseStats.staticDirtyTriangleCount, staticTriangleClassCache.size()) &&
-        SmokeUploadElementRangeValid(geometryUniverseStats.staticDirtyTriangleOffset, geometryUniverseStats.staticDirtyTriangleCount, staticTriangleMaterialCache.size());
-    const bool useStaticDirtyRangeUploads =
-        !staticBlasCacheHit &&
-        staticCacheChanged &&
-        geometryUniverseStats.staticDirty > 0 &&
-        staticGeometryBuffersReused &&
-        staticDirtyRangesValid;
+    RtSmokeStaticDirtyUploadPlanInput staticDirtyUploadPlanInput;
+    staticDirtyUploadPlanInput.staticBlasCacheHit = staticBlasCacheHit;
+    staticDirtyUploadPlanInput.staticCacheChanged = staticCacheChanged;
+    staticDirtyUploadPlanInput.staticGeometryBuffersReused = staticGeometryBuffersReused;
+    staticDirtyUploadPlanInput.staticDirtyCount = geometryUniverseStats.staticDirty;
+    staticDirtyUploadPlanInput.dirtyVertexOffset = geometryUniverseStats.staticDirtyVertexOffset;
+    staticDirtyUploadPlanInput.dirtyVertexCount = geometryUniverseStats.staticDirtyVertexCount;
+    staticDirtyUploadPlanInput.totalVertexCount = staticVertexCache.size();
+    staticDirtyUploadPlanInput.dirtyIndexOffset = geometryUniverseStats.staticDirtyIndexOffset;
+    staticDirtyUploadPlanInput.dirtyIndexCount = geometryUniverseStats.staticDirtyIndexCount;
+    staticDirtyUploadPlanInput.totalIndexCount = staticIndexCache.size();
+    staticDirtyUploadPlanInput.dirtyTriangleOffset = geometryUniverseStats.staticDirtyTriangleOffset;
+    staticDirtyUploadPlanInput.dirtyTriangleCount = geometryUniverseStats.staticDirtyTriangleCount;
+    staticDirtyUploadPlanInput.totalTriangleClassCount = staticTriangleClassCache.size();
+    staticDirtyUploadPlanInput.totalTriangleMaterialCount = staticTriangleMaterialCache.size();
+    const RtSmokeStaticDirtyUploadPlan staticDirtyUploadPlan =
+        BuildSmokeStaticDirtyUploadPlan(staticDirtyUploadPlanInput);
+    const bool staticDirtyRangesValid = staticDirtyUploadPlan.dirtyRangesValid;
+    const bool useStaticDirtyRangeUploads = staticDirtyUploadPlan.useDirtyRangeUploads;
     const bool previousStaticSnapshotBuffersReused =
         smokePreviousStaticVertexBuffer && smokePreviousStaticVertexBuffer == m_smokePreviousStaticVertexBuffer &&
         smokePreviousStaticIndexBuffer && smokePreviousStaticIndexBuffer == m_smokePreviousStaticIndexBuffer &&
