@@ -3793,7 +3793,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool hasStaticBlas = staticIndexCount > 0;
     const bool hasDynamicBlas = dynamicIndexCount > 0;
     const RtSmokeBucketRange& staticBucketRange = bucketRanges.buckets[0];
-    RtSmokeGeometryRange staticGeometryRange;
+    RtSmokePlanGeometryRange staticGeometryRange;
     staticGeometryRange.vertexOffset = staticBucketRange.vertexOffset;
     staticGeometryRange.vertexCount = staticBucketRange.vertexCount;
     staticGeometryRange.indexOffset = staticBucketRange.indexOffset;
@@ -3989,7 +3989,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingCpuPlanningDump.SetInteger(0);
     }
 
-    RtSmokeStaticBlasSignature staticSignature;
+    RtSmokePlanStaticBlasSignature staticSignature;
     staticSignature.hash = accelerationPlan.staticSignature.hash;
     staticSignature.vertexCount = accelerationPlan.staticSignature.vertexCount;
     staticSignature.indexCount = accelerationPlan.staticSignature.indexCount;

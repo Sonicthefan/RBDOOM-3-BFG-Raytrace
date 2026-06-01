@@ -185,39 +185,3 @@ uint64 HashSmokeFloatQuantized(uint64 hash, float value, float scale)
     const int quantized = idMath::Ftoi(value * scale);
     return HashSmokeBytes(hash, &quantized, sizeof(quantized));
 }
-
-RtSmokeStaticBlasSignature ComputeSmokeStaticBlasSignature(
-    const std::vector<PathTraceSmokeVertex>& vertexData,
-    const std::vector<uint32_t>& indexData,
-    const std::vector<uint32_t>& triangleClassData,
-    const std::vector<uint32_t>& triangleMaterialData,
-    const RtSmokeGeometryRange& staticRange,
-    const idVec3& sceneOrigin)
-{
-    RtSmokePlanStaticBlasSignatureDesc desc;
-    desc.vertices = vertexData.empty() ? nullptr : vertexData.data();
-    desc.vertexStride = sizeof(PathTraceSmokeVertex);
-    desc.totalVertexCount = static_cast<int>(vertexData.size());
-    desc.indexes = indexData.empty() ? nullptr : indexData.data();
-    desc.totalIndexCount = static_cast<int>(indexData.size());
-    desc.triangleClasses = triangleClassData.empty() ? nullptr : triangleClassData.data();
-    desc.triangleMaterials = triangleMaterialData.empty() ? nullptr : triangleMaterialData.data();
-    desc.totalTriangleCount = static_cast<int>(Min(triangleClassData.size(), triangleMaterialData.size()));
-    desc.staticRange.vertexOffset = staticRange.vertexOffset;
-    desc.staticRange.vertexCount = staticRange.vertexCount;
-    desc.staticRange.indexOffset = staticRange.indexOffset;
-    desc.staticRange.indexCount = staticRange.indexCount;
-    desc.staticRange.triangleOffset = staticRange.triangleOffset;
-    desc.staticRange.triangleCount = staticRange.triangleCount;
-    desc.sceneOrigin.x = sceneOrigin.x;
-    desc.sceneOrigin.y = sceneOrigin.y;
-    desc.sceneOrigin.z = sceneOrigin.z;
-
-    const RtSmokePlanStaticBlasSignature planSignature = ComputeSmokeStaticBlasSignaturePlan(desc);
-    RtSmokeStaticBlasSignature signature;
-    signature.hash = static_cast<uint64>(planSignature.hash);
-    signature.vertexCount = planSignature.vertexCount;
-    signature.indexCount = planSignature.indexCount;
-    signature.triangleCount = planSignature.triangleCount;
-    return signature;
-}
