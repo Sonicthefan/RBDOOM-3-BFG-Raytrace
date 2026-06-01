@@ -652,6 +652,59 @@ void TestBvhDirtyPlan()
         "static active-set signature tracks active membership without changing resident signature");
 }
 
+void TestBvhFrameToken()
+{
+    RtSmokeBvhFrameTokenInput input;
+    input.staticBlasSignature = 100;
+    input.geometryGeneration = 200;
+    input.materialGeneration = 300;
+    input.staticActiveSetSignature = 400;
+    input.staticResidentSetSignature = 500;
+    input.dynamicVertexCount = 10;
+    input.dynamicIndexCount = 30;
+    input.rigidRouteVertexCount = 20;
+    input.rigidRouteIndexCount = 60;
+    input.rigidRouteTriangleCount = 20;
+    input.rigidRouteInstanceCount = 3;
+    input.rigidRouteSeenThisFrameCount = 2;
+    input.rigidRouteCachedInstanceCount = 1;
+    input.baseTlasInstanceCount = 2;
+    input.rigidTlasInstanceCount = 3;
+    input.hasStaticBlas = true;
+    input.hasDynamicBlas = true;
+
+    const RtSmokeBvhFrameToken baseToken = BuildSmokeBvhFrameToken(input);
+    Check(baseToken.dirtyToken.geometryContentSignature != 0 &&
+        baseToken.dirtyToken.materialGeneration == 300 &&
+        baseToken.dirtyToken.activeSetSignature != 0 &&
+        baseToken.dirtyToken.tlasInstanceSignature != 0 &&
+        baseToken.residentSetSignature == 500,
+        "BVH frame token emits geometry, material, active, TLAS, and resident signatures");
+
+    RtSmokeBvhFrameTokenInput activeChangedInput = input;
+    activeChangedInput.rigidRouteInstanceCount = 4;
+    const RtSmokeBvhFrameToken activeChangedToken = BuildSmokeBvhFrameToken(activeChangedInput);
+    Check(baseToken.dirtyToken.geometryContentSignature == activeChangedToken.dirtyToken.geometryContentSignature &&
+        baseToken.dirtyToken.activeSetSignature != activeChangedToken.dirtyToken.activeSetSignature &&
+        baseToken.dirtyToken.tlasInstanceSignature != activeChangedToken.dirtyToken.tlasInstanceSignature,
+        "BVH frame token maps rigid active membership changes to active and TLAS signatures");
+
+    RtSmokeBvhFrameTokenInput geometryChangedInput = input;
+    geometryChangedInput.rigidRouteIndexCount = 63;
+    const RtSmokeBvhFrameToken geometryChangedToken = BuildSmokeBvhFrameToken(geometryChangedInput);
+    Check(baseToken.dirtyToken.geometryContentSignature != geometryChangedToken.dirtyToken.geometryContentSignature &&
+        baseToken.dirtyToken.activeSetSignature == geometryChangedToken.dirtyToken.activeSetSignature,
+        "BVH frame token maps geometry count changes to geometry signature only");
+
+    RtSmokeBvhFrameTokenInput tlasChangedInput = input;
+    tlasChangedInput.rigidTlasInstanceCount = 4;
+    const RtSmokeBvhFrameToken tlasChangedToken = BuildSmokeBvhFrameToken(tlasChangedInput);
+    Check(baseToken.dirtyToken.geometryContentSignature == tlasChangedToken.dirtyToken.geometryContentSignature &&
+        baseToken.dirtyToken.activeSetSignature == tlasChangedToken.dirtyToken.activeSetSignature &&
+        baseToken.dirtyToken.tlasInstanceSignature != tlasChangedToken.dirtyToken.tlasInstanceSignature,
+        "BVH frame token maps submitted TLAS count changes to TLAS signature only");
+}
+
 void TestBvhBucketableSignatures()
 {
     RtSmokeStaticBvhBucketSignatureInput staticInput;
@@ -981,6 +1034,7 @@ int main(int argc, char** argv)
     TestRigidBlasBuildPlan();
     TestStaticActiveSetPlan();
     TestBvhDirtyPlan();
+    TestBvhFrameToken();
     TestBvhBucketableSignatures();
     TestUploadPlan();
     TestGenerationAcceptance();

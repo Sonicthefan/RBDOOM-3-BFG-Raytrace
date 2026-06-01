@@ -464,6 +464,42 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     return plan;
 }
 
+RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
+    const RtSmokeBvhFrameTokenInput& input)
+{
+    RtSmokeBvhFrameToken token;
+
+    uint64_t geometryContentSignature = 14695981039346656037ull;
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.staticBlasSignature, sizeof(input.staticBlasSignature));
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.geometryGeneration, sizeof(input.geometryGeneration));
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.dynamicVertexCount, sizeof(input.dynamicVertexCount));
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.dynamicIndexCount, sizeof(input.dynamicIndexCount));
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.rigidRouteVertexCount, sizeof(input.rigidRouteVertexCount));
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.rigidRouteIndexCount, sizeof(input.rigidRouteIndexCount));
+    geometryContentSignature = HashSmokePlanBytes(geometryContentSignature, &input.rigidRouteTriangleCount, sizeof(input.rigidRouteTriangleCount));
+
+    uint64_t activeSetSignature = input.staticActiveSetSignature;
+    activeSetSignature = HashSmokePlanBytes(activeSetSignature, &input.rigidRouteInstanceCount, sizeof(input.rigidRouteInstanceCount));
+    activeSetSignature = HashSmokePlanBytes(activeSetSignature, &input.rigidRouteSeenThisFrameCount, sizeof(input.rigidRouteSeenThisFrameCount));
+    activeSetSignature = HashSmokePlanBytes(activeSetSignature, &input.rigidRouteCachedInstanceCount, sizeof(input.rigidRouteCachedInstanceCount));
+
+    uint64_t tlasInstanceSignature = 14695981039346656037ull;
+    const uint32_t hasStaticBlasBit = input.hasStaticBlas ? 1u : 0u;
+    const uint32_t hasDynamicBlasBit = input.hasDynamicBlas ? 1u : 0u;
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &activeSetSignature, sizeof(activeSetSignature));
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &hasStaticBlasBit, sizeof(hasStaticBlasBit));
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &hasDynamicBlasBit, sizeof(hasDynamicBlasBit));
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.baseTlasInstanceCount, sizeof(input.baseTlasInstanceCount));
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.rigidTlasInstanceCount, sizeof(input.rigidTlasInstanceCount));
+
+    token.dirtyToken.geometryContentSignature = geometryContentSignature;
+    token.dirtyToken.materialGeneration = input.materialGeneration;
+    token.dirtyToken.activeSetSignature = activeSetSignature;
+    token.dirtyToken.tlasInstanceSignature = tlasInstanceSignature;
+    token.residentSetSignature = input.staticResidentSetSignature;
+    return token;
+}
+
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,
     const RtSmokeRigidTlasPlanDesc& desc,

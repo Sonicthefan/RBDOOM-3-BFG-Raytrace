@@ -266,6 +266,33 @@ struct RtSmokeBvhDirtyPlan
     bool tlasDirty = false;
 };
 
+struct RtSmokeBvhFrameTokenInput
+{
+    uint64_t staticBlasSignature = 0;
+    uint64_t geometryGeneration = 0;
+    uint64_t materialGeneration = 0;
+    uint64_t staticActiveSetSignature = 0;
+    uint64_t staticResidentSetSignature = 0;
+    int dynamicVertexCount = 0;
+    int dynamicIndexCount = 0;
+    int rigidRouteVertexCount = 0;
+    int rigidRouteIndexCount = 0;
+    int rigidRouteTriangleCount = 0;
+    int rigidRouteInstanceCount = 0;
+    int rigidRouteSeenThisFrameCount = 0;
+    int rigidRouteCachedInstanceCount = 0;
+    int baseTlasInstanceCount = 0;
+    int rigidTlasInstanceCount = 0;
+    bool hasStaticBlas = false;
+    bool hasDynamicBlas = false;
+};
+
+struct RtSmokeBvhFrameToken
+{
+    RtSmokeBvhDirtyTokenState dirtyToken;
+    uint64_t residentSetSignature = 0;
+};
+
 struct RtSmokeRigidTlasObservation
 {
     uint64_t meshHash = 0;
@@ -439,6 +466,9 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
 
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input);
+
+RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
+    const RtSmokeBvhFrameTokenInput& input);
 
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,
