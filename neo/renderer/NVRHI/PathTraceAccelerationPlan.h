@@ -224,6 +224,23 @@ struct RtSmokeStaticTlasActiveSetPlan
     bool requiresBucketedStaticBlas = false;
 };
 
+struct RtSmokeStaticBvhBucketSignatureInput
+{
+    RtSmokeStaticTlasBucketObservation bucket;
+    uint64_t geometryContentSignature = 0;
+    uint64_t materialGeneration = 0;
+};
+
+struct RtSmokeStaticBvhBucketSignature
+{
+    uint64_t bucketKey = 0;
+    uint64_t residentSignature = 0;
+    uint64_t activeSignature = 0;
+    uint64_t blasInputSignature = 0;
+    bool resident = false;
+    bool active = false;
+};
+
 struct RtSmokeBvhDirtyTokenState
 {
     uint64_t geometryContentSignature = 0;
@@ -309,6 +326,31 @@ struct RtSmokeRigidBlasBuildPlan
     bool skipBuild = false;
 };
 
+struct RtSmokeRigidBvhObjectSignatureInput
+{
+    uint64_t meshHash = 0;
+    uint64_t instanceId = 0;
+    uint64_t geometryContentSignature = 0;
+    uint64_t materialGeneration = 0;
+    uint32_t sourceFlags = 0;
+    uint32_t rigidSourceMask = 0;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    int vertexCount = 0;
+    int indexCount = 0;
+    bool hasMeshRecord = false;
+    bool meshSeenThisFrame = false;
+    bool residencyEnabled = false;
+};
+
+struct RtSmokeRigidBvhObjectSignature
+{
+    uint64_t objectKey = 0;
+    uint64_t blasInputSignature = 0;
+    uint64_t tlasMembershipSignature = 0;
+    bool resident = false;
+    bool activeCandidate = false;
+};
+
 struct RtSmokeUploadPlanMetadata
 {
     bool skip = false;
@@ -392,6 +434,9 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
 RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     const RtSmokeStaticTlasActiveSetPlanDesc& desc);
 
+RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
+    const RtSmokeStaticBvhBucketSignatureInput& input);
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input);
 
@@ -410,6 +455,9 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
 
 RtSmokeRigidBlasBuildPlan BuildSmokeRigidBlasBuildPlan(
     const RtSmokeRigidBlasBuildPlanInput& input);
+
+RtSmokeRigidBvhObjectSignature BuildSmokeRigidBvhObjectSignature(
+    const RtSmokeRigidBvhObjectSignatureInput& input);
 
 RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
     size_t elementCount,

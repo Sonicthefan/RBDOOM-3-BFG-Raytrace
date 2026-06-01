@@ -652,6 +652,95 @@ void TestBvhDirtyPlan()
         "static active-set signature tracks active membership without changing resident signature");
 }
 
+void TestBvhBucketableSignatures()
+{
+    RtSmokeStaticBvhBucketSignatureInput staticInput;
+    staticInput.geometryContentSignature = 1000;
+    staticInput.materialGeneration = 2000;
+    staticInput.bucket.bucketKey = 77;
+    staticInput.bucket.resident = true;
+    staticInput.bucket.active = true;
+    staticInput.bucket.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE;
+    staticInput.bucket.routeRecordIndex = 3;
+    staticInput.bucket.residentSurfaceCount = 2;
+    staticInput.bucket.residentVertexCount = 12;
+    staticInput.bucket.residentIndexCount = 36;
+    staticInput.bucket.residentTriangleCount = 12;
+    staticInput.bucket.activeSurfaceCount = 1;
+    staticInput.bucket.activeVertexCount = 6;
+    staticInput.bucket.activeIndexCount = 18;
+    staticInput.bucket.activeTriangleCount = 6;
+    const RtSmokeStaticBvhBucketSignature baseStaticSignature =
+        BuildSmokeStaticBvhBucketSignature(staticInput);
+    Check(baseStaticSignature.bucketKey == 77 && baseStaticSignature.resident &&
+        baseStaticSignature.active && baseStaticSignature.residentSignature != 0 &&
+        baseStaticSignature.activeSignature != 0 && baseStaticSignature.blasInputSignature != 0,
+        "static BVH bucket signature preserves bucket identity and state");
+
+    RtSmokeStaticBvhBucketSignatureInput activeChangedInput = staticInput;
+    activeChangedInput.bucket.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE;
+    const RtSmokeStaticBvhBucketSignature activeChangedSignature =
+        BuildSmokeStaticBvhBucketSignature(activeChangedInput);
+    Check(baseStaticSignature.activeSignature != activeChangedSignature.activeSignature &&
+        baseStaticSignature.residentSignature == activeChangedSignature.residentSignature &&
+        baseStaticSignature.blasInputSignature == activeChangedSignature.blasInputSignature,
+        "static BVH bucket active changes do not dirty resident or BLAS signatures");
+
+    RtSmokeStaticBvhBucketSignatureInput geometryChangedInput = staticInput;
+    geometryChangedInput.geometryContentSignature = 1001;
+    const RtSmokeStaticBvhBucketSignature geometryChangedSignature =
+        BuildSmokeStaticBvhBucketSignature(geometryChangedInput);
+    Check(baseStaticSignature.blasInputSignature != geometryChangedSignature.blasInputSignature &&
+        baseStaticSignature.activeSignature == geometryChangedSignature.activeSignature &&
+        baseStaticSignature.residentSignature == geometryChangedSignature.residentSignature,
+        "static BVH bucket geometry changes dirty BLAS signature without changing active membership");
+
+    RtSmokeRigidBvhObjectSignatureInput rigidInput;
+    rigidInput.meshHash = 500;
+    rigidInput.instanceId = 600;
+    rigidInput.geometryContentSignature = 700;
+    rigidInput.materialGeneration = 800;
+    rigidInput.sourceFlags = 0x2;
+    rigidInput.rigidSourceMask = 0x2;
+    rigidInput.routeRecordIndex = 9;
+    rigidInput.vertexCount = 24;
+    rigidInput.indexCount = 72;
+    rigidInput.hasMeshRecord = true;
+    rigidInput.meshSeenThisFrame = true;
+    const RtSmokeRigidBvhObjectSignature baseRigidSignature =
+        BuildSmokeRigidBvhObjectSignature(rigidInput);
+    Check(baseRigidSignature.resident && baseRigidSignature.activeCandidate &&
+        baseRigidSignature.objectKey != 0 && baseRigidSignature.blasInputSignature != 0 &&
+        baseRigidSignature.tlasMembershipSignature != 0,
+        "rigid BVH object signature preserves object identity and active state");
+
+    RtSmokeRigidBvhObjectSignatureInput secondRigidInstanceInput = rigidInput;
+    secondRigidInstanceInput.instanceId = 601;
+    const RtSmokeRigidBvhObjectSignature secondRigidInstanceSignature =
+        BuildSmokeRigidBvhObjectSignature(secondRigidInstanceInput);
+    Check(baseRigidSignature.objectKey != secondRigidInstanceSignature.objectKey &&
+        baseRigidSignature.blasInputSignature == secondRigidInstanceSignature.blasInputSignature &&
+        baseRigidSignature.tlasMembershipSignature != secondRigidInstanceSignature.tlasMembershipSignature,
+        "rigid BVH object signature shares mesh BLAS inputs across distinct instances");
+
+    RtSmokeRigidBvhObjectSignatureInput staleResidentInput = rigidInput;
+    staleResidentInput.meshSeenThisFrame = false;
+    staleResidentInput.residencyEnabled = true;
+    const RtSmokeRigidBvhObjectSignature staleResidentSignature =
+        BuildSmokeRigidBvhObjectSignature(staleResidentInput);
+    Check(staleResidentSignature.resident && staleResidentSignature.activeCandidate &&
+        baseRigidSignature.blasInputSignature == staleResidentSignature.blasInputSignature,
+        "rigid BVH object signature keeps residency separate from BLAS input identity");
+
+    RtSmokeRigidBvhObjectSignatureInput inactiveRigidInput = rigidInput;
+    inactiveRigidInput.sourceFlags = 0x4;
+    const RtSmokeRigidBvhObjectSignature inactiveRigidSignature =
+        BuildSmokeRigidBvhObjectSignature(inactiveRigidInput);
+    Check(inactiveRigidSignature.resident && !inactiveRigidSignature.activeCandidate &&
+        baseRigidSignature.blasInputSignature == inactiveRigidSignature.blasInputSignature,
+        "rigid BVH object signature separates resident objects from active TLAS candidates");
+}
+
 void TestUploadPlan()
 {
     const RtSmokeUploadPlanMetadata fullUpload = BuildSmokeVectorUploadPlanMetadata(10, 4, false, -1, 0);
@@ -892,6 +981,7 @@ int main(int argc, char** argv)
     TestRigidBlasBuildPlan();
     TestStaticActiveSetPlan();
     TestBvhDirtyPlan();
+    TestBvhBucketableSignatures();
     TestUploadPlan();
     TestGenerationAcceptance();
 

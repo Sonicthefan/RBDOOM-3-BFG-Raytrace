@@ -394,6 +394,48 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     return plan;
 }
 
+RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
+    const RtSmokeStaticBvhBucketSignatureInput& input)
+{
+    RtSmokeStaticBvhBucketSignature signature;
+    const RtSmokeStaticTlasBucketObservation& bucket = input.bucket;
+    signature.bucketKey = bucket.bucketKey;
+    signature.resident = bucket.resident;
+    signature.active = bucket.active;
+
+    uint64_t residentHash = 14695981039346656037ull;
+    const uint32_t residentBit = bucket.resident ? 1u : 0u;
+    residentHash = HashSmokePlanBytes(residentHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
+    residentHash = HashSmokePlanBytes(residentHash, &residentBit, sizeof(residentBit));
+    residentHash = HashSmokePlanBytes(residentHash, &bucket.residentSurfaceCount, sizeof(bucket.residentSurfaceCount));
+    residentHash = HashSmokePlanBytes(residentHash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
+    residentHash = HashSmokePlanBytes(residentHash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
+    residentHash = HashSmokePlanBytes(residentHash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
+    signature.residentSignature = residentHash;
+
+    uint64_t activeHash = 14695981039346656037ull;
+    const uint32_t activeBit = bucket.active ? 1u : 0u;
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
+    activeHash = HashSmokePlanBytes(activeHash, &activeBit, sizeof(activeBit));
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.routeRecordIndex, sizeof(bucket.routeRecordIndex));
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
+    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
+    signature.activeSignature = activeHash;
+
+    uint64_t blasHash = 14695981039346656037ull;
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
+    blasHash = HashSmokePlanBytes(blasHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
+    signature.blasInputSignature = blasHash;
+    return signature;
+}
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input)
 {
@@ -530,6 +572,38 @@ RtSmokeRigidBlasBuildPlan BuildSmokeRigidBlasBuildPlan(
         plan.createBlas;
     plan.skipBuild = !plan.submitBuild;
     return plan;
+}
+
+RtSmokeRigidBvhObjectSignature BuildSmokeRigidBvhObjectSignature(
+    const RtSmokeRigidBvhObjectSignatureInput& input)
+{
+    RtSmokeRigidBvhObjectSignature signature;
+    signature.resident = input.hasMeshRecord && (input.meshSeenThisFrame || input.residencyEnabled);
+    signature.activeCandidate = signature.resident && ((input.sourceFlags & input.rigidSourceMask) != 0);
+
+    uint64_t objectHash = 14695981039346656037ull;
+    objectHash = HashSmokePlanBytes(objectHash, &input.meshHash, sizeof(input.meshHash));
+    objectHash = HashSmokePlanBytes(objectHash, &input.instanceId, sizeof(input.instanceId));
+    signature.objectKey = objectHash;
+
+    uint64_t blasHash = 14695981039346656037ull;
+    blasHash = HashSmokePlanBytes(blasHash, &input.meshHash, sizeof(input.meshHash));
+    blasHash = HashSmokePlanBytes(blasHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
+    blasHash = HashSmokePlanBytes(blasHash, &input.vertexCount, sizeof(input.vertexCount));
+    blasHash = HashSmokePlanBytes(blasHash, &input.indexCount, sizeof(input.indexCount));
+    signature.blasInputSignature = blasHash;
+
+    uint64_t tlasHash = 14695981039346656037ull;
+    const uint32_t residentBit = signature.resident ? 1u : 0u;
+    const uint32_t activeBit = signature.activeCandidate ? 1u : 0u;
+    tlasHash = HashSmokePlanBytes(tlasHash, &signature.objectKey, sizeof(signature.objectKey));
+    tlasHash = HashSmokePlanBytes(tlasHash, &input.sourceFlags, sizeof(input.sourceFlags));
+    tlasHash = HashSmokePlanBytes(tlasHash, &input.routeRecordIndex, sizeof(input.routeRecordIndex));
+    tlasHash = HashSmokePlanBytes(tlasHash, &residentBit, sizeof(residentBit));
+    tlasHash = HashSmokePlanBytes(tlasHash, &activeBit, sizeof(activeBit));
+    signature.tlasMembershipSignature = tlasHash;
+    return signature;
 }
 
 RtSmokeUploadPlanMetadata BuildSmokeVectorUploadPlanMetadata(
