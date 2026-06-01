@@ -35,13 +35,19 @@ Read first:
 
 Known state:
 
-    Clean RTXDI view 12 accumulates real Doom analytic lights when
-    r_pathTracingCleanRtxdiDiBypassLightUniverse 1 is enabled. The old
-    persistent Doom analytic light-universe/remap path remains unstable.
-    The active shader-visible RLU payloads are t66/t67. Future DI proposal
-    work must consume those dense RLU buffers through RAB, not create a private
-    light universe from old Doom analytic arrays, NEE-cache, ReGIR, or portal
+    RLU tasks are complete through RLU-13. Clean RTXDI view 12 is the default
+    RLU route with temporal reuse, typed RLU initial sampling, and the RLU-13
+    projected previous-reservoir previous-best approximation enabled. The
+    active shader-visible RLU payloads are t66/t67. Future DI proposal work
+    must consume those dense RLU buffers through RAB, not create a private light
+    universe from old Doom analytic arrays, NEE-cache, ReGIR, or portal
     candidate pools.
+
+    Emissive sources are the next known issue. A previous attempt to convert
+    emissive sources into point/center-style lights is not viable. RLU-14 must
+    fix emissive replay so RLU emissives sample actual triangle geometry,
+    triangle UVs, and material/texture state, while preserving dense identity
+    and current/previous mapping.
 
 Standing restrictions:
 
@@ -71,16 +77,18 @@ Reference file-equivalents:
 
 First action:
 
-    Start with RLU-00 only as a read-only contract audit. No code changes.
+    Start with RLU-14 only. First do a read-only emissive replay contract audit.
+    No code changes until the exact read set, write set, forbidden areas, and
+    proof gates have been reported.
 
     Report:
 
-        exact current producer deviations
-        exact Remix producer-consumer contract
+        exact current emissive producer/consumer deviation
+        exact Remix/RTXDI emissive triangle replay contract shape
         exact proposed rbdoom write set
-        exact current/previous dense-domain contract
-        exact two-way mapping contract
-        first missing or ambiguous contract
+        exact dense current/previous emissive identity contract
+        exact two-way emissive mapping contract
+        first missing or ambiguous emissive replay contract
 
 Build lane if later implementation is approved:
 

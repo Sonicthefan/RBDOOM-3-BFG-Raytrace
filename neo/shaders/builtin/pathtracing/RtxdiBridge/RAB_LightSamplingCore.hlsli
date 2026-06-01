@@ -232,7 +232,12 @@ RAB_LightSample RAB_SampleEmissiveTriangleLight(RAB_LightInfo lightInfo, RAB_Sur
     const bool twoSidedEmissive = !historicalDynamicEmissive && reservoirTwoSidedEmissive;
 #endif
     const float lightFacingRaw = dot(lightInfo.normal, -lightDir);
+#ifdef RB_RAB_CLEAN_RTXDI_DI_SENTINEL
+    const bool dummyEmissiveNormals = (CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS) != 0u;
+    const float lightFacing = dummyEmissiveNormals ? 1.0 : (twoSidedEmissive ? abs(lightFacingRaw) : saturate(lightFacingRaw));
+#else
     const float lightFacing = twoSidedEmissive ? abs(lightFacingRaw) : saturate(lightFacingRaw);
+#endif
     if (lightFacing <= 0.0)
     {
         return lightSample;

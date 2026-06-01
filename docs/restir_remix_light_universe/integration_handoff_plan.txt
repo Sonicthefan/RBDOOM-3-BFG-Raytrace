@@ -93,15 +93,15 @@ Step 4:
 
 Step 5:
 
-    Expose the new domain to clean RTXDI DI with a default-off CVar. Keep old
-    path and bypass available for A/B until visual proof passes.
+    Clean RTXDI DI view 12 now consumes the new domain by default.  The old
+    path and bypass remain opt-out diagnostics, not the normal validation lane.
 
 Step 6:
 
-    After RLU payload and mapping proof passes, expose authoritative typed
-    ranges and bounded sample counts to clean DI initial sampling.  Clean DI may
-    then improve proposals by sampling the active RLU ranges and, in a later
-    slice, by adding previous-best initial-sampling seeding.  This does not make
+    RLU payload and mapping proof, authoritative typed ranges, typed initial
+    sampling, and the RLU-13 previous-best approximation are complete.  The next
+    missing contract is RLU-14: emissive records must replay as actual triangle
+    area lights, not center-position point-light proxies.  This does not make
     NEE-cache or ReGIR the primary DI light universe.
 
 

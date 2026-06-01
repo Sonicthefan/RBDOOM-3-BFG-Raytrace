@@ -74,6 +74,10 @@ struct PathTraceUnifiedLightBuild
     std::vector<PathTraceUnifiedLightRecord> currentLights;
     std::vector<PathTraceUnifiedLightRecord> previousLights;
     std::vector<uint32_t> currentToPreviousRemap;
+    uint32_t currentEmissiveLightCount = 0;
+    uint32_t previousEmissiveLightCount = 0;
+    uint32_t currentAnalyticLightCount = 0;
+    uint32_t previousAnalyticLightCount = 0;
 };
 
 PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(

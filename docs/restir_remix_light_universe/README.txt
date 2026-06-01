@@ -211,3 +211,4 @@ Follow-up task notes:
     rlu_11_clean_di_range_provider.txt
     rlu_12_clean_di_typed_initial_sampling.txt
     rlu_13_clean_di_previous_best_initial_sampling.txt
+    rlu_14_emissive_triangle_replay_correction.txt

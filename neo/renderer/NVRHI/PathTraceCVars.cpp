@@ -129,6 +129,18 @@ idCVar r_pathTracingSceneSource2RigidEntities(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental source 2 rigid entity promotion: 0 = off, 1 = whole eligible rigid entities that contain emissive-capable surfaces, 2 = all eligible non-skinned non-callback static entity model surfaces" );
 
+idCVar r_pathTracingCpuPlanningAsync(
+    "r_pathTracingCpuPlanningAsync",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic opt-in: run PT CPU acceleration planning from an owned snapshot on a background std::async task when possible; late or stale work falls back synchronously on the render thread" );
+
+idCVar r_pathTracingCpuPlanningDump(
+    "r_pathTracingCpuPlanningDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump one-shot PT CPU acceleration planning counters and timings" );
+
 idCVar r_pathTracingInstanceUniverseDump(
     "r_pathTracingInstanceUniverseDump",
     "0",
@@ -1003,7 +1015,7 @@ idCVar r_pathTracingReservoirTwoSidedEmissives(
     "r_pathTracingReservoirTwoSidedEmissives",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Treat mode 20 and PDFNEE lightmode 7 emissive triangle samples as two-sided for diagnostics" );
+    "Treat clean DI, mode 20, and PDFNEE lightmode 7 emissive triangle samples as two-sided for Doom panel winding compatibility" );
 
 idCVar r_pathTracingReservoirCandidateTrials(
     "r_pathTracingReservoirCandidateTrials",
@@ -1351,7 +1363,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..14; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..15; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection, band 15 shows selected light type" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
@@ -1424,6 +1436,18 @@ idCVar r_pathTracingCleanRtxdiDiDoomTargetFloor(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: force valid Doom analytic light samples to have a nonzero target PDF floor; default off for baseline validation" );
+
+idCVar r_pathTracingCleanRtxdiDiDummyEmissiveNormals(
+    "r_pathTracingCleanRtxdiDiDummyEmissiveNormals",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: make RLU emissive triangle samples use orientation-independent source facing; isolates bad emissive source normals/facing without changing RTXDI reservoir math" );
+
+idCVar r_pathTracingCleanRtxdiDiForceEmissiveVisibility(
+    "r_pathTracingCleanRtxdiDiForceEmissiveVisibility",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: force selected RLU emissive triangle samples visible; isolates clean shadow/ignore rejection without changing RTXDI reservoir math" );
 
 idCVar r_pathTracingCleanRtxdiDiFrameFreeze(
     "r_pathTracingCleanRtxdiDiFrameFreeze",

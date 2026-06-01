@@ -316,6 +316,40 @@ Fail:
     a previous temporal reservoir source is called full Remix best-light parity
 
 
+Rung V-13 / RLU-14: Emissive Triangle Replay
+--------------------------------------------
+
+Purpose:
+
+    Correct clean DI/RLU emissive consume so emissive surfaces behave like real
+    triangle area lights instead of center-position point proxies.
+    This is the next task after RLU-13 and corrects the non-viable emissive
+    point/center conversion path.
+
+Expected:
+
+    each sampled RLU emissive resolves to actual triangle positions and UVs
+    RAB emissive sampling uses barycentric triangle sampling
+    emissive texture/material evaluation uses sampled triangle UVs when
+        available
+    areaPdf and solidAnglePdf match the sampled triangle geometry
+    failed triangle replay rejects only the failed emissive candidate
+
+Pass:
+
+    clean RTXDI view 12 emissive contribution follows visible emitting
+    surfaces, no point-light hotspots appear at emissive centers, and the
+    center-fallback diagnostic count is zero for the normal path
+
+Fail:
+
+    emissive surfaces collapse to point lights
+    missing triangle geometry is accepted as a fake center/area light
+    emissive replay fixes break analytic RLU sampling or current/previous maps
+    weighted emissive proposal changes are made before replay correctness is
+        proven
+
+
 Hard Stop
 ---------
 
@@ -324,4 +358,5 @@ Stop at the first failing rung.
 Do not continue to spatial, denoiser, gradient/confidence, ReGIR-as-default-DI,
 PDFNEE-as-proof, or broad light suppression to hide a failing RLU or clean DI
 sampling contract.  Previous-best initial sampling is allowed only at V-12 after
-the active RLU payload, range, and typed proposal contracts pass.
+the active RLU payload, range, and typed proposal contracts pass.  Weighted
+emissive proposal work is allowed only after V-13 proves real triangle replay.

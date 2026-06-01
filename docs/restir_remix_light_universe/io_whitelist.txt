@@ -25,10 +25,14 @@ I-02: Current Emissive Light Records
     Allowed sources:
         final merged emissive list after emissive universe merge
         current emissive identity/remap data, after analytic proof
+        triangle geometry and triangle UV data needed to replay the current
+            emissive record as an area light
 
     Forbidden use:
         emissive integration before analytic proof
         pre-merge emissive lists as the final RTXDI domain
+        center-position point-light approximation as the normal emissive replay
+        path
 
 
 I-03: Previous Dense Light Domain
@@ -83,6 +87,7 @@ I-06: RTXDI / RAB Helper Boundary
     Forbidden use:
         invented targetPdf or sourcePdf math
         copied RTXDI/Remix source text
+        accepting emissive surface replay without valid area-light geometry
 
 
 I-07: Previous-Best Initial-Sampling Input
@@ -116,6 +121,9 @@ O-01: Dense Current Light Payload Buffer
         stable class/type
         stable source identity
         dense current index
+        for emissive triangle records: enough identity or payload data to
+            recover actual triangle positions, triangle UVs, area, material,
+            and texture state
 
 
 O-02: Dense Previous Light Payload Buffer
@@ -125,6 +133,9 @@ O-02: Dense Previous Light Payload Buffer
         stable class/type
         stable source identity
         dense previous index
+        for previous emissive triangle records: enough identity or payload data
+            to recover previous triangle positions, triangle UVs, area,
+            material, and texture state
 
 
 O-03: Two-Way Light Mapping

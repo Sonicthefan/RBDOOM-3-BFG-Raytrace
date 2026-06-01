@@ -282,6 +282,8 @@ bool RAB_UnifiedLightSampleEnabled()
 }
 static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
+static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
+static const uint CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
@@ -530,7 +532,7 @@ bool PathTraceCleanRoomRluTypedProposalInfo(
     out uint nonEmptyRangeCount)
 {
     range = PathTraceCleanRoomRluTypedRange(lightType);
-    sampleCount = min(PathTraceCleanRoomRluTypedSampleCount(lightType), range.y);
+    sampleCount = PathTraceCleanRoomRluTypedSampleCount(lightType);
     totalSampleCount = PathTraceCleanRoomRluTotalSampleCount();
     nonEmptyRangeCount = PathTraceCleanRoomRluNonEmptyRangeCount();
     return range.y > 0u && sampleCount > 0u && totalSampleCount > 0u && nonEmptyRangeCount > 0u;
@@ -1193,6 +1195,45 @@ bool PathTraceCleanRoomLoadEmissiveTriangleGeometry(
     return true;
 }
 
+bool PathTraceCleanRoomResolveTriangleNormalAndArea(
+    float3 p0,
+    float3 p1,
+    float3 p2,
+    float3 payloadNormal,
+    out float3 triangleNormal,
+    out float triangleArea)
+{
+    triangleNormal = float3(0.0, 0.0, 1.0);
+    triangleArea = 0.0;
+
+    if (!all(p0 == p0) || !all(p1 == p1) || !all(p2 == p2) ||
+        any(abs(p0) >= float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
+        any(abs(p1) >= float3(3.402823e+38, 3.402823e+38, 3.402823e+38)) ||
+        any(abs(p2) >= float3(3.402823e+38, 3.402823e+38, 3.402823e+38)))
+    {
+        return false;
+    }
+
+    const float3 edge0 = p1 - p0;
+    const float3 edge1 = p2 - p0;
+    const float3 crossValue = cross(edge0, edge1);
+    const float doubleAreaSquared = dot(crossValue, crossValue);
+    if (doubleAreaSquared <= 1.0e-12)
+    {
+        return false;
+    }
+
+    const float doubleArea = sqrt(doubleAreaSquared);
+    triangleNormal = crossValue / doubleArea;
+    const float3 safePayloadNormal = PathTraceCleanRoomSafeNormalize(payloadNormal, triangleNormal);
+    if (dot(triangleNormal, safePayloadNormal) < 0.0)
+    {
+        triangleNormal = -triangleNormal;
+    }
+    triangleArea = 0.5 * doubleArea;
+    return triangleArea > 1.0e-6 && triangleArea < 3.402823e+38;
+}
+
 RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord light, uint lightIndex, bool previousFrame)
 {
     RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
@@ -1228,12 +1269,6 @@ RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord li
 
     if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
-        // Mesh emissives are not RTXDI/RAB polymorphic lights. The RLU may carry
-        // them for producer diagnostics, but clean DI must not replay arbitrary
-        // textured geometry as a light source until a geometry/material NEE-style
-        // consumer exists.
-        return lightInfo;
-
         const uint sourceCount = previousFrame ? CleanRtxdiDiPreviousEmissiveTriangleCount : CleanRtxdiDiCurrentEmissiveTriangleCount;
         if (light.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX || light.sourceIndex >= sourceCount)
         {
@@ -1263,6 +1298,42 @@ RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord li
             uv0,
             uv1,
             uv2);
+        if (!hasTriangleGeometry)
+        {
+            return lightInfo;
+        }
+
+        float3 triangleNormal;
+        float triangleArea;
+        if (!PathTraceCleanRoomResolveTriangleNormalAndArea(
+            p0,
+            p1,
+            p2,
+            light.normalAndArea.xyz,
+            triangleNormal,
+            triangleArea))
+        {
+            return lightInfo;
+        }
+
+        if (emissiveTriangle.materialIndex >= (uint)TextureInfo.z)
+        {
+            return lightInfo;
+        }
+        const PathTraceSmokeMaterial emissiveMaterial = PathTraceCleanRoomLoadSmokeMaterial(emissiveTriangle.materialIndex);
+        const bool activeEmissiveMaterial =
+            (emissiveMaterial.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0u &&
+            (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+        if (!activeEmissiveMaterial)
+        {
+            return lightInfo;
+        }
+
+        const float3 replayRadiance = PathTraceCleanRoomTexturedEmissiveRadiance(light, previousFrame);
+        if (PathTraceCleanRoomLuminance(replayRadiance) <= 0.0)
+        {
+            return lightInfo;
+        }
 
         lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
         lightInfo.lightIndex = lightIndex;
@@ -1271,19 +1342,17 @@ RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord li
         lightInfo.flags = light.flags;
         lightInfo.position = light.positionAndRadius.xyz;
         lightInfo.radius = 0.0;
-        lightInfo.normal = PathTraceCleanRoomSafeNormalize(light.normalAndArea.xyz, float3(0.0, 0.0, 1.0));
-        lightInfo.radiance = PathTraceCleanRoomTexturedEmissiveRadiance(light, previousFrame);
+        lightInfo.normal = triangleNormal;
+        lightInfo.radiance = replayRadiance;
         lightInfo.influenceRadius = 0.0;
-        lightInfo.area = max(light.normalAndArea.w, 1.0e-4);
+        lightInfo.area = triangleArea;
         lightInfo.weight = light.sourceWeight;
         lightInfo.sourceIndex = light.sourceIndex;
-        lightInfo.hasTriangleGeometry = hasTriangleGeometry ? 1u : 0u;
-        const PathTraceSmokeMaterial emissiveMaterial = PathTraceCleanRoomLoadSmokeMaterial(emissiveTriangle.materialIndex);
+        lightInfo.hasTriangleGeometry = 1u;
         lightInfo.emissiveTextureIndex = emissiveMaterial.emissiveTextureIndex;
         lightInfo.emissiveTextureWidth = emissiveMaterial.emissiveTextureWidth;
         lightInfo.emissiveTextureHeight = emissiveMaterial.emissiveTextureHeight;
-        lightInfo.emissiveActiveStage = ((emissiveMaterial.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0u &&
-            (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u) ? 1u : 0u;
+        lightInfo.emissiveActiveStage = 1u;
         lightInfo.emissiveColor = max(emissiveMaterial.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
         lightInfo.trianglePosition0 = p0;
         lightInfo.trianglePosition1 = p1;
@@ -1825,15 +1894,22 @@ float PathTraceCleanRoomTraceVisibility(PathTracePrimarySurfaceRecord surface, f
 
 float PathTraceCleanRoomSelectedSampleVisibility(PathTracePrimarySurfaceRecord surface, RTXDI_DIReservoir reservoir, RAB_LightSample lightSample)
 {
-    if ((PathTraceCleanRoomExternalPdfNeeCurrentEnabled() || PathTraceCleanRoomNeeCacheProviderEnabled()) &&
-        lightSample.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    if (lightSample.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
-        float storedVisibility = 0.0;
-        if (PathTraceCleanRoomTryStoredReservoirVisibility(reservoir, storedVisibility))
+        if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY) != 0u)
         {
-            if (storedVisibility > 1.0e-8)
+            return 1.0;
+        }
+
+        if (PathTraceCleanRoomExternalPdfNeeCurrentEnabled() || PathTraceCleanRoomNeeCacheProviderEnabled())
+        {
+            float storedVisibility = 0.0;
+            if (PathTraceCleanRoomTryStoredReservoirVisibility(reservoir, storedVisibility))
             {
-                return storedVisibility;
+                if (storedVisibility > 1.0e-8)
+                {
+                    return storedVisibility;
+                }
             }
         }
 
@@ -2038,7 +2114,7 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         return false;
     }
 
-    const uint boundedSampleCount = min(sampleCount, range.y);
+    const uint boundedSampleCount = sampleCount;
     if (boundedSampleCount == 0u)
     {
         return false;
@@ -3050,7 +3126,7 @@ float3 PathTraceCleanRoomSelectedSampleFailureColor(PathTracePrimarySurfaceRecor
     const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, RTXDI_GetDIReservoirSampleUV(reservoir));
     const bool selectedEmissive =
-        (PathTraceCleanRoomExternalPdfNeeCurrentEnabled() || PathTraceCleanRoomNeeCacheProviderEnabled()) &&
+        RAB_IsLightInfoValid(lightInfo) &&
         lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
     if (!RAB_IsReplayableLightSample(lightSample))
     {
@@ -3109,6 +3185,48 @@ float3 PathTraceCleanRoomSelectedSampleFailureColor(PathTracePrimarySurfaceRecor
 
     const float brightness = saturate(log2(1.0 + max(resolvedLum, 0.0)) / 12.0);
     return lerp(float3(0.12, 0.12, 0.12), float3(1.0, 1.0, 1.0), brightness);
+}
+
+float3 PathTraceCleanRoomSelectedLightTypeColor(PathTracePrimarySurfaceRecord surfaceRecord, RTXDI_DIReservoir reservoir, uint initialStatus)
+{
+    if (initialStatus != CLEAN_INITIAL_STATUS_VALID && initialStatus != CLEAN_INITIAL_STATUS_ZERO_TARGET_PDF)
+    {
+        return PathTraceCleanRoomStatusColor(initialStatus);
+    }
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return float3(1.0, 0.0, 0.0);
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    if (!PathTraceCleanRoomSyntheticMode() &&
+        !PathTraceCleanRoomExternalPdfNeeCurrentEnabled() &&
+        !PathTraceCleanRoomNeeCacheProviderEnabled() &&
+        lightIndex >= PathTraceCleanRoomInitialLightCount())
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(surfaceRecord);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.45, 0.0, 0.65);
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        return float3(1.0, 0.35, 0.0);
+    }
+    if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return float3(0.08, 0.22, 0.95);
+    }
+    if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return float3(0.95, 0.55, 0.05);
+    }
+    return float3(1.0, 1.0, 1.0);
 }
 
 float3 PathTraceCleanRoomReservoirIdentityColor(PathTraceCleanRtxdiDiInitialResult result, uint2 pixel)
@@ -4286,7 +4404,7 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
         return PathTraceCleanRoomStatusColor(initial.status);
     }
 
-    const uint bandCount = 15u;
+    const uint bandCount = 16u;
     const bool forcedBand = CleanRtxdiDiView8Band < bandCount;
     const uint band = forcedBand ? CleanRtxdiDiView8Band : min((pixel.y * bandCount) / max(dimensions.y, 1u), bandCount - 1u);
     if (band == 8u)
@@ -4294,6 +4412,12 @@ float3 PathTraceCleanRoomTemporalDiagnosticColor(PathTraceCleanRtxdiDiInitialRes
         return pixel.x < (dimensions.x >> 1u)
             ? PathTraceCleanRoomSelectedSampleFailureColor(initial.surface, initial.reservoir, initial.status)
             : PathTraceCleanRoomSelectedSampleFailureColor(initial.surface, temporal.reservoir, initial.status);
+    }
+    if (band == 15u)
+    {
+        return pixel.x < (dimensions.x >> 1u)
+            ? PathTraceCleanRoomSelectedLightTypeColor(initial.surface, initial.reservoir, initial.status)
+            : PathTraceCleanRoomSelectedLightTypeColor(initial.surface, temporal.reservoir, initial.status);
     }
     if (band == 0u)
     {
@@ -4450,6 +4574,10 @@ float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, u
         if (CleanRtxdiDiView8Band >= 11u && CleanRtxdiDiView8Band <= 14u)
         {
             return PathTraceCleanRoomPreviousBestDiagnosticColor(result);
+        }
+        if (CleanRtxdiDiView8Band == 15u)
+        {
+            return PathTraceCleanRoomSelectedLightTypeColor(result.surface, result.reservoir, result.status);
         }
         return PathTraceCleanRoomReservoirWeightColor(result, pixel);
     }

@@ -631,3 +631,88 @@ Acceptance:
     temporal-on movement preserves accumulated lighting better than RLU-12 in
     overlapping-light areas, without changing the stationary mean or poisoning
     animated analytic lights
+
+
+RLU-14: Emissive Triangle Replay Correction
+-------------------------------------------
+
+Goal:
+
+    Correct RLU emissive consume so emissive surfaces replay as actual
+    emissive triangle area lights, not collapsed center/point-light proxies.
+    The prior point/center-style emissive conversion attempt is not viable for
+    the normal RLU proof path.
+
+Reference file-equivalent:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PolymorphicLight.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_LightInfo.hlsli
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache_light.slangh
+
+Required rbdoom read set:
+
+    docs/restir_remix_light_universe/rlu_14_emissive_triangle_replay_correction.txt
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    docs/restir_remix_light_universe
+
+Required:
+
+    define RLU emissives as replayable emissive triangle lights
+    preserve dense RLU identity and current/previous remap
+    exclude non-replayable emissive placeholders from dense current/previous
+        RLU domains before range construction
+    load or carry triangle positions and triangle UVs for the selected
+        emissive record
+    sample the actual triangle using barycentric UVs
+    sample emissive texture/material at the sampled triangle UV when available
+    compute areaPdf as 1 / triangleArea
+    compute solidAnglePdf as area-to-solid-angle pdf using sampled distance and
+        light-facing term
+    trace visibility to the sampled triangle point
+    reject emissive records that cannot replay as a real triangle in the normal
+        clean DI path
+    add diagnostics for replayable triangle count, missing geometry, missing
+        material, zero area, zero radiance/sourceWeight, and center-fallback
+        attempts
+
+Forbidden:
+
+    no center-position point-light fallback for emissive surfaces
+    no treating center+area as a fake surface when triangle geometry is missing
+    no aggregating multiple triangles into one surface light in this slice
+    no new private emissive light universe
+    no weighted emissive proposal changes before replay correctness is proven
+    no temporal accumulation, spatial, denoiser, gradient, or previous-best
+        changes
+
+Acceptance:
+
+    clean RTXDI view 12 emissive lighting follows visible emitting surfaces
+    rather than producing point-light hotspots at triangle or surface centers
+    center-fallback diagnostic count is zero in the normal clean DI path
+    invalid emissive records are rejected locally without invalidating analytic
+        RLU sampling or current/previous maps
+    zero/dummy emissive placeholders do not occupy dense RLU emissive ranges
+    toggling emissive texture use changes textured emissive contribution
+    predictably without changing emissive identity or remap

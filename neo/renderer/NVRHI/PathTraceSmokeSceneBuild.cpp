@@ -10,7 +10,9 @@
 // the narrower PathTrace* modules.
 
 #include "PathTraceAcceleration.h"
+#include "PathTraceAccelerationPlan.h"
 #include "PathTraceCVars.h"
+#include "PathTraceCpuWork.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomLights.h"
 #include "PathTraceDrawSurfCapture.h"
@@ -40,6 +42,8 @@
 #include "../../sys/DeviceManager.h"
 
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <unordered_map>
 #include <vector>
 
@@ -57,6 +61,17 @@ const float RT_SMOKE_SKINNED_TELEPORT_DISTANCE = 1024.0f;
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
+
+RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
+    const RtSmokeAccelerationPlanSnapshot& snapshot)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtSmokeAccelerationPlanTimedResult timedResult;
+    timedResult.result = BuildSmokeAccelerationPlanResult(snapshot);
+    const auto end = std::chrono::steady_clock::now();
+    timedResult.workerExecutionMs = std::chrono::duration<double, std::milli>(end - start).count();
+    return timedResult;
+}
 
 struct CleanRtxdiDiAnalyticDomainFreezeState
 {
@@ -378,15 +393,17 @@ RtSmokeBufferUploadItem MakeSmokeVectorUploadItem(
     RtSmokeBufferUploadItem item;
     item.buffer = buffer;
     item.data = data.data();
-    item.byteSize = data.size() * sizeof(T);
     item.finalState = finalState;
-    item.skip = skip;
-    if (SmokeUploadElementRangeValid(elementOffset, elementCount, data.size()))
-    {
-        item.byteSize = static_cast<size_t>(elementCount) * sizeof(T);
-        item.sourceOffsetBytes = static_cast<size_t>(elementOffset) * sizeof(T);
-        item.destOffsetBytes = static_cast<uint64_t>(item.sourceOffsetBytes);
-    }
+    const RtSmokeUploadPlanMetadata uploadPlan = BuildSmokeVectorUploadPlanMetadata(
+        data.size(),
+        sizeof(T),
+        skip,
+        elementOffset,
+        elementCount);
+    item.byteSize = uploadPlan.byteSize;
+    item.skip = uploadPlan.skip;
+    item.sourceOffsetBytes = uploadPlan.sourceOffsetBytes;
+    item.destOffsetBytes = uploadPlan.destOffsetBytes;
     return item;
 }
 
@@ -1476,7 +1493,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         pdfNeeVerifierSceneBuildView > 0 &&
         pdfNeeVerifierSceneBuildLightMode == 7;
     const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
-    const int cleanRtxdiDiSceneBuildDomain = idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDomain.GetInteger());
+    const bool cleanRtxdiDiSceneBuildRoute =
+        requestedDebugMode == 0 &&
+        r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
+        r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
+        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
+        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15);
+    const int cleanRtxdiDiSceneBuildDomain = idMath::ClampInt(0, 2,
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
+            ? r_pathTracingRemixLightUniverseDomain.GetInteger()
+            : (cleanRtxdiDiSceneBuildRoute ? 2 : r_pathTracingRemixLightUniverseDomain.GetInteger()));
     const bool pdfNeeRluCurrentProducerSceneBuildRequested =
         requestedDebugMode == 0 &&
         r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
@@ -1489,12 +1515,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (pdfNeeRluSceneBuildDomain == 1 || pdfNeeRluSceneBuildDomain == 2);
     const bool cleanRtxdiDiSceneBuildRluEmissives =
         pdfNeeRluSceneBuildEmissives ||
-        (requestedDebugMode == 0 &&
-            r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
-            r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
-            r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 &&
-            r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
-            (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15) &&
+        (cleanRtxdiDiSceneBuildRoute &&
             (cleanRtxdiDiSceneBuildDomain == 1 || cleanRtxdiDiSceneBuildDomain == 2));
     const int neeCacheSceneBuildSourceDomain = idMath::ClampInt(0, 3, r_pathTracingNeeCacheSourceDomain.GetInteger());
     const bool neeCacheSceneBuildRluEmissives =
@@ -2789,6 +2810,28 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             return 0u;
         };
+        auto emissiveTriangleGeometryReplayable = [&](const PathTraceSmokeEmissiveTriangle& triangle) {
+            if (triangle.materialIndex >= static_cast<uint32_t>(materialTable.materials.size()) ||
+                triangle.centerAndArea[3] <= 1.0e-6f ||
+                triangle.sampleWeightAndPdf[0] <= 0.0f ||
+                triangle.estimatedRadianceAndLuminance[3] <= 0.0f)
+            {
+                return false;
+            }
+
+            if (triangle.instanceId == 0u)
+            {
+                return triangle.primitiveIndex < static_cast<uint32_t>(staticIndexCache.size() / 3);
+            }
+            if (triangle.instanceId == 1u)
+            {
+                return triangle.primitiveIndex < static_cast<uint32_t>(dynamicIndexData.size() / 3);
+            }
+
+            const uint32_t routeInstanceIndex = triangle.instanceId - 2u;
+            return routeInstanceIndex < static_cast<uint32_t>(Max(0, rigidRouteBuild.stats.emittedInstances)) &&
+                triangle.primitiveIndex < static_cast<uint32_t>(Max(0, rigidRouteBuild.stats.triangles));
+        };
         auto recordReplayable = [&](const PathTraceUnifiedLightRecord& record, bool previousFrame) {
             if (!recordFinite(record) ||
                 record.sourceIndex >= sourceCountForRecord(record, previousFrame) ||
@@ -2798,8 +2841,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             }
             if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
             {
+                const PathTraceSmokeEmissiveTriangle& emissiveTriangle = previousFrame
+                    ? previousEmissiveTriangles[record.sourceIndex]
+                    : emissiveTriangles[record.sourceIndex];
                 return record.normalAndArea[3] > 1.0e-6f &&
-                    record.radianceAndLuminance[3] > 0.0f;
+                    record.radianceAndLuminance[3] > 0.0f &&
+                    emissiveTriangleGeometryReplayable(emissiveTriangle);
             }
             if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
             {
@@ -3815,33 +3862,181 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int staticIndexCacheCount = geometryUniverseStats.staticIndexes;
     const int staticTriangleCacheCount = geometryUniverseStats.staticTriangles;
     const int staticCacheBytesKB = geometryUniverseStats.staticBytesKB;
-    RtSmokeStaticBlasSignature staticSignature;
-    staticSignature.vertexCount = staticGeometryRange.vertexCount;
-    staticSignature.indexCount = staticGeometryRange.indexCount;
-    staticSignature.triangleCount = staticGeometryRange.triangleCount;
-    const int staticSignatureStartMs = Sys_Milliseconds();
-    bool staticBlasSignatureReused = false;
-    if (!staticCacheChanged && m_smokeStaticBlasCacheValid && m_smokeStaticBlasSignature != 0)
+    RtSmokeAccelerationPlanInput accelerationPlanInput;
+    accelerationPlanInput.staticSignature.vertices = staticVertexCache.empty() ? nullptr : staticVertexCache.data();
+    accelerationPlanInput.staticSignature.vertexStride = sizeof(PathTraceSmokeVertex);
+    accelerationPlanInput.staticSignature.totalVertexCount = static_cast<int>(staticVertexCache.size());
+    accelerationPlanInput.staticSignature.indexes = staticIndexCache.empty() ? nullptr : staticIndexCache.data();
+    accelerationPlanInput.staticSignature.totalIndexCount = static_cast<int>(staticIndexCache.size());
+    accelerationPlanInput.staticSignature.triangleClasses = staticTriangleClassCache.empty() ? nullptr : staticTriangleClassCache.data();
+    accelerationPlanInput.staticSignature.triangleMaterials = staticTriangleMaterialCache.empty() ? nullptr : staticTriangleMaterialCache.data();
+    accelerationPlanInput.staticSignature.totalTriangleCount = static_cast<int>(Min(staticTriangleClassCache.size(), staticTriangleMaterialCache.size()));
+    accelerationPlanInput.staticSignature.staticRange.vertexOffset = staticGeometryRange.vertexOffset;
+    accelerationPlanInput.staticSignature.staticRange.vertexCount = staticGeometryRange.vertexCount;
+    accelerationPlanInput.staticSignature.staticRange.indexOffset = staticGeometryRange.indexOffset;
+    accelerationPlanInput.staticSignature.staticRange.indexCount = staticGeometryRange.indexCount;
+    accelerationPlanInput.staticSignature.staticRange.triangleOffset = staticGeometryRange.triangleOffset;
+    accelerationPlanInput.staticSignature.staticRange.triangleCount = staticGeometryRange.triangleCount;
+    accelerationPlanInput.staticSignature.sceneOrigin.x = vec3_origin.x;
+    accelerationPlanInput.staticSignature.sceneOrigin.y = vec3_origin.y;
+    accelerationPlanInput.staticSignature.sceneOrigin.z = vec3_origin.z;
+    accelerationPlanInput.staticCache.cacheValid = m_smokeStaticBlasCacheValid;
+    accelerationPlanInput.staticCache.cacheResourcesReady =
+        m_smokeStaticBlas &&
+        m_smokeStaticVertexBuffer &&
+        m_smokeStaticIndexBuffer &&
+        m_smokeStaticTriangleClassBuffer &&
+        m_smokeStaticTriangleMaterialBuffer &&
+        m_smokeStaticTriangleMaterialIndexBuffer;
+    accelerationPlanInput.staticCache.staticCacheChanged = staticCacheChanged;
+    accelerationPlanInput.staticCache.previousSignatureHash = m_smokeStaticBlasSignature;
+    accelerationPlanInput.staticVertexCount = staticVertexCount;
+    accelerationPlanInput.staticIndexCount = staticIndexCount;
+    accelerationPlanInput.dynamicVertexCount = dynamicVertexCount;
+    accelerationPlanInput.dynamicIndexCount = dynamicIndexCount;
+
+    RtSmokeAccelerationPlan accelerationPlan;
+    RtPathTraceCpuWorkGeneration accelerationPlanGeneration;
+    accelerationPlanGeneration.frameIndex = 0;
+    accelerationPlanGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
+    accelerationPlanGeneration.geometryGeneration = geometryUniverseStats.generation;
+    accelerationPlanGeneration.materialGeneration = materialTableSignature;
+    accelerationPlanGeneration.lightGeneration = BuildSmokeAccelerationPlanInputToken(accelerationPlanInput);
+    RtPathTraceCpuWorkPublishSnapshot(m_smokeCpuWorkState, accelerationPlanGeneration);
+
+    const bool asyncCpuPlanning = r_pathTracingCpuPlanningAsync.GetInteger() != 0;
+    bool accelerationPlanAcceptedFromAsync = false;
+    int staticBlasSignatureMs = 0;
+    if (asyncCpuPlanning && m_smokeAccelerationPlanFuture.valid())
     {
-        staticSignature.hash = m_smokeStaticBlasSignature;
-        staticBlasSignatureReused = true;
-    }
-    else
-    {
+        const std::future_status futureStatus =
+            m_smokeAccelerationPlanFuture.wait_for(std::chrono::seconds(0));
+        if (futureStatus == std::future_status::ready)
         {
-            OPTICK_EVENT("PT Static BLAS Signature");
-            staticSignature = ComputeSmokeStaticBlasSignature(staticVertexCache, staticIndexCache, staticTriangleClassCache, staticTriangleMaterialCache, staticGeometryRange, vec3_origin);
+            const RtSmokeAccelerationPlanTimedResult timedResult = m_smokeAccelerationPlanFuture.get();
+            m_smokeAccelerationPlanAsyncGenerationValid = false;
+            RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
+            asyncEnvelope.completed = timedResult.result.valid;
+            asyncEnvelope.generation = m_smokeAccelerationPlanAsyncGeneration;
+            asyncEnvelope.timing = m_smokeAccelerationPlanAsyncTiming;
+            asyncEnvelope.timing.workerExecutionMs = timedResult.workerExecutionMs;
+            const double asyncOutstandingMs =
+                static_cast<double>(Max(0, Sys_Milliseconds() - m_smokeAccelerationPlanAsyncLaunchMs));
+            asyncEnvelope.timing.queueWaitMs = Max(0.0, asyncOutstandingMs - timedResult.workerExecutionMs);
+            RtPathTraceCpuWorkPublishCompletedResult(m_smokeCpuWorkState, asyncEnvelope);
+
+            const RtPathTraceCpuWorkFrameDecision asyncDecision =
+                RtPathTraceCpuWorkAcceptLatest(m_smokeCpuWorkState, accelerationPlanGeneration, &asyncEnvelope, false);
+            if (asyncDecision.accepted && timedResult.result.valid)
+            {
+                accelerationPlan = timedResult.result.plan;
+                staticBlasSignatureMs = static_cast<int>(timedResult.workerExecutionMs + 0.5);
+                m_smokeAccelerationPlanAsyncCachedPlan = timedResult.result.plan;
+                m_smokeAccelerationPlanAsyncCachedGeneration = m_smokeAccelerationPlanAsyncGeneration;
+                m_smokeAccelerationPlanAsyncCachedPlanValid = true;
+                accelerationPlanAcceptedFromAsync = true;
+            }
+        }
+        else
+        {
+            RtPathTraceCpuWorkAcceptLatest(m_smokeCpuWorkState, accelerationPlanGeneration, nullptr, true);
         }
     }
-    const int staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
+    if (!accelerationPlanAcceptedFromAsync &&
+        asyncCpuPlanning &&
+        m_smokeAccelerationPlanAsyncCachedPlanValid &&
+        RtPathTraceCpuWorkGenerationEquals(m_smokeAccelerationPlanAsyncCachedGeneration, accelerationPlanGeneration))
+    {
+        accelerationPlan = m_smokeAccelerationPlanAsyncCachedPlan;
+        accelerationPlanAcceptedFromAsync = true;
+    }
+
+    if (!accelerationPlanAcceptedFromAsync)
+    {
+        const int staticSignatureStartMs = Sys_Milliseconds();
+        {
+            OPTICK_EVENT("PT CPU Acceleration Plan");
+            accelerationPlan = BuildSmokeAccelerationPlan(accelerationPlanInput);
+        }
+        staticBlasSignatureMs = Sys_Milliseconds() - staticSignatureStartMs;
+        RtPathTraceCpuWorkResultEnvelope accelerationPlanEnvelope;
+        accelerationPlanEnvelope.completed = true;
+        accelerationPlanEnvelope.generation = accelerationPlanGeneration;
+        accelerationPlanEnvelope.timing.workerExecutionMs = static_cast<double>(staticBlasSignatureMs);
+        RtPathTraceCpuWorkPublishCompletedResult(m_smokeCpuWorkState, accelerationPlanEnvelope);
+        const RtPathTraceCpuWorkFrameDecision accelerationPlanDecision =
+            RtPathTraceCpuWorkAcceptLatest(m_smokeCpuWorkState, accelerationPlanGeneration, nullptr, true);
+        if (!accelerationPlanDecision.accepted && !accelerationPlanDecision.syncFallback)
+        {
+            common->Printf("PathTracePrimaryPass: failed to accept RT smoke CPU acceleration plan\n");
+            return;
+        }
+    }
+
+    const bool asyncPlanAlreadyCached =
+        m_smokeAccelerationPlanAsyncCachedPlanValid &&
+        RtPathTraceCpuWorkGenerationEquals(m_smokeAccelerationPlanAsyncCachedGeneration, accelerationPlanGeneration);
+    const bool asyncPlanAlreadyQueued =
+        m_smokeAccelerationPlanAsyncGenerationValid &&
+        RtPathTraceCpuWorkGenerationEquals(m_smokeAccelerationPlanAsyncGeneration, accelerationPlanGeneration);
+    if (asyncCpuPlanning &&
+        !m_smokeAccelerationPlanFuture.valid() &&
+        !asyncPlanAlreadyCached &&
+        !asyncPlanAlreadyQueued)
+    {
+        const int snapshotStartMs = Sys_Milliseconds();
+        const RtSmokeAccelerationPlanSnapshot accelerationPlanSnapshot =
+            CaptureSmokeAccelerationPlanSnapshot(accelerationPlanInput);
+        m_smokeAccelerationPlanAsyncTiming = RtPathTraceCpuWorkTiming();
+        m_smokeAccelerationPlanAsyncTiming.snapshotCaptureMs =
+            static_cast<double>(Sys_Milliseconds() - snapshotStartMs);
+        m_smokeAccelerationPlanAsyncGeneration = accelerationPlanGeneration;
+        m_smokeAccelerationPlanAsyncGenerationValid = true;
+        m_smokeAccelerationPlanAsyncLaunchMs = Sys_Milliseconds();
+        m_smokeAccelerationPlanFuture = std::async(
+            std::launch::async,
+            [accelerationPlanSnapshot]() {
+                return BuildSmokeAccelerationPlanTimedResult(accelerationPlanSnapshot);
+            });
+    }
+
+    if (r_pathTracingCpuPlanningDump.GetInteger() != 0)
+    {
+        const bool asyncFuturePending = m_smokeAccelerationPlanFuture.valid();
+        common->Printf(
+            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu)\n",
+            asyncCpuPlanning ? 1 : 0,
+            accelerationPlanAcceptedFromAsync ? 1 : 0,
+            asyncPlanAlreadyCached ? 1 : 0,
+            asyncFuturePending ? 1 : 0,
+            static_cast<unsigned long long>(m_smokeCpuWorkState.acceptedResultCount),
+            static_cast<unsigned long long>(m_smokeCpuWorkState.rejectedStaleResultCount),
+            static_cast<unsigned long long>(m_smokeCpuWorkState.lateResultCount),
+            static_cast<unsigned long long>(m_smokeCpuWorkState.syncFallbackCount),
+            m_smokeCpuWorkState.lastAcceptedTiming.snapshotCaptureMs,
+            m_smokeCpuWorkState.lastAcceptedTiming.queueWaitMs,
+            m_smokeCpuWorkState.lastAcceptedTiming.workerExecutionMs,
+            m_smokeCpuWorkState.lastAcceptedTiming.renderSubmitMs,
+            static_cast<unsigned long long>(accelerationPlanGeneration.frameIndex),
+            static_cast<unsigned long long>(accelerationPlanGeneration.sceneGeneration),
+            static_cast<unsigned long long>(accelerationPlanGeneration.geometryGeneration),
+            static_cast<unsigned long long>(accelerationPlanGeneration.materialGeneration),
+            static_cast<unsigned long long>(accelerationPlanGeneration.lightGeneration));
+        r_pathTracingCpuPlanningDump.SetInteger(0);
+    }
+
+    RtSmokeStaticBlasSignature staticSignature;
+    staticSignature.hash = accelerationPlan.staticSignature.hash;
+    staticSignature.vertexCount = accelerationPlan.staticSignature.vertexCount;
+    staticSignature.indexCount = accelerationPlan.staticSignature.indexCount;
+    staticSignature.triangleCount = accelerationPlan.staticSignature.triangleCount;
+    const bool staticBlasSignatureReused = accelerationPlan.staticSignatureReused;
     const PathTraceRemixLightManagerStats remixLightManagerSignatureStats = m_remixLightManager.GetStats();
     const uint64 reservoirSceneSignature = ComputeSmokeReservoirStructuralSignature(
         materialTableSignature,
         staticSignature.hash,
         remixLightManagerSignatureStats.structuralSignature);
-    const bool staticBlasCacheHit = hasStaticBlas && m_smokeStaticBlasCacheValid && m_smokeStaticBlas &&
-        m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer && m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer &&
-        !staticCacheChanged && m_smokeStaticBlasSignature == staticSignature.hash;
+    const bool staticBlasCacheHit = accelerationPlan.staticCacheHit;
     if (staticBlasCacheHit)
     {
         smokeStaticVertexBuffer = m_smokeStaticVertexBuffer;
@@ -3878,9 +4073,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticBlasCreateDesc.device = device;
             staticBlasCreateDesc.vertexBuffer = smokeStaticVertexBuffer;
             staticBlasCreateDesc.indexBuffer = smokeStaticIndexBuffer;
-            staticBlasCreateDesc.vertexCount = staticVertexCount;
-            staticBlasCreateDesc.indexCount = staticIndexCount;
-            staticBlasCreateDesc.debugName = "PathTraceSmokeStaticWorldBLAS";
+            staticBlasCreateDesc.vertexCount = accelerationPlan.staticBlas.vertexCount;
+            staticBlasCreateDesc.indexCount = accelerationPlan.staticBlas.indexCount;
+            staticBlasCreateDesc.debugName = accelerationPlan.staticBlas.debugName;
             RtSmokeBlasCreateResult staticBlasCreateResult;
             {
                 OPTICK_EVENT("PT Create Static BLAS");
@@ -3905,9 +4100,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         dynamicBlasCreateDesc.device = device;
         dynamicBlasCreateDesc.vertexBuffer = smokeDynamicVertexBuffer;
         dynamicBlasCreateDesc.indexBuffer = smokeDynamicIndexBuffer;
-        dynamicBlasCreateDesc.vertexCount = dynamicVertexCount;
-        dynamicBlasCreateDesc.indexCount = dynamicIndexCount;
-        dynamicBlasCreateDesc.debugName = "PathTraceSmokeDynamicCandidateBLAS";
+        dynamicBlasCreateDesc.vertexCount = accelerationPlan.dynamicBlas.vertexCount;
+        dynamicBlasCreateDesc.indexCount = accelerationPlan.dynamicBlas.indexCount;
+        dynamicBlasCreateDesc.debugName = accelerationPlan.dynamicBlas.debugName;
         RtSmokeBlasCreateResult dynamicBlasCreateResult;
         {
             OPTICK_EVENT("PT Create Dynamic BLAS");
@@ -4177,6 +4372,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int blasSubmitMs = accelSubmitTiming.blasSubmitMs;
     const int tlasSubmitMs = accelSubmitTiming.tlasSubmitMs;
     const int accelSubmitMs = accelSubmitTiming.accelSubmitMs;
+    RtPathTraceCpuWorkRecordRenderSubmit(m_smokeCpuWorkState, accelerationPlanGeneration, static_cast<double>(accelSubmitMs));
     const int instanceCount = accelSubmitTiming.instanceCount;
 
     const nvrhi::TextureHandle fallbackTexture = globalImages && globalImages->whiteImage ? globalImages->whiteImage->GetTextureHandle() : nullptr;

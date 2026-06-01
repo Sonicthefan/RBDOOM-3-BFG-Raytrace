@@ -43,6 +43,14 @@ bool Finite3(const float value[3])
     return std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
 }
 
+bool Finite4(const float value[4])
+{
+    return std::isfinite(value[0]) &&
+        std::isfinite(value[1]) &&
+        std::isfinite(value[2]) &&
+        std::isfinite(value[3]);
+}
+
 float DoomAnalyticLightColorMagnitude(const PathTraceDoomAnalyticLightCandidate& light)
 {
     return Max3(
@@ -102,6 +110,39 @@ bool DoomAnalyticLightStateCompatible(
     }
 
     return true;
+}
+
+bool EmissiveTriangleInputReplayable(const PathTraceSmokeEmissiveTriangle& emissiveTriangle)
+{
+    if (!Finite4(emissiveTriangle.centerAndArea) ||
+        !Finite4(emissiveTriangle.normalAndLuminance) ||
+        !Finite4(emissiveTriangle.estimatedRadianceAndLuminance) ||
+        !Finite4(emissiveTriangle.sampleWeightAndPdf))
+    {
+        return false;
+    }
+
+    const float area = emissiveTriangle.centerAndArea[3];
+    if (area <= 1.0e-6f)
+    {
+        return false;
+    }
+
+    const float radiance[3] = {
+        std::max(emissiveTriangle.estimatedRadianceAndLuminance[0], 0.0f),
+        std::max(emissiveTriangle.estimatedRadianceAndLuminance[1], 0.0f),
+        std::max(emissiveTriangle.estimatedRadianceAndLuminance[2], 0.0f)
+    };
+    const float luminance = std::max(emissiveTriangle.estimatedRadianceAndLuminance[3], Luminance(radiance));
+    if (luminance <= 0.0f)
+    {
+        return false;
+    }
+
+    const float sourceWeight = std::max(
+        std::max(emissiveTriangle.sampleWeightAndPdf[0], luminance),
+        area > 1.0e-6f ? 1.0e-6f : 0.0f);
+    return sourceWeight > 0.0f;
 }
 
 PathTraceUnifiedLightRecord BuildUnifiedEmissiveLightRecord(
@@ -209,31 +250,45 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
     build.currentLights.reserve(currentEmissiveTriangles.size() + currentAnalyticLights.size());
     build.previousLights.reserve(previousEmissiveTriangles.size() + previousAnalyticLights.size());
 
+    std::vector<uint32_t> currentEmissiveSourceToDense(currentEmissiveTriangles.size(), PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX);
+    std::vector<uint32_t> previousEmissiveSourceToDense(previousEmissiveTriangles.size(), PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX);
     for (uint32_t emissiveIndex = 0; emissiveIndex < currentEmissiveTriangles.size(); ++emissiveIndex)
     {
+        if (!EmissiveTriangleInputReplayable(currentEmissiveTriangles[emissiveIndex]))
+        {
+            continue;
+        }
+        currentEmissiveSourceToDense[emissiveIndex] = static_cast<uint32_t>(build.currentLights.size());
         build.currentLights.push_back(BuildUnifiedEmissiveLightRecord(currentEmissiveTriangles[emissiveIndex], emissiveIndex));
     }
+    build.currentEmissiveLightCount = static_cast<uint32_t>(build.currentLights.size());
     for (uint32_t analyticIndex = 0; analyticIndex < currentAnalyticLights.size(); ++analyticIndex)
     {
         const PathTraceDoomAnalyticLightCandidateIdentity* identity =
             analyticIndex < currentAnalyticIdentities.size() ? &currentAnalyticIdentities[analyticIndex] : nullptr;
         build.currentLights.push_back(BuildUnifiedDoomAnalyticLightRecord(currentAnalyticLights[analyticIndex], identity, analyticIndex));
     }
+    build.currentAnalyticLightCount = static_cast<uint32_t>(build.currentLights.size()) - build.currentEmissiveLightCount;
 
     for (uint32_t emissiveIndex = 0; emissiveIndex < previousEmissiveTriangles.size(); ++emissiveIndex)
     {
+        if (!EmissiveTriangleInputReplayable(previousEmissiveTriangles[emissiveIndex]))
+        {
+            continue;
+        }
+        previousEmissiveSourceToDense[emissiveIndex] = static_cast<uint32_t>(build.previousLights.size());
         build.previousLights.push_back(BuildUnifiedEmissiveLightRecord(previousEmissiveTriangles[emissiveIndex], emissiveIndex));
     }
+    build.previousEmissiveLightCount = static_cast<uint32_t>(build.previousLights.size());
     for (uint32_t analyticIndex = 0; analyticIndex < previousAnalyticLights.size(); ++analyticIndex)
     {
         const PathTraceDoomAnalyticLightCandidateIdentity* identity =
             analyticIndex < previousAnalyticIdentities.size() ? &previousAnalyticIdentities[analyticIndex] : nullptr;
         build.previousLights.push_back(BuildUnifiedDoomAnalyticLightRecord(previousAnalyticLights[analyticIndex], identity, analyticIndex));
     }
+    build.previousAnalyticLightCount = static_cast<uint32_t>(build.previousLights.size()) - build.previousEmissiveLightCount;
 
     build.currentToPreviousRemap.assign(build.currentLights.size(), PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX);
-    const uint32_t previousEmissiveCount = static_cast<uint32_t>(previousEmissiveTriangles.size());
-    const uint32_t currentEmissiveCount = static_cast<uint32_t>(currentEmissiveTriangles.size());
     for (uint32_t emissiveIndex = 0; emissiveIndex < currentEmissiveTriangles.size(); ++emissiveIndex)
     {
         if (emissiveIndex >= emissiveRemap.size() || !EmissiveRemapValid(emissiveRemap[emissiveIndex]) || emissiveRemap[emissiveIndex].currentToPreviousIndex < 0)
@@ -242,10 +297,14 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
         }
 
         const uint32_t previousIndex = static_cast<uint32_t>(emissiveRemap[emissiveIndex].currentToPreviousIndex);
-        if (previousIndex < previousEmissiveCount)
+        const uint32_t currentDenseIndex = currentEmissiveSourceToDense[emissiveIndex];
+        const uint32_t previousDenseIndex = previousIndex < previousEmissiveSourceToDense.size()
+            ? previousEmissiveSourceToDense[previousIndex]
+            : PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
+        if (currentDenseIndex < build.currentToPreviousRemap.size() && previousDenseIndex < build.previousLights.size())
         {
-            build.currentToPreviousRemap[emissiveIndex] = previousIndex;
-            build.currentLights[emissiveIndex].previousIndex = previousIndex;
+            build.currentToPreviousRemap[currentDenseIndex] = previousDenseIndex;
+            build.currentLights[currentDenseIndex].previousIndex = previousDenseIndex;
         }
     }
 
@@ -278,8 +337,8 @@ PathTraceUnifiedLightBuild BuildPathTraceUnifiedLights(
             continue;
         }
 
-        const uint32_t unifiedIndex = currentEmissiveCount + analyticIndex;
-        const uint32_t previousUnifiedIndex = previousEmissiveCount + previousAnalyticIndex;
+        const uint32_t unifiedIndex = build.currentEmissiveLightCount + analyticIndex;
+        const uint32_t previousUnifiedIndex = build.previousEmissiveLightCount + previousAnalyticIndex;
         if (unifiedIndex < build.currentToPreviousRemap.size() && previousUnifiedIndex < build.previousLights.size())
         {
             build.currentToPreviousRemap[unifiedIndex] = previousUnifiedIndex;

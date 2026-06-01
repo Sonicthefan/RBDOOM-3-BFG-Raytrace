@@ -378,3 +378,36 @@ Fail:
     previous-domain indices are used directly as current indices
     compliance is claimed without a real best-light feedback source or without
         explicitly documenting the approximation
+
+
+Contract C-13 / RLU-14: Emissive Triangle Replay
+------------------------------------------------
+
+Required behavior:
+
+    RLU emissive records represent replayable emissive triangle area lights
+    selected emissive identity remains the dense current RLU index
+    sourceIndex / instanceId / primitiveIndex / material data must resolve to
+        the actual current or previous emissive triangle payload
+    center-position point/area conversion is not a valid replay contract
+    RAB emissive sampling uses the real triangle sample position and UV
+    solidAnglePdf is computed from areaPdf, sampled distance, and light-facing
+        term
+
+Pass:
+
+    emissive samples land on the actual emitting triangle/surface
+    textured emissives evaluate material/emissive texture at sampled triangle
+        UVs when available
+    missing geometry or material rejects only that emissive candidate
+    diagnostics report replayable triangle count and invalid-replay reasons
+
+Fail:
+
+    an emissive triangle collapses to a center-position point light
+    center plus area is treated as a valid fake surface when triangle geometry
+        is unavailable
+    invalid emissive replay enters clean DI reservoirs as a valid selected
+        light
+    multiple triangles are aggregated into a new surface-light identity before
+        one-triangle replay correctness is proven

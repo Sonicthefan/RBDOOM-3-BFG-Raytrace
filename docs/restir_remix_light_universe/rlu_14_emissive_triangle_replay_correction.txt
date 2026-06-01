@@ -1,0 +1,253 @@
+RLU-14 Emissive Triangle Replay Correction
+==========================================
+
+Purpose
+-------
+
+Fix the active RLU emissive consume path so emissive sources replay as real
+emissive triangle area lights.  The previous attempt to convert emissive
+sources into point/center-style lights is not a viable proof path and must be
+removed or bypassed for the normal clean DI lane.
+
+This task starts after RLU-13.  The clean DI default view-12 route, dense
+current/previous RLU buffers, two-way mapping, typed range metadata, typed
+initial sampling, and previous-best approximation must remain intact.
+
+
+Reference File-Equivalents
+--------------------------
+
+RTXDI:
+
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PrepareLights.hlsl
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/PolymorphicLight.hlsli
+    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/RtxdiApplicationBridge/RAB_LightInfo.hlsli
+
+RTX Remix:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/rtxdi/RtxdiApplicationBridge.slangh
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache_light.slangh
+
+Use these only for contract shape.  Do not copy source text.
+
+
+Required rbdoom Read Set
+------------------------
+
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    docs/restir_remix_light_universe/contract_matrix.txt
+    docs/restir_remix_light_universe/io_whitelist.txt
+    docs/restir_remix_light_universe/validation_matrix.txt
+    docs/restir_remix_light_universe/worker_tasks.txt
+
+
+Allowed rbdoom Write Set
+------------------------
+
+    neo/renderer/NVRHI/PathTraceUnifiedLight.cpp
+    neo/renderer/NVRHI/PathTraceUnifiedLight.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightInfoCore.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
+    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightSamplingCore.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    docs/restir_remix_light_universe
+
+
+Required Contract
+-----------------
+
+RLU emissive records must:
+
+    preserve dense current RLU identity
+    preserve dense previous RLU identity
+    preserve current-to-previous and previous-to-current remap semantics
+    carry enough source identity or payload data to resolve actual triangle
+        geometry
+    carry or recover triangle positions
+    carry or recover triangle UVs
+    carry or recover material and emissive texture state when available
+    reject locally when real triangle replay is impossible
+
+RAB emissive sampling must:
+
+    sample the actual selected triangle using barycentric coordinates
+    evaluate emissive material/texture at the sampled triangle UV when available
+    compute areaPdf as 1 / triangleArea
+    convert areaPdf to solidAnglePdf using sampled distance and light-facing
+        term
+    trace visibility to the sampled triangle point
+
+
+Forbidden
+---------
+
+Do not:
+
+    collapse emissive surfaces to center-position point lights
+    treat center plus area as a valid fake surface when triangle geometry is
+        missing
+    aggregate multiple triangles into a new surface-light identity
+    build a private emissive light universe
+    replace the active t66/t67 RLU domain with NEE-cache, ReGIR, PDFNEE,
+        portal pools, or old Doom analytic arrays
+    change RTXDI reservoir math
+    change spatial reuse, denoiser, confidence, gradient, or temporal reuse
+    change RLU-13 previous-best behavior
+    add weighted emissive proposal changes before replay correctness is proven
+    hide failures with broad light suppression or fallback beauty
+
+
+Required Diagnostics
+--------------------
+
+Add or expose diagnostics for:
+
+    replayable emissive triangle count
+    missing triangle geometry
+    missing material or texture state
+    zero triangle area
+    zero radiance or zero source weight
+    failed triangle UV/material replay
+    center-fallback attempts
+
+The center-fallback diagnostic must be zero in the normal clean DI path.
+
+
+Implemented First Slice
+-----------------------
+
+The first implementation removes the clean DI hard reject that made RLU
+emissive records unreachable, but it does not reintroduce the center-light
+fallback.  A clean DI RLU emissive now produces a light only when:
+
+    the dense RLU source index resolves to the current or previous emissive
+        triangle record
+    the record resolves to real triangle vertices and UVs
+    triangle area computed from the resolved vertices is nonzero
+    the material record exists and is in an active emissive stage
+    replay radiance and source weight are nonzero
+
+The shader derives the replay normal and area from the resolved triangle
+geometry, then the existing RAB emissive sampler uses barycentric triangle
+sampling and sampled triangle UVs.  Missing geometry/material/area/radiance
+rejects only that emissive candidate.
+
+The existing RLU CPU payload replay audit was tightened so emissive
+replayable/invalid counts also require source triangle geometry and material
+eligibility instead of accepting center/area payloads alone.
+
+The second implementation slice fixes the producer boundary exposed by that
+audit.  BuildPathTraceUnifiedLights now excludes non-replayable emissive
+placeholder records from the dense RLU domain instead of assigning them dense
+current/previous slots.  It keeps the original emissive sourceIndex on accepted
+records for shader replay, and builds source-index-to-dense-index maps so
+emissive remaps still target dense indices after filtering.  The Remix light
+manager now uses the filtered dense emissive/analytic counts for sorting,
+range construction, and non-light-universe analytic offsets.
+
+The third implementation slice fixes the default clean DI scene-build gate.
+The clean DI manager route could implicitly request domain 2 while
+r_pathTracingRemixLightUniverseEnable remained 0, but the upstream emissive
+scene-build gate still required the explicit enable cvar.  The gate now uses
+the same implicit clean-route domain selection as the manager, so default view
+12 can request RLU emissive capture without forcing a full-map/full-domain
+fallback.
+
+The fourth implementation slice fixes clean-route emissive policy bits.  The
+shared RAB emissive triangle sampler already has a two-sided path for Doom
+emissive panels whose winding is not reliable, and the cvar defaults on, but
+the clean DI route did not set the TextureInfo flag that enables it.  Clean DI
+now enables the existing emissive-map and two-sided-emissive policy bits when
+the corresponding cvars are on, matching the established emissive reservoir
+diagnostic policy without changing RTXDI reservoir math.
+
+The fifth implementation slice fixes default clean selected visibility for
+real emissive triangle replay.  The external-PDF NEE and NEE-cache provider
+routes already traced selected emissive samples with source-triangle ignore,
+but default view 12 traced to the sampled triangle without that ignore.  This
+could make the emitter shadow itself, especially for ceiling panels and other
+formerly collapsed emissives where the sampled point lies on actual source
+geometry.  The default clean selected visibility path now uses the current RLU
+record's emissive instance, primitive, and material identity for source
+triangle ignore while leaving analytic visibility and RTXDI reservoir math
+unchanged.
+
+The sixth implementation slice fixes the bounded typed proposal contract for
+emissive area replay.  The RLU manager and clean shader were clamping typed
+proposal sample counts to the number of lights in the range, which conflated
+range light count with bounded proposal count.  A single masked or rounded
+emissive panel therefore received only one triangle-UV proposal even when the
+initial candidate budget had room for more samples.  The manager now keeps the
+proposal sample count as a bounded sample count, and the clean typed producer
+may stream multiple UV samples from the same dense emissive light.  The stored
+reservoir light identity remains the dense current RLU index, and the source
+PDF still comes from range count, range sample count, and total proposal
+samples.
+
+A diagnostic cvar was added for the remaining source-facing investigation:
+
+    r_pathTracingCleanRtxdiDiDummyEmissiveNormals
+
+When enabled, clean RLU emissive triangle samples use orientation-independent
+source facing.  This is not a correctness path and must remain default off; it
+exists only to separate bad emissive source normals/facing from texture-mask,
+receiver-normal, visibility, or reservoir identity problems.
+
+    r_pathTracingCleanRtxdiDiForceEmissiveVisibility
+
+When enabled, selected clean RLU emissive samples bypass the clean shadow
+visibility test and return visible.  This is also default off and diagnostic
+only; it separates clean shadow/ignore rejection from target-PDF, sample replay,
+or reservoir selection failures.
+
+View 8 band 15 was added as a selected-light-type diagnostic.  The left half
+shows the current/initial reservoir and the right half shows the temporal
+reservoir:
+
+    blue = selected emissive
+    orange = selected Doom analytic
+    red = no selected reservoir
+    magenta = selected index outside active domain
+    orange-red = selected light could not load
+    purple = invalid primary surface
+
+When temporal is disabled, band 15 reports the current/initial selected light
+type full-screen instead of using the two-half current/temporal split.
+
+
+Validation
+----------
+
+Use the default clean DI route:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiLightMode 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+    r_pathTracingCleanRtxdiDiBestLights 1
+
+Use RLU dumps to verify emissive domain state:
+
+    r_pathTracingRemixLightUniverseDomain 1
+    r_pathTracingRemixLightUniverseDump 1
+
+Expected proof:
+
+    emissive RLU records replay through actual triangle geometry
+    clean RTXDI view 12 emissive contribution follows visible emitting surfaces
+    textured emissives respond to material/texture sampling at triangle UVs
+    invalid emissive records reject only that candidate
+    analytic RLU sampling, current/previous maps, and RLU-13 previous-best
+        behavior do not regress
+
+Fail the task if emissive surfaces still produce point-light hotspots at
+triangle or surface centers.
