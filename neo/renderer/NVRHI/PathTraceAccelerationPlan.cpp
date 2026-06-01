@@ -1,5 +1,6 @@
 #include "PathTraceAccelerationPlan.h"
 
+#include <chrono>
 #include <cstring>
 
 namespace {
@@ -251,6 +252,17 @@ RtSmokeAccelerationPlanResult BuildSmokeAccelerationPlanResult(
     result.plan = BuildSmokeAccelerationPlan(input);
     result.valid = result.plan.hasStaticBlas || result.plan.hasDynamicBlas;
     return result;
+}
+
+RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
+    const RtSmokeAccelerationPlanSnapshot& snapshot)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtSmokeAccelerationPlanTimedResult timedResult;
+    timedResult.result = BuildSmokeAccelerationPlanResult(snapshot);
+    const auto end = std::chrono::steady_clock::now();
+    timedResult.workerExecutionMs = std::chrono::duration<double, std::milli>(end - start).count();
+    return timedResult;
 }
 
 RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBlas)

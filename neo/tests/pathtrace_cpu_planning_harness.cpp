@@ -330,10 +330,10 @@ void TestAsyncSnapshotPlanning()
     generation.materialGeneration = 3;
     RtPathTraceCpuWorkPublishSnapshot(state, generation);
 
-    std::future<RtSmokeAccelerationPlanResult> future = std::async(
+    std::future<RtSmokeAccelerationPlanTimedResult> future = std::async(
         std::launch::async,
         [snapshot]() {
-            return BuildSmokeAccelerationPlanResult(snapshot);
+            return BuildSmokeAccelerationPlanTimedResult(snapshot);
         });
 
     vertices[2].position[0] = 42.0f;
@@ -342,15 +342,17 @@ void TestAsyncSnapshotPlanning()
     Check(lateDecision.lateFallback && lateDecision.syncFallback, "late async acceleration plan requests synchronous fallback");
 
     RtPathTraceCpuWorkResultEnvelope envelope;
-    const RtSmokeAccelerationPlanResult asyncResult = future.get();
+    const RtSmokeAccelerationPlanTimedResult timedResult = future.get();
+    const RtSmokeAccelerationPlanResult& asyncResult = timedResult.result;
     envelope.completed = asyncResult.valid;
     envelope.generation = generation;
-    envelope.timing.workerExecutionMs = 1.0;
+    envelope.timing.workerExecutionMs = timedResult.workerExecutionMs;
     RtPathTraceCpuWorkPublishCompletedResult(state, envelope);
     const RtPathTraceCpuWorkFrameDecision acceptDecision =
         RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
     Check(acceptDecision.accepted, "matching async acceleration plan generation is accepted");
     Check(asyncResult.plan.staticSignature.hash == directPlan.staticSignature.hash, "async acceleration plan uses owned immutable snapshot data");
+    Check(timedResult.workerExecutionMs >= 0.0, "timed acceleration worker result records execution time");
 
     RtPathTraceCpuWorkGeneration staleGeneration = generation;
     staleGeneration.geometryGeneration = 99;

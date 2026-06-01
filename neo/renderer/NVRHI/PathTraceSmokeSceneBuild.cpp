@@ -62,17 +62,6 @@ int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
 
-RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
-    const RtSmokeAccelerationPlanSnapshot& snapshot)
-{
-    const auto start = std::chrono::steady_clock::now();
-    RtSmokeAccelerationPlanTimedResult timedResult;
-    timedResult.result = BuildSmokeAccelerationPlanResult(snapshot);
-    const auto end = std::chrono::steady_clock::now();
-    timedResult.workerExecutionMs = std::chrono::duration<double, std::milli>(end - start).count();
-    return timedResult;
-}
-
 struct CleanRtxdiDiAnalyticDomainFreezeState
 {
     bool valid = false;

@@ -280,6 +280,9 @@ RtSmokeAccelerationPlan BuildSmokeAccelerationPlan(
 RtSmokeAccelerationPlanResult BuildSmokeAccelerationPlanResult(
     const RtSmokeAccelerationPlanSnapshot& snapshot);
 
+RtSmokeAccelerationPlanTimedResult BuildSmokeAccelerationPlanTimedResult(
+    const RtSmokeAccelerationPlanSnapshot& snapshot);
+
 RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBlas);
 
 RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
