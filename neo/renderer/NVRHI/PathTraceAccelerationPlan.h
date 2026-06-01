@@ -127,7 +127,17 @@ enum RtSmokePlanTlasInstanceKind : uint32_t
 {
     RT_SMOKE_PLAN_TLAS_STATIC_BLAS = 0,
     RT_SMOKE_PLAN_TLAS_DYNAMIC_BLAS = 1,
-    RT_SMOKE_PLAN_TLAS_RIGID_BLAS = 2
+    RT_SMOKE_PLAN_TLAS_RIGID_BLAS = 2,
+    RT_SMOKE_PLAN_TLAS_STATIC_BUCKET_BLAS = 3
+};
+
+enum RtSmokeStaticActiveReasonFlags : uint32_t
+{
+    RT_SMOKE_STATIC_ACTIVE_VISIBLE = 1u << 0,
+    RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA = 1u << 1,
+    RT_SMOKE_STATIC_ACTIVE_RESIDENCY = 1u << 2,
+    RT_SMOKE_STATIC_ACTIVE_EMISSIVE_PLACEHOLDER = 1u << 3,
+    RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE = 1u << 4
 };
 
 struct RtSmokePlanTlasInstance
@@ -162,6 +172,54 @@ struct RtSmokeAccelerationSubmitPlan
     bool buildStaticBlas = false;
     bool buildDynamicBlas = false;
     bool submitTlas = false;
+};
+
+struct RtSmokeStaticTlasBucketObservation
+{
+    uint64_t bucketKey = 0;
+    uint32_t activeReasonFlags = 0;
+    bool resident = false;
+    bool active = false;
+    bool hasBlas = false;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    int residentSurfaceCount = 0;
+    int residentVertexCount = 0;
+    int residentIndexCount = 0;
+    int residentTriangleCount = 0;
+    int activeSurfaceCount = 0;
+    int activeVertexCount = 0;
+    int activeIndexCount = 0;
+    int activeTriangleCount = 0;
+};
+
+struct RtSmokeStaticTlasActiveSetPlanDesc
+{
+    const RtSmokeStaticTlasBucketObservation* buckets = nullptr;
+    int bucketCount = 0;
+    bool monolithicStaticBlas = true;
+    bool hasStaticBlas = false;
+    uint32_t firstInstanceId = 0;
+    uint32_t instanceMask = 0x01;
+};
+
+struct RtSmokeStaticTlasActiveSetPlan
+{
+    std::vector<RtSmokePlanTlasInstance> instances;
+    int residentBuckets = 0;
+    int activeBuckets = 0;
+    int inactiveResidentBuckets = 0;
+    int emittedInstances = 0;
+    int residentSurfaceCount = 0;
+    int residentVertexCount = 0;
+    int residentIndexCount = 0;
+    int residentTriangleCount = 0;
+    int activeSurfaceCount = 0;
+    int activeVertexCount = 0;
+    int activeIndexCount = 0;
+    int activeTriangleCount = 0;
+    bool monolithicStaticBlas = true;
+    bool inactiveResidentGeometryIncluded = false;
+    bool requiresBucketedStaticBlas = false;
 };
 
 struct RtSmokeRigidTlasObservation
@@ -303,6 +361,9 @@ RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBl
 
 RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
     const RtSmokeAccelerationSubmitPlanInput& input);
+
+RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
+    const RtSmokeStaticTlasActiveSetPlanDesc& desc);
 
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,

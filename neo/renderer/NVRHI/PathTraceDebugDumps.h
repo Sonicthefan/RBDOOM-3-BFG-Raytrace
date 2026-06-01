@@ -173,6 +173,8 @@ struct RtSmokeSceneBuildSummaryLogDesc
     int dynamicVertexCount = 0;
     int instanceCount = 0;
     int rigidTlasInstanceCount = 0;
+    bool staticMonolithicInactiveIncluded = false;
+    bool staticRequiresBucketedBlas = false;
     uint64 staticUploadBytes = 0;
     uint64 previousStaticUploadBytes = 0;
     uint64 previousStaticUploadSkippedBytes = 0;
@@ -269,6 +271,8 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int dynamicVertexCount = 0;
     int instanceCount = 0;
     int rigidTlasInstanceCount = 0;
+    bool staticMonolithicInactiveIncluded = false;
+    bool staticRequiresBucketedBlas = false;
     int requestedDebugMode = 0;
     uint64 staticUploadBytes = 0;
     uint64 previousStaticUploadBytes = 0;

@@ -502,13 +502,15 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
 {
     common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
         desc.staticIndexCount, desc.dynamicIndexCount, desc.instanceCount);
-    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
         desc.classStats.staticWorldSurfaces,
         desc.staticVertexCount,
         desc.staticIndexCount,
         desc.staticSurfaceCacheSize,
         desc.staticVertexCacheCount,
         desc.staticIndexCacheCount,
+        desc.staticMonolithicInactiveIncluded ? 1 : 0,
+        desc.staticRequiresBucketedBlas ? 1 : 0,
         desc.dynamicVertexCount,
         desc.dynamicIndexCount,
         desc.instanceCount - desc.rigidTlasInstanceCount,
@@ -1709,6 +1711,8 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.dynamicVertexCount = desc.dynamicVertexCount;
     sceneSummaryLog.instanceCount = desc.instanceCount;
     sceneSummaryLog.rigidTlasInstanceCount = desc.rigidTlasInstanceCount;
+    sceneSummaryLog.staticMonolithicInactiveIncluded = desc.staticMonolithicInactiveIncluded;
+    sceneSummaryLog.staticRequiresBucketedBlas = desc.staticRequiresBucketedBlas;
     sceneSummaryLog.staticUploadBytes = desc.staticUploadBytes;
     sceneSummaryLog.previousStaticUploadBytes = desc.previousStaticUploadBytes;
     sceneSummaryLog.previousStaticUploadSkippedBytes = desc.previousStaticUploadSkippedBytes;

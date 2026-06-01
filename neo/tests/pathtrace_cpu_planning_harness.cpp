@@ -467,6 +467,87 @@ void TestRigidBlasBuildPlan()
     Check(!gateOffPlan.createBlas && !gateOffPlan.submitBuild && gateOffPlan.skipBuild, "rigid BLAS build gate skips build submission");
 }
 
+void TestStaticActiveSetPlan()
+{
+    RtSmokeStaticTlasBucketObservation buckets[3];
+    buckets[0].bucketKey = 100;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].residentSurfaceCount = 1;
+    buckets[0].residentVertexCount = 10;
+    buckets[0].residentIndexCount = 30;
+    buckets[0].residentTriangleCount = 10;
+    buckets[0].activeSurfaceCount = 1;
+    buckets[0].activeVertexCount = 10;
+    buckets[0].activeIndexCount = 30;
+    buckets[0].activeTriangleCount = 10;
+
+    buckets[1].bucketKey = 200;
+    buckets[1].resident = true;
+    buckets[1].active = false;
+    buckets[1].hasBlas = true;
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].residentSurfaceCount = 1;
+    buckets[1].residentVertexCount = 20;
+    buckets[1].residentIndexCount = 60;
+    buckets[1].residentTriangleCount = 20;
+
+    buckets[2].bucketKey = 300;
+    buckets[2].resident = true;
+    buckets[2].active = true;
+    buckets[2].hasBlas = true;
+    buckets[2].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE;
+    buckets[2].routeRecordIndex = 2;
+    buckets[2].residentSurfaceCount = 1;
+    buckets[2].residentVertexCount = 5;
+    buckets[2].residentIndexCount = 15;
+    buckets[2].residentTriangleCount = 5;
+    buckets[2].activeSurfaceCount = 1;
+    buckets[2].activeVertexCount = 5;
+    buckets[2].activeIndexCount = 15;
+    buckets[2].activeTriangleCount = 5;
+
+    RtSmokeStaticTlasActiveSetPlanDesc desc;
+    desc.buckets = buckets;
+    desc.bucketCount = 3;
+    desc.hasStaticBlas = true;
+    desc.firstInstanceId = 4;
+    desc.instanceMask = 0x01;
+
+    const RtSmokeStaticTlasActiveSetPlan monolithicPlan = BuildSmokeStaticTlasActiveSetPlan(desc);
+    Check(monolithicPlan.emittedInstances == 1, "monolithic static active-set plan emits one static TLAS instance");
+    Check(monolithicPlan.activeBuckets == 2 && monolithicPlan.inactiveResidentBuckets == 1, "static active-set plan separates active and resident buckets");
+    Check(monolithicPlan.inactiveResidentGeometryIncluded && monolithicPlan.requiresBucketedStaticBlas, "monolithic static active-set plan reports inactive resident geometry included");
+
+    desc.monolithicStaticBlas = false;
+    const RtSmokeStaticTlasActiveSetPlan bucketPlan = BuildSmokeStaticTlasActiveSetPlan(desc);
+    Check(bucketPlan.emittedInstances == 2 && bucketPlan.instances.size() == 2, "bucketed static active-set plan omits resident inactive geometry from TLAS");
+    Check(bucketPlan.instances[0].kind == RT_SMOKE_PLAN_TLAS_STATIC_BUCKET_BLAS && bucketPlan.instances[0].meshHash == 100, "bucketed static active-set plan preserves first active bucket identity");
+    Check(bucketPlan.instances[1].instanceId == 5 && bucketPlan.instances[1].flags == RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE, "bucketed static active-set plan emits deterministic instance ids and reason flags");
+    Check(!bucketPlan.inactiveResidentGeometryIncluded && !bucketPlan.requiresBucketedStaticBlas, "bucketed static active-set plan does not include inactive resident geometry");
+
+    buckets[2].hasBlas = false;
+    const RtSmokeStaticTlasActiveSetPlan missingBucketBlasPlan = BuildSmokeStaticTlasActiveSetPlan(desc);
+    Check(missingBucketBlasPlan.activeBuckets == 2 && missingBucketBlasPlan.emittedInstances == 1, "bucketed static active-set plan waits for active bucket BLAS readiness");
+
+    RtSmokeStaticTlasBucketObservation monolithicSurfaceDeltaBucket = buckets[0];
+    monolithicSurfaceDeltaBucket.residentSurfaceCount = 3;
+    monolithicSurfaceDeltaBucket.activeSurfaceCount = 2;
+    monolithicSurfaceDeltaBucket.residentVertexCount = monolithicSurfaceDeltaBucket.activeVertexCount;
+    monolithicSurfaceDeltaBucket.residentIndexCount = monolithicSurfaceDeltaBucket.activeIndexCount;
+    monolithicSurfaceDeltaBucket.residentTriangleCount = monolithicSurfaceDeltaBucket.activeTriangleCount;
+    RtSmokeStaticTlasActiveSetPlanDesc surfaceDeltaDesc;
+    surfaceDeltaDesc.buckets = &monolithicSurfaceDeltaBucket;
+    surfaceDeltaDesc.bucketCount = 1;
+    surfaceDeltaDesc.monolithicStaticBlas = true;
+    surfaceDeltaDesc.hasStaticBlas = true;
+    const RtSmokeStaticTlasActiveSetPlan surfaceDeltaPlan = BuildSmokeStaticTlasActiveSetPlan(surfaceDeltaDesc);
+    Check(surfaceDeltaPlan.inactiveResidentGeometryIncluded && surfaceDeltaPlan.requiresBucketedStaticBlas, "monolithic static active-set plan detects inactive retained surfaces even when vertex counts match");
+}
+
 void TestUploadPlan()
 {
     const RtSmokeUploadPlanMetadata fullUpload = BuildSmokeVectorUploadPlanMetadata(10, 4, false, -1, 0);
@@ -705,6 +786,7 @@ int main(int argc, char** argv)
     TestAsyncSnapshotPlanning();
     TestRigidPlan();
     TestRigidBlasBuildPlan();
+    TestStaticActiveSetPlan();
     TestUploadPlan();
     TestGenerationAcceptance();
 

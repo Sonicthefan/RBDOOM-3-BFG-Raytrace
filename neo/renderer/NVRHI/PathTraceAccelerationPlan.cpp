@@ -300,6 +300,87 @@ RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
     return plan;
 }
 
+RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
+    const RtSmokeStaticTlasActiveSetPlanDesc& desc)
+{
+    RtSmokeStaticTlasActiveSetPlan plan;
+    plan.monolithicStaticBlas = desc.monolithicStaticBlas;
+    if (!desc.buckets || desc.bucketCount <= 0)
+    {
+        return plan;
+    }
+
+    plan.instances.reserve(desc.monolithicStaticBlas ? 1 : desc.bucketCount);
+    bool monolithicInstanceEmitted = false;
+    for (int bucketIndex = 0; bucketIndex < desc.bucketCount; ++bucketIndex)
+    {
+        const RtSmokeStaticTlasBucketObservation& bucket = desc.buckets[bucketIndex];
+        if (!bucket.resident)
+        {
+            continue;
+        }
+
+        ++plan.residentBuckets;
+        plan.residentSurfaceCount += bucket.residentSurfaceCount;
+        plan.residentVertexCount += bucket.residentVertexCount;
+        plan.residentIndexCount += bucket.residentIndexCount;
+        plan.residentTriangleCount += bucket.residentTriangleCount;
+        if (!bucket.active)
+        {
+            ++plan.inactiveResidentBuckets;
+            continue;
+        }
+
+        ++plan.activeBuckets;
+        plan.activeSurfaceCount += bucket.activeSurfaceCount;
+        plan.activeVertexCount += bucket.activeVertexCount;
+        plan.activeIndexCount += bucket.activeIndexCount;
+        plan.activeTriangleCount += bucket.activeTriangleCount;
+        if (!bucket.hasBlas || !desc.hasStaticBlas)
+        {
+            continue;
+        }
+
+        if (desc.monolithicStaticBlas)
+        {
+            if (!monolithicInstanceEmitted)
+            {
+                RtSmokePlanTlasInstance instance;
+                instance.kind = RT_SMOKE_PLAN_TLAS_STATIC_BLAS;
+                instance.instanceId = desc.firstInstanceId;
+                instance.instanceMask = desc.instanceMask;
+                CopyIdentityTransform(instance.transform);
+                plan.instances.push_back(instance);
+                ++plan.emittedInstances;
+                monolithicInstanceEmitted = true;
+            }
+            continue;
+        }
+
+        RtSmokePlanTlasInstance instance;
+        instance.kind = RT_SMOKE_PLAN_TLAS_STATIC_BUCKET_BLAS;
+        instance.instanceId = desc.firstInstanceId + static_cast<uint32_t>(plan.emittedInstances);
+        instance.instanceMask = desc.instanceMask;
+        instance.meshHash = bucket.bucketKey;
+        instance.routeRecordIndex = bucket.routeRecordIndex;
+        instance.flags = bucket.activeReasonFlags;
+        CopyIdentityTransform(instance.transform);
+        plan.instances.push_back(instance);
+        ++plan.emittedInstances;
+    }
+
+    plan.inactiveResidentGeometryIncluded =
+        desc.monolithicStaticBlas &&
+        plan.emittedInstances > 0 &&
+        (plan.inactiveResidentBuckets > 0 ||
+            plan.activeSurfaceCount < plan.residentSurfaceCount ||
+            plan.activeVertexCount < plan.residentVertexCount ||
+            plan.activeIndexCount < plan.residentIndexCount ||
+            plan.activeTriangleCount < plan.residentTriangleCount);
+    plan.requiresBucketedStaticBlas = plan.inactiveResidentGeometryIncluded;
+    return plan;
+}
+
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,
     const RtSmokeRigidTlasPlanDesc& desc,
