@@ -53,6 +53,19 @@ RtPathTraceCpuWorkFrameDecision RtPathTraceCpuWorkAcceptLatest(
 
     if (!latestResult || !latestResult->completed)
     {
+        if (state.currentResult.valid &&
+            state.currentResult.result.completed &&
+            RtPathTraceCpuWorkGenerationEquals(state.currentResult.result.generation, expectedGeneration))
+        {
+            decision.accepted = true;
+            decision.reusedCurrent = true;
+            state.acceptedGeneration = state.currentResult.result.generation;
+            state.lastAcceptedTiming = state.currentResult.result.timing;
+            state.hasAccepted = true;
+            state.hasPending = false;
+            return decision;
+        }
+
         decision.lateFallback = true;
         decision.syncFallback = synchronousFallbackAllowed;
         ++state.lateResultCount;

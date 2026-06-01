@@ -41,6 +41,7 @@ struct RtPathTraceCpuWorkResultSlot
 struct RtPathTraceCpuWorkFrameDecision
 {
     bool accepted = false;
+    bool reusedCurrent = false;
     bool staleRejected = false;
     bool lateFallback = false;
     bool syncFallback = false;

@@ -527,6 +527,10 @@ void TestGenerationAcceptance()
     Check(acceptedDecision.accepted && state.acceptedResultCount == 1, "matching generation result is accepted");
     Check(state.currentResult.valid && !state.pendingResult.valid, "accepted CPU work result becomes current and clears pending");
 
+    const RtPathTraceCpuWorkFrameDecision reusedCurrentDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, expected, nullptr, true);
+    Check(reusedCurrentDecision.accepted && reusedCurrentDecision.reusedCurrent && !reusedCurrentDecision.lateFallback, "matching current CPU work result is reused without late fallback");
+
     RtPathTraceCpuWorkGeneration nextExpected = expected;
     nextExpected.frameIndex = 6;
     RtPathTraceCpuWorkPublishSnapshot(state, nextExpected);
