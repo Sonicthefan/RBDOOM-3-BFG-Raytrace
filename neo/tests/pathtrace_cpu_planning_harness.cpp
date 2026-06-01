@@ -472,6 +472,17 @@ void TestGenerationAcceptance()
     Check(state.lastAcceptedTiming.renderSubmitMs == 3.5, "render submit timing is retained on accepted result");
     Check(!RtPathTraceCpuWorkRecordRenderSubmit(state, expected, 9.0), "render submit timing rejects stale generation");
     Check(state.rejectedStaleResultCount == 1 && state.lateResultCount == 1 && state.syncFallbackCount == 2, "CPU work ownership counters track stale and late fallbacks");
+
+    RtPathTraceCpuWorkGeneration stalePendingExpected = nextExpected;
+    stalePendingExpected.frameIndex = 7;
+    RtPathTraceCpuWorkPublishSnapshot(state, stalePendingExpected);
+    RtPathTraceCpuWorkResultEnvelope stalePending;
+    stalePending.completed = true;
+    stalePending.generation = nextExpected;
+    RtPathTraceCpuWorkPublishCompletedResult(state, stalePending);
+    const RtPathTraceCpuWorkFrameDecision stalePendingDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, stalePendingExpected, nullptr, true);
+    Check(stalePendingDecision.staleRejected && !state.pendingResult.valid && !state.hasPending, "stale pending CPU work result is discarded after rejection");
 }
 
 void RunStressMode(int iterations)
