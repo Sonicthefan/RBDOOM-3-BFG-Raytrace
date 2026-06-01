@@ -350,13 +350,46 @@ Fail:
         proven
 
 
+Rung V-14 / RLU-15: Clean DI Basic Spatial Reuse
+------------------------------------------------
+
+Purpose:
+
+    Add a bounded basic spatial reuse pass to the default clean DI view-12 RLU
+    lane after emissive triangle replay is correct.
+
+Expected:
+
+    temporal producer still runs through the existing clean DI sentinel shader
+    spatial reuse runs through a separate clean DI spatial shader
+    neighbor reservoirs are read from the copied temporal/source page
+    spatial output writes a separate spatial reservoir page
+    the RLU current/previous dense domains and emissive replay eligibility do
+        not change
+
+Pass:
+
+    default clean DI view 12 dump reports spatial=1, selectedCleanShader=2,
+    cleanSpatialReservoir=1, pages spatial=u72, and spatialParams with the
+    configured samples/disocclusion/radius values
+
+Fail:
+
+    the route uses the sentinel shader for the spatial pass
+    spatial reuse changes RLU dense-domain counts, remaps, or emissive replay
+    spatial proof depends on denoiser, gradient/confidence, ReGIR, NEE-cache,
+        PDFNEE, full-map/full-domain brute force, or mode 56
+
+
 Hard Stop
 ---------
 
 Stop at the first failing rung.
 
-Do not continue to spatial, denoiser, gradient/confidence, ReGIR-as-default-DI,
-PDFNEE-as-proof, or broad light suppression to hide a failing RLU or clean DI
-sampling contract.  Previous-best initial sampling is allowed only at V-12 after
-the active RLU payload, range, and typed proposal contracts pass.  Weighted
-emissive proposal work is allowed only after V-13 proves real triangle replay.
+Do not continue to denoiser, gradient/confidence, enhanced spatial replacement,
+ReGIR-as-default-DI, PDFNEE-as-proof, or broad light suppression to hide a
+failing RLU or clean DI sampling contract.  Previous-best initial sampling is
+allowed only at V-12 after the active RLU payload, range, and typed proposal
+contracts pass.  Weighted emissive proposal work is allowed only after V-13
+proves real triangle replay.  Basic spatial reuse is allowed only at V-14 after
+the active clean DI emissive replay path passes.

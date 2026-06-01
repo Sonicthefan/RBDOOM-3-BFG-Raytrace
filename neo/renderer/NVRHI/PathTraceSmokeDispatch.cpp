@@ -42,6 +42,8 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE = 1u << 15u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS = 1u << 16u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
@@ -301,9 +303,10 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     float toyPathInfo[4] = {};
     float geometryInfo0[4] = {};
     float geometryInfo1[4] = {};
+    float spatialInfo[4] = {};
 };
 
-static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 464, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
+static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 480, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
 
 uint32_t RrxDiRequestedInitialSampleBudget(uint32_t emissiveSampleCount, uint32_t doomAnalyticSampleCount)
 {
@@ -973,6 +976,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
     const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 15;
+    const bool cleanRtxdiDiSpatialShaderRequested =
+        cleanRtxdiDiRouteRequested &&
+        r_cleanDiSpatial.GetInteger() != 0 &&
+        (cleanRtxdiDiView == 12 ||
+            (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16));
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
@@ -1530,13 +1538,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const PathTraceRemixLightEventSample& cleanDumpCurrentOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstCurrentOnly : cleanDumpEmptyRluSample;
         const PathTraceRemixLightEventSample& cleanDumpPreviousOnly = cleanDumpRluRoute ? cleanDumpRluStats.firstPreviousOnly : cleanDumpEmptyRluSample;
         common->Printf(
-            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluRanges emissive=%u+%u doomAnalytic=%u+%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d cleanToyEmissiveScale=%.3f cleanAnalyticScale=%.3f cleanUseEmissiveMaps=%d cleanDisableEmissiveTriangles=%d cleanAnalyticCandidates=%d cleanNeeCacheProvider requested/ready=%d/%d buildPrepass=%d startupDelay=%u startupRefresh=%u stableView=%d stableFrames=%u deferredByClear=%d providerSnapshotHold=%d band10ExitedClear=%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 fallbackProbability=%.3f sourceDomain=%d(%s) cellResolution=%d cleanNeeCacheProducer=nee-cache-stable-view-delayed-refresh-burst-or-existing-clean-initial,RTXDI_StreamSample,RTXDI_FinalizeResampling providerMissFallback=existing-clean-initial externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=none\n",
+            "PathTracePrimaryPass: clean-room RTXDI DI dump stage=%s earlyReturn=%s enable=%d view=%d temporal=%d spatial=%d bestLights=%d denoiser=%d fallback=%d lightMode=%d doomRadiusCutoff=%d frameFreeze=%d analyticDomainFreezeMs=%d bypassLightUniverse=%d doomColorSource=%d requireProvenDoomLights=%d temporalBiasCorrection=%d temporalMaxHistory=%d candidateOverride=%u view8Band=%d resolveVisibilityReuse=%d resolveBrdfTarget=%d referenceRab=%d view10LightStart=%d view10LightCount=%d view10PortalDomain=%d cleanCandidates=%u remixLightUniverseRoute=%d rlu current/previous/currentToPrevious/previousToCurrent=%u/%u/%u/%u rluRanges emissive=%u+%u doomAnalytic=%u+%u rluLocal payloadChangedMapped/currentOnly/previousOnly/duplicates=%u/%u/%u/%u rluFirstPayload currentIndex/previousIndex/type/light/ids/currentXYZR/previousXYZR/currentLum/previousLum=%u/%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.1f:%.1f:%.1f:%.1f/%.3f/%.3f rluFirstCurrentOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f rluFirstPreviousOnly index/type/light/ids/xyzr/lum=%u/%u/%u/%u:%u/%.1f:%.1f:%.1f:%.1f/%.3f externalPdfNeeCurrent=%d cleanToyEmissiveScale=%.3f cleanAnalyticScale=%.3f cleanUseEmissiveMaps=%d cleanDisableEmissiveTriangles=%d cleanAnalyticCandidates=%d cleanNeeCacheProvider requested/ready=%d/%d buildPrepass=%d startupDelay=%u startupRefresh=%u stableView=%d stableFrames=%u deferredByClear=%d providerSnapshotHold=%d band10ExitedClear=%d providerResultSrv=t74 cellSrv=t75 candidateSrv=t77 fallbackProbability=%.3f sourceDomain=%d(%s) cellResolution=%d cleanNeeCacheProducer=nee-cache-stable-view-delayed-refresh-burst-or-existing-clean-initial,RTXDI_StreamSample,RTXDI_FinalizeResampling providerMissFallback=existing-clean-initial externalPdfNeeCleanIndexBase=%d externalPdfNeeRequestedLightMode=%d cleanExternalPdfNeeMode9=%d cleanReGIR enable=%d mode=%d centerMode=%d cellSize=%.2f grid=%ux%ux%u lightsPerCell=%u buildSamples=%u candidateSlots=%u firstMissing=%s route=%s behavior=%s output=%dx%d viewDef subview=%d mirror=%d superView=%d area=%d drawSurfs=%d sceneBuilt=%d coreShader=%d cleanShader=%d selectedCleanShader=%d bindingSet=%d textureTable=%d outputTex=%d accumulation=%d readback=%d cleanCurrentAnalytic=%d cleanPortalAnalytic=%d cleanCurrentAnalyticIdentity=%d cleanPreviousAnalytic=%d cleanPreviousAnalyticIdentity=%d cleanAnalyticRemap=%d cleanCurrentReservoir=%d cleanTemporalReservoir=%d cleanPreviousReservoir=%d cleanSpatialReservoir=%d cleanPreviousReservoirValid=%d cleanPreviousResetReason=%u cleanHistoryResetCount=%u cleanHistorySignature=%llu commandList=%d pages current=%s temporal=%s previous=%s spatial=%s spatialParams samples/disocclusion/radius=%d/%d/%.1f\n",
             stage ? stage : "unknown",
             earlyReturn ? earlyReturn : "none",
             cleanEnabledNow ? 1 : 0,
             cleanViewNow,
             r_pathTracingCleanRtxdiDiTemporal.GetInteger(),
-            r_pathTracingCleanRtxdiDiSpatial.GetInteger(),
+            r_cleanDiSpatial.GetInteger(),
             r_pathTracingCleanRtxdiDiBestLights.GetInteger(),
             r_pathTracingCleanRtxdiDiDenoiser.GetInteger(),
             r_pathTracingCleanRtxdiDiFallbackLighting.GetInteger(),
@@ -1550,7 +1558,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger(),
             r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger(),
             cleanDumpCandidateOverride,
-            idMath::ClampInt(-1, 15, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
+            idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()),
             r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1 : 0,
             r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1 : 0,
             idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()),
@@ -1668,6 +1676,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeCleanRtxdiDiCurrentReservoirBuffer ? 1 : 0,
             m_smokeCleanRtxdiDiTemporalReservoirBuffer ? 1 : 0,
             m_smokeCleanRtxdiDiPreviousReservoirBuffer ? 1 : 0,
+            m_smokeCleanRtxdiDiSpatialReservoirBuffer ? 1 : 0,
             m_smokeCleanRtxdiDiPreviousReservoirValid ? 1 : 0,
             m_smokeCleanRtxdiDiPreviousReservoirResetReason,
             m_smokeCleanRtxdiDiHistoryResetCount,
@@ -1675,7 +1684,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             (m_backend && m_backend->GL_GetCommandList()) ? 1 : 0,
             m_smokeCleanRtxdiDiCurrentReservoirBuffer ? "u69" : "none",
             m_smokeCleanRtxdiDiTemporalReservoirBuffer ? "u70" : "none",
-            m_smokeCleanRtxdiDiPreviousReservoirBuffer ? "u71" : "none");
+            m_smokeCleanRtxdiDiPreviousReservoirBuffer ? "u71" : "none",
+            m_smokeCleanRtxdiDiSpatialReservoirBuffer ? "u72" : "none",
+            idMath::ClampInt(1, 16, r_cleanDiSpatialSamples.GetInteger()),
+            idMath::ClampInt(1, 16, r_cleanDiSpatialDisocclusionSamples.GetInteger()),
+            idMath::ClampFloat(1.0f, 128.0f, r_cleanDiSpatialRadius.GetFloat()));
     };
     auto printNeeCacheSecondaryDump = [&]()
     {
@@ -2180,6 +2193,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
+        if (cleanRtxdiDiSpatialShaderRequested && !m_smokeCleanRtxdiDiSpatialShaderTable)
+        {
+            InitRayTracingSmokeRestirPipeline(20);
+        }
+        if (cleanRtxdiDiSpatialShaderRequested && !m_smokeCleanRtxdiDiSpatialShaderTable)
+        {
+            if (cleanRtxdiDiDumpRequested)
+            {
+                printCleanRtxdiDiDump("dispatch-entry", "clean-spatial-shader", 0);
+                r_pathTracingCleanRtxdiDiDump.SetInteger(0);
+            }
+            return;
+        }
         if (cleanExternalPdfNeeCurrent && !m_smokeRestirPdfNeeRluCurrentShaderTable)
         {
             InitRayTracingSmokeRestirPipeline(18);
@@ -2603,7 +2629,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         };
         if (!ensureCleanReservoir(m_smokeCleanRtxdiDiCurrentReservoirBuffer, m_smokeCleanRtxdiDiCurrentReservoirCount, m_smokeCleanRtxdiDiCurrentReservoirBytes, "PathTraceCleanRtxdiDiCurrentReservoirs") ||
             !ensureCleanReservoir(m_smokeCleanRtxdiDiTemporalReservoirBuffer, m_smokeCleanRtxdiDiTemporalReservoirCount, m_smokeCleanRtxdiDiTemporalReservoirBytes, "PathTraceCleanRtxdiDiTemporalReservoirs") ||
-            !ensureCleanReservoir(m_smokeCleanRtxdiDiPreviousReservoirBuffer, m_smokeCleanRtxdiDiPreviousReservoirCount, m_smokeCleanRtxdiDiPreviousReservoirBytes, "PathTraceCleanRtxdiDiPreviousReservoirs"))
+            !ensureCleanReservoir(m_smokeCleanRtxdiDiPreviousReservoirBuffer, m_smokeCleanRtxdiDiPreviousReservoirCount, m_smokeCleanRtxdiDiPreviousReservoirBytes, "PathTraceCleanRtxdiDiPreviousReservoirs") ||
+            !ensureCleanReservoir(m_smokeCleanRtxdiDiSpatialReservoirBuffer, m_smokeCleanRtxdiDiSpatialReservoirCount, m_smokeCleanRtxdiDiSpatialReservoirBytes, "PathTraceCleanRtxdiDiSpatialReservoirs"))
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -3089,6 +3116,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(69, m_smokeCleanRtxdiDiCurrentReservoirBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(70, m_smokeCleanRtxdiDiTemporalReservoirBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(71, m_smokeCleanRtxdiDiPreviousReservoirBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(72, m_smokeCleanRtxdiDiSpatialReservoirBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, cleanNeeCacheProviderSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
@@ -3150,6 +3178,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
         const bool cleanView12FullAnalyticDomain =
@@ -3285,6 +3314,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanTemporalFlags |= 2u;
         }
+        const bool cleanPromoteSubviewReservoir =
+            !cleanRtxdiDiSubview ||
+            r_pathTracingCleanRtxdiDiSubviewReservoirPromote.GetInteger() != 0;
+        const bool cleanPromoteSubviewSurface =
+            !cleanRtxdiDiSubview ||
+            r_pathTracingCleanRtxdiDiSubviewSurfacePromote.GetInteger() != 0;
+        const bool cleanSpatialRoute =
+            (cleanRtxdiDiView == 12 ||
+                (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)) &&
+            r_cleanDiSpatial.GetInteger() != 0 &&
+            r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0 &&
+            cleanPromoteSubviewReservoir &&
+            m_smokeCleanRtxdiDiSpatialShaderTable != nullptr;
         uint32_t cleanFlags = 0u;
         if (r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0 || pdfNeeRluCurrentProducerRequested)
         {
@@ -3318,6 +3360,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_PREVIOUS_BEST_APPROXIMATION;
         }
+        if (cleanSpatialRoute)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE;
+        }
         PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {};
         cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
         cleanConstants.status = cleanRtxdiDiView == 1 ? 1u : 2u;
@@ -3337,7 +3383,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.analyticRemapCount = cleanAnalyticRemapCount;
         cleanConstants.temporalFlags = cleanTemporalFlags;
         cleanConstants.historyResetCount = m_smokeCleanRtxdiDiHistoryResetCount;
-        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 15, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
+        cleanConstants.view8Band = static_cast<uint32_t>(idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()));
         cleanConstants.resolveVisibilityReuse = r_pathTracingCleanRtxdiDiResolveVisibilityReuse.GetInteger() != 0 ? 1u : 0u;
         cleanConstants.resolveBrdfTarget = r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() != 0 ? 1u : 0u;
         cleanConstants.referenceRab = static_cast<uint32_t>(idMath::ClampInt(0, 10, r_pathTracingCleanRtxdiDiReferenceRab.GetInteger()));
@@ -3391,7 +3437,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.enabled = cleanRtxdiDiEnabled;
         cleanGuiSnapshot.routeReady = true;
         cleanGuiSnapshot.temporal = r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0;
-        cleanGuiSnapshot.spatial = r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0;
+        cleanGuiSnapshot.spatial = r_cleanDiSpatial.GetInteger() != 0;
         cleanGuiSnapshot.bestLights = r_pathTracingCleanRtxdiDiBestLights.GetInteger() != 0;
         cleanGuiSnapshot.denoiser = r_pathTracingCleanRtxdiDiDenoiser.GetInteger() != 0;
         cleanGuiSnapshot.fallback = r_pathTracingCleanRtxdiDiFallbackLighting.GetInteger() != 0;
@@ -3409,6 +3455,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.currentReservoir = m_smokeCleanRtxdiDiCurrentReservoirBuffer != nullptr;
         cleanGuiSnapshot.temporalReservoir = m_smokeCleanRtxdiDiTemporalReservoirBuffer != nullptr;
         cleanGuiSnapshot.previousReservoir = m_smokeCleanRtxdiDiPreviousReservoirBuffer != nullptr;
+        cleanGuiSnapshot.spatialReservoir = m_smokeCleanRtxdiDiSpatialReservoirBuffer != nullptr;
         cleanGuiSnapshot.previousReservoirValid = m_smokeCleanRtxdiDiPreviousReservoirValid;
         cleanGuiSnapshot.portalProofDomain = cleanPortalProofDomain;
         cleanGuiSnapshot.fullAnalyticDomain = cleanView12FullAnalyticDomain;
@@ -3525,7 +3572,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.geometryInfo1[1] = static_cast<float>(Max(0, m_sceneInputs.geometry.dynamicTriangleCount));
         cleanConstants.geometryInfo1[2] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteVertexCount));
         cleanConstants.geometryInfo1[3] = static_cast<float>(Max(0, m_sceneInputs.geometry.rigidRouteIndexCount));
-        commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
+        cleanConstants.spatialInfo[0] = static_cast<float>(idMath::ClampInt(1, 16, r_cleanDiSpatialSamples.GetInteger()));
+        cleanConstants.spatialInfo[1] = static_cast<float>(idMath::ClampInt(1, 16, r_cleanDiSpatialDisocclusionSamples.GetInteger()));
+        cleanConstants.spatialInfo[2] = idMath::ClampFloat(1.0f, 128.0f, r_cleanDiSpatialRadius.GetFloat());
+        cleanConstants.spatialInfo[3] = cleanSpatialRoute ? 1.0f : 0.0f;
         commandList->setRayTracingState(cleanState);
 
         if (r_pathTracingNeeCacheDump.GetInteger() != 0)
@@ -3535,7 +3585,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanRtxdiDiDumpRequested)
         {
-            printCleanRtxdiDiDump("route-ready", "none", 1);
+            printCleanRtxdiDiDump("route-ready", "none", cleanSpatialRoute ? 2 : 1);
             r_pathTracingCleanRtxdiDiDump.SetInteger(0);
         }
         if (r_pathTracingNeeCacheSecondaryDump.GetInteger() != 0)
@@ -3548,17 +3598,41 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanArgs.width = m_frameResources.width;
         cleanArgs.height = m_frameResources.height;
         cleanArgs.depth = 1;
+        PathTraceCleanRtxdiDiSentinelConstants dispatchConstants = cleanConstants;
+        if (cleanSpatialRoute)
+        {
+            dispatchConstants.flags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS;
+        }
+        commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
         commandList->dispatchRays(cleanArgs);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
-        const bool cleanPromoteSubviewReservoir =
-            !cleanRtxdiDiSubview ||
-            r_pathTracingCleanRtxdiDiSubviewReservoirPromote.GetInteger() != 0;
-        const bool cleanPromoteSubviewSurface =
-            !cleanRtxdiDiSubview ||
-            r_pathTracingCleanRtxdiDiSubviewSurfacePromote.GetInteger() != 0;
-        if (cleanRtxdiDiView >= 4 && cleanPromoteSubviewReservoir)
+        if (cleanSpatialRoute)
+        {
+            commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::CopySource);
+            commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::CopyDest);
+            commandList->commitBarriers();
+            commandList->copyBuffer(
+                m_smokeCleanRtxdiDiPreviousReservoirBuffer,
+                0,
+                m_smokeCleanRtxdiDiTemporalReservoirBuffer,
+                0,
+                cleanReservoirBytes);
+            m_smokeCleanRtxdiDiPreviousReservoirValid = true;
+            commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+            nvrhi::rt::State cleanSpatialState = cleanState;
+            cleanSpatialState.shaderTable = m_smokeCleanRtxdiDiSpatialShaderTable;
+            commandList->setRayTracingState(cleanSpatialState);
+            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
+            commandList->dispatchRays(cleanArgs);
+            nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+        }
+        if (!cleanSpatialRoute && cleanRtxdiDiView >= 4 && cleanPromoteSubviewReservoir)
         {
             commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::CopySource);
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::CopyDest);
@@ -5340,6 +5414,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
         if (m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs)
         {
@@ -5443,6 +5518,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setBufferState(m_smokeCleanRtxdiDiCurrentReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiTemporalReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setBufferState(m_smokeCleanRtxdiDiPreviousReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         }
         if (m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs)
         {

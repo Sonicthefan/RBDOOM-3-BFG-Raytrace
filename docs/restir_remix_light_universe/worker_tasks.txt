@@ -716,3 +716,68 @@ Acceptance:
     zero/dummy emissive placeholders do not occupy dense RLU emissive ranges
     toggling emissive texture use changes textured emissive contribution
     predictably without changing emissive identity or remap
+
+
+RLU-15: Clean DI Basic Spatial Reuse
+------------------------------------
+
+Goal:
+
+    Add a basic, default-on clean DI spatial reuse pass for the active view-12
+    RLU lane after emissive triangle replay is proven.  This is a bridge for
+    comparison against RTX Remix / RTX Portal debugging, not the later enhanced
+    ReSTIR PT spatial technique.
+
+Required rbdoom read set:
+
+    docs/restir_remix_light_universe/rlu_15_clean_di_basic_spatial_reuse.txt
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/shaders/CMakeLists.txt
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+
+Allowed rbdoom write set:
+
+    neo/renderer/NVRHI/PathTraceCVars.cpp
+    neo/renderer/NVRHI/PathTraceCVars.h
+    neo/renderer/NVRHI/PathTraceCleanRtxdiDiGui.h
+    neo/renderer/NVRHI/PathTracePrimaryPass.cpp
+    neo/renderer/NVRHI/PathTracePrimaryPass.h
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
+    neo/shaders/CMakeLists.txt
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl
+    docs/restir_remix_light_universe
+
+Required:
+
+    keep the existing sentinel temporal producer intact
+    run spatial as a separate shader/pass after the temporal producer pass
+    read neighbor reservoirs from an explicitly copied source page
+    write spatial output to a distinct spatial reservoir page
+    keep spatial default-on for view 12 and opt-out by cvar
+    expose route-ready dump fields that prove the spatial shader and reservoir
+        page are active
+    keep view 8 band 16 as the spatial diagnostic
+
+Forbidden:
+
+    no RTXDI reservoir math changes
+    no denoiser, confidence, gradient, or enhanced-paper replacement in this
+        slice
+    no mode-56 route
+    no NEE-cache/ReGIR/PDFNEE replacement for the active RLU light universe
+    no full-map/full-domain brute force or broad light suppression as the fix
+    no claiming full RTX Remix spatial parity
+
+Acceptance:
+
+    PT-dev Release build compiles the separate clean DI spatial shader
+    default clean DI view 12 dump reports spatial=1, selectedCleanShader=2,
+        cleanSpatialReservoir=1, and pages spatial=u72
+    view 8 band 16 shows neighbor-acceptance coverage
+    r_cleanDiSpatial 0 returns to temporal-only behavior
+        without changing RLU dense-domain counts or emissive replay eligibility

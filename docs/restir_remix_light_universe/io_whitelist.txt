@@ -184,7 +184,8 @@ Do not consume:
     old rbdoom selected-light NEE records
     old smoke fallback output
     mode-56 RRX debug output
-    spatial reservoir pages
+    spatial reservoir pages unless the active task explicitly owns RLU-15
+        basic spatial reuse
     best-light buffers unless the active task explicitly owns previous-best
         initial-sampling feedback
     denoiser/confidence/gradient buffers
@@ -197,7 +198,7 @@ Forbidden Outputs
 
 Do not output:
 
-    spatial proof
+    spatial proof before RLU-15 basic spatial reuse
     best-light proof for the early RLU mapping/payload stages
     denoised output
     fallback beauty or albedo

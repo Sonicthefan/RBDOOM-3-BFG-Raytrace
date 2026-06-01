@@ -1307,9 +1307,51 @@ idCVar r_pathTracingCleanRtxdiDiTemporal(
 
 idCVar r_pathTracingCleanRtxdiDiSpatial(
     "r_pathTracingCleanRtxdiDiSpatial",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Reserved clean-room Remix DI spatial reuse switch; must remain off for the initial raw DI + temporal milestone" );
+    "Clean-room Remix DI path: default-on basic spatial reservoir reuse after the temporal producer pass; set 0 for temporal-only diagnostics" );
+
+idCVar r_pathTracingCleanRtxdiDiSpatialSamples(
+    "r_pathTracingCleanRtxdiDiSpatialSamples",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI spatial reuse: neighbor sample count for converged pixels; basic lane clamps to 1..16" );
+
+idCVar r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples(
+    "r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI spatial reuse: neighbor sample count when the center reservoir has short history; basic lane clamps to 1..16" );
+
+idCVar r_pathTracingCleanRtxdiDiSpatialRadius(
+    "r_pathTracingCleanRtxdiDiSpatialRadius",
+    "30",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room Remix DI spatial reuse: screen-space neighbor sampling radius in pixels" );
+
+idCVar r_cleanDiSpatial(
+    "r_cleanDiSpatial",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Short alias for clean-room Remix DI basic spatial reuse; set 0 for temporal-only diagnostics" );
+
+idCVar r_cleanDiSpatialSamples(
+    "r_cleanDiSpatialSamples",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Short alias for clean DI spatial neighbor sample count; clamps to 1..16" );
+
+idCVar r_cleanDiSpatialDisocclusionSamples(
+    "r_cleanDiSpatialDisocclusionSamples",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Short alias for clean DI spatial short-history/disocclusion neighbor sample count; clamps to 1..16" );
+
+idCVar r_cleanDiSpatialRadius(
+    "r_cleanDiSpatialRadius",
+    "30",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Short alias for clean DI spatial screen-space neighbor radius in pixels" );
 
 idCVar r_pathTracingCleanRtxdiDiBestLights(
     "r_pathTracingCleanRtxdiDiBestLights",
@@ -1369,7 +1411,7 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     "r_pathTracingCleanRtxdiDiView8Band",
     "-1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..15; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection, band 15 shows selected light type" );
+    "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..16; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection, band 15 shows selected light type, band 16 shows basic spatial reuse output when enabled" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",

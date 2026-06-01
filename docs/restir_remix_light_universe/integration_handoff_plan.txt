@@ -99,10 +99,15 @@ Step 5:
 Step 6:
 
     RLU payload and mapping proof, authoritative typed ranges, typed initial
-    sampling, and the RLU-13 previous-best approximation are complete.  The next
-    missing contract is RLU-14: emissive records must replay as actual triangle
-    area lights, not center-position point-light proxies.  This does not make
-    NEE-cache or ReGIR the primary DI light universe.
+    sampling, the RLU-13 previous-best approximation, and RLU-14 emissive
+    triangle replay are complete.
+
+Step 7:
+
+    RLU-15 adds a basic clean DI spatial reuse pass after temporal production.
+    It is default-on for view 12 and opt-out by cvar, but it is not the later
+    enhanced ReSTIR PT spatial method and does not make NEE-cache or ReGIR the
+    primary DI light universe.
 
 
 First Worker Slice
@@ -130,7 +135,7 @@ Stop if:
     the mapping table cannot be built without authored-registry diagnostics
     selected lights cannot replay through RAB
     animated payloads invalidate unrelated stable lights
-    the early visual proof requires spatial, best lights, broad suppression,
+    the early temporal/emissive proof requires spatial, broad suppression,
         mirror/subview behavior, or full-map brute force
     NEE-cache, ReGIR, portal pools, split-domain fallback, or old Doom analytic
         reloads become the default clean DI light universe

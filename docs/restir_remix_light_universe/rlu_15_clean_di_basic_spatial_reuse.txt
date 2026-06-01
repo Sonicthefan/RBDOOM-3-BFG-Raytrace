@@ -1,0 +1,105 @@
+RLU-15 Clean DI Basic Spatial Reuse
+===================================
+
+Purpose
+-------
+
+Add a narrow, default-on clean DI spatial reuse lane after the RLU-14 emissive
+triangle replay fix.  This is intentionally a basic spatial pass so the active
+view-12 path can be compared against RTX Remix / RTX Portal debugging while the
+newer enhanced ReSTIR PT spatial technique remains a future replacement.
+
+This task does not claim full RTX Remix spatial parity.
+
+
+Implemented Slice
+-----------------
+
+The clean DI view-12 route now runs in two dispatches when spatial reuse is
+enabled:
+
+    first dispatch: existing clean RTXDI DI sentinel path writes current and
+        temporal reservoirs
+    copy: temporal reservoirs are copied to the previous/source page
+    second dispatch: separate clean DI spatial shader reads the source page,
+        samples bounded screen-space neighbors, writes a spatial reservoir
+        page, and resolves output from that spatial reservoir
+
+The spatial shader is separate from the sentinel shader because adding the
+spatial kernel to the sentinel exceeded the SPIR-V legalization ID limit.
+
+
+Runtime Defaults
+----------------
+
+The normal clean DI lane is:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 12
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_cleanDiSpatial 1
+    r_cleanDiSpatialSamples 2
+    r_cleanDiSpatialDisocclusionSamples 4
+    r_cleanDiSpatialRadius 30
+    r_pathTracingCleanRtxdiDiBestLights 1
+    r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
+
+Set r_cleanDiSpatial 0 only for temporal-only regression
+testing.
+
+
+Diagnostics
+-----------
+
+Use:
+
+    r_pathTracingCleanRtxdiDiDump 1
+
+Expected route-ready dump markers:
+
+    view=12
+    temporal=1
+    spatial=1
+    selectedCleanShader=2
+    cleanSpatialReservoir=1
+    pages spatial=u72
+    spatialParams samples/disocclusion/radius=2/4/30.0
+
+Use view 8 band 16 for the spatial neighbor-acceptance diagnostic:
+
+    r_pathTracingCleanRtxdiDiView 8
+    r_pathTracingCleanRtxdiDiView8Band 16
+
+
+Forbidden
+---------
+
+Do not:
+
+    change RTXDI reservoir helper math
+    add denoiser, gradient, confidence, or spatial-temporal confidence proof
+    route through mode 56
+    replace active RLU with NEE-cache, ReGIR, PDFNEE, or portal pools
+    use full-map/full-domain brute force as the spatial fix
+    suppress broad light classes to hide spatial artifacts
+    call this the final enhanced ReSTIR PT spatial technique
+
+
+Validation
+----------
+
+Pass:
+
+    the PT-dev Release build compiles both DXIL/SPIR-V shader libraries
+    default clean DI view 12 reports the spatial route in the clean DI dump
+    view 8 band 16 shows accepted-neighbor coverage in stable lit regions
+    turning r_cleanDiSpatial 0 returns to the temporal-only
+        route without changing RLU domain construction or emissive replay
+
+Fail:
+
+    the spatial route cannot create its separate shader table
+    selectedCleanShader remains 1 while spatial=1 in default view 12
+    cleanSpatialReservoir is missing
+    spatial reuse changes RLU current/previous dense-domain counts, remaps, or
+        emissive triangle replay eligibility

@@ -221,12 +221,15 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiSpatialReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
     m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
     m_smokeCleanRtxdiDiPreviousReservoirCount = 0;
+    m_smokeCleanRtxdiDiSpatialReservoirCount = 0;
     m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
     m_smokeCleanRtxdiDiTemporalReservoirBytes = 0;
     m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
+    m_smokeCleanRtxdiDiSpatialReservoirBytes = 0;
     m_smokeCleanRtxdiDiFrameIndex = 0;
     m_smokeCleanRtxdiDiPreviousReservoirValid = false;
     m_smokeCleanRtxdiDiHistorySignature = 0;
@@ -241,6 +244,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirPdfNeeRluCurrentShaderTable = nullptr;
     m_smokePdfNeeVerifierShaderTable = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderTable = nullptr;
+    m_smokeCleanRtxdiDiSpatialShaderTable = nullptr;
     m_smokeReGIRDebugShaderTable = nullptr;
     m_smokeRestirAttributionShaderTable = nullptr;
     m_smokeRestirSpatialShaderTable = nullptr;
@@ -264,6 +268,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirPdfNeeRluCurrentPipeline = nullptr;
     m_smokePdfNeeVerifierPipeline = nullptr;
     m_smokeCleanRtxdiDiSentinelPipeline = nullptr;
+    m_smokeCleanRtxdiDiSpatialPipeline = nullptr;
     m_smokeReGIRDebugPipeline = nullptr;
     m_smokeRestirAttributionPipeline = nullptr;
     m_smokeRestirSpatialPipeline = nullptr;
@@ -287,6 +292,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeRestirPdfNeeRluCurrentShaderLibrary = nullptr;
     m_smokePdfNeeVerifierShaderLibrary = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderLibrary = nullptr;
+    m_smokeCleanRtxdiDiSpatialShaderLibrary = nullptr;
     m_smokeReGIRDebugShaderLibrary = nullptr;
     m_smokeRestirAttributionShaderLibrary = nullptr;
     m_smokeRestirSpatialShaderLibrary = nullptr;

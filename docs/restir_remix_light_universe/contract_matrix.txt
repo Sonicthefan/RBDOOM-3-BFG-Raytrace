@@ -411,3 +411,36 @@ Fail:
         light
     multiple triangles are aggregated into a new surface-light identity before
         one-triangle replay correctness is proven
+
+
+Contract C-14 / RLU-15: Basic Clean DI Spatial Reuse
+----------------------------------------------------
+
+Required behavior:
+
+    spatial reuse runs after the clean DI temporal producer pass
+    spatial reuse is implemented as a separate shader/pass, not by expanding
+        the sentinel shader beyond the compiler limit
+    the source reservoirs are read from an explicit copied temporal/source page
+    the spatial pass writes a distinct spatial reservoir page
+    spatial is default-on for the normal clean DI view-12 route and opt-out by
+        r_cleanDiSpatial
+    RLU current/previous dense domains, maps, and emissive replay eligibility
+        are unchanged by spatial routing
+
+Pass:
+
+    route-ready clean DI dump reports spatial=1, selectedCleanShader=2,
+        cleanSpatialReservoir=1, pages spatial=u72, and the configured
+        spatialParams values
+    view 8 band 16 shows neighbor-acceptance diagnostic coverage
+    disabling r_cleanDiSpatial returns to the temporal-only
+        route
+
+Fail:
+
+    spatial proof depends on denoiser, gradient/confidence, NEE-cache, ReGIR,
+        PDFNEE, mode 56, full-map/full-domain brute force, or broad light
+        suppression
+    the spatial pass mutates dense RLU domain construction or emissive replay
+    this basic route is claimed as the final enhanced ReSTIR PT spatial method

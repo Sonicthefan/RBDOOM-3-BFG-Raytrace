@@ -110,7 +110,7 @@ Do not:
 
     invent ReSTIR math
     change RTXDI reservoir semantics
-    enable spatial reuse before temporal proof
+    enable spatial reuse before temporal and emissive replay proof
     route proof through mode 56
     use previous-temporal-as-best as Remix compliance proof
     use mirror/subview behavior as proof
@@ -136,12 +136,12 @@ Primary Proof
 The first proof is not beauty integration, and it is not the final sampling
 quality target.
 
-The first proof is:
+The first temporal proof was:
 
     clean RTXDI DI view 12
     real Doom analytic lights
     temporal on and off using the same raw flat-diffuse resolve
-    no spatial reuse
+    no spatial reuse before RLU-15
     RLU-13 previous-best approximation on by default, opt-out for RLU-12
         random-only regression testing
     no denoiser/confidence/gradient path
@@ -154,9 +154,14 @@ The current default route is:
     r_pathTracingCleanRtxdiDiEnable 1
     r_pathTracingCleanRtxdiDiView 12
     r_pathTracingCleanRtxdiDiTemporal 1
+    r_cleanDiSpatial 1
     r_pathTracingCleanRtxdiDiLightMode 1
     r_pathTracingRemixLightUniverseUseForCleanRtxdiDi 1
     r_pathTracingCleanRtxdiDiBestLights 1
+
+RLU-15 makes the basic spatial route default-on for view 12 after the temporal
+and emissive replay contracts.  Set r_cleanDiSpatial 0 only
+for temporal-only regression testing.
 
 RLU ownership remains separate from clean DI reservoir sampling: RLU owns light
 identity and payloads; clean RTXDI owns DI proposal sampling and reuse.

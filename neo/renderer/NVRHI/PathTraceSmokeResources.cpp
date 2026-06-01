@@ -1068,7 +1068,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     }
 
     nvrhi::BufferDesc cleanRtxdiDiSentinelConstantsDesc;
-    cleanRtxdiDiSentinelConstantsDesc.byteSize = 464;
+    cleanRtxdiDiSentinelConstantsDesc.byteSize = 480;
     cleanRtxdiDiSentinelConstantsDesc.debugName = "PathTraceCleanRtxdiDiSentinelConstants";
     cleanRtxdiDiSentinelConstantsDesc.isConstantBuffer = true;
     cleanRtxdiDiSentinelConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
@@ -1232,6 +1232,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(69));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(70));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(71));
+    cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(72));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
     cleanRtxdiDiSentinelBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
@@ -1602,6 +1603,15 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "clean-room RTXDI DI sentinel",
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+    case 20:
+        return initLibrary(
+            m_smokeCleanRtxdiDiSpatialShaderLibrary,
+            m_smokeCleanRtxdiDiSpatialPipeline,
+            m_smokeCleanRtxdiDiSpatialShaderTable,
+            "clean-room RTXDI DI spatial",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
     case 16:
         return initLibrary(
@@ -1977,14 +1987,17 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
+    m_smokeCleanRtxdiDiSpatialReservoirBuffer = nullptr;
     m_smokeNeeCacheState.Clear();
     m_smokeReGIRState.Clear();
     m_smokeCleanRtxdiDiCurrentReservoirCount = 0;
     m_smokeCleanRtxdiDiTemporalReservoirCount = 0;
     m_smokeCleanRtxdiDiPreviousReservoirCount = 0;
+    m_smokeCleanRtxdiDiSpatialReservoirCount = 0;
     m_smokeCleanRtxdiDiCurrentReservoirBytes = 0;
     m_smokeCleanRtxdiDiTemporalReservoirBytes = 0;
     m_smokeCleanRtxdiDiPreviousReservoirBytes = 0;
+    m_smokeCleanRtxdiDiSpatialReservoirBytes = 0;
     m_smokeCleanRtxdiDiPreviousReservoirValid = false;
     m_smokeCleanRtxdiDiHistorySignature = 0;
     m_smokeCleanRtxdiDiHistoryResetCount = 0;
