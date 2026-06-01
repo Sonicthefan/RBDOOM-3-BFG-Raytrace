@@ -149,6 +149,21 @@ struct RtSmokeBaseTlasPlan
     int instanceCount = 0;
 };
 
+struct RtSmokeAccelerationSubmitPlanInput
+{
+    bool hasStaticBlas = false;
+    bool hasDynamicBlas = false;
+    bool staticBlasCacheHit = false;
+};
+
+struct RtSmokeAccelerationSubmitPlan
+{
+    RtSmokeBaseTlasPlan baseTlasPlan;
+    bool buildStaticBlas = false;
+    bool buildDynamicBlas = false;
+    bool submitTlas = false;
+};
+
 struct RtSmokeRigidTlasObservation
 {
     uint64_t meshHash = 0;
@@ -257,6 +272,9 @@ RtSmokeAccelerationPlanResult BuildSmokeAccelerationPlanResult(
     const RtSmokeAccelerationPlanSnapshot& snapshot);
 
 RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBlas);
+
+RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
+    const RtSmokeAccelerationSubmitPlanInput& input);
 
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,

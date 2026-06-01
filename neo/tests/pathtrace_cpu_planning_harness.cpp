@@ -229,6 +229,22 @@ void TestCacheAndBaseTlas()
     const RtSmokeBaseTlasPlan dynamicOnlyTlasPlan = BuildSmokeBaseTlasPlan(false, true);
     Check(dynamicOnlyTlasPlan.instanceCount == 1 && dynamicOnlyTlasPlan.instances[0].instanceId == 1, "TLAS plan supports dynamic-only scenes");
 
+    RtSmokeAccelerationSubmitPlanInput submitPlanInput;
+    submitPlanInput.hasStaticBlas = true;
+    submitPlanInput.hasDynamicBlas = true;
+    const RtSmokeAccelerationSubmitPlan fullSubmitPlan = BuildSmokeAccelerationSubmitPlan(submitPlanInput);
+    Check(fullSubmitPlan.buildStaticBlas && fullSubmitPlan.buildDynamicBlas && fullSubmitPlan.submitTlas, "acceleration submit plan builds uncached static and dynamic BLAS");
+    Check(fullSubmitPlan.baseTlasPlan.instanceCount == 2, "acceleration submit plan carries base TLAS instances");
+
+    submitPlanInput.staticBlasCacheHit = true;
+    const RtSmokeAccelerationSubmitPlan cachedSubmitPlan = BuildSmokeAccelerationSubmitPlan(submitPlanInput);
+    Check(!cachedSubmitPlan.buildStaticBlas && cachedSubmitPlan.buildDynamicBlas && cachedSubmitPlan.submitTlas, "acceleration submit plan skips cached static BLAS build");
+
+    submitPlanInput.hasStaticBlas = false;
+    submitPlanInput.hasDynamicBlas = false;
+    const RtSmokeAccelerationSubmitPlan emptySubmitPlan = BuildSmokeAccelerationSubmitPlan(submitPlanInput);
+    Check(!emptySubmitPlan.buildStaticBlas && !emptySubmitPlan.buildDynamicBlas && !emptySubmitPlan.submitTlas, "acceleration submit plan rejects empty BLAS set");
+
     RtSmokeAccelerationPlanInput emptyInput;
     const RtSmokeAccelerationPlan emptyPlan = BuildSmokeAccelerationPlan(emptyInput);
     Check(!emptyPlan.hasStaticBlas && !emptyPlan.hasDynamicBlas, "acceleration plan handles empty BLAS ranges");

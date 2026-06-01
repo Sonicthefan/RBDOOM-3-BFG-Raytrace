@@ -107,27 +107,37 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
         return false;
     }
 
+    RtSmokeAccelerationSubmitPlanInput submitPlanInput;
+    submitPlanInput.hasStaticBlas = desc.hasStaticBlas;
+    submitPlanInput.hasDynamicBlas = desc.hasDynamicBlas;
+    submitPlanInput.staticBlasCacheHit = desc.staticBlasCacheHit;
+    const RtSmokeAccelerationSubmitPlan submitPlan =
+        BuildSmokeAccelerationSubmitPlan(submitPlanInput);
+    if (!submitPlan.submitTlas)
+    {
+        return false;
+    }
+
     const int accelSubmitStartMs = Sys_Milliseconds();
     const int blasSubmitStartMs = Sys_Milliseconds();
-    if (desc.hasStaticBlas && !desc.staticBlasCacheHit)
+    if (submitPlan.buildStaticBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Static BLAS");
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.staticBlas, desc.staticBlasDesc);
     }
 
-    if (desc.hasDynamicBlas)
+    if (submitPlan.buildDynamicBlas)
     {
         OPTICK_GPU_EVENT("PT GPU Build Dynamic BLAS");
         nvrhi::utils::BuildBottomLevelAccelStruct(desc.commandList, desc.dynamicBlas, desc.dynamicBlasDesc);
     }
     timing.blasSubmitMs = Sys_Milliseconds() - blasSubmitStartMs;
 
-    const RtSmokeBaseTlasPlan baseTlasPlan = BuildSmokeBaseTlasPlan(desc.hasStaticBlas, desc.hasDynamicBlas);
     std::vector<nvrhi::rt::InstanceDesc> instanceDescs;
     instanceDescs.reserve(2 + (desc.extraTlasInstances ? desc.extraTlasInstances->size() : 0));
-    for (int plannedIndex = 0; plannedIndex < baseTlasPlan.instanceCount; ++plannedIndex)
+    for (int plannedIndex = 0; plannedIndex < submitPlan.baseTlasPlan.instanceCount; ++plannedIndex)
     {
-        const RtSmokePlanTlasInstance& plannedInstance = baseTlasPlan.instances[plannedIndex];
+        const RtSmokePlanTlasInstance& plannedInstance = submitPlan.baseTlasPlan.instances[plannedIndex];
         nvrhi::rt::InstanceDesc instanceDesc;
         instanceDesc
             .setInstanceID(plannedInstance.instanceId)

@@ -264,6 +264,17 @@ RtSmokeBaseTlasPlan BuildSmokeBaseTlasPlan(bool hasStaticBlas, bool hasDynamicBl
     return plan;
 }
 
+RtSmokeAccelerationSubmitPlan BuildSmokeAccelerationSubmitPlan(
+    const RtSmokeAccelerationSubmitPlanInput& input)
+{
+    RtSmokeAccelerationSubmitPlan plan;
+    plan.buildStaticBlas = input.hasStaticBlas && !input.staticBlasCacheHit;
+    plan.buildDynamicBlas = input.hasDynamicBlas;
+    plan.submitTlas = input.hasStaticBlas || input.hasDynamicBlas;
+    plan.baseTlasPlan = BuildSmokeBaseTlasPlan(input.hasStaticBlas, input.hasDynamicBlas);
+    return plan;
+}
+
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,
     const RtSmokeRigidTlasPlanDesc& desc,
