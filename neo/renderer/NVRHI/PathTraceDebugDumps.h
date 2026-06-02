@@ -102,6 +102,7 @@ struct RtSmokeSlowSceneBuildLogDesc
     int emissiveMs = 0;
     int bufferCreateMs = 0;
     int bufferUploadMs = 0;
+    int bvhFramePlanMs = 0;
     int accelSubmitMs = 0;
     int blasSubmitMs = 0;
     int tlasSubmitMs = 0;

@@ -390,7 +390,7 @@ void LogPathTraceDispatchTiming(const RtPathTraceDispatchTimingLogDesc& desc)
 
 void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
 {
-    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d sig=%d frame=%d/%d/%d/%d validate=%d/%d frameValidate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
+    common->Printf("PathTracePrimaryPass: RT smoke slow scene build %d ms (capture=%d anchor=%d validate=%d staticPassClassify=%d staticCacheLookup=%d staticAppend=%d dynamicPassClassify=%d dynamicAppend=%d rtCpuSkinningAppend=%d append=%d merge=%d metadata=%d metaValidate=%d metaRegister=%d material=%d emissive=%d bufferCreate=%d bufferSubmit=%d bvhPlan=%d accelSubmit=%d blas=%d tlas=%d) surfaces=%d verts=%d indexes=%d dynamicIndexes=%d staticCached/new=%d/%d staticCache=%d/%d/%d/%d/%dKB staticLife=%d/%d/%d hist=%d/%d dirty=%d staticValidate=%d/%d/%d/%d/%d staticSig=%d/%dms anchorCull=%d/%d/%d skinnedRtCpu=%d(%di) staticCacheHit=%d materialTablePath=%s materialCacheHit=%d materialCache=%d/%d materialBuild=%d/%d/%d/%d/%d/%d/%d counts=%d/%d/%d materialUniverse=%d/%d/%d/%d/%d sig=%d frame=%d/%d/%d/%d validate=%d/%d frameValidate=%d/%d universeTableCompare=%d/%d material=%d/%d/%d indexes=%d/%d textures=%d/%d metadataCache=%d metadataFrame=%d/%d/%d/%d/%d metadataRegistry=%d guiTextures=%d/%d/%d additiveDecals=%d lightCandidates=%d/%d(%db) lightCount=%d debugMode=%d\n",
         desc.sceneMs,
         desc.captureMs,
         desc.captureAnchorMs,
@@ -410,6 +410,7 @@ void LogSmokeSlowSceneBuild(const RtSmokeSlowSceneBuildLogDesc& desc)
         desc.emissiveMs,
         desc.bufferCreateMs,
         desc.bufferUploadMs,
+        desc.bvhFramePlanMs,
         desc.accelSubmitMs,
         desc.blasSubmitMs,
         desc.tlasSubmitMs,
@@ -1672,6 +1673,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
         slowLog.emissiveMs = desc.emissiveMs;
         slowLog.bufferCreateMs = desc.bufferCreateMs;
         slowLog.bufferUploadMs = desc.bufferUploadMs;
+        slowLog.bvhFramePlanMs = desc.bvhFramePlanMs;
         slowLog.accelSubmitMs = desc.accelSubmitMs;
         slowLog.blasSubmitMs = desc.blasSubmitMs;
         slowLog.tlasSubmitMs = desc.tlasSubmitMs;
