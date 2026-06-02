@@ -420,6 +420,37 @@ struct RtSmokeStaticBvhBucketSignature
     bool active = false;
 };
 
+struct RtSmokeStaticBucketBlasCacheState
+{
+    uint64_t bucketKey = 0;
+    uint64_t blasInputSignature = 0;
+    bool hasBlas = false;
+    bool blasInputsCompatible = false;
+};
+
+struct RtSmokeStaticBucketBlasBuildObservationPlanInput
+{
+    const RtSmokeStaticBvhBucketSignature* currentBuckets = nullptr;
+    int currentBucketCount = 0;
+    const RtSmokeStaticBucketBlasCacheState* previousBuckets = nullptr;
+    int previousBucketCount = 0;
+    int maxRecords = 0;
+};
+
+struct RtSmokeStaticBucketBlasBuildObservationPlan
+{
+    std::vector<RtSmokeStaticBucketBlasBuildObservation> observations;
+    uint64_t planSignature = 0;
+    int inputBuckets = 0;
+    int emittedObservations = 0;
+    int cacheHits = 0;
+    int cacheMisses = 0;
+    int signatureChanged = 0;
+    int uploadRequired = 0;
+    int skippedInactive = 0;
+    bool overflow = false;
+};
+
 struct RtSmokeBvhDirtyTokenState
 {
     uint64_t geometryContentSignature = 0;
@@ -664,6 +695,9 @@ RtSmokeStaticBucketBlasBuildBatchPlan BuildSmokeStaticBucketBlasBuildBatchPlan(
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);
+
+RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObservationPlan(
+    const RtSmokeStaticBucketBlasBuildObservationPlanInput& input);
 
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input);

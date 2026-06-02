@@ -778,6 +778,103 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     return signature;
 }
 
+RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObservationPlan(
+    const RtSmokeStaticBucketBlasBuildObservationPlanInput& input)
+{
+    RtSmokeStaticBucketBlasBuildObservationPlan plan;
+    plan.planSignature = 14695981039346656037ull;
+    plan.inputBuckets = input.currentBucketCount > 0 ? input.currentBucketCount : 0;
+    if (!input.currentBuckets || input.currentBucketCount <= 0)
+    {
+        return plan;
+    }
+
+    const int reserveCount = input.maxRecords > 0 && input.maxRecords < input.currentBucketCount
+        ? input.maxRecords
+        : input.currentBucketCount;
+    plan.observations.reserve(reserveCount);
+    for (int bucketIndex = 0; bucketIndex < input.currentBucketCount; ++bucketIndex)
+    {
+        const RtSmokeStaticBvhBucketSignature& currentBucket = input.currentBuckets[bucketIndex];
+        if (!currentBucket.active)
+        {
+            ++plan.skippedInactive;
+            continue;
+        }
+        if (input.maxRecords > 0 && plan.emittedObservations >= input.maxRecords)
+        {
+            plan.overflow = true;
+            break;
+        }
+
+        const RtSmokeStaticBucketBlasCacheState* previousBucket = nullptr;
+        if (input.previousBuckets && input.previousBucketCount > 0)
+        {
+            for (int previousIndex = 0; previousIndex < input.previousBucketCount; ++previousIndex)
+            {
+                if (input.previousBuckets[previousIndex].bucketKey == currentBucket.bucketKey)
+                {
+                    previousBucket = &input.previousBuckets[previousIndex];
+                    break;
+                }
+            }
+        }
+
+        RtSmokeStaticBucketBlasBuildObservation observation;
+        observation.bucketKey = currentBucket.bucketKey;
+        observation.currentBlasInputSignature = currentBucket.blasInputSignature;
+        if (previousBucket)
+        {
+            observation.hasBlas = previousBucket->hasBlas;
+            observation.blasInputsCompatible = previousBucket->blasInputsCompatible;
+            observation.signatureValid = true;
+            observation.previousBlasInputSignature = previousBucket->blasInputSignature;
+        }
+
+        const bool changedSignature =
+            !previousBucket ||
+            previousBucket->blasInputSignature != currentBucket.blasInputSignature;
+        observation.uploadRequired =
+            changedSignature ||
+            !observation.hasBlas;
+        plan.observations.push_back(observation);
+        ++plan.emittedObservations;
+
+        const bool cacheHit =
+            previousBucket &&
+            observation.hasBlas &&
+            observation.blasInputsCompatible &&
+            !changedSignature;
+        if (cacheHit)
+        {
+            ++plan.cacheHits;
+        }
+        else
+        {
+            ++plan.cacheMisses;
+        }
+        if (changedSignature)
+        {
+            ++plan.signatureChanged;
+        }
+        if (observation.uploadRequired)
+        {
+            ++plan.uploadRequired;
+        }
+
+        const uint32_t hasPreviousBit = previousBucket ? 1u : 0u;
+        const uint32_t uploadBit = observation.uploadRequired ? 1u : 0u;
+        const uint32_t hitBit = cacheHit ? 1u : 0u;
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.bucketKey, sizeof(observation.bucketKey));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &hasPreviousBit, sizeof(hasPreviousBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &hitBit, sizeof(hitBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &uploadBit, sizeof(uploadBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.previousBlasInputSignature, sizeof(observation.previousBlasInputSignature));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.currentBlasInputSignature, sizeof(observation.currentBlasInputSignature));
+    }
+    return plan;
+}
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input)
 {

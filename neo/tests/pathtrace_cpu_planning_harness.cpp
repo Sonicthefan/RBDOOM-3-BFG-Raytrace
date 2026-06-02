@@ -595,6 +595,73 @@ void TestStaticBucketBlasBuildBatchPlan()
         "static bucket BLAS batch plan reports record cap overflow");
 }
 
+void TestStaticBucketBlasBuildObservationPlan()
+{
+    RtSmokeStaticBvhBucketSignature currentBuckets[4];
+    currentBuckets[0].bucketKey = 10;
+    currentBuckets[0].blasInputSignature = 100;
+    currentBuckets[0].active = true;
+    currentBuckets[0].resident = true;
+
+    currentBuckets[1] = currentBuckets[0];
+    currentBuckets[1].bucketKey = 20;
+    currentBuckets[1].blasInputSignature = 200;
+
+    currentBuckets[2] = currentBuckets[0];
+    currentBuckets[2].bucketKey = 30;
+    currentBuckets[2].blasInputSignature = 300;
+    currentBuckets[2].active = false;
+
+    currentBuckets[3] = currentBuckets[0];
+    currentBuckets[3].bucketKey = 40;
+    currentBuckets[3].blasInputSignature = 400;
+
+    RtSmokeStaticBucketBlasCacheState previousBuckets[3];
+    previousBuckets[0].bucketKey = 10;
+    previousBuckets[0].blasInputSignature = 100;
+    previousBuckets[0].hasBlas = true;
+    previousBuckets[0].blasInputsCompatible = true;
+
+    previousBuckets[1] = previousBuckets[0];
+    previousBuckets[1].bucketKey = 20;
+    previousBuckets[1].blasInputSignature = 201;
+
+    previousBuckets[2] = previousBuckets[0];
+    previousBuckets[2].bucketKey = 40;
+    previousBuckets[2].blasInputSignature = 400;
+    previousBuckets[2].hasBlas = false;
+
+    RtSmokeStaticBucketBlasBuildObservationPlanInput input;
+    input.currentBuckets = currentBuckets;
+    input.currentBucketCount = 4;
+    input.previousBuckets = previousBuckets;
+    input.previousBucketCount = 3;
+    const RtSmokeStaticBucketBlasBuildObservationPlan plan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    Check(plan.emittedObservations == 3 &&
+        plan.cacheHits == 1 &&
+        plan.cacheMisses == 2 &&
+        plan.signatureChanged == 1 &&
+        plan.uploadRequired == 2 &&
+        plan.skippedInactive == 1 &&
+        plan.observations[0].bucketKey == 10 &&
+        !plan.observations[0].uploadRequired &&
+        plan.observations[1].bucketKey == 20 &&
+        plan.observations[1].uploadRequired &&
+        plan.observations[2].bucketKey == 40 &&
+        !plan.observations[2].hasBlas &&
+        plan.planSignature != 0,
+        "static bucket BLAS observation plan derives active cache hit and miss observations");
+
+    input.maxRecords = 1;
+    const RtSmokeStaticBucketBlasBuildObservationPlan cappedPlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    Check(cappedPlan.emittedObservations == 1 &&
+        cappedPlan.overflow &&
+        cappedPlan.observations[0].bucketKey == 10,
+        "static bucket BLAS observation plan reports active record cap overflow");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1434,6 +1501,7 @@ int main(int argc, char** argv)
     TestRigidBlasBuildPlan();
     TestStaticBucketBlasBuildPlan();
     TestStaticBucketBlasBuildBatchPlan();
+    TestStaticBucketBlasBuildObservationPlan();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
