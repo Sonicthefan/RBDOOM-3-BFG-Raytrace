@@ -502,7 +502,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
 {
     common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
         desc.staticIndexCount, desc.dynamicIndexCount, desc.instanceCount);
-    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticBuckets(active/resident/inactive/emitted)=%d/%d/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d dirty(prev geom/material/active/tlas blas/tlas)=%d %d/%d/%d/%d %d/%d sig(active/resident/geom/tlas)=%llu/%llu/%llu/%llu blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticBuckets(active/resident/inactive/emitted)=%d/%d/%d/%d staticBucketBlas(records/skipInactive/skipInvalid/overflow)=%d/%d/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d dirty(prev geom/material/active/tlas blas/tlas)=%d %d/%d/%d/%d %d/%d sig(active/resident/geom/tlas)=%llu/%llu/%llu/%llu blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
         desc.classStats.staticWorldSurfaces,
         desc.staticVertexCount,
         desc.staticIndexCount,
@@ -513,6 +513,10 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.staticBvhResidentBuckets,
         desc.staticBvhInactiveResidentBuckets,
         desc.staticBvhEmittedInstances,
+        desc.staticBucketBlasRecords,
+        desc.staticBucketBlasSkippedInactive,
+        desc.staticBucketBlasSkippedInvalid,
+        desc.staticBucketBlasOverflow ? 1 : 0,
         desc.staticMonolithicInactiveIncluded ? 1 : 0,
         desc.staticRequiresBucketedBlas ? 1 : 0,
         desc.dynamicVertexCount,
@@ -1730,6 +1734,10 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.staticBvhActiveBuckets = desc.staticBvhActiveBuckets;
     sceneSummaryLog.staticBvhInactiveResidentBuckets = desc.staticBvhInactiveResidentBuckets;
     sceneSummaryLog.staticBvhEmittedInstances = desc.staticBvhEmittedInstances;
+    sceneSummaryLog.staticBucketBlasRecords = desc.staticBucketBlasRecords;
+    sceneSummaryLog.staticBucketBlasSkippedInactive = desc.staticBucketBlasSkippedInactive;
+    sceneSummaryLog.staticBucketBlasSkippedInvalid = desc.staticBucketBlasSkippedInvalid;
+    sceneSummaryLog.staticBucketBlasOverflow = desc.staticBucketBlasOverflow;
     sceneSummaryLog.staticMonolithicInactiveIncluded = desc.staticMonolithicInactiveIncluded;
     sceneSummaryLog.staticRequiresBucketedBlas = desc.staticRequiresBucketedBlas;
     sceneSummaryLog.bvhDirtyPreviousValid = desc.bvhDirtyPreviousValid;

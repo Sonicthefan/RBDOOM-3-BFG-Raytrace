@@ -4905,6 +4905,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.staticBvhEmittedInstances = staticActiveSetPlan.emittedInstances;
     sceneLogDesc.staticMonolithicInactiveIncluded = staticActiveSetPlan.inactiveResidentGeometryIncluded;
     sceneLogDesc.staticRequiresBucketedBlas = staticActiveSetPlan.requiresBucketedStaticBlas;
+    RtSmokeStaticBucketBlasPlanDesc staticBucketBlasPlanDesc;
+    staticBucketBlasPlanDesc.buckets = staticActiveBuckets.data();
+    staticBucketBlasPlanDesc.bucketCount = static_cast<int>(staticActiveBuckets.size());
+    staticBucketBlasPlanDesc.activeOnly = true;
+    const RtSmokeStaticBucketBlasPlan staticBucketBlasPlan =
+        BuildSmokeStaticBucketBlasPlan(staticBucketBlasPlanDesc);
+    sceneLogDesc.staticBucketBlasRecords = staticBucketBlasPlan.emittedRecords;
+    sceneLogDesc.staticBucketBlasSkippedInactive = staticBucketBlasPlan.skippedInactive;
+    sceneLogDesc.staticBucketBlasSkippedInvalid = staticBucketBlasPlan.skippedInvalid;
+    sceneLogDesc.staticBucketBlasOverflow = staticBucketBlasPlan.overflow;
     const int rigidTlasInstanceCount = static_cast<int>(rigidTlasRouteInstances.size());
     RtSmokeBvhFrameTokenInput bvhFrameTokenInput;
     bvhFrameTokenInput.staticBlasSignature = staticSignature.hash;
