@@ -5054,8 +5054,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bvhFramePlanningInput.frameTokenInput.rigidTlasInstanceCount = rigidTlasInstanceCount;
     bvhFramePlanningInput.frameTokenInput.hasStaticBlas = hasStaticBlas;
     bvhFramePlanningInput.frameTokenInput.hasDynamicBlas = hasDynamicBlas;
+    const int bvhFramePlanningSnapshotStartMs = Sys_Milliseconds();
     const RtSmokeBvhFramePlanningSnapshot bvhFramePlanningSnapshot =
         CaptureSmokeBvhFramePlanningSnapshot(bvhFramePlanningInput);
+    const int bvhFramePlanningSnapshotMs =
+        Sys_Milliseconds() - bvhFramePlanningSnapshotStartMs;
 
     RtPathTraceCpuWorkGeneration bvhFramePlanningGeneration;
     bvhFramePlanningGeneration.frameIndex = 0;
@@ -5126,6 +5129,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         RtPathTraceCpuWorkResultEnvelope bvhFramePlanningEnvelope;
         bvhFramePlanningEnvelope.completed = true;
         bvhFramePlanningEnvelope.generation = bvhFramePlanningGeneration;
+        bvhFramePlanningEnvelope.timing.snapshotCaptureMs =
+            static_cast<double>(bvhFramePlanningSnapshotMs);
         bvhFramePlanningEnvelope.timing.workerExecutionMs = static_cast<double>(bvhFramePlanningMs);
         RtPathTraceCpuWorkPublishCompletedResult(m_smokeBvhFrameCpuWorkState, bvhFramePlanningEnvelope);
         const RtPathTraceCpuWorkFrameDecision bvhFramePlanningDecision =
@@ -5149,7 +5154,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !bvhFramePlanningAlreadyQueued)
     {
         m_smokeBvhFramePlanningAsyncTiming = RtPathTraceCpuWorkTiming();
-        m_smokeBvhFramePlanningAsyncTiming.snapshotCaptureMs = 0.0;
+        m_smokeBvhFramePlanningAsyncTiming.snapshotCaptureMs =
+            static_cast<double>(bvhFramePlanningSnapshotMs);
         m_smokeBvhFramePlanningAsyncGeneration = bvhFramePlanningGeneration;
         m_smokeBvhFramePlanningAsyncGenerationValid = true;
         m_smokeBvhFramePlanningAsyncLaunchMs = Sys_Milliseconds();
