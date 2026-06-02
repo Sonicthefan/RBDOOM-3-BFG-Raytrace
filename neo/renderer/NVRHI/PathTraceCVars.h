@@ -229,6 +229,7 @@ extern idCVar r_pathTracingCleanRtxdiDiSpatialSamples;
 extern idCVar r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples;
 extern idCVar r_pathTracingCleanRtxdiDiSpatialRadius;
 extern idCVar r_cleanDiSpatial;
+extern idCVar r_cleanSpatial;
 extern idCVar r_cleanDiSpatialSamples;
 extern idCVar r_cleanDiSpatialDisocclusionSamples;
 extern idCVar r_cleanDiSpatialRadius;

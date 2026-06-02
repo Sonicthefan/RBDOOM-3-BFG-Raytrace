@@ -1297,7 +1297,7 @@ idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic" );
+    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",
@@ -1331,6 +1331,12 @@ idCVar r_pathTracingCleanRtxdiDiSpatialRadius(
 
 idCVar r_cleanDiSpatial(
     "r_cleanDiSpatial",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Short alias for clean-room Remix DI basic spatial reuse; set 0 for temporal-only diagnostics" );
+
+idCVar r_cleanSpatial(
+    "r_cleanSpatial",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
     "Short alias for clean-room Remix DI basic spatial reuse; set 0 for temporal-only diagnostics" );

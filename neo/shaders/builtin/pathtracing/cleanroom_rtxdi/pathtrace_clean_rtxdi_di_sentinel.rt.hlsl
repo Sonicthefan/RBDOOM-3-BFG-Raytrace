@@ -810,6 +810,11 @@ RAB_Surface PathTraceCleanRoomSurfaceFromRecord(PathTracePrimarySurfaceRecord re
     return surface;
 }
 
+RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord record)
+{
+    return PathTraceCleanRoomSurfaceFromRecord(record);
+}
+
 RAB_Surface RAB_GetGBufferSurface(int2 pixel, bool previousFrame)
 {
     const uint2 dimensions = uint2(
@@ -820,7 +825,7 @@ RAB_Surface RAB_GetGBufferSurface(int2 pixel, bool previousFrame)
     {
         return RAB_EmptySurface();
     }
-    return PathTraceCleanRoomSurfaceFromRecord(record);
+    return PathTraceCleanRoomSurfaceForView(record);
 }
 
 bool PathTraceCleanRoomAnalyticPayloadValid(PathTraceDoomAnalyticLightCandidate light)
@@ -1823,7 +1828,14 @@ uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitive
             : 0xffffffffu;
     }
 
-    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[instanceId - 2u];
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= rigidRouteInstanceCount)
+    {
+        return 0xffffffffu;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
     const uint routedPrimitiveIndex = routeInstance.triangleOffset + primitiveIndex;
     if (primitiveIndex >= routeInstance.triangleCount ||
         routedPrimitiveIndex >= CleanRtxdiDiRigidRouteTriangleCount)
@@ -2223,7 +2235,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         return result;
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(result.surface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(result.surface);
     if (!RAB_IsSurfaceValid(surface))
     {
         result.status = CLEAN_INITIAL_STATUS_INVALID_SURFACE;
@@ -2385,7 +2397,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
         return result;
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(result.surface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(result.surface);
     if (!RAB_IsSurfaceValid(surface))
     {
         result.status = CLEAN_INITIAL_STATUS_INVALID_SURFACE;
@@ -2464,7 +2476,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunExternalPdfNeeCurrentPro
         return result;
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(result.surface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(result.surface);
     if (!RAB_IsSurfaceValid(surface))
     {
         result.status = CLEAN_INITIAL_STATUS_INVALID_SURFACE;
@@ -4601,7 +4613,7 @@ float3 PathTraceCleanRoomTemporalReservoirOutput(uint2 pixel, uint2 dimensions, 
         }
     }
 
-    const bool temporalRequested = view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u;
+    const bool temporalRequested = view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u;
     const bool temporalAllowed = temporalRequested && (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_ENABLE) != 0u;
     RTXDI_DIReservoir temporalReservoir = initial.reservoir;
     PathTraceCleanRtxdiDiTemporalResult temporal = (PathTraceCleanRtxdiDiTemporalResult)0;
@@ -4808,7 +4820,7 @@ void RayGen()
     }
 
     const uint view = CleanRtxdiDiView;
-    if (view < 1u || view > 15u)
+    if (view < 1u || view > 16u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
         return;
@@ -4849,7 +4861,7 @@ void RayGen()
     {
         color = PathTraceCleanRoomRealAnalyticBinaryGateDiagnosticColor(pixel, dimensions);
     }
-    else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u)
+    else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u)
     {
         color = PathTraceCleanRoomTemporalReservoirOutput(pixel, dimensions, view);
     }

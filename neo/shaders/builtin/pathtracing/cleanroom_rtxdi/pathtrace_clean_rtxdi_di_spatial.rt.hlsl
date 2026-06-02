@@ -101,16 +101,20 @@ struct PathTraceSmokeEmissiveTriangle
 #include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
+StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
+StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
+StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> CleanRtxdiDiPreviousReservoirs : register(u71);
@@ -183,7 +187,9 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
 };
 
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
+static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
+static const uint RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 static const float CLEAN_RTXDI_PI = 3.14159265358979323846;
@@ -386,6 +392,201 @@ bool CleanLoadEmissiveTriangleGeometry(PathTraceSmokeEmissiveTriangle tri, out f
     return true;
 }
 
+uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
+{
+    if (instanceId == 0u)
+    {
+        return primitiveIndex < CleanRtxdiDiStaticTriangleCount
+            ? SmokeStaticTriangleMaterialIndexes[primitiveIndex]
+            : 0xffffffffu;
+    }
+
+    if (instanceId == 1u)
+    {
+        return primitiveIndex < CleanRtxdiDiDynamicTriangleCount
+            ? SmokeDynamicTriangleMaterialIndexes[primitiveIndex]
+            : 0xffffffffu;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= routeInstanceCount)
+    {
+        return 0xffffffffu;
+    }
+
+    const PathTraceRigidRouteInstance route = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint routedPrimitiveIndex = route.triangleOffset + primitiveIndex;
+    if (primitiveIndex >= route.triangleCount ||
+        routedPrimitiveIndex >= CleanRtxdiDiRigidRouteTriangleCount)
+    {
+        return 0xffffffffu;
+    }
+
+    return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
+}
+
+bool CleanLoadSurfaceTriangleGeometry(PathTracePrimarySurfaceRecord record, out float3 p0, out float3 p1, out float3 p2, out float2 uv0, out float2 uv1, out float2 uv2)
+{
+    p0 = record.worldPositionAndViewDepth.xyz;
+    p1 = record.worldPositionAndViewDepth.xyz;
+    p2 = record.worldPositionAndViewDepth.xyz;
+    uv0 = float2(0.0, 0.0);
+    uv1 = float2(0.0, 0.0);
+    uv2 = float2(0.0, 0.0);
+
+    const uint instanceId = record.instancePrimitiveObject.x;
+    const uint primitiveIndex = record.instancePrimitiveObject.y;
+    if (instanceId == 0u)
+    {
+        const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0);
+        const uint indexCount = (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0);
+        const uint triangleCount = (uint)max(CleanRtxdiDiGeometryInfo0.z, 0.0);
+        const uint indexOffset = primitiveIndex * 3u;
+        if (primitiveIndex >= triangleCount || indexOffset + 2u >= indexCount)
+        {
+            return false;
+        }
+        const uint i0 = SmokeStaticIndices[indexOffset + 0u];
+        const uint i1 = SmokeStaticIndices[indexOffset + 1u];
+        const uint i2 = SmokeStaticIndices[indexOffset + 2u];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 = SmokeStaticVertices[i0];
+        const PathTraceSmokeVertex v1 = SmokeStaticVertices[i1];
+        const PathTraceSmokeVertex v2 = SmokeStaticVertices[i2];
+        p0 = v0.position.xyz;
+        p1 = v1.position.xyz;
+        p2 = v2.position.xyz;
+        uv0 = v0.texCoord.xy;
+        uv1 = v1.texCoord.xy;
+        uv2 = v2.texCoord.xy;
+        return true;
+    }
+
+    if (instanceId == 1u)
+    {
+        const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo0.w, 0.0);
+        const uint indexCount = (uint)max(CleanRtxdiDiGeometryInfo1.x, 0.0);
+        const uint triangleCount = (uint)max(CleanRtxdiDiGeometryInfo1.y, 0.0);
+        const uint indexOffset = primitiveIndex * 3u;
+        if (primitiveIndex >= triangleCount || indexOffset + 2u >= indexCount)
+        {
+            return false;
+        }
+        const uint i0 = SmokeDynamicIndices[indexOffset + 0u];
+        const uint i1 = SmokeDynamicIndices[indexOffset + 1u];
+        const uint i2 = SmokeDynamicIndices[indexOffset + 2u];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 = SmokeDynamicVertices[i0];
+        const PathTraceSmokeVertex v1 = SmokeDynamicVertices[i1];
+        const PathTraceSmokeVertex v2 = SmokeDynamicVertices[i2];
+        p0 = v0.position.xyz;
+        p1 = v1.position.xyz;
+        p2 = v2.position.xyz;
+        uv0 = v0.texCoord.xy;
+        uv1 = v1.texCoord.xy;
+        uv2 = v2.texCoord.xy;
+        return true;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= routeInstanceCount)
+    {
+        return false;
+    }
+
+    const PathTraceRigidRouteInstance route = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo1.z, 0.0);
+    const uint indexCount = (uint)max(CleanRtxdiDiGeometryInfo1.w, 0.0);
+    const uint indexOffset = route.indexOffset + primitiveIndex * 3u;
+    if (primitiveIndex >= route.triangleCount || indexOffset + 2u >= indexCount)
+    {
+        return false;
+    }
+    const uint i0 = SmokeRigidRouteIndices[indexOffset + 0u];
+    const uint i1 = SmokeRigidRouteIndices[indexOffset + 1u];
+    const uint i2 = SmokeRigidRouteIndices[indexOffset + 2u];
+    if (i0 >= route.vertexCount || i1 >= route.vertexCount || i2 >= route.vertexCount ||
+        route.vertexOffset + i0 >= vertexCount || route.vertexOffset + i1 >= vertexCount || route.vertexOffset + i2 >= vertexCount)
+    {
+        return false;
+    }
+    const PathTraceSmokeVertex v0 = SmokeRigidRouteVertices[route.vertexOffset + i0];
+    const PathTraceSmokeVertex v1 = SmokeRigidRouteVertices[route.vertexOffset + i1];
+    const PathTraceSmokeVertex v2 = SmokeRigidRouteVertices[route.vertexOffset + i2];
+    p0 = CleanTransformRigidRoutePoint(route, v0.position.xyz);
+    p1 = CleanTransformRigidRoutePoint(route, v1.position.xyz);
+    p2 = CleanTransformRigidRoutePoint(route, v2.position.xyz);
+    uv0 = v0.texCoord.xy;
+    uv1 = v1.texCoord.xy;
+    uv2 = v2.texCoord.xy;
+    return true;
+}
+
+float3 CleanSurfaceFallbackAlbedo(PathTracePrimarySurfaceRecord record)
+{
+    float3 albedo = saturate(record.albedoAndAlphaCutoff.xyz);
+    const bool invalidDebugAlbedo = all(abs(albedo - float3(1.0, 0.0, 1.0)) < float3(0.001, 0.001, 0.001));
+    if (CleanLuminance(albedo) <= 1.0e-5 || invalidDebugAlbedo)
+    {
+        albedo = float3(0.5, 0.5, 0.5);
+    }
+    return albedo;
+}
+
+float3 CleanBarycentric(float3 position, float3 p0, float3 p1, float3 p2)
+{
+    const float3 v0 = p1 - p0;
+    const float3 v1 = p2 - p0;
+    const float3 v2 = position - p0;
+    const float d00 = dot(v0, v0);
+    const float d01 = dot(v0, v1);
+    const float d11 = dot(v1, v1);
+    const float d20 = dot(v2, v0);
+    const float d21 = dot(v2, v1);
+    const float denom = d00 * d11 - d01 * d01;
+    if (abs(denom) <= 1.0e-8)
+    {
+        return float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0);
+    }
+
+    const float invDenom = 1.0 / denom;
+    const float baryY = (d11 * d20 - d01 * d21) * invDenom;
+    const float baryZ = (d00 * d21 - d01 * d20) * invDenom;
+    const float baryX = 1.0 - baryY - baryZ;
+    const float3 bary = saturate(float3(baryX, baryY, baryZ));
+    const float sumBary = max(dot(bary, float3(1.0, 1.0, 1.0)), 1.0e-6);
+    return bary / sumBary;
+}
+
+PathTraceSmokeMaterial CleanLoadSmokeMaterial(uint materialIndex);
+float4 CleanSampleDecodedDiffuse(PathTraceSmokeMaterial material, float2 texCoord, float4 fallback);
+
+float3 CleanTexturedSurfaceAlbedo(PathTracePrimarySurfaceRecord record)
+{
+    const float3 fallbackAlbedo = CleanSurfaceFallbackAlbedo(record);
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x < dimensions.x && pixel.y < dimensions.y)
+    {
+        const float3 guideAlbedo = saturate(PathTraceRRGuideAlbedo[pixel].rgb);
+        const bool invalidGuideAlbedo = all(abs(guideAlbedo - float3(1.0, 0.0, 1.0)) < float3(0.001, 0.001, 0.001));
+        if (CleanLuminance(guideAlbedo) > 1.0e-5 && !invalidGuideAlbedo)
+        {
+            return guideAlbedo;
+        }
+    }
+
+    return fallbackAlbedo;
+}
+
 bool CleanTriangleNormalArea(float3 p0, float3 p1, float3 p2, float3 payloadNormal, out float3 normal, out float area)
 {
     const float3 crossValue = cross(p1 - p0, p2 - p0);
@@ -434,11 +635,56 @@ RAB_Surface CleanSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     return surface;
 }
 
+RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
+{
+    RAB_Surface surface = CleanSurfaceFromRecord(record);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return surface;
+    }
+
+    surface.flags = record.header.w;
+    surface.instanceId = record.instancePrimitiveObject.x;
+    surface.primitiveIndex = record.instancePrimitiveObject.y;
+
+    RAB_Material material = RAB_EmptyMaterial();
+    material.materialId = surface.materialId;
+    material.materialIndex = surface.materialIndex;
+    material.flags = record.materialAndSurface.z;
+    material.alphaCutoff = record.albedoAndAlphaCutoff.w;
+    material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
+    material.roughness = saturate(record.geometricNormalAndRoughness.w);
+    material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    material.opacity = saturate(record.shadingNormalAndOpacity.w);
+    material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
+    material.emissiveTextureIndex = record.instancePrimitiveObject.w;
+    surface.material = material;
+    return surface;
+}
+
+RAB_Surface CleanSurfaceForView(PathTracePrimarySurfaceRecord record)
+{
+    return CleanSurfaceFromRecord(record);
+}
+
 PathTraceSmokeMaterial CleanLoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material = (PathTraceSmokeMaterial)0;
+    material.debugAlbedo = float4(1.0, 0.0, 1.0, 1.0);
+    material.diffuseTextureIndex = 0xffffffffu;
+    material.alphaTextureIndex = 0xffffffffu;
+    material.normalTextureIndex = 0xffffffffu;
+    material.specularTextureIndex = 0xffffffffu;
     material.emissiveTextureIndex = 0xffffffffu;
     material.emissiveColor = float4(0.0, 0.0, 0.0, 1.0);
+    material.textureWidth = 1u;
+    material.textureHeight = 1u;
+    material.alphaTextureWidth = 1u;
+    material.alphaTextureHeight = 1u;
+    material.normalTextureWidth = 1u;
+    material.normalTextureHeight = 1u;
+    material.specularTextureWidth = 1u;
+    material.specularTextureHeight = 1u;
     material.emissiveTextureWidth = 1u;
     material.emissiveTextureHeight = 1u;
     if (materialIndex < (uint)CleanRtxdiDiTextureInfo.z)
@@ -446,6 +692,99 @@ PathTraceSmokeMaterial CleanLoadSmokeMaterial(uint materialIndex)
         material = SmokeMaterials[materialIndex];
     }
     return material;
+}
+
+float4 CleanLoadTextureTexel(uint textureIndex, uint2 texel, bool bindlessEnabled)
+{
+    return bindlessEnabled
+        ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel, 0))
+        : SmokeFallbackTexture.Load(int3(0, 0, 0));
+}
+
+float4 CleanSampleTextureLoad(uint textureIndex, uint textureWidth, uint textureHeight, float2 wrappedTexCoord, bool bindlessEnabled, bool bilinearFilter)
+{
+    const uint width = max(textureWidth, 1u);
+    const uint height = max(textureHeight, 1u);
+    if (!bilinearFilter || width == 1u || height == 1u)
+    {
+        const uint2 texel = min(uint2(wrappedTexCoord * float2(width, height)), uint2(width - 1u, height - 1u));
+        return CleanLoadTextureTexel(textureIndex, texel, bindlessEnabled);
+    }
+
+    const float2 texelPosition = wrappedTexCoord * float2(width, height) - 0.5;
+    const int2 baseTexel = int2(floor(texelPosition));
+    const float2 fraction = frac(texelPosition);
+    const uint2 textureSize = uint2(width, height);
+    const uint2 texel00 = uint2((baseTexel + int2(0, 0) + int2(width, height)) % int2(textureSize));
+    const uint2 texel10 = uint2((baseTexel + int2(1, 0) + int2(width, height)) % int2(textureSize));
+    const uint2 texel01 = uint2((baseTexel + int2(0, 1) + int2(width, height)) % int2(textureSize));
+    const uint2 texel11 = uint2((baseTexel + int2(1, 1) + int2(width, height)) % int2(textureSize));
+    const float4 c00 = CleanLoadTextureTexel(textureIndex, texel00, bindlessEnabled);
+    const float4 c10 = CleanLoadTextureTexel(textureIndex, texel10, bindlessEnabled);
+    const float4 c01 = CleanLoadTextureTexel(textureIndex, texel01, bindlessEnabled);
+    const float4 c11 = CleanLoadTextureTexel(textureIndex, texel11, bindlessEnabled);
+    return lerp(lerp(c00, c10, fraction.x), lerp(c01, c11, fraction.x), fraction.y);
+}
+
+float4 CleanSampleTexture(uint textureIndex, uint textureWidth, uint textureHeight, float2 texCoord, float4 fallback)
+{
+    const uint textureCount = (uint)TextureInfo.x;
+    const uint sampleMethod = (uint)TextureInfo.y;
+    const uint textureFlags = (uint)TextureInfo.w;
+    const bool bindlessEnabled = (textureFlags & 1u) != 0u;
+    const bool bilinearFilter = (textureFlags & 2u) != 0u;
+    if (sampleMethod == 0u || textureIndex == 0xffffffffu || textureIndex >= textureCount)
+    {
+        return fallback;
+    }
+    if (!all(texCoord == texCoord) || any(abs(texCoord) > 65536.0))
+    {
+        return fallback;
+    }
+
+    const float2 wrappedTexCoord = frac(texCoord);
+    const float4 sampled = sampleMethod == 2u
+        ? CleanSampleTextureLoad(textureIndex, textureWidth, textureHeight, wrappedTexCoord, bindlessEnabled, bilinearFilter)
+        : (bindlessEnabled
+            ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(SmokeMaterialSampler, wrappedTexCoord, 0.0)
+            : SmokeFallbackTexture.SampleLevel(SmokeMaterialSampler, wrappedTexCoord, 0.0));
+    if (!all(sampled == sampled) || any(abs(sampled) > 65504.0))
+    {
+        return fallback;
+    }
+    return sampled;
+}
+
+float3 CleanConvertYCoCgToRGB(float4 ycocg)
+{
+    ycocg.z = (ycocg.z * 31.875) + 1.0;
+    ycocg.z = 1.0 / ycocg.z;
+    ycocg.xy *= ycocg.z;
+    return saturate(float3(
+        dot(ycocg, float4(1.0, -1.0, 0.0, 1.0)),
+        dot(ycocg, float4(0.0, 1.0, -0.50196078, 1.0)),
+        dot(ycocg, float4(-1.0, -1.0, 1.00392156, 1.0))));
+}
+
+float4 CleanSampleDecodedDiffuse(PathTraceSmokeMaterial material, float2 texCoord, float4 fallback)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u)
+    {
+        return saturate(material.debugAlbedo);
+    }
+
+    float4 texel = CleanSampleTexture(
+        material.diffuseTextureIndex,
+        material.textureWidth,
+        material.textureHeight,
+        texCoord,
+        fallback);
+    const bool textureDecodeEnabled = (((uint)TextureInfo.w) & 4u) != 0u;
+    if (textureDecodeEnabled && (material.flags & RT_SMOKE_MATERIAL_DIFFUSE_YCOCG) != 0u)
+    {
+        texel.rgb = CleanConvertYCoCgToRGB(texel);
+    }
+    return saturate(texel);
 }
 
 RAB_LightInfo CleanLoadRluLightInfo(uint lightIndex)
@@ -604,7 +943,7 @@ float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_Lig
     return payload.value == 0u ? 1.0 : 0.0;
 }
 
-float3 CleanResolve(uint lightIndex, float2 sampleUv, RAB_Surface surface, RTXDI_DIReservoir reservoir)
+float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
 {
     if (!RTXDI_IsValidDIReservoir(reservoir))
     {
@@ -618,9 +957,24 @@ float3 CleanResolve(uint lightIndex, float2 sampleUv, RAB_Surface surface, RTXDI
         return float3(0.0, 0.0, 0.0);
     }
 
-    const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
+    const float3 toSample = sample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
+    const float3 lightDirection = CleanSafeNormalize(
+        toSample,
+        CleanSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
+    const float ndotl = saturate(dot(
+        CleanSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz),
+        lightDirection));
+    const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
+    if (CleanRtxdiDiResolveBrdfTarget != 0u)
+    {
+        return receiverAlbedo;
+    }
+    const float3 receiverDiffuse = receiverAlbedo * (1.0 / CLEAN_RTXDI_PI);
+    const float3 reflected = max(sample.radiance, float3(0.0, 0.0, 0.0)) * receiverDiffuse * ndotl;
     const float visibility = CleanTraceVisibility(surface, lightInfo, sample);
-    return reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / max(sample.solidAnglePdf, 1.0e-6);
+    const float3 selectedLightContribution =
+        reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / max(sample.solidAnglePdf, 1.0e-6);
+    return selectedLightContribution;
 }
 
 int2 CleanClampPixel(int2 pixel, uint2 dimensions)
@@ -634,6 +988,10 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
     {
         return centerReservoir;
     }
+    if (CleanRtxdiDiSpatialInfo.w <= 0.5)
+    {
+        return centerReservoir;
+    }
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525807u);
     RTXDI_DIReservoir result = RTXDI_EmptyDIReservoir();
@@ -644,8 +1002,6 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
     const uint targetHistoryLength = (uint)clamp(CleanRtxdiDiRestirPTSurfaceInfo.y, 1.0, 64.0);
     const uint spatialSamples = min(centerReservoir.M < targetHistoryLength ? max(requestedSamples, disocclusionSamples) : requestedSamples, 16u);
     const float radius = max(CleanRtxdiDiSpatialInfo.z, 1.0);
-    float denominator = centerReservoir.targetPdf * centerReservoir.M;
-    float selectedPdf = centerReservoir.targetPdf;
     for (uint i = 0u; i < spatialSamples; ++i)
     {
         const uint offsetIndex = (uint)(RTXDI_GetNextRandom(rng) * 32.0) & 31u;
@@ -676,17 +1032,13 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
             RTXDI_GetDIReservoirLightIndex(neighborReservoir),
             RTXDI_GetDIReservoirSampleUV(neighborReservoir),
             surface);
-        denominator += targetPdf * neighborReservoir.M;
         neighborReservoir.spatialDistance += neighborPixel - int2(pixel);
-        if (RTXDI_CombineDIReservoirs(result, neighborReservoir, RTXDI_GetNextRandom(rng), targetPdf))
-        {
-            selectedPdf = targetPdf;
-        }
+        RTXDI_CombineDIReservoirs(result, neighborReservoir, RTXDI_GetNextRandom(rng), targetPdf);
     }
 
     if (RTXDI_IsValidDIReservoir(result))
     {
-        RTXDI_FinalizeResampling(result, selectedPdf, max(denominator, 1.0e-8));
+        RTXDI_FinalizeResampling(result, 1.0, max(result.M, 1.0));
     }
     return result;
 }
@@ -716,8 +1068,8 @@ void RayGen()
     }
 
     const RTXDI_DIReservoir centerReservoir = RTXDI_LoadDIReservoir(CleanReservoirParams(dimensions), pixel, 0u);
-    const RAB_Surface rabSurface = CleanSurfaceFromRecord(surface);
-    const RTXDI_DIReservoir spatialReservoir = CleanSpatialReuse(pixel, dimensions, surface, rabSurface, centerReservoir);
+    const RAB_Surface reuseSurface = CleanSurfaceForView(surface);
+    const RTXDI_DIReservoir spatialReservoir = CleanSpatialReuse(pixel, dimensions, surface, reuseSurface, centerReservoir);
     CleanRtxdiDiSpatialReservoirs[reservoirIndex] = RTXDI_PackDIReservoir(spatialReservoir);
 
     if (CleanRtxdiDiView == 8u && CleanRtxdiDiView8Band == 16u)
@@ -730,7 +1082,8 @@ void RayGen()
     SmokeOutput[pixel] = float4(CleanResolve(
         RTXDI_GetDIReservoirLightIndex(spatialReservoir),
         RTXDI_GetDIReservoirSampleUV(spatialReservoir),
-        rabSurface,
+        surface,
+        reuseSurface,
         spatialReservoir), 1.0);
 }
 

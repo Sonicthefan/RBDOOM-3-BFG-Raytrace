@@ -266,6 +266,32 @@ O-05: One-Shot CPU Dump
         no derived proof from names alone
 
 
+O-06: Material Validation Resolve
+
+    Written by:
+        clean-room DI material validation resolve
+
+    Read source:
+        clean-room current, temporal, or spatial DI reservoir page
+        current primary surface position, normals, and material record fields
+        current light universe only for replaying the selected sample
+
+    Requirements:
+        material-aware direct-light estimate from the selected DI sample
+        primary-surface material fields may provide diffuse albedo, roughness,
+            specular F0, opacity, material id, and material index
+        same clean current/temporal/spatial reservoir ownership as the ReSTIR
+            DI route
+
+    Forbidden:
+        no path-traced beauty underneath
+        no fallback direct lighting
+        no mode-56 output or r_pathTracingRestirPTDiDebugView output
+        no denoiser, DLSS Ray Reconstruction guide/input, best-light, or
+            history brightness ramp as proof
+        no claim that this replaces O-04 raw flat-diffuse temporal proof
+
+
 Forbidden Input Classes
 -----------------------
 

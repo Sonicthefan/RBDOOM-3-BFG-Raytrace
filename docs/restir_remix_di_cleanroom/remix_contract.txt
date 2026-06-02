@@ -220,6 +220,33 @@ beauty integration.
         no false-color dashboard as accumulation proof
 
 
+Stage 5: Material Validation Resolve
+
+This is a follow-on validation view, not the temporal proof view.
+
+    input:
+        current or temporal DI reservoir page
+        current primary surface position, normals, and material record fields
+        current light universe for replaying the selected DI sample
+
+    output:
+        material-aware direct-light estimate from the selected clean DI sample
+
+    required output ownership:
+        use clean current/temporal/spatial reservoir ownership
+        use primary-surface diffuse albedo, roughness, specular F0, opacity,
+            material id, and material index already packed by rbdoom
+        preserve raw flat-diffuse views 4-6 and view 12 unchanged as proof
+
+    forbidden:
+        no mode-56 output or r_pathTracingRestirPTDiDebugView dependency
+        no path-traced beauty underneath
+        no fallback lighting
+        no DLSS Ray Reconstruction guide/input writes in this slice
+        no claim that material validation replaces raw flat-diffuse temporal
+            proof
+
+
 rbdoom Adapter Boundary
 -----------------------
 

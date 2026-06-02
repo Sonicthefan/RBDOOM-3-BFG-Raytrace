@@ -40,7 +40,7 @@ uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
     return hash;
 }
 
-uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
+uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, int minimumTextureTableLimit, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
 {
     std::unordered_map<uint32_t, bool> materialSeen;
     const int expectedUniqueMaterials = SmokeMaterialTextureRegistrySize() + 64;
@@ -71,7 +71,7 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     }
 
     hash = HashSmokeMaterialCacheValue(hash, enableTextureProbe ? 1u : 0u);
-    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(GetSmokeTextureTableRequestedLimit()));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(GetSmokeTextureTableEffectiveLimitWithMinimum(minimumTextureTableLimit)));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(Max(0, r_pathTracingTextureTableStart.GetInteger())));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingTextureSampleEnable.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())));
@@ -102,6 +102,13 @@ int GetSmokeTextureTableRequestedLimit()
 int GetSmokeTextureTableEffectiveLimit()
 {
     return Min(GetSmokeTextureTableRequestedLimit(), RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP);
+}
+
+int GetSmokeTextureTableEffectiveLimitWithMinimum(int minimumLimit)
+{
+    const int requestedLimit = GetSmokeTextureTableRequestedLimit();
+    const int resolvedLimit = Max(requestedLimit, idMath::ClampInt(0, RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP, minimumLimit));
+    return Min(resolvedLimit, RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP);
 }
 
 void ArmSmokeCrosshairZeroRoughnessToggle()
@@ -393,7 +400,7 @@ void AccumulateSmokeGuiTextureDiagnostic(RtSmokeMaterialTableBuild& table, idIma
     }
 }
 
-void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_t& latchedMaterialId, int& latchedRequestedIndex, bool enableTextureProbe)
+void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_t& latchedMaterialId, int& latchedRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit)
 {
     const int populateStartMs = Sys_Milliseconds();
     const int materialTableCount = Min(static_cast<int>(table.materialIds.size()), static_cast<int>(table.materials.size()));
@@ -450,7 +457,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
     const std::vector<RtSmokeMaterialTextureInfo>& materialInfos = table.materialInfos;
     const std::vector<RtSmokeMaterialUniverseFacts>& materialFacts = table.materialFacts;
 
-    const int textureTableLimit = GetSmokeTextureTableEffectiveLimit();
+    const int textureTableLimit = GetSmokeTextureTableEffectiveLimitWithMinimum(minimumTextureTableLimit);
     const int textureTableStart = Max(0, r_pathTracingTextureTableStart.GetInteger());
 
     if (r_pathTracingTextureProbeReset.GetInteger() != 0 || latchedRequestedIndex != table.textureProbeRequestedIndex)
@@ -684,7 +691,7 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
     g_smokeMaterialTableBuildStats.populateMs += Sys_Milliseconds() - populateStartMs;
 }
 
-void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe)
+void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit)
 {
     g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
     ++g_smokeMaterialTableBuildStats.buildCalls;
@@ -728,10 +735,10 @@ void BuildSmokeMaterialTable(RtSmokeMaterialTableBuild& table, const std::vector
     }
     g_smokeMaterialTableBuildStats.entryMs += Sys_Milliseconds() - entryStartMs;
 
-    PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+    PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
 }
 
-void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe)
+void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit)
 {
     g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
     ++g_smokeMaterialTableBuildStats.buildCalls;
@@ -775,7 +782,7 @@ void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const
     }
     g_smokeMaterialTableBuildStats.entryMs += Sys_Milliseconds() - entryStartMs;
 
-    PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+    PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
 }
 
 void RebuildSmokeMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds)
@@ -824,9 +831,9 @@ void RebuildSmokeDynamicMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild
     }
 }
 
-bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit)
+bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit, uint64& signature, bool& cacheHit)
 {
-    signature = ComputeSmokeMaterialTableSignature(staticMaterialIds, dynamicMaterialIds, enableTextureProbe, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex);
+    signature = ComputeSmokeMaterialTableSignature(staticMaterialIds, dynamicMaterialIds, enableTextureProbe, minimumTextureTableLimit, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex);
     cacheHit = false;
     if (r_pathTracingMaterialCache.GetInteger() != 0 && g_smokeMaterialTableCache.valid && g_smokeMaterialTableCache.signature == signature)
     {
@@ -853,7 +860,7 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
     }
 
     ++g_smokeMaterialTableCache.misses;
-    BuildSmokeMaterialTableFromUniverse(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+    BuildSmokeMaterialTableFromUniverse(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
     if (r_pathTracingMaterialCache.GetInteger() != 0 && ValidateSmokeMaterialIndexes(table))
     {
         g_smokeMaterialTableCache.valid = true;
@@ -863,13 +870,13 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
     return false;
 }
 
-bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, uint64& signature, bool& cacheHit)
+bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit, uint64& signature, bool& cacheHit)
 {
     // Disabled while validating a frame-local material-index mapping that remains
     // compatible with cached static BLAS metadata.
     signature = 0;
     cacheHit = false;
-    BuildSmokeMaterialTable(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe);
+    BuildSmokeMaterialTable(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
     return false;
 }
 

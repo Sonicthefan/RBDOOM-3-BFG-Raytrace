@@ -61,6 +61,8 @@ proof:
     false-color status views
     reservoir field bands
     selected-light identity colors
+    material validation resolve / r_pathTracingCleanRtxdiDiView 16
+        (temporal+spatial material route, not flat-diffuse proof)
     CPU dumps
     green valid pixels
     buffer/page survival
