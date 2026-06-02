@@ -1618,9 +1618,27 @@ void TestStaticBucketWorkDirtyToken()
     dirtyInput.previous = baseToken;
     dirtyInput.current = baseToken;
     const RtSmokeBvhDirtyPlan unchangedPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
-    Check(!unchangedPlan.blasInputDirty && !unchangedPlan.tlasDirty,
+    Check(!unchangedPlan.geometryContentChanged &&
+        !unchangedPlan.activeGeometryContentChanged &&
+        !unchangedPlan.residentSetChanged &&
+        !unchangedPlan.blasInputDirty &&
+        !unchangedPlan.tlasDirty,
         "static bucket work dirty token keeps unchanged plan clean");
 
+    buckets[1].residentIndexCount = 6;
+    const RtSmokeStaticBucketWorkPlan inactiveResidentChangedPlan = BuildSmokeStaticBucketWorkPlan(input);
+    tokenInput.plan = &inactiveResidentChangedPlan;
+    dirtyInput.current = BuildSmokeStaticBucketWorkDirtyToken(tokenInput);
+    const RtSmokeBvhDirtyPlan inactiveResidentDirtyPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
+    Check(inactiveResidentDirtyPlan.geometryContentChanged &&
+        inactiveResidentDirtyPlan.residentSetChanged &&
+        !inactiveResidentDirtyPlan.activeGeometryContentChanged &&
+        !inactiveResidentDirtyPlan.activeMembershipChanged &&
+        !inactiveResidentDirtyPlan.blasInputDirty &&
+        !inactiveResidentDirtyPlan.tlasDirty,
+        "static bucket work dirty token keeps inactive resident geometry out of active BLAS and TLAS work");
+
+    buckets[1].residentIndexCount = 3;
     buckets[1].active = true;
     buckets[1].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
     buckets[1].activeVertexCount = buckets[1].residentVertexCount;
@@ -1634,6 +1652,8 @@ void TestStaticBucketWorkDirtyToken()
         activeDirtyPlan.tlasInstanceChanged &&
         activeDirtyPlan.tlasDirty &&
         !activeDirtyPlan.blasInputDirty &&
+        !activeDirtyPlan.activeGeometryContentChanged &&
+        !activeDirtyPlan.residentSetChanged &&
         !activeDirtyPlan.geometryContentChanged,
         "static bucket work dirty token maps active bucket changes to TLAS-only work");
 
@@ -1644,9 +1664,10 @@ void TestStaticBucketWorkDirtyToken()
     dirtyInput.current = BuildSmokeStaticBucketWorkDirtyToken(tokenInput);
     const RtSmokeBvhDirtyPlan geometryDirtyPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
     Check(geometryDirtyPlan.geometryContentChanged &&
+        geometryDirtyPlan.activeGeometryContentChanged &&
         geometryDirtyPlan.blasInputDirty &&
         geometryDirtyPlan.tlasDirty,
-        "static bucket work dirty token maps resident geometry changes to BLAS work");
+        "static bucket work dirty token maps active resident geometry changes to BLAS work");
 
     input.materialGeneration = 201;
     const RtSmokeStaticBucketWorkPlan materialChangedPlan = BuildSmokeStaticBucketWorkPlan(input);

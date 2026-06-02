@@ -514,6 +514,8 @@ struct RtSmokeStaticBucketWorkPlanTimedResult
 struct RtSmokeBvhDirtyTokenState
 {
     uint64_t geometryContentSignature = 0;
+    uint64_t activeBlasInputSignature = 0;
+    uint64_t residentSetSignature = 0;
     uint64_t materialGeneration = 0;
     uint64_t activeSetSignature = 0;
     uint64_t tlasInstanceSignature = 0;
@@ -535,6 +537,8 @@ struct RtSmokeBvhDirtyPlanInput
 struct RtSmokeBvhDirtyPlan
 {
     bool geometryContentChanged = false;
+    bool activeGeometryContentChanged = false;
+    bool residentSetChanged = false;
     bool materialChanged = false;
     bool activeMembershipChanged = false;
     bool tlasInstanceChanged = false;

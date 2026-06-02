@@ -1113,6 +1113,8 @@ RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
     RtSmokeBvhDirtyTokenState token;
     token.materialGeneration = input.materialGeneration;
     token.geometryContentSignature = 14695981039346656037ull;
+    token.activeBlasInputSignature = 14695981039346656037ull;
+    token.residentSetSignature = 14695981039346656037ull;
     token.activeSetSignature = 14695981039346656037ull;
     token.tlasInstanceSignature = 14695981039346656037ull;
     if (!input.plan)
@@ -1122,8 +1124,24 @@ RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
 
     const RtSmokeStaticBucketWorkPlan& plan = *input.plan;
     const int bucketCount = static_cast<int>(plan.bucketSignatures.size());
+    int residentBucketCount = 0;
+    int activeBucketCount = 0;
+    for (const RtSmokeStaticBvhBucketSignature& bucketSignature : plan.bucketSignatures)
+    {
+        if (bucketSignature.resident)
+        {
+            ++residentBucketCount;
+        }
+        if (bucketSignature.active)
+        {
+            ++activeBucketCount;
+        }
+    }
+
     token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketCount, sizeof(bucketCount));
-    token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &bucketCount, sizeof(bucketCount));
+    token.activeBlasInputSignature = HashSmokePlanBytes(token.activeBlasInputSignature, &activeBucketCount, sizeof(activeBucketCount));
+    token.residentSetSignature = HashSmokePlanBytes(token.residentSetSignature, &residentBucketCount, sizeof(residentBucketCount));
+    token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &activeBucketCount, sizeof(activeBucketCount));
     for (const RtSmokeStaticBvhBucketSignature& bucketSignature : plan.bucketSignatures)
     {
         if (bucketSignature.resident)
@@ -1131,9 +1149,13 @@ RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
             token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
             token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.residentSignature, sizeof(bucketSignature.residentSignature));
             token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.blasInputSignature, sizeof(bucketSignature.blasInputSignature));
+            token.residentSetSignature = HashSmokePlanBytes(token.residentSetSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
+            token.residentSetSignature = HashSmokePlanBytes(token.residentSetSignature, &bucketSignature.residentSignature, sizeof(bucketSignature.residentSignature));
         }
         if (bucketSignature.active)
         {
+            token.activeBlasInputSignature = HashSmokePlanBytes(token.activeBlasInputSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
+            token.activeBlasInputSignature = HashSmokePlanBytes(token.activeBlasInputSignature, &bucketSignature.blasInputSignature, sizeof(bucketSignature.blasInputSignature));
             token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
             token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &bucketSignature.activeSignature, sizeof(bucketSignature.activeSignature));
         }
@@ -1160,6 +1182,8 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     if (!input.previousValid)
     {
         plan.geometryContentChanged = true;
+        plan.activeGeometryContentChanged = true;
+        plan.residentSetChanged = true;
         plan.materialChanged = true;
         plan.activeMembershipChanged = true;
         plan.tlasInstanceChanged = true;
@@ -1168,6 +1192,15 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     {
         plan.geometryContentChanged =
             input.previous.geometryContentSignature != input.current.geometryContentSignature;
+        const bool hasActiveGeometryToken =
+            input.previous.activeBlasInputSignature != 0 ||
+            input.current.activeBlasInputSignature != 0;
+        plan.activeGeometryContentChanged = hasActiveGeometryToken
+            ? input.previous.activeBlasInputSignature != input.current.activeBlasInputSignature &&
+                plan.geometryContentChanged
+            : plan.geometryContentChanged;
+        plan.residentSetChanged =
+            input.previous.residentSetSignature != input.current.residentSetSignature;
         plan.materialChanged =
             input.previous.materialGeneration != input.current.materialGeneration;
         plan.activeMembershipChanged =
@@ -1176,7 +1209,7 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
             input.previous.tlasInstanceSignature != input.current.tlasInstanceSignature;
     }
 
-    plan.blasInputDirty = plan.geometryContentChanged || plan.materialChanged;
+    plan.blasInputDirty = plan.activeGeometryContentChanged || plan.materialChanged;
     plan.tlasDirty = plan.blasInputDirty || plan.activeMembershipChanged || plan.tlasInstanceChanged;
     return plan;
 }
