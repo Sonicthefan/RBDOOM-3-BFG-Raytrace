@@ -94,6 +94,7 @@ private:
     int m_smokeSceneSource2RigidEntitiesLast;
     uint64 m_smokeSceneUniverseStaticBuildGeneration;
     RtPathTraceCpuWorkState m_smokeCpuWorkState;
+    RtPathTraceCpuWorkState m_smokeRigidTlasCpuWorkState;
     RtSmokeBvhDirtyTokenState m_smokeBvhDirtyPreviousToken;
     RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncGeneration;
     RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncCachedGeneration;
@@ -103,6 +104,14 @@ private:
     int m_smokeAccelerationPlanAsyncLaunchMs = 0;
     bool m_smokeAccelerationPlanAsyncGenerationValid = false;
     bool m_smokeAccelerationPlanAsyncCachedPlanValid = false;
+    RtPathTraceCpuWorkGeneration m_smokeRigidTlasPlanAsyncGeneration;
+    RtPathTraceCpuWorkGeneration m_smokeRigidTlasPlanAsyncCachedGeneration;
+    RtPathTraceCpuWorkTiming m_smokeRigidTlasPlanAsyncTiming;
+    RtSmokeRigidTlasPlan m_smokeRigidTlasPlanAsyncCachedPlan;
+    std::future<RtSmokeRigidTlasPlanTimedResult> m_smokeRigidTlasPlanFuture;
+    int m_smokeRigidTlasPlanAsyncLaunchMs = 0;
+    bool m_smokeRigidTlasPlanAsyncGenerationValid = false;
+    bool m_smokeRigidTlasPlanAsyncCachedPlanValid = false;
     bool m_smokeBvhDirtyPreviousTokenValid = false;
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;

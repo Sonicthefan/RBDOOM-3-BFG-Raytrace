@@ -2140,23 +2140,120 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
     const int rigidRouteMaxInstances = idMath::ClampInt(1, 512, r_pathTracingRigidRouteMaxInstances.GetInteger());
+    const bool asyncCpuPlanning = r_pathTracingCpuPlanningAsync.GetInteger() != 0;
     RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot;
     RtSmokeRigidTlasPlan rigidTlasPlan;
     uint64_t rigidTlasPlanInputToken = 0;
     int rigidTlasPlanMs = 0;
     bool rigidTlasPlanValid = false;
+    bool rigidTlasPlanAcceptedFromAsync = false;
+    bool rigidTlasAsyncPlanCached = false;
+    bool rigidTlasAsyncPlanQueued = false;
     if (enableRigidRouteForMode)
     {
-        const int rigidTlasPlanStartMs = Sys_Milliseconds();
+        const int rigidTlasSnapshotStartMs = Sys_Milliseconds();
         rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
             m_instanceUniverse,
             2,
             0x02,
             rigidRouteMaxInstances);
         rigidTlasPlanInputToken = BuildSmokeRigidTlasPlanInputToken(rigidTlasSnapshot);
-        rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
-        rigidTlasPlanMs = Sys_Milliseconds() - rigidTlasPlanStartMs;
-        rigidTlasPlanValid = true;
+        const int rigidTlasSnapshotMs = Sys_Milliseconds() - rigidTlasSnapshotStartMs;
+
+        RtPathTraceCpuWorkGeneration rigidTlasPlanGeneration;
+        rigidTlasPlanGeneration.frameIndex = 0;
+        rigidTlasPlanGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
+        rigidTlasPlanGeneration.geometryGeneration = sceneUniverseGeneration;
+        rigidTlasPlanGeneration.materialGeneration = 0;
+        rigidTlasPlanGeneration.lightGeneration = rigidTlasPlanInputToken;
+        RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration);
+
+        if (asyncCpuPlanning && m_smokeRigidTlasPlanFuture.valid())
+        {
+            const std::future_status futureStatus =
+                m_smokeRigidTlasPlanFuture.wait_for(std::chrono::seconds(0));
+            if (futureStatus == std::future_status::ready)
+            {
+                const RtSmokeRigidTlasPlanTimedResult timedResult = m_smokeRigidTlasPlanFuture.get();
+                m_smokeRigidTlasPlanAsyncGenerationValid = false;
+                RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
+                asyncEnvelope.completed = true;
+                asyncEnvelope.generation = m_smokeRigidTlasPlanAsyncGeneration;
+                asyncEnvelope.timing = m_smokeRigidTlasPlanAsyncTiming;
+                asyncEnvelope.timing.workerExecutionMs = static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
+                const double asyncOutstandingMs =
+                    static_cast<double>(Max(0, Sys_Milliseconds() - m_smokeRigidTlasPlanAsyncLaunchMs));
+                asyncEnvelope.timing.queueWaitMs = Max(0.0, asyncOutstandingMs - asyncEnvelope.timing.workerExecutionMs);
+                RtPathTraceCpuWorkPublishCompletedResult(m_smokeRigidTlasCpuWorkState, asyncEnvelope);
+
+                const RtPathTraceCpuWorkFrameDecision asyncDecision =
+                    RtPathTraceCpuWorkAcceptLatest(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration, &asyncEnvelope, false);
+                if (asyncDecision.accepted)
+                {
+                    rigidTlasPlan = timedResult.plan;
+                    rigidTlasPlanMs = static_cast<int>(asyncEnvelope.timing.workerExecutionMs + 0.5);
+                    m_smokeRigidTlasPlanAsyncCachedPlan = timedResult.plan;
+                    m_smokeRigidTlasPlanAsyncCachedGeneration = m_smokeRigidTlasPlanAsyncGeneration;
+                    m_smokeRigidTlasPlanAsyncCachedPlanValid = true;
+                    rigidTlasPlanValid = true;
+                    rigidTlasPlanAcceptedFromAsync = true;
+                }
+            }
+            else
+            {
+                RtPathTraceCpuWorkAcceptLatest(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration, nullptr, true);
+            }
+        }
+
+        if (!rigidTlasPlanValid &&
+            asyncCpuPlanning &&
+            m_smokeRigidTlasPlanAsyncCachedPlanValid &&
+            RtPathTraceCpuWorkGenerationEquals(m_smokeRigidTlasPlanAsyncCachedGeneration, rigidTlasPlanGeneration))
+        {
+            rigidTlasPlan = m_smokeRigidTlasPlanAsyncCachedPlan;
+            rigidTlasPlanValid = true;
+            rigidTlasPlanAcceptedFromAsync = true;
+            rigidTlasAsyncPlanCached = true;
+        }
+
+        if (!rigidTlasPlanValid)
+        {
+            const int rigidTlasPlanStartMs = Sys_Milliseconds();
+            rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+            rigidTlasPlanMs = Sys_Milliseconds() - rigidTlasPlanStartMs;
+            rigidTlasPlanValid = true;
+            RtPathTraceCpuWorkResultEnvelope rigidTlasEnvelope;
+            rigidTlasEnvelope.completed = true;
+            rigidTlasEnvelope.generation = rigidTlasPlanGeneration;
+            rigidTlasEnvelope.timing.snapshotCaptureMs = static_cast<double>(rigidTlasSnapshotMs);
+            rigidTlasEnvelope.timing.workerExecutionMs = static_cast<double>(rigidTlasPlanMs);
+            RtPathTraceCpuWorkPublishCompletedResult(m_smokeRigidTlasCpuWorkState, rigidTlasEnvelope);
+            RtPathTraceCpuWorkAcceptLatest(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration, nullptr, true);
+        }
+
+        const bool rigidAsyncPlanAlreadyCached =
+            m_smokeRigidTlasPlanAsyncCachedPlanValid &&
+            RtPathTraceCpuWorkGenerationEquals(m_smokeRigidTlasPlanAsyncCachedGeneration, rigidTlasPlanGeneration);
+        const bool rigidAsyncPlanAlreadyQueued =
+            m_smokeRigidTlasPlanAsyncGenerationValid &&
+            RtPathTraceCpuWorkGenerationEquals(m_smokeRigidTlasPlanAsyncGeneration, rigidTlasPlanGeneration);
+        if (asyncCpuPlanning &&
+            !m_smokeRigidTlasPlanFuture.valid() &&
+            !rigidAsyncPlanAlreadyCached &&
+            !rigidAsyncPlanAlreadyQueued)
+        {
+            m_smokeRigidTlasPlanAsyncTiming = RtPathTraceCpuWorkTiming();
+            m_smokeRigidTlasPlanAsyncTiming.snapshotCaptureMs = static_cast<double>(rigidTlasSnapshotMs);
+            m_smokeRigidTlasPlanAsyncGeneration = rigidTlasPlanGeneration;
+            m_smokeRigidTlasPlanAsyncGenerationValid = true;
+            m_smokeRigidTlasPlanAsyncLaunchMs = Sys_Milliseconds();
+            m_smokeRigidTlasPlanFuture = std::async(
+                std::launch::async,
+                [rigidTlasSnapshot]() {
+                    return BuildSmokeRigidTlasPlanTimedResult(rigidTlasSnapshot);
+                });
+        }
+        rigidTlasAsyncPlanQueued = m_smokeRigidTlasPlanFuture.valid();
     }
     std::vector<uint32_t> fullLevelStaticEmissiveMaterialIds;
     if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
@@ -3886,7 +3983,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelerationPlanGeneration.lightGeneration = BuildSmokeAccelerationPlanInputToken(accelerationPlanInput);
     RtPathTraceCpuWorkPublishSnapshot(m_smokeCpuWorkState, accelerationPlanGeneration);
 
-    const bool asyncCpuPlanning = r_pathTracingCpuPlanningAsync.GetInteger() != 0;
     bool accelerationPlanAcceptedFromAsync = false;
     int staticBlasSignatureMs = 0;
     if (asyncCpuPlanning && m_smokeAccelerationPlanFuture.valid())
@@ -3986,11 +4082,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const bool asyncFuturePending = m_smokeAccelerationPlanFuture.valid();
         common->Printf(
-            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
+            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d rigid(accepted/cached/queued)=%d/%d/%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
             asyncCpuPlanning ? 1 : 0,
             accelerationPlanAcceptedFromAsync ? 1 : 0,
             asyncPlanAlreadyCached ? 1 : 0,
             asyncFuturePending ? 1 : 0,
+            rigidTlasPlanAcceptedFromAsync ? 1 : 0,
+            rigidTlasAsyncPlanCached ? 1 : 0,
+            rigidTlasAsyncPlanQueued ? 1 : 0,
             static_cast<unsigned long long>(m_smokeCpuWorkState.acceptedResultCount),
             static_cast<unsigned long long>(m_smokeCpuWorkState.rejectedStaleResultCount),
             static_cast<unsigned long long>(m_smokeCpuWorkState.lateResultCount),
