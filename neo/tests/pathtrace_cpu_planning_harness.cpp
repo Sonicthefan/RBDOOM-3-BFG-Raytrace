@@ -225,6 +225,20 @@ void TestCacheAndBaseTlas()
     const RtSmokeBaseTlasPlan tlasPlan = BuildSmokeBaseTlasPlan(true, true);
     Check(tlasPlan.instanceCount == 2, "TLAS plan includes base static and dynamic instances");
     Check(tlasPlan.instances[0].instanceId == 0 && tlasPlan.instances[1].instanceId == 1, "TLAS base instance IDs are deterministic");
+    Check(tlasPlan.instances[0].kind == RT_SMOKE_PLAN_TLAS_STATIC_BLAS &&
+        tlasPlan.instances[0].instanceMask == 0x01 &&
+        tlasPlan.instances[0].transform[0] == 1.0f &&
+        tlasPlan.instances[0].transform[5] == 1.0f &&
+        tlasPlan.instances[0].transform[10] == 1.0f &&
+        tlasPlan.instances[0].transform[15] == 1.0f,
+        "TLAS plan emits deterministic static instance metadata");
+    Check(tlasPlan.instances[1].kind == RT_SMOKE_PLAN_TLAS_DYNAMIC_BLAS &&
+        tlasPlan.instances[1].instanceMask == 0x01 &&
+        tlasPlan.instances[1].transform[0] == 1.0f &&
+        tlasPlan.instances[1].transform[5] == 1.0f &&
+        tlasPlan.instances[1].transform[10] == 1.0f &&
+        tlasPlan.instances[1].transform[15] == 1.0f,
+        "TLAS plan emits deterministic dynamic instance metadata");
 
     const RtSmokeBaseTlasPlan dynamicOnlyTlasPlan = BuildSmokeBaseTlasPlan(false, true);
     Check(dynamicOnlyTlasPlan.instanceCount == 1 && dynamicOnlyTlasPlan.instances[0].instanceId == 1, "TLAS plan supports dynamic-only scenes");
