@@ -496,6 +496,12 @@ void TestRigidPlan()
             invalidPreviousPlan.instances[0].transform[12],
         "rigid TLAS plan uses current transform when previous transform is invalid");
 
+    const uint64_t rejectedTransformToken = BuildSmokeRigidTlasPlanInputToken(desc);
+    observations[1].objectToWorld[12] = 55.0f;
+    observations[1].previousObjectToWorld[12] = -55.0f;
+    Check(rejectedTransformToken == BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token ignores rejected transform contents");
+
     const RtSmokeRigidTlasPlanSnapshot snapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
     const uint64_t snapshotRigidToken = BuildSmokeRigidTlasPlanInputToken(snapshot);
     observations[0].hasBlas = false;

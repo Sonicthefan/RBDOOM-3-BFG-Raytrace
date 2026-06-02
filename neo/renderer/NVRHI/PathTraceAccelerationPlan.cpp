@@ -1716,11 +1716,6 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
         hash = HashSmokePlanBytes(hash, &observation.sourceFlags, sizeof(observation.sourceFlags));
         hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
         hash = HashSmokePlanBytes(hash, &observationFlags, sizeof(observationFlags));
-        hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
-        if (observation.hasPreviousObjectToWorld)
-        {
-            hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
-        }
 
         const bool accepted =
             (observation.sourceFlags & desc.rigidSourceMask) != 0 &&
@@ -1729,6 +1724,11 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
             observation.hasBlas;
         if (accepted)
         {
+            hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
+            if (observation.hasPreviousObjectToWorld)
+            {
+                hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
+            }
             ++emittedInstances;
         }
     }
