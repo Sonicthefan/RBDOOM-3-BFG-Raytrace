@@ -904,11 +904,14 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const uint32_t activeBit = bucket.active ? 1u : 0u;
     activeHash = HashSmokePlanBytes(activeHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
     activeHash = HashSmokePlanBytes(activeHash, &activeBit, sizeof(activeBit));
-    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
-    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
-    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
-    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
-    activeHash = HashSmokePlanBytes(activeHash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
+    if (bucket.active)
+    {
+        activeHash = HashSmokePlanBytes(activeHash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
+        activeHash = HashSmokePlanBytes(activeHash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
+        activeHash = HashSmokePlanBytes(activeHash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
+        activeHash = HashSmokePlanBytes(activeHash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
+        activeHash = HashSmokePlanBytes(activeHash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
+    }
     signature.activeSignature = activeHash;
 
     uint64_t geometryHash = 14695981039346656037ull;

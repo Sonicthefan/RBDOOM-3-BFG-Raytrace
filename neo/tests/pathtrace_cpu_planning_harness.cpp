@@ -2516,6 +2516,30 @@ void TestBvhBucketableSignatures()
         baseStaticSignature.blasInputSignature == routeChangedSignature.blasInputSignature,
         "static BVH bucket route changes do not dirty active membership or BLAS signatures");
 
+    RtSmokeStaticBvhBucketSignatureInput inactiveInput = staticInput;
+    inactiveInput.bucket.active = false;
+    inactiveInput.bucket.activeReasonFlags = 0;
+    inactiveInput.bucket.activeSurfaceCount = 0;
+    inactiveInput.bucket.activeVertexCount = 0;
+    inactiveInput.bucket.activeIndexCount = 0;
+    inactiveInput.bucket.activeTriangleCount = 0;
+    const RtSmokeStaticBvhBucketSignature inactiveSignature =
+        BuildSmokeStaticBvhBucketSignature(inactiveInput);
+    RtSmokeStaticBvhBucketSignatureInput inactiveActiveMetadataChangedInput = inactiveInput;
+    inactiveActiveMetadataChangedInput.bucket.activeReasonFlags =
+        RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE;
+    inactiveActiveMetadataChangedInput.bucket.activeSurfaceCount = 2;
+    inactiveActiveMetadataChangedInput.bucket.activeVertexCount = 6;
+    inactiveActiveMetadataChangedInput.bucket.activeIndexCount = 18;
+    inactiveActiveMetadataChangedInput.bucket.activeTriangleCount = 6;
+    const RtSmokeStaticBvhBucketSignature inactiveActiveMetadataChangedSignature =
+        BuildSmokeStaticBvhBucketSignature(inactiveActiveMetadataChangedInput);
+    Check(inactiveSignature.activeSignature == inactiveActiveMetadataChangedSignature.activeSignature &&
+        inactiveSignature.residentSignature == inactiveActiveMetadataChangedSignature.residentSignature &&
+        inactiveSignature.geometryInputSignature == inactiveActiveMetadataChangedSignature.geometryInputSignature &&
+        inactiveSignature.blasInputSignature == inactiveActiveMetadataChangedSignature.blasInputSignature,
+        "static BVH bucket signature ignores inactive active metadata");
+
     RtSmokeStaticBvhBucketSignatureInput geometryChangedInput = staticInput;
     geometryChangedInput.geometryContentSignature = 1001;
     const RtSmokeStaticBvhBucketSignature geometryChangedSignature =
