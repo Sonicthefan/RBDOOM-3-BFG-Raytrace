@@ -2528,6 +2528,15 @@ void TestBvhBucketableSignatures()
         baseRigidSignature.tlasMembershipSignature == rigidGeometryChangedSignature.tlasMembershipSignature,
         "rigid BVH object geometry changes dirty BLAS signature without changing TLAS membership");
 
+    RtSmokeRigidBvhObjectSignatureInput rigidEquivalentSourceInput = rigidInput;
+    rigidEquivalentSourceInput.sourceFlags = 0x6;
+    const RtSmokeRigidBvhObjectSignature rigidEquivalentSourceSignature =
+        BuildSmokeRigidBvhObjectSignature(rigidEquivalentSourceInput);
+    Check(baseRigidSignature.activeCandidate &&
+        rigidEquivalentSourceSignature.activeCandidate &&
+        baseRigidSignature.tlasMembershipSignature == rigidEquivalentSourceSignature.tlasMembershipSignature,
+        "rigid BVH object signature ignores source flag changes with unchanged TLAS membership");
+
     RtSmokeRigidBvhObjectSignatureInput rigidMaterialChangedInput = rigidInput;
     rigidMaterialChangedInput.materialGeneration = 801;
     const RtSmokeRigidBvhObjectSignature rigidMaterialChangedSignature =
