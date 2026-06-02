@@ -2237,6 +2237,43 @@ void TestUploadPlan()
     Check(!BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticInput).skipUpload, "previous static snapshot upload plan requires reused buffers");
 }
 
+void TestGenerationEquality()
+{
+    RtPathTraceCpuWorkGeneration base;
+    base.frameIndex = 1;
+    base.sceneGeneration = 2;
+    base.geometryGeneration = 3;
+    base.materialGeneration = 4;
+    base.lightGeneration = 5;
+    Check(RtPathTraceCpuWorkGenerationEquals(base, base),
+        "CPU work generation equality accepts identical tokens");
+
+    RtPathTraceCpuWorkGeneration changed = base;
+    changed.frameIndex = 9;
+    Check(!RtPathTraceCpuWorkGenerationEquals(base, changed),
+        "CPU work generation equality tracks frame index");
+
+    changed = base;
+    changed.sceneGeneration = 9;
+    Check(!RtPathTraceCpuWorkGenerationEquals(base, changed),
+        "CPU work generation equality tracks scene generation");
+
+    changed = base;
+    changed.geometryGeneration = 9;
+    Check(!RtPathTraceCpuWorkGenerationEquals(base, changed),
+        "CPU work generation equality tracks geometry generation");
+
+    changed = base;
+    changed.materialGeneration = 9;
+    Check(!RtPathTraceCpuWorkGenerationEquals(base, changed),
+        "CPU work generation equality tracks material generation");
+
+    changed = base;
+    changed.lightGeneration = 9;
+    Check(!RtPathTraceCpuWorkGenerationEquals(base, changed),
+        "CPU work generation equality tracks light/input generation");
+}
+
 void TestGenerationAcceptance()
 {
     RtPathTraceCpuWorkState incompleteState;
@@ -2443,6 +2480,7 @@ int main(int argc, char** argv)
     TestAsyncBvhFramePlanning();
     TestBvhBucketableSignatures();
     TestUploadPlan();
+    TestGenerationEquality();
     TestGenerationAcceptance();
 
     if (g_failures != 0)
