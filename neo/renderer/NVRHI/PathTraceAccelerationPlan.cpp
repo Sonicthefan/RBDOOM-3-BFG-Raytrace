@@ -30,6 +30,38 @@ void CopyIdentityTransform(float transform[16])
     transform[15] = 1.0f;
 }
 
+enum RtSmokeRigidTlasObservationCategory : uint32_t
+{
+    RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID = 1,
+    RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH = 2,
+    RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH = 3,
+    RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS = 4,
+    RT_SMOKE_RIGID_TLAS_ACCEPTED = 5
+};
+
+RtSmokeRigidTlasObservationCategory ClassifyRigidTlasObservation(
+    const RtSmokeRigidTlasObservation& observation,
+    uint32_t rigidSourceMask)
+{
+    if ((observation.sourceFlags & rigidSourceMask) == 0)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID;
+    }
+    if (!observation.hasMeshRecord)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH;
+    }
+    if (!observation.meshSeenThisFrame && !observation.residencyEnabled)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH;
+    }
+    if (!observation.hasBlas)
+    {
+        return RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS;
+    }
+    return RT_SMOKE_RIGID_TLAS_ACCEPTED;
+}
+
 RtSmokePlanStaticBlasSignatureDesc MakeSignatureDescFromSnapshot(
     const RtSmokeStaticBlasSignatureSnapshot& snapshot)
 {
@@ -1616,24 +1648,26 @@ bool AppendSmokeRigidTlasPlanObservation(
     }
 
     ++plan.visibleInstances;
-    if ((observation.sourceFlags & desc.rigidSourceMask) == 0)
+    const RtSmokeRigidTlasObservationCategory category =
+        ClassifyRigidTlasObservation(observation, desc.rigidSourceMask);
+    if (category == RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID)
     {
         ++plan.rejectedNonRigid;
         return true;
     }
 
     ++plan.rigidInstances;
-    if (!observation.hasMeshRecord)
+    if (category == RT_SMOKE_RIGID_TLAS_REJECT_MISSING_MESH)
     {
         ++plan.rejectedMissingMesh;
         return true;
     }
-    if (!observation.meshSeenThisFrame && !observation.residencyEnabled)
+    if (category == RT_SMOKE_RIGID_TLAS_REJECT_STALE_MESH)
     {
         ++plan.rejectedStaleMesh;
         return true;
     }
-    if (!observation.hasBlas)
+    if (category == RT_SMOKE_RIGID_TLAS_REJECT_MISSING_BLAS)
     {
         ++plan.rejectedMissingBlas;
         return true;
@@ -1703,34 +1737,10 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
 
         const RtSmokeRigidTlasObservation& observation = desc.observations[observationIndex];
         ++processedObservations;
-        enum : uint32_t
-        {
-            RT_SMOKE_RIGID_TOKEN_REJECT_NON_RIGID = 1,
-            RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_MESH = 2,
-            RT_SMOKE_RIGID_TOKEN_REJECT_STALE_MESH = 3,
-            RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_BLAS = 4,
-            RT_SMOKE_RIGID_TOKEN_ACCEPTED = 5
-        };
-        uint32_t observationCategory = RT_SMOKE_RIGID_TOKEN_ACCEPTED;
-        if ((observation.sourceFlags & desc.rigidSourceMask) == 0)
-        {
-            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_NON_RIGID;
-        }
-        else if (!observation.hasMeshRecord)
-        {
-            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_MESH;
-        }
-        else if (!observation.meshSeenThisFrame && !observation.residencyEnabled)
-        {
-            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_STALE_MESH;
-        }
-        else if (!observation.hasBlas)
-        {
-            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_BLAS;
-        }
-
-        hash = HashSmokePlanBytes(hash, &observationCategory, sizeof(observationCategory));
-        if (observationCategory != RT_SMOKE_RIGID_TOKEN_ACCEPTED)
+        const RtSmokeRigidTlasObservationCategory category =
+            ClassifyRigidTlasObservation(observation, desc.rigidSourceMask);
+        hash = HashSmokePlanBytes(hash, &category, sizeof(category));
+        if (category != RT_SMOKE_RIGID_TLAS_ACCEPTED)
         {
             continue;
         }
