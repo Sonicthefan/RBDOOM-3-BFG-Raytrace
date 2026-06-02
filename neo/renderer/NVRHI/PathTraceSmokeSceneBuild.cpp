@@ -2142,15 +2142,20 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int rigidRouteMaxInstances = idMath::ClampInt(1, 512, r_pathTracingRigidRouteMaxInstances.GetInteger());
     RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot;
     RtSmokeRigidTlasPlan rigidTlasPlan;
+    uint64_t rigidTlasPlanInputToken = 0;
+    int rigidTlasPlanMs = 0;
     bool rigidTlasPlanValid = false;
     if (enableRigidRouteForMode)
     {
+        const int rigidTlasPlanStartMs = Sys_Milliseconds();
         rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
             m_instanceUniverse,
             2,
             0x02,
             rigidRouteMaxInstances);
+        rigidTlasPlanInputToken = BuildSmokeRigidTlasPlanInputToken(rigidTlasSnapshot);
         rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+        rigidTlasPlanMs = Sys_Milliseconds() - rigidTlasPlanStartMs;
         rigidTlasPlanValid = true;
     }
     std::vector<uint32_t> fullLevelStaticEmissiveMaterialIds;
@@ -3981,7 +3986,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const bool asyncFuturePending = m_smokeAccelerationPlanFuture.valid();
         common->Printf(
-            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu)\n",
+            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
             asyncCpuPlanning ? 1 : 0,
             accelerationPlanAcceptedFromAsync ? 1 : 0,
             asyncPlanAlreadyCached ? 1 : 0,
@@ -3994,11 +3999,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeCpuWorkState.lastAcceptedTiming.queueWaitMs,
             m_smokeCpuWorkState.lastAcceptedTiming.workerExecutionMs,
             m_smokeCpuWorkState.lastAcceptedTiming.renderSubmitMs,
+            rigidTlasPlanMs,
             static_cast<unsigned long long>(accelerationPlanGeneration.frameIndex),
             static_cast<unsigned long long>(accelerationPlanGeneration.sceneGeneration),
             static_cast<unsigned long long>(accelerationPlanGeneration.geometryGeneration),
             static_cast<unsigned long long>(accelerationPlanGeneration.materialGeneration),
-            static_cast<unsigned long long>(accelerationPlanGeneration.lightGeneration));
+            static_cast<unsigned long long>(accelerationPlanGeneration.lightGeneration),
+            static_cast<unsigned long long>(rigidTlasPlanInputToken));
         r_pathTracingCpuPlanningDump.SetInteger(0);
     }
 
@@ -4323,12 +4330,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         if (!rigidTlasPlanValid)
         {
+            const int rigidTlasPlanStartMs = Sys_Milliseconds();
             rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
                 m_instanceUniverse,
                 2,
                 0x02,
                 rigidRouteMaxInstances);
+            rigidTlasPlanInputToken = BuildSmokeRigidTlasPlanInputToken(rigidTlasSnapshot);
             rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+            rigidTlasPlanMs = Sys_Milliseconds() - rigidTlasPlanStartMs;
             rigidTlasPlanValid = true;
         }
         const int routedRigidInstances =
