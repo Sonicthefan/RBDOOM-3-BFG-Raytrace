@@ -2650,6 +2650,11 @@ void TestUploadPlan()
         { spanB, sizeof(spanB[0]), 2 }
     };
     Check(spanSignature != BuildSmokePlanDataSpanSignature(truncatedSpans, 2), "data span upload signature tracks element counts");
+    const RtSmokePlanDataSpan resizedSpans[] = {
+        { spanA, sizeof(uint16_t), 4 },
+        { spanB, sizeof(spanB[0]), 2 }
+    };
+    Check(spanSignature != BuildSmokePlanDataSpanSignature(resizedSpans, 2), "data span upload signature tracks element sizes");
 
     RtSmokePreviousStaticSnapshotUploadPlanInput previousStaticInput;
     previousStaticInput.dataAvailable = true;

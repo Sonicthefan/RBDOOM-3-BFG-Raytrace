@@ -1969,6 +1969,8 @@ uint64_t BuildSmokePlanDataSpanSignature(
     {
         const RtSmokePlanDataSpan& span = spans[spanIndex];
         const uint64_t count = static_cast<uint64_t>(span.elementCount);
+        const uint64_t elementSize = static_cast<uint64_t>(span.elementSize);
+        hash = HashSmokePlanBytes(hash, &elementSize, sizeof(elementSize));
         hash = HashSmokePlanBytes(hash, &count, sizeof(count));
         if (span.data && span.elementCount > 0 && span.elementSize > 0)
         {
