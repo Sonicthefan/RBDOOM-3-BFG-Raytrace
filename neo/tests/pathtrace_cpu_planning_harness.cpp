@@ -1718,11 +1718,13 @@ void TestBvhFrameToken()
 
     const RtSmokeBvhFrameToken baseToken = BuildSmokeBvhFrameToken(input);
     Check(baseToken.dirtyToken.geometryContentSignature != 0 &&
+        baseToken.dirtyToken.activeBlasInputSignature != 0 &&
         baseToken.dirtyToken.materialGeneration == 300 &&
         baseToken.dirtyToken.activeSetSignature != 0 &&
         baseToken.dirtyToken.tlasInstanceSignature != 0 &&
+        baseToken.dirtyToken.residentSetSignature == 500 &&
         baseToken.residentSetSignature == 500,
-        "BVH frame token emits geometry, material, active, TLAS, and resident signatures");
+        "BVH frame token emits geometry, active-BLAS, material, active, TLAS, and resident signatures");
 
     RtSmokeBvhFrameTokenInput activeChangedInput = input;
     activeChangedInput.rigidRouteInstanceCount = 4;

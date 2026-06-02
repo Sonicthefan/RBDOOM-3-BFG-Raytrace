@@ -194,6 +194,8 @@ struct RtSmokeSceneBuildSummaryLogDesc
     bool staticRequiresBucketedBlas = false;
     bool bvhDirtyPreviousValid = false;
     bool bvhGeometryContentChanged = false;
+    bool bvhActiveGeometryContentChanged = false;
+    bool bvhResidentSetChanged = false;
     bool bvhMaterialChanged = false;
     bool bvhActiveMembershipChanged = false;
     bool bvhTlasInstanceChanged = false;
@@ -202,6 +204,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
     uint64 bvhActiveSetSignature = 0;
     uint64 bvhResidentSetSignature = 0;
     uint64 bvhGeometryContentSignature = 0;
+    uint64 bvhActiveBlasInputSignature = 0;
     uint64 bvhTlasInstanceSignature = 0;
     uint64 staticUploadBytes = 0;
     uint64 previousStaticUploadBytes = 0;
@@ -320,6 +323,8 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     bool staticRequiresBucketedBlas = false;
     bool bvhDirtyPreviousValid = false;
     bool bvhGeometryContentChanged = false;
+    bool bvhActiveGeometryContentChanged = false;
+    bool bvhResidentSetChanged = false;
     bool bvhMaterialChanged = false;
     bool bvhActiveMembershipChanged = false;
     bool bvhTlasInstanceChanged = false;
@@ -328,6 +333,7 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     uint64 bvhActiveSetSignature = 0;
     uint64 bvhResidentSetSignature = 0;
     uint64 bvhGeometryContentSignature = 0;
+    uint64 bvhActiveBlasInputSignature = 0;
     uint64 bvhTlasInstanceSignature = 0;
     int requestedDebugMode = 0;
     uint64 staticUploadBytes = 0;

@@ -502,7 +502,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
 {
     common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
         desc.staticIndexCount, desc.dynamicIndexCount, desc.instanceCount);
-    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticBuckets(active/resident/inactive/emitted)=%d/%d/%d/%d staticBucketBlas(records/skipInactive/skipInvalid/overflow)=%d/%d/%d/%d staticBucketShader(routeRequired/compatible/exactMono/nonZeroOffsets)=%d/%d/%d/%d routeNs(staticBlocked/staticFirst/rigidFirst/staticCount/rigidShift)=%d/%u/%u/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d dirty(prev geom/material/active/tlas blas/tlas)=%d %d/%d/%d/%d %d/%d sig(active/resident/geom/tlas)=%llu/%llu/%llu/%llu blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticBuckets(active/resident/inactive/emitted)=%d/%d/%d/%d staticBucketBlas(records/skipInactive/skipInvalid/overflow)=%d/%d/%d/%d staticBucketShader(routeRequired/compatible/exactMono/nonZeroOffsets)=%d/%d/%d/%d routeNs(staticBlocked/staticFirst/rigidFirst/staticCount/rigidShift)=%d/%u/%u/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d dirty(prev geom/activeGeom/resident/material/active/tlas blas/tlas)=%d %d/%d/%d/%d/%d/%d %d/%d sig(active/resident/geom/activeBlas/tlas)=%llu/%llu/%llu/%llu/%llu blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/upload/blas/tlas/accel)=%d/%d/%d/%d/%d\n",
         desc.classStats.staticWorldSurfaces,
         desc.staticVertexCount,
         desc.staticIndexCount,
@@ -535,6 +535,8 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.instanceCount,
         desc.bvhDirtyPreviousValid ? 1 : 0,
         desc.bvhGeometryContentChanged ? 1 : 0,
+        desc.bvhActiveGeometryContentChanged ? 1 : 0,
+        desc.bvhResidentSetChanged ? 1 : 0,
         desc.bvhMaterialChanged ? 1 : 0,
         desc.bvhActiveMembershipChanged ? 1 : 0,
         desc.bvhTlasInstanceChanged ? 1 : 0,
@@ -543,6 +545,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         static_cast<unsigned long long>(desc.bvhActiveSetSignature),
         static_cast<unsigned long long>(desc.bvhResidentSetSignature),
         static_cast<unsigned long long>(desc.bvhGeometryContentSignature),
+        static_cast<unsigned long long>(desc.bvhActiveBlasInputSignature),
         static_cast<unsigned long long>(desc.bvhTlasInstanceSignature),
         desc.staticBlasBuildSubmitted ? 1 : 0,
         desc.dynamicBlasBuildSubmitted ? 1 : 0,
@@ -1760,6 +1763,8 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.staticRequiresBucketedBlas = desc.staticRequiresBucketedBlas;
     sceneSummaryLog.bvhDirtyPreviousValid = desc.bvhDirtyPreviousValid;
     sceneSummaryLog.bvhGeometryContentChanged = desc.bvhGeometryContentChanged;
+    sceneSummaryLog.bvhActiveGeometryContentChanged = desc.bvhActiveGeometryContentChanged;
+    sceneSummaryLog.bvhResidentSetChanged = desc.bvhResidentSetChanged;
     sceneSummaryLog.bvhMaterialChanged = desc.bvhMaterialChanged;
     sceneSummaryLog.bvhActiveMembershipChanged = desc.bvhActiveMembershipChanged;
     sceneSummaryLog.bvhTlasInstanceChanged = desc.bvhTlasInstanceChanged;
@@ -1768,6 +1773,7 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.bvhActiveSetSignature = desc.bvhActiveSetSignature;
     sceneSummaryLog.bvhResidentSetSignature = desc.bvhResidentSetSignature;
     sceneSummaryLog.bvhGeometryContentSignature = desc.bvhGeometryContentSignature;
+    sceneSummaryLog.bvhActiveBlasInputSignature = desc.bvhActiveBlasInputSignature;
     sceneSummaryLog.bvhTlasInstanceSignature = desc.bvhTlasInstanceSignature;
     sceneSummaryLog.staticUploadBytes = desc.staticUploadBytes;
     sceneSummaryLog.previousStaticUploadBytes = desc.previousStaticUploadBytes;

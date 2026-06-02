@@ -4969,6 +4969,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokeBvhDirtyPreviousTokenValid = true;
     sceneLogDesc.bvhDirtyPreviousValid = bvhDirtyInput.previousValid;
     sceneLogDesc.bvhGeometryContentChanged = bvhDirtyPlan.geometryContentChanged;
+    sceneLogDesc.bvhActiveGeometryContentChanged = bvhDirtyPlan.activeGeometryContentChanged;
+    sceneLogDesc.bvhResidentSetChanged = bvhDirtyPlan.residentSetChanged;
     sceneLogDesc.bvhMaterialChanged = bvhDirtyPlan.materialChanged;
     sceneLogDesc.bvhActiveMembershipChanged = bvhDirtyPlan.activeMembershipChanged;
     sceneLogDesc.bvhTlasInstanceChanged = bvhDirtyPlan.tlasInstanceChanged;
@@ -4977,6 +4979,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.bvhActiveSetSignature = bvhFrameToken.dirtyToken.activeSetSignature;
     sceneLogDesc.bvhResidentSetSignature = bvhFrameToken.residentSetSignature;
     sceneLogDesc.bvhGeometryContentSignature = bvhFrameToken.dirtyToken.geometryContentSignature;
+    sceneLogDesc.bvhActiveBlasInputSignature = bvhFrameToken.dirtyToken.activeBlasInputSignature;
     sceneLogDesc.bvhTlasInstanceSignature = bvhFrameToken.dirtyToken.tlasInstanceSignature;
     sceneLogDesc.requestedDebugMode = requestedDebugMode;
     sceneLogDesc.staticUploadBytes = staticUploadBytes;

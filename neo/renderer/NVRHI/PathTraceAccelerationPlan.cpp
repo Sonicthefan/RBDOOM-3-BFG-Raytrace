@@ -1243,6 +1243,8 @@ RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.rigidTlasInstanceCount, sizeof(input.rigidTlasInstanceCount));
 
     token.dirtyToken.geometryContentSignature = geometryContentSignature;
+    token.dirtyToken.activeBlasInputSignature = geometryContentSignature;
+    token.dirtyToken.residentSetSignature = input.staticResidentSetSignature;
     token.dirtyToken.materialGeneration = input.materialGeneration;
     token.dirtyToken.activeSetSignature = activeSetSignature;
     token.dirtyToken.tlasInstanceSignature = tlasInstanceSignature;
