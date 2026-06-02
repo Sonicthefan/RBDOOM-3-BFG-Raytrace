@@ -1987,6 +1987,84 @@ void TestBvhFramePlanningResult()
         "BVH frame planning result maps active bucket changes to TLAS work");
 }
 
+void TestAsyncBvhFramePlanning()
+{
+    RtSmokeStaticTlasBucketObservation bucket;
+    bucket.bucketKey = 300;
+    bucket.resident = true;
+    bucket.active = true;
+    bucket.hasBlas = true;
+    bucket.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+    bucket.residentVertexCount = 12;
+    bucket.residentIndexCount = 36;
+    bucket.residentTriangleCount = 12;
+    bucket.activeVertexCount = 12;
+    bucket.activeIndexCount = 36;
+    bucket.activeTriangleCount = 12;
+
+    RtSmokeBvhFramePlanningInput input;
+    input.staticBucketWorkInput.buckets = &bucket;
+    input.staticBucketWorkInput.bucketCount = 1;
+    input.staticBucketWorkInput.geometryContentSignature = 1300;
+    input.staticBucketWorkInput.materialGeneration = 1301;
+    input.staticBucketWorkInput.totalVertexCount = 12;
+    input.staticBucketWorkInput.totalIndexCount = 36;
+    input.staticBucketWorkInput.totalTriangleCount = 12;
+    input.staticBucketWorkInput.monolithicStaticBlas = true;
+    input.staticBucketWorkInput.hasStaticBlas = true;
+    input.frameTokenInput.staticBlasSignature = 1302;
+    input.frameTokenInput.geometryGeneration = 1303;
+    input.frameTokenInput.materialGeneration = 1304;
+    input.frameTokenInput.dynamicVertexCount = 4;
+    input.frameTokenInput.dynamicIndexCount = 6;
+    input.frameTokenInput.baseTlasInstanceCount = 2;
+    input.frameTokenInput.rigidTlasInstanceCount = 0;
+    input.frameTokenInput.hasStaticBlas = true;
+    input.frameTokenInput.hasDynamicBlas = true;
+    const RtSmokeBvhFramePlanningSnapshot snapshot =
+        CaptureSmokeBvhFramePlanningSnapshot(input);
+
+    RtPathTraceCpuWorkState state;
+    RtPathTraceCpuWorkGeneration generation;
+    generation.frameIndex = 91;
+    generation.sceneGeneration = 92;
+    generation.geometryGeneration = input.frameTokenInput.geometryGeneration;
+    generation.materialGeneration = input.frameTokenInput.materialGeneration;
+    generation.lightGeneration = BuildSmokeBvhFramePlanningInputToken(snapshot);
+    RtPathTraceCpuWorkPublishSnapshot(state, generation);
+
+    std::future<RtSmokeBvhFramePlanningTimedResult> future = std::async(
+        std::launch::async,
+        [snapshot]() {
+            return BuildSmokeBvhFramePlanningTimedResult(snapshot);
+        });
+
+    const RtPathTraceCpuWorkFrameDecision lateDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
+    Check(lateDecision.lateFallback && lateDecision.syncFallback,
+        "late async BVH frame planning requests synchronous fallback");
+
+    const RtSmokeBvhFramePlanningTimedResult timedResult = future.get();
+    RtPathTraceCpuWorkResultEnvelope envelope;
+    envelope.completed = true;
+    envelope.generation = generation;
+    envelope.timing.workerExecutionMs = static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
+    RtPathTraceCpuWorkPublishCompletedResult(state, envelope);
+    const RtPathTraceCpuWorkFrameDecision acceptDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
+    Check(acceptDecision.accepted &&
+        timedResult.result.staticBucketWorkPlan.activeSetPlan.activeBuckets == 1 &&
+        state.acceptedResultCount == 1,
+        "matching async BVH frame planning generation is accepted");
+
+    RtPathTraceCpuWorkResultEnvelope staleEnvelope = envelope;
+    staleEnvelope.generation.lightGeneration ^= 0x1000ull;
+    const RtPathTraceCpuWorkFrameDecision staleDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, &staleEnvelope, true);
+    Check(staleDecision.staleRejected && staleDecision.syncFallback,
+        "stale async BVH frame planning generation is rejected");
+}
+
 void TestBvhBucketableSignatures()
 {
     RtSmokeStaticBvhBucketSignatureInput staticInput;
@@ -2334,6 +2412,7 @@ int main(int argc, char** argv)
     TestStaticBucketWorkDirtyToken();
     TestBvhFrameToken();
     TestBvhFramePlanningResult();
+    TestAsyncBvhFramePlanning();
     TestBvhBucketableSignatures();
     TestUploadPlan();
     TestGenerationAcceptance();
