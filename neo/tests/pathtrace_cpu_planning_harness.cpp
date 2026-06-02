@@ -885,6 +885,8 @@ void TestStaticBucketWorkPlan()
         routedPlan.routeTablePlan.records[0].instanceId == 2 &&
         routedPlan.routeNamespace.rigidFirstInstanceId == 4,
         "static bucket work plan emits route table records when shader route support is available");
+    Check(blockedPlan.planSignature != routedPlan.planSignature,
+        "static bucket work plan signature tracks traversal route compatibility");
 
     input.maxRouteRecords = 1;
     const RtSmokeStaticBucketWorkPlan routeCappedPlan =

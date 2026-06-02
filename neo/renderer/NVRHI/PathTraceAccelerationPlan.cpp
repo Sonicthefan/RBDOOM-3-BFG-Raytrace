@@ -1002,6 +1002,13 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.activeSetSignature, sizeof(plan.activeSetPlan.activeSetSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.residentSetSignature, sizeof(plan.activeSetPlan.residentSetSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.bucketBlasPlan.planSignature, sizeof(plan.bucketBlasPlan.planSignature));
+    const uint32_t traversalFlags =
+        (plan.traversalCompatibility.exactMonolithicRecord ? 1u : 0u) |
+        (plan.traversalCompatibility.currentStaticShaderCompatible ? 2u : 0u) |
+        (plan.traversalCompatibility.requiresShaderRouteMetadata ? 4u : 0u);
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.traversalCompatibility.recordCount, sizeof(plan.traversalCompatibility.recordCount));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.traversalCompatibility.nonZeroOffsetRecords, sizeof(plan.traversalCompatibility.nonZeroOffsetRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &traversalFlags, sizeof(traversalFlags));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeTablePlan.tableSignature, sizeof(plan.routeTablePlan.tableSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildObservationPlan.planSignature, sizeof(plan.buildObservationPlan.planSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildBatchPlan.planSignature, sizeof(plan.buildBatchPlan.planSignature));
