@@ -1221,6 +1221,7 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
     }
     if (input.buckets && input.bucketCount > 0 && input.previousBuckets && input.previousBucketCount > 0)
     {
+        int previousBuildObservations = 0;
         for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
         {
             const RtSmokeStaticTlasBucketObservation& bucket = input.buckets[bucketIndex];
@@ -1228,6 +1229,11 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
             {
                 continue;
             }
+            if (input.maxBuildRecords > 0 && previousBuildObservations >= input.maxBuildRecords)
+            {
+                break;
+            }
+            ++previousBuildObservations;
 
             const RtSmokeStaticBucketBlasCacheState* previousBucket = nullptr;
             for (int previousIndex = 0; previousIndex < input.previousBucketCount; ++previousIndex)

@@ -1358,6 +1358,18 @@ void TestStaticBucketWorkPlanInputToken()
 
     buckets[1].active = true;
     input.previousBucketCount = 1;
+    input.maxBuildRecords = 1;
+    const uint64_t cappedPreviousToken = BuildSmokeStaticBucketWorkPlanInputToken(input);
+    previousBuckets[1].bucketKey = 20;
+    input.previousBucketCount = 2;
+    Check(cappedPreviousToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token ignores previous cache entries after build observation cap");
+
+    input.maxBuildRecords = 0;
+    Check(restoredToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token tracks previous cache entries when build observations are uncapped");
+
+    input.previousBucketCount = 1;
     const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
         CaptureSmokeStaticBucketWorkPlanSnapshot(input);
     const uint64_t snapshotToken = BuildSmokeStaticBucketWorkPlanInputToken(snapshot);
