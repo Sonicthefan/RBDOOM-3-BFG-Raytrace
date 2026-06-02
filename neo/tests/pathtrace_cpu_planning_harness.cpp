@@ -295,6 +295,7 @@ void TestAccelerationPlanInputToken()
     RtSmokeAccelerationPlanInput input = BuildPlanInput(vertices, indexes, classes, materials);
     input.staticCache.cacheValid = true;
     input.staticCache.cacheResourcesReady = true;
+    input.staticCache.staticCacheChanged = false;
     input.staticCache.previousSignatureHash = 0x1234ull;
     const uint64_t baseToken = BuildSmokeAccelerationPlanInputToken(input);
     Check(baseToken == BuildSmokeAccelerationPlanInputToken(input), "acceleration plan input token is deterministic");
@@ -302,6 +303,30 @@ void TestAccelerationPlanInputToken()
     RtSmokeAccelerationPlanInput cacheChangedInput = input;
     cacheChangedInput.staticCache.cacheResourcesReady = false;
     Check(baseToken != BuildSmokeAccelerationPlanInputToken(cacheChangedInput), "acceleration plan input token tracks cache readiness");
+
+    RtSmokeAccelerationPlanInput previousHashChangedInput = input;
+    previousHashChangedInput.staticCache.previousSignatureHash = 0x5678ull;
+    Check(baseToken != BuildSmokeAccelerationPlanInputToken(previousHashChangedInput), "acceleration plan input token tracks reusable previous cache signatures");
+
+    RtSmokeAccelerationPlanInput invalidCacheInput = input;
+    invalidCacheInput.staticCache.cacheValid = false;
+    invalidCacheInput.staticCache.cacheResourcesReady = false;
+    invalidCacheInput.staticCache.previousSignatureHash = 0x1111ull;
+    const uint64_t invalidCacheToken = BuildSmokeAccelerationPlanInputToken(invalidCacheInput);
+    invalidCacheInput.staticCache.hasStaticBlas = !invalidCacheInput.staticCache.hasStaticBlas;
+    invalidCacheInput.staticCache.previousSignatureHash = 0x2222ull;
+    Check(invalidCacheToken == BuildSmokeAccelerationPlanInputToken(invalidCacheInput),
+        "acceleration plan input token ignores unusable invalid static cache state");
+
+    RtSmokeAccelerationPlanInput changedCacheInput = input;
+    changedCacheInput.staticCache.staticCacheChanged = true;
+    changedCacheInput.staticCache.cacheResourcesReady = false;
+    changedCacheInput.staticCache.previousSignatureHash = 0x3333ull;
+    const uint64_t changedCacheToken = BuildSmokeAccelerationPlanInputToken(changedCacheInput);
+    changedCacheInput.staticCache.previousSignatureHash = 0x4444ull;
+    changedCacheInput.staticCache.cacheResourcesReady = true;
+    Check(changedCacheToken == BuildSmokeAccelerationPlanInputToken(changedCacheInput),
+        "acceleration plan input token ignores previous signatures when static cache changed");
 
     RtSmokeAccelerationPlanInput rangeChangedInput = input;
     rangeChangedInput.staticSignature.staticRange.indexCount = 0;

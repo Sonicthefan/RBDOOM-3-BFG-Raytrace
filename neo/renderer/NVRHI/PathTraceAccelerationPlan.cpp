@@ -167,13 +167,22 @@ RtSmokeAccelerationPlanSnapshot CaptureSmokeAccelerationPlanSnapshot(
 uint64_t BuildSmokeAccelerationPlanInputToken(const RtSmokeAccelerationPlanInput& input)
 {
     uint64_t hash = 1469598103934665603ull;
+    const bool hasStaticBlas = input.staticIndexCount > 0;
+    const bool staticCacheCanReuse =
+        hasStaticBlas &&
+        input.staticCache.cacheValid &&
+        !input.staticCache.staticCacheChanged;
+    const bool staticCacheCanHit =
+        staticCacheCanReuse &&
+        input.staticCache.previousSignatureHash != 0;
     const uint32_t cacheBits =
-        (input.staticCache.hasStaticBlas ? 1u : 0u) |
-        (input.staticCache.cacheValid ? 2u : 0u) |
-        (input.staticCache.cacheResourcesReady ? 4u : 0u) |
-        (input.staticCache.staticCacheChanged ? 8u : 0u);
+        (staticCacheCanReuse ? 1u : 0u) |
+        (staticCacheCanHit && input.staticCache.cacheResourcesReady ? 2u : 0u);
     hash = HashSmokePlanBytes(hash, &cacheBits, sizeof(cacheBits));
-    hash = HashSmokePlanBytes(hash, &input.staticCache.previousSignatureHash, sizeof(input.staticCache.previousSignatureHash));
+    if (staticCacheCanReuse)
+    {
+        hash = HashSmokePlanBytes(hash, &input.staticCache.previousSignatureHash, sizeof(input.staticCache.previousSignatureHash));
+    }
     hash = HashSmokeStaticBlasSignatureInput(hash, input.staticSignature);
     hash = HashSmokePlanBytes(hash, &input.staticVertexCount, sizeof(input.staticVertexCount));
     hash = HashSmokePlanBytes(hash, &input.staticIndexCount, sizeof(input.staticIndexCount));
