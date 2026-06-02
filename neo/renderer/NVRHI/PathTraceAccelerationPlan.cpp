@@ -771,8 +771,11 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     blasHash = HashSmokePlanBytes(blasHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
     blasHash = HashSmokePlanBytes(blasHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
     blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentVertexOffset, sizeof(bucket.residentVertexOffset));
     blasHash = HashSmokePlanBytes(blasHash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentIndexOffset, sizeof(bucket.residentIndexOffset));
     blasHash = HashSmokePlanBytes(blasHash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
+    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentTriangleOffset, sizeof(bucket.residentTriangleOffset));
     blasHash = HashSmokePlanBytes(blasHash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
     signature.blasInputSignature = blasHash;
     return signature;

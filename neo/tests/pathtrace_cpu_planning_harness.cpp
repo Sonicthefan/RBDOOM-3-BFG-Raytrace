@@ -2141,6 +2141,14 @@ void TestBvhBucketableSignatures()
         baseStaticSignature.residentSignature == geometryChangedSignature.residentSignature,
         "static BVH bucket geometry changes dirty BLAS signature without changing active membership");
 
+    RtSmokeStaticBvhBucketSignatureInput rangeChangedInput = staticInput;
+    rangeChangedInput.bucket.residentVertexOffset = 12;
+    const RtSmokeStaticBvhBucketSignature rangeChangedSignature =
+        BuildSmokeStaticBvhBucketSignature(rangeChangedInput);
+    Check(baseStaticSignature.blasInputSignature != rangeChangedSignature.blasInputSignature &&
+        baseStaticSignature.activeSignature == rangeChangedSignature.activeSignature,
+        "static BVH bucket range changes dirty BLAS signature");
+
     RtSmokeRigidBvhObjectSignatureInput rigidInput;
     rigidInput.meshHash = 500;
     rigidInput.instanceId = 600;
