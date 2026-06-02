@@ -548,8 +548,9 @@ RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
         return plan;
     }
 
-    const int reserveCount = desc.maxRecords > 0 && desc.maxRecords < desc.bucketCount
-        ? desc.maxRecords
+    const int maxRecords = NormalizeSmokePlanRecordCap(desc.maxRecords);
+    const int reserveCount = maxRecords > 0 && maxRecords < desc.bucketCount
+        ? maxRecords
         : desc.bucketCount;
     plan.records.reserve(reserveCount);
     for (int bucketIndex = 0; bucketIndex < desc.bucketCount; ++bucketIndex)
@@ -582,7 +583,7 @@ RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
             ++plan.skippedInvalid;
             continue;
         }
-        if (desc.maxRecords > 0 && plan.emittedRecords >= desc.maxRecords)
+        if (maxRecords > 0 && plan.emittedRecords >= maxRecords)
         {
             plan.overflow = true;
             break;
@@ -719,13 +720,14 @@ RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
         return plan;
     }
 
-    const int reserveCount = input.maxRecords > 0 && input.maxRecords < input.recordCount
-        ? input.maxRecords
+    const int maxRecords = NormalizeSmokePlanRecordCap(input.maxRecords);
+    const int reserveCount = maxRecords > 0 && maxRecords < input.recordCount
+        ? maxRecords
         : input.recordCount;
     plan.records.reserve(reserveCount);
     for (int recordIndex = 0; recordIndex < input.recordCount; ++recordIndex)
     {
-        if (input.maxRecords > 0 && plan.emittedRecords >= input.maxRecords)
+        if (maxRecords > 0 && plan.emittedRecords >= maxRecords)
         {
             plan.overflow = true;
             break;
@@ -797,13 +799,14 @@ RtSmokeStaticBucketBlasBuildBatchPlan BuildSmokeStaticBucketBlasBuildBatchPlan(
         return plan;
     }
 
-    const int reserveCount = input.maxRecords > 0 && input.maxRecords < input.observationCount
-        ? input.maxRecords
+    const int maxRecords = NormalizeSmokePlanRecordCap(input.maxRecords);
+    const int reserveCount = maxRecords > 0 && maxRecords < input.observationCount
+        ? maxRecords
         : input.observationCount;
     plan.records.reserve(reserveCount);
     for (int observationIndex = 0; observationIndex < input.observationCount; ++observationIndex)
     {
-        if (input.maxRecords > 0 && plan.emittedRecords >= input.maxRecords)
+        if (maxRecords > 0 && plan.emittedRecords >= maxRecords)
         {
             plan.overflow = true;
             break;
@@ -947,8 +950,9 @@ RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObser
         return plan;
     }
 
-    const int reserveCount = input.maxRecords > 0 && input.maxRecords < input.currentBucketCount
-        ? input.maxRecords
+    const int maxRecords = NormalizeSmokePlanRecordCap(input.maxRecords);
+    const int reserveCount = maxRecords > 0 && maxRecords < input.currentBucketCount
+        ? maxRecords
         : input.currentBucketCount;
     plan.observations.reserve(reserveCount);
     for (int bucketIndex = 0; bucketIndex < input.currentBucketCount; ++bucketIndex)
@@ -959,7 +963,7 @@ RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObser
             ++plan.skippedInactive;
             continue;
         }
-        if (input.maxRecords > 0 && plan.emittedObservations >= input.maxRecords)
+        if (maxRecords > 0 && plan.emittedObservations >= maxRecords)
         {
             plan.overflow = true;
             break;

@@ -850,6 +850,17 @@ void TestStaticBucketBlasBuildBatchPlan()
         cappedPrefixPlan.records[0].bucketKey == singlePrefixPlan.records[0].bucketKey &&
         cappedPrefixPlan.planSignature != singlePrefixPlan.planSignature,
         "static bucket BLAS batch signature tracks capped summary state with identical emitted prefix");
+
+    input.observationCount = 4;
+    input.maxRecords = 0;
+    const RtSmokeStaticBucketBlasBuildBatchPlan uncappedPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    input.maxRecords = -7;
+    const RtSmokeStaticBucketBlasBuildBatchPlan negativeCapPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(uncappedPlan.emittedRecords == negativeCapPlan.emittedRecords &&
+        uncappedPlan.planSignature == negativeCapPlan.planSignature,
+        "static bucket BLAS batch plan normalizes negative record caps as uncapped");
 }
 
 void TestStaticBucketBlasBuildObservationPlan()
@@ -941,6 +952,13 @@ void TestStaticBucketBlasBuildObservationPlan()
         activeOnlyPlan.observations[0].bucketKey == activeAndInactivePlan.observations[0].bucketKey &&
         activeOnlyPlan.planSignature != activeAndInactivePlan.planSignature,
         "static bucket BLAS observation signature tracks skipped inactive buckets");
+
+    input.maxRecords = -3;
+    const RtSmokeStaticBucketBlasBuildObservationPlan negativeCapPlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    Check(activeAndInactivePlan.emittedObservations == negativeCapPlan.emittedObservations &&
+        activeAndInactivePlan.planSignature == negativeCapPlan.planSignature,
+        "static bucket BLAS observation plan normalizes negative record caps as uncapped");
 }
 
 void TestStaticBucketWorkPlan()
@@ -1721,6 +1739,14 @@ void TestStaticBucketBlasPlan()
     desc.maxRecords = 1;
     const RtSmokeStaticBucketBlasPlan cappedPlan = BuildSmokeStaticBucketBlasPlan(desc);
     Check(cappedPlan.emittedRecords == 1 && cappedPlan.overflow, "static bucket BLAS plan reports record cap overflow");
+
+    desc.maxRecords = 0;
+    const RtSmokeStaticBucketBlasPlan uncappedPlan = BuildSmokeStaticBucketBlasPlan(desc);
+    desc.maxRecords = -5;
+    const RtSmokeStaticBucketBlasPlan negativeCapPlan = BuildSmokeStaticBucketBlasPlan(desc);
+    Check(uncappedPlan.emittedRecords == negativeCapPlan.emittedRecords &&
+        uncappedPlan.planSignature == negativeCapPlan.planSignature,
+        "static bucket BLAS plan normalizes negative record caps as uncapped");
 }
 
 void TestStaticBucketTraversalCompatibility()
@@ -1901,6 +1927,15 @@ void TestStaticRouteTablePlan()
         singlePrefixPlan.records[0].bucketKey == cappedPlan.records[0].bucketKey &&
         singlePrefixPlan.tableSignature != cappedPlan.tableSignature,
         "static route table signature tracks capped summary state with identical emitted prefix");
+
+    input.recordCount = 3;
+    input.maxRecords = 0;
+    const RtSmokeStaticRouteTablePlan uncappedPlan = BuildSmokeStaticRouteTablePlan(input);
+    input.maxRecords = -2;
+    const RtSmokeStaticRouteTablePlan negativeCapPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(uncappedPlan.emittedRecords == negativeCapPlan.emittedRecords &&
+        uncappedPlan.tableSignature == negativeCapPlan.tableSignature,
+        "static route table plan normalizes negative record caps as uncapped");
 }
 
 void TestBvhDirtyPlan()
