@@ -3333,7 +3333,7 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
     return materialIds;
 }
 
-RtSmokeRigidTlasPlan RtSmokeGeometryUniverse::BuildRigidTlasInstancePlan(
+RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePlanSnapshot(
     const RtPathTraceInstanceUniverse& instanceUniverse,
     uint32_t firstInstanceId,
     uint32_t instanceMask,
@@ -3341,17 +3341,16 @@ RtSmokeRigidTlasPlan RtSmokeGeometryUniverse::BuildRigidTlasInstancePlan(
 {
     std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
     BuildRigidRouteInstanceList(instanceUniverse, instances);
-    RtSmokeRigidTlasPlanDesc desc;
-    desc.rigidSourceMask = RT_PT_INSTANCE_SOURCE_RIGID;
-    desc.firstInstanceId = firstInstanceId;
-    desc.instanceMask = instanceMask;
-    desc.maxInstances = maxInstances;
+    RtSmokeRigidTlasPlanSnapshot snapshot;
+    snapshot.rigidSourceMask = RT_PT_INSTANCE_SOURCE_RIGID;
+    snapshot.firstInstanceId = firstInstanceId;
+    snapshot.instanceMask = instanceMask;
+    snapshot.maxInstances = maxInstances;
 
-    RtSmokeRigidTlasPlan plan;
     const int reserveCount = maxInstances > 0 && maxInstances < static_cast<int>(instances.size())
         ? maxInstances
         : static_cast<int>(instances.size());
-    plan.instances.reserve(reserveCount);
+    snapshot.observations.reserve(reserveCount);
     for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
     {
         RtSmokeRigidTlasObservation observation;
@@ -3369,12 +3368,20 @@ RtSmokeRigidTlasPlan RtSmokeGeometryUniverse::BuildRigidTlasInstancePlan(
             observation.hasBlas = record.rigidBlas;
             observation.routeRecordIndex = static_cast<uint32_t>(it->second);
         }
-        if (!AppendSmokeRigidTlasPlanObservation(plan, desc, observation))
-        {
-            break;
-        }
+        snapshot.observations.push_back(observation);
     }
-    return plan;
+    return snapshot;
+}
+
+RtSmokeRigidTlasPlan RtSmokeGeometryUniverse::BuildRigidTlasInstancePlan(
+    const RtPathTraceInstanceUniverse& instanceUniverse,
+    uint32_t firstInstanceId,
+    uint32_t instanceMask,
+    int maxInstances) const
+{
+    const RtSmokeRigidTlasPlanSnapshot snapshot =
+        CaptureRigidTlasInstancePlanSnapshot(instanceUniverse, firstInstanceId, instanceMask, maxInstances);
+    return BuildSmokeRigidTlasPlan(snapshot);
 }
 
 int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(

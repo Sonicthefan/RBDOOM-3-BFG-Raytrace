@@ -4308,11 +4308,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool routeRigidTlasInstances = enableRigidRouteForMode;
     if (routeRigidTlasInstances)
     {
-        const RtSmokeRigidTlasPlan rigidTlasPlan = m_smokeGeometryUniverse.BuildRigidTlasInstancePlan(
-            m_instanceUniverse,
-            2,
-            0x02,
-            rigidRouteMaxInstances);
+        const RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot =
+            m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
+                m_instanceUniverse,
+                2,
+                0x02,
+                rigidRouteMaxInstances);
+        const RtSmokeRigidTlasPlan rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
         const int routedRigidInstances =
             m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
