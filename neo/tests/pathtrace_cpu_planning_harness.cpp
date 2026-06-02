@@ -2934,6 +2934,25 @@ void TestUploadPlan()
     const RtSmokeStaticDirtyUploadPlan cacheHitDirtyPlan = BuildSmokeStaticDirtyUploadPlan(cacheHitDirtyPlanInput);
     Check(cacheHitDirtyPlan.dirtyRangesValid && !cacheHitDirtyPlan.useDirtyRangeUploads, "static dirty upload plan skips dirty ranges on static BLAS cache hit");
 
+    RtSmokeStaticDirtyUploadPlanInput unchangedDirtyPlanInput = dirtyPlanInput;
+    unchangedDirtyPlanInput.staticCacheChanged = false;
+    const RtSmokeStaticDirtyUploadPlan unchangedDirtyPlan = BuildSmokeStaticDirtyUploadPlan(unchangedDirtyPlanInput);
+    Check(unchangedDirtyPlan.dirtyRangesValid && !unchangedDirtyPlan.useDirtyRangeUploads,
+        "static dirty upload plan skips dirty ranges when static cache is unchanged");
+
+    RtSmokeStaticDirtyUploadPlanInput emptyDirtyPlanInput = dirtyPlanInput;
+    emptyDirtyPlanInput.staticDirtyCount = 0;
+    const RtSmokeStaticDirtyUploadPlan emptyDirtyPlan = BuildSmokeStaticDirtyUploadPlan(emptyDirtyPlanInput);
+    Check(emptyDirtyPlan.dirtyRangesValid && !emptyDirtyPlan.useDirtyRangeUploads,
+        "static dirty upload plan skips dirty ranges when no dirty records exist");
+
+    RtSmokeStaticDirtyUploadPlanInput recreatedBufferDirtyPlanInput = dirtyPlanInput;
+    recreatedBufferDirtyPlanInput.staticGeometryBuffersReused = false;
+    const RtSmokeStaticDirtyUploadPlan recreatedBufferDirtyPlan =
+        BuildSmokeStaticDirtyUploadPlan(recreatedBufferDirtyPlanInput);
+    Check(recreatedBufferDirtyPlan.dirtyRangesValid && !recreatedBufferDirtyPlan.useDirtyRangeUploads,
+        "static dirty upload plan skips dirty ranges when geometry buffers are recreated");
+
     RtSmokeStaticDirtyUploadPlanInput invalidDirtyPlanInput = dirtyPlanInput;
     invalidDirtyPlanInput.dirtyTriangleCount = 99;
     const RtSmokeStaticDirtyUploadPlan invalidDirtyPlan = BuildSmokeStaticDirtyUploadPlan(invalidDirtyPlanInput);
