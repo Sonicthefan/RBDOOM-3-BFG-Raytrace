@@ -562,6 +562,16 @@ void TestRigidPlan()
         missingResidentBlasPlan.tlasInstanceSignature != residentPlan.tlasInstanceSignature,
         "rigid TLAS plan signature tracks BLAS readiness summary");
 
+    desc.maxInstances = 0;
+    const uint64_t uncappedToken = BuildSmokeRigidTlasPlanInputToken(desc);
+    const RtSmokeRigidTlasPlan uncappedPlan = BuildSmokeRigidTlasPlan(desc);
+    desc.maxInstances = -4;
+    const RtSmokeRigidTlasPlan negativeCapPlan = BuildSmokeRigidTlasPlan(desc);
+    Check(uncappedToken == BuildSmokeRigidTlasPlanInputToken(desc) &&
+        uncappedPlan.tlasInstanceSignature == negativeCapPlan.tlasInstanceSignature &&
+        uncappedPlan.emittedInstances == negativeCapPlan.emittedInstances,
+        "rigid TLAS plan normalizes non-positive instance caps as uncapped");
+
     desc.maxInstances = 1;
     const RtSmokeRigidTlasPlan cappedPlan = BuildSmokeRigidTlasPlan(desc);
     Check(cappedPlan.emittedInstances == 1 &&
@@ -1390,6 +1400,17 @@ void TestStaticBucketWorkPlanInputToken()
     input.maxBuildRecords = 0;
     Check(restoredToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
         "static bucket work input token tracks previous cache entries when build observations are uncapped");
+    const uint64_t uncappedToken = BuildSmokeStaticBucketWorkPlanInputToken(input);
+    const RtSmokeStaticBucketWorkPlan uncappedPlan = BuildSmokeStaticBucketWorkPlan(input);
+    RtSmokeStaticBucketWorkPlanInput negativeCapInput = input;
+    negativeCapInput.maxBucketRecords = -2;
+    negativeCapInput.maxRouteRecords = -3;
+    negativeCapInput.maxBuildRecords = -4;
+    const RtSmokeStaticBucketWorkPlan negativeCapPlan = BuildSmokeStaticBucketWorkPlan(negativeCapInput);
+    Check(uncappedToken == BuildSmokeStaticBucketWorkPlanInputToken(negativeCapInput) &&
+        uncappedPlan.planSignature == negativeCapPlan.planSignature &&
+        uncappedPlan.buildObservationPlan.emittedObservations == negativeCapPlan.buildObservationPlan.emittedObservations,
+        "static bucket work input token normalizes non-positive record caps as uncapped");
 
     input.previousBucketCount = 1;
     const RtSmokeStaticBucketWorkPlanSnapshot snapshot =

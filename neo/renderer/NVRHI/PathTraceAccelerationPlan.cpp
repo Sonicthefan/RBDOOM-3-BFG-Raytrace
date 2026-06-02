@@ -30,6 +30,11 @@ void CopyIdentityTransform(float transform[16])
     transform[15] = 1.0f;
 }
 
+int NormalizeSmokePlanRecordCap(int cap)
+{
+    return cap > 0 ? cap : 0;
+}
+
 enum RtSmokeRigidTlasObservationCategory : uint32_t
 {
     RT_SMOKE_RIGID_TLAS_REJECT_NON_RIGID = 1,
@@ -1194,9 +1199,12 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
     hash = HashSmokePlanBytes(hash, &flags, sizeof(flags));
     hash = HashSmokePlanBytes(hash, &input.firstRouteInstanceId, sizeof(input.firstRouteInstanceId));
     hash = HashSmokePlanBytes(hash, &input.rigidRouteRecordCount, sizeof(input.rigidRouteRecordCount));
-    hash = HashSmokePlanBytes(hash, &input.maxBucketRecords, sizeof(input.maxBucketRecords));
-    hash = HashSmokePlanBytes(hash, &input.maxRouteRecords, sizeof(input.maxRouteRecords));
-    hash = HashSmokePlanBytes(hash, &input.maxBuildRecords, sizeof(input.maxBuildRecords));
+    const int maxBucketRecords = NormalizeSmokePlanRecordCap(input.maxBucketRecords);
+    const int maxRouteRecords = NormalizeSmokePlanRecordCap(input.maxRouteRecords);
+    const int maxBuildRecords = NormalizeSmokePlanRecordCap(input.maxBuildRecords);
+    hash = HashSmokePlanBytes(hash, &maxBucketRecords, sizeof(maxBucketRecords));
+    hash = HashSmokePlanBytes(hash, &maxRouteRecords, sizeof(maxRouteRecords));
+    hash = HashSmokePlanBytes(hash, &maxBuildRecords, sizeof(maxBuildRecords));
     if (input.buckets && input.bucketCount > 0)
     {
         for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
@@ -1236,7 +1244,7 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
             {
                 continue;
             }
-            if (input.maxBuildRecords > 0 && previousBuildObservations >= input.maxBuildRecords)
+            if (maxBuildRecords > 0 && previousBuildObservations >= maxBuildRecords)
             {
                 break;
             }
@@ -1652,7 +1660,8 @@ bool AppendSmokeRigidTlasPlanObservation(
     const RtSmokeRigidTlasPlanDesc& desc,
     const RtSmokeRigidTlasObservation& observation)
 {
-    if (desc.maxInstances > 0 && plan.emittedInstances >= desc.maxInstances)
+    const int maxInstances = NormalizeSmokePlanRecordCap(desc.maxInstances);
+    if (maxInstances > 0 && plan.emittedInstances >= maxInstances)
     {
         return false;
     }
@@ -1730,7 +1739,8 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
     hash = HashSmokePlanBytes(hash, &desc.rigidSourceMask, sizeof(desc.rigidSourceMask));
     hash = HashSmokePlanBytes(hash, &desc.firstInstanceId, sizeof(desc.firstInstanceId));
     hash = HashSmokePlanBytes(hash, &desc.instanceMask, sizeof(desc.instanceMask));
-    hash = HashSmokePlanBytes(hash, &desc.maxInstances, sizeof(desc.maxInstances));
+    const int maxInstances = NormalizeSmokePlanRecordCap(desc.maxInstances);
+    hash = HashSmokePlanBytes(hash, &maxInstances, sizeof(maxInstances));
     if (!desc.observations || desc.observationCount <= 0)
     {
         return hash;
@@ -1740,7 +1750,7 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
     int processedObservations = 0;
     for (int observationIndex = 0; observationIndex < desc.observationCount; ++observationIndex)
     {
-        if (desc.maxInstances > 0 && emittedInstances >= desc.maxInstances)
+        if (maxInstances > 0 && emittedInstances >= maxInstances)
         {
             break;
         }
@@ -1790,7 +1800,8 @@ static uint64_t BuildSmokeRigidTlasInstanceSignature(
     hash = HashSmokePlanBytes(hash, &desc.firstInstanceId, sizeof(desc.firstInstanceId));
     hash = HashSmokePlanBytes(hash, &desc.instanceMask, sizeof(desc.instanceMask));
     hash = HashSmokePlanBytes(hash, &desc.rigidSourceMask, sizeof(desc.rigidSourceMask));
-    hash = HashSmokePlanBytes(hash, &desc.maxInstances, sizeof(desc.maxInstances));
+    const int maxInstances = NormalizeSmokePlanRecordCap(desc.maxInstances);
+    hash = HashSmokePlanBytes(hash, &maxInstances, sizeof(maxInstances));
     hash = HashSmokePlanBytes(hash, &plan.visibleInstances, sizeof(plan.visibleInstances));
     hash = HashSmokePlanBytes(hash, &plan.rigidInstances, sizeof(plan.rigidInstances));
     hash = HashSmokePlanBytes(hash, &plan.emittedInstances, sizeof(plan.emittedInstances));
@@ -1826,8 +1837,9 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& des
         return plan;
     }
 
-    const int reserveCount = desc.maxInstances > 0 && desc.maxInstances < desc.observationCount
-        ? desc.maxInstances
+    const int maxInstances = NormalizeSmokePlanRecordCap(desc.maxInstances);
+    const int reserveCount = maxInstances > 0 && maxInstances < desc.observationCount
+        ? maxInstances
         : desc.observationCount;
     plan.instances.reserve(reserveCount);
     for (int observationIndex = 0; observationIndex < desc.observationCount; ++observationIndex)
