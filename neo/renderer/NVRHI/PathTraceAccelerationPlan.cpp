@@ -1007,6 +1007,18 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     return BuildSmokeStaticBucketWorkPlan(input);
 }
 
+RtSmokeStaticBucketWorkPlanTimedResult BuildSmokeStaticBucketWorkPlanTimedResult(
+    const RtSmokeStaticBucketWorkPlanSnapshot& snapshot)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtSmokeStaticBucketWorkPlanTimedResult result;
+    result.plan = BuildSmokeStaticBucketWorkPlan(snapshot);
+    const auto end = std::chrono::steady_clock::now();
+    result.planningTimeMicros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    return result;
+}
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input)
 {

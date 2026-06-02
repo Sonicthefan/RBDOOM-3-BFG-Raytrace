@@ -826,6 +826,41 @@ void TestStaticBucketWorkPlanSnapshot()
         "static bucket work snapshot owns immutable bucket and cache input data");
 }
 
+void TestStaticBucketWorkPlanTimedResult()
+{
+    RtSmokeStaticTlasBucketObservation bucket;
+    bucket.bucketKey = 77;
+    bucket.resident = true;
+    bucket.active = true;
+    bucket.hasBlas = true;
+    bucket.routeRecordIndex = 0;
+    bucket.residentVertexCount = 3;
+    bucket.residentIndexCount = 3;
+    bucket.residentTriangleCount = 1;
+    bucket.activeVertexCount = 3;
+    bucket.activeIndexCount = 3;
+    bucket.activeTriangleCount = 1;
+
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = &bucket;
+    input.bucketCount = 1;
+    input.geometryContentSignature = 55;
+    input.materialGeneration = 66;
+    input.totalVertexCount = 3;
+    input.totalIndexCount = 3;
+    input.totalTriangleCount = 1;
+    input.submitBuilds = true;
+    const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(input);
+    const RtSmokeStaticBucketWorkPlan expectedPlan =
+        BuildSmokeStaticBucketWorkPlan(snapshot);
+    const RtSmokeStaticBucketWorkPlanTimedResult timedResult =
+        BuildSmokeStaticBucketWorkPlanTimedResult(snapshot);
+    Check(timedResult.plan.planSignature == expectedPlan.planSignature &&
+        timedResult.plan.bucketBlasPlan.emittedRecords == 1,
+        "timed static bucket work result preserves snapshot planning output");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1668,6 +1703,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildObservationPlan();
     TestStaticBucketWorkPlan();
     TestStaticBucketWorkPlanSnapshot();
+    TestStaticBucketWorkPlanTimedResult();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();

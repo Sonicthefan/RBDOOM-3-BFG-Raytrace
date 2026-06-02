@@ -505,6 +505,12 @@ struct RtSmokeStaticBucketWorkPlan
     uint64_t planSignature = 0;
 };
 
+struct RtSmokeStaticBucketWorkPlanTimedResult
+{
+    RtSmokeStaticBucketWorkPlan plan;
+    uint64_t planningTimeMicros = 0;
+};
+
 struct RtSmokeBvhDirtyTokenState
 {
     uint64_t geometryContentSignature = 0;
@@ -760,6 +766,9 @@ RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
     const RtSmokeStaticBucketWorkPlanInput& input);
 
 RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
+    const RtSmokeStaticBucketWorkPlanSnapshot& snapshot);
+
+RtSmokeStaticBucketWorkPlanTimedResult BuildSmokeStaticBucketWorkPlanTimedResult(
     const RtSmokeStaticBucketWorkPlanSnapshot& snapshot);
 
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
