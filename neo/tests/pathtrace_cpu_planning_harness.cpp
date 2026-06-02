@@ -1985,6 +1985,19 @@ void TestBvhFramePlanningResult()
 
     input.previousDirtyTokenValid = true;
     input.previousDirtyToken = firstResult.frameToken.dirtyToken;
+    const RtSmokeBvhFramePlanningSnapshot previousTokenSnapshot =
+        CaptureSmokeBvhFramePlanningSnapshot(input);
+    input.previousDirtyTokenValid = false;
+    const RtSmokeBvhFramePlanningResult previousTokenSnapshotResult =
+        BuildSmokeBvhFramePlanningResult(previousTokenSnapshot);
+    const RtSmokeBvhFramePlanningResult previousTokenMutatedInputResult =
+        BuildSmokeBvhFramePlanningResult(input);
+    Check(!previousTokenSnapshotResult.dirtyPlan.blasInputDirty &&
+        !previousTokenSnapshotResult.dirtyPlan.tlasDirty &&
+        previousTokenMutatedInputResult.dirtyPlan.blasInputDirty &&
+        previousTokenMutatedInputResult.dirtyPlan.tlasDirty,
+        "owned BVH frame planning snapshot preserves previous dirty token state");
+    input.previousDirtyTokenValid = true;
     const RtSmokeBvhFramePlanningResult unchangedResult =
         BuildSmokeBvhFramePlanningResult(input);
     Check(!unchangedResult.dirtyPlan.blasInputDirty &&
