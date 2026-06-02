@@ -1272,6 +1272,27 @@ RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     return token;
 }
 
+RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
+    const RtSmokeBvhFramePlanningInput& input)
+{
+    RtSmokeBvhFramePlanningResult result;
+    result.staticBucketWorkPlan = BuildSmokeStaticBucketWorkPlan(input.staticBucketWorkInput);
+
+    RtSmokeBvhFrameTokenInput frameTokenInput = input.frameTokenInput;
+    frameTokenInput.staticActiveSetSignature =
+        result.staticBucketWorkPlan.activeSetPlan.activeSetSignature;
+    frameTokenInput.staticResidentSetSignature =
+        result.staticBucketWorkPlan.activeSetPlan.residentSetSignature;
+    result.frameToken = BuildSmokeBvhFrameToken(frameTokenInput);
+
+    RtSmokeBvhDirtyPlanInput dirtyInput;
+    dirtyInput.previousValid = input.previousDirtyTokenValid;
+    dirtyInput.previous = input.previousDirtyToken;
+    dirtyInput.current = result.frameToken.dirtyToken;
+    result.dirtyPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
+    return result;
+}
+
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,
     const RtSmokeRigidTlasPlanDesc& desc,

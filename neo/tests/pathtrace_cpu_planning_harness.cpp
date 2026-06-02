@@ -1882,6 +1882,82 @@ void TestBvhFrameToken()
         "BVH frame token maps submitted TLAS count changes to TLAS signature only");
 }
 
+void TestBvhFramePlanningResult()
+{
+    RtSmokeStaticTlasBucketObservation buckets[2];
+    buckets[0].bucketKey = 100;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+    buckets[0].residentVertexCount = 10;
+    buckets[0].residentIndexCount = 30;
+    buckets[0].residentTriangleCount = 10;
+    buckets[0].activeVertexCount = 10;
+    buckets[0].activeIndexCount = 30;
+    buckets[0].activeTriangleCount = 10;
+    buckets[1] = buckets[0];
+    buckets[1].bucketKey = 200;
+    buckets[1].active = false;
+
+    RtSmokeBvhFramePlanningInput input;
+    input.staticBucketWorkInput.buckets = buckets;
+    input.staticBucketWorkInput.bucketCount = 2;
+    input.staticBucketWorkInput.geometryContentSignature = 900;
+    input.staticBucketWorkInput.materialGeneration = 901;
+    input.staticBucketWorkInput.totalVertexCount = 20;
+    input.staticBucketWorkInput.totalIndexCount = 60;
+    input.staticBucketWorkInput.totalTriangleCount = 20;
+    input.staticBucketWorkInput.monolithicStaticBlas = true;
+    input.staticBucketWorkInput.hasStaticBlas = true;
+    input.frameTokenInput.staticBlasSignature = 902;
+    input.frameTokenInput.geometryGeneration = 903;
+    input.frameTokenInput.materialGeneration = 904;
+    input.frameTokenInput.dynamicVertexCount = 3;
+    input.frameTokenInput.dynamicIndexCount = 3;
+    input.frameTokenInput.rigidRouteInstanceCount = 1;
+    input.frameTokenInput.baseTlasInstanceCount = 2;
+    input.frameTokenInput.rigidTlasInstanceCount = 1;
+    input.frameTokenInput.hasStaticBlas = true;
+    input.frameTokenInput.hasDynamicBlas = true;
+
+    const RtSmokeBvhFramePlanningResult firstResult =
+        BuildSmokeBvhFramePlanningResult(input);
+    RtSmokeBvhFrameTokenInput expectedFrameTokenInput = input.frameTokenInput;
+    expectedFrameTokenInput.staticActiveSetSignature =
+        firstResult.staticBucketWorkPlan.activeSetPlan.activeSetSignature;
+    expectedFrameTokenInput.staticResidentSetSignature =
+        firstResult.staticBucketWorkPlan.activeSetPlan.residentSetSignature;
+    const RtSmokeBvhFrameToken expectedFrameToken =
+        BuildSmokeBvhFrameToken(expectedFrameTokenInput);
+    Check(firstResult.staticBucketWorkPlan.activeSetPlan.activeBuckets == 1,
+        "BVH frame planning result preserves active bucket count");
+    Check(firstResult.staticBucketWorkPlan.activeSetPlan.inactiveResidentBuckets == 1,
+        "BVH frame planning result preserves inactive resident bucket count");
+    Check(firstResult.frameToken.dirtyToken.activeSetSignature ==
+            expectedFrameToken.dirtyToken.activeSetSignature &&
+        firstResult.frameToken.dirtyToken.residentSetSignature ==
+            expectedFrameToken.dirtyToken.residentSetSignature,
+        "BVH frame planning result composes static bucket work into frame token");
+    Check(firstResult.dirtyPlan.blasInputDirty && firstResult.dirtyPlan.tlasDirty,
+        "BVH frame planning result treats missing previous token as dirty");
+
+    input.previousDirtyTokenValid = true;
+    input.previousDirtyToken = firstResult.frameToken.dirtyToken;
+    const RtSmokeBvhFramePlanningResult unchangedResult =
+        BuildSmokeBvhFramePlanningResult(input);
+    Check(!unchangedResult.dirtyPlan.blasInputDirty &&
+        !unchangedResult.dirtyPlan.tlasDirty,
+        "BVH frame planning result keeps unchanged inputs clean");
+
+    buckets[1].active = true;
+    const RtSmokeBvhFramePlanningResult activeChangedResult =
+        BuildSmokeBvhFramePlanningResult(input);
+    Check(!activeChangedResult.dirtyPlan.blasInputDirty &&
+        activeChangedResult.dirtyPlan.tlasDirty,
+        "BVH frame planning result maps active bucket changes to TLAS work");
+}
+
 void TestBvhBucketableSignatures()
 {
     RtSmokeStaticBvhBucketSignatureInput staticInput;
@@ -2228,6 +2304,7 @@ int main(int argc, char** argv)
     TestBvhDirtyPlan();
     TestStaticBucketWorkDirtyToken();
     TestBvhFrameToken();
+    TestBvhFramePlanningResult();
     TestBvhBucketableSignatures();
     TestUploadPlan();
     TestGenerationAcceptance();

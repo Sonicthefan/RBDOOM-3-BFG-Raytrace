@@ -582,6 +582,21 @@ struct RtSmokeBvhFrameToken
     uint64_t residentSetSignature = 0;
 };
 
+struct RtSmokeBvhFramePlanningInput
+{
+    RtSmokeStaticBucketWorkPlanInput staticBucketWorkInput;
+    RtSmokeBvhFrameTokenInput frameTokenInput;
+    RtSmokeBvhDirtyTokenState previousDirtyToken;
+    bool previousDirtyTokenValid = false;
+};
+
+struct RtSmokeBvhFramePlanningResult
+{
+    RtSmokeStaticBucketWorkPlan staticBucketWorkPlan;
+    RtSmokeBvhFrameToken frameToken;
+    RtSmokeBvhDirtyPlan dirtyPlan;
+};
+
 struct RtSmokeRigidTlasObservation
 {
     uint64_t meshHash = 0;
@@ -814,6 +829,9 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
 
 RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     const RtSmokeBvhFrameTokenInput& input);
+
+RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
+    const RtSmokeBvhFramePlanningInput& input);
 
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,
