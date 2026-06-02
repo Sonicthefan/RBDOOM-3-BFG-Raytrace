@@ -341,21 +341,37 @@ void TestAccelerationPlanInputToken()
     RtSmokeAccelerationPlanInput vertexChangedInput =
         BuildPlanInput(vertexChangedVertices, indexes, classes, materials);
     vertexChangedInput.staticCache = input.staticCache;
-    Check(baseToken != BuildSmokeAccelerationPlanInputToken(vertexChangedInput), "acceleration plan input token tracks static vertex content");
+    Check(baseToken == BuildSmokeAccelerationPlanInputToken(vertexChangedInput),
+        "acceleration plan input token ignores static vertex content while reusable cache supplies signature");
 
     std::vector<uint32_t> indexChangedIndexes = indexes;
     indexChangedIndexes[0] = 2;
     RtSmokeAccelerationPlanInput indexChangedInput =
         BuildPlanInput(vertices, indexChangedIndexes, classes, materials);
     indexChangedInput.staticCache = input.staticCache;
-    Check(baseToken != BuildSmokeAccelerationPlanInputToken(indexChangedInput), "acceleration plan input token tracks static index content");
+    Check(baseToken == BuildSmokeAccelerationPlanInputToken(indexChangedInput),
+        "acceleration plan input token ignores static index content while reusable cache supplies signature");
 
     std::vector<uint32_t> materialChangedMaterials = materials;
     materialChangedMaterials[0] = 12;
     RtSmokeAccelerationPlanInput materialChangedInput =
         BuildPlanInput(vertices, indexes, classes, materialChangedMaterials);
     materialChangedInput.staticCache = input.staticCache;
-    Check(baseToken != BuildSmokeAccelerationPlanInputToken(materialChangedInput), "acceleration plan input token tracks static material content");
+    Check(baseToken == BuildSmokeAccelerationPlanInputToken(materialChangedInput),
+        "acceleration plan input token ignores static material content while reusable cache supplies signature");
+
+    RtSmokeAccelerationPlanInput sourceTrackedInput = input;
+    sourceTrackedInput.staticCache.previousSignatureHash = 0;
+    const uint64_t sourceTrackedToken = BuildSmokeAccelerationPlanInputToken(sourceTrackedInput);
+    vertexChangedInput.staticCache = sourceTrackedInput.staticCache;
+    Check(sourceTrackedToken != BuildSmokeAccelerationPlanInputToken(vertexChangedInput),
+        "acceleration plan input token tracks static vertex content when signature is recomputed");
+    indexChangedInput.staticCache = sourceTrackedInput.staticCache;
+    Check(sourceTrackedToken != BuildSmokeAccelerationPlanInputToken(indexChangedInput),
+        "acceleration plan input token tracks static index content when signature is recomputed");
+    materialChangedInput.staticCache = sourceTrackedInput.staticCache;
+    Check(sourceTrackedToken != BuildSmokeAccelerationPlanInputToken(materialChangedInput),
+        "acceleration plan input token tracks static material content when signature is recomputed");
 }
 
 void TestAsyncSnapshotPlanning()

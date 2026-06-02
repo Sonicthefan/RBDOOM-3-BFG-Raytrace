@@ -200,22 +200,26 @@ uint64_t BuildSmokeAccelerationPlanInputToken(const RtSmokeAccelerationPlanInput
 {
     uint64_t hash = 1469598103934665603ull;
     const bool hasStaticBlas = input.staticIndexCount > 0;
-    const bool staticCacheCanReuse =
+    const bool staticSignatureReused =
         hasStaticBlas &&
         input.staticCache.cacheValid &&
-        !input.staticCache.staticCacheChanged;
-    const bool staticCacheCanHit =
-        staticCacheCanReuse &&
+        !input.staticCache.staticCacheChanged &&
         input.staticCache.previousSignatureHash != 0;
     const uint32_t cacheBits =
-        (staticCacheCanReuse ? 1u : 0u) |
-        (staticCacheCanHit && input.staticCache.cacheResourcesReady ? 2u : 0u);
+        (staticSignatureReused ? 1u : 0u) |
+        (staticSignatureReused && input.staticCache.cacheResourcesReady ? 2u : 0u);
     hash = HashSmokePlanBytes(hash, &cacheBits, sizeof(cacheBits));
-    if (staticCacheCanReuse)
+    if (staticSignatureReused)
     {
         hash = HashSmokePlanBytes(hash, &input.staticCache.previousSignatureHash, sizeof(input.staticCache.previousSignatureHash));
+        hash = HashSmokePlanBytes(hash, &input.staticSignature.staticRange.vertexCount, sizeof(input.staticSignature.staticRange.vertexCount));
+        hash = HashSmokePlanBytes(hash, &input.staticSignature.staticRange.indexCount, sizeof(input.staticSignature.staticRange.indexCount));
+        hash = HashSmokePlanBytes(hash, &input.staticSignature.staticRange.triangleCount, sizeof(input.staticSignature.staticRange.triangleCount));
     }
-    hash = HashSmokeStaticBlasSignatureInput(hash, input.staticSignature);
+    else
+    {
+        hash = HashSmokeStaticBlasSignatureInput(hash, input.staticSignature);
+    }
     hash = HashSmokePlanBytes(hash, &input.staticVertexCount, sizeof(input.staticVertexCount));
     hash = HashSmokePlanBytes(hash, &input.staticIndexCount, sizeof(input.staticIndexCount));
     hash = HashSmokePlanBytes(hash, &input.dynamicVertexCount, sizeof(input.dynamicVertexCount));
