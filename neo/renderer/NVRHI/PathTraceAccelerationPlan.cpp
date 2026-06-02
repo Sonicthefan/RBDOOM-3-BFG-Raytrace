@@ -1621,12 +1621,15 @@ RtSmokeRigidBvhObjectSignature BuildSmokeRigidBvhObjectSignature(
     objectHash = HashSmokePlanBytes(objectHash, &input.instanceId, sizeof(input.instanceId));
     signature.objectKey = objectHash;
 
-    uint64_t blasHash = 14695981039346656037ull;
-    blasHash = HashSmokePlanBytes(blasHash, &input.meshHash, sizeof(input.meshHash));
-    blasHash = HashSmokePlanBytes(blasHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    uint64_t geometryHash = 14695981039346656037ull;
+    geometryHash = HashSmokePlanBytes(geometryHash, &input.meshHash, sizeof(input.meshHash));
+    geometryHash = HashSmokePlanBytes(geometryHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    geometryHash = HashSmokePlanBytes(geometryHash, &input.vertexCount, sizeof(input.vertexCount));
+    geometryHash = HashSmokePlanBytes(geometryHash, &input.indexCount, sizeof(input.indexCount));
+    signature.geometryInputSignature = geometryHash;
+
+    uint64_t blasHash = geometryHash;
     blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
-    blasHash = HashSmokePlanBytes(blasHash, &input.vertexCount, sizeof(input.vertexCount));
-    blasHash = HashSmokePlanBytes(blasHash, &input.indexCount, sizeof(input.indexCount));
     signature.blasInputSignature = blasHash;
 
     uint64_t tlasHash = 14695981039346656037ull;

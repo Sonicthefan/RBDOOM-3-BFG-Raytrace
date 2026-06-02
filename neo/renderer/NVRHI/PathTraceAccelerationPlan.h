@@ -702,6 +702,7 @@ struct RtSmokeRigidBvhObjectSignatureInput
 struct RtSmokeRigidBvhObjectSignature
 {
     uint64_t objectKey = 0;
+    uint64_t geometryInputSignature = 0;
     uint64_t blasInputSignature = 0;
     uint64_t tlasMembershipSignature = 0;
     bool resident = false;

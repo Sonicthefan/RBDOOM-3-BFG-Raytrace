@@ -2243,7 +2243,8 @@ void TestBvhBucketableSignatures()
     const RtSmokeRigidBvhObjectSignature baseRigidSignature =
         BuildSmokeRigidBvhObjectSignature(rigidInput);
     Check(baseRigidSignature.resident && baseRigidSignature.activeCandidate &&
-        baseRigidSignature.objectKey != 0 && baseRigidSignature.blasInputSignature != 0 &&
+        baseRigidSignature.objectKey != 0 && baseRigidSignature.geometryInputSignature != 0 &&
+        baseRigidSignature.blasInputSignature != 0 &&
         baseRigidSignature.tlasMembershipSignature != 0,
         "rigid BVH object signature preserves object identity and active state");
 
@@ -2252,9 +2253,28 @@ void TestBvhBucketableSignatures()
     const RtSmokeRigidBvhObjectSignature secondRigidInstanceSignature =
         BuildSmokeRigidBvhObjectSignature(secondRigidInstanceInput);
     Check(baseRigidSignature.objectKey != secondRigidInstanceSignature.objectKey &&
+        baseRigidSignature.geometryInputSignature == secondRigidInstanceSignature.geometryInputSignature &&
         baseRigidSignature.blasInputSignature == secondRigidInstanceSignature.blasInputSignature &&
         baseRigidSignature.tlasMembershipSignature != secondRigidInstanceSignature.tlasMembershipSignature,
         "rigid BVH object signature shares mesh BLAS inputs across distinct instances");
+
+    RtSmokeRigidBvhObjectSignatureInput rigidGeometryChangedInput = rigidInput;
+    rigidGeometryChangedInput.geometryContentSignature = 701;
+    const RtSmokeRigidBvhObjectSignature rigidGeometryChangedSignature =
+        BuildSmokeRigidBvhObjectSignature(rigidGeometryChangedInput);
+    Check(baseRigidSignature.geometryInputSignature != rigidGeometryChangedSignature.geometryInputSignature &&
+        baseRigidSignature.blasInputSignature != rigidGeometryChangedSignature.blasInputSignature &&
+        baseRigidSignature.tlasMembershipSignature == rigidGeometryChangedSignature.tlasMembershipSignature,
+        "rigid BVH object geometry changes dirty BLAS signature without changing TLAS membership");
+
+    RtSmokeRigidBvhObjectSignatureInput rigidMaterialChangedInput = rigidInput;
+    rigidMaterialChangedInput.materialGeneration = 801;
+    const RtSmokeRigidBvhObjectSignature rigidMaterialChangedSignature =
+        BuildSmokeRigidBvhObjectSignature(rigidMaterialChangedInput);
+    Check(baseRigidSignature.geometryInputSignature == rigidMaterialChangedSignature.geometryInputSignature &&
+        baseRigidSignature.blasInputSignature != rigidMaterialChangedSignature.blasInputSignature &&
+        baseRigidSignature.tlasMembershipSignature == rigidMaterialChangedSignature.tlasMembershipSignature,
+        "rigid BVH object material changes dirty BLAS signature without changing geometry identity");
 
     RtSmokeRigidBvhObjectSignatureInput staleResidentInput = rigidInput;
     staleResidentInput.meshSeenThisFrame = false;
