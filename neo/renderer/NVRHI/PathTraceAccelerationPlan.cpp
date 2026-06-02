@@ -594,8 +594,6 @@ RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
         ++plan.emittedRecords;
 
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.bucketKey, sizeof(record.bucketKey));
-        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.routeRecordIndex, sizeof(record.routeRecordIndex));
-        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.activeReasonFlags, sizeof(record.activeReasonFlags));
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.range, sizeof(record.range));
     }
     const uint32_t summaryFlags =

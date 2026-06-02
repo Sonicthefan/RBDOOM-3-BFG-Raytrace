@@ -1632,6 +1632,16 @@ void TestStaticBucketBlasPlan()
         activePlan.planSignature != 0,
         "static bucket BLAS plan preserves bucket range identity");
 
+    buckets[0].routeRecordIndex = 9;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE;
+    const RtSmokeStaticBucketBlasPlan routeChangedPlan = BuildSmokeStaticBucketBlasPlan(desc);
+    Check(routeChangedPlan.records[0].routeRecordIndex == 9 &&
+        routeChangedPlan.records[0].activeReasonFlags == buckets[0].activeReasonFlags &&
+        routeChangedPlan.planSignature == activePlan.planSignature,
+        "static bucket BLAS plan signature ignores route-only metadata");
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE;
+
     desc.bucketCount = 1;
     const RtSmokeStaticBucketBlasPlan singleActivePlan = BuildSmokeStaticBucketBlasPlan(desc);
     Check(singleActivePlan.records.size() == activePlan.records.size() &&
