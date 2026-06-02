@@ -1495,6 +1495,20 @@ void TestStaticBucketWorkPlanInputToken()
     Check(restoredToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
         "static bucket work input token ignores previous cache entries outside active buckets");
 
+    previousBuckets[1].bucketKey = 10;
+    previousBuckets[1].blasInputSignature = 999;
+    previousBuckets[1].hasBlas = false;
+    previousBuckets[1].blasInputsCompatible = false;
+    Check(restoredToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token uses first previous cache row for duplicate keys");
+    const RtSmokeStaticBucketWorkPlanSnapshot duplicatePreviousSnapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(input);
+    Check(duplicatePreviousSnapshot.previousBuckets.size() == 1 &&
+        duplicatePreviousSnapshot.previousBuckets[0].bucketKey == 10 &&
+        duplicatePreviousSnapshot.previousBuckets[0].blasInputSignature == 100 &&
+        BuildSmokeStaticBucketWorkPlanInputToken(duplicatePreviousSnapshot) == restoredToken,
+        "static bucket work snapshot preserves first previous cache row for duplicate keys");
+
     previousBuckets[1].bucketKey = 20;
     Check(restoredToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
         "static bucket work input token tracks previous cache entries for active buckets");
