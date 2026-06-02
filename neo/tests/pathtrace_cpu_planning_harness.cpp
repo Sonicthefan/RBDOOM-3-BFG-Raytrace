@@ -1442,6 +1442,26 @@ void TestStaticBucketWorkPlanInputToken()
         uncappedPlan.buildObservationPlan.emittedObservations == negativeCapPlan.buildObservationPlan.emittedObservations,
         "static bucket work input token normalizes non-positive record caps as uncapped");
 
+    RtSmokeStaticBucketWorkPlanInput emptyInput = input;
+    emptyInput.buckets = nullptr;
+    emptyInput.bucketCount = 0;
+    emptyInput.previousBuckets = nullptr;
+    emptyInput.previousBucketCount = 0;
+    const uint64_t emptyToken = BuildSmokeStaticBucketWorkPlanInputToken(emptyInput);
+    const RtSmokeStaticBucketWorkPlan emptyPlan = BuildSmokeStaticBucketWorkPlan(emptyInput);
+    emptyInput.bucketCount = 2;
+    const uint64_t nullPositiveCountToken = BuildSmokeStaticBucketWorkPlanInputToken(emptyInput);
+    const RtSmokeStaticBucketWorkPlan nullPositiveCountPlan = BuildSmokeStaticBucketWorkPlan(emptyInput);
+    emptyInput.buckets = buckets;
+    emptyInput.bucketCount = -2;
+    const uint64_t negativeCountToken = BuildSmokeStaticBucketWorkPlanInputToken(emptyInput);
+    const RtSmokeStaticBucketWorkPlan negativeCountPlan = BuildSmokeStaticBucketWorkPlan(emptyInput);
+    Check(emptyToken == nullPositiveCountToken &&
+        emptyToken == negativeCountToken &&
+        emptyPlan.planSignature == nullPositiveCountPlan.planSignature &&
+        emptyPlan.planSignature == negativeCountPlan.planSignature,
+        "static bucket work input token normalizes absent bucket records as empty");
+
     input.previousBucketCount = 1;
     const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
         CaptureSmokeStaticBucketWorkPlanSnapshot(input);

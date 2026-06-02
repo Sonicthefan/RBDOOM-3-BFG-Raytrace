@@ -1187,7 +1187,8 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
     const RtSmokeStaticBucketWorkPlanInput& input)
 {
     uint64_t hash = 1469598103934665603ull;
-    hash = HashSmokePlanBytes(hash, &input.bucketCount, sizeof(input.bucketCount));
+    const int bucketCount = input.buckets && input.bucketCount > 0 ? input.bucketCount : 0;
+    hash = HashSmokePlanBytes(hash, &bucketCount, sizeof(bucketCount));
     hash = HashSmokePlanBytes(hash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
     hash = HashSmokePlanBytes(hash, &input.materialGeneration, sizeof(input.materialGeneration));
     hash = HashSmokePlanBytes(hash, &input.totalVertexCount, sizeof(input.totalVertexCount));
@@ -1209,9 +1210,9 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
     hash = HashSmokePlanBytes(hash, &maxBucketRecords, sizeof(maxBucketRecords));
     hash = HashSmokePlanBytes(hash, &maxRouteRecords, sizeof(maxRouteRecords));
     hash = HashSmokePlanBytes(hash, &maxBuildRecords, sizeof(maxBuildRecords));
-    if (input.buckets && input.bucketCount > 0)
+    if (bucketCount > 0)
     {
-        for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
+        for (int bucketIndex = 0; bucketIndex < bucketCount; ++bucketIndex)
         {
             const RtSmokeStaticTlasBucketObservation& bucket = input.buckets[bucketIndex];
             const uint32_t bucketFlags =
@@ -1241,10 +1242,10 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
             }
         }
     }
-    if (input.buckets && input.bucketCount > 0 && input.previousBuckets && input.previousBucketCount > 0)
+    if (bucketCount > 0 && input.previousBuckets && input.previousBucketCount > 0)
     {
         int previousBuildObservations = 0;
-        for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
+        for (int bucketIndex = 0; bucketIndex < bucketCount; ++bucketIndex)
         {
             const RtSmokeStaticTlasBucketObservation& bucket = input.buckets[bucketIndex];
             if (!bucket.active)
