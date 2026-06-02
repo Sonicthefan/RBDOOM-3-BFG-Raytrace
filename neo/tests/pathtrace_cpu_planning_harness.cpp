@@ -755,6 +755,84 @@ void TestStaticBucketWorkPlan()
         "static bucket work plan emits route table records when shader route support is available");
 }
 
+void TestStaticBucketRigidRouteNamespaceComposition()
+{
+    RtSmokeStaticTlasBucketObservation buckets[2];
+    buckets[0].bucketKey = 10;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].residentVertexCount = 3;
+    buckets[0].residentIndexCount = 3;
+    buckets[0].residentTriangleCount = 1;
+    buckets[0].activeVertexCount = 3;
+    buckets[0].activeIndexCount = 3;
+    buckets[0].activeTriangleCount = 1;
+
+    buckets[1] = buckets[0];
+    buckets[1].bucketKey = 20;
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].residentVertexOffset = 3;
+    buckets[1].residentIndexOffset = 3;
+    buckets[1].residentTriangleOffset = 1;
+
+    RtSmokeStaticBucketWorkPlanInput staticInput;
+    staticInput.buckets = buckets;
+    staticInput.bucketCount = 2;
+    staticInput.geometryContentSignature = 500;
+    staticInput.materialGeneration = 600;
+    staticInput.totalVertexCount = 6;
+    staticInput.totalIndexCount = 6;
+    staticInput.totalTriangleCount = 2;
+    staticInput.enableStaticRoutes = true;
+    staticInput.shaderSupportsStaticBucketRoutes = true;
+    staticInput.rigidRouteRecordCount = 2;
+    const RtSmokeStaticBucketWorkPlan staticPlan =
+        BuildSmokeStaticBucketWorkPlan(staticInput);
+
+    RtSmokeRigidTlasObservation rigidObservations[2];
+    rigidObservations[0].meshHash = 1000;
+    rigidObservations[0].instanceId = 100;
+    rigidObservations[0].sourceFlags = 0x2;
+    rigidObservations[0].hasMeshRecord = true;
+    rigidObservations[0].meshSeenThisFrame = true;
+    rigidObservations[0].hasBlas = true;
+    rigidObservations[0].objectToWorld[0] = 1.0f;
+    rigidObservations[0].objectToWorld[5] = 1.0f;
+    rigidObservations[0].objectToWorld[10] = 1.0f;
+    rigidObservations[0].objectToWorld[15] = 1.0f;
+    rigidObservations[1] = rigidObservations[0];
+    rigidObservations[1].meshHash = 2000;
+    rigidObservations[1].instanceId = 200;
+
+    RtSmokeRigidTlasPlanDesc rigidDesc;
+    rigidDesc.observations = rigidObservations;
+    rigidDesc.observationCount = 2;
+    rigidDesc.rigidSourceMask = 0x2;
+    rigidDesc.firstInstanceId = staticPlan.routeNamespace.rigidFirstInstanceId;
+    rigidDesc.instanceMask = 0x02;
+    const RtSmokeRigidTlasPlan rigidPlan = BuildSmokeRigidTlasPlan(rigidDesc);
+
+    Check(staticPlan.routeTablePlan.emittedRecords == 2 &&
+        rigidPlan.emittedInstances == 2 &&
+        staticPlan.routeTablePlan.records[0].instanceId == 2 &&
+        staticPlan.routeTablePlan.records[1].instanceId == 3 &&
+        rigidPlan.instances[0].instanceId == 4 &&
+        rigidPlan.instances[1].instanceId == 5,
+        "static bucket and rigid route planners compose non-overlapping instance IDs");
+
+    staticInput.shaderSupportsStaticBucketRoutes = false;
+    const RtSmokeStaticBucketWorkPlan blockedStaticPlan =
+        BuildSmokeStaticBucketWorkPlan(staticInput);
+    rigidDesc.firstInstanceId = blockedStaticPlan.routeNamespace.rigidFirstInstanceId;
+    const RtSmokeRigidTlasPlan blockedRigidPlan = BuildSmokeRigidTlasPlan(rigidDesc);
+    Check(blockedStaticPlan.routeNamespace.staticRoutesBlocked &&
+        blockedStaticPlan.routeTablePlan.emittedRecords == 0 &&
+        blockedRigidPlan.instances[0].instanceId == 2,
+        "blocked static routes keep current rigid route instance base");
+}
+
 void TestStaticBucketWorkPlanSnapshot()
 {
     RtSmokeStaticTlasBucketObservation buckets[2];
@@ -1849,6 +1927,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildBatchPlan();
     TestStaticBucketBlasBuildObservationPlan();
     TestStaticBucketWorkPlan();
+    TestStaticBucketRigidRouteNamespaceComposition();
     TestStaticBucketWorkPlanSnapshot();
     TestStaticBucketWorkPlanTimedResult();
     TestStaticBucketWorkPlanInputToken();
