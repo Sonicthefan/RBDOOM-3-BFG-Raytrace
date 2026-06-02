@@ -753,6 +753,35 @@ void TestStaticBucketWorkPlan()
         routedPlan.routeTablePlan.records[0].instanceId == 2 &&
         routedPlan.routeNamespace.rigidFirstInstanceId == 4,
         "static bucket work plan emits route table records when shader route support is available");
+
+    input.maxRouteRecords = 1;
+    const RtSmokeStaticBucketWorkPlan routeCappedPlan =
+        BuildSmokeStaticBucketWorkPlan(input);
+    Check(routeCappedPlan.bucketBlasPlan.emittedRecords == 2 &&
+        !routeCappedPlan.bucketBlasPlan.overflow &&
+        routeCappedPlan.routeTablePlan.emittedRecords == 1 &&
+        routeCappedPlan.routeTablePlan.overflow,
+        "static bucket work plan reports route table cap overflow independently");
+
+    input.maxRouteRecords = 0;
+    input.maxBuildRecords = 1;
+    const RtSmokeStaticBucketWorkPlan buildCappedPlan =
+        BuildSmokeStaticBucketWorkPlan(input);
+    Check(buildCappedPlan.buildObservationPlan.emittedObservations == 1 &&
+        buildCappedPlan.buildObservationPlan.overflow &&
+        buildCappedPlan.buildBatchPlan.emittedRecords == 1 &&
+        !buildCappedPlan.buildBatchPlan.overflow,
+        "static bucket work plan reports build observation cap overflow independently");
+
+    input.maxBuildRecords = 0;
+    input.maxBucketRecords = 1;
+    const RtSmokeStaticBucketWorkPlan bucketCappedPlan =
+        BuildSmokeStaticBucketWorkPlan(input);
+    Check(bucketCappedPlan.bucketBlasPlan.emittedRecords == 1 &&
+        bucketCappedPlan.bucketBlasPlan.overflow &&
+        bucketCappedPlan.routeTablePlan.emittedRecords == 1 &&
+        !bucketCappedPlan.routeTablePlan.overflow,
+        "static bucket work plan reports bucket BLAS cap overflow independently");
 }
 
 void TestStaticBucketRigidRouteNamespaceComposition()
