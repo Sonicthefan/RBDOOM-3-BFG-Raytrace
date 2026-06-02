@@ -1143,7 +1143,6 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
 {
     uint64_t hash = 1469598103934665603ull;
     hash = HashSmokePlanBytes(hash, &input.bucketCount, sizeof(input.bucketCount));
-    hash = HashSmokePlanBytes(hash, &input.previousBucketCount, sizeof(input.previousBucketCount));
     hash = HashSmokePlanBytes(hash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
     hash = HashSmokePlanBytes(hash, &input.materialGeneration, sizeof(input.materialGeneration));
     hash = HashSmokePlanBytes(hash, &input.totalVertexCount, sizeof(input.totalVertexCount));
@@ -1188,16 +1187,38 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
             hash = HashSmokePlanBytes(hash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
         }
     }
-    if (input.previousBuckets && input.previousBucketCount > 0)
+    if (input.buckets && input.bucketCount > 0 && input.previousBuckets && input.previousBucketCount > 0)
     {
-        for (int previousIndex = 0; previousIndex < input.previousBucketCount; ++previousIndex)
+        for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
         {
-            const RtSmokeStaticBucketBlasCacheState& previousBucket = input.previousBuckets[previousIndex];
+            const RtSmokeStaticTlasBucketObservation& bucket = input.buckets[bucketIndex];
+            if (!bucket.active)
+            {
+                continue;
+            }
+
+            const RtSmokeStaticBucketBlasCacheState* previousBucket = nullptr;
+            for (int previousIndex = 0; previousIndex < input.previousBucketCount; ++previousIndex)
+            {
+                if (input.previousBuckets[previousIndex].bucketKey == bucket.bucketKey)
+                {
+                    previousBucket = &input.previousBuckets[previousIndex];
+                    break;
+                }
+            }
+
+            const uint32_t hasPreviousBit = previousBucket ? 1u : 0u;
+            hash = HashSmokePlanBytes(hash, &bucket.bucketKey, sizeof(bucket.bucketKey));
+            hash = HashSmokePlanBytes(hash, &hasPreviousBit, sizeof(hasPreviousBit));
+            if (!previousBucket)
+            {
+                continue;
+            }
+
             const uint32_t previousFlags =
-                (previousBucket.hasBlas ? 1u : 0u) |
-                (previousBucket.blasInputsCompatible ? 2u : 0u);
-            hash = HashSmokePlanBytes(hash, &previousBucket.bucketKey, sizeof(previousBucket.bucketKey));
-            hash = HashSmokePlanBytes(hash, &previousBucket.blasInputSignature, sizeof(previousBucket.blasInputSignature));
+                (previousBucket->hasBlas ? 1u : 0u) |
+                (previousBucket->blasInputsCompatible ? 2u : 0u);
+            hash = HashSmokePlanBytes(hash, &previousBucket->blasInputSignature, sizeof(previousBucket->blasInputSignature));
             hash = HashSmokePlanBytes(hash, &previousFlags, sizeof(previousFlags));
         }
     }

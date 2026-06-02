@@ -1251,11 +1251,16 @@ void TestStaticBucketWorkPlanInputToken()
     buckets[1].residentIndexOffset = 36;
     buckets[1].residentTriangleOffset = 12;
 
-    RtSmokeStaticBucketBlasCacheState previousBuckets[1];
+    RtSmokeStaticBucketBlasCacheState previousBuckets[2];
     previousBuckets[0].bucketKey = 10;
     previousBuckets[0].blasInputSignature = 100;
     previousBuckets[0].hasBlas = true;
     previousBuckets[0].blasInputsCompatible = true;
+    previousBuckets[1] = previousBuckets[0];
+    previousBuckets[1].bucketKey = 99;
+    previousBuckets[1].blasInputSignature = 999;
+    previousBuckets[1].hasBlas = false;
+    previousBuckets[1].blasInputsCompatible = false;
 
     RtSmokeStaticBucketWorkPlanInput input;
     input.buckets = buckets;
@@ -1303,6 +1308,24 @@ void TestStaticBucketWorkPlanInputToken()
 
     input.shaderSupportsStaticBucketRoutes = false;
     const uint64_t restoredToken = BuildSmokeStaticBucketWorkPlanInputToken(input);
+
+    input.previousBucketCount = 2;
+    Check(restoredToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token ignores previous cache entries outside active buckets");
+
+    previousBuckets[1].bucketKey = 20;
+    Check(restoredToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token tracks previous cache entries for active buckets");
+
+    buckets[1].active = false;
+    input.previousBucketCount = 1;
+    const uint64_t inactiveBucketToken = BuildSmokeStaticBucketWorkPlanInputToken(input);
+    input.previousBucketCount = 2;
+    Check(inactiveBucketToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token ignores previous cache entries for inactive buckets");
+
+    buckets[1].active = true;
+    input.previousBucketCount = 1;
     const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
         CaptureSmokeStaticBucketWorkPlanSnapshot(input);
     const uint64_t snapshotToken = BuildSmokeStaticBucketWorkPlanInputToken(snapshot);
