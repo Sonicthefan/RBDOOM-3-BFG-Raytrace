@@ -4084,7 +4084,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const bool asyncFuturePending = m_smokeAccelerationPlanFuture.valid();
         common->Printf(
-            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d rigid(accepted/cached/queued)=%d/%d/%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
+            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d rigid(accepted/cached/queued)=%d/%d/%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidCounters(accepted/stale/late/sync)=%llu/%llu/%llu/%llu rigidTiming(snapshot/queue/worker/render)=%.3f/%.3f/%.3f/%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
             asyncCpuPlanning ? 1 : 0,
             accelerationPlanAcceptedFromAsync ? 1 : 0,
             asyncPlanAlreadyCached ? 1 : 0,
@@ -4100,6 +4100,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeCpuWorkState.lastAcceptedTiming.queueWaitMs,
             m_smokeCpuWorkState.lastAcceptedTiming.workerExecutionMs,
             m_smokeCpuWorkState.lastAcceptedTiming.renderSubmitMs,
+            static_cast<unsigned long long>(m_smokeRigidTlasCpuWorkState.acceptedResultCount),
+            static_cast<unsigned long long>(m_smokeRigidTlasCpuWorkState.rejectedStaleResultCount),
+            static_cast<unsigned long long>(m_smokeRigidTlasCpuWorkState.lateResultCount),
+            static_cast<unsigned long long>(m_smokeRigidTlasCpuWorkState.syncFallbackCount),
+            m_smokeRigidTlasCpuWorkState.lastAcceptedTiming.snapshotCaptureMs,
+            m_smokeRigidTlasCpuWorkState.lastAcceptedTiming.queueWaitMs,
+            m_smokeRigidTlasCpuWorkState.lastAcceptedTiming.workerExecutionMs,
+            m_smokeRigidTlasCpuWorkState.lastAcceptedTiming.renderSubmitMs,
             rigidTlasPlanMs,
             static_cast<unsigned long long>(accelerationPlanGeneration.frameIndex),
             static_cast<unsigned long long>(accelerationPlanGeneration.sceneGeneration),
