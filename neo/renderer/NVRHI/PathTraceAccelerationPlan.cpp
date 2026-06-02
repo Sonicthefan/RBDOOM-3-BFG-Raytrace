@@ -1191,7 +1191,46 @@ RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
     }
     if (hasBuckets && input.previousBuckets && input.previousBucketCount > 0)
     {
-        snapshot.previousBuckets.assign(input.previousBuckets, input.previousBuckets + input.previousBucketCount);
+        const int maxBuildRecords = NormalizeSmokePlanRecordCap(input.maxBuildRecords);
+        int activeBuildObservations = 0;
+        for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
+        {
+            const RtSmokeStaticTlasBucketObservation& bucket = input.buckets[bucketIndex];
+            if (!bucket.active)
+            {
+                continue;
+            }
+            if (maxBuildRecords > 0 && activeBuildObservations >= maxBuildRecords)
+            {
+                break;
+            }
+            ++activeBuildObservations;
+
+            bool alreadyCaptured = false;
+            for (const RtSmokeStaticBucketBlasCacheState& capturedBucket : snapshot.previousBuckets)
+            {
+                if (capturedBucket.bucketKey == bucket.bucketKey)
+                {
+                    alreadyCaptured = true;
+                    break;
+                }
+            }
+            if (alreadyCaptured)
+            {
+                continue;
+            }
+
+            for (int previousIndex = 0; previousIndex < input.previousBucketCount; ++previousIndex)
+            {
+                const RtSmokeStaticBucketBlasCacheState& previousBucket =
+                    input.previousBuckets[previousIndex];
+                if (previousBucket.bucketKey == bucket.bucketKey)
+                {
+                    snapshot.previousBuckets.push_back(previousBucket);
+                    break;
+                }
+            }
+        }
     }
     snapshot.geometryContentSignature = input.geometryContentSignature;
     snapshot.materialGeneration = input.materialGeneration;
