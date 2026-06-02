@@ -861,6 +861,17 @@ void TestStaticBucketBlasBuildBatchPlan()
     Check(uncappedPlan.emittedRecords == negativeCapPlan.emittedRecords &&
         uncappedPlan.planSignature == negativeCapPlan.planSignature,
         "static bucket BLAS batch plan normalizes negative record caps as uncapped");
+
+    input.observations = nullptr;
+    input.observationCount = 4;
+    const RtSmokeStaticBucketBlasBuildBatchPlan nullRecordsPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    input.observationCount = 0;
+    const RtSmokeStaticBucketBlasBuildBatchPlan emptyRecordsPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(nullRecordsPlan.inputRecords == 0 &&
+        nullRecordsPlan.planSignature == emptyRecordsPlan.planSignature,
+        "static bucket BLAS batch plan normalizes absent observations as empty");
 }
 
 void TestStaticBucketBlasBuildObservationPlan()
@@ -959,6 +970,17 @@ void TestStaticBucketBlasBuildObservationPlan()
     Check(activeAndInactivePlan.emittedObservations == negativeCapPlan.emittedObservations &&
         activeAndInactivePlan.planSignature == negativeCapPlan.planSignature,
         "static bucket BLAS observation plan normalizes negative record caps as uncapped");
+
+    input.currentBuckets = nullptr;
+    input.currentBucketCount = 2;
+    const RtSmokeStaticBucketBlasBuildObservationPlan nullBucketsPlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    input.currentBucketCount = 0;
+    const RtSmokeStaticBucketBlasBuildObservationPlan emptyBucketsPlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    Check(nullBucketsPlan.inputBuckets == 0 &&
+        nullBucketsPlan.planSignature == emptyBucketsPlan.planSignature,
+        "static bucket BLAS observation plan normalizes absent buckets as empty");
 }
 
 void TestStaticBucketWorkPlan()
@@ -1970,6 +1992,15 @@ void TestStaticRouteTablePlan()
     Check(uncappedPlan.emittedRecords == negativeCapPlan.emittedRecords &&
         uncappedPlan.tableSignature == negativeCapPlan.tableSignature,
         "static route table plan normalizes negative record caps as uncapped");
+
+    input.records = nullptr;
+    input.recordCount = 3;
+    const RtSmokeStaticRouteTablePlan nullRecordsPlan = BuildSmokeStaticRouteTablePlan(input);
+    input.recordCount = 0;
+    const RtSmokeStaticRouteTablePlan emptyRecordsPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(nullRecordsPlan.inputRecords == 0 &&
+        nullRecordsPlan.tableSignature == emptyRecordsPlan.tableSignature,
+        "static route table plan normalizes absent records as empty");
 }
 
 void TestBvhDirtyPlan()

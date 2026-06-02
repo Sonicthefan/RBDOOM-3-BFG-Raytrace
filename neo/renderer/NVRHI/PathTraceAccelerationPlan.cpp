@@ -707,26 +707,27 @@ RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
 {
     RtSmokeStaticRouteTablePlan plan;
     plan.tableSignature = 14695981039346656037ull;
-    plan.inputRecords = input.recordCount > 0 ? input.recordCount : 0;
+    const int recordCount = input.records && input.recordCount > 0 ? input.recordCount : 0;
+    plan.inputRecords = recordCount;
     plan.blocked = input.routeNamespace.staticRoutesBlocked;
-    if (!input.records || input.recordCount <= 0)
+    if (recordCount <= 0)
     {
         plan.tableSignature = HashSmokeStaticRouteTablePlanSummary(plan.tableSignature, plan);
         return plan;
     }
     if (!input.routeNamespace.staticRoutesEnabled)
     {
-        plan.skippedDisabled = input.recordCount;
+        plan.skippedDisabled = recordCount;
         plan.tableSignature = HashSmokeStaticRouteTablePlanSummary(plan.tableSignature, plan);
         return plan;
     }
 
     const int maxRecords = NormalizeSmokePlanRecordCap(input.maxRecords);
-    const int reserveCount = maxRecords > 0 && maxRecords < input.recordCount
+    const int reserveCount = maxRecords > 0 && maxRecords < recordCount
         ? maxRecords
-        : input.recordCount;
+        : recordCount;
     plan.records.reserve(reserveCount);
-    for (int recordIndex = 0; recordIndex < input.recordCount; ++recordIndex)
+    for (int recordIndex = 0; recordIndex < recordCount; ++recordIndex)
     {
         if (maxRecords > 0 && plan.emittedRecords >= maxRecords)
         {
@@ -794,18 +795,19 @@ RtSmokeStaticBucketBlasBuildBatchPlan BuildSmokeStaticBucketBlasBuildBatchPlan(
 {
     RtSmokeStaticBucketBlasBuildBatchPlan plan;
     plan.planSignature = 14695981039346656037ull;
-    plan.inputRecords = input.observationCount > 0 ? input.observationCount : 0;
-    if (!input.observations || input.observationCount <= 0)
+    const int observationCount = input.observations && input.observationCount > 0 ? input.observationCount : 0;
+    plan.inputRecords = observationCount;
+    if (observationCount <= 0)
     {
         return plan;
     }
 
     const int maxRecords = NormalizeSmokePlanRecordCap(input.maxRecords);
-    const int reserveCount = maxRecords > 0 && maxRecords < input.observationCount
+    const int reserveCount = maxRecords > 0 && maxRecords < observationCount
         ? maxRecords
-        : input.observationCount;
+        : observationCount;
     plan.records.reserve(reserveCount);
-    for (int observationIndex = 0; observationIndex < input.observationCount; ++observationIndex)
+    for (int observationIndex = 0; observationIndex < observationCount; ++observationIndex)
     {
         if (maxRecords > 0 && plan.emittedRecords >= maxRecords)
         {
@@ -945,18 +947,19 @@ RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObser
 {
     RtSmokeStaticBucketBlasBuildObservationPlan plan;
     plan.planSignature = 14695981039346656037ull;
-    plan.inputBuckets = input.currentBucketCount > 0 ? input.currentBucketCount : 0;
-    if (!input.currentBuckets || input.currentBucketCount <= 0)
+    const int currentBucketCount = input.currentBuckets && input.currentBucketCount > 0 ? input.currentBucketCount : 0;
+    plan.inputBuckets = currentBucketCount;
+    if (currentBucketCount <= 0)
     {
         return plan;
     }
 
     const int maxRecords = NormalizeSmokePlanRecordCap(input.maxRecords);
-    const int reserveCount = maxRecords > 0 && maxRecords < input.currentBucketCount
+    const int reserveCount = maxRecords > 0 && maxRecords < currentBucketCount
         ? maxRecords
-        : input.currentBucketCount;
+        : currentBucketCount;
     plan.observations.reserve(reserveCount);
-    for (int bucketIndex = 0; bucketIndex < input.currentBucketCount; ++bucketIndex)
+    for (int bucketIndex = 0; bucketIndex < currentBucketCount; ++bucketIndex)
     {
         const RtSmokeStaticBvhBucketSignature& currentBucket = input.currentBuckets[bucketIndex];
         if (!currentBucket.active)
