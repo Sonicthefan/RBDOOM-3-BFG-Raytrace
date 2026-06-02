@@ -1371,6 +1371,12 @@ void TestStaticBucketWorkPlanInputToken()
     input.previousBucketCount = 2;
     Check(inactiveBucketToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
         "static bucket work input token ignores previous cache entries for inactive buckets");
+    buckets[1].routeRecordIndex = 99;
+    buckets[1].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_FORCE_INCLUDE;
+    Check(inactiveBucketToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token ignores inactive route and active-reason metadata");
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].activeReasonFlags = 0;
 
     buckets[1].active = true;
     input.previousBucketCount = 1;

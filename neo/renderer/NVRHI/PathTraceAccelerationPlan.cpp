@@ -1205,8 +1205,11 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
                 (bucket.hasBlas ? 4u : 0u);
             hash = HashSmokePlanBytes(hash, &bucket.bucketKey, sizeof(bucket.bucketKey));
             hash = HashSmokePlanBytes(hash, &bucketFlags, sizeof(bucketFlags));
-            hash = HashSmokePlanBytes(hash, &bucket.routeRecordIndex, sizeof(bucket.routeRecordIndex));
-            hash = HashSmokePlanBytes(hash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
+            if (bucket.active)
+            {
+                hash = HashSmokePlanBytes(hash, &bucket.routeRecordIndex, sizeof(bucket.routeRecordIndex));
+                hash = HashSmokePlanBytes(hash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
+            }
             hash = HashSmokePlanBytes(hash, &bucket.residentSurfaceCount, sizeof(bucket.residentSurfaceCount));
             hash = HashSmokePlanBytes(hash, &bucket.residentVertexOffset, sizeof(bucket.residentVertexOffset));
             hash = HashSmokePlanBytes(hash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
