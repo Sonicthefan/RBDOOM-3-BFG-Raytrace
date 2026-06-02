@@ -310,6 +310,27 @@ void TestAccelerationPlanInputToken()
     RtSmokeAccelerationPlanInput dynamicChangedInput = input;
     dynamicChangedInput.dynamicIndexCount = 0;
     Check(baseToken != BuildSmokeAccelerationPlanInputToken(dynamicChangedInput), "acceleration plan input token tracks dynamic BLAS counts");
+
+    std::vector<HarnessSmokeVertex> vertexChangedVertices = vertices;
+    vertexChangedVertices[0].position[0] += 1.0f;
+    RtSmokeAccelerationPlanInput vertexChangedInput =
+        BuildPlanInput(vertexChangedVertices, indexes, classes, materials);
+    vertexChangedInput.staticCache = input.staticCache;
+    Check(baseToken != BuildSmokeAccelerationPlanInputToken(vertexChangedInput), "acceleration plan input token tracks static vertex content");
+
+    std::vector<uint32_t> indexChangedIndexes = indexes;
+    indexChangedIndexes[0] = 2;
+    RtSmokeAccelerationPlanInput indexChangedInput =
+        BuildPlanInput(vertices, indexChangedIndexes, classes, materials);
+    indexChangedInput.staticCache = input.staticCache;
+    Check(baseToken != BuildSmokeAccelerationPlanInputToken(indexChangedInput), "acceleration plan input token tracks static index content");
+
+    std::vector<uint32_t> materialChangedMaterials = materials;
+    materialChangedMaterials[0] = 12;
+    RtSmokeAccelerationPlanInput materialChangedInput =
+        BuildPlanInput(vertices, indexes, classes, materialChangedMaterials);
+    materialChangedInput.staticCache = input.staticCache;
+    Check(baseToken != BuildSmokeAccelerationPlanInputToken(materialChangedInput), "acceleration plan input token tracks static material content");
 }
 
 void TestAsyncSnapshotPlanning()
