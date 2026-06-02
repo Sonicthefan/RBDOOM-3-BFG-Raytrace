@@ -765,6 +765,12 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
 RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
     const RtSmokeStaticBucketWorkPlanInput& input);
 
+uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
+    const RtSmokeStaticBucketWorkPlanInput& input);
+
+uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
+    const RtSmokeStaticBucketWorkPlanSnapshot& snapshot);
+
 RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     const RtSmokeStaticBucketWorkPlanSnapshot& snapshot);
 

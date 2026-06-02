@@ -982,6 +982,94 @@ RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
     return snapshot;
 }
 
+uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
+    const RtSmokeStaticBucketWorkPlanInput& input)
+{
+    uint64_t hash = 1469598103934665603ull;
+    hash = HashSmokePlanBytes(hash, &input.bucketCount, sizeof(input.bucketCount));
+    hash = HashSmokePlanBytes(hash, &input.previousBucketCount, sizeof(input.previousBucketCount));
+    hash = HashSmokePlanBytes(hash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    hash = HashSmokePlanBytes(hash, &input.materialGeneration, sizeof(input.materialGeneration));
+    hash = HashSmokePlanBytes(hash, &input.totalVertexCount, sizeof(input.totalVertexCount));
+    hash = HashSmokePlanBytes(hash, &input.totalIndexCount, sizeof(input.totalIndexCount));
+    hash = HashSmokePlanBytes(hash, &input.totalTriangleCount, sizeof(input.totalTriangleCount));
+    const uint32_t flags =
+        (input.submitBuilds ? 1u : 0u) |
+        (input.forceRebuild ? 2u : 0u) |
+        (input.enableStaticRoutes ? 4u : 0u) |
+        (input.shaderSupportsStaticBucketRoutes ? 8u : 0u);
+    hash = HashSmokePlanBytes(hash, &flags, sizeof(flags));
+    hash = HashSmokePlanBytes(hash, &input.firstRouteInstanceId, sizeof(input.firstRouteInstanceId));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteRecordCount, sizeof(input.rigidRouteRecordCount));
+    hash = HashSmokePlanBytes(hash, &input.maxBucketRecords, sizeof(input.maxBucketRecords));
+    hash = HashSmokePlanBytes(hash, &input.maxRouteRecords, sizeof(input.maxRouteRecords));
+    hash = HashSmokePlanBytes(hash, &input.maxBuildRecords, sizeof(input.maxBuildRecords));
+    if (input.buckets && input.bucketCount > 0)
+    {
+        for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
+        {
+            const RtSmokeStaticTlasBucketObservation& bucket = input.buckets[bucketIndex];
+            const uint32_t bucketFlags =
+                (bucket.resident ? 1u : 0u) |
+                (bucket.active ? 2u : 0u) |
+                (bucket.hasBlas ? 4u : 0u);
+            hash = HashSmokePlanBytes(hash, &bucket.bucketKey, sizeof(bucket.bucketKey));
+            hash = HashSmokePlanBytes(hash, &bucketFlags, sizeof(bucketFlags));
+            hash = HashSmokePlanBytes(hash, &bucket.routeRecordIndex, sizeof(bucket.routeRecordIndex));
+            hash = HashSmokePlanBytes(hash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
+            hash = HashSmokePlanBytes(hash, &bucket.residentVertexOffset, sizeof(bucket.residentVertexOffset));
+            hash = HashSmokePlanBytes(hash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
+            hash = HashSmokePlanBytes(hash, &bucket.residentIndexOffset, sizeof(bucket.residentIndexOffset));
+            hash = HashSmokePlanBytes(hash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
+            hash = HashSmokePlanBytes(hash, &bucket.residentTriangleOffset, sizeof(bucket.residentTriangleOffset));
+            hash = HashSmokePlanBytes(hash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
+            hash = HashSmokePlanBytes(hash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
+            hash = HashSmokePlanBytes(hash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
+            hash = HashSmokePlanBytes(hash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
+            hash = HashSmokePlanBytes(hash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
+        }
+    }
+    if (input.previousBuckets && input.previousBucketCount > 0)
+    {
+        for (int previousIndex = 0; previousIndex < input.previousBucketCount; ++previousIndex)
+        {
+            const RtSmokeStaticBucketBlasCacheState& previousBucket = input.previousBuckets[previousIndex];
+            const uint32_t previousFlags =
+                (previousBucket.hasBlas ? 1u : 0u) |
+                (previousBucket.blasInputsCompatible ? 2u : 0u);
+            hash = HashSmokePlanBytes(hash, &previousBucket.bucketKey, sizeof(previousBucket.bucketKey));
+            hash = HashSmokePlanBytes(hash, &previousBucket.blasInputSignature, sizeof(previousBucket.blasInputSignature));
+            hash = HashSmokePlanBytes(hash, &previousFlags, sizeof(previousFlags));
+        }
+    }
+    return hash;
+}
+
+uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
+    const RtSmokeStaticBucketWorkPlanSnapshot& snapshot)
+{
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = snapshot.buckets.empty() ? nullptr : snapshot.buckets.data();
+    input.bucketCount = static_cast<int>(snapshot.buckets.size());
+    input.previousBuckets = snapshot.previousBuckets.empty() ? nullptr : snapshot.previousBuckets.data();
+    input.previousBucketCount = static_cast<int>(snapshot.previousBuckets.size());
+    input.geometryContentSignature = snapshot.geometryContentSignature;
+    input.materialGeneration = snapshot.materialGeneration;
+    input.totalVertexCount = snapshot.totalVertexCount;
+    input.totalIndexCount = snapshot.totalIndexCount;
+    input.totalTriangleCount = snapshot.totalTriangleCount;
+    input.submitBuilds = snapshot.submitBuilds;
+    input.forceRebuild = snapshot.forceRebuild;
+    input.enableStaticRoutes = snapshot.enableStaticRoutes;
+    input.shaderSupportsStaticBucketRoutes = snapshot.shaderSupportsStaticBucketRoutes;
+    input.firstRouteInstanceId = snapshot.firstRouteInstanceId;
+    input.rigidRouteRecordCount = snapshot.rigidRouteRecordCount;
+    input.maxBucketRecords = snapshot.maxBucketRecords;
+    input.maxRouteRecords = snapshot.maxRouteRecords;
+    input.maxBuildRecords = snapshot.maxBuildRecords;
+    return BuildSmokeStaticBucketWorkPlanInputToken(input);
+}
+
 RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     const RtSmokeStaticBucketWorkPlanSnapshot& snapshot)
 {

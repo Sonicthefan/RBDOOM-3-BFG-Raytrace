@@ -861,6 +861,85 @@ void TestStaticBucketWorkPlanTimedResult()
         "timed static bucket work result preserves snapshot planning output");
 }
 
+void TestStaticBucketWorkPlanInputToken()
+{
+    RtSmokeStaticTlasBucketObservation buckets[2];
+    buckets[0].bucketKey = 10;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].residentVertexCount = 12;
+    buckets[0].residentIndexCount = 36;
+    buckets[0].residentTriangleCount = 12;
+    buckets[0].activeVertexCount = 12;
+    buckets[0].activeIndexCount = 36;
+    buckets[0].activeTriangleCount = 12;
+
+    buckets[1] = buckets[0];
+    buckets[1].bucketKey = 20;
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].residentVertexOffset = 12;
+    buckets[1].residentIndexOffset = 36;
+    buckets[1].residentTriangleOffset = 12;
+
+    RtSmokeStaticBucketBlasCacheState previousBuckets[1];
+    previousBuckets[0].bucketKey = 10;
+    previousBuckets[0].blasInputSignature = 100;
+    previousBuckets[0].hasBlas = true;
+    previousBuckets[0].blasInputsCompatible = true;
+
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = buckets;
+    input.bucketCount = 2;
+    input.previousBuckets = previousBuckets;
+    input.previousBucketCount = 1;
+    input.geometryContentSignature = 1000;
+    input.materialGeneration = 2000;
+    input.totalVertexCount = 24;
+    input.totalIndexCount = 72;
+    input.totalTriangleCount = 24;
+    input.submitBuilds = true;
+    input.enableStaticRoutes = true;
+    input.shaderSupportsStaticBucketRoutes = false;
+    input.rigidRouteRecordCount = 4;
+
+    const uint64_t baseToken = BuildSmokeStaticBucketWorkPlanInputToken(input);
+    Check(baseToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token is deterministic");
+
+    RtSmokeStaticBucketWorkPlanInput changedInput = input;
+    buckets[1].active = false;
+    Check(baseToken != BuildSmokeStaticBucketWorkPlanInputToken(changedInput),
+        "static bucket work input token tracks active bucket membership");
+
+    buckets[1].active = true;
+    buckets[1].residentIndexCount = 33;
+    Check(baseToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token tracks bucket geometry ranges");
+
+    buckets[1].residentIndexCount = 36;
+    previousBuckets[0].blasInputSignature = 101;
+    Check(baseToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token tracks previous bucket cache signatures");
+
+    previousBuckets[0].blasInputSignature = 100;
+    input.shaderSupportsStaticBucketRoutes = true;
+    Check(baseToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token tracks route support flags");
+
+    input.shaderSupportsStaticBucketRoutes = false;
+    const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(input);
+    const uint64_t snapshotToken = BuildSmokeStaticBucketWorkPlanInputToken(snapshot);
+    buckets[0].bucketKey = 99;
+    previousBuckets[0].hasBlas = false;
+    Check(snapshotToken == BuildSmokeStaticBucketWorkPlanInputToken(snapshot) &&
+        snapshotToken == baseToken &&
+        BuildSmokeStaticBucketWorkPlanInputToken(input) != snapshotToken,
+        "static bucket work snapshot token is immutable after source mutation");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1704,6 +1783,7 @@ int main(int argc, char** argv)
     TestStaticBucketWorkPlan();
     TestStaticBucketWorkPlanSnapshot();
     TestStaticBucketWorkPlanTimedResult();
+    TestStaticBucketWorkPlanInputToken();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
