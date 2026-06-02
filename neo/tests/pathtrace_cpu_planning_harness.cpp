@@ -2064,6 +2064,11 @@ void TestBvhFramePlanningResult()
     const uint64_t basePlanningToken = BuildSmokeBvhFramePlanningInputToken(input);
     Check(basePlanningToken == BuildSmokeBvhFramePlanningInputToken(input),
         "BVH frame planning input token is deterministic");
+    RtSmokeBvhFramePlanningInput invalidPreviousChangedInput = input;
+    invalidPreviousChangedInput.previousDirtyToken.activeSetSignature = 0x12345678ull;
+    invalidPreviousChangedInput.previousDirtyToken.tlasInstanceSignature = 0x87654321ull;
+    Check(BuildSmokeBvhFramePlanningInputToken(invalidPreviousChangedInput) == basePlanningToken,
+        "BVH frame planning input token ignores invalid previous dirty token contents");
     RtSmokeBvhFramePlanningInput previousValidInput = input;
     previousValidInput.previousDirtyTokenValid = true;
     previousValidInput.previousDirtyToken = firstResult.frameToken.dirtyToken;

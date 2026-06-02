@@ -1415,7 +1415,10 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
     hash = HashSmokeBvhFrameTokenInput(hash, input.frameTokenInput);
     hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
-    hash = HashSmokePlanBytes(hash, &input.previousDirtyToken, sizeof(input.previousDirtyToken));
+    if (input.previousDirtyTokenValid)
+    {
+        hash = HashSmokePlanBytes(hash, &input.previousDirtyToken, sizeof(input.previousDirtyToken));
+    }
     return hash;
 }
 
@@ -1429,7 +1432,10 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
     hash = HashSmokeBvhFrameTokenInput(hash, snapshot.frameTokenInput);
     hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
-    hash = HashSmokePlanBytes(hash, &snapshot.previousDirtyToken, sizeof(snapshot.previousDirtyToken));
+    if (snapshot.previousDirtyTokenValid)
+    {
+        hash = HashSmokePlanBytes(hash, &snapshot.previousDirtyToken, sizeof(snapshot.previousDirtyToken));
+    }
     return hash;
 }
 
