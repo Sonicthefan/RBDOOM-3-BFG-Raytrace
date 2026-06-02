@@ -1213,7 +1213,7 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
             const uint32_t bucketFlags =
                 (bucket.resident ? 1u : 0u) |
                 (bucket.active ? 2u : 0u) |
-                (bucket.hasBlas ? 4u : 0u);
+                (bucket.active && bucket.hasBlas ? 4u : 0u);
             hash = HashSmokePlanBytes(hash, &bucket.bucketKey, sizeof(bucket.bucketKey));
             hash = HashSmokePlanBytes(hash, &bucketFlags, sizeof(bucketFlags));
             if (bucket.active)
@@ -1228,10 +1228,13 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
             hash = HashSmokePlanBytes(hash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
             hash = HashSmokePlanBytes(hash, &bucket.residentTriangleOffset, sizeof(bucket.residentTriangleOffset));
             hash = HashSmokePlanBytes(hash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
-            hash = HashSmokePlanBytes(hash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
-            hash = HashSmokePlanBytes(hash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
-            hash = HashSmokePlanBytes(hash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
-            hash = HashSmokePlanBytes(hash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
+            if (bucket.active)
+            {
+                hash = HashSmokePlanBytes(hash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
+                hash = HashSmokePlanBytes(hash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
+                hash = HashSmokePlanBytes(hash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));
+                hash = HashSmokePlanBytes(hash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
+            }
         }
     }
     if (input.buckets && input.bucketCount > 0 && input.previousBuckets && input.previousBucketCount > 0)

@@ -1387,6 +1387,18 @@ void TestStaticBucketWorkPlanInputToken()
         "static bucket work input token ignores inactive route and active-reason metadata");
     buckets[1].routeRecordIndex = 1;
     buckets[1].activeReasonFlags = 0;
+    buckets[1].hasBlas = false;
+    buckets[1].activeSurfaceCount = 7;
+    buckets[1].activeVertexCount = 48;
+    buckets[1].activeIndexCount = 96;
+    buckets[1].activeTriangleCount = 32;
+    Check(inactiveBucketToken == BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token ignores inactive active counts and BLAS readiness");
+    buckets[1].hasBlas = true;
+    buckets[1].activeSurfaceCount = 0;
+    buckets[1].activeVertexCount = 12;
+    buckets[1].activeIndexCount = 36;
+    buckets[1].activeTriangleCount = 12;
 
     buckets[1].active = true;
     input.previousBucketCount = 1;
