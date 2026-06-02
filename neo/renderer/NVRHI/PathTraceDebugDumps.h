@@ -181,6 +181,10 @@ struct RtSmokeSceneBuildSummaryLogDesc
     int staticBucketBlasSkippedInactive = 0;
     int staticBucketBlasSkippedInvalid = 0;
     bool staticBucketBlasOverflow = false;
+    bool staticBucketTraversalRouteRequired = false;
+    bool staticBucketTraversalCurrentShaderCompatible = true;
+    bool staticBucketTraversalExactMonolithic = false;
+    int staticBucketTraversalNonZeroOffsetRecords = 0;
     bool staticMonolithicInactiveIncluded = false;
     bool staticRequiresBucketedBlas = false;
     bool bvhDirtyPreviousValid = false;
@@ -298,6 +302,10 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int staticBucketBlasSkippedInactive = 0;
     int staticBucketBlasSkippedInvalid = 0;
     bool staticBucketBlasOverflow = false;
+    bool staticBucketTraversalRouteRequired = false;
+    bool staticBucketTraversalCurrentShaderCompatible = true;
+    bool staticBucketTraversalExactMonolithic = false;
+    int staticBucketTraversalNonZeroOffsetRecords = 0;
     bool staticMonolithicInactiveIncluded = false;
     bool staticRequiresBucketedBlas = false;
     bool bvhDirtyPreviousValid = false;

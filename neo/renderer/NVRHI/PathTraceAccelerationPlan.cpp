@@ -499,6 +499,45 @@ RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
     return plan;
 }
 
+RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompatibility(
+    const RtSmokeStaticBucketTraversalCompatibilityInput& input)
+{
+    RtSmokeStaticBucketTraversalCompatibility plan;
+    plan.recordCount = input.recordCount;
+    if (!input.records || input.recordCount <= 0)
+    {
+        return plan;
+    }
+
+    for (int recordIndex = 0; recordIndex < input.recordCount; ++recordIndex)
+    {
+        const RtSmokeStaticBucketBlasRecord& record = input.records[recordIndex];
+        if (record.range.vertexOffset != 0 ||
+            record.range.indexOffset != 0 ||
+            record.range.triangleOffset != 0)
+        {
+            ++plan.nonZeroOffsetRecords;
+        }
+    }
+
+    const RtSmokeStaticBucketBlasRecord& firstRecord = input.records[0];
+    plan.exactMonolithicRecord =
+        input.recordCount == 1 &&
+        firstRecord.range.vertexOffset == 0 &&
+        firstRecord.range.indexOffset == 0 &&
+        firstRecord.range.triangleOffset == 0 &&
+        firstRecord.range.vertexCount == input.totalVertexCount &&
+        firstRecord.range.indexCount == input.totalIndexCount &&
+        firstRecord.range.triangleCount == input.totalTriangleCount;
+    plan.currentStaticShaderCompatible =
+        input.shaderSupportsStaticBucketRoutes ||
+        plan.exactMonolithicRecord;
+    plan.requiresShaderRouteMetadata =
+        !input.shaderSupportsStaticBucketRoutes &&
+        !plan.exactMonolithicRecord;
+    return plan;
+}
+
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input)
 {

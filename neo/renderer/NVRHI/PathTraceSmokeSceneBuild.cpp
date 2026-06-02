@@ -4915,6 +4915,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.staticBucketBlasSkippedInactive = staticBucketBlasPlan.skippedInactive;
     sceneLogDesc.staticBucketBlasSkippedInvalid = staticBucketBlasPlan.skippedInvalid;
     sceneLogDesc.staticBucketBlasOverflow = staticBucketBlasPlan.overflow;
+    RtSmokeStaticBucketTraversalCompatibilityInput staticBucketTraversalInput;
+    staticBucketTraversalInput.records = staticBucketBlasPlan.records.empty() ? nullptr : staticBucketBlasPlan.records.data();
+    staticBucketTraversalInput.recordCount = staticBucketBlasPlan.emittedRecords;
+    staticBucketTraversalInput.totalVertexCount = staticVertexCacheCount;
+    staticBucketTraversalInput.totalIndexCount = staticIndexCacheCount;
+    staticBucketTraversalInput.totalTriangleCount = staticTriangleCacheCount;
+    const RtSmokeStaticBucketTraversalCompatibility staticBucketTraversalPlan =
+        BuildSmokeStaticBucketTraversalCompatibility(staticBucketTraversalInput);
+    sceneLogDesc.staticBucketTraversalRouteRequired = staticBucketTraversalPlan.requiresShaderRouteMetadata;
+    sceneLogDesc.staticBucketTraversalCurrentShaderCompatible = staticBucketTraversalPlan.currentStaticShaderCompatible;
+    sceneLogDesc.staticBucketTraversalExactMonolithic = staticBucketTraversalPlan.exactMonolithicRecord;
+    sceneLogDesc.staticBucketTraversalNonZeroOffsetRecords = staticBucketTraversalPlan.nonZeroOffsetRecords;
     const int rigidTlasInstanceCount = static_cast<int>(rigidTlasRouteInstances.size());
     RtSmokeBvhFrameTokenInput bvhFrameTokenInput;
     bvhFrameTokenInput.staticBlasSignature = staticSignature.hash;

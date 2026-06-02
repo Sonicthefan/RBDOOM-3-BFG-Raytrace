@@ -653,6 +653,58 @@ void TestStaticBucketBlasPlan()
     Check(cappedPlan.emittedRecords == 1 && cappedPlan.overflow, "static bucket BLAS plan reports record cap overflow");
 }
 
+void TestStaticBucketTraversalCompatibility()
+{
+    RtSmokeStaticBucketBlasRecord monolithicRecord;
+    monolithicRecord.bucketKey = 100;
+    monolithicRecord.range.vertexOffset = 0;
+    monolithicRecord.range.vertexCount = 30;
+    monolithicRecord.range.indexOffset = 0;
+    monolithicRecord.range.indexCount = 90;
+    monolithicRecord.range.triangleOffset = 0;
+    monolithicRecord.range.triangleCount = 30;
+
+    RtSmokeStaticBucketTraversalCompatibilityInput input;
+    input.records = &monolithicRecord;
+    input.recordCount = 1;
+    input.totalVertexCount = 30;
+    input.totalIndexCount = 90;
+    input.totalTriangleCount = 30;
+    const RtSmokeStaticBucketTraversalCompatibility monolithicCompatibility =
+        BuildSmokeStaticBucketTraversalCompatibility(input);
+    Check(monolithicCompatibility.exactMonolithicRecord &&
+        monolithicCompatibility.currentStaticShaderCompatible &&
+        !monolithicCompatibility.requiresShaderRouteMetadata,
+        "static bucket traversal compatibility accepts exact monolithic static record");
+
+    RtSmokeStaticBucketBlasRecord bucketRecords[2];
+    bucketRecords[0] = monolithicRecord;
+    bucketRecords[0].range.vertexCount = 10;
+    bucketRecords[0].range.indexCount = 30;
+    bucketRecords[0].range.triangleCount = 10;
+    bucketRecords[1] = bucketRecords[0];
+    bucketRecords[1].bucketKey = 200;
+    bucketRecords[1].range.vertexOffset = 10;
+    bucketRecords[1].range.indexOffset = 30;
+    bucketRecords[1].range.triangleOffset = 10;
+    input.records = bucketRecords;
+    input.recordCount = 2;
+    const RtSmokeStaticBucketTraversalCompatibility bucketCompatibility =
+        BuildSmokeStaticBucketTraversalCompatibility(input);
+    Check(!bucketCompatibility.exactMonolithicRecord &&
+        !bucketCompatibility.currentStaticShaderCompatible &&
+        bucketCompatibility.requiresShaderRouteMetadata &&
+        bucketCompatibility.nonZeroOffsetRecords == 1,
+        "static bucket traversal compatibility blocks bucketed static records without shader routes");
+
+    input.shaderSupportsStaticBucketRoutes = true;
+    const RtSmokeStaticBucketTraversalCompatibility routedCompatibility =
+        BuildSmokeStaticBucketTraversalCompatibility(input);
+    Check(routedCompatibility.currentStaticShaderCompatible &&
+        !routedCompatibility.requiresShaderRouteMetadata,
+        "static bucket traversal compatibility allows bucketed records when shader routes are available");
+}
+
 void TestBvhDirtyPlan()
 {
     RtSmokeBvhDirtyTokenState base;
@@ -1140,6 +1192,7 @@ int main(int argc, char** argv)
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
+    TestStaticBucketTraversalCompatibility();
     TestBvhDirtyPlan();
     TestBvhFrameToken();
     TestBvhBucketableSignatures();

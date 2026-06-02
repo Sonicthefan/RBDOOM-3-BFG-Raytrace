@@ -272,6 +272,25 @@ struct RtSmokeStaticBucketBlasPlan
     bool overflow = false;
 };
 
+struct RtSmokeStaticBucketTraversalCompatibilityInput
+{
+    const RtSmokeStaticBucketBlasRecord* records = nullptr;
+    int recordCount = 0;
+    int totalVertexCount = 0;
+    int totalIndexCount = 0;
+    int totalTriangleCount = 0;
+    bool shaderSupportsStaticBucketRoutes = false;
+};
+
+struct RtSmokeStaticBucketTraversalCompatibility
+{
+    int recordCount = 0;
+    int nonZeroOffsetRecords = 0;
+    bool exactMonolithicRecord = false;
+    bool currentStaticShaderCompatible = true;
+    bool requiresShaderRouteMetadata = false;
+};
+
 struct RtSmokeStaticBvhBucketSignatureInput
 {
     RtSmokeStaticTlasBucketObservation bucket;
@@ -515,6 +534,9 @@ bool BuildSmokeStaticTlasBucketObservation(
 
 RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
     const RtSmokeStaticBucketBlasPlanDesc& desc);
+
+RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompatibility(
+    const RtSmokeStaticBucketTraversalCompatibilityInput& input);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);
