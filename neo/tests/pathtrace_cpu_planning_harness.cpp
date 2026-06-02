@@ -1425,15 +1425,25 @@ void TestStaticBucketBlasPlan()
         "static bucket BLAS plan emits active valid bucket ranges");
     Check(activePlan.records[0].bucketKey == 100 &&
         activePlan.records[0].range.vertexOffset == 0 &&
+        activePlan.records[0].range.vertexCount == 10 &&
+        activePlan.records[0].range.indexOffset == 0 &&
         activePlan.records[0].range.indexCount == 30 &&
+        activePlan.records[0].range.triangleOffset == 0 &&
+        activePlan.records[0].range.triangleCount == 10 &&
         activePlan.planSignature != 0,
         "static bucket BLAS plan preserves bucket range identity");
 
     desc.activeOnly = false;
     const RtSmokeStaticBucketBlasPlan residentPlan = BuildSmokeStaticBucketBlasPlan(desc);
     Check(residentPlan.emittedRecords == 2 && residentPlan.skippedInactive == 0 &&
-        residentPlan.records[1].bucketKey == 200 && !residentPlan.records[1].active,
-        "static bucket BLAS plan can retain inactive resident bucket ranges");
+        residentPlan.records[1].bucketKey == 200 && !residentPlan.records[1].active &&
+        residentPlan.records[1].range.vertexOffset == 10 &&
+        residentPlan.records[1].range.vertexCount == 20 &&
+        residentPlan.records[1].range.indexOffset == 30 &&
+        residentPlan.records[1].range.indexCount == 60 &&
+        residentPlan.records[1].range.triangleOffset == 10 &&
+        residentPlan.records[1].range.triangleCount == 20,
+        "static bucket BLAS plan can retain inactive resident bucket ranges with offsets");
 
     desc.activeOnly = false;
     desc.maxRecords = 1;
@@ -1598,6 +1608,11 @@ void TestStaticRouteTablePlan()
         routedPlan.records[1].instanceId == 3 &&
         routedPlan.records[1].bucketKey == 20 &&
         routedPlan.records[1].range.vertexOffset == 12 &&
+        routedPlan.records[1].range.vertexCount == 12 &&
+        routedPlan.records[1].range.indexOffset == 36 &&
+        routedPlan.records[1].range.indexCount == 36 &&
+        routedPlan.records[1].range.triangleOffset == 12 &&
+        routedPlan.records[1].range.triangleCount == 12 &&
         routedPlan.tableSignature != 0,
         "static route table assigns deterministic instance IDs and preserves bucket ranges");
 
