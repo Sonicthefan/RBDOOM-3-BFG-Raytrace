@@ -1002,6 +1002,7 @@ void TestStaticBucketWorkPlanSnapshot()
     buckets[0].active = true;
     buckets[0].hasBlas = true;
     buckets[0].routeRecordIndex = 0;
+    buckets[0].residentSurfaceCount = 1;
     buckets[0].residentVertexCount = 12;
     buckets[0].residentIndexCount = 36;
     buckets[0].residentTriangleCount = 12;
@@ -1108,6 +1109,7 @@ void TestStaticBucketWorkPlanInputToken()
     buckets[0].active = true;
     buckets[0].hasBlas = true;
     buckets[0].routeRecordIndex = 0;
+    buckets[0].residentSurfaceCount = 1;
     buckets[0].residentVertexCount = 12;
     buckets[0].residentIndexCount = 36;
     buckets[0].residentTriangleCount = 12;
@@ -1158,6 +1160,11 @@ void TestStaticBucketWorkPlanInputToken()
         "static bucket work input token tracks bucket geometry ranges");
 
     buckets[1].residentIndexCount = 36;
+    buckets[1].residentSurfaceCount = 2;
+    Check(baseToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
+        "static bucket work input token tracks resident surface counts");
+
+    buckets[1].residentSurfaceCount = 1;
     previousBuckets[0].blasInputSignature = 101;
     Check(baseToken != BuildSmokeStaticBucketWorkPlanInputToken(input),
         "static bucket work input token tracks previous bucket cache signatures");
@@ -1168,13 +1175,14 @@ void TestStaticBucketWorkPlanInputToken()
         "static bucket work input token tracks route support flags");
 
     input.shaderSupportsStaticBucketRoutes = false;
+    const uint64_t restoredToken = BuildSmokeStaticBucketWorkPlanInputToken(input);
     const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
         CaptureSmokeStaticBucketWorkPlanSnapshot(input);
     const uint64_t snapshotToken = BuildSmokeStaticBucketWorkPlanInputToken(snapshot);
     buckets[0].bucketKey = 99;
     previousBuckets[0].hasBlas = false;
     Check(snapshotToken == BuildSmokeStaticBucketWorkPlanInputToken(snapshot) &&
-        snapshotToken == baseToken &&
+        snapshotToken == restoredToken &&
         BuildSmokeStaticBucketWorkPlanInputToken(input) != snapshotToken,
         "static bucket work snapshot token is immutable after source mutation");
 }
