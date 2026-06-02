@@ -1261,6 +1261,7 @@ RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     const uint32_t hasStaticBlasBit = input.hasStaticBlas ? 1u : 0u;
     const uint32_t hasDynamicBlasBit = input.hasDynamicBlas ? 1u : 0u;
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &activeSetSignature, sizeof(activeSetSignature));
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.staticTlasInstanceSignature, sizeof(input.staticTlasInstanceSignature));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &hasStaticBlasBit, sizeof(hasStaticBlasBit));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &hasDynamicBlasBit, sizeof(hasDynamicBlasBit));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.baseTlasInstanceCount, sizeof(input.baseTlasInstanceCount));
@@ -1297,6 +1298,7 @@ static uint64_t HashSmokeBvhFrameTokenInput(
     hash = HashSmokePlanBytes(hash, &input.materialGeneration, sizeof(input.materialGeneration));
     hash = HashSmokePlanBytes(hash, &input.staticActiveSetSignature, sizeof(input.staticActiveSetSignature));
     hash = HashSmokePlanBytes(hash, &input.staticResidentSetSignature, sizeof(input.staticResidentSetSignature));
+    hash = HashSmokePlanBytes(hash, &input.staticTlasInstanceSignature, sizeof(input.staticTlasInstanceSignature));
     hash = HashSmokePlanBytes(hash, &input.dynamicVertexCount, sizeof(input.dynamicVertexCount));
     hash = HashSmokePlanBytes(hash, &input.dynamicIndexCount, sizeof(input.dynamicIndexCount));
     hash = HashSmokePlanBytes(hash, &input.rigidRouteVertexCount, sizeof(input.rigidRouteVertexCount));
@@ -1349,10 +1351,17 @@ RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
     result.staticBucketWorkPlan = BuildSmokeStaticBucketWorkPlan(input.staticBucketWorkInput);
 
     RtSmokeBvhFrameTokenInput frameTokenInput = input.frameTokenInput;
+    RtSmokeStaticBucketWorkDirtyTokenInput staticDirtyTokenInput;
+    staticDirtyTokenInput.plan = &result.staticBucketWorkPlan;
+    staticDirtyTokenInput.materialGeneration = input.staticBucketWorkInput.materialGeneration;
+    const RtSmokeBvhDirtyTokenState staticDirtyToken =
+        BuildSmokeStaticBucketWorkDirtyToken(staticDirtyTokenInput);
     frameTokenInput.staticActiveSetSignature =
         result.staticBucketWorkPlan.activeSetPlan.activeSetSignature;
     frameTokenInput.staticResidentSetSignature =
         result.staticBucketWorkPlan.activeSetPlan.residentSetSignature;
+    frameTokenInput.staticTlasInstanceSignature =
+        staticDirtyToken.tlasInstanceSignature;
     result.frameToken = BuildSmokeBvhFrameToken(frameTokenInput);
 
     RtSmokeBvhDirtyPlanInput dirtyInput;

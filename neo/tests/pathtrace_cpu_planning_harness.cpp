@@ -1858,6 +1858,7 @@ void TestBvhFrameToken()
     input.materialGeneration = 300;
     input.staticActiveSetSignature = 400;
     input.staticResidentSetSignature = 500;
+    input.staticTlasInstanceSignature = 600;
     input.dynamicVertexCount = 10;
     input.dynamicIndexCount = 30;
     input.rigidRouteVertexCount = 20;
@@ -1903,6 +1904,14 @@ void TestBvhFrameToken()
         baseToken.dirtyToken.activeSetSignature == tlasChangedToken.dirtyToken.activeSetSignature &&
         baseToken.dirtyToken.tlasInstanceSignature != tlasChangedToken.dirtyToken.tlasInstanceSignature,
         "BVH frame token maps submitted TLAS count changes to TLAS signature only");
+
+    RtSmokeBvhFrameTokenInput staticRouteChangedInput = input;
+    staticRouteChangedInput.staticTlasInstanceSignature = 601;
+    const RtSmokeBvhFrameToken staticRouteChangedToken = BuildSmokeBvhFrameToken(staticRouteChangedInput);
+    Check(baseToken.dirtyToken.geometryContentSignature == staticRouteChangedToken.dirtyToken.geometryContentSignature &&
+        baseToken.dirtyToken.activeSetSignature == staticRouteChangedToken.dirtyToken.activeSetSignature &&
+        baseToken.dirtyToken.tlasInstanceSignature != staticRouteChangedToken.dirtyToken.tlasInstanceSignature,
+        "BVH frame token maps static route-table changes to TLAS signature only");
 }
 
 void TestBvhFramePlanningResult()
@@ -1946,11 +1955,19 @@ void TestBvhFramePlanningResult()
 
     const RtSmokeBvhFramePlanningResult firstResult =
         BuildSmokeBvhFramePlanningResult(input);
+    RtSmokeStaticBucketWorkDirtyTokenInput expectedStaticDirtyTokenInput;
+    expectedStaticDirtyTokenInput.plan = &firstResult.staticBucketWorkPlan;
+    expectedStaticDirtyTokenInput.materialGeneration =
+        input.staticBucketWorkInput.materialGeneration;
+    const RtSmokeBvhDirtyTokenState expectedStaticDirtyToken =
+        BuildSmokeStaticBucketWorkDirtyToken(expectedStaticDirtyTokenInput);
     RtSmokeBvhFrameTokenInput expectedFrameTokenInput = input.frameTokenInput;
     expectedFrameTokenInput.staticActiveSetSignature =
         firstResult.staticBucketWorkPlan.activeSetPlan.activeSetSignature;
     expectedFrameTokenInput.staticResidentSetSignature =
         firstResult.staticBucketWorkPlan.activeSetPlan.residentSetSignature;
+    expectedFrameTokenInput.staticTlasInstanceSignature =
+        expectedStaticDirtyToken.tlasInstanceSignature;
     const RtSmokeBvhFrameToken expectedFrameToken =
         BuildSmokeBvhFrameToken(expectedFrameTokenInput);
     Check(firstResult.staticBucketWorkPlan.activeSetPlan.activeBuckets == 1,
@@ -2033,6 +2050,35 @@ void TestBvhFramePlanningResult()
     Check(!activeChangedResult.dirtyPlan.blasInputDirty &&
         activeChangedResult.dirtyPlan.tlasDirty,
         "BVH frame planning result maps active bucket changes to TLAS work");
+
+    RtSmokeStaticTlasBucketObservation routeBuckets[2];
+    routeBuckets[0] = buckets[0];
+    routeBuckets[0].bucketKey = 300;
+    routeBuckets[0].active = true;
+    routeBuckets[0].routeRecordIndex = 10;
+    routeBuckets[1] = routeBuckets[0];
+    routeBuckets[1].bucketKey = 400;
+    routeBuckets[1].routeRecordIndex = 11;
+    RtSmokeBvhFramePlanningInput routeInput = input;
+    routeInput.staticBucketWorkInput.buckets = routeBuckets;
+    routeInput.staticBucketWorkInput.bucketCount = 2;
+    routeInput.staticBucketWorkInput.monolithicStaticBlas = false;
+    routeInput.staticBucketWorkInput.enableStaticRoutes = true;
+    routeInput.staticBucketWorkInput.shaderSupportsStaticBucketRoutes = true;
+    routeInput.staticBucketWorkInput.maxRouteRecords = 0;
+    routeInput.previousDirtyTokenValid = false;
+    const RtSmokeBvhFramePlanningResult routeBaseResult =
+        BuildSmokeBvhFramePlanningResult(routeInput);
+    routeInput.previousDirtyTokenValid = true;
+    routeInput.previousDirtyToken = routeBaseResult.frameToken.dirtyToken;
+    routeBuckets[1].routeRecordIndex = 12;
+    const RtSmokeBvhFramePlanningResult routeChangedResult =
+        BuildSmokeBvhFramePlanningResult(routeInput);
+    Check(!routeChangedResult.dirtyPlan.blasInputDirty &&
+        !routeChangedResult.dirtyPlan.activeMembershipChanged &&
+        routeChangedResult.dirtyPlan.tlasInstanceChanged &&
+        routeChangedResult.dirtyPlan.tlasDirty,
+        "BVH frame planning result maps static route-table changes to TLAS-only work");
 }
 
 void TestAsyncBvhFramePlanning()

@@ -562,6 +562,7 @@ struct RtSmokeBvhFrameTokenInput
     uint64_t materialGeneration = 0;
     uint64_t staticActiveSetSignature = 0;
     uint64_t staticResidentSetSignature = 0;
+    uint64_t staticTlasInstanceSignature = 0;
     int dynamicVertexCount = 0;
     int dynamicIndexCount = 0;
     int rigidRouteVertexCount = 0;
