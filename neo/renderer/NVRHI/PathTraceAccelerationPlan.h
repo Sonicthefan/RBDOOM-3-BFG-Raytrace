@@ -291,6 +291,27 @@ struct RtSmokeStaticBucketTraversalCompatibility
     bool requiresShaderRouteMetadata = false;
 };
 
+struct RtSmokeRouteInstanceNamespacePlanInput
+{
+    int staticRouteRecordCount = 0;
+    int rigidRouteRecordCount = 0;
+    uint32_t firstRouteInstanceId = 2;
+    bool enableStaticRoutes = false;
+    bool shaderSupportsStaticBucketRoutes = false;
+};
+
+struct RtSmokeRouteInstanceNamespacePlan
+{
+    uint32_t staticFirstInstanceId = 0;
+    uint32_t rigidFirstInstanceId = 2;
+    int staticRouteInstanceCount = 0;
+    int rigidRouteInstanceCount = 0;
+    bool staticRoutesEnabled = false;
+    bool staticRoutesRequireShaderSupport = false;
+    bool staticRoutesBlocked = false;
+    bool rigidRouteBaseShifted = false;
+};
+
 struct RtSmokeStaticBvhBucketSignatureInput
 {
     RtSmokeStaticTlasBucketObservation bucket;
@@ -537,6 +558,9 @@ RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
 
 RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompatibility(
     const RtSmokeStaticBucketTraversalCompatibilityInput& input);
+
+RtSmokeRouteInstanceNamespacePlan BuildSmokeRouteInstanceNamespacePlan(
+    const RtSmokeRouteInstanceNamespacePlanInput& input);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);

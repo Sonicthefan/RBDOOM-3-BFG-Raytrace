@@ -538,6 +538,35 @@ RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompati
     return plan;
 }
 
+RtSmokeRouteInstanceNamespacePlan BuildSmokeRouteInstanceNamespacePlan(
+    const RtSmokeRouteInstanceNamespacePlanInput& input)
+{
+    RtSmokeRouteInstanceNamespacePlan plan;
+    const int staticRouteCount = input.staticRouteRecordCount > 0 ? input.staticRouteRecordCount : 0;
+    const int rigidRouteCount = input.rigidRouteRecordCount > 0 ? input.rigidRouteRecordCount : 0;
+    plan.staticFirstInstanceId = input.firstRouteInstanceId;
+    plan.rigidFirstInstanceId = input.firstRouteInstanceId;
+    plan.rigidRouteInstanceCount = rigidRouteCount;
+
+    const bool staticRoutesRequested = input.enableStaticRoutes && staticRouteCount > 0;
+    plan.staticRoutesRequireShaderSupport =
+        staticRoutesRequested &&
+        !input.shaderSupportsStaticBucketRoutes;
+    plan.staticRoutesBlocked = plan.staticRoutesRequireShaderSupport;
+    plan.staticRoutesEnabled = staticRoutesRequested && !plan.staticRoutesBlocked;
+    if (plan.staticRoutesEnabled)
+    {
+        plan.staticRouteInstanceCount = staticRouteCount;
+        plan.rigidFirstInstanceId = input.firstRouteInstanceId + static_cast<uint32_t>(staticRouteCount);
+    }
+    else
+    {
+        plan.staticFirstInstanceId = 0;
+    }
+    plan.rigidRouteBaseShifted = plan.rigidFirstInstanceId != input.firstRouteInstanceId;
+    return plan;
+}
+
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input)
 {

@@ -705,6 +705,55 @@ void TestStaticBucketTraversalCompatibility()
         "static bucket traversal compatibility allows bucketed records when shader routes are available");
 }
 
+void TestRouteInstanceNamespacePlan()
+{
+    RtSmokeRouteInstanceNamespacePlanInput input;
+    input.staticRouteRecordCount = 4;
+    input.rigidRouteRecordCount = 7;
+    input.firstRouteInstanceId = 2;
+
+    const RtSmokeRouteInstanceNamespacePlan defaultPlan =
+        BuildSmokeRouteInstanceNamespacePlan(input);
+    Check(!defaultPlan.staticRoutesEnabled &&
+        !defaultPlan.staticRoutesBlocked &&
+        defaultPlan.staticRouteInstanceCount == 0 &&
+        defaultPlan.rigidRouteInstanceCount == 7 &&
+        defaultPlan.rigidFirstInstanceId == 2 &&
+        !defaultPlan.rigidRouteBaseShifted,
+        "route namespace keeps current rigid base when static routes are disabled");
+
+    input.enableStaticRoutes = true;
+    const RtSmokeRouteInstanceNamespacePlan blockedPlan =
+        BuildSmokeRouteInstanceNamespacePlan(input);
+    Check(!blockedPlan.staticRoutesEnabled &&
+        blockedPlan.staticRoutesRequireShaderSupport &&
+        blockedPlan.staticRoutesBlocked &&
+        blockedPlan.staticRouteInstanceCount == 0 &&
+        blockedPlan.rigidFirstInstanceId == 2 &&
+        !blockedPlan.rigidRouteBaseShifted,
+        "route namespace blocks static routes without shader route support");
+
+    input.shaderSupportsStaticBucketRoutes = true;
+    const RtSmokeRouteInstanceNamespacePlan routedPlan =
+        BuildSmokeRouteInstanceNamespacePlan(input);
+    Check(routedPlan.staticRoutesEnabled &&
+        !routedPlan.staticRoutesBlocked &&
+        routedPlan.staticFirstInstanceId == 2 &&
+        routedPlan.staticRouteInstanceCount == 4 &&
+        routedPlan.rigidFirstInstanceId == 6 &&
+        routedPlan.rigidRouteBaseShifted,
+        "route namespace reserves static route IDs before shifted rigid route IDs");
+
+    input.staticRouteRecordCount = 0;
+    const RtSmokeRouteInstanceNamespacePlan zeroStaticPlan =
+        BuildSmokeRouteInstanceNamespacePlan(input);
+    Check(!zeroStaticPlan.staticRoutesEnabled &&
+        zeroStaticPlan.staticRouteInstanceCount == 0 &&
+        zeroStaticPlan.rigidFirstInstanceId == 2 &&
+        !zeroStaticPlan.rigidRouteBaseShifted,
+        "route namespace keeps rigid base when no static route records exist");
+}
+
 void TestBvhDirtyPlan()
 {
     RtSmokeBvhDirtyTokenState base;
@@ -1193,6 +1242,7 @@ int main(int argc, char** argv)
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
     TestStaticBucketTraversalCompatibility();
+    TestRouteInstanceNamespacePlan();
     TestBvhDirtyPlan();
     TestBvhFrameToken();
     TestBvhBucketableSignatures();

@@ -4928,6 +4928,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.staticBucketTraversalExactMonolithic = staticBucketTraversalPlan.exactMonolithicRecord;
     sceneLogDesc.staticBucketTraversalNonZeroOffsetRecords = staticBucketTraversalPlan.nonZeroOffsetRecords;
     const int rigidTlasInstanceCount = static_cast<int>(rigidTlasRouteInstances.size());
+    RtSmokeRouteInstanceNamespacePlanInput routeNamespaceInput;
+    routeNamespaceInput.staticRouteRecordCount = staticBucketBlasPlan.emittedRecords;
+    routeNamespaceInput.rigidRouteRecordCount = rigidTlasInstanceCount;
+    routeNamespaceInput.firstRouteInstanceId = 2;
+    routeNamespaceInput.enableStaticRoutes = staticBucketTraversalPlan.requiresShaderRouteMetadata;
+    routeNamespaceInput.shaderSupportsStaticBucketRoutes = false;
+    const RtSmokeRouteInstanceNamespacePlan routeNamespacePlan =
+        BuildSmokeRouteInstanceNamespacePlan(routeNamespaceInput);
+    sceneLogDesc.staticRouteNamespaceBlocked = routeNamespacePlan.staticRoutesBlocked;
+    sceneLogDesc.staticRouteNamespaceFirst = routeNamespacePlan.staticFirstInstanceId;
+    sceneLogDesc.rigidRouteNamespaceFirst = routeNamespacePlan.rigidFirstInstanceId;
+    sceneLogDesc.staticRouteNamespaceCount = routeNamespacePlan.staticRouteInstanceCount;
+    sceneLogDesc.rigidRouteNamespaceShifted = routeNamespacePlan.rigidRouteBaseShifted;
     RtSmokeBvhFrameTokenInput bvhFrameTokenInput;
     bvhFrameTokenInput.staticBlasSignature = staticSignature.hash;
     bvhFrameTokenInput.geometryGeneration = geometryUniverseStats.generation;
