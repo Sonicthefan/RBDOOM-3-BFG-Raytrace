@@ -546,6 +546,21 @@ void TestRigidPlan()
         BuildSmokeRigidTlasPlanInputToken(desc) != snapshotRigidToken,
         "owned rigid TLAS snapshot is immutable after source mutation");
 
+    RtSmokeRigidTlasPlanDesc emptyObservationDesc = desc;
+    emptyObservationDesc.observations = nullptr;
+    emptyObservationDesc.observationCount = 4;
+    const RtSmokeRigidTlasPlanSnapshot emptyObservationSnapshot =
+        CaptureSmokeRigidTlasPlanSnapshot(emptyObservationDesc);
+    const RtSmokeRigidTlasPlan emptyObservationPlan =
+        BuildSmokeRigidTlasPlan(emptyObservationDesc);
+    const RtSmokeRigidTlasPlan emptyObservationSnapshotPlan =
+        BuildSmokeRigidTlasPlan(emptyObservationSnapshot);
+    Check(emptyObservationSnapshot.observations.empty() &&
+        BuildSmokeRigidTlasPlanInputToken(emptyObservationSnapshot) ==
+            BuildSmokeRigidTlasPlanInputToken(emptyObservationDesc) &&
+        emptyObservationPlan.tlasInstanceSignature == emptyObservationSnapshotPlan.tlasInstanceSignature,
+        "owned rigid TLAS snapshot normalizes absent observations as empty");
+
     observations[0].hasBlas = true;
     observations[0].meshHash = 100;
     observations[2].residencyEnabled = true;
