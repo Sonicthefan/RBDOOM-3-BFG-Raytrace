@@ -283,6 +283,23 @@ void TestOwnedSnapshot()
     Check(snapshotResult.valid, "owned acceleration snapshot produces a valid result");
     Check(snapshotResult.plan.staticSignature.hash == directPlan.staticSignature.hash, "owned acceleration snapshot is immutable after source mutation");
     Check(snapshotResult.plan.staticBlas.vertexCount == 3 && snapshotResult.plan.dynamicBlas.indexCount == 6, "owned acceleration snapshot preserves BLAS plan counts");
+
+    RtSmokeAccelerationPlanInput reusedInput = input;
+    reusedInput.staticCache.cacheValid = true;
+    reusedInput.staticCache.cacheResourcesReady = true;
+    reusedInput.staticCache.staticCacheChanged = false;
+    reusedInput.staticCache.previousSignatureHash = directPlan.staticSignature.hash;
+    const RtSmokeAccelerationPlanSnapshot reusedSnapshot =
+        CaptureSmokeAccelerationPlanSnapshot(reusedInput);
+    const RtSmokeAccelerationPlanResult reusedSnapshotResult =
+        BuildSmokeAccelerationPlanResult(reusedSnapshot);
+    Check(reusedSnapshot.staticSignature.vertexBytes.empty() &&
+        reusedSnapshot.staticSignature.indexes.empty() &&
+        reusedSnapshot.staticSignature.triangleClasses.empty() &&
+        reusedSnapshot.staticSignature.triangleMaterials.empty() &&
+        reusedSnapshotResult.plan.staticSignatureReused &&
+        reusedSnapshotResult.plan.staticSignature.hash == directPlan.staticSignature.hash,
+        "owned acceleration snapshot omits source arrays when static signature is reused");
 }
 
 void TestAccelerationPlanInputToken()

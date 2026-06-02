@@ -157,7 +157,18 @@ static uint64_t HashSmokeStaticBlasSignatureInput(
     return hash;
 }
 
-RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
+static bool CanReuseSmokeStaticBlasSignature(
+    const RtSmokeAccelerationPlanInput& input)
+{
+    const bool hasStaticBlas = input.staticIndexCount > 0;
+    return
+        hasStaticBlas &&
+        input.staticCache.cacheValid &&
+        !input.staticCache.staticCacheChanged &&
+        input.staticCache.previousSignatureHash != 0;
+}
+
+static RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureMetadata(
     const RtSmokePlanStaticBlasSignatureDesc& desc)
 {
     RtSmokeStaticBlasSignatureSnapshot snapshot;
@@ -165,6 +176,14 @@ RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
     snapshot.totalVertexCount = desc.totalVertexCount;
     snapshot.staticRange = desc.staticRange;
     snapshot.sceneOrigin = desc.sceneOrigin;
+    return snapshot;
+}
+
+RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
+    const RtSmokePlanStaticBlasSignatureDesc& desc)
+{
+    RtSmokeStaticBlasSignatureSnapshot snapshot =
+        CaptureSmokeStaticBlasSignatureMetadata(desc);
 
     if (desc.vertices && desc.vertexStride > 0 && desc.totalVertexCount > 0)
     {
@@ -192,7 +211,9 @@ RtSmokeAccelerationPlanSnapshot CaptureSmokeAccelerationPlanSnapshot(
     const RtSmokeAccelerationPlanInput& input)
 {
     RtSmokeAccelerationPlanSnapshot snapshot;
-    snapshot.staticSignature = CaptureSmokeStaticBlasSignatureSnapshot(input.staticSignature);
+    snapshot.staticSignature = CanReuseSmokeStaticBlasSignature(input)
+        ? CaptureSmokeStaticBlasSignatureMetadata(input.staticSignature)
+        : CaptureSmokeStaticBlasSignatureSnapshot(input.staticSignature);
     snapshot.staticCache = input.staticCache;
     snapshot.staticVertexCount = input.staticVertexCount;
     snapshot.staticIndexCount = input.staticIndexCount;
@@ -204,12 +225,7 @@ RtSmokeAccelerationPlanSnapshot CaptureSmokeAccelerationPlanSnapshot(
 uint64_t BuildSmokeAccelerationPlanInputToken(const RtSmokeAccelerationPlanInput& input)
 {
     uint64_t hash = 1469598103934665603ull;
-    const bool hasStaticBlas = input.staticIndexCount > 0;
-    const bool staticSignatureReused =
-        hasStaticBlas &&
-        input.staticCache.cacheValid &&
-        !input.staticCache.staticCacheChanged &&
-        input.staticCache.previousSignatureHash != 0;
+    const bool staticSignatureReused = CanReuseSmokeStaticBlasSignature(input);
     const uint32_t cacheBits =
         (staticSignatureReused ? 1u : 0u) |
         (staticSignatureReused && input.staticCache.cacheResourcesReady ? 2u : 0u);
@@ -288,10 +304,7 @@ RtSmokeAccelerationPlan BuildSmokeAccelerationPlan(const RtSmokeAccelerationPlan
     plan.hasStaticBlas = input.staticIndexCount > 0;
     plan.hasDynamicBlas = input.dynamicIndexCount > 0;
 
-    if (plan.hasStaticBlas &&
-        !input.staticCache.staticCacheChanged &&
-        input.staticCache.cacheValid &&
-        input.staticCache.previousSignatureHash != 0)
+    if (CanReuseSmokeStaticBlasSignature(input))
     {
         plan.staticSignature.vertexCount = input.staticSignature.staticRange.vertexCount;
         plan.staticSignature.indexCount = input.staticSignature.staticRange.indexCount;
