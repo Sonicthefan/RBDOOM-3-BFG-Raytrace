@@ -261,6 +261,26 @@ void TestCacheAndBaseTlas()
     const RtSmokeAccelerationPlan reusedPlan = BuildSmokeAccelerationPlan(reusedInput);
     Check(reusedPlan.staticSignatureReused && reusedPlan.staticSignature.hash == 0x12345678ull, "static cache reuse avoids source-array signature work");
     Check(reusedPlan.staticCacheHit, "static cache reuse can hit with previous signature and ready resources");
+    Check(reusedPlan.staticBlas.enabled &&
+        reusedPlan.staticBlas.cacheHit &&
+        reusedPlan.staticBlas.vertexCount == reusedInput.staticVertexCount &&
+        reusedPlan.staticBlas.indexCount == reusedInput.staticIndexCount &&
+        std::strcmp(reusedPlan.staticBlas.debugName, "PathTraceSmokeStaticWorldBLAS") == 0 &&
+        !reusedPlan.dynamicBlas.enabled,
+        "acceleration plan emits cached static BLAS create metadata");
+
+    RtSmokeAccelerationPlanInput dynamicCreateInput;
+    dynamicCreateInput.dynamicVertexCount = 6;
+    dynamicCreateInput.dynamicIndexCount = 6;
+    const RtSmokeAccelerationPlan dynamicCreatePlan =
+        BuildSmokeAccelerationPlan(dynamicCreateInput);
+    Check(!dynamicCreatePlan.staticBlas.enabled &&
+        dynamicCreatePlan.dynamicBlas.enabled &&
+        !dynamicCreatePlan.dynamicBlas.cacheHit &&
+        dynamicCreatePlan.dynamicBlas.vertexCount == dynamicCreateInput.dynamicVertexCount &&
+        dynamicCreatePlan.dynamicBlas.indexCount == dynamicCreateInput.dynamicIndexCount &&
+        std::strcmp(dynamicCreatePlan.dynamicBlas.debugName, "PathTraceSmokeDynamicCandidateBLAS") == 0,
+        "acceleration plan emits dynamic BLAS create metadata");
 }
 
 void TestOwnedSnapshot()
