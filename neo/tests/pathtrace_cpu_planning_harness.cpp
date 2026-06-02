@@ -755,6 +755,77 @@ void TestStaticBucketWorkPlan()
         "static bucket work plan emits route table records when shader route support is available");
 }
 
+void TestStaticBucketWorkPlanSnapshot()
+{
+    RtSmokeStaticTlasBucketObservation buckets[2];
+    buckets[0].bucketKey = 10;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].residentVertexCount = 12;
+    buckets[0].residentIndexCount = 36;
+    buckets[0].residentTriangleCount = 12;
+    buckets[0].activeVertexCount = 12;
+    buckets[0].activeIndexCount = 36;
+    buckets[0].activeTriangleCount = 12;
+
+    buckets[1] = buckets[0];
+    buckets[1].bucketKey = 20;
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].residentVertexOffset = 12;
+    buckets[1].residentIndexOffset = 36;
+    buckets[1].residentTriangleOffset = 12;
+
+    RtSmokeStaticBucketBlasCacheState previousBuckets[1];
+    previousBuckets[0].bucketKey = 10;
+    previousBuckets[0].hasBlas = true;
+    previousBuckets[0].blasInputsCompatible = true;
+
+    RtSmokeStaticBvhBucketSignatureInput signatureInput;
+    signatureInput.bucket = buckets[0];
+    signatureInput.geometryContentSignature = 3000;
+    signatureInput.materialGeneration = 4000;
+    previousBuckets[0].blasInputSignature =
+        BuildSmokeStaticBvhBucketSignature(signatureInput).blasInputSignature;
+
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = buckets;
+    input.bucketCount = 2;
+    input.previousBuckets = previousBuckets;
+    input.previousBucketCount = 1;
+    input.geometryContentSignature = 3000;
+    input.materialGeneration = 4000;
+    input.totalVertexCount = 24;
+    input.totalIndexCount = 72;
+    input.totalTriangleCount = 24;
+    input.submitBuilds = true;
+    input.enableStaticRoutes = true;
+    input.shaderSupportsStaticBucketRoutes = true;
+    const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(input);
+    const RtSmokeStaticBucketWorkPlan originalPlan =
+        BuildSmokeStaticBucketWorkPlan(snapshot);
+
+    buckets[0].bucketKey = 99;
+    buckets[0].active = false;
+    buckets[1].residentIndexCount = 0;
+    previousBuckets[0].hasBlas = false;
+    previousBuckets[0].blasInputSignature = 0;
+    const RtSmokeStaticBucketWorkPlan snapshotPlan =
+        BuildSmokeStaticBucketWorkPlan(snapshot);
+    const RtSmokeStaticBucketWorkPlan mutatedSourcePlan =
+        BuildSmokeStaticBucketWorkPlan(input);
+
+    Check(snapshot.buckets.size() == 2 &&
+        snapshot.previousBuckets.size() == 1 &&
+        snapshotPlan.planSignature == originalPlan.planSignature &&
+        snapshotPlan.bucketBlasPlan.emittedRecords == 2 &&
+        snapshotPlan.buildObservationPlan.cacheHits == 1 &&
+        mutatedSourcePlan.planSignature != snapshotPlan.planSignature,
+        "static bucket work snapshot owns immutable bucket and cache input data");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1596,6 +1667,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildBatchPlan();
     TestStaticBucketBlasBuildObservationPlan();
     TestStaticBucketWorkPlan();
+    TestStaticBucketWorkPlanSnapshot();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();

@@ -473,6 +473,26 @@ struct RtSmokeStaticBucketWorkPlanInput
     int maxBuildRecords = 0;
 };
 
+struct RtSmokeStaticBucketWorkPlanSnapshot
+{
+    std::vector<RtSmokeStaticTlasBucketObservation> buckets;
+    std::vector<RtSmokeStaticBucketBlasCacheState> previousBuckets;
+    uint64_t geometryContentSignature = 0;
+    uint64_t materialGeneration = 0;
+    int totalVertexCount = 0;
+    int totalIndexCount = 0;
+    int totalTriangleCount = 0;
+    bool submitBuilds = false;
+    bool forceRebuild = false;
+    bool enableStaticRoutes = false;
+    bool shaderSupportsStaticBucketRoutes = false;
+    uint32_t firstRouteInstanceId = 2;
+    int rigidRouteRecordCount = 0;
+    int maxBucketRecords = 0;
+    int maxRouteRecords = 0;
+    int maxBuildRecords = 0;
+};
+
 struct RtSmokeStaticBucketWorkPlan
 {
     std::vector<RtSmokeStaticBvhBucketSignature> bucketSignatures;
@@ -735,6 +755,12 @@ RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObser
 
 RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     const RtSmokeStaticBucketWorkPlanInput& input);
+
+RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
+    const RtSmokeStaticBucketWorkPlanInput& input);
+
+RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
+    const RtSmokeStaticBucketWorkPlanSnapshot& snapshot);
 
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input);

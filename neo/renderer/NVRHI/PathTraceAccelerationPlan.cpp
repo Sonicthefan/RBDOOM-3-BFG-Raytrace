@@ -953,6 +953,60 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     return plan;
 }
 
+RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
+    const RtSmokeStaticBucketWorkPlanInput& input)
+{
+    RtSmokeStaticBucketWorkPlanSnapshot snapshot;
+    if (input.buckets && input.bucketCount > 0)
+    {
+        snapshot.buckets.assign(input.buckets, input.buckets + input.bucketCount);
+    }
+    if (input.previousBuckets && input.previousBucketCount > 0)
+    {
+        snapshot.previousBuckets.assign(input.previousBuckets, input.previousBuckets + input.previousBucketCount);
+    }
+    snapshot.geometryContentSignature = input.geometryContentSignature;
+    snapshot.materialGeneration = input.materialGeneration;
+    snapshot.totalVertexCount = input.totalVertexCount;
+    snapshot.totalIndexCount = input.totalIndexCount;
+    snapshot.totalTriangleCount = input.totalTriangleCount;
+    snapshot.submitBuilds = input.submitBuilds;
+    snapshot.forceRebuild = input.forceRebuild;
+    snapshot.enableStaticRoutes = input.enableStaticRoutes;
+    snapshot.shaderSupportsStaticBucketRoutes = input.shaderSupportsStaticBucketRoutes;
+    snapshot.firstRouteInstanceId = input.firstRouteInstanceId;
+    snapshot.rigidRouteRecordCount = input.rigidRouteRecordCount;
+    snapshot.maxBucketRecords = input.maxBucketRecords;
+    snapshot.maxRouteRecords = input.maxRouteRecords;
+    snapshot.maxBuildRecords = input.maxBuildRecords;
+    return snapshot;
+}
+
+RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
+    const RtSmokeStaticBucketWorkPlanSnapshot& snapshot)
+{
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = snapshot.buckets.empty() ? nullptr : snapshot.buckets.data();
+    input.bucketCount = static_cast<int>(snapshot.buckets.size());
+    input.previousBuckets = snapshot.previousBuckets.empty() ? nullptr : snapshot.previousBuckets.data();
+    input.previousBucketCount = static_cast<int>(snapshot.previousBuckets.size());
+    input.geometryContentSignature = snapshot.geometryContentSignature;
+    input.materialGeneration = snapshot.materialGeneration;
+    input.totalVertexCount = snapshot.totalVertexCount;
+    input.totalIndexCount = snapshot.totalIndexCount;
+    input.totalTriangleCount = snapshot.totalTriangleCount;
+    input.submitBuilds = snapshot.submitBuilds;
+    input.forceRebuild = snapshot.forceRebuild;
+    input.enableStaticRoutes = snapshot.enableStaticRoutes;
+    input.shaderSupportsStaticBucketRoutes = snapshot.shaderSupportsStaticBucketRoutes;
+    input.firstRouteInstanceId = snapshot.firstRouteInstanceId;
+    input.rigidRouteRecordCount = snapshot.rigidRouteRecordCount;
+    input.maxBucketRecords = snapshot.maxBucketRecords;
+    input.maxRouteRecords = snapshot.maxRouteRecords;
+    input.maxBuildRecords = snapshot.maxBuildRecords;
+    return BuildSmokeStaticBucketWorkPlan(input);
+}
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input)
 {
