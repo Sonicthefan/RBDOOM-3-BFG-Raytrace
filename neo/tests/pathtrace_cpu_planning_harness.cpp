@@ -721,6 +721,17 @@ void TestStaticBucketBlasBuildBatchPlan()
         cappedPlan.overflow &&
         cappedPlan.records[1].bucketKey == 20,
         "static bucket BLAS batch plan reports record cap overflow");
+
+    input.maxRecords = 1;
+    const RtSmokeStaticBucketBlasBuildBatchPlan cappedPrefixPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    input.observationCount = 1;
+    const RtSmokeStaticBucketBlasBuildBatchPlan singlePrefixPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(cappedPrefixPlan.records.size() == singlePrefixPlan.records.size() &&
+        cappedPrefixPlan.records[0].bucketKey == singlePrefixPlan.records[0].bucketKey &&
+        cappedPrefixPlan.planSignature != singlePrefixPlan.planSignature,
+        "static bucket BLAS batch signature tracks capped summary state with identical emitted prefix");
 }
 
 void TestStaticBucketBlasBuildObservationPlan()
@@ -788,6 +799,30 @@ void TestStaticBucketBlasBuildObservationPlan()
         cappedPlan.overflow &&
         cappedPlan.observations[0].bucketKey == 10,
         "static bucket BLAS observation plan reports active record cap overflow");
+
+    input.currentBucketCount = 1;
+    const RtSmokeStaticBucketBlasBuildObservationPlan singlePrefixPlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    Check(cappedPlan.observations.size() == singlePrefixPlan.observations.size() &&
+        cappedPlan.observations[0].bucketKey == singlePrefixPlan.observations[0].bucketKey &&
+        cappedPlan.planSignature != singlePrefixPlan.planSignature,
+        "static bucket BLAS observation signature tracks capped summary state with identical emitted prefix");
+
+    RtSmokeStaticBvhBucketSignature firstAndInactive[2];
+    firstAndInactive[0] = currentBuckets[0];
+    firstAndInactive[1] = currentBuckets[2];
+    input.currentBuckets = firstAndInactive;
+    input.currentBucketCount = 1;
+    input.maxRecords = 0;
+    const RtSmokeStaticBucketBlasBuildObservationPlan activeOnlyPlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    input.currentBucketCount = 2;
+    const RtSmokeStaticBucketBlasBuildObservationPlan activeAndInactivePlan =
+        BuildSmokeStaticBucketBlasBuildObservationPlan(input);
+    Check(activeOnlyPlan.observations.size() == activeAndInactivePlan.observations.size() &&
+        activeOnlyPlan.observations[0].bucketKey == activeAndInactivePlan.observations[0].bucketKey &&
+        activeOnlyPlan.planSignature != activeAndInactivePlan.planSignature,
+        "static bucket BLAS observation signature tracks skipped inactive buckets");
 }
 
 void TestStaticBucketWorkPlan()
@@ -1465,6 +1500,14 @@ void TestStaticBucketBlasPlan()
         activePlan.planSignature != 0,
         "static bucket BLAS plan preserves bucket range identity");
 
+    desc.bucketCount = 1;
+    const RtSmokeStaticBucketBlasPlan singleActivePlan = BuildSmokeStaticBucketBlasPlan(desc);
+    Check(singleActivePlan.records.size() == activePlan.records.size() &&
+        singleActivePlan.records[0].bucketKey == activePlan.records[0].bucketKey &&
+        singleActivePlan.planSignature != activePlan.planSignature,
+        "static bucket BLAS signature tracks skipped inactive and invalid buckets");
+
+    desc.bucketCount = 3;
     desc.activeOnly = false;
     const RtSmokeStaticBucketBlasPlan residentPlan = BuildSmokeStaticBucketBlasPlan(desc);
     Check(residentPlan.emittedRecords == 2 && residentPlan.skippedInactive == 0 &&

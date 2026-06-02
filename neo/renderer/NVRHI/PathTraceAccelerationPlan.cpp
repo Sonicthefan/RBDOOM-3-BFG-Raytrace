@@ -535,6 +535,15 @@ RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.activeReasonFlags, sizeof(record.activeReasonFlags));
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.range, sizeof(record.range));
     }
+    const uint32_t summaryFlags =
+        (desc.activeOnly ? 1u : 0u) |
+        (plan.overflow ? 2u : 0u);
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.residentBuckets, sizeof(plan.residentBuckets));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeBuckets, sizeof(plan.activeBuckets));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.emittedRecords, sizeof(plan.emittedRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.skippedInactive, sizeof(plan.skippedInactive));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.skippedInvalid, sizeof(plan.skippedInvalid));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &summaryFlags, sizeof(summaryFlags));
     return plan;
 }
 
@@ -772,6 +781,20 @@ RtSmokeStaticBucketBlasBuildBatchPlan BuildSmokeStaticBucketBlasBuildBatchPlan(
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.previousBlasInputSignature, sizeof(observation.previousBlasInputSignature));
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.currentBlasInputSignature, sizeof(observation.currentBlasInputSignature));
     }
+    const uint32_t summaryFlags =
+        (input.submitBuilds ? 1u : 0u) |
+        (input.forceRebuild ? 2u : 0u) |
+        (plan.overflow ? 4u : 0u);
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.inputRecords, sizeof(plan.inputRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.emittedRecords, sizeof(plan.emittedRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.createBlasRecords, sizeof(plan.createBlasRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.submitBuildRecords, sizeof(plan.submitBuildRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.skippedBuildRecords, sizeof(plan.skippedBuildRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.signatureChangedRecords, sizeof(plan.signatureChangedRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.uploadRequiredRecords, sizeof(plan.uploadRequiredRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.incompatibleRecords, sizeof(plan.incompatibleRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.missingBlasRecords, sizeof(plan.missingBlasRecords));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &summaryFlags, sizeof(summaryFlags));
     return plan;
 }
 
@@ -917,6 +940,15 @@ RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObser
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.previousBlasInputSignature, sizeof(observation.previousBlasInputSignature));
         plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.currentBlasInputSignature, sizeof(observation.currentBlasInputSignature));
     }
+    const uint32_t summaryFlags = plan.overflow ? 1u : 0u;
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.inputBuckets, sizeof(plan.inputBuckets));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.emittedObservations, sizeof(plan.emittedObservations));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.cacheHits, sizeof(plan.cacheHits));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.cacheMisses, sizeof(plan.cacheMisses));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.signatureChanged, sizeof(plan.signatureChanged));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.uploadRequired, sizeof(plan.uploadRequired));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.skippedInactive, sizeof(plan.skippedInactive));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &summaryFlags, sizeof(summaryFlags));
     return plan;
 }
 
