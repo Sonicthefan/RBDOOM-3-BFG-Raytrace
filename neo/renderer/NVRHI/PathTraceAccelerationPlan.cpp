@@ -875,6 +875,84 @@ RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObser
     return plan;
 }
 
+RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
+    const RtSmokeStaticBucketWorkPlanInput& input)
+{
+    RtSmokeStaticBucketWorkPlan plan;
+    plan.planSignature = 14695981039346656037ull;
+    if (input.buckets && input.bucketCount > 0)
+    {
+        plan.bucketSignatures.reserve(input.bucketCount);
+        for (int bucketIndex = 0; bucketIndex < input.bucketCount; ++bucketIndex)
+        {
+            RtSmokeStaticBvhBucketSignatureInput signatureInput;
+            signatureInput.bucket = input.buckets[bucketIndex];
+            signatureInput.geometryContentSignature = input.geometryContentSignature;
+            signatureInput.materialGeneration = input.materialGeneration;
+            plan.bucketSignatures.push_back(BuildSmokeStaticBvhBucketSignature(signatureInput));
+        }
+    }
+
+    RtSmokeStaticBucketBlasPlanDesc bucketBlasDesc;
+    bucketBlasDesc.buckets = input.buckets;
+    bucketBlasDesc.bucketCount = input.bucketCount;
+    bucketBlasDesc.activeOnly = true;
+    bucketBlasDesc.maxRecords = input.maxBucketRecords;
+    plan.bucketBlasPlan = BuildSmokeStaticBucketBlasPlan(bucketBlasDesc);
+
+    RtSmokeStaticBucketTraversalCompatibilityInput traversalInput;
+    traversalInput.records = plan.bucketBlasPlan.records.empty() ? nullptr : plan.bucketBlasPlan.records.data();
+    traversalInput.recordCount = plan.bucketBlasPlan.emittedRecords;
+    traversalInput.totalVertexCount = input.totalVertexCount;
+    traversalInput.totalIndexCount = input.totalIndexCount;
+    traversalInput.totalTriangleCount = input.totalTriangleCount;
+    traversalInput.shaderSupportsStaticBucketRoutes = input.shaderSupportsStaticBucketRoutes;
+    plan.traversalCompatibility = BuildSmokeStaticBucketTraversalCompatibility(traversalInput);
+
+    RtSmokeRouteInstanceNamespacePlanInput routeNamespaceInput;
+    routeNamespaceInput.staticRouteRecordCount = plan.bucketBlasPlan.emittedRecords;
+    routeNamespaceInput.rigidRouteRecordCount = input.rigidRouteRecordCount;
+    routeNamespaceInput.firstRouteInstanceId = input.firstRouteInstanceId;
+    routeNamespaceInput.enableStaticRoutes = input.enableStaticRoutes;
+    routeNamespaceInput.shaderSupportsStaticBucketRoutes = input.shaderSupportsStaticBucketRoutes;
+    plan.routeNamespace = BuildSmokeRouteInstanceNamespacePlan(routeNamespaceInput);
+
+    RtSmokeStaticRouteTablePlanInput routeTableInput;
+    routeTableInput.records = plan.bucketBlasPlan.records.empty() ? nullptr : plan.bucketBlasPlan.records.data();
+    routeTableInput.recordCount = plan.bucketBlasPlan.emittedRecords;
+    routeTableInput.maxRecords = input.maxRouteRecords;
+    routeTableInput.routeNamespace = plan.routeNamespace;
+    plan.routeTablePlan = BuildSmokeStaticRouteTablePlan(routeTableInput);
+
+    RtSmokeStaticBucketBlasBuildObservationPlanInput observationInput;
+    observationInput.currentBuckets = plan.bucketSignatures.empty() ? nullptr : plan.bucketSignatures.data();
+    observationInput.currentBucketCount = static_cast<int>(plan.bucketSignatures.size());
+    observationInput.previousBuckets = input.previousBuckets;
+    observationInput.previousBucketCount = input.previousBucketCount;
+    observationInput.maxRecords = input.maxBuildRecords;
+    plan.buildObservationPlan = BuildSmokeStaticBucketBlasBuildObservationPlan(observationInput);
+
+    RtSmokeStaticBucketBlasBuildBatchPlanInput buildBatchInput;
+    buildBatchInput.observations = plan.buildObservationPlan.observations.empty()
+        ? nullptr
+        : plan.buildObservationPlan.observations.data();
+    buildBatchInput.observationCount = plan.buildObservationPlan.emittedObservations;
+    buildBatchInput.submitBuilds = input.submitBuilds;
+    buildBatchInput.forceRebuild = input.forceRebuild;
+    buildBatchInput.maxRecords = input.maxBuildRecords;
+    plan.buildBatchPlan = BuildSmokeStaticBucketBlasBuildBatchPlan(buildBatchInput);
+
+    const int signatureCount = static_cast<int>(plan.bucketSignatures.size());
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &signatureCount, sizeof(signatureCount));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.bucketBlasPlan.planSignature, sizeof(plan.bucketBlasPlan.planSignature));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeTablePlan.tableSignature, sizeof(plan.routeTablePlan.tableSignature));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildObservationPlan.planSignature, sizeof(plan.buildObservationPlan.planSignature));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildBatchPlan.planSignature, sizeof(plan.buildBatchPlan.planSignature));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeNamespace.staticFirstInstanceId, sizeof(plan.routeNamespace.staticFirstInstanceId));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeNamespace.rigidFirstInstanceId, sizeof(plan.routeNamespace.rigidFirstInstanceId));
+    return plan;
+}
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input)
 {

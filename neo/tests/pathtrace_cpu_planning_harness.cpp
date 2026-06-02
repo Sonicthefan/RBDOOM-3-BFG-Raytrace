@@ -662,6 +662,99 @@ void TestStaticBucketBlasBuildObservationPlan()
         "static bucket BLAS observation plan reports active record cap overflow");
 }
 
+void TestStaticBucketWorkPlan()
+{
+    RtSmokeStaticTlasBucketObservation buckets[3];
+    buckets[0].bucketKey = 10;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].hasBlas = true;
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE;
+    buckets[0].residentVertexOffset = 0;
+    buckets[0].residentVertexCount = 12;
+    buckets[0].residentIndexOffset = 0;
+    buckets[0].residentIndexCount = 36;
+    buckets[0].residentTriangleOffset = 0;
+    buckets[0].residentTriangleCount = 12;
+    buckets[0].activeVertexCount = 12;
+    buckets[0].activeIndexCount = 36;
+    buckets[0].activeTriangleCount = 12;
+
+    buckets[1] = buckets[0];
+    buckets[1].bucketKey = 20;
+    buckets[1].active = false;
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].residentVertexOffset = 12;
+    buckets[1].residentIndexOffset = 36;
+    buckets[1].residentTriangleOffset = 12;
+
+    buckets[2] = buckets[0];
+    buckets[2].bucketKey = 30;
+    buckets[2].routeRecordIndex = 2;
+    buckets[2].residentVertexOffset = 24;
+    buckets[2].residentIndexOffset = 72;
+    buckets[2].residentTriangleOffset = 24;
+
+    RtSmokeStaticBucketBlasCacheState previousBuckets[2];
+    previousBuckets[0].bucketKey = 10;
+    previousBuckets[0].hasBlas = true;
+    previousBuckets[0].blasInputsCompatible = true;
+
+    RtSmokeStaticBvhBucketSignatureInput signatureInput;
+    signatureInput.bucket = buckets[0];
+    signatureInput.geometryContentSignature = 1000;
+    signatureInput.materialGeneration = 2000;
+    previousBuckets[0].blasInputSignature =
+        BuildSmokeStaticBvhBucketSignature(signatureInput).blasInputSignature;
+
+    previousBuckets[1].bucketKey = 30;
+    previousBuckets[1].hasBlas = true;
+    previousBuckets[1].blasInputsCompatible = true;
+    previousBuckets[1].blasInputSignature = previousBuckets[0].blasInputSignature + 1;
+
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = buckets;
+    input.bucketCount = 3;
+    input.previousBuckets = previousBuckets;
+    input.previousBucketCount = 2;
+    input.geometryContentSignature = 1000;
+    input.materialGeneration = 2000;
+    input.totalVertexCount = 36;
+    input.totalIndexCount = 108;
+    input.totalTriangleCount = 36;
+    input.submitBuilds = true;
+    input.enableStaticRoutes = true;
+    input.shaderSupportsStaticBucketRoutes = false;
+    input.rigidRouteRecordCount = 5;
+    const RtSmokeStaticBucketWorkPlan blockedPlan =
+        BuildSmokeStaticBucketWorkPlan(input);
+    Check(blockedPlan.bucketSignatures.size() == 3 &&
+        blockedPlan.bucketBlasPlan.emittedRecords == 2 &&
+        blockedPlan.bucketBlasPlan.skippedInactive == 1 &&
+        blockedPlan.traversalCompatibility.requiresShaderRouteMetadata &&
+        blockedPlan.routeNamespace.staticRoutesBlocked &&
+        blockedPlan.routeTablePlan.emittedRecords == 0 &&
+        blockedPlan.routeTablePlan.blocked &&
+        blockedPlan.buildObservationPlan.emittedObservations == 2 &&
+        blockedPlan.buildObservationPlan.cacheHits == 1 &&
+        blockedPlan.buildObservationPlan.cacheMisses == 1 &&
+        blockedPlan.buildBatchPlan.submitBuildRecords == 1 &&
+        blockedPlan.buildBatchPlan.skippedBuildRecords == 1 &&
+        blockedPlan.planSignature != 0,
+        "static bucket work plan composes bucket cache, build, route, and shader compatibility decisions");
+
+    input.shaderSupportsStaticBucketRoutes = true;
+    const RtSmokeStaticBucketWorkPlan routedPlan =
+        BuildSmokeStaticBucketWorkPlan(input);
+    Check(routedPlan.routeNamespace.staticRoutesEnabled &&
+        !routedPlan.routeNamespace.staticRoutesBlocked &&
+        routedPlan.routeTablePlan.emittedRecords == 2 &&
+        routedPlan.routeTablePlan.records[0].instanceId == 2 &&
+        routedPlan.routeNamespace.rigidFirstInstanceId == 4,
+        "static bucket work plan emits route table records when shader route support is available");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1502,6 +1595,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasBuildPlan();
     TestStaticBucketBlasBuildBatchPlan();
     TestStaticBucketBlasBuildObservationPlan();
+    TestStaticBucketWorkPlan();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();

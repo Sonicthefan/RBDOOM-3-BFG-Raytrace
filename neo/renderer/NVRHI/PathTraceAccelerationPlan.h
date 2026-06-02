@@ -451,6 +451,40 @@ struct RtSmokeStaticBucketBlasBuildObservationPlan
     bool overflow = false;
 };
 
+struct RtSmokeStaticBucketWorkPlanInput
+{
+    const RtSmokeStaticTlasBucketObservation* buckets = nullptr;
+    int bucketCount = 0;
+    const RtSmokeStaticBucketBlasCacheState* previousBuckets = nullptr;
+    int previousBucketCount = 0;
+    uint64_t geometryContentSignature = 0;
+    uint64_t materialGeneration = 0;
+    int totalVertexCount = 0;
+    int totalIndexCount = 0;
+    int totalTriangleCount = 0;
+    bool submitBuilds = false;
+    bool forceRebuild = false;
+    bool enableStaticRoutes = false;
+    bool shaderSupportsStaticBucketRoutes = false;
+    uint32_t firstRouteInstanceId = 2;
+    int rigidRouteRecordCount = 0;
+    int maxBucketRecords = 0;
+    int maxRouteRecords = 0;
+    int maxBuildRecords = 0;
+};
+
+struct RtSmokeStaticBucketWorkPlan
+{
+    std::vector<RtSmokeStaticBvhBucketSignature> bucketSignatures;
+    RtSmokeStaticBucketBlasPlan bucketBlasPlan;
+    RtSmokeStaticBucketTraversalCompatibility traversalCompatibility;
+    RtSmokeRouteInstanceNamespacePlan routeNamespace;
+    RtSmokeStaticRouteTablePlan routeTablePlan;
+    RtSmokeStaticBucketBlasBuildObservationPlan buildObservationPlan;
+    RtSmokeStaticBucketBlasBuildBatchPlan buildBatchPlan;
+    uint64_t planSignature = 0;
+};
+
 struct RtSmokeBvhDirtyTokenState
 {
     uint64_t geometryContentSignature = 0;
@@ -698,6 +732,9 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
 
 RtSmokeStaticBucketBlasBuildObservationPlan BuildSmokeStaticBucketBlasBuildObservationPlan(
     const RtSmokeStaticBucketBlasBuildObservationPlanInput& input);
+
+RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
+    const RtSmokeStaticBucketWorkPlanInput& input);
 
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input);
