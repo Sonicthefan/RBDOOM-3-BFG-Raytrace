@@ -754,6 +754,72 @@ void TestRouteInstanceNamespacePlan()
         "route namespace keeps rigid base when no static route records exist");
 }
 
+void TestStaticRouteTablePlan()
+{
+    RtSmokeStaticBucketBlasRecord bucketRecords[3];
+    bucketRecords[0].bucketKey = 10;
+    bucketRecords[0].routeRecordIndex = 3;
+    bucketRecords[0].activeReasonFlags = 0x1;
+    bucketRecords[0].range.vertexOffset = 0;
+    bucketRecords[0].range.vertexCount = 12;
+    bucketRecords[0].range.indexOffset = 0;
+    bucketRecords[0].range.indexCount = 36;
+    bucketRecords[0].range.triangleOffset = 0;
+    bucketRecords[0].range.triangleCount = 12;
+    bucketRecords[1] = bucketRecords[0];
+    bucketRecords[1].bucketKey = 20;
+    bucketRecords[1].routeRecordIndex = 4;
+    bucketRecords[1].activeReasonFlags = 0x2;
+    bucketRecords[1].range.vertexOffset = 12;
+    bucketRecords[1].range.indexOffset = 36;
+    bucketRecords[1].range.triangleOffset = 12;
+    bucketRecords[2] = bucketRecords[0];
+    bucketRecords[2].bucketKey = 30;
+    bucketRecords[2].range.indexCount = 0;
+
+    RtSmokeStaticRouteTablePlanInput input;
+    input.records = bucketRecords;
+    input.recordCount = 3;
+
+    RtSmokeRouteInstanceNamespacePlanInput namespaceInput;
+    namespaceInput.staticRouteRecordCount = 2;
+    namespaceInput.rigidRouteRecordCount = 5;
+    namespaceInput.firstRouteInstanceId = 2;
+    namespaceInput.enableStaticRoutes = false;
+    input.routeNamespace = BuildSmokeRouteInstanceNamespacePlan(namespaceInput);
+    const RtSmokeStaticRouteTablePlan disabledPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(disabledPlan.emittedRecords == 0 &&
+        disabledPlan.skippedDisabled == 3 &&
+        !disabledPlan.blocked,
+        "static route table emits no records while static routes are disabled");
+
+    namespaceInput.enableStaticRoutes = true;
+    input.routeNamespace = BuildSmokeRouteInstanceNamespacePlan(namespaceInput);
+    const RtSmokeStaticRouteTablePlan blockedPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(blockedPlan.emittedRecords == 0 &&
+        blockedPlan.skippedDisabled == 3 &&
+        blockedPlan.blocked,
+        "static route table emits no records when namespace blocks static routes");
+
+    namespaceInput.shaderSupportsStaticBucketRoutes = true;
+    input.routeNamespace = BuildSmokeRouteInstanceNamespacePlan(namespaceInput);
+    const RtSmokeStaticRouteTablePlan routedPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(routedPlan.emittedRecords == 2 &&
+        routedPlan.skippedInvalid == 1 &&
+        routedPlan.records[0].instanceId == 2 &&
+        routedPlan.records[1].instanceId == 3 &&
+        routedPlan.records[1].bucketKey == 20 &&
+        routedPlan.records[1].range.vertexOffset == 12 &&
+        routedPlan.tableSignature != 0,
+        "static route table assigns deterministic instance IDs and preserves bucket ranges");
+
+    input.maxRecords = 1;
+    const RtSmokeStaticRouteTablePlan cappedPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(cappedPlan.emittedRecords == 1 &&
+        cappedPlan.overflow,
+        "static route table reports record cap overflow");
+}
+
 void TestBvhDirtyPlan()
 {
     RtSmokeBvhDirtyTokenState base;
@@ -1243,6 +1309,7 @@ int main(int argc, char** argv)
     TestStaticBucketBlasPlan();
     TestStaticBucketTraversalCompatibility();
     TestRouteInstanceNamespacePlan();
+    TestStaticRouteTablePlan();
     TestBvhDirtyPlan();
     TestBvhFrameToken();
     TestBvhBucketableSignatures();

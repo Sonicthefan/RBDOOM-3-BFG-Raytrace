@@ -567,6 +567,66 @@ RtSmokeRouteInstanceNamespacePlan BuildSmokeRouteInstanceNamespacePlan(
     return plan;
 }
 
+RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
+    const RtSmokeStaticRouteTablePlanInput& input)
+{
+    RtSmokeStaticRouteTablePlan plan;
+    plan.tableSignature = 14695981039346656037ull;
+    plan.inputRecords = input.recordCount > 0 ? input.recordCount : 0;
+    plan.blocked = input.routeNamespace.staticRoutesBlocked;
+    if (!input.records || input.recordCount <= 0)
+    {
+        return plan;
+    }
+    if (!input.routeNamespace.staticRoutesEnabled)
+    {
+        plan.skippedDisabled = input.recordCount;
+        return plan;
+    }
+
+    const int reserveCount = input.maxRecords > 0 && input.maxRecords < input.recordCount
+        ? input.maxRecords
+        : input.recordCount;
+    plan.records.reserve(reserveCount);
+    for (int recordIndex = 0; recordIndex < input.recordCount; ++recordIndex)
+    {
+        if (input.maxRecords > 0 && plan.emittedRecords >= input.maxRecords)
+        {
+            plan.overflow = true;
+            break;
+        }
+
+        const RtSmokeStaticBucketBlasRecord& sourceRecord = input.records[recordIndex];
+        if (sourceRecord.range.vertexOffset < 0 ||
+            sourceRecord.range.vertexCount <= 0 ||
+            sourceRecord.range.indexOffset < 0 ||
+            sourceRecord.range.indexCount <= 0 ||
+            sourceRecord.range.triangleOffset < 0 ||
+            sourceRecord.range.triangleCount <= 0)
+        {
+            ++plan.skippedInvalid;
+            continue;
+        }
+
+        RtSmokeStaticRouteTableRecord routeRecord;
+        routeRecord.bucketKey = sourceRecord.bucketKey;
+        routeRecord.instanceId =
+            input.routeNamespace.staticFirstInstanceId + static_cast<uint32_t>(plan.emittedRecords);
+        routeRecord.routeRecordIndex = sourceRecord.routeRecordIndex;
+        routeRecord.activeReasonFlags = sourceRecord.activeReasonFlags;
+        routeRecord.range = sourceRecord.range;
+        plan.records.push_back(routeRecord);
+        ++plan.emittedRecords;
+
+        plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.bucketKey, sizeof(routeRecord.bucketKey));
+        plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.instanceId, sizeof(routeRecord.instanceId));
+        plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.routeRecordIndex, sizeof(routeRecord.routeRecordIndex));
+        plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.activeReasonFlags, sizeof(routeRecord.activeReasonFlags));
+        plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.range, sizeof(routeRecord.range));
+    }
+    return plan;
+}
+
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input)
 {

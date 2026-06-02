@@ -312,6 +312,35 @@ struct RtSmokeRouteInstanceNamespacePlan
     bool rigidRouteBaseShifted = false;
 };
 
+struct RtSmokeStaticRouteTableRecord
+{
+    uint64_t bucketKey = 0;
+    uint32_t instanceId = 0;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t activeReasonFlags = 0;
+    RtSmokePlanGeometryRange range;
+};
+
+struct RtSmokeStaticRouteTablePlanInput
+{
+    const RtSmokeStaticBucketBlasRecord* records = nullptr;
+    int recordCount = 0;
+    int maxRecords = 0;
+    RtSmokeRouteInstanceNamespacePlan routeNamespace;
+};
+
+struct RtSmokeStaticRouteTablePlan
+{
+    std::vector<RtSmokeStaticRouteTableRecord> records;
+    uint64_t tableSignature = 0;
+    int inputRecords = 0;
+    int emittedRecords = 0;
+    int skippedDisabled = 0;
+    int skippedInvalid = 0;
+    bool blocked = false;
+    bool overflow = false;
+};
+
 struct RtSmokeStaticBvhBucketSignatureInput
 {
     RtSmokeStaticTlasBucketObservation bucket;
@@ -561,6 +590,9 @@ RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompati
 
 RtSmokeRouteInstanceNamespacePlan BuildSmokeRouteInstanceNamespacePlan(
     const RtSmokeRouteInstanceNamespacePlanInput& input);
+
+RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
+    const RtSmokeStaticRouteTablePlanInput& input);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);
