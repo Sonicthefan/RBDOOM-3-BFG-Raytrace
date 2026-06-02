@@ -1107,6 +1107,52 @@ RtSmokeStaticBucketWorkPlanTimedResult BuildSmokeStaticBucketWorkPlanTimedResult
     return result;
 }
 
+RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
+    const RtSmokeStaticBucketWorkDirtyTokenInput& input)
+{
+    RtSmokeBvhDirtyTokenState token;
+    token.materialGeneration = input.materialGeneration;
+    token.geometryContentSignature = 14695981039346656037ull;
+    token.activeSetSignature = 14695981039346656037ull;
+    token.tlasInstanceSignature = 14695981039346656037ull;
+    if (!input.plan)
+    {
+        return token;
+    }
+
+    const RtSmokeStaticBucketWorkPlan& plan = *input.plan;
+    const int bucketCount = static_cast<int>(plan.bucketSignatures.size());
+    token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketCount, sizeof(bucketCount));
+    token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &bucketCount, sizeof(bucketCount));
+    for (const RtSmokeStaticBvhBucketSignature& bucketSignature : plan.bucketSignatures)
+    {
+        if (bucketSignature.resident)
+        {
+            token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
+            token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.residentSignature, sizeof(bucketSignature.residentSignature));
+            token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.blasInputSignature, sizeof(bucketSignature.blasInputSignature));
+        }
+        if (bucketSignature.active)
+        {
+            token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
+            token.activeSetSignature = HashSmokePlanBytes(token.activeSetSignature, &bucketSignature.activeSignature, sizeof(bucketSignature.activeSignature));
+        }
+    }
+
+    const uint32_t staticRoutesEnabledBit = plan.routeNamespace.staticRoutesEnabled ? 1u : 0u;
+    const uint32_t staticRoutesBlockedBit = plan.routeNamespace.staticRoutesBlocked ? 1u : 0u;
+    const uint32_t rigidRouteBaseShiftedBit = plan.routeNamespace.rigidRouteBaseShifted ? 1u : 0u;
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &token.activeSetSignature, sizeof(token.activeSetSignature));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeTablePlan.tableSignature, sizeof(plan.routeTablePlan.tableSignature));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeTablePlan.emittedRecords, sizeof(plan.routeTablePlan.emittedRecords));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeNamespace.staticFirstInstanceId, sizeof(plan.routeNamespace.staticFirstInstanceId));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeNamespace.rigidFirstInstanceId, sizeof(plan.routeNamespace.rigidFirstInstanceId));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &staticRoutesEnabledBit, sizeof(staticRoutesEnabledBit));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &staticRoutesBlockedBit, sizeof(staticRoutesBlockedBit));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &rigidRouteBaseShiftedBit, sizeof(rigidRouteBaseShiftedBit));
+    return token;
+}
+
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input)
 {

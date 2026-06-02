@@ -519,6 +519,12 @@ struct RtSmokeBvhDirtyTokenState
     uint64_t tlasInstanceSignature = 0;
 };
 
+struct RtSmokeStaticBucketWorkDirtyTokenInput
+{
+    const RtSmokeStaticBucketWorkPlan* plan = nullptr;
+    uint64_t materialGeneration = 0;
+};
+
 struct RtSmokeBvhDirtyPlanInput
 {
     bool previousValid = false;
@@ -776,6 +782,9 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
 
 RtSmokeStaticBucketWorkPlanTimedResult BuildSmokeStaticBucketWorkPlanTimedResult(
     const RtSmokeStaticBucketWorkPlanSnapshot& snapshot);
+
+RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
+    const RtSmokeStaticBucketWorkDirtyTokenInput& input);
 
 RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
     const RtSmokeBvhDirtyPlanInput& input);
