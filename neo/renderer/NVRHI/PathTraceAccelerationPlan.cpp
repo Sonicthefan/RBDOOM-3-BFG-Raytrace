@@ -1411,6 +1411,18 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
     return BuildSmokeRigidTlasPlan(MakeRigidTlasPlanDescFromSnapshot(snapshot));
 }
 
+RtSmokeRigidTlasPlanTimedResult BuildSmokeRigidTlasPlanTimedResult(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtSmokeRigidTlasPlanTimedResult result;
+    result.plan = BuildSmokeRigidTlasPlan(snapshot);
+    const auto end = std::chrono::steady_clock::now();
+    result.planningTimeMicros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    return result;
+}
+
 RtSmokeRigidBlasBuildPlan BuildSmokeRigidBlasBuildPlan(
     const RtSmokeRigidBlasBuildPlanInput& input)
 {

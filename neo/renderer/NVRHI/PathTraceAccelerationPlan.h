@@ -630,6 +630,12 @@ struct RtSmokeRigidTlasPlan
     int rejectedMissingBlas = 0;
 };
 
+struct RtSmokeRigidTlasPlanTimedResult
+{
+    RtSmokeRigidTlasPlan plan;
+    uint64_t planningTimeMicros = 0;
+};
+
 struct RtSmokeRigidBlasBuildPlanInput
 {
     bool submitBuilds = false;
@@ -826,6 +832,9 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc);
 
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot);
+
+RtSmokeRigidTlasPlanTimedResult BuildSmokeRigidTlasPlanTimedResult(
     const RtSmokeRigidTlasPlanSnapshot& snapshot);
 
 RtSmokeRigidBlasBuildPlan BuildSmokeRigidBlasBuildPlan(

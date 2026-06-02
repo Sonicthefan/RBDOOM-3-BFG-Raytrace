@@ -462,6 +462,85 @@ void TestRigidPlan()
     Check(streamingPlan.emittedInstances == 1 && streamingPlan.instances[0].instanceId == 8, "streaming rigid TLAS planner emits deterministic instance id");
 }
 
+void TestAsyncRigidTlasPlanning()
+{
+    RtSmokeRigidTlasObservation observation;
+    observation.meshHash = 500;
+    observation.instanceId = 42;
+    observation.sourceFlags = 2;
+    observation.hasMeshRecord = true;
+    observation.meshSeenThisFrame = true;
+    observation.hasBlas = true;
+    observation.routeRecordIndex = 7;
+    observation.seenThisFrame = true;
+    for (int transformIndex = 0; transformIndex < 16; ++transformIndex)
+    {
+        observation.objectToWorld[transformIndex] = 0.0f;
+        observation.previousObjectToWorld[transformIndex] = 0.0f;
+    }
+    observation.objectToWorld[0] = 1.0f;
+    observation.objectToWorld[5] = 1.0f;
+    observation.objectToWorld[10] = 1.0f;
+    observation.objectToWorld[15] = 1.0f;
+    observation.previousObjectToWorld[0] = 1.0f;
+    observation.previousObjectToWorld[5] = 1.0f;
+    observation.previousObjectToWorld[10] = 1.0f;
+    observation.previousObjectToWorld[15] = 1.0f;
+
+    RtSmokeRigidTlasPlanDesc desc;
+    desc.observations = &observation;
+    desc.observationCount = 1;
+    desc.rigidSourceMask = 2;
+    desc.firstInstanceId = 12;
+    desc.instanceMask = 0x02;
+    desc.maxInstances = 8;
+    const RtSmokeRigidTlasPlanSnapshot snapshot =
+        CaptureSmokeRigidTlasPlanSnapshot(desc);
+
+    RtPathTraceCpuWorkState state;
+    RtPathTraceCpuWorkGeneration generation;
+    generation.frameIndex = 77;
+    generation.sceneGeneration = 3;
+    generation.geometryGeneration = 900;
+    generation.materialGeneration = 901;
+    generation.lightGeneration = BuildSmokeRigidTlasPlanInputToken(snapshot);
+    RtPathTraceCpuWorkPublishSnapshot(state, generation);
+
+    std::future<RtSmokeRigidTlasPlanTimedResult> future = std::async(
+        std::launch::async,
+        [snapshot]() {
+            return BuildSmokeRigidTlasPlanTimedResult(snapshot);
+        });
+
+    const RtPathTraceCpuWorkFrameDecision lateDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
+    Check(lateDecision.lateFallback &&
+        lateDecision.syncFallback &&
+        state.lateResultCount == 1,
+        "late async rigid TLAS work requests synchronous fallback");
+
+    const RtSmokeRigidTlasPlanTimedResult timedResult = future.get();
+    RtPathTraceCpuWorkResultEnvelope envelope;
+    envelope.completed = true;
+    envelope.generation = generation;
+    envelope.timing.workerExecutionMs = static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
+    RtPathTraceCpuWorkPublishCompletedResult(state, envelope);
+    const RtPathTraceCpuWorkFrameDecision acceptDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
+    Check(acceptDecision.accepted &&
+        timedResult.plan.emittedInstances == 1 &&
+        timedResult.plan.instances[0].instanceId == 12 &&
+        state.acceptedResultCount == 1,
+        "matching async rigid TLAS generation is accepted");
+
+    RtPathTraceCpuWorkResultEnvelope staleEnvelope = envelope;
+    staleEnvelope.generation.lightGeneration ^= 0x1000ull;
+    const RtPathTraceCpuWorkFrameDecision staleDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, &staleEnvelope, true);
+    Check(staleDecision.staleRejected && staleDecision.syncFallback,
+        "stale async rigid TLAS generation is rejected");
+}
+
 void TestRigidBlasBuildPlan()
 {
     RtSmokeRigidBlasBuildPlanInput input;
@@ -2129,6 +2208,7 @@ int main(int argc, char** argv)
     TestAccelerationPlanInputToken();
     TestAsyncSnapshotPlanning();
     TestRigidPlan();
+    TestAsyncRigidTlasPlanning();
     TestRigidBlasBuildPlan();
     TestStaticBucketBlasBuildPlan();
     TestStaticBucketBlasBuildBatchPlan();
