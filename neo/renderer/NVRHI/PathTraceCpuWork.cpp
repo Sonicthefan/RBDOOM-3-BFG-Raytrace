@@ -50,6 +50,11 @@ RtPathTraceCpuWorkFrameDecision RtPathTraceCpuWorkAcceptLatest(
     {
         latestResult = &state.pendingResult.result;
     }
+    const bool latestResultMatchesPending =
+        latestResult &&
+        state.pendingResult.valid &&
+        state.pendingResult.result.completed == latestResult->completed &&
+        RtPathTraceCpuWorkGenerationEquals(state.pendingResult.result.generation, latestResult->generation);
 
     if (!latestResult || !latestResult->completed)
     {
@@ -81,7 +86,7 @@ RtPathTraceCpuWorkFrameDecision RtPathTraceCpuWorkAcceptLatest(
         decision.staleRejected = true;
         decision.syncFallback = synchronousFallbackAllowed;
         ++state.rejectedStaleResultCount;
-        if (latestResultIsPending)
+        if (latestResultIsPending || latestResultMatchesPending)
         {
             state.pendingResult = RtPathTraceCpuWorkResultSlot();
             state.hasPending = false;

@@ -2364,6 +2364,22 @@ void TestGenerationAcceptance()
     const RtPathTraceCpuWorkFrameDecision stalePendingDecision =
         RtPathTraceCpuWorkAcceptLatest(state, stalePendingExpected, nullptr, true);
     Check(stalePendingDecision.staleRejected && !state.pendingResult.valid && !state.hasPending, "stale pending CPU work result is discarded after rejection");
+
+    RtPathTraceCpuWorkState explicitStalePendingState;
+    RtPathTraceCpuWorkGeneration explicitExpected = expected;
+    explicitExpected.frameIndex = 8;
+    RtPathTraceCpuWorkPublishSnapshot(explicitStalePendingState, explicitExpected);
+    RtPathTraceCpuWorkResultEnvelope explicitStalePending;
+    explicitStalePending.completed = true;
+    explicitStalePending.generation = expected;
+    RtPathTraceCpuWorkPublishCompletedResult(explicitStalePendingState, explicitStalePending);
+    const RtPathTraceCpuWorkFrameDecision explicitStalePendingDecision =
+        RtPathTraceCpuWorkAcceptLatest(explicitStalePendingState, explicitExpected, &explicitStalePending, false);
+    Check(explicitStalePendingDecision.staleRejected &&
+        !explicitStalePendingState.pendingResult.valid &&
+        !explicitStalePendingState.hasPending &&
+        !explicitStalePendingDecision.syncFallback,
+        "explicit stale CPU work result clears matching pending slot without sync fallback");
 }
 
 void RunStressMode(int iterations)
