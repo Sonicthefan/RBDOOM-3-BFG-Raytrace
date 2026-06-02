@@ -1272,6 +1272,18 @@ RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     return token;
 }
 
+RtSmokeBvhFramePlanningSnapshot CaptureSmokeBvhFramePlanningSnapshot(
+    const RtSmokeBvhFramePlanningInput& input)
+{
+    RtSmokeBvhFramePlanningSnapshot snapshot;
+    snapshot.staticBucketWorkSnapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(input.staticBucketWorkInput);
+    snapshot.frameTokenInput = input.frameTokenInput;
+    snapshot.previousDirtyToken = input.previousDirtyToken;
+    snapshot.previousDirtyTokenValid = input.previousDirtyTokenValid;
+    return snapshot;
+}
+
 RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
     const RtSmokeBvhFramePlanningInput& input)
 {
@@ -1291,6 +1303,70 @@ RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
     dirtyInput.current = result.frameToken.dirtyToken;
     result.dirtyPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
     return result;
+}
+
+RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
+    const RtSmokeBvhFramePlanningSnapshot& snapshot)
+{
+    RtSmokeBvhFramePlanningInput input;
+    input.staticBucketWorkInput.buckets = snapshot.staticBucketWorkSnapshot.buckets.empty()
+        ? nullptr
+        : snapshot.staticBucketWorkSnapshot.buckets.data();
+    input.staticBucketWorkInput.bucketCount =
+        static_cast<int>(snapshot.staticBucketWorkSnapshot.buckets.size());
+    input.staticBucketWorkInput.previousBuckets = snapshot.staticBucketWorkSnapshot.previousBuckets.empty()
+        ? nullptr
+        : snapshot.staticBucketWorkSnapshot.previousBuckets.data();
+    input.staticBucketWorkInput.previousBucketCount =
+        static_cast<int>(snapshot.staticBucketWorkSnapshot.previousBuckets.size());
+    input.staticBucketWorkInput.geometryContentSignature =
+        snapshot.staticBucketWorkSnapshot.geometryContentSignature;
+    input.staticBucketWorkInput.materialGeneration =
+        snapshot.staticBucketWorkSnapshot.materialGeneration;
+    input.staticBucketWorkInput.totalVertexCount =
+        snapshot.staticBucketWorkSnapshot.totalVertexCount;
+    input.staticBucketWorkInput.totalIndexCount =
+        snapshot.staticBucketWorkSnapshot.totalIndexCount;
+    input.staticBucketWorkInput.totalTriangleCount =
+        snapshot.staticBucketWorkSnapshot.totalTriangleCount;
+    input.staticBucketWorkInput.monolithicStaticBlas =
+        snapshot.staticBucketWorkSnapshot.monolithicStaticBlas;
+    input.staticBucketWorkInput.hasStaticBlas =
+        snapshot.staticBucketWorkSnapshot.hasStaticBlas;
+    input.staticBucketWorkInput.submitBuilds =
+        snapshot.staticBucketWorkSnapshot.submitBuilds;
+    input.staticBucketWorkInput.forceRebuild =
+        snapshot.staticBucketWorkSnapshot.forceRebuild;
+    input.staticBucketWorkInput.enableStaticRoutes =
+        snapshot.staticBucketWorkSnapshot.enableStaticRoutes;
+    input.staticBucketWorkInput.shaderSupportsStaticBucketRoutes =
+        snapshot.staticBucketWorkSnapshot.shaderSupportsStaticBucketRoutes;
+    input.staticBucketWorkInput.firstRouteInstanceId =
+        snapshot.staticBucketWorkSnapshot.firstRouteInstanceId;
+    input.staticBucketWorkInput.rigidRouteRecordCount =
+        snapshot.staticBucketWorkSnapshot.rigidRouteRecordCount;
+    input.staticBucketWorkInput.maxBucketRecords =
+        snapshot.staticBucketWorkSnapshot.maxBucketRecords;
+    input.staticBucketWorkInput.maxRouteRecords =
+        snapshot.staticBucketWorkSnapshot.maxRouteRecords;
+    input.staticBucketWorkInput.maxBuildRecords =
+        snapshot.staticBucketWorkSnapshot.maxBuildRecords;
+    input.frameTokenInput = snapshot.frameTokenInput;
+    input.previousDirtyToken = snapshot.previousDirtyToken;
+    input.previousDirtyTokenValid = snapshot.previousDirtyTokenValid;
+    return BuildSmokeBvhFramePlanningResult(input);
+}
+
+RtSmokeBvhFramePlanningTimedResult BuildSmokeBvhFramePlanningTimedResult(
+    const RtSmokeBvhFramePlanningSnapshot& snapshot)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtSmokeBvhFramePlanningTimedResult timedResult;
+    timedResult.result = BuildSmokeBvhFramePlanningResult(snapshot);
+    const auto end = std::chrono::steady_clock::now();
+    timedResult.planningTimeMicros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    return timedResult;
 }
 
 bool AppendSmokeRigidTlasPlanObservation(

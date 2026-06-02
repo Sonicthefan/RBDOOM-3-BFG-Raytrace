@@ -590,11 +590,25 @@ struct RtSmokeBvhFramePlanningInput
     bool previousDirtyTokenValid = false;
 };
 
+struct RtSmokeBvhFramePlanningSnapshot
+{
+    RtSmokeStaticBucketWorkPlanSnapshot staticBucketWorkSnapshot;
+    RtSmokeBvhFrameTokenInput frameTokenInput;
+    RtSmokeBvhDirtyTokenState previousDirtyToken;
+    bool previousDirtyTokenValid = false;
+};
+
 struct RtSmokeBvhFramePlanningResult
 {
     RtSmokeStaticBucketWorkPlan staticBucketWorkPlan;
     RtSmokeBvhFrameToken frameToken;
     RtSmokeBvhDirtyPlan dirtyPlan;
+};
+
+struct RtSmokeBvhFramePlanningTimedResult
+{
+    RtSmokeBvhFramePlanningResult result;
+    uint64_t planningTimeMicros = 0;
 };
 
 struct RtSmokeRigidTlasObservation
@@ -830,8 +844,17 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
 RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     const RtSmokeBvhFrameTokenInput& input);
 
+RtSmokeBvhFramePlanningSnapshot CaptureSmokeBvhFramePlanningSnapshot(
+    const RtSmokeBvhFramePlanningInput& input);
+
 RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
     const RtSmokeBvhFramePlanningInput& input);
+
+RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
+    const RtSmokeBvhFramePlanningSnapshot& snapshot);
+
+RtSmokeBvhFramePlanningTimedResult BuildSmokeBvhFramePlanningTimedResult(
+    const RtSmokeBvhFramePlanningSnapshot& snapshot);
 
 bool AppendSmokeRigidTlasPlanObservation(
     RtSmokeRigidTlasPlan& plan,

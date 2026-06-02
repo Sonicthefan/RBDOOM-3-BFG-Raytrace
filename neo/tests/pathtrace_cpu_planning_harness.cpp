@@ -1942,6 +1942,27 @@ void TestBvhFramePlanningResult()
     Check(firstResult.dirtyPlan.blasInputDirty && firstResult.dirtyPlan.tlasDirty,
         "BVH frame planning result treats missing previous token as dirty");
 
+    const RtSmokeBvhFramePlanningSnapshot snapshot =
+        CaptureSmokeBvhFramePlanningSnapshot(input);
+    buckets[0].bucketKey = 999;
+    const RtSmokeBvhFramePlanningResult snapshotResult =
+        BuildSmokeBvhFramePlanningResult(snapshot);
+    const RtSmokeBvhFramePlanningResult mutatedInputResult =
+        BuildSmokeBvhFramePlanningResult(input);
+    Check(snapshotResult.frameToken.dirtyToken.activeSetSignature ==
+            firstResult.frameToken.dirtyToken.activeSetSignature &&
+        snapshotResult.frameToken.dirtyToken.residentSetSignature ==
+            firstResult.frameToken.dirtyToken.residentSetSignature &&
+        mutatedInputResult.frameToken.dirtyToken.activeSetSignature !=
+            snapshotResult.frameToken.dirtyToken.activeSetSignature,
+        "owned BVH frame planning snapshot is immutable after source mutation");
+    const RtSmokeBvhFramePlanningTimedResult timedResult =
+        BuildSmokeBvhFramePlanningTimedResult(snapshot);
+    Check(timedResult.result.frameToken.dirtyToken.tlasInstanceSignature ==
+            snapshotResult.frameToken.dirtyToken.tlasInstanceSignature,
+        "timed BVH frame planning result preserves snapshot planning output");
+    buckets[0].bucketKey = 100;
+
     input.previousDirtyTokenValid = true;
     input.previousDirtyToken = firstResult.frameToken.dirtyToken;
     const RtSmokeBvhFramePlanningResult unchangedResult =
