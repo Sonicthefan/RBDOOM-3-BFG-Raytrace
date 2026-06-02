@@ -676,7 +676,6 @@ uint64 BuildRigidGpuUploadSignature(const RtSmokeGeometryUniverse::RigidMeshCand
     hash = HashSmokeBytes(hash, &triIdentity, sizeof(triIdentity));
     hash = HashSmokeBytes(hash, &record.vertexBufferIdentity, sizeof(record.vertexBufferIdentity));
     hash = HashSmokeBytes(hash, &record.indexBufferIdentity, sizeof(record.indexBufferIdentity));
-    hash = HashSmokeBytes(hash, &record.materialId, sizeof(record.materialId));
     hash = HashSmokeBytes(hash, &record.sourceRange.vertices.count, sizeof(record.sourceRange.vertices.count));
     hash = HashSmokeBytes(hash, &record.sourceRange.indexes.count, sizeof(record.sourceRange.indexes.count));
     return hash;

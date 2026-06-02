@@ -145,13 +145,13 @@ void TestStaticSignature()
     classes[0] = 9;
     const RtSmokePlanStaticBlasSignature classChanged =
         ComputeSmokeStaticBlasSignaturePlan(BuildSignatureDesc(vertices, indexes, classes, materials));
-    Check(a.hash != classChanged.hash, "class changes alter the BLAS signature");
+    Check(a.hash == classChanged.hash, "class changes do not alter the geometry BLAS signature");
 
     classes[0] = 7;
     materials[0] = 12;
     const RtSmokePlanStaticBlasSignature materialChanged =
         ComputeSmokeStaticBlasSignaturePlan(BuildSignatureDesc(vertices, indexes, classes, materials));
-    Check(a.hash != materialChanged.hash, "material changes alter the BLAS signature");
+    Check(a.hash == materialChanged.hash, "material changes do not alter the geometry BLAS signature");
 }
 
 void TestStaticSignatureRanges()
@@ -358,15 +358,12 @@ void TestOwnedSnapshot()
             static_cast<size_t>(rangedInput.staticSignature.staticRange.vertexCount) * sizeof(HarnessSmokeVertex) &&
         rangedSnapshot.staticSignature.indexes.size() ==
             static_cast<size_t>(rangedInput.staticSignature.staticRange.indexCount) &&
-        rangedSnapshot.staticSignature.triangleClasses.size() ==
-            static_cast<size_t>(rangedInput.staticSignature.staticRange.triangleCount) &&
-        rangedSnapshot.staticSignature.triangleMaterials.size() ==
-            static_cast<size_t>(rangedInput.staticSignature.staticRange.triangleCount) &&
+        rangedSnapshot.staticSignature.triangleClasses.empty() &&
+        rangedSnapshot.staticSignature.triangleMaterials.empty() &&
         rangedSnapshot.staticSignature.staticRange.vertexOffset == 0 &&
         rangedSnapshot.staticSignature.staticRange.indexOffset == 0 &&
-        rangedSnapshot.staticSignature.staticRange.triangleOffset == 0 &&
         rangedSnapshotResult.plan.staticSignature.hash == rangedDirectPlan.staticSignature.hash,
-        "owned acceleration snapshot copies only ranged static signature inputs with normalized offsets");
+        "owned acceleration snapshot copies only ranged static geometry signature inputs with normalized offsets");
 }
 
 void TestAccelerationPlanInputToken()
@@ -454,8 +451,8 @@ void TestAccelerationPlanInputToken()
     Check(sourceTrackedToken != BuildSmokeAccelerationPlanInputToken(indexChangedInput),
         "acceleration plan input token tracks static index content when signature is recomputed");
     materialChangedInput.staticCache = sourceTrackedInput.staticCache;
-    Check(sourceTrackedToken != BuildSmokeAccelerationPlanInputToken(materialChangedInput),
-        "acceleration plan input token tracks static material content when signature is recomputed");
+    Check(sourceTrackedToken == BuildSmokeAccelerationPlanInputToken(materialChangedInput),
+        "acceleration plan input token ignores static material content when signature is recomputed");
 }
 
 void TestAsyncSnapshotPlanning()
@@ -2182,9 +2179,9 @@ void TestBvhDirtyPlan()
     input.current = base;
     input.current.materialGeneration = 21;
     const RtSmokeBvhDirtyPlan materialPlan = BuildSmokeBvhDirtyPlan(input);
-    Check(materialPlan.materialChanged && materialPlan.blasInputDirty &&
-        materialPlan.tlasDirty && !materialPlan.activeMembershipChanged,
-        "BVH dirty plan maps material generation changes to BLAS and TLAS work");
+    Check(materialPlan.materialChanged && !materialPlan.blasInputDirty &&
+        !materialPlan.tlasDirty && !materialPlan.activeMembershipChanged,
+        "BVH dirty plan keeps material generation changes out of BLAS and TLAS work");
 
     input.current = base;
     input.current.activeSetSignature = 31;
@@ -2358,6 +2355,8 @@ void TestStaticBucketWorkDirtyToken()
 
     buckets[1].residentIndexCount = 3;
     buckets[1].activeIndexCount = 3;
+    buckets[1].active = false;
+    buckets[1].activeReasonFlags = 0;
     input.materialGeneration = 201;
     const RtSmokeStaticBucketWorkPlan materialChangedPlan = BuildSmokeStaticBucketWorkPlan(input);
     tokenInput.plan = &materialChangedPlan;
@@ -2367,9 +2366,9 @@ void TestStaticBucketWorkDirtyToken()
     Check(materialDirtyPlan.materialChanged &&
         !materialDirtyPlan.geometryContentChanged &&
         !materialDirtyPlan.activeGeometryContentChanged &&
-        materialDirtyPlan.blasInputDirty &&
-        materialDirtyPlan.tlasDirty,
-        "static bucket work dirty token maps material changes to BLAS work without geometry dirtiness");
+        !materialDirtyPlan.blasInputDirty &&
+        !materialDirtyPlan.tlasDirty,
+        "static bucket work dirty token tracks material changes without BLAS or TLAS work");
 
     input.materialGeneration = 200;
     buckets[1].residentIndexCount = 3;
@@ -2831,10 +2830,10 @@ void TestBvhBucketableSignatures()
     const RtSmokeStaticBvhBucketSignature materialChangedSignature =
         BuildSmokeStaticBvhBucketSignature(materialChangedInput);
     Check(baseStaticSignature.geometryInputSignature == materialChangedSignature.geometryInputSignature &&
-        baseStaticSignature.blasInputSignature != materialChangedSignature.blasInputSignature &&
+        baseStaticSignature.blasInputSignature == materialChangedSignature.blasInputSignature &&
         baseStaticSignature.activeSignature == materialChangedSignature.activeSignature &&
         baseStaticSignature.residentSignature == materialChangedSignature.residentSignature,
-        "static BVH bucket material changes dirty BLAS signature without changing geometry identity");
+        "static BVH bucket material changes do not dirty geometry BLAS signature");
 
     RtSmokeStaticBvhBucketSignatureInput rangeChangedInput = staticInput;
     rangeChangedInput.bucket.residentVertexOffset = 12;
@@ -2898,9 +2897,9 @@ void TestBvhBucketableSignatures()
     const RtSmokeRigidBvhObjectSignature rigidMaterialChangedSignature =
         BuildSmokeRigidBvhObjectSignature(rigidMaterialChangedInput);
     Check(baseRigidSignature.geometryInputSignature == rigidMaterialChangedSignature.geometryInputSignature &&
-        baseRigidSignature.blasInputSignature != rigidMaterialChangedSignature.blasInputSignature &&
+        baseRigidSignature.blasInputSignature == rigidMaterialChangedSignature.blasInputSignature &&
         baseRigidSignature.tlasMembershipSignature == rigidMaterialChangedSignature.tlasMembershipSignature,
-        "rigid BVH object material changes dirty BLAS signature without changing geometry identity");
+        "rigid BVH object material changes do not dirty geometry BLAS signature");
 
     RtSmokeRigidBvhObjectSignatureInput staleResidentInput = rigidInput;
     staleResidentInput.meshSeenThisFrame = false;

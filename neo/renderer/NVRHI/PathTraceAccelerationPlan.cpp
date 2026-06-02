@@ -120,8 +120,10 @@ static uint64_t HashSmokeStaticBlasSignatureInput(
     hash = HashSmokePlanBytes(hash, &desc.vertexStride, sizeof(desc.vertexStride));
     hash = HashSmokePlanBytes(hash, &desc.totalVertexCount, sizeof(desc.totalVertexCount));
     hash = HashSmokePlanBytes(hash, &desc.totalIndexCount, sizeof(desc.totalIndexCount));
-    hash = HashSmokePlanBytes(hash, &desc.totalTriangleCount, sizeof(desc.totalTriangleCount));
-    hash = HashSmokePlanBytes(hash, &desc.staticRange, sizeof(desc.staticRange));
+    hash = HashSmokePlanBytes(hash, &desc.staticRange.vertexOffset, sizeof(desc.staticRange.vertexOffset));
+    hash = HashSmokePlanBytes(hash, &desc.staticRange.vertexCount, sizeof(desc.staticRange.vertexCount));
+    hash = HashSmokePlanBytes(hash, &desc.staticRange.indexOffset, sizeof(desc.staticRange.indexOffset));
+    hash = HashSmokePlanBytes(hash, &desc.staticRange.indexCount, sizeof(desc.staticRange.indexCount));
     hash = HashSmokePlanBytes(hash, &desc.sceneOrigin, sizeof(desc.sceneOrigin));
 
     if (desc.vertices && desc.vertexStride > 0 &&
@@ -139,19 +141,6 @@ static uint64_t HashSmokeStaticBlasSignatureInput(
             hash,
             desc.indexes + desc.staticRange.indexOffset,
             static_cast<size_t>(desc.staticRange.indexCount) * sizeof(desc.indexes[0]));
-    }
-
-    if (desc.triangleClasses && desc.triangleMaterials &&
-        PlanRangeValid(desc.staticRange.triangleOffset, desc.staticRange.triangleCount, desc.totalTriangleCount))
-    {
-        hash = HashSmokePlanBytes(
-            hash,
-            desc.triangleClasses + desc.staticRange.triangleOffset,
-            static_cast<size_t>(desc.staticRange.triangleCount) * sizeof(desc.triangleClasses[0]));
-        hash = HashSmokePlanBytes(
-            hash,
-            desc.triangleMaterials + desc.staticRange.triangleOffset,
-            static_cast<size_t>(desc.staticRange.triangleCount) * sizeof(desc.triangleMaterials[0]));
     }
 
     return hash;
@@ -203,17 +192,6 @@ RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
             desc.indexes + desc.staticRange.indexOffset,
             desc.indexes + desc.staticRange.indexOffset + desc.staticRange.indexCount);
         snapshot.staticRange.indexOffset = 0;
-    }
-    if (desc.triangleClasses && desc.triangleMaterials &&
-        PlanRangeValid(desc.staticRange.triangleOffset, desc.staticRange.triangleCount, desc.totalTriangleCount))
-    {
-        snapshot.triangleClasses.assign(
-            desc.triangleClasses + desc.staticRange.triangleOffset,
-            desc.triangleClasses + desc.staticRange.triangleOffset + desc.staticRange.triangleCount);
-        snapshot.triangleMaterials.assign(
-            desc.triangleMaterials + desc.staticRange.triangleOffset,
-            desc.triangleMaterials + desc.staticRange.triangleOffset + desc.staticRange.triangleCount);
-        snapshot.staticRange.triangleOffset = 0;
     }
     return snapshot;
 }
@@ -273,7 +251,6 @@ RtSmokePlanStaticBlasSignature ComputeSmokeStaticBlasSignaturePlan(
     hash = HashSmokePlanBytes(hash, &desc.sceneOrigin.z, sizeof(desc.sceneOrigin.z));
     hash = HashSmokePlanBytes(hash, &signature.vertexCount, sizeof(signature.vertexCount));
     hash = HashSmokePlanBytes(hash, &signature.indexCount, sizeof(signature.indexCount));
-    hash = HashSmokePlanBytes(hash, &signature.triangleCount, sizeof(signature.triangleCount));
 
     if (desc.vertices && desc.vertexStride > 0 &&
         PlanRangeValid(desc.staticRange.vertexOffset, desc.staticRange.vertexCount, desc.totalVertexCount))
@@ -290,19 +267,6 @@ RtSmokePlanStaticBlasSignature ComputeSmokeStaticBlasSignaturePlan(
             hash,
             desc.indexes + desc.staticRange.indexOffset,
             static_cast<size_t>(desc.staticRange.indexCount) * sizeof(desc.indexes[0]));
-    }
-
-    if (desc.triangleClasses && desc.triangleMaterials &&
-        PlanRangeValid(desc.staticRange.triangleOffset, desc.staticRange.triangleCount, desc.totalTriangleCount))
-    {
-        hash = HashSmokePlanBytes(
-            hash,
-            desc.triangleClasses + desc.staticRange.triangleOffset,
-            static_cast<size_t>(desc.staticRange.triangleCount) * sizeof(desc.triangleClasses[0]));
-        hash = HashSmokePlanBytes(
-            hash,
-            desc.triangleMaterials + desc.staticRange.triangleOffset,
-            static_cast<size_t>(desc.staticRange.triangleCount) * sizeof(desc.triangleMaterials[0]));
     }
 
     signature.hash = hash;
@@ -960,9 +924,7 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
     signature.geometryInputSignature = geometryHash;
 
-    uint64_t blasHash = geometryHash;
-    blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
-    signature.blasInputSignature = blasHash;
+    signature.blasInputSignature = geometryHash;
     return signature;
 }
 
@@ -1523,7 +1485,7 @@ RtSmokeBvhDirtyPlan BuildSmokeBvhDirtyPlan(
             input.previous.tlasInstanceSignature != input.current.tlasInstanceSignature;
     }
 
-    plan.blasInputDirty = plan.activeGeometryContentChanged || plan.materialChanged;
+    plan.blasInputDirty = plan.activeGeometryContentChanged;
     plan.tlasDirty = plan.blasInputDirty || plan.activeMembershipChanged || plan.tlasInstanceChanged;
     return plan;
 }
@@ -2008,9 +1970,7 @@ RtSmokeRigidBvhObjectSignature BuildSmokeRigidBvhObjectSignature(
     geometryHash = HashSmokePlanBytes(geometryHash, &input.indexCount, sizeof(input.indexCount));
     signature.geometryInputSignature = geometryHash;
 
-    uint64_t blasHash = geometryHash;
-    blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
-    signature.blasInputSignature = blasHash;
+    signature.blasInputSignature = geometryHash;
 
     uint64_t tlasHash = 14695981039346656037ull;
     const uint32_t residentBit = signature.resident ? 1u : 0u;
