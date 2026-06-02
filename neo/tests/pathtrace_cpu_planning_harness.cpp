@@ -300,6 +300,36 @@ void TestOwnedSnapshot()
         reusedSnapshotResult.plan.staticSignatureReused &&
         reusedSnapshotResult.plan.staticSignature.hash == directPlan.staticSignature.hash,
         "owned acceleration snapshot omits source arrays when static signature is reused");
+
+    std::vector<HarnessSmokeVertex> rangeVertices = BuildTriangleVertices(0.25f);
+    rangeVertices.push_back(rangeVertices[0]);
+    rangeVertices.push_back(rangeVertices[1]);
+    std::vector<uint32_t> rangeIndexes = { 99, 0, 1, 2, 88 };
+    std::vector<uint32_t> rangeClasses = { 99, 7, 88 };
+    std::vector<uint32_t> rangeMaterials = { 99, 11, 88 };
+    RtSmokeAccelerationPlanInput rangedInput =
+        BuildPlanInput(rangeVertices, rangeIndexes, rangeClasses, rangeMaterials);
+    rangedInput.staticSignature.staticRange.vertexOffset = 0;
+    rangedInput.staticSignature.staticRange.vertexCount = 3;
+    rangedInput.staticSignature.staticRange.indexOffset = 1;
+    rangedInput.staticSignature.staticRange.indexCount = 3;
+    rangedInput.staticSignature.staticRange.triangleOffset = 1;
+    rangedInput.staticSignature.staticRange.triangleCount = 1;
+    const RtSmokeAccelerationPlan rangedDirectPlan = BuildSmokeAccelerationPlan(rangedInput);
+    const RtSmokeAccelerationPlanSnapshot rangedSnapshot =
+        CaptureSmokeAccelerationPlanSnapshot(rangedInput);
+    const RtSmokeAccelerationPlanResult rangedSnapshotResult =
+        BuildSmokeAccelerationPlanResult(rangedSnapshot);
+    Check(rangedSnapshot.staticSignature.vertexBytes.size() ==
+            static_cast<size_t>(rangedInput.staticSignature.staticRange.vertexCount) * sizeof(HarnessSmokeVertex) &&
+        rangedSnapshot.staticSignature.indexes.size() ==
+            static_cast<size_t>(rangedInput.staticSignature.staticRange.indexCount) &&
+        rangedSnapshot.staticSignature.triangleClasses.size() ==
+            static_cast<size_t>(rangedInput.staticSignature.staticRange.triangleCount) &&
+        rangedSnapshot.staticSignature.triangleMaterials.size() ==
+            static_cast<size_t>(rangedInput.staticSignature.staticRange.triangleCount) &&
+        rangedSnapshotResult.plan.staticSignature.hash == rangedDirectPlan.staticSignature.hash,
+        "owned acceleration snapshot copies only ranged static signature inputs");
 }
 
 void TestAccelerationPlanInputToken()

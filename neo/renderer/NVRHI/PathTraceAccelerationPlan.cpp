@@ -185,24 +185,35 @@ RtSmokeStaticBlasSignatureSnapshot CaptureSmokeStaticBlasSignatureSnapshot(
     RtSmokeStaticBlasSignatureSnapshot snapshot =
         CaptureSmokeStaticBlasSignatureMetadata(desc);
 
-    if (desc.vertices && desc.vertexStride > 0 && desc.totalVertexCount > 0)
+    if (desc.vertices && desc.vertexStride > 0 &&
+        PlanRangeValid(desc.staticRange.vertexOffset, desc.staticRange.vertexCount, desc.totalVertexCount))
     {
-        const uint8_t* vertexBytes = static_cast<const uint8_t*>(desc.vertices);
+        const uint8_t* vertexBytes = static_cast<const uint8_t*>(desc.vertices) +
+            static_cast<size_t>(desc.staticRange.vertexOffset) * desc.vertexStride;
         snapshot.vertexBytes.assign(
             vertexBytes,
-            vertexBytes + static_cast<size_t>(desc.totalVertexCount) * desc.vertexStride);
+            vertexBytes + static_cast<size_t>(desc.staticRange.vertexCount) * desc.vertexStride);
+        snapshot.totalVertexCount = desc.staticRange.vertexCount;
+        snapshot.staticRange.vertexOffset = 0;
     }
-    if (desc.indexes && desc.totalIndexCount > 0)
+    if (desc.indexes &&
+        PlanRangeValid(desc.staticRange.indexOffset, desc.staticRange.indexCount, desc.totalIndexCount))
     {
-        snapshot.indexes.assign(desc.indexes, desc.indexes + desc.totalIndexCount);
+        snapshot.indexes.assign(
+            desc.indexes + desc.staticRange.indexOffset,
+            desc.indexes + desc.staticRange.indexOffset + desc.staticRange.indexCount);
+        snapshot.staticRange.indexOffset = 0;
     }
-    if (desc.triangleClasses && desc.totalTriangleCount > 0)
+    if (desc.triangleClasses && desc.triangleMaterials &&
+        PlanRangeValid(desc.staticRange.triangleOffset, desc.staticRange.triangleCount, desc.totalTriangleCount))
     {
-        snapshot.triangleClasses.assign(desc.triangleClasses, desc.triangleClasses + desc.totalTriangleCount);
-    }
-    if (desc.triangleMaterials && desc.totalTriangleCount > 0)
-    {
-        snapshot.triangleMaterials.assign(desc.triangleMaterials, desc.triangleMaterials + desc.totalTriangleCount);
+        snapshot.triangleClasses.assign(
+            desc.triangleClasses + desc.staticRange.triangleOffset,
+            desc.triangleClasses + desc.staticRange.triangleOffset + desc.staticRange.triangleCount);
+        snapshot.triangleMaterials.assign(
+            desc.triangleMaterials + desc.staticRange.triangleOffset,
+            desc.triangleMaterials + desc.staticRange.triangleOffset + desc.staticRange.triangleCount);
+        snapshot.staticRange.triangleOffset = 0;
     }
     return snapshot;
 }
