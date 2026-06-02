@@ -419,6 +419,7 @@ struct RtSmokeStaticBvhBucketSignature
     uint64_t bucketKey = 0;
     uint64_t residentSignature = 0;
     uint64_t activeSignature = 0;
+    uint64_t geometryInputSignature = 0;
     uint64_t blasInputSignature = 0;
     bool resident = false;
     bool active = false;

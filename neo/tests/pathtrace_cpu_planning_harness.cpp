@@ -1824,6 +1824,8 @@ void TestStaticBucketWorkDirtyToken()
         geometryDirtyPlan.tlasDirty,
         "static bucket work dirty token maps active resident geometry changes to BLAS work");
 
+    buckets[1].residentIndexCount = 3;
+    buckets[1].activeIndexCount = 3;
     input.materialGeneration = 201;
     const RtSmokeStaticBucketWorkPlan materialChangedPlan = BuildSmokeStaticBucketWorkPlan(input);
     tokenInput.plan = &materialChangedPlan;
@@ -1831,9 +1833,11 @@ void TestStaticBucketWorkDirtyToken()
     dirtyInput.current = BuildSmokeStaticBucketWorkDirtyToken(tokenInput);
     const RtSmokeBvhDirtyPlan materialDirtyPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
     Check(materialDirtyPlan.materialChanged &&
+        !materialDirtyPlan.geometryContentChanged &&
+        !materialDirtyPlan.activeGeometryContentChanged &&
         materialDirtyPlan.blasInputDirty &&
         materialDirtyPlan.tlasDirty,
-        "static bucket work dirty token maps material changes to BLAS work");
+        "static bucket work dirty token maps material changes to BLAS work without geometry dirtiness");
 
     input.materialGeneration = 200;
     buckets[1].residentIndexCount = 3;
@@ -2181,7 +2185,8 @@ void TestBvhBucketableSignatures()
         BuildSmokeStaticBvhBucketSignature(staticInput);
     Check(baseStaticSignature.bucketKey == 77 && baseStaticSignature.resident &&
         baseStaticSignature.active && baseStaticSignature.residentSignature != 0 &&
-        baseStaticSignature.activeSignature != 0 && baseStaticSignature.blasInputSignature != 0,
+        baseStaticSignature.activeSignature != 0 && baseStaticSignature.geometryInputSignature != 0 &&
+        baseStaticSignature.blasInputSignature != 0,
         "static BVH bucket signature preserves bucket identity and state");
 
     RtSmokeStaticBvhBucketSignatureInput activeChangedInput = staticInput;
@@ -2190,6 +2195,7 @@ void TestBvhBucketableSignatures()
         BuildSmokeStaticBvhBucketSignature(activeChangedInput);
     Check(baseStaticSignature.activeSignature != activeChangedSignature.activeSignature &&
         baseStaticSignature.residentSignature == activeChangedSignature.residentSignature &&
+        baseStaticSignature.geometryInputSignature == activeChangedSignature.geometryInputSignature &&
         baseStaticSignature.blasInputSignature == activeChangedSignature.blasInputSignature,
         "static BVH bucket active changes do not dirty resident or BLAS signatures");
 
@@ -2197,16 +2203,28 @@ void TestBvhBucketableSignatures()
     geometryChangedInput.geometryContentSignature = 1001;
     const RtSmokeStaticBvhBucketSignature geometryChangedSignature =
         BuildSmokeStaticBvhBucketSignature(geometryChangedInput);
-    Check(baseStaticSignature.blasInputSignature != geometryChangedSignature.blasInputSignature &&
+    Check(baseStaticSignature.geometryInputSignature != geometryChangedSignature.geometryInputSignature &&
+        baseStaticSignature.blasInputSignature != geometryChangedSignature.blasInputSignature &&
         baseStaticSignature.activeSignature == geometryChangedSignature.activeSignature &&
         baseStaticSignature.residentSignature == geometryChangedSignature.residentSignature,
         "static BVH bucket geometry changes dirty BLAS signature without changing active membership");
+
+    RtSmokeStaticBvhBucketSignatureInput materialChangedInput = staticInput;
+    materialChangedInput.materialGeneration = 2001;
+    const RtSmokeStaticBvhBucketSignature materialChangedSignature =
+        BuildSmokeStaticBvhBucketSignature(materialChangedInput);
+    Check(baseStaticSignature.geometryInputSignature == materialChangedSignature.geometryInputSignature &&
+        baseStaticSignature.blasInputSignature != materialChangedSignature.blasInputSignature &&
+        baseStaticSignature.activeSignature == materialChangedSignature.activeSignature &&
+        baseStaticSignature.residentSignature == materialChangedSignature.residentSignature,
+        "static BVH bucket material changes dirty BLAS signature without changing geometry identity");
 
     RtSmokeStaticBvhBucketSignatureInput rangeChangedInput = staticInput;
     rangeChangedInput.bucket.residentVertexOffset = 12;
     const RtSmokeStaticBvhBucketSignature rangeChangedSignature =
         BuildSmokeStaticBvhBucketSignature(rangeChangedInput);
-    Check(baseStaticSignature.blasInputSignature != rangeChangedSignature.blasInputSignature &&
+    Check(baseStaticSignature.geometryInputSignature != rangeChangedSignature.geometryInputSignature &&
+        baseStaticSignature.blasInputSignature != rangeChangedSignature.blasInputSignature &&
         baseStaticSignature.activeSignature == rangeChangedSignature.activeSignature,
         "static BVH bucket range changes dirty BLAS signature");
 

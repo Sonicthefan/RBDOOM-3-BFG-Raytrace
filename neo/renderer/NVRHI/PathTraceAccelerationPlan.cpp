@@ -767,16 +767,19 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     activeHash = HashSmokePlanBytes(activeHash, &bucket.activeTriangleCount, sizeof(bucket.activeTriangleCount));
     signature.activeSignature = activeHash;
 
-    uint64_t blasHash = 14695981039346656037ull;
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
-    blasHash = HashSmokePlanBytes(blasHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    uint64_t geometryHash = 14695981039346656037ull;
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
+    geometryHash = HashSmokePlanBytes(geometryHash, &input.geometryContentSignature, sizeof(input.geometryContentSignature));
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentVertexOffset, sizeof(bucket.residentVertexOffset));
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentIndexOffset, sizeof(bucket.residentIndexOffset));
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentTriangleOffset, sizeof(bucket.residentTriangleOffset));
+    geometryHash = HashSmokePlanBytes(geometryHash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
+    signature.geometryInputSignature = geometryHash;
+
+    uint64_t blasHash = geometryHash;
     blasHash = HashSmokePlanBytes(blasHash, &input.materialGeneration, sizeof(input.materialGeneration));
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentVertexOffset, sizeof(bucket.residentVertexOffset));
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentVertexCount, sizeof(bucket.residentVertexCount));
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentIndexOffset, sizeof(bucket.residentIndexOffset));
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentIndexCount, sizeof(bucket.residentIndexCount));
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentTriangleOffset, sizeof(bucket.residentTriangleOffset));
-    blasHash = HashSmokePlanBytes(blasHash, &bucket.residentTriangleCount, sizeof(bucket.residentTriangleCount));
     signature.blasInputSignature = blasHash;
     return signature;
 }
@@ -1172,7 +1175,7 @@ RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
         {
             token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
             token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.residentSignature, sizeof(bucketSignature.residentSignature));
-            token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.blasInputSignature, sizeof(bucketSignature.blasInputSignature));
+            token.geometryContentSignature = HashSmokePlanBytes(token.geometryContentSignature, &bucketSignature.geometryInputSignature, sizeof(bucketSignature.geometryInputSignature));
             token.residentSetSignature = HashSmokePlanBytes(token.residentSetSignature, &bucketSignature.bucketKey, sizeof(bucketSignature.bucketKey));
             token.residentSetSignature = HashSmokePlanBytes(token.residentSetSignature, &bucketSignature.residentSignature, sizeof(bucketSignature.residentSignature));
         }
