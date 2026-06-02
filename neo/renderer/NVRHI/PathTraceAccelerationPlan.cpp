@@ -1284,6 +1284,60 @@ RtSmokeBvhFramePlanningSnapshot CaptureSmokeBvhFramePlanningSnapshot(
     return snapshot;
 }
 
+static uint64_t HashSmokeBvhFrameTokenInput(
+    uint64_t hash,
+    const RtSmokeBvhFrameTokenInput& input)
+{
+    hash = HashSmokePlanBytes(hash, &input.staticBlasSignature, sizeof(input.staticBlasSignature));
+    hash = HashSmokePlanBytes(hash, &input.geometryGeneration, sizeof(input.geometryGeneration));
+    hash = HashSmokePlanBytes(hash, &input.materialGeneration, sizeof(input.materialGeneration));
+    hash = HashSmokePlanBytes(hash, &input.staticActiveSetSignature, sizeof(input.staticActiveSetSignature));
+    hash = HashSmokePlanBytes(hash, &input.staticResidentSetSignature, sizeof(input.staticResidentSetSignature));
+    hash = HashSmokePlanBytes(hash, &input.dynamicVertexCount, sizeof(input.dynamicVertexCount));
+    hash = HashSmokePlanBytes(hash, &input.dynamicIndexCount, sizeof(input.dynamicIndexCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteVertexCount, sizeof(input.rigidRouteVertexCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteIndexCount, sizeof(input.rigidRouteIndexCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteTriangleCount, sizeof(input.rigidRouteTriangleCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteInstanceCount, sizeof(input.rigidRouteInstanceCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteSeenThisFrameCount, sizeof(input.rigidRouteSeenThisFrameCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidRouteCachedInstanceCount, sizeof(input.rigidRouteCachedInstanceCount));
+    hash = HashSmokePlanBytes(hash, &input.baseTlasInstanceCount, sizeof(input.baseTlasInstanceCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidTlasInstanceCount, sizeof(input.rigidTlasInstanceCount));
+    const uint32_t flags =
+        (input.hasStaticBlas ? 1u : 0u) |
+        (input.hasDynamicBlas ? 2u : 0u);
+    hash = HashSmokePlanBytes(hash, &flags, sizeof(flags));
+    return hash;
+}
+
+uint64_t BuildSmokeBvhFramePlanningInputToken(
+    const RtSmokeBvhFramePlanningInput& input)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const uint64_t staticBucketToken =
+        BuildSmokeStaticBucketWorkPlanInputToken(input.staticBucketWorkInput);
+    const uint32_t previousValidBit = input.previousDirtyTokenValid ? 1u : 0u;
+    hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
+    hash = HashSmokeBvhFrameTokenInput(hash, input.frameTokenInput);
+    hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
+    hash = HashSmokePlanBytes(hash, &input.previousDirtyToken, sizeof(input.previousDirtyToken));
+    return hash;
+}
+
+uint64_t BuildSmokeBvhFramePlanningInputToken(
+    const RtSmokeBvhFramePlanningSnapshot& snapshot)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const uint64_t staticBucketToken =
+        BuildSmokeStaticBucketWorkPlanInputToken(snapshot.staticBucketWorkSnapshot);
+    const uint32_t previousValidBit = snapshot.previousDirtyTokenValid ? 1u : 0u;
+    hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
+    hash = HashSmokeBvhFrameTokenInput(hash, snapshot.frameTokenInput);
+    hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
+    hash = HashSmokePlanBytes(hash, &snapshot.previousDirtyToken, sizeof(snapshot.previousDirtyToken));
+    return hash;
+}
+
 RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
     const RtSmokeBvhFramePlanningInput& input)
 {

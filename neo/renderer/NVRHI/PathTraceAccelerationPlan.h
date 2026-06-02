@@ -847,6 +847,12 @@ RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
 RtSmokeBvhFramePlanningSnapshot CaptureSmokeBvhFramePlanningSnapshot(
     const RtSmokeBvhFramePlanningInput& input);
 
+uint64_t BuildSmokeBvhFramePlanningInputToken(
+    const RtSmokeBvhFramePlanningInput& input);
+
+uint64_t BuildSmokeBvhFramePlanningInputToken(
+    const RtSmokeBvhFramePlanningSnapshot& snapshot);
+
 RtSmokeBvhFramePlanningResult BuildSmokeBvhFramePlanningResult(
     const RtSmokeBvhFramePlanningInput& input);
 
