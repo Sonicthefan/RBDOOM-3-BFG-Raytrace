@@ -1901,7 +1901,10 @@ RtSmokeRigidBvhObjectSignature BuildSmokeRigidBvhObjectSignature(
     const uint32_t residentBit = signature.resident ? 1u : 0u;
     const uint32_t activeBit = signature.activeCandidate ? 1u : 0u;
     tlasHash = HashSmokePlanBytes(tlasHash, &signature.objectKey, sizeof(signature.objectKey));
-    tlasHash = HashSmokePlanBytes(tlasHash, &input.routeRecordIndex, sizeof(input.routeRecordIndex));
+    if (signature.activeCandidate)
+    {
+        tlasHash = HashSmokePlanBytes(tlasHash, &input.routeRecordIndex, sizeof(input.routeRecordIndex));
+    }
     tlasHash = HashSmokePlanBytes(tlasHash, &residentBit, sizeof(residentBit));
     tlasHash = HashSmokePlanBytes(tlasHash, &activeBit, sizeof(activeBit));
     signature.tlasMembershipSignature = tlasHash;

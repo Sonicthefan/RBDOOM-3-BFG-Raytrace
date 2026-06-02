@@ -2572,6 +2572,15 @@ void TestBvhBucketableSignatures()
     Check(inactiveRigidSignature.resident && !inactiveRigidSignature.activeCandidate &&
         baseRigidSignature.blasInputSignature == inactiveRigidSignature.blasInputSignature,
         "rigid BVH object signature separates resident objects from active TLAS candidates");
+
+    RtSmokeRigidBvhObjectSignatureInput inactiveRouteChangedInput = inactiveRigidInput;
+    inactiveRouteChangedInput.routeRecordIndex = 12;
+    const RtSmokeRigidBvhObjectSignature inactiveRouteChangedSignature =
+        BuildSmokeRigidBvhObjectSignature(inactiveRouteChangedInput);
+    Check(inactiveRigidSignature.tlasMembershipSignature ==
+            inactiveRouteChangedSignature.tlasMembershipSignature &&
+        baseRigidSignature.tlasMembershipSignature != inactiveRouteChangedSignature.tlasMembershipSignature,
+        "rigid BVH object signature ignores route metadata for inactive TLAS candidates");
 }
 
 void TestUploadPlan()
