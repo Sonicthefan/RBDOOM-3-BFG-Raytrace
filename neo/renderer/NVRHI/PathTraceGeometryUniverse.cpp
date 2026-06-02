@@ -3296,30 +3296,17 @@ bool RtSmokeGeometryUniverse::IsRigidRouteReady(uint64 meshHash) const
     return record.valid && record.rigidVertexBuffer && record.rigidIndexBuffer && record.rigidBlas;
 }
 
-std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(const RtPathTraceInstanceUniverse& instanceUniverse, int maxInstances) const
+std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(const RtSmokeRigidTlasPlan& plan) const
 {
     std::vector<uint32_t> materialIds;
-    int emittedInstances = 0;
-    std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
-    BuildRigidRouteInstanceList(instanceUniverse, instances);
-    for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
+    for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
-        if (maxInstances > 0 && emittedInstances >= maxInstances)
-        {
-            break;
-        }
-        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
         {
             continue;
         }
 
-        const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
-        {
-            continue;
-        }
-
-        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
         if (!record.valid || !record.rigidBlas)
         {
             continue;
@@ -3328,9 +3315,16 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
         {
             materialIds.push_back(record.materialId);
         }
-        ++emittedInstances;
     }
     return materialIds;
+}
+
+std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(const RtPathTraceInstanceUniverse& instanceUniverse, int maxInstances) const
+{
+    const RtSmokeRigidTlasPlanSnapshot snapshot =
+        CaptureRigidTlasInstancePlanSnapshot(instanceUniverse, 2, 0x02, maxInstances);
+    const RtSmokeRigidTlasPlan plan = BuildSmokeRigidTlasPlan(snapshot);
+    return CollectRigidRouteMaterialIds(plan);
 }
 
 RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePlanSnapshot(

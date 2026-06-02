@@ -2140,6 +2140,19 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
     const int rigidRouteMaxInstances = idMath::ClampInt(1, 512, r_pathTracingRigidRouteMaxInstances.GetInteger());
+    RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot;
+    RtSmokeRigidTlasPlan rigidTlasPlan;
+    bool rigidTlasPlanValid = false;
+    if (enableRigidRouteForMode)
+    {
+        rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
+            m_instanceUniverse,
+            2,
+            0x02,
+            rigidRouteMaxInstances);
+        rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+        rigidTlasPlanValid = true;
+    }
     std::vector<uint32_t> fullLevelStaticEmissiveMaterialIds;
     if (r_pathTracingWorldStaticEmissives.GetInteger() != 0)
     {
@@ -2147,9 +2160,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     std::vector<uint32_t> materialTableStaticIds = staticTriangleMaterialCache;
     materialTableStaticIds.insert(materialTableStaticIds.end(), fullLevelStaticEmissiveMaterialIds.begin(), fullLevelStaticEmissiveMaterialIds.end());
-    if (enableRigidRouteForMode)
+    if (rigidTlasPlanValid)
     {
-        const std::vector<uint32_t> rigidRouteMaterialIds = m_smokeGeometryUniverse.CollectRigidRouteMaterialIds(m_instanceUniverse, rigidRouteMaxInstances);
+        const std::vector<uint32_t> rigidRouteMaterialIds = m_smokeGeometryUniverse.CollectRigidRouteMaterialIds(rigidTlasPlan);
         materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
     }
     uint64 materialTableSignature = 0;
@@ -4308,13 +4321,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool routeRigidTlasInstances = enableRigidRouteForMode;
     if (routeRigidTlasInstances)
     {
-        const RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot =
-            m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
+        if (!rigidTlasPlanValid)
+        {
+            rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
                 m_instanceUniverse,
                 2,
                 0x02,
                 rigidRouteMaxInstances);
-        const RtSmokeRigidTlasPlan rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+            rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+            rigidTlasPlanValid = true;
+        }
         const int routedRigidInstances =
             m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
