@@ -361,6 +361,48 @@ struct RtSmokeStaticBucketBlasBuildPlan
     bool signatureChanged = false;
 };
 
+struct RtSmokeStaticBucketBlasBuildObservation
+{
+    uint64_t bucketKey = 0;
+    bool hasBlas = false;
+    bool uploadRequired = false;
+    bool blasInputsCompatible = false;
+    bool signatureValid = false;
+    uint64_t previousBlasInputSignature = 0;
+    uint64_t currentBlasInputSignature = 0;
+};
+
+struct RtSmokeStaticBucketBlasBuildBatchPlanInput
+{
+    const RtSmokeStaticBucketBlasBuildObservation* observations = nullptr;
+    int observationCount = 0;
+    bool submitBuilds = false;
+    bool forceRebuild = false;
+    int maxRecords = 0;
+};
+
+struct RtSmokeStaticBucketBlasBuildBatchRecord
+{
+    uint64_t bucketKey = 0;
+    RtSmokeStaticBucketBlasBuildPlan buildPlan;
+};
+
+struct RtSmokeStaticBucketBlasBuildBatchPlan
+{
+    std::vector<RtSmokeStaticBucketBlasBuildBatchRecord> records;
+    uint64_t planSignature = 0;
+    int inputRecords = 0;
+    int emittedRecords = 0;
+    int createBlasRecords = 0;
+    int submitBuildRecords = 0;
+    int skippedBuildRecords = 0;
+    int signatureChangedRecords = 0;
+    int uploadRequiredRecords = 0;
+    int incompatibleRecords = 0;
+    int missingBlasRecords = 0;
+    bool overflow = false;
+};
+
 struct RtSmokeStaticBvhBucketSignatureInput
 {
     RtSmokeStaticTlasBucketObservation bucket;
@@ -616,6 +658,9 @@ RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
 
 RtSmokeStaticBucketBlasBuildPlan BuildSmokeStaticBucketBlasBuildPlan(
     const RtSmokeStaticBucketBlasBuildPlanInput& input);
+
+RtSmokeStaticBucketBlasBuildBatchPlan BuildSmokeStaticBucketBlasBuildBatchPlan(
+    const RtSmokeStaticBucketBlasBuildBatchPlanInput& input);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);

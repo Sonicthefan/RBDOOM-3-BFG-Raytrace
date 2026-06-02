@@ -650,6 +650,92 @@ RtSmokeStaticBucketBlasBuildPlan BuildSmokeStaticBucketBlasBuildPlan(
     return plan;
 }
 
+RtSmokeStaticBucketBlasBuildBatchPlan BuildSmokeStaticBucketBlasBuildBatchPlan(
+    const RtSmokeStaticBucketBlasBuildBatchPlanInput& input)
+{
+    RtSmokeStaticBucketBlasBuildBatchPlan plan;
+    plan.planSignature = 14695981039346656037ull;
+    plan.inputRecords = input.observationCount > 0 ? input.observationCount : 0;
+    if (!input.observations || input.observationCount <= 0)
+    {
+        return plan;
+    }
+
+    const int reserveCount = input.maxRecords > 0 && input.maxRecords < input.observationCount
+        ? input.maxRecords
+        : input.observationCount;
+    plan.records.reserve(reserveCount);
+    for (int observationIndex = 0; observationIndex < input.observationCount; ++observationIndex)
+    {
+        if (input.maxRecords > 0 && plan.emittedRecords >= input.maxRecords)
+        {
+            plan.overflow = true;
+            break;
+        }
+
+        const RtSmokeStaticBucketBlasBuildObservation& observation = input.observations[observationIndex];
+        RtSmokeStaticBucketBlasBuildPlanInput buildInput;
+        buildInput.submitBuilds = input.submitBuilds;
+        buildInput.forceRebuild = input.forceRebuild;
+        buildInput.hasBlas = observation.hasBlas;
+        buildInput.uploadRequired = observation.uploadRequired;
+        buildInput.blasInputsCompatible = observation.blasInputsCompatible;
+        buildInput.signatureValid = observation.signatureValid;
+        buildInput.previousBlasInputSignature = observation.previousBlasInputSignature;
+        buildInput.currentBlasInputSignature = observation.currentBlasInputSignature;
+        const RtSmokeStaticBucketBlasBuildPlan buildPlan =
+            BuildSmokeStaticBucketBlasBuildPlan(buildInput);
+
+        RtSmokeStaticBucketBlasBuildBatchRecord record;
+        record.bucketKey = observation.bucketKey;
+        record.buildPlan = buildPlan;
+        plan.records.push_back(record);
+        ++plan.emittedRecords;
+
+        if (buildPlan.createBlas)
+        {
+            ++plan.createBlasRecords;
+        }
+        if (buildPlan.submitBuild)
+        {
+            ++plan.submitBuildRecords;
+        }
+        if (buildPlan.skipBuild)
+        {
+            ++plan.skippedBuildRecords;
+        }
+        if (buildPlan.signatureChanged)
+        {
+            ++plan.signatureChangedRecords;
+        }
+        if (observation.uploadRequired)
+        {
+            ++plan.uploadRequiredRecords;
+        }
+        if (!observation.blasInputsCompatible)
+        {
+            ++plan.incompatibleRecords;
+        }
+        if (!observation.hasBlas)
+        {
+            ++plan.missingBlasRecords;
+        }
+
+        const uint32_t createBit = buildPlan.createBlas ? 1u : 0u;
+        const uint32_t submitBit = buildPlan.submitBuild ? 1u : 0u;
+        const uint32_t skipBit = buildPlan.skipBuild ? 1u : 0u;
+        const uint32_t signatureChangedBit = buildPlan.signatureChanged ? 1u : 0u;
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.bucketKey, sizeof(record.bucketKey));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &createBit, sizeof(createBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &submitBit, sizeof(submitBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &skipBit, sizeof(skipBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &signatureChangedBit, sizeof(signatureChangedBit));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.previousBlasInputSignature, sizeof(observation.previousBlasInputSignature));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &observation.currentBlasInputSignature, sizeof(observation.currentBlasInputSignature));
+    }
+    return plan;
+}
+
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input)
 {

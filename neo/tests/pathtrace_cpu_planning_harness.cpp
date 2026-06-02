@@ -524,6 +524,77 @@ void TestStaticBucketBlasBuildPlan()
         "static bucket BLAS build gate skips build submission");
 }
 
+void TestStaticBucketBlasBuildBatchPlan()
+{
+    RtSmokeStaticBucketBlasBuildObservation observations[4];
+    observations[0].bucketKey = 10;
+    observations[0].hasBlas = true;
+    observations[0].blasInputsCompatible = true;
+    observations[0].signatureValid = true;
+    observations[0].previousBlasInputSignature = 100;
+    observations[0].currentBlasInputSignature = 100;
+
+    observations[1] = observations[0];
+    observations[1].bucketKey = 20;
+    observations[1].currentBlasInputSignature = 101;
+
+    observations[2] = observations[0];
+    observations[2].bucketKey = 30;
+    observations[2].hasBlas = false;
+
+    observations[3] = observations[0];
+    observations[3].bucketKey = 40;
+    observations[3].uploadRequired = true;
+    observations[3].blasInputsCompatible = false;
+
+    RtSmokeStaticBucketBlasBuildBatchPlanInput input;
+    input.observations = observations;
+    input.observationCount = 4;
+    input.submitBuilds = true;
+    const RtSmokeStaticBucketBlasBuildBatchPlan mixedPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(mixedPlan.emittedRecords == 4 &&
+        mixedPlan.submitBuildRecords == 3 &&
+        mixedPlan.skippedBuildRecords == 1 &&
+        mixedPlan.createBlasRecords == 2 &&
+        mixedPlan.signatureChangedRecords == 1 &&
+        mixedPlan.uploadRequiredRecords == 1 &&
+        mixedPlan.incompatibleRecords == 1 &&
+        mixedPlan.missingBlasRecords == 1 &&
+        mixedPlan.records[0].buildPlan.skipBuild &&
+        mixedPlan.records[1].buildPlan.submitBuild &&
+        mixedPlan.records[2].buildPlan.createBlas &&
+        mixedPlan.planSignature != 0,
+        "static bucket BLAS batch plan aggregates mixed bucket build decisions");
+
+    input.submitBuilds = false;
+    const RtSmokeStaticBucketBlasBuildBatchPlan gatedPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(gatedPlan.emittedRecords == 4 &&
+        gatedPlan.submitBuildRecords == 0 &&
+        gatedPlan.skippedBuildRecords == 4 &&
+        gatedPlan.createBlasRecords == 0,
+        "static bucket BLAS batch plan respects disabled build gate");
+
+    input.submitBuilds = true;
+    input.forceRebuild = true;
+    const RtSmokeStaticBucketBlasBuildBatchPlan forcePlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(forcePlan.submitBuildRecords == 4 &&
+        forcePlan.skippedBuildRecords == 0 &&
+        forcePlan.records[0].buildPlan.submitBuild,
+        "static bucket BLAS batch plan applies force rebuild to every emitted bucket");
+
+    input.forceRebuild = false;
+    input.maxRecords = 2;
+    const RtSmokeStaticBucketBlasBuildBatchPlan cappedPlan =
+        BuildSmokeStaticBucketBlasBuildBatchPlan(input);
+    Check(cappedPlan.emittedRecords == 2 &&
+        cappedPlan.overflow &&
+        cappedPlan.records[1].bucketKey == 20,
+        "static bucket BLAS batch plan reports record cap overflow");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1362,6 +1433,7 @@ int main(int argc, char** argv)
     TestRigidPlan();
     TestRigidBlasBuildPlan();
     TestStaticBucketBlasBuildPlan();
+    TestStaticBucketBlasBuildBatchPlan();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
