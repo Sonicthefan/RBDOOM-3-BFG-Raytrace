@@ -1764,7 +1764,29 @@ RtSmokeRigidTlasPlanSnapshot CaptureSmokeRigidTlasPlanSnapshot(
     snapshot.maxInstances = desc.maxInstances;
     if (desc.observations && desc.observationCount > 0)
     {
-        snapshot.observations.assign(desc.observations, desc.observations + desc.observationCount);
+        const int maxInstances = NormalizeSmokePlanRecordCap(desc.maxInstances);
+        if (maxInstances <= 0)
+        {
+            snapshot.observations.assign(desc.observations, desc.observations + desc.observationCount);
+        }
+        else
+        {
+            int emittedInstances = 0;
+            for (int observationIndex = 0; observationIndex < desc.observationCount; ++observationIndex)
+            {
+                const RtSmokeRigidTlasObservation& observation = desc.observations[observationIndex];
+                snapshot.observations.push_back(observation);
+                if (ClassifyRigidTlasObservation(observation, desc.rigidSourceMask) ==
+                    RT_SMOKE_RIGID_TLAS_ACCEPTED)
+                {
+                    ++emittedInstances;
+                    if (emittedInstances >= maxInstances)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
     }
     return snapshot;
 }

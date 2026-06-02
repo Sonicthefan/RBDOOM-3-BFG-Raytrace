@@ -646,6 +646,12 @@ void TestRigidPlan()
     observations[1].objectToWorld[12] = 99.0f;
     Check(cappedToken == BuildSmokeRigidTlasPlanInputToken(desc),
         "rigid TLAS plan input token ignores observations after max instance cap");
+    const RtSmokeRigidTlasPlanSnapshot cappedSnapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
+    const RtSmokeRigidTlasPlan cappedSnapshotPlan = BuildSmokeRigidTlasPlan(cappedSnapshot);
+    Check(cappedSnapshot.observations.size() == 1 &&
+        BuildSmokeRigidTlasPlanInputToken(cappedSnapshot) == cappedToken &&
+        cappedSnapshotPlan.tlasInstanceSignature == cappedPlan.tlasInstanceSignature,
+        "owned rigid TLAS snapshot drops observations after max instance cap");
     desc.observationCount = 2;
     Check(cappedToken == BuildSmokeRigidTlasPlanInputToken(desc),
         "rigid TLAS plan input token ignores appended observations after max instance cap");
