@@ -2266,6 +2266,20 @@ void TestBvhFramePlanningResult()
     const uint64_t basePlanningToken = BuildSmokeBvhFramePlanningInputToken(input);
     Check(basePlanningToken == BuildSmokeBvhFramePlanningInputToken(input),
         "BVH frame planning input token is deterministic");
+    RtSmokeBvhFramePlanningInput ignoredStaticFrameInput = input;
+    ignoredStaticFrameInput.frameTokenInput.staticActiveSetSignature = 0x1234ull;
+    ignoredStaticFrameInput.frameTokenInput.staticResidentSetSignature = 0x5678ull;
+    ignoredStaticFrameInput.frameTokenInput.staticTlasInstanceSignature = 0x9ABCull;
+    const RtSmokeBvhFramePlanningResult ignoredStaticFrameResult =
+        BuildSmokeBvhFramePlanningResult(ignoredStaticFrameInput);
+    Check(BuildSmokeBvhFramePlanningInputToken(ignoredStaticFrameInput) == basePlanningToken &&
+            ignoredStaticFrameResult.frameToken.dirtyToken.activeSetSignature ==
+                firstResult.frameToken.dirtyToken.activeSetSignature &&
+            ignoredStaticFrameResult.frameToken.dirtyToken.residentSetSignature ==
+                firstResult.frameToken.dirtyToken.residentSetSignature &&
+            ignoredStaticFrameResult.frameToken.dirtyToken.tlasInstanceSignature ==
+                firstResult.frameToken.dirtyToken.tlasInstanceSignature,
+        "BVH frame planning input token ignores caller static frame signatures overwritten by static bucket work");
     RtSmokeBvhFramePlanningInput invalidPreviousChangedInput = input;
     invalidPreviousChangedInput.previousDirtyToken.activeSetSignature = 0x12345678ull;
     invalidPreviousChangedInput.previousDirtyToken.tlasInstanceSignature = 0x87654321ull;

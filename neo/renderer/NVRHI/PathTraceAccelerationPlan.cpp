@@ -1490,16 +1490,13 @@ RtSmokeBvhFramePlanningSnapshot CaptureSmokeBvhFramePlanningSnapshot(
     return snapshot;
 }
 
-static uint64_t HashSmokeBvhFrameTokenInput(
+static uint64_t HashSmokeBvhFramePlanningFrameInput(
     uint64_t hash,
     const RtSmokeBvhFrameTokenInput& input)
 {
     hash = HashSmokePlanBytes(hash, &input.staticBlasSignature, sizeof(input.staticBlasSignature));
     hash = HashSmokePlanBytes(hash, &input.geometryGeneration, sizeof(input.geometryGeneration));
     hash = HashSmokePlanBytes(hash, &input.materialGeneration, sizeof(input.materialGeneration));
-    hash = HashSmokePlanBytes(hash, &input.staticActiveSetSignature, sizeof(input.staticActiveSetSignature));
-    hash = HashSmokePlanBytes(hash, &input.staticResidentSetSignature, sizeof(input.staticResidentSetSignature));
-    hash = HashSmokePlanBytes(hash, &input.staticTlasInstanceSignature, sizeof(input.staticTlasInstanceSignature));
     hash = HashSmokePlanBytes(hash, &input.dynamicVertexCount, sizeof(input.dynamicVertexCount));
     hash = HashSmokePlanBytes(hash, &input.dynamicIndexCount, sizeof(input.dynamicIndexCount));
     hash = HashSmokePlanBytes(hash, &input.rigidRouteVertexCount, sizeof(input.rigidRouteVertexCount));
@@ -1526,7 +1523,7 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
         BuildSmokeStaticBucketWorkPlanInputToken(input.staticBucketWorkInput);
     const uint32_t previousValidBit = input.previousDirtyTokenValid ? 1u : 0u;
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
-    hash = HashSmokeBvhFrameTokenInput(hash, input.frameTokenInput);
+    hash = HashSmokeBvhFramePlanningFrameInput(hash, input.frameTokenInput);
     hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
     if (input.previousDirtyTokenValid)
     {
@@ -1543,7 +1540,7 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
         BuildSmokeStaticBucketWorkPlanInputToken(snapshot.staticBucketWorkSnapshot);
     const uint32_t previousValidBit = snapshot.previousDirtyTokenValid ? 1u : 0u;
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
-    hash = HashSmokeBvhFrameTokenInput(hash, snapshot.frameTokenInput);
+    hash = HashSmokeBvhFramePlanningFrameInput(hash, snapshot.frameTokenInput);
     hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
     if (snapshot.previousDirtyTokenValid)
     {
