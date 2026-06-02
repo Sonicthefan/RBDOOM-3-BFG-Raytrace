@@ -5051,6 +5051,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bvhFramePlanningInput.frameTokenInput.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
     bvhFramePlanningInput.frameTokenInput.rigidRouteSeenThisFrameCount = rigidRouteBuild.stats.emittedSeenThisFrame;
     bvhFramePlanningInput.frameTokenInput.rigidRouteCachedInstanceCount = rigidRouteBuild.stats.emittedFromCache;
+    bvhFramePlanningInput.frameTokenInput.rigidTlasInstanceSignature =
+        rigidTlasPlanValid ? rigidTlasPlan.tlasInstanceSignature : 0;
     bvhFramePlanningInput.frameTokenInput.baseTlasInstanceCount = instanceCount - rigidTlasInstanceCount;
     bvhFramePlanningInput.frameTokenInput.rigidTlasInstanceCount = rigidTlasInstanceCount;
     bvhFramePlanningInput.frameTokenInput.hasStaticBlas = hasStaticBlas;

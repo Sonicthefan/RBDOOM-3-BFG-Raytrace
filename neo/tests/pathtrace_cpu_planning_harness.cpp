@@ -2020,6 +2020,7 @@ void TestBvhFrameToken()
     input.rigidRouteInstanceCount = 3;
     input.rigidRouteSeenThisFrameCount = 2;
     input.rigidRouteCachedInstanceCount = 1;
+    input.rigidTlasInstanceSignature = 700;
     input.baseTlasInstanceCount = 2;
     input.rigidTlasInstanceCount = 3;
     input.hasStaticBlas = true;
@@ -2057,6 +2058,14 @@ void TestBvhFrameToken()
         baseToken.dirtyToken.activeSetSignature == tlasChangedToken.dirtyToken.activeSetSignature &&
         baseToken.dirtyToken.tlasInstanceSignature != tlasChangedToken.dirtyToken.tlasInstanceSignature,
         "BVH frame token maps submitted TLAS count changes to TLAS signature only");
+
+    RtSmokeBvhFrameTokenInput rigidSignatureChangedInput = input;
+    rigidSignatureChangedInput.rigidTlasInstanceSignature = 701;
+    const RtSmokeBvhFrameToken rigidSignatureChangedToken = BuildSmokeBvhFrameToken(rigidSignatureChangedInput);
+    Check(baseToken.dirtyToken.geometryContentSignature == rigidSignatureChangedToken.dirtyToken.geometryContentSignature &&
+        baseToken.dirtyToken.activeSetSignature == rigidSignatureChangedToken.dirtyToken.activeSetSignature &&
+        baseToken.dirtyToken.tlasInstanceSignature != rigidSignatureChangedToken.dirtyToken.tlasInstanceSignature,
+        "BVH frame token maps rigid TLAS signature changes to TLAS signature only");
 
     RtSmokeBvhFrameTokenInput staticRouteChangedInput = input;
     staticRouteChangedInput.staticTlasInstanceSignature = 601;
@@ -2101,6 +2110,7 @@ void TestBvhFramePlanningResult()
     input.frameTokenInput.dynamicVertexCount = 3;
     input.frameTokenInput.dynamicIndexCount = 3;
     input.frameTokenInput.rigidRouteInstanceCount = 1;
+    input.frameTokenInput.rigidTlasInstanceSignature = 905;
     input.frameTokenInput.baseTlasInstanceCount = 2;
     input.frameTokenInput.rigidTlasInstanceCount = 1;
     input.frameTokenInput.hasStaticBlas = true;
@@ -2155,6 +2165,11 @@ void TestBvhFramePlanningResult()
     Check(BuildSmokeBvhFramePlanningInputToken(previousChangedInput) !=
             previousValidPlanningToken,
         "BVH frame planning input token tracks previous dirty token contents");
+    RtSmokeBvhFramePlanningInput rigidSignatureChangedPlanningInput = input;
+    rigidSignatureChangedPlanningInput.frameTokenInput.rigidTlasInstanceSignature ^= 0x40ull;
+    Check(BuildSmokeBvhFramePlanningInputToken(rigidSignatureChangedPlanningInput) !=
+            basePlanningToken,
+        "BVH frame planning input token tracks rigid TLAS instance signatures");
     const RtSmokeBvhFramePlanningSnapshot snapshot =
         CaptureSmokeBvhFramePlanningSnapshot(input);
     const uint64_t snapshotPlanningToken =

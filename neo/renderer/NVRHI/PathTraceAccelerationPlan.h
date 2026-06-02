@@ -573,6 +573,7 @@ struct RtSmokeBvhFrameTokenInput
     int rigidRouteInstanceCount = 0;
     int rigidRouteSeenThisFrameCount = 0;
     int rigidRouteCachedInstanceCount = 0;
+    uint64_t rigidTlasInstanceSignature = 0;
     int baseTlasInstanceCount = 0;
     int rigidTlasInstanceCount = 0;
     bool hasStaticBlas = false;

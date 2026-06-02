@@ -1393,6 +1393,7 @@ RtSmokeBvhFrameToken BuildSmokeBvhFrameToken(
     const uint32_t hasDynamicBlasBit = input.hasDynamicBlas ? 1u : 0u;
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &activeSetSignature, sizeof(activeSetSignature));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.staticTlasInstanceSignature, sizeof(input.staticTlasInstanceSignature));
+    tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.rigidTlasInstanceSignature, sizeof(input.rigidTlasInstanceSignature));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &hasStaticBlasBit, sizeof(hasStaticBlasBit));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &hasDynamicBlasBit, sizeof(hasDynamicBlasBit));
     tlasInstanceSignature = HashSmokePlanBytes(tlasInstanceSignature, &input.baseTlasInstanceCount, sizeof(input.baseTlasInstanceCount));
@@ -1438,6 +1439,7 @@ static uint64_t HashSmokeBvhFrameTokenInput(
     hash = HashSmokePlanBytes(hash, &input.rigidRouteInstanceCount, sizeof(input.rigidRouteInstanceCount));
     hash = HashSmokePlanBytes(hash, &input.rigidRouteSeenThisFrameCount, sizeof(input.rigidRouteSeenThisFrameCount));
     hash = HashSmokePlanBytes(hash, &input.rigidRouteCachedInstanceCount, sizeof(input.rigidRouteCachedInstanceCount));
+    hash = HashSmokePlanBytes(hash, &input.rigidTlasInstanceSignature, sizeof(input.rigidTlasInstanceSignature));
     hash = HashSmokePlanBytes(hash, &input.baseTlasInstanceCount, sizeof(input.baseTlasInstanceCount));
     hash = HashSmokePlanBytes(hash, &input.rigidTlasInstanceCount, sizeof(input.rigidTlasInstanceCount));
     const uint32_t flags =
