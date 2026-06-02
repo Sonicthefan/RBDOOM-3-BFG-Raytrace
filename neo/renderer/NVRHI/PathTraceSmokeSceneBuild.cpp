@@ -4107,6 +4107,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(accelerationPlanGeneration.materialGeneration),
             static_cast<unsigned long long>(accelerationPlanGeneration.lightGeneration),
             static_cast<unsigned long long>(rigidTlasPlanInputToken));
+        r_pathTracingCpuPlanningDump.SetInteger(0);
     }
 
     RtSmokePlanStaticBlasSignature staticSignature;
@@ -5056,135 +5057,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bvhFramePlanningInput.frameTokenInput.hasDynamicBlas = hasDynamicBlas;
     const RtSmokeBvhFramePlanningSnapshot bvhFramePlanningSnapshot =
         CaptureSmokeBvhFramePlanningSnapshot(bvhFramePlanningInput);
-
-    RtPathTraceCpuWorkGeneration bvhFramePlanningGeneration;
-    bvhFramePlanningGeneration.frameIndex = 0;
-    bvhFramePlanningGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
-    bvhFramePlanningGeneration.geometryGeneration = geometryUniverseStats.generation;
-    bvhFramePlanningGeneration.materialGeneration = materialTableSignature;
-    bvhFramePlanningGeneration.lightGeneration = BuildSmokeBvhFramePlanningInputToken(bvhFramePlanningSnapshot);
-    RtPathTraceCpuWorkPublishSnapshot(m_smokeBvhFrameCpuWorkState, bvhFramePlanningGeneration);
-
-    RtSmokeBvhFramePlanningResult bvhFramePlanningResult;
-    bool bvhFramePlanningAcceptedFromAsync = false;
-    int bvhFramePlanningMs = 0;
-    if (asyncCpuPlanning && m_smokeBvhFramePlanningFuture.valid())
-    {
-        const std::future_status futureStatus =
-            m_smokeBvhFramePlanningFuture.wait_for(std::chrono::seconds(0));
-        if (futureStatus == std::future_status::ready)
-        {
-            const RtSmokeBvhFramePlanningTimedResult timedResult = m_smokeBvhFramePlanningFuture.get();
-            m_smokeBvhFramePlanningAsyncGenerationValid = false;
-            RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
-            asyncEnvelope.completed = true;
-            asyncEnvelope.generation = m_smokeBvhFramePlanningAsyncGeneration;
-            asyncEnvelope.timing = m_smokeBvhFramePlanningAsyncTiming;
-            asyncEnvelope.timing.workerExecutionMs =
-                static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
-            const double asyncOutstandingMs =
-                static_cast<double>(Max(0, Sys_Milliseconds() - m_smokeBvhFramePlanningAsyncLaunchMs));
-            asyncEnvelope.timing.queueWaitMs =
-                Max(0.0, asyncOutstandingMs - asyncEnvelope.timing.workerExecutionMs);
-            RtPathTraceCpuWorkPublishCompletedResult(m_smokeBvhFrameCpuWorkState, asyncEnvelope);
-
-            const RtPathTraceCpuWorkFrameDecision asyncDecision =
-                RtPathTraceCpuWorkAcceptLatest(m_smokeBvhFrameCpuWorkState, bvhFramePlanningGeneration, &asyncEnvelope, false);
-            if (asyncDecision.accepted)
-            {
-                bvhFramePlanningResult = timedResult.result;
-                bvhFramePlanningMs = static_cast<int>(asyncEnvelope.timing.workerExecutionMs + 0.5);
-                m_smokeBvhFramePlanningAsyncCachedResult = timedResult.result;
-                m_smokeBvhFramePlanningAsyncCachedGeneration = m_smokeBvhFramePlanningAsyncGeneration;
-                m_smokeBvhFramePlanningAsyncCachedResultValid = true;
-                bvhFramePlanningAcceptedFromAsync = true;
-            }
-        }
-        else
-        {
-            RtPathTraceCpuWorkAcceptLatest(m_smokeBvhFrameCpuWorkState, bvhFramePlanningGeneration, nullptr, true);
-        }
-    }
-
-    if (!bvhFramePlanningAcceptedFromAsync &&
-        asyncCpuPlanning &&
-        m_smokeBvhFramePlanningAsyncCachedResultValid &&
-        RtPathTraceCpuWorkGenerationEquals(m_smokeBvhFramePlanningAsyncCachedGeneration, bvhFramePlanningGeneration))
-    {
-        bvhFramePlanningResult = m_smokeBvhFramePlanningAsyncCachedResult;
-        bvhFramePlanningAcceptedFromAsync = true;
-    }
-
-    if (!bvhFramePlanningAcceptedFromAsync)
-    {
-        const int bvhFramePlanningStartMs = Sys_Milliseconds();
-        {
-            OPTICK_EVENT("PT CPU BVH Frame Planning");
-            bvhFramePlanningResult = BuildSmokeBvhFramePlanningResult(bvhFramePlanningSnapshot);
-        }
-        bvhFramePlanningMs = Sys_Milliseconds() - bvhFramePlanningStartMs;
-        RtPathTraceCpuWorkResultEnvelope bvhFramePlanningEnvelope;
-        bvhFramePlanningEnvelope.completed = true;
-        bvhFramePlanningEnvelope.generation = bvhFramePlanningGeneration;
-        bvhFramePlanningEnvelope.timing.workerExecutionMs = static_cast<double>(bvhFramePlanningMs);
-        RtPathTraceCpuWorkPublishCompletedResult(m_smokeBvhFrameCpuWorkState, bvhFramePlanningEnvelope);
-        const RtPathTraceCpuWorkFrameDecision bvhFramePlanningDecision =
-            RtPathTraceCpuWorkAcceptLatest(m_smokeBvhFrameCpuWorkState, bvhFramePlanningGeneration, nullptr, true);
-        if (!bvhFramePlanningDecision.accepted && !bvhFramePlanningDecision.syncFallback)
-        {
-            common->Printf("PathTracePrimaryPass: failed to accept RT smoke CPU BVH frame plan\n");
-            return;
-        }
-    }
-
-    const bool bvhFramePlanningAlreadyCached =
-        m_smokeBvhFramePlanningAsyncCachedResultValid &&
-        RtPathTraceCpuWorkGenerationEquals(m_smokeBvhFramePlanningAsyncCachedGeneration, bvhFramePlanningGeneration);
-    const bool bvhFramePlanningAlreadyQueued =
-        m_smokeBvhFramePlanningAsyncGenerationValid &&
-        RtPathTraceCpuWorkGenerationEquals(m_smokeBvhFramePlanningAsyncGeneration, bvhFramePlanningGeneration);
-    if (asyncCpuPlanning &&
-        !m_smokeBvhFramePlanningFuture.valid() &&
-        !bvhFramePlanningAlreadyCached &&
-        !bvhFramePlanningAlreadyQueued)
-    {
-        m_smokeBvhFramePlanningAsyncTiming = RtPathTraceCpuWorkTiming();
-        m_smokeBvhFramePlanningAsyncTiming.snapshotCaptureMs = 0.0;
-        m_smokeBvhFramePlanningAsyncGeneration = bvhFramePlanningGeneration;
-        m_smokeBvhFramePlanningAsyncGenerationValid = true;
-        m_smokeBvhFramePlanningAsyncLaunchMs = Sys_Milliseconds();
-        m_smokeBvhFramePlanningFuture = std::async(
-            std::launch::async,
-            [bvhFramePlanningSnapshot]() {
-                return BuildSmokeBvhFramePlanningTimedResult(bvhFramePlanningSnapshot);
-            });
-    }
-
-    if (r_pathTracingCpuPlanningDump.GetInteger() != 0)
-    {
-        const bool bvhFramePlanningFuturePending = m_smokeBvhFramePlanningFuture.valid();
-        common->Printf(
-            "PathTracePrimaryPass: PT CPU BVH frame planning async=%d acceptedFromAsync=%d cached=%d queued=%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f planMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu)\n",
-            asyncCpuPlanning ? 1 : 0,
-            bvhFramePlanningAcceptedFromAsync ? 1 : 0,
-            bvhFramePlanningAlreadyCached ? 1 : 0,
-            bvhFramePlanningFuturePending ? 1 : 0,
-            static_cast<unsigned long long>(m_smokeBvhFrameCpuWorkState.acceptedResultCount),
-            static_cast<unsigned long long>(m_smokeBvhFrameCpuWorkState.rejectedStaleResultCount),
-            static_cast<unsigned long long>(m_smokeBvhFrameCpuWorkState.lateResultCount),
-            static_cast<unsigned long long>(m_smokeBvhFrameCpuWorkState.syncFallbackCount),
-            m_smokeBvhFrameCpuWorkState.lastAcceptedTiming.snapshotCaptureMs,
-            m_smokeBvhFrameCpuWorkState.lastAcceptedTiming.queueWaitMs,
-            m_smokeBvhFrameCpuWorkState.lastAcceptedTiming.workerExecutionMs,
-            bvhFramePlanningMs,
-            static_cast<unsigned long long>(bvhFramePlanningGeneration.frameIndex),
-            static_cast<unsigned long long>(bvhFramePlanningGeneration.sceneGeneration),
-            static_cast<unsigned long long>(bvhFramePlanningGeneration.geometryGeneration),
-            static_cast<unsigned long long>(bvhFramePlanningGeneration.materialGeneration),
-            static_cast<unsigned long long>(bvhFramePlanningGeneration.lightGeneration));
-        r_pathTracingCpuPlanningDump.SetInteger(0);
-    }
-
+    const RtSmokeBvhFramePlanningResult bvhFramePlanningResult =
+        BuildSmokeBvhFramePlanningResult(bvhFramePlanningSnapshot);
     const RtSmokeStaticBucketWorkPlan& staticBucketWorkPlan =
         bvhFramePlanningResult.staticBucketWorkPlan;
     sceneLogDesc.staticBvhResidentBuckets = staticBucketWorkPlan.activeSetPlan.residentBuckets;
