@@ -530,6 +530,12 @@ void TestRigidPlan()
         cappedPlan.tlasInstanceSignature != missingResidentBlasPlan.tlasInstanceSignature,
         "rigid TLAS plan honors max instance cap");
 
+    const uint64_t cappedToken = BuildSmokeRigidTlasPlanInputToken(desc);
+    observations[1].meshHash = 777;
+    observations[1].objectToWorld[12] = 99.0f;
+    Check(cappedToken == BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token ignores observations after max instance cap");
+
     RtSmokeRigidTlasObservation nonRigid = observations[0];
     nonRigid.sourceFlags = 0;
     RtSmokeRigidTlasPlan streamingPlan;

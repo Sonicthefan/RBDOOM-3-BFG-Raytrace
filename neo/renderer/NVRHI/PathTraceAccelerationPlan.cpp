@@ -1694,8 +1694,14 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
         return hash;
     }
 
+    int emittedInstances = 0;
     for (int observationIndex = 0; observationIndex < desc.observationCount; ++observationIndex)
     {
+        if (desc.maxInstances > 0 && emittedInstances >= desc.maxInstances)
+        {
+            break;
+        }
+
         const RtSmokeRigidTlasObservation& observation = desc.observations[observationIndex];
         const uint32_t observationFlags =
             (observation.hasMeshRecord ? 1u : 0u) |
@@ -1714,6 +1720,16 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
         if (observation.hasPreviousObjectToWorld)
         {
             hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
+        }
+
+        const bool accepted =
+            (observation.sourceFlags & desc.rigidSourceMask) != 0 &&
+            observation.hasMeshRecord &&
+            (observation.meshSeenThisFrame || observation.residencyEnabled) &&
+            observation.hasBlas;
+        if (accepted)
+        {
+            ++emittedInstances;
         }
     }
     return hash;
