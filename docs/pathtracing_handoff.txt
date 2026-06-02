@@ -1380,3 +1380,52 @@ focused, measured tasks:
 The module split is now readable enough that future sessions should start from
 docs/pathtrace_modules.txt, inspect only the relevant files, and avoid reopening
 the entire refactor unless a real ownership problem appears.
+
+PT CPU worker / BVH planning status - 2026-06-02
+------------------------------------------------
+
+Branch: restir-development.
+
+Current state:
+
+- The headless non-graphical PT CPU planning harness exists and is the primary
+  proof gate for this lane.
+- CPU-only planning code is concentrated in PathTraceCpuWork.* and
+  PathTraceAccelerationPlan.*.
+- Snapshot/result/generation/timing helpers exist for stale/late/accepted CPU
+  work and are covered by the harness.
+- Static acceleration planning, rigid TLAS planning, static bucket work, BVH
+  frame dirty-token planning, upload metadata, and previous-snapshot upload
+  signatures have deterministic token/signature coverage.
+- The runtime path has opt-in async CPU planning for acceleration planning and
+  rigid TLAS planning through r_pathTracingCpuPlanningAsync.
+- The BVH frame planning result is currently consumed for CPU diagnostics and
+  dirty-token bookkeeping in PathTraceSmokeSceneBuild.cpp. It does not move
+  NVRHI resource creation, uploads, barriers, BLAS/TLAS command submission, or
+  binding-set work off the render thread.
+
+Validation already used heavily:
+
+- cmake --build build-code-worker --config Release --target
+  PathTraceCpuPlanningHarness
+- ctest --test-dir build-code-worker -C Release --output-on-failure -R
+  PathTraceCpuPlanningHarness
+- build-code-worker\Release\PathTraceCpuPlanningHarness.exe --stress 20
+- cmake --build build-code-worker --config Release --target RBDoom3BFG
+
+Do not casually resume:
+
+- A previous attempt to consume full BVH-frame async runtime results caused a
+  visible regression where debug mode 18 appeared forced and image noise
+  increased. That path was reverted. Reintroduce it only behind a very narrow
+  diagnostic gate, with a CVar/runtime-state audit and explicit in-game
+  validation.
+
+Remaining useful work:
+
+- Final audit of PathTraceSmokeSceneBuild.cpp against the CPU-only boundary.
+- Small CPU-only token/signature cleanups only when harness-provable.
+- Optional handoff cleanup after the branch is considered ready.
+- Runtime BVH-frame async consumption is the main remaining risky item; treat it
+  as a separate opt-in experiment, not as required completion for the current
+  safe CPU planning lane.
