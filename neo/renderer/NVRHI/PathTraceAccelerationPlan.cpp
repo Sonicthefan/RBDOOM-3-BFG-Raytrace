@@ -410,6 +410,9 @@ bool BuildSmokeStaticTlasBucketObservation(
     observation.hasBlas = input.hasBlas;
     observation.activeReasonFlags = input.seenThisFrame ? input.activeReasonFlags : 0u;
     observation.routeRecordIndex = input.routeRecordIndex;
+    observation.residentVertexOffset = input.vertexOffset;
+    observation.residentIndexOffset = input.indexOffset;
+    observation.residentTriangleOffset = input.triangleOffset;
     observation.residentSurfaceCount = 1;
     observation.residentVertexCount = input.vertexCount;
     observation.residentIndexCount = input.indexCount;
@@ -422,6 +425,78 @@ bool BuildSmokeStaticTlasBucketObservation(
         observation.activeTriangleCount = input.triangleCount;
     }
     return true;
+}
+
+RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
+    const RtSmokeStaticBucketBlasPlanDesc& desc)
+{
+    RtSmokeStaticBucketBlasPlan plan;
+    plan.planSignature = 14695981039346656037ull;
+    if (!desc.buckets || desc.bucketCount <= 0)
+    {
+        return plan;
+    }
+
+    const int reserveCount = desc.maxRecords > 0 && desc.maxRecords < desc.bucketCount
+        ? desc.maxRecords
+        : desc.bucketCount;
+    plan.records.reserve(reserveCount);
+    for (int bucketIndex = 0; bucketIndex < desc.bucketCount; ++bucketIndex)
+    {
+        const RtSmokeStaticTlasBucketObservation& bucket = desc.buckets[bucketIndex];
+        if (!bucket.resident)
+        {
+            ++plan.skippedInvalid;
+            continue;
+        }
+
+        ++plan.residentBuckets;
+        if (bucket.active)
+        {
+            ++plan.activeBuckets;
+        }
+        else if (desc.activeOnly)
+        {
+            ++plan.skippedInactive;
+            continue;
+        }
+
+        if (bucket.residentVertexOffset < 0 ||
+            bucket.residentIndexOffset < 0 ||
+            bucket.residentTriangleOffset < 0 ||
+            bucket.residentVertexCount <= 0 ||
+            bucket.residentIndexCount <= 0 ||
+            bucket.residentTriangleCount <= 0)
+        {
+            ++plan.skippedInvalid;
+            continue;
+        }
+        if (desc.maxRecords > 0 && plan.emittedRecords >= desc.maxRecords)
+        {
+            plan.overflow = true;
+            break;
+        }
+
+        RtSmokeStaticBucketBlasRecord record;
+        record.bucketKey = bucket.bucketKey;
+        record.routeRecordIndex = bucket.routeRecordIndex;
+        record.activeReasonFlags = bucket.activeReasonFlags;
+        record.active = bucket.active;
+        record.range.vertexOffset = bucket.residentVertexOffset;
+        record.range.vertexCount = bucket.residentVertexCount;
+        record.range.indexOffset = bucket.residentIndexOffset;
+        record.range.indexCount = bucket.residentIndexCount;
+        record.range.triangleOffset = bucket.residentTriangleOffset;
+        record.range.triangleCount = bucket.residentTriangleCount;
+        plan.records.push_back(record);
+        ++plan.emittedRecords;
+
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.bucketKey, sizeof(record.bucketKey));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.routeRecordIndex, sizeof(record.routeRecordIndex));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.activeReasonFlags, sizeof(record.activeReasonFlags));
+        plan.planSignature = HashSmokePlanBytes(plan.planSignature, &record.range, sizeof(record.range));
+    }
+    return plan;
 }
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(

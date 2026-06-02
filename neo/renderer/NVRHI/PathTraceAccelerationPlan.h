@@ -182,6 +182,9 @@ struct RtSmokeStaticTlasBucketObservation
     bool active = false;
     bool hasBlas = false;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    int residentVertexOffset = 0;
+    int residentIndexOffset = 0;
+    int residentTriangleOffset = 0;
     int residentSurfaceCount = 0;
     int residentVertexCount = 0;
     int residentIndexCount = 0;
@@ -197,6 +200,9 @@ struct RtSmokeStaticTlasBucketObservationInput
     uint64_t bucketKey = 0;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
     uint32_t activeReasonFlags = 0;
+    int vertexOffset = 0;
+    int indexOffset = 0;
+    int triangleOffset = 0;
     int vertexCount = 0;
     int indexCount = 0;
     int triangleCount = 0;
@@ -235,6 +241,35 @@ struct RtSmokeStaticTlasActiveSetPlan
     bool monolithicStaticBlas = true;
     bool inactiveResidentGeometryIncluded = false;
     bool requiresBucketedStaticBlas = false;
+};
+
+struct RtSmokeStaticBucketBlasRecord
+{
+    uint64_t bucketKey = 0;
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint32_t activeReasonFlags = 0;
+    RtSmokePlanGeometryRange range;
+    bool active = false;
+};
+
+struct RtSmokeStaticBucketBlasPlanDesc
+{
+    const RtSmokeStaticTlasBucketObservation* buckets = nullptr;
+    int bucketCount = 0;
+    bool activeOnly = true;
+    int maxRecords = 0;
+};
+
+struct RtSmokeStaticBucketBlasPlan
+{
+    std::vector<RtSmokeStaticBucketBlasRecord> records;
+    uint64_t planSignature = 0;
+    int residentBuckets = 0;
+    int activeBuckets = 0;
+    int emittedRecords = 0;
+    int skippedInactive = 0;
+    int skippedInvalid = 0;
+    bool overflow = false;
 };
 
 struct RtSmokeStaticBvhBucketSignatureInput
@@ -477,6 +512,9 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
 bool BuildSmokeStaticTlasBucketObservation(
     const RtSmokeStaticTlasBucketObservationInput& input,
     RtSmokeStaticTlasBucketObservation& observation);
+
+RtSmokeStaticBucketBlasPlan BuildSmokeStaticBucketBlasPlan(
+    const RtSmokeStaticBucketBlasPlanDesc& desc);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);

@@ -554,6 +554,9 @@ void TestStaticBucketObservation()
     input.bucketKey = 900;
     input.routeRecordIndex = 7;
     input.activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE | RT_SMOKE_STATIC_ACTIVE_SELECTED_AREA;
+    input.vertexOffset = 3;
+    input.indexOffset = 9;
+    input.triangleOffset = 3;
     input.vertexCount = 12;
     input.indexCount = 36;
     input.triangleCount = 12;
@@ -567,8 +570,10 @@ void TestStaticBucketObservation()
         observation.resident && observation.active && observation.hasBlas,
         "static bucket observation preserves resident active identity");
     Check(observation.residentSurfaceCount == 1 && observation.residentVertexCount == 12 &&
-        observation.residentIndexCount == 36 && observation.residentTriangleCount == 12,
-        "static bucket observation records resident geometry counts");
+        observation.residentIndexCount == 36 && observation.residentTriangleCount == 12 &&
+        observation.residentVertexOffset == 3 && observation.residentIndexOffset == 9 &&
+        observation.residentTriangleOffset == 3,
+        "static bucket observation records resident geometry ranges");
     Check(observation.activeSurfaceCount == 1 && observation.activeVertexCount == 12 &&
         observation.activeIndexCount == 36 && observation.activeTriangleCount == 12 &&
         observation.activeReasonFlags == input.activeReasonFlags,
@@ -588,6 +593,64 @@ void TestStaticBucketObservation()
     input.valid = true;
     input.indexCount = 0;
     Check(!BuildSmokeStaticTlasBucketObservation(input, invalidObservation), "static bucket observation rejects empty ranges");
+}
+
+void TestStaticBucketBlasPlan()
+{
+    RtSmokeStaticTlasBucketObservation buckets[3];
+    buckets[0].bucketKey = 100;
+    buckets[0].resident = true;
+    buckets[0].active = true;
+    buckets[0].activeReasonFlags = RT_SMOKE_STATIC_ACTIVE_VISIBLE;
+    buckets[0].routeRecordIndex = 0;
+    buckets[0].residentVertexOffset = 0;
+    buckets[0].residentVertexCount = 10;
+    buckets[0].residentIndexOffset = 0;
+    buckets[0].residentIndexCount = 30;
+    buckets[0].residentTriangleOffset = 0;
+    buckets[0].residentTriangleCount = 10;
+
+    buckets[1] = buckets[0];
+    buckets[1].bucketKey = 200;
+    buckets[1].active = false;
+    buckets[1].activeReasonFlags = 0;
+    buckets[1].routeRecordIndex = 1;
+    buckets[1].residentVertexOffset = 10;
+    buckets[1].residentVertexCount = 20;
+    buckets[1].residentIndexOffset = 30;
+    buckets[1].residentIndexCount = 60;
+    buckets[1].residentTriangleOffset = 10;
+    buckets[1].residentTriangleCount = 20;
+
+    buckets[2] = buckets[0];
+    buckets[2].bucketKey = 300;
+    buckets[2].residentIndexCount = 0;
+
+    RtSmokeStaticBucketBlasPlanDesc desc;
+    desc.buckets = buckets;
+    desc.bucketCount = 3;
+    desc.activeOnly = true;
+    const RtSmokeStaticBucketBlasPlan activePlan = BuildSmokeStaticBucketBlasPlan(desc);
+    Check(activePlan.emittedRecords == 1 && activePlan.activeBuckets == 2 &&
+        activePlan.residentBuckets == 3 && activePlan.skippedInactive == 1 &&
+        activePlan.skippedInvalid == 1,
+        "static bucket BLAS plan emits active valid bucket ranges");
+    Check(activePlan.records[0].bucketKey == 100 &&
+        activePlan.records[0].range.vertexOffset == 0 &&
+        activePlan.records[0].range.indexCount == 30 &&
+        activePlan.planSignature != 0,
+        "static bucket BLAS plan preserves bucket range identity");
+
+    desc.activeOnly = false;
+    const RtSmokeStaticBucketBlasPlan residentPlan = BuildSmokeStaticBucketBlasPlan(desc);
+    Check(residentPlan.emittedRecords == 2 && residentPlan.skippedInactive == 0 &&
+        residentPlan.records[1].bucketKey == 200 && !residentPlan.records[1].active,
+        "static bucket BLAS plan can retain inactive resident bucket ranges");
+
+    desc.activeOnly = false;
+    desc.maxRecords = 1;
+    const RtSmokeStaticBucketBlasPlan cappedPlan = BuildSmokeStaticBucketBlasPlan(desc);
+    Check(cappedPlan.emittedRecords == 1 && cappedPlan.overflow, "static bucket BLAS plan reports record cap overflow");
 }
 
 void TestBvhDirtyPlan()
@@ -1076,6 +1139,7 @@ int main(int argc, char** argv)
     TestRigidBlasBuildPlan();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
+    TestStaticBucketBlasPlan();
     TestBvhDirtyPlan();
     TestBvhFrameToken();
     TestBvhBucketableSignatures();
