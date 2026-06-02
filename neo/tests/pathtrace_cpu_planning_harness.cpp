@@ -876,6 +876,15 @@ void TestStaticBucketWorkPlan()
         blockedPlan.planSignature != 0,
         "static bucket work plan composes bucket cache, build, route, and shader compatibility decisions");
 
+    RtSmokeStaticBucketWorkPlanInput disabledRouteInput = input;
+    disabledRouteInput.enableStaticRoutes = false;
+    const RtSmokeStaticBucketWorkPlan disabledRoutePlan =
+        BuildSmokeStaticBucketWorkPlan(disabledRouteInput);
+    Check(!disabledRoutePlan.routeNamespace.staticRoutesEnabled &&
+        !disabledRoutePlan.routeNamespace.staticRoutesBlocked &&
+        disabledRoutePlan.planSignature != blockedPlan.planSignature,
+        "static bucket work plan signature separates disabled and blocked static routes");
+
     input.shaderSupportsStaticBucketRoutes = true;
     const RtSmokeStaticBucketWorkPlan routedPlan =
         BuildSmokeStaticBucketWorkPlan(input);

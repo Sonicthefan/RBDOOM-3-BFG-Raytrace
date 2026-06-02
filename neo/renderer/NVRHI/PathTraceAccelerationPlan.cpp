@@ -1012,8 +1012,16 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeTablePlan.tableSignature, sizeof(plan.routeTablePlan.tableSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildObservationPlan.planSignature, sizeof(plan.buildObservationPlan.planSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildBatchPlan.planSignature, sizeof(plan.buildBatchPlan.planSignature));
+    const uint32_t routeNamespaceFlags =
+        (plan.routeNamespace.staticRoutesEnabled ? 1u : 0u) |
+        (plan.routeNamespace.staticRoutesRequireShaderSupport ? 2u : 0u) |
+        (plan.routeNamespace.staticRoutesBlocked ? 4u : 0u) |
+        (plan.routeNamespace.rigidRouteBaseShifted ? 8u : 0u);
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeNamespace.staticFirstInstanceId, sizeof(plan.routeNamespace.staticFirstInstanceId));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeNamespace.rigidFirstInstanceId, sizeof(plan.routeNamespace.rigidFirstInstanceId));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeNamespace.staticRouteInstanceCount, sizeof(plan.routeNamespace.staticRouteInstanceCount));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeNamespace.rigidRouteInstanceCount, sizeof(plan.routeNamespace.rigidRouteInstanceCount));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &routeNamespaceFlags, sizeof(routeNamespaceFlags));
     return plan;
 }
 
