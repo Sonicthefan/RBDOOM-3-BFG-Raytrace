@@ -1819,6 +1819,20 @@ void TestStaticBucketTraversalCompatibility()
     Check(routedCompatibility.currentStaticShaderCompatible &&
         !routedCompatibility.requiresShaderRouteMetadata,
         "static bucket traversal compatibility allows bucketed records when shader routes are available");
+
+    input.records = nullptr;
+    input.recordCount = 2;
+    const RtSmokeStaticBucketTraversalCompatibility nullRecordsCompatibility =
+        BuildSmokeStaticBucketTraversalCompatibility(input);
+    input.records = bucketRecords;
+    input.recordCount = -2;
+    const RtSmokeStaticBucketTraversalCompatibility negativeCountCompatibility =
+        BuildSmokeStaticBucketTraversalCompatibility(input);
+    Check(nullRecordsCompatibility.recordCount == 0 &&
+        negativeCountCompatibility.recordCount == 0 &&
+        !nullRecordsCompatibility.requiresShaderRouteMetadata &&
+        !negativeCountCompatibility.requiresShaderRouteMetadata,
+        "static bucket traversal compatibility normalizes absent records as empty");
 }
 
 void TestRouteInstanceNamespacePlan()

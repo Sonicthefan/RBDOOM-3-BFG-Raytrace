@@ -622,13 +622,14 @@ RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompati
     const RtSmokeStaticBucketTraversalCompatibilityInput& input)
 {
     RtSmokeStaticBucketTraversalCompatibility plan;
-    plan.recordCount = input.recordCount;
-    if (!input.records || input.recordCount <= 0)
+    const int recordCount = input.records && input.recordCount > 0 ? input.recordCount : 0;
+    plan.recordCount = recordCount;
+    if (recordCount <= 0)
     {
         return plan;
     }
 
-    for (int recordIndex = 0; recordIndex < input.recordCount; ++recordIndex)
+    for (int recordIndex = 0; recordIndex < recordCount; ++recordIndex)
     {
         const RtSmokeStaticBucketBlasRecord& record = input.records[recordIndex];
         if (record.range.vertexOffset != 0 ||
@@ -641,7 +642,7 @@ RtSmokeStaticBucketTraversalCompatibility BuildSmokeStaticBucketTraversalCompati
 
     const RtSmokeStaticBucketBlasRecord& firstRecord = input.records[0];
     plan.exactMonolithicRecord =
-        input.recordCount == 1 &&
+        recordCount == 1 &&
         firstRecord.range.vertexOffset == 0 &&
         firstRecord.range.indexOffset == 0 &&
         firstRecord.range.triangleOffset == 0 &&
