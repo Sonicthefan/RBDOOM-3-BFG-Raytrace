@@ -2239,6 +2239,22 @@ void TestUploadPlan()
 
 void TestGenerationAcceptance()
 {
+    RtPathTraceCpuWorkState incompleteState;
+    RtPathTraceCpuWorkGeneration incompleteExpected;
+    incompleteExpected.frameIndex = 4;
+    RtPathTraceCpuWorkPublishSnapshot(incompleteState, incompleteExpected);
+    RtPathTraceCpuWorkResultEnvelope incomplete;
+    incomplete.completed = false;
+    incomplete.generation = incompleteExpected;
+    RtPathTraceCpuWorkPublishCompletedResult(incompleteState, incomplete);
+    const RtPathTraceCpuWorkFrameDecision incompleteDecision =
+        RtPathTraceCpuWorkAcceptLatest(incompleteState, incompleteExpected, nullptr, true);
+    Check(incompleteDecision.lateFallback &&
+        incompleteDecision.syncFallback &&
+        !incompleteState.currentResult.valid &&
+        !incompleteState.pendingResult.valid,
+        "incomplete CPU work result is ignored and falls back as late work");
+
     RtPathTraceCpuWorkState state;
     RtPathTraceCpuWorkGeneration expected;
     expected.frameIndex = 5;
