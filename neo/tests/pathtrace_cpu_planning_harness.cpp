@@ -723,6 +723,7 @@ void TestStaticBucketWorkPlan()
     input.totalVertexCount = 36;
     input.totalIndexCount = 108;
     input.totalTriangleCount = 36;
+    input.hasStaticBlas = true;
     input.submitBuilds = true;
     input.enableStaticRoutes = true;
     input.shaderSupportsStaticBucketRoutes = false;
@@ -730,6 +731,9 @@ void TestStaticBucketWorkPlan()
     const RtSmokeStaticBucketWorkPlan blockedPlan =
         BuildSmokeStaticBucketWorkPlan(input);
     Check(blockedPlan.bucketSignatures.size() == 3 &&
+        blockedPlan.activeSetPlan.activeBuckets == 2 &&
+        blockedPlan.activeSetPlan.inactiveResidentBuckets == 1 &&
+        blockedPlan.activeSetPlan.inactiveResidentGeometryIncluded &&
         blockedPlan.bucketBlasPlan.emittedRecords == 2 &&
         blockedPlan.bucketBlasPlan.skippedInactive == 1 &&
         blockedPlan.traversalCompatibility.requiresShaderRouteMetadata &&
@@ -782,6 +786,26 @@ void TestStaticBucketWorkPlan()
         bucketCappedPlan.routeTablePlan.emittedRecords == 1 &&
         !bucketCappedPlan.routeTablePlan.overflow,
         "static bucket work plan reports bucket BLAS cap overflow independently");
+
+    RtSmokeStaticBucketWorkPlanInput monolithicInput;
+    monolithicInput.buckets = buckets;
+    monolithicInput.bucketCount = 1;
+    monolithicInput.geometryContentSignature = 1000;
+    monolithicInput.materialGeneration = 2000;
+    monolithicInput.totalVertexCount = buckets[0].residentVertexCount;
+    monolithicInput.totalIndexCount = buckets[0].residentIndexCount;
+    monolithicInput.totalTriangleCount = buckets[0].residentTriangleCount;
+    monolithicInput.hasStaticBlas = true;
+    monolithicInput.enableStaticRoutes = true;
+    monolithicInput.shaderSupportsStaticBucketRoutes = false;
+    monolithicInput.rigidRouteRecordCount = 3;
+    const RtSmokeStaticBucketWorkPlan monolithicPlan =
+        BuildSmokeStaticBucketWorkPlan(monolithicInput);
+    Check(monolithicPlan.traversalCompatibility.exactMonolithicRecord &&
+        !monolithicPlan.routeNamespace.staticRoutesBlocked &&
+        monolithicPlan.routeTablePlan.emittedRecords == 0 &&
+        monolithicPlan.routeNamespace.rigidFirstInstanceId == 2,
+        "static bucket work plan keeps exact monolithic static BLAS on the current route namespace");
 }
 
 void TestStaticBucketRigidRouteNamespaceComposition()
@@ -814,6 +838,7 @@ void TestStaticBucketRigidRouteNamespaceComposition()
     staticInput.totalVertexCount = 6;
     staticInput.totalIndexCount = 6;
     staticInput.totalTriangleCount = 2;
+    staticInput.hasStaticBlas = true;
     staticInput.enableStaticRoutes = true;
     staticInput.shaderSupportsStaticBucketRoutes = true;
     staticInput.rigidRouteRecordCount = 2;

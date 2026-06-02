@@ -462,6 +462,8 @@ struct RtSmokeStaticBucketWorkPlanInput
     int totalVertexCount = 0;
     int totalIndexCount = 0;
     int totalTriangleCount = 0;
+    bool monolithicStaticBlas = true;
+    bool hasStaticBlas = false;
     bool submitBuilds = false;
     bool forceRebuild = false;
     bool enableStaticRoutes = false;
@@ -482,6 +484,8 @@ struct RtSmokeStaticBucketWorkPlanSnapshot
     int totalVertexCount = 0;
     int totalIndexCount = 0;
     int totalTriangleCount = 0;
+    bool monolithicStaticBlas = true;
+    bool hasStaticBlas = false;
     bool submitBuilds = false;
     bool forceRebuild = false;
     bool enableStaticRoutes = false;
@@ -496,6 +500,7 @@ struct RtSmokeStaticBucketWorkPlanSnapshot
 struct RtSmokeStaticBucketWorkPlan
 {
     std::vector<RtSmokeStaticBvhBucketSignature> bucketSignatures;
+    RtSmokeStaticTlasActiveSetPlan activeSetPlan;
     RtSmokeStaticBucketBlasPlan bucketBlasPlan;
     RtSmokeStaticBucketTraversalCompatibility traversalCompatibility;
     RtSmokeRouteInstanceNamespacePlan routeNamespace;

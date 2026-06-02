@@ -893,6 +893,13 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
         }
     }
 
+    RtSmokeStaticTlasActiveSetPlanDesc activeSetDesc;
+    activeSetDesc.buckets = input.buckets;
+    activeSetDesc.bucketCount = input.bucketCount;
+    activeSetDesc.monolithicStaticBlas = input.monolithicStaticBlas;
+    activeSetDesc.hasStaticBlas = input.hasStaticBlas;
+    plan.activeSetPlan = BuildSmokeStaticTlasActiveSetPlan(activeSetDesc);
+
     RtSmokeStaticBucketBlasPlanDesc bucketBlasDesc;
     bucketBlasDesc.buckets = input.buckets;
     bucketBlasDesc.bucketCount = input.bucketCount;
@@ -913,7 +920,10 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     routeNamespaceInput.staticRouteRecordCount = plan.bucketBlasPlan.emittedRecords;
     routeNamespaceInput.rigidRouteRecordCount = input.rigidRouteRecordCount;
     routeNamespaceInput.firstRouteInstanceId = input.firstRouteInstanceId;
-    routeNamespaceInput.enableStaticRoutes = input.enableStaticRoutes;
+    routeNamespaceInput.enableStaticRoutes =
+        input.enableStaticRoutes &&
+        plan.bucketBlasPlan.emittedRecords > 0 &&
+        !plan.traversalCompatibility.exactMonolithicRecord;
     routeNamespaceInput.shaderSupportsStaticBucketRoutes = input.shaderSupportsStaticBucketRoutes;
     plan.routeNamespace = BuildSmokeRouteInstanceNamespacePlan(routeNamespaceInput);
 
@@ -944,6 +954,8 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
 
     const int signatureCount = static_cast<int>(plan.bucketSignatures.size());
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &signatureCount, sizeof(signatureCount));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.activeSetSignature, sizeof(plan.activeSetPlan.activeSetSignature));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.residentSetSignature, sizeof(plan.activeSetPlan.residentSetSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.bucketBlasPlan.planSignature, sizeof(plan.bucketBlasPlan.planSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.routeTablePlan.tableSignature, sizeof(plan.routeTablePlan.tableSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.buildObservationPlan.planSignature, sizeof(plan.buildObservationPlan.planSignature));
@@ -970,6 +982,8 @@ RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
     snapshot.totalVertexCount = input.totalVertexCount;
     snapshot.totalIndexCount = input.totalIndexCount;
     snapshot.totalTriangleCount = input.totalTriangleCount;
+    snapshot.monolithicStaticBlas = input.monolithicStaticBlas;
+    snapshot.hasStaticBlas = input.hasStaticBlas;
     snapshot.submitBuilds = input.submitBuilds;
     snapshot.forceRebuild = input.forceRebuild;
     snapshot.enableStaticRoutes = input.enableStaticRoutes;
@@ -997,7 +1011,9 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
         (input.submitBuilds ? 1u : 0u) |
         (input.forceRebuild ? 2u : 0u) |
         (input.enableStaticRoutes ? 4u : 0u) |
-        (input.shaderSupportsStaticBucketRoutes ? 8u : 0u);
+        (input.shaderSupportsStaticBucketRoutes ? 8u : 0u) |
+        (input.monolithicStaticBlas ? 16u : 0u) |
+        (input.hasStaticBlas ? 32u : 0u);
     hash = HashSmokePlanBytes(hash, &flags, sizeof(flags));
     hash = HashSmokePlanBytes(hash, &input.firstRouteInstanceId, sizeof(input.firstRouteInstanceId));
     hash = HashSmokePlanBytes(hash, &input.rigidRouteRecordCount, sizeof(input.rigidRouteRecordCount));
@@ -1058,6 +1074,8 @@ uint64_t BuildSmokeStaticBucketWorkPlanInputToken(
     input.totalVertexCount = snapshot.totalVertexCount;
     input.totalIndexCount = snapshot.totalIndexCount;
     input.totalTriangleCount = snapshot.totalTriangleCount;
+    input.monolithicStaticBlas = snapshot.monolithicStaticBlas;
+    input.hasStaticBlas = snapshot.hasStaticBlas;
     input.submitBuilds = snapshot.submitBuilds;
     input.forceRebuild = snapshot.forceRebuild;
     input.enableStaticRoutes = snapshot.enableStaticRoutes;
@@ -1083,6 +1101,8 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     input.totalVertexCount = snapshot.totalVertexCount;
     input.totalIndexCount = snapshot.totalIndexCount;
     input.totalTriangleCount = snapshot.totalTriangleCount;
+    input.monolithicStaticBlas = snapshot.monolithicStaticBlas;
+    input.hasStaticBlas = snapshot.hasStaticBlas;
     input.submitBuilds = snapshot.submitBuilds;
     input.forceRebuild = snapshot.forceRebuild;
     input.enableStaticRoutes = snapshot.enableStaticRoutes;
