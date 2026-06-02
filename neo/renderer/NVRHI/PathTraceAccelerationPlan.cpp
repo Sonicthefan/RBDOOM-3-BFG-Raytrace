@@ -627,6 +627,29 @@ RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
     return plan;
 }
 
+RtSmokeStaticBucketBlasBuildPlan BuildSmokeStaticBucketBlasBuildPlan(
+    const RtSmokeStaticBucketBlasBuildPlanInput& input)
+{
+    RtSmokeStaticBucketBlasBuildPlan plan;
+    if (!input.submitBuilds)
+    {
+        plan.skipBuild = true;
+        return plan;
+    }
+
+    plan.signatureChanged =
+        !input.signatureValid ||
+        input.previousBlasInputSignature != input.currentBlasInputSignature;
+    plan.createBlas = !input.hasBlas || !input.blasInputsCompatible;
+    plan.submitBuild =
+        input.forceRebuild ||
+        input.uploadRequired ||
+        plan.createBlas ||
+        plan.signatureChanged;
+    plan.skipBuild = !plan.submitBuild;
+    return plan;
+}
+
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input)
 {

@@ -341,6 +341,26 @@ struct RtSmokeStaticRouteTablePlan
     bool overflow = false;
 };
 
+struct RtSmokeStaticBucketBlasBuildPlanInput
+{
+    bool submitBuilds = false;
+    bool forceRebuild = false;
+    bool hasBlas = false;
+    bool uploadRequired = false;
+    bool blasInputsCompatible = false;
+    bool signatureValid = false;
+    uint64_t previousBlasInputSignature = 0;
+    uint64_t currentBlasInputSignature = 0;
+};
+
+struct RtSmokeStaticBucketBlasBuildPlan
+{
+    bool createBlas = false;
+    bool submitBuild = false;
+    bool skipBuild = false;
+    bool signatureChanged = false;
+};
+
 struct RtSmokeStaticBvhBucketSignatureInput
 {
     RtSmokeStaticTlasBucketObservation bucket;
@@ -593,6 +613,9 @@ RtSmokeRouteInstanceNamespacePlan BuildSmokeRouteInstanceNamespacePlan(
 
 RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
     const RtSmokeStaticRouteTablePlanInput& input);
+
+RtSmokeStaticBucketBlasBuildPlan BuildSmokeStaticBucketBlasBuildPlan(
+    const RtSmokeStaticBucketBlasBuildPlanInput& input);
 
 RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     const RtSmokeStaticBvhBucketSignatureInput& input);

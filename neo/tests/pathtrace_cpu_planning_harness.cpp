@@ -467,6 +467,63 @@ void TestRigidBlasBuildPlan()
     Check(!gateOffPlan.createBlas && !gateOffPlan.submitBuild && gateOffPlan.skipBuild, "rigid BLAS build gate skips build submission");
 }
 
+void TestStaticBucketBlasBuildPlan()
+{
+    RtSmokeStaticBucketBlasBuildPlanInput input;
+    input.submitBuilds = true;
+    input.hasBlas = true;
+    input.blasInputsCompatible = true;
+    input.signatureValid = true;
+    input.previousBlasInputSignature = 100;
+    input.currentBlasInputSignature = 100;
+    const RtSmokeStaticBucketBlasBuildPlan unchangedPlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(!unchangedPlan.createBlas &&
+        !unchangedPlan.submitBuild &&
+        unchangedPlan.skipBuild &&
+        !unchangedPlan.signatureChanged,
+        "static bucket BLAS build plan skips unchanged compatible bucket BLAS");
+
+    input.currentBlasInputSignature = 101;
+    const RtSmokeStaticBucketBlasBuildPlan changedSignaturePlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(!changedSignaturePlan.createBlas &&
+        changedSignaturePlan.submitBuild &&
+        changedSignaturePlan.signatureChanged,
+        "static bucket BLAS build plan rebuilds changed bucket signature");
+
+    input.currentBlasInputSignature = 100;
+    input.uploadRequired = true;
+    const RtSmokeStaticBucketBlasBuildPlan uploadPlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(uploadPlan.submitBuild && !uploadPlan.createBlas, "static bucket BLAS build plan rebuilds after required upload");
+
+    input.uploadRequired = false;
+    input.forceRebuild = true;
+    const RtSmokeStaticBucketBlasBuildPlan forcedPlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(forcedPlan.submitBuild && !forcedPlan.createBlas, "static bucket BLAS build plan honors force rebuild");
+
+    input.forceRebuild = false;
+    input.blasInputsCompatible = false;
+    const RtSmokeStaticBucketBlasBuildPlan incompatiblePlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(incompatiblePlan.createBlas && incompatiblePlan.submitBuild, "static bucket BLAS build plan recreates incompatible BLAS");
+
+    input.hasBlas = false;
+    const RtSmokeStaticBucketBlasBuildPlan missingPlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(missingPlan.createBlas && missingPlan.submitBuild, "static bucket BLAS build plan creates missing BLAS");
+
+    input.submitBuilds = false;
+    const RtSmokeStaticBucketBlasBuildPlan gateOffPlan =
+        BuildSmokeStaticBucketBlasBuildPlan(input);
+    Check(!gateOffPlan.createBlas &&
+        !gateOffPlan.submitBuild &&
+        gateOffPlan.skipBuild,
+        "static bucket BLAS build gate skips build submission");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1304,6 +1361,7 @@ int main(int argc, char** argv)
     TestAsyncSnapshotPlanning();
     TestRigidPlan();
     TestRigidBlasBuildPlan();
+    TestStaticBucketBlasBuildPlan();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
