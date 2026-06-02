@@ -1338,6 +1338,50 @@ RtSmokeRigidTlasPlanSnapshot CaptureSmokeRigidTlasPlanSnapshot(
     return snapshot;
 }
 
+uint64_t BuildSmokeRigidTlasPlanInputToken(
+    const RtSmokeRigidTlasPlanDesc& desc)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const int observationCount = desc.observationCount > 0 ? desc.observationCount : 0;
+    hash = HashSmokePlanBytes(hash, &observationCount, sizeof(observationCount));
+    hash = HashSmokePlanBytes(hash, &desc.rigidSourceMask, sizeof(desc.rigidSourceMask));
+    hash = HashSmokePlanBytes(hash, &desc.firstInstanceId, sizeof(desc.firstInstanceId));
+    hash = HashSmokePlanBytes(hash, &desc.instanceMask, sizeof(desc.instanceMask));
+    hash = HashSmokePlanBytes(hash, &desc.maxInstances, sizeof(desc.maxInstances));
+    if (!desc.observations || desc.observationCount <= 0)
+    {
+        return hash;
+    }
+
+    for (int observationIndex = 0; observationIndex < desc.observationCount; ++observationIndex)
+    {
+        const RtSmokeRigidTlasObservation& observation = desc.observations[observationIndex];
+        const uint32_t observationFlags =
+            (observation.hasMeshRecord ? 1u : 0u) |
+            (observation.meshSeenThisFrame ? 2u : 0u) |
+            (observation.residencyEnabled ? 4u : 0u) |
+            (observation.hasBlas ? 8u : 0u) |
+            (observation.seenThisFrame ? 16u : 0u) |
+            (observation.hasPreviousObjectToWorld ? 32u : 0u) |
+            (observation.transformContinuous ? 64u : 0u);
+        hash = HashSmokePlanBytes(hash, &observation.meshHash, sizeof(observation.meshHash));
+        hash = HashSmokePlanBytes(hash, &observation.instanceId, sizeof(observation.instanceId));
+        hash = HashSmokePlanBytes(hash, &observation.sourceFlags, sizeof(observation.sourceFlags));
+        hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
+        hash = HashSmokePlanBytes(hash, &observationFlags, sizeof(observationFlags));
+        hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
+        hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
+    }
+    return hash;
+}
+
+uint64_t BuildSmokeRigidTlasPlanInputToken(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    const RtSmokeRigidTlasPlanDesc desc = MakeRigidTlasPlanDescFromSnapshot(snapshot);
+    return BuildSmokeRigidTlasPlanInputToken(desc);
+}
+
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc)
 {
     RtSmokeRigidTlasPlan plan;

@@ -418,11 +418,25 @@ void TestRigidPlan()
         plan.instances[0].previousTransform[12] == -2.0f,
         "rigid TLAS emitted instance metadata is deterministic");
 
+    const uint64_t baseRigidToken = BuildSmokeRigidTlasPlanInputToken(desc);
+    Check(baseRigidToken == BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token is deterministic");
+    RtSmokeRigidTlasPlanDesc changedTransformDesc = desc;
+    observations[0].previousObjectToWorld[12] = -4.0f;
+    Check(baseRigidToken != BuildSmokeRigidTlasPlanInputToken(changedTransformDesc),
+        "rigid TLAS plan input token tracks route transform metadata");
+    observations[0].previousObjectToWorld[12] = -2.0f;
+
     const RtSmokeRigidTlasPlanSnapshot snapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
+    const uint64_t snapshotRigidToken = BuildSmokeRigidTlasPlanInputToken(snapshot);
     observations[0].hasBlas = false;
     observations[0].meshHash = 999;
     const RtSmokeRigidTlasPlan snapshotPlan = BuildSmokeRigidTlasPlan(snapshot);
-    Check(snapshotPlan.emittedInstances == 1 && snapshotPlan.instances[0].meshHash == 100, "owned rigid TLAS snapshot is immutable after source mutation");
+    Check(snapshotPlan.emittedInstances == 1 &&
+        snapshotPlan.instances[0].meshHash == 100 &&
+        snapshotRigidToken == baseRigidToken &&
+        BuildSmokeRigidTlasPlanInputToken(desc) != snapshotRigidToken,
+        "owned rigid TLAS snapshot is immutable after source mutation");
 
     observations[0].hasBlas = true;
     observations[0].meshHash = 100;

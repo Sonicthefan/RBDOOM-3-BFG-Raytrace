@@ -817,6 +817,12 @@ bool AppendSmokeRigidTlasPlanObservation(
 RtSmokeRigidTlasPlanSnapshot CaptureSmokeRigidTlasPlanSnapshot(
     const RtSmokeRigidTlasPlanDesc& desc);
 
+uint64_t BuildSmokeRigidTlasPlanInputToken(
+    const RtSmokeRigidTlasPlanDesc& desc);
+
+uint64_t BuildSmokeRigidTlasPlanInputToken(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot);
+
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc);
 
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
