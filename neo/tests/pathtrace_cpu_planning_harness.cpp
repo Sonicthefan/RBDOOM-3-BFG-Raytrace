@@ -940,6 +940,74 @@ void TestStaticBucketWorkPlanInputToken()
         "static bucket work snapshot token is immutable after source mutation");
 }
 
+void TestAsyncStaticBucketWorkPlanning()
+{
+    RtSmokeStaticTlasBucketObservation bucket;
+    bucket.bucketKey = 88;
+    bucket.resident = true;
+    bucket.active = true;
+    bucket.hasBlas = true;
+    bucket.routeRecordIndex = 0;
+    bucket.residentVertexCount = 3;
+    bucket.residentIndexCount = 3;
+    bucket.residentTriangleCount = 1;
+    bucket.activeVertexCount = 3;
+    bucket.activeIndexCount = 3;
+    bucket.activeTriangleCount = 1;
+
+    RtSmokeStaticBucketWorkPlanInput input;
+    input.buckets = &bucket;
+    input.bucketCount = 1;
+    input.geometryContentSignature = 700;
+    input.materialGeneration = 800;
+    input.totalVertexCount = 3;
+    input.totalIndexCount = 3;
+    input.totalTriangleCount = 1;
+    input.submitBuilds = true;
+    const RtSmokeStaticBucketWorkPlanSnapshot snapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(input);
+
+    RtPathTraceCpuWorkState state;
+    RtPathTraceCpuWorkGeneration generation;
+    generation.frameIndex = 42;
+    generation.sceneGeneration = 1;
+    generation.geometryGeneration = input.geometryContentSignature;
+    generation.materialGeneration = input.materialGeneration;
+    generation.lightGeneration = BuildSmokeStaticBucketWorkPlanInputToken(snapshot);
+    RtPathTraceCpuWorkPublishSnapshot(state, generation);
+
+    std::future<RtSmokeStaticBucketWorkPlanTimedResult> future = std::async(
+        std::launch::async,
+        [snapshot]() {
+            return BuildSmokeStaticBucketWorkPlanTimedResult(snapshot);
+        });
+
+    const RtPathTraceCpuWorkFrameDecision lateDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
+    Check(lateDecision.lateFallback && lateDecision.syncFallback,
+        "late async static bucket work requests synchronous fallback");
+
+    const RtSmokeStaticBucketWorkPlanTimedResult timedResult = future.get();
+    RtPathTraceCpuWorkResultEnvelope envelope;
+    envelope.completed = true;
+    envelope.generation = generation;
+    envelope.timing.workerExecutionMs = static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
+    RtPathTraceCpuWorkPublishCompletedResult(state, envelope);
+    const RtPathTraceCpuWorkFrameDecision acceptDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, nullptr, true);
+    Check(acceptDecision.accepted &&
+        timedResult.plan.bucketBlasPlan.emittedRecords == 1 &&
+        state.acceptedResultCount == 1,
+        "matching async static bucket work generation is accepted");
+
+    RtPathTraceCpuWorkResultEnvelope staleEnvelope = envelope;
+    staleEnvelope.generation.lightGeneration ^= 0x1000ull;
+    const RtPathTraceCpuWorkFrameDecision staleDecision =
+        RtPathTraceCpuWorkAcceptLatest(state, generation, &staleEnvelope, true);
+    Check(staleDecision.staleRejected && staleDecision.syncFallback,
+        "stale async static bucket work generation is rejected");
+}
+
 void TestStaticActiveSetPlan()
 {
     RtSmokeStaticTlasBucketObservation buckets[3];
@@ -1784,6 +1852,7 @@ int main(int argc, char** argv)
     TestStaticBucketWorkPlanSnapshot();
     TestStaticBucketWorkPlanTimedResult();
     TestStaticBucketWorkPlanInputToken();
+    TestAsyncStaticBucketWorkPlanning();
     TestStaticActiveSetPlan();
     TestStaticBucketObservation();
     TestStaticBucketBlasPlan();
