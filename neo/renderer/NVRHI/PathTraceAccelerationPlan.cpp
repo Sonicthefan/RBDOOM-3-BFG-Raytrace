@@ -903,7 +903,6 @@ RtSmokeStaticBvhBucketSignature BuildSmokeStaticBvhBucketSignature(
     activeHash = HashSmokePlanBytes(activeHash, &bucket.bucketKey, sizeof(bucket.bucketKey));
     activeHash = HashSmokePlanBytes(activeHash, &activeBit, sizeof(activeBit));
     activeHash = HashSmokePlanBytes(activeHash, &bucket.activeReasonFlags, sizeof(bucket.activeReasonFlags));
-    activeHash = HashSmokePlanBytes(activeHash, &bucket.routeRecordIndex, sizeof(bucket.routeRecordIndex));
     activeHash = HashSmokePlanBytes(activeHash, &bucket.activeSurfaceCount, sizeof(bucket.activeSurfaceCount));
     activeHash = HashSmokePlanBytes(activeHash, &bucket.activeVertexCount, sizeof(bucket.activeVertexCount));
     activeHash = HashSmokePlanBytes(activeHash, &bucket.activeIndexCount, sizeof(bucket.activeIndexCount));

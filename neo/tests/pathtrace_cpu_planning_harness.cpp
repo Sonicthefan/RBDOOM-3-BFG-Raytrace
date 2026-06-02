@@ -2460,6 +2460,16 @@ void TestBvhBucketableSignatures()
         baseStaticSignature.blasInputSignature == activeChangedSignature.blasInputSignature,
         "static BVH bucket active changes do not dirty resident or BLAS signatures");
 
+    RtSmokeStaticBvhBucketSignatureInput routeChangedInput = staticInput;
+    routeChangedInput.bucket.routeRecordIndex = 9;
+    const RtSmokeStaticBvhBucketSignature routeChangedSignature =
+        BuildSmokeStaticBvhBucketSignature(routeChangedInput);
+    Check(baseStaticSignature.activeSignature == routeChangedSignature.activeSignature &&
+        baseStaticSignature.residentSignature == routeChangedSignature.residentSignature &&
+        baseStaticSignature.geometryInputSignature == routeChangedSignature.geometryInputSignature &&
+        baseStaticSignature.blasInputSignature == routeChangedSignature.blasInputSignature,
+        "static BVH bucket route changes do not dirty active membership or BLAS signatures");
+
     RtSmokeStaticBvhBucketSignatureInput geometryChangedInput = staticInput;
     geometryChangedInput.geometryContentSignature = 1001;
     const RtSmokeStaticBvhBucketSignature geometryChangedSignature =
