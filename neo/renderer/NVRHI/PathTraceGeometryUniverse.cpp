@@ -3352,7 +3352,11 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
         observation.instanceId = instance.instanceId;
         observation.sourceFlags = instance.sourceFlags;
         observation.residencyEnabled = m_rigidResidencyEnabled;
+        observation.seenThisFrame = instance.seenThisFrame;
+        observation.hasPreviousObjectToWorld = instance.hasPreviousObjectToWorld;
+        observation.transformContinuous = instance.transformContinuous;
         memcpy(observation.objectToWorld, instance.objectToWorld, sizeof(observation.objectToWorld));
+        memcpy(observation.previousObjectToWorld, instance.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
         const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
         if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
         {
@@ -3424,38 +3428,27 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
 }
 
 RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
-    const RtPathTraceInstanceUniverse& instanceUniverse,
-    const std::vector<uint32_t>& materialTableIds,
-    int maxInstances) const
+    const RtSmokeRigidTlasPlan& plan,
+    const std::vector<uint32_t>& materialTableIds) const
 {
     RtPathTraceRigidRouteBuild build;
     std::vector<PathTraceSmokeVertex> localVertices;
     std::vector<uint32_t> localIndexes;
 
-    std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
-    BuildRigidRouteInstanceList(instanceUniverse, instances);
-    build.stats.visibleInstances = static_cast<int>(instances.size());
-    for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
+    build.stats.visibleInstances = plan.visibleInstances;
+    build.stats.skippedNonRigid = plan.rejectedNonRigid;
+    build.stats.skippedMissingMesh = plan.rejectedMissingMesh + plan.rejectedStaleMesh;
+    build.stats.skippedMissingBlas = plan.rejectedMissingBlas;
+    for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
-        if (maxInstances > 0 && build.stats.emittedInstances >= maxInstances)
-        {
-            break;
-        }
-        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
-        {
-            ++build.stats.skippedNonRigid;
-            continue;
-        }
-
-        const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-        if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
+        if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
         {
             ++build.stats.skippedMissingMesh;
             continue;
         }
 
-        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
-        if (!record.valid || (!m_rigidResidencyEnabled && !record.seenThisFrame))
+        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
+        if (!record.valid)
         {
             ++build.stats.skippedMissingMesh;
             continue;
@@ -3497,31 +3490,31 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         routeInstance.vertexCount = static_cast<uint32_t>(localVertices.size());
         routeInstance.indexCount = static_cast<uint32_t>(localIndexes.size());
         routeInstance.triangleCount = static_cast<uint32_t>(triangleCount);
-        routeInstance.instanceIdLo = static_cast<uint32_t>(instance.instanceId & 0xffffffffull);
-        routeInstance.instanceIdHi = static_cast<uint32_t>((instance.instanceId >> 32) & 0xffffffffull);
-        if (instance.hasPreviousObjectToWorld)
+        routeInstance.instanceIdLo = static_cast<uint32_t>(plannedInstance.sourceInstanceId & 0xffffffffull);
+        routeInstance.instanceIdHi = static_cast<uint32_t>((plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
+        if (plannedInstance.hasPreviousTransform)
         {
             routeInstance.flags |= PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM;
             ++build.stats.previousTransformInstances;
         }
-        if (instance.transformContinuous)
+        if (plannedInstance.transformContinuous)
         {
             routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
             ++build.stats.transformContinuousInstances;
         }
-        CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, instance.objectToWorld);
-        CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, instance.hasPreviousObjectToWorld ? instance.previousObjectToWorld : instance.objectToWorld);
+        CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, plannedInstance.transform);
+        CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, plannedInstance.hasPreviousTransform ? plannedInstance.previousTransform : plannedInstance.transform);
         build.instances.push_back(routeInstance);
-        build.instanceSeenThisFrame.push_back(instance.seenThisFrame ? 1u : 0u);
+        build.instanceSeenThisFrame.push_back(plannedInstance.sourceSeenThisFrame ? 1u : 0u);
         std::array<float, 16> objectToWorld = {};
         for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
         {
-            objectToWorld[elementIndex] = instance.objectToWorld[elementIndex];
+            objectToWorld[elementIndex] = plannedInstance.transform[elementIndex];
         }
         build.instanceObjectToWorld.push_back(objectToWorld);
 
         ++build.stats.emittedInstances;
-        if (instance.seenThisFrame)
+        if (plannedInstance.sourceSeenThisFrame)
         {
             ++build.stats.emittedSeenThisFrame;
         }
@@ -3535,4 +3528,14 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
     }
 
     return build;
+}
+
+RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
+    const RtPathTraceInstanceUniverse& instanceUniverse,
+    const std::vector<uint32_t>& materialTableIds,
+    int maxInstances) const
+{
+    const RtSmokeRigidTlasPlan plan =
+        BuildRigidTlasInstancePlan(instanceUniverse, 2, 0x02, maxInstances);
+    return BuildRigidRouteBuffers(plan, materialTableIds);
 }

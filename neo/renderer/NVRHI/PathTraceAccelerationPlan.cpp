@@ -1313,7 +1313,11 @@ bool AppendSmokeRigidTlasPlanObservation(
     instance.meshHash = observation.meshHash;
     instance.sourceInstanceId = observation.instanceId;
     instance.routeRecordIndex = observation.routeRecordIndex;
+    instance.sourceSeenThisFrame = observation.seenThisFrame;
+    instance.hasPreviousTransform = observation.hasPreviousObjectToWorld;
+    instance.transformContinuous = observation.transformContinuous;
     std::memcpy(instance.transform, observation.objectToWorld, sizeof(instance.transform));
+    std::memcpy(instance.previousTransform, observation.previousObjectToWorld, sizeof(instance.previousTransform));
     plan.instances.push_back(instance);
     ++plan.emittedInstances;
     return true;

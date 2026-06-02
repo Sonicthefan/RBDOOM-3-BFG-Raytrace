@@ -616,6 +616,9 @@ public:
         uint32_t instanceMask,
         int maxInstances) const;
     RtPathTraceRigidRouteBuild BuildRigidRouteBuffers(
+        const RtSmokeRigidTlasPlan& plan,
+        const std::vector<uint32_t>& materialTableIds) const;
+    RtPathTraceRigidRouteBuild BuildRigidRouteBuffers(
         const RtPathTraceInstanceUniverse& instanceUniverse,
         const std::vector<uint32_t>& materialTableIds,
         int maxInstances) const;

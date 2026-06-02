@@ -150,7 +150,11 @@ struct RtSmokePlanTlasInstance
     uint64_t meshHash = 0;
     uint64_t sourceInstanceId = 0;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    bool sourceSeenThisFrame = true;
+    bool hasPreviousTransform = false;
+    bool transformContinuous = false;
     float transform[16] = {};
+    float previousTransform[16] = {};
 };
 
 struct RtSmokeBaseTlasPlan
@@ -588,7 +592,11 @@ struct RtSmokeRigidTlasObservation
     bool residencyEnabled = false;
     bool hasBlas = false;
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    bool seenThisFrame = true;
+    bool hasPreviousObjectToWorld = false;
+    bool transformContinuous = false;
     float objectToWorld[16] = {};
+    float previousObjectToWorld[16] = {};
 };
 
 struct RtSmokeRigidTlasPlanDesc

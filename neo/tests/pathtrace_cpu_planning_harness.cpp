@@ -376,6 +376,14 @@ void TestRigidPlan()
     observations[0].objectToWorld[5] = 1.0f;
     observations[0].objectToWorld[10] = 1.0f;
     observations[0].objectToWorld[15] = 1.0f;
+    observations[0].previousObjectToWorld[0] = 1.0f;
+    observations[0].previousObjectToWorld[5] = 1.0f;
+    observations[0].previousObjectToWorld[10] = 1.0f;
+    observations[0].previousObjectToWorld[15] = 1.0f;
+    observations[0].previousObjectToWorld[12] = -2.0f;
+    observations[0].hasPreviousObjectToWorld = true;
+    observations[0].transformContinuous = true;
+    observations[0].seenThisFrame = false;
 
     observations[1] = observations[0];
     observations[1].meshHash = 200;
@@ -402,7 +410,13 @@ void TestRigidPlan()
     Check(plan.rejectedMissingMesh == 1, "rigid TLAS plan rejects missing mesh records");
     Check(plan.rejectedStaleMesh == 1, "rigid TLAS plan rejects stale observations");
     Check(plan.rejectedMissingBlas == 1, "rigid TLAS plan rejects missing BLAS handles before render submit");
-    Check(plan.instances[0].instanceId == 2 && plan.instances[0].meshHash == 100, "rigid TLAS emitted instance metadata is deterministic");
+    Check(plan.instances[0].instanceId == 2 &&
+        plan.instances[0].meshHash == 100 &&
+        plan.instances[0].hasPreviousTransform &&
+        plan.instances[0].transformContinuous &&
+        !plan.instances[0].sourceSeenThisFrame &&
+        plan.instances[0].previousTransform[12] == -2.0f,
+        "rigid TLAS emitted instance metadata is deterministic");
 
     const RtSmokeRigidTlasPlanSnapshot snapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
     observations[0].hasBlas = false;

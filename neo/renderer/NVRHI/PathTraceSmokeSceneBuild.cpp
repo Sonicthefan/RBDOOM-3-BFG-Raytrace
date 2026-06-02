@@ -2265,7 +2265,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtPathTraceRigidRouteBuild rigidRouteBuild;
     if (buildRigidRouteBuffers)
     {
-        rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(m_instanceUniverse, materialTable.materialIds, rigidRouteMaxInstances);
+        rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(rigidTlasPlan, materialTable.materialIds);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
             common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
