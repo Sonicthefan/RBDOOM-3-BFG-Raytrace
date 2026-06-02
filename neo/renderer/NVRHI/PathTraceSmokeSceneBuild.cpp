@@ -3979,7 +3979,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     accelerationPlanGeneration.frameIndex = 0;
     accelerationPlanGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
     accelerationPlanGeneration.geometryGeneration = geometryUniverseStats.generation;
-    accelerationPlanGeneration.materialGeneration = materialTableSignature;
+    // The acceleration plan input token already includes static triangle material IDs.
+    // The material table signature is not consumed by BuildSmokeAccelerationPlan.
+    accelerationPlanGeneration.materialGeneration = 0;
     accelerationPlanGeneration.lightGeneration = BuildSmokeAccelerationPlanInputToken(accelerationPlanInput);
     RtPathTraceCpuWorkPublishSnapshot(m_smokeCpuWorkState, accelerationPlanGeneration);
 
