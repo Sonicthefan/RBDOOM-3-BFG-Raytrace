@@ -2368,7 +2368,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
                 (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
-                (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u);
+                (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
+                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && cleanRtxdiDiView == 16 ? 128u : 0u);
             primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
             primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
             primarySurfaceConstants.safetyInfo[1] = primarySurfaceConstants.textureInfo[0];

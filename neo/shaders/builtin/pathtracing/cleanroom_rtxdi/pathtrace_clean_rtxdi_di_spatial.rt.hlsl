@@ -957,24 +957,17 @@ float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRec
         return float3(0.0, 0.0, 0.0);
     }
 
-    const float3 toSample = sample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
-    const float3 lightDirection = CleanSafeNormalize(
-        toSample,
-        CleanSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
-    const float ndotl = saturate(dot(
-        CleanSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz),
-        lightDirection));
     const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
     if (CleanRtxdiDiResolveBrdfTarget != 0u)
     {
         return receiverAlbedo;
     }
-    const float3 receiverDiffuse = receiverAlbedo * (1.0 / CLEAN_RTXDI_PI);
-    const float3 reflected = max(sample.radiance, float3(0.0, 0.0, 0.0)) * receiverDiffuse * ndotl;
+    surface.material.diffuseAlbedo = receiverAlbedo;
+    const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
     const float visibility = CleanTraceVisibility(surface, lightInfo, sample);
     const float3 selectedLightContribution =
         reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / max(sample.solidAnglePdf, 1.0e-6);
-    return selectedLightContribution;
+    return selectedLightContribution + max(surface.material.emissiveRadiance, float3(0.0, 0.0, 0.0));
 }
 
 int2 CleanClampPixel(int2 pixel, uint2 dimensions)
