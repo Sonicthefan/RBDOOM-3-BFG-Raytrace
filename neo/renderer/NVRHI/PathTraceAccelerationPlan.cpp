@@ -346,6 +346,7 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
     plan.monolithicStaticBlas = desc.monolithicStaticBlas;
     plan.activeSetSignature = 1469598103934665603ull;
     plan.residentSetSignature = 1469598103934665603ull;
+    plan.tlasInstanceSignature = 1469598103934665603ull;
     if (!desc.buckets || desc.bucketCount <= 0)
     {
         return plan;
@@ -430,6 +431,27 @@ RtSmokeStaticTlasActiveSetPlan BuildSmokeStaticTlasActiveSetPlan(
             plan.activeIndexCount < plan.residentIndexCount ||
             plan.activeTriangleCount < plan.residentTriangleCount);
     plan.requiresBucketedStaticBlas = plan.inactiveResidentGeometryIncluded;
+
+    const uint32_t activeSetFlags =
+        (desc.monolithicStaticBlas ? 1u : 0u) |
+        (desc.hasStaticBlas ? 2u : 0u) |
+        (plan.inactiveResidentGeometryIncluded ? 4u : 0u) |
+        (plan.requiresBucketedStaticBlas ? 8u : 0u);
+    plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &plan.emittedInstances, sizeof(plan.emittedInstances));
+    plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &plan.activeBuckets, sizeof(plan.activeBuckets));
+    plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &plan.inactiveResidentBuckets, sizeof(plan.inactiveResidentBuckets));
+    plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &desc.firstInstanceId, sizeof(desc.firstInstanceId));
+    plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &desc.instanceMask, sizeof(desc.instanceMask));
+    plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &activeSetFlags, sizeof(activeSetFlags));
+    for (const RtSmokePlanTlasInstance& instance : plan.instances)
+    {
+        plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &instance.kind, sizeof(instance.kind));
+        plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &instance.instanceId, sizeof(instance.instanceId));
+        plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &instance.instanceMask, sizeof(instance.instanceMask));
+        plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &instance.meshHash, sizeof(instance.meshHash));
+        plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &instance.routeRecordIndex, sizeof(instance.routeRecordIndex));
+        plan.tlasInstanceSignature = HashSmokePlanBytes(plan.tlasInstanceSignature, &instance.flags, sizeof(instance.flags));
+    }
     return plan;
 }
 
@@ -1051,6 +1073,7 @@ RtSmokeStaticBucketWorkPlan BuildSmokeStaticBucketWorkPlan(
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &signatureCount, sizeof(signatureCount));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.activeSetSignature, sizeof(plan.activeSetPlan.activeSetSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.residentSetSignature, sizeof(plan.activeSetPlan.residentSetSignature));
+    plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.activeSetPlan.tlasInstanceSignature, sizeof(plan.activeSetPlan.tlasInstanceSignature));
     plan.planSignature = HashSmokePlanBytes(plan.planSignature, &plan.bucketBlasPlan.planSignature, sizeof(plan.bucketBlasPlan.planSignature));
     const uint32_t traversalFlags =
         (plan.traversalCompatibility.exactMonolithicRecord ? 1u : 0u) |
@@ -1296,6 +1319,7 @@ RtSmokeBvhDirtyTokenState BuildSmokeStaticBucketWorkDirtyToken(
     const uint32_t staticRoutesBlockedBit = plan.routeNamespace.staticRoutesBlocked ? 1u : 0u;
     const uint32_t rigidRouteBaseShiftedBit = plan.routeNamespace.rigidRouteBaseShifted ? 1u : 0u;
     token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &token.activeSetSignature, sizeof(token.activeSetSignature));
+    token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.activeSetPlan.tlasInstanceSignature, sizeof(plan.activeSetPlan.tlasInstanceSignature));
     token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeTablePlan.tableSignature, sizeof(plan.routeTablePlan.tableSignature));
     token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeTablePlan.emittedRecords, sizeof(plan.routeTablePlan.emittedRecords));
     token.tlasInstanceSignature = HashSmokePlanBytes(token.tlasInstanceSignature, &plan.routeNamespace.staticFirstInstanceId, sizeof(plan.routeNamespace.staticFirstInstanceId));

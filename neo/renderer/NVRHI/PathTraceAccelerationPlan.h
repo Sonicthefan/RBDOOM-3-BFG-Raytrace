@@ -230,6 +230,7 @@ struct RtSmokeStaticTlasActiveSetPlan
     std::vector<RtSmokePlanTlasInstance> instances;
     uint64_t activeSetSignature = 0;
     uint64_t residentSetSignature = 0;
+    uint64_t tlasInstanceSignature = 0;
     int residentBuckets = 0;
     int activeBuckets = 0;
     int inactiveResidentBuckets = 0;

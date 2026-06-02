@@ -1405,7 +1405,12 @@ void TestStaticActiveSetPlan()
 
     buckets[2].hasBlas = false;
     const RtSmokeStaticTlasActiveSetPlan missingBucketBlasPlan = BuildSmokeStaticTlasActiveSetPlan(desc);
-    Check(missingBucketBlasPlan.activeBuckets == 2 && missingBucketBlasPlan.emittedInstances == 1, "bucketed static active-set plan waits for active bucket BLAS readiness");
+    Check(missingBucketBlasPlan.activeBuckets == 2 &&
+        missingBucketBlasPlan.emittedInstances == 1 &&
+        bucketPlan.activeSetSignature == missingBucketBlasPlan.activeSetSignature &&
+        bucketPlan.residentSetSignature == missingBucketBlasPlan.residentSetSignature &&
+        bucketPlan.tlasInstanceSignature != missingBucketBlasPlan.tlasInstanceSignature,
+        "bucketed static active-set plan waits for active bucket BLAS readiness");
 
     RtSmokeStaticTlasBucketObservation monolithicSurfaceDeltaBucket = buckets[0];
     monolithicSurfaceDeltaBucket.residentSurfaceCount = 3;
@@ -1827,6 +1832,14 @@ void TestBvhDirtyPlan()
     Check(baseActiveSetPlan.activeSetSignature != membershipChangedPlan.activeSetSignature &&
         baseActiveSetPlan.residentSetSignature == membershipChangedPlan.residentSetSignature,
         "static active-set signature tracks active membership without changing resident signature");
+
+    buckets[1].active = false;
+    buckets[0].hasBlas = false;
+    const RtSmokeStaticTlasActiveSetPlan missingBlasPlan = BuildSmokeStaticTlasActiveSetPlan(activeSetDesc);
+    Check(baseActiveSetPlan.activeSetSignature == missingBlasPlan.activeSetSignature &&
+        baseActiveSetPlan.residentSetSignature == missingBlasPlan.residentSetSignature &&
+        baseActiveSetPlan.tlasInstanceSignature != missingBlasPlan.tlasInstanceSignature,
+        "static active-set TLAS signature tracks BLAS readiness without changing membership signatures");
 }
 
 void TestStaticBucketWorkDirtyToken()
@@ -1861,6 +1874,7 @@ void TestStaticBucketWorkDirtyToken()
     input.totalVertexCount = 6;
     input.totalIndexCount = 6;
     input.totalTriangleCount = 2;
+    input.hasStaticBlas = true;
     input.enableStaticRoutes = true;
     input.shaderSupportsStaticBucketRoutes = true;
     const RtSmokeStaticBucketWorkPlan basePlan = BuildSmokeStaticBucketWorkPlan(input);
@@ -1954,6 +1968,23 @@ void TestStaticBucketWorkDirtyToken()
         routeDirtyPlan.tlasDirty &&
         !routeDirtyPlan.blasInputDirty,
         "static bucket work dirty token maps route compatibility changes to TLAS-only work");
+
+    buckets[0].hasBlas = false;
+    buckets[1].active = false;
+    buckets[1].activeReasonFlags = 0;
+    input.enableStaticRoutes = true;
+    input.shaderSupportsStaticBucketRoutes = true;
+    const RtSmokeStaticBucketWorkPlan blasMissingPlan = BuildSmokeStaticBucketWorkPlan(input);
+    tokenInput.plan = &blasMissingPlan;
+    tokenInput.materialGeneration = input.materialGeneration;
+    dirtyInput.previous = baseToken;
+    dirtyInput.current = BuildSmokeStaticBucketWorkDirtyToken(tokenInput);
+    const RtSmokeBvhDirtyPlan blasMissingDirtyPlan = BuildSmokeBvhDirtyPlan(dirtyInput);
+    Check(blasMissingDirtyPlan.tlasInstanceChanged &&
+        blasMissingDirtyPlan.tlasDirty &&
+        !blasMissingDirtyPlan.activeMembershipChanged &&
+        !blasMissingDirtyPlan.blasInputDirty,
+        "static bucket work dirty token maps active BLAS readiness changes to TLAS-only work");
 }
 
 void TestBvhFrameToken()
