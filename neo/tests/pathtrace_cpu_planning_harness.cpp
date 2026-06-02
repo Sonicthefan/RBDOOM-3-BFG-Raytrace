@@ -448,6 +448,25 @@ void TestRigidPlan()
         "rigid TLAS plan input token tracks route transform metadata");
     observations[0].previousObjectToWorld[12] = -2.0f;
 
+    RtSmokeRigidTlasObservation invalidPreviousObservation = observations[0];
+    invalidPreviousObservation.hasPreviousObjectToWorld = false;
+    invalidPreviousObservation.transformContinuous = true;
+    RtSmokeRigidTlasPlanDesc invalidPreviousDesc = desc;
+    invalidPreviousDesc.observations = &invalidPreviousObservation;
+    invalidPreviousDesc.observationCount = 1;
+    const uint64_t invalidPreviousToken = BuildSmokeRigidTlasPlanInputToken(invalidPreviousDesc);
+    invalidPreviousObservation.previousObjectToWorld[12] = -99.0f;
+    invalidPreviousObservation.transformContinuous = false;
+    Check(invalidPreviousToken == BuildSmokeRigidTlasPlanInputToken(invalidPreviousDesc),
+        "rigid TLAS plan input token ignores invalid previous transform contents");
+    const RtSmokeRigidTlasPlan invalidPreviousPlan = BuildSmokeRigidTlasPlan(invalidPreviousDesc);
+    Check(invalidPreviousPlan.emittedInstances == 1 &&
+        !invalidPreviousPlan.instances[0].hasPreviousTransform &&
+        !invalidPreviousPlan.instances[0].transformContinuous &&
+        invalidPreviousPlan.instances[0].previousTransform[12] ==
+            invalidPreviousPlan.instances[0].transform[12],
+        "rigid TLAS plan uses current transform when previous transform is invalid");
+
     const RtSmokeRigidTlasPlanSnapshot snapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
     const uint64_t snapshotRigidToken = BuildSmokeRigidTlasPlanInputToken(snapshot);
     observations[0].hasBlas = false;

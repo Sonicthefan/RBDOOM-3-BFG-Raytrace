@@ -1592,9 +1592,17 @@ bool AppendSmokeRigidTlasPlanObservation(
     instance.routeRecordIndex = observation.routeRecordIndex;
     instance.sourceSeenThisFrame = observation.seenThisFrame;
     instance.hasPreviousTransform = observation.hasPreviousObjectToWorld;
-    instance.transformContinuous = observation.transformContinuous;
+    instance.transformContinuous =
+        observation.hasPreviousObjectToWorld && observation.transformContinuous;
     std::memcpy(instance.transform, observation.objectToWorld, sizeof(instance.transform));
-    std::memcpy(instance.previousTransform, observation.previousObjectToWorld, sizeof(instance.previousTransform));
+    if (observation.hasPreviousObjectToWorld)
+    {
+        std::memcpy(instance.previousTransform, observation.previousObjectToWorld, sizeof(instance.previousTransform));
+    }
+    else
+    {
+        std::memcpy(instance.previousTransform, observation.objectToWorld, sizeof(instance.previousTransform));
+    }
     plan.instances.push_back(instance);
     ++plan.emittedInstances;
     return true;
@@ -1640,14 +1648,17 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
             (observation.hasBlas ? 8u : 0u) |
             (observation.seenThisFrame ? 16u : 0u) |
             (observation.hasPreviousObjectToWorld ? 32u : 0u) |
-            (observation.transformContinuous ? 64u : 0u);
+            (observation.hasPreviousObjectToWorld && observation.transformContinuous ? 64u : 0u);
         hash = HashSmokePlanBytes(hash, &observation.meshHash, sizeof(observation.meshHash));
         hash = HashSmokePlanBytes(hash, &observation.instanceId, sizeof(observation.instanceId));
         hash = HashSmokePlanBytes(hash, &observation.sourceFlags, sizeof(observation.sourceFlags));
         hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
         hash = HashSmokePlanBytes(hash, &observationFlags, sizeof(observationFlags));
         hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
-        hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
+        if (observation.hasPreviousObjectToWorld)
+        {
+            hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
+        }
     }
     return hash;
 }
