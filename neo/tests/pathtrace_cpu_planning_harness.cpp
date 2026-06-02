@@ -2326,6 +2326,16 @@ void TestGenerationAcceptance()
         RtPathTraceCpuWorkAcceptLatest(state, expected, nullptr, true);
     Check(lateDecision.lateFallback && lateDecision.syncFallback, "late results fall back without blocking");
 
+    RtPathTraceCpuWorkState noSyncLateState;
+    RtPathTraceCpuWorkPublishSnapshot(noSyncLateState, expected);
+    const RtPathTraceCpuWorkFrameDecision noSyncLateDecision =
+        RtPathTraceCpuWorkAcceptLatest(noSyncLateState, expected, nullptr, false);
+    Check(noSyncLateDecision.lateFallback &&
+        !noSyncLateDecision.syncFallback &&
+        noSyncLateState.lateResultCount == 1 &&
+        noSyncLateState.syncFallbackCount == 0,
+        "late CPU work result can be reported without requesting sync fallback");
+
     RtPathTraceCpuWorkResultEnvelope current;
     current.completed = true;
     current.generation = expected;
