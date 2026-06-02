@@ -3378,13 +3378,9 @@ RtSmokeRigidTlasPlan RtSmokeGeometryUniverse::BuildRigidTlasInstancePlan(
 }
 
 int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
-    const RtPathTraceInstanceUniverse& instanceUniverse,
-    std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
-    uint32_t firstInstanceId,
-    uint32_t instanceMask,
-    int maxInstances) const
+    const RtSmokeRigidTlasPlan& plan,
+    std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const
 {
-    const RtSmokeRigidTlasPlan plan = BuildRigidTlasInstancePlan(instanceUniverse, firstInstanceId, instanceMask, maxInstances);
     for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
         if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
@@ -3412,6 +3408,18 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     }
 
     return plan.emittedInstances;
+}
+
+int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
+    const RtPathTraceInstanceUniverse& instanceUniverse,
+    std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
+    uint32_t firstInstanceId,
+    uint32_t instanceMask,
+    int maxInstances) const
+{
+    const RtSmokeRigidTlasPlan plan =
+        BuildRigidTlasInstancePlan(instanceUniverse, firstInstanceId, instanceMask, maxInstances);
+    return BuildRigidTlasInstanceDescs(plan, instanceDescs);
 }
 
 RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(

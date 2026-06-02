@@ -4308,12 +4308,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool routeRigidTlasInstances = enableRigidRouteForMode;
     if (routeRigidTlasInstances)
     {
-        const int routedRigidInstances = m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(
+        const RtSmokeRigidTlasPlan rigidTlasPlan = m_smokeGeometryUniverse.BuildRigidTlasInstancePlan(
             m_instanceUniverse,
-            rigidTlasRouteInstances,
             2,
             0x02,
             rigidRouteMaxInstances);
+        const int routedRigidInstances =
+            m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
         if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
             common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",

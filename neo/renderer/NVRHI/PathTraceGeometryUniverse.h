@@ -601,6 +601,9 @@ public:
         uint32_t instanceMask,
         int maxInstances) const;
     int BuildRigidTlasInstanceDescs(
+        const RtSmokeRigidTlasPlan& plan,
+        std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const;
+    int BuildRigidTlasInstanceDescs(
         const RtPathTraceInstanceUniverse& instanceUniverse,
         std::vector<nvrhi::rt::InstanceDesc>& instanceDescs,
         uint32_t firstInstanceId,
