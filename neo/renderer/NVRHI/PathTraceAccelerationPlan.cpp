@@ -1160,11 +1160,12 @@ RtSmokeStaticBucketWorkPlanSnapshot CaptureSmokeStaticBucketWorkPlanSnapshot(
     const RtSmokeStaticBucketWorkPlanInput& input)
 {
     RtSmokeStaticBucketWorkPlanSnapshot snapshot;
-    if (input.buckets && input.bucketCount > 0)
+    const bool hasBuckets = input.buckets && input.bucketCount > 0;
+    if (hasBuckets)
     {
         snapshot.buckets.assign(input.buckets, input.buckets + input.bucketCount);
     }
-    if (input.previousBuckets && input.previousBucketCount > 0)
+    if (hasBuckets && input.previousBuckets && input.previousBucketCount > 0)
     {
         snapshot.previousBuckets.assign(input.previousBuckets, input.previousBuckets + input.previousBucketCount);
     }

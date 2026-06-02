@@ -1289,6 +1289,19 @@ void TestStaticBucketWorkPlanSnapshot()
         snapshotPlan.buildObservationPlan.cacheHits == 1 &&
         mutatedSourcePlan.planSignature != snapshotPlan.planSignature,
         "static bucket work snapshot owns immutable bucket and cache input data");
+
+    RtSmokeStaticBucketWorkPlanInput emptyInput = input;
+    emptyInput.buckets = nullptr;
+    emptyInput.bucketCount = 2;
+    emptyInput.previousBuckets = previousBuckets;
+    emptyInput.previousBucketCount = 1;
+    const RtSmokeStaticBucketWorkPlanSnapshot emptySnapshot =
+        CaptureSmokeStaticBucketWorkPlanSnapshot(emptyInput);
+    Check(emptySnapshot.buckets.empty() &&
+        emptySnapshot.previousBuckets.empty() &&
+        BuildSmokeStaticBucketWorkPlanInputToken(emptySnapshot) ==
+            BuildSmokeStaticBucketWorkPlanInputToken(emptyInput),
+        "static bucket work snapshot drops previous cache rows when buckets are absent");
 }
 
 void TestStaticBucketWorkPlanTimedResult()
