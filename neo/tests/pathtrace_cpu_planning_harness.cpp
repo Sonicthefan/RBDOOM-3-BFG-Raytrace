@@ -1671,7 +1671,8 @@ void TestStaticRouteTablePlan()
     const RtSmokeStaticRouteTablePlan blockedPlan = BuildSmokeStaticRouteTablePlan(input);
     Check(blockedPlan.emittedRecords == 0 &&
         blockedPlan.skippedDisabled == 3 &&
-        blockedPlan.blocked,
+        blockedPlan.blocked &&
+        blockedPlan.tableSignature != disabledPlan.tableSignature,
         "static route table emits no records when namespace blocks static routes");
 
     namespaceInput.shaderSupportsStaticBucketRoutes = true;
@@ -1696,6 +1697,13 @@ void TestStaticRouteTablePlan()
     Check(cappedPlan.emittedRecords == 1 &&
         cappedPlan.overflow,
         "static route table reports record cap overflow");
+
+    input.recordCount = 1;
+    const RtSmokeStaticRouteTablePlan singlePrefixPlan = BuildSmokeStaticRouteTablePlan(input);
+    Check(singlePrefixPlan.records.size() == cappedPlan.records.size() &&
+        singlePrefixPlan.records[0].bucketKey == cappedPlan.records[0].bucketKey &&
+        singlePrefixPlan.tableSignature != cappedPlan.tableSignature,
+        "static route table signature tracks capped summary state with identical emitted prefix");
 }
 
 void TestBvhDirtyPlan()

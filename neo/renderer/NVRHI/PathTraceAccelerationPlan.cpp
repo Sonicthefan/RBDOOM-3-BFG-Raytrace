@@ -615,6 +615,21 @@ RtSmokeRouteInstanceNamespacePlan BuildSmokeRouteInstanceNamespacePlan(
     return plan;
 }
 
+static uint64_t HashSmokeStaticRouteTablePlanSummary(
+    uint64_t hash,
+    const RtSmokeStaticRouteTablePlan& plan)
+{
+    const uint32_t summaryFlags =
+        (plan.blocked ? 1u : 0u) |
+        (plan.overflow ? 2u : 0u);
+    hash = HashSmokePlanBytes(hash, &plan.inputRecords, sizeof(plan.inputRecords));
+    hash = HashSmokePlanBytes(hash, &plan.emittedRecords, sizeof(plan.emittedRecords));
+    hash = HashSmokePlanBytes(hash, &plan.skippedDisabled, sizeof(plan.skippedDisabled));
+    hash = HashSmokePlanBytes(hash, &plan.skippedInvalid, sizeof(plan.skippedInvalid));
+    hash = HashSmokePlanBytes(hash, &summaryFlags, sizeof(summaryFlags));
+    return hash;
+}
+
 RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
     const RtSmokeStaticRouteTablePlanInput& input)
 {
@@ -624,11 +639,13 @@ RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
     plan.blocked = input.routeNamespace.staticRoutesBlocked;
     if (!input.records || input.recordCount <= 0)
     {
+        plan.tableSignature = HashSmokeStaticRouteTablePlanSummary(plan.tableSignature, plan);
         return plan;
     }
     if (!input.routeNamespace.staticRoutesEnabled)
     {
         plan.skippedDisabled = input.recordCount;
+        plan.tableSignature = HashSmokeStaticRouteTablePlanSummary(plan.tableSignature, plan);
         return plan;
     }
 
@@ -672,6 +689,7 @@ RtSmokeStaticRouteTablePlan BuildSmokeStaticRouteTablePlan(
         plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.activeReasonFlags, sizeof(routeRecord.activeReasonFlags));
         plan.tableSignature = HashSmokePlanBytes(plan.tableSignature, &routeRecord.range, sizeof(routeRecord.range));
     }
+    plan.tableSignature = HashSmokeStaticRouteTablePlanSummary(plan.tableSignature, plan);
     return plan;
 }
 
