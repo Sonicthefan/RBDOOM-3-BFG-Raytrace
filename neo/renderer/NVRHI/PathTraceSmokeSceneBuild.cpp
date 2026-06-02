@@ -5065,13 +5065,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bvhFramePlanningInput.frameTokenInput.rigidTlasInstanceCount = rigidTlasInstanceCount;
     bvhFramePlanningInput.frameTokenInput.hasStaticBlas = hasStaticBlas;
     bvhFramePlanningInput.frameTokenInput.hasDynamicBlas = hasDynamicBlas;
+    const int bvhFramePlanStartMs = Sys_Milliseconds();
     const RtSmokeBvhFramePlanningSnapshot bvhFramePlanningSnapshot =
         CaptureSmokeBvhFramePlanningSnapshot(bvhFramePlanningInput);
     const RtSmokeBvhFramePlanningResult bvhFramePlanningResult =
         BuildSmokeBvhFramePlanningResult(bvhFramePlanningSnapshot);
+    const int bvhFramePlanMs = Sys_Milliseconds() - bvhFramePlanStartMs;
     const RtSmokeStaticBucketWorkPlan& staticBucketWorkPlan =
         bvhFramePlanningResult.staticBucketWorkPlan;
     sceneLogDesc.staticBvhResidentBuckets = staticBucketWorkPlan.activeSetPlan.residentBuckets;
+    sceneLogDesc.bvhFramePlanMs = bvhFramePlanMs;
     sceneLogDesc.staticBvhActiveBuckets = staticBucketWorkPlan.activeSetPlan.activeBuckets;
     sceneLogDesc.staticBvhInactiveResidentBuckets = staticBucketWorkPlan.activeSetPlan.inactiveResidentBuckets;
     sceneLogDesc.staticBvhEmittedInstances = staticBucketWorkPlan.activeSetPlan.emittedInstances;

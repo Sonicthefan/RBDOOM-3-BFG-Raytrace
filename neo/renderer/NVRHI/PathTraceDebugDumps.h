@@ -211,6 +211,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
     uint64 previousStaticUploadSkippedBytes = 0;
     uint64 dynamicUploadBytes = 0;
     uint64 rigidRouteUploadBytes = 0;
+    int bvhFramePlanMs = 0;
     int bufferUploadMs = 0;
     int accelSubmitMs = 0;
     int blasSubmitMs = 0;
@@ -341,6 +342,7 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     uint64 previousStaticUploadSkippedBytes = 0;
     uint64 dynamicUploadBytes = 0;
     uint64 rigidRouteUploadBytes = 0;
+    int bvhFramePlanMs = 0;
     bool staticBlasBuildSubmitted = false;
     bool staticBlasBuildSkipped = false;
     bool dynamicBlasBuildSubmitted = false;
