@@ -302,14 +302,14 @@ void TestOwnedSnapshot()
         "owned acceleration snapshot omits source arrays when static signature is reused");
 
     std::vector<HarnessSmokeVertex> rangeVertices = BuildTriangleVertices(0.25f);
+    rangeVertices.insert(rangeVertices.begin(), rangeVertices[0]);
     rangeVertices.push_back(rangeVertices[0]);
-    rangeVertices.push_back(rangeVertices[1]);
-    std::vector<uint32_t> rangeIndexes = { 99, 0, 1, 2, 88 };
+    std::vector<uint32_t> rangeIndexes = { 99, 1, 2, 3, 88 };
     std::vector<uint32_t> rangeClasses = { 99, 7, 88 };
     std::vector<uint32_t> rangeMaterials = { 99, 11, 88 };
     RtSmokeAccelerationPlanInput rangedInput =
         BuildPlanInput(rangeVertices, rangeIndexes, rangeClasses, rangeMaterials);
-    rangedInput.staticSignature.staticRange.vertexOffset = 0;
+    rangedInput.staticSignature.staticRange.vertexOffset = 1;
     rangedInput.staticSignature.staticRange.vertexCount = 3;
     rangedInput.staticSignature.staticRange.indexOffset = 1;
     rangedInput.staticSignature.staticRange.indexCount = 3;
@@ -328,8 +328,11 @@ void TestOwnedSnapshot()
             static_cast<size_t>(rangedInput.staticSignature.staticRange.triangleCount) &&
         rangedSnapshot.staticSignature.triangleMaterials.size() ==
             static_cast<size_t>(rangedInput.staticSignature.staticRange.triangleCount) &&
+        rangedSnapshot.staticSignature.staticRange.vertexOffset == 0 &&
+        rangedSnapshot.staticSignature.staticRange.indexOffset == 0 &&
+        rangedSnapshot.staticSignature.staticRange.triangleOffset == 0 &&
         rangedSnapshotResult.plan.staticSignature.hash == rangedDirectPlan.staticSignature.hash,
-        "owned acceleration snapshot copies only ranged static signature inputs");
+        "owned acceleration snapshot copies only ranged static signature inputs with normalized offsets");
 }
 
 void TestAccelerationPlanInputToken()
