@@ -2655,6 +2655,25 @@ void TestUploadPlan()
         { spanB, sizeof(spanB[0]), 2 }
     };
     Check(spanSignature != BuildSmokePlanDataSpanSignature(resizedSpans, 2), "data span upload signature tracks element sizes");
+    const uint32_t zeroSpanA[] = { 0, 0, 0, 0 };
+    const RtSmokePlanDataSpan zeroDataSpans[] = {
+        { zeroSpanA, sizeof(zeroSpanA[0]), 4 },
+        { spanB, sizeof(spanB[0]), 2 }
+    };
+    const RtSmokePlanDataSpan missingDataSpans[] = {
+        { nullptr, sizeof(zeroSpanA[0]), 4 },
+        { spanB, sizeof(spanB[0]), 2 }
+    };
+    Check(BuildSmokePlanDataSpanSignature(zeroDataSpans, 2) != BuildSmokePlanDataSpanSignature(missingDataSpans, 2),
+        "data span upload signature separates missing payloads from zero-filled data");
+    const RtSmokePlanDataSpan emptyNullSpan[] = {
+        { nullptr, sizeof(zeroSpanA[0]), 0 }
+    };
+    const RtSmokePlanDataSpan emptyDataSpan[] = {
+        { zeroSpanA, sizeof(zeroSpanA[0]), 0 }
+    };
+    Check(BuildSmokePlanDataSpanSignature(emptyNullSpan, 1) == BuildSmokePlanDataSpanSignature(emptyDataSpan, 1),
+        "data span upload signature ignores backing pointers for empty spans");
 
     RtSmokePreviousStaticSnapshotUploadPlanInput previousStaticInput;
     previousStaticInput.dataAvailable = true;
