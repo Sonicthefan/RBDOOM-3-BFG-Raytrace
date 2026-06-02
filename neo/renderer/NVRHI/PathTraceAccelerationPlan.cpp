@@ -1683,8 +1683,6 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
     const RtSmokeRigidTlasPlanDesc& desc)
 {
     uint64_t hash = 1469598103934665603ull;
-    const int observationCount = desc.observationCount > 0 ? desc.observationCount : 0;
-    hash = HashSmokePlanBytes(hash, &observationCount, sizeof(observationCount));
     hash = HashSmokePlanBytes(hash, &desc.rigidSourceMask, sizeof(desc.rigidSourceMask));
     hash = HashSmokePlanBytes(hash, &desc.firstInstanceId, sizeof(desc.firstInstanceId));
     hash = HashSmokePlanBytes(hash, &desc.instanceMask, sizeof(desc.instanceMask));
@@ -1695,6 +1693,7 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
     }
 
     int emittedInstances = 0;
+    int processedObservations = 0;
     for (int observationIndex = 0; observationIndex < desc.observationCount; ++observationIndex)
     {
         if (desc.maxInstances > 0 && emittedInstances >= desc.maxInstances)
@@ -1703,35 +1702,56 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
         }
 
         const RtSmokeRigidTlasObservation& observation = desc.observations[observationIndex];
+        ++processedObservations;
+        enum : uint32_t
+        {
+            RT_SMOKE_RIGID_TOKEN_REJECT_NON_RIGID = 1,
+            RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_MESH = 2,
+            RT_SMOKE_RIGID_TOKEN_REJECT_STALE_MESH = 3,
+            RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_BLAS = 4,
+            RT_SMOKE_RIGID_TOKEN_ACCEPTED = 5
+        };
+        uint32_t observationCategory = RT_SMOKE_RIGID_TOKEN_ACCEPTED;
+        if ((observation.sourceFlags & desc.rigidSourceMask) == 0)
+        {
+            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_NON_RIGID;
+        }
+        else if (!observation.hasMeshRecord)
+        {
+            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_MESH;
+        }
+        else if (!observation.meshSeenThisFrame && !observation.residencyEnabled)
+        {
+            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_STALE_MESH;
+        }
+        else if (!observation.hasBlas)
+        {
+            observationCategory = RT_SMOKE_RIGID_TOKEN_REJECT_MISSING_BLAS;
+        }
+
+        hash = HashSmokePlanBytes(hash, &observationCategory, sizeof(observationCategory));
+        if (observationCategory != RT_SMOKE_RIGID_TOKEN_ACCEPTED)
+        {
+            continue;
+        }
+
         const uint32_t observationFlags =
-            (observation.hasMeshRecord ? 1u : 0u) |
-            (observation.meshSeenThisFrame ? 2u : 0u) |
-            (observation.residencyEnabled ? 4u : 0u) |
-            (observation.hasBlas ? 8u : 0u) |
-            (observation.seenThisFrame ? 16u : 0u) |
-            (observation.hasPreviousObjectToWorld ? 32u : 0u) |
-            (observation.hasPreviousObjectToWorld && observation.transformContinuous ? 64u : 0u);
+            (observation.seenThisFrame ? 1u : 0u) |
+            (observation.hasPreviousObjectToWorld ? 2u : 0u) |
+            (observation.hasPreviousObjectToWorld && observation.transformContinuous ? 4u : 0u);
         hash = HashSmokePlanBytes(hash, &observation.meshHash, sizeof(observation.meshHash));
         hash = HashSmokePlanBytes(hash, &observation.instanceId, sizeof(observation.instanceId));
-        hash = HashSmokePlanBytes(hash, &observation.sourceFlags, sizeof(observation.sourceFlags));
         hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
         hash = HashSmokePlanBytes(hash, &observationFlags, sizeof(observationFlags));
-
-        const bool accepted =
-            (observation.sourceFlags & desc.rigidSourceMask) != 0 &&
-            observation.hasMeshRecord &&
-            (observation.meshSeenThisFrame || observation.residencyEnabled) &&
-            observation.hasBlas;
-        if (accepted)
+        hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
+        if (observation.hasPreviousObjectToWorld)
         {
-            hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
-            if (observation.hasPreviousObjectToWorld)
-            {
-                hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
-            }
-            ++emittedInstances;
+            hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
         }
+        ++emittedInstances;
     }
+    hash = HashSmokePlanBytes(hash, &processedObservations, sizeof(processedObservations));
+    hash = HashSmokePlanBytes(hash, &emittedInstances, sizeof(emittedInstances));
     return hash;
 }
 

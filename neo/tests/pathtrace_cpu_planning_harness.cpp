@@ -502,6 +502,23 @@ void TestRigidPlan()
     Check(rejectedTransformToken == BuildSmokeRigidTlasPlanInputToken(desc),
         "rigid TLAS plan input token ignores rejected transform contents");
 
+    const uint64_t rejectedIdentityToken = BuildSmokeRigidTlasPlanInputToken(desc);
+    observations[1].meshHash = 888;
+    observations[1].instanceId = 889;
+    observations[1].routeRecordIndex = 890;
+    observations[1].hasBlas = !observations[1].hasBlas;
+    observations[1].meshSeenThisFrame = !observations[1].meshSeenThisFrame;
+    observations[1].seenThisFrame = !observations[1].seenThisFrame;
+    Check(rejectedIdentityToken == BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token ignores rejected identity fields");
+
+    observations[1].sourceFlags = 0;
+    Check(rejectedIdentityToken != BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token tracks rejected category changes");
+    observations[1] = observations[0];
+    observations[1].meshHash = 200;
+    observations[1].hasMeshRecord = false;
+
     const RtSmokeRigidTlasPlanSnapshot snapshot = CaptureSmokeRigidTlasPlanSnapshot(desc);
     const uint64_t snapshotRigidToken = BuildSmokeRigidTlasPlanInputToken(snapshot);
     observations[0].hasBlas = false;
@@ -541,6 +558,9 @@ void TestRigidPlan()
     observations[1].objectToWorld[12] = 99.0f;
     Check(cappedToken == BuildSmokeRigidTlasPlanInputToken(desc),
         "rigid TLAS plan input token ignores observations after max instance cap");
+    desc.observationCount = 2;
+    Check(cappedToken == BuildSmokeRigidTlasPlanInputToken(desc),
+        "rigid TLAS plan input token ignores appended observations after max instance cap");
 
     RtSmokeRigidTlasObservation nonRigid = observations[0];
     nonRigid.sourceFlags = 0;
