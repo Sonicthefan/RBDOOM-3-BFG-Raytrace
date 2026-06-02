@@ -431,6 +431,7 @@ void TestRigidPlan()
     Check(plan.rejectedMissingMesh == 1, "rigid TLAS plan rejects missing mesh records");
     Check(plan.rejectedStaleMesh == 1, "rigid TLAS plan rejects stale observations");
     Check(plan.rejectedMissingBlas == 1, "rigid TLAS plan rejects missing BLAS handles before render submit");
+    Check(plan.tlasInstanceSignature != 0, "rigid TLAS plan emits deterministic instance signature");
     Check(plan.instances[0].instanceId == 2 &&
         plan.instances[0].meshHash == 100 &&
         plan.instances[0].hasPreviousTransform &&
@@ -446,6 +447,9 @@ void TestRigidPlan()
     observations[0].previousObjectToWorld[12] = -4.0f;
     Check(baseRigidToken != BuildSmokeRigidTlasPlanInputToken(changedTransformDesc),
         "rigid TLAS plan input token tracks route transform metadata");
+    const RtSmokeRigidTlasPlan changedTransformPlan = BuildSmokeRigidTlasPlan(changedTransformDesc);
+    Check(plan.tlasInstanceSignature != changedTransformPlan.tlasInstanceSignature,
+        "rigid TLAS plan signature tracks emitted transform metadata");
     observations[0].previousObjectToWorld[12] = -2.0f;
 
     RtSmokeRigidTlasObservation invalidPreviousObservation = observations[0];
@@ -483,11 +487,23 @@ void TestRigidPlan()
     observations[2].residencyEnabled = true;
     observations[2].hasBlas = true;
     const RtSmokeRigidTlasPlan residentPlan = BuildSmokeRigidTlasPlan(desc);
-    Check(residentPlan.emittedInstances == 2, "rigid TLAS plan accepts stale mesh when residency keeps it valid");
+    Check(residentPlan.emittedInstances == 2 &&
+        residentPlan.tlasInstanceSignature != plan.tlasInstanceSignature,
+        "rigid TLAS plan accepts stale mesh when residency keeps it valid");
+
+    observations[2].hasBlas = false;
+    const RtSmokeRigidTlasPlan missingResidentBlasPlan = BuildSmokeRigidTlasPlan(desc);
+    Check(missingResidentBlasPlan.emittedInstances == 1 &&
+        missingResidentBlasPlan.rejectedMissingBlas == plan.rejectedMissingBlas + 1 &&
+        missingResidentBlasPlan.tlasInstanceSignature != residentPlan.tlasInstanceSignature,
+        "rigid TLAS plan signature tracks BLAS readiness summary");
 
     desc.maxInstances = 1;
     const RtSmokeRigidTlasPlan cappedPlan = BuildSmokeRigidTlasPlan(desc);
-    Check(cappedPlan.emittedInstances == 1 && cappedPlan.instances.size() == 1, "rigid TLAS plan honors max instance cap");
+    Check(cappedPlan.emittedInstances == 1 &&
+        cappedPlan.instances.size() == 1 &&
+        cappedPlan.tlasInstanceSignature != missingResidentBlasPlan.tlasInstanceSignature,
+        "rigid TLAS plan honors max instance cap");
 
     RtSmokeRigidTlasObservation nonRigid = observations[0];
     nonRigid.sourceFlags = 0;

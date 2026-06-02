@@ -1694,11 +1694,47 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
     return BuildSmokeRigidTlasPlanInputToken(desc);
 }
 
+static uint64_t BuildSmokeRigidTlasInstanceSignature(
+    const RtSmokeRigidTlasPlan& plan,
+    const RtSmokeRigidTlasPlanDesc& desc)
+{
+    uint64_t hash = 14695981039346656037ull;
+    hash = HashSmokePlanBytes(hash, &desc.firstInstanceId, sizeof(desc.firstInstanceId));
+    hash = HashSmokePlanBytes(hash, &desc.instanceMask, sizeof(desc.instanceMask));
+    hash = HashSmokePlanBytes(hash, &desc.rigidSourceMask, sizeof(desc.rigidSourceMask));
+    hash = HashSmokePlanBytes(hash, &desc.maxInstances, sizeof(desc.maxInstances));
+    hash = HashSmokePlanBytes(hash, &plan.visibleInstances, sizeof(plan.visibleInstances));
+    hash = HashSmokePlanBytes(hash, &plan.rigidInstances, sizeof(plan.rigidInstances));
+    hash = HashSmokePlanBytes(hash, &plan.emittedInstances, sizeof(plan.emittedInstances));
+    hash = HashSmokePlanBytes(hash, &plan.rejectedNonRigid, sizeof(plan.rejectedNonRigid));
+    hash = HashSmokePlanBytes(hash, &plan.rejectedMissingMesh, sizeof(plan.rejectedMissingMesh));
+    hash = HashSmokePlanBytes(hash, &plan.rejectedStaleMesh, sizeof(plan.rejectedStaleMesh));
+    hash = HashSmokePlanBytes(hash, &plan.rejectedMissingBlas, sizeof(plan.rejectedMissingBlas));
+    for (const RtSmokePlanTlasInstance& instance : plan.instances)
+    {
+        const uint32_t instanceFlags =
+            (instance.sourceSeenThisFrame ? 1u : 0u) |
+            (instance.hasPreviousTransform ? 2u : 0u) |
+            (instance.transformContinuous ? 4u : 0u);
+        hash = HashSmokePlanBytes(hash, &instance.kind, sizeof(instance.kind));
+        hash = HashSmokePlanBytes(hash, &instance.instanceId, sizeof(instance.instanceId));
+        hash = HashSmokePlanBytes(hash, &instance.instanceMask, sizeof(instance.instanceMask));
+        hash = HashSmokePlanBytes(hash, &instance.meshHash, sizeof(instance.meshHash));
+        hash = HashSmokePlanBytes(hash, &instance.sourceInstanceId, sizeof(instance.sourceInstanceId));
+        hash = HashSmokePlanBytes(hash, &instance.routeRecordIndex, sizeof(instance.routeRecordIndex));
+        hash = HashSmokePlanBytes(hash, &instanceFlags, sizeof(instanceFlags));
+        hash = HashSmokePlanBytes(hash, instance.transform, sizeof(instance.transform));
+        hash = HashSmokePlanBytes(hash, instance.previousTransform, sizeof(instance.previousTransform));
+    }
+    return hash;
+}
+
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc)
 {
     RtSmokeRigidTlasPlan plan;
     if (!desc.observations || desc.observationCount <= 0)
     {
+        plan.tlasInstanceSignature = BuildSmokeRigidTlasInstanceSignature(plan, desc);
         return plan;
     }
 
@@ -1714,6 +1750,7 @@ RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& des
         }
     }
 
+    plan.tlasInstanceSignature = BuildSmokeRigidTlasInstanceSignature(plan, desc);
     return plan;
 }
 

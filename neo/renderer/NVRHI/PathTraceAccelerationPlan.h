@@ -653,6 +653,7 @@ struct RtSmokeRigidTlasPlanSnapshot
 struct RtSmokeRigidTlasPlan
 {
     std::vector<RtSmokePlanTlasInstance> instances;
+    uint64_t tlasInstanceSignature = 0;
     int visibleInstances = 0;
     int rigidInstances = 0;
     int emittedInstances = 0;
