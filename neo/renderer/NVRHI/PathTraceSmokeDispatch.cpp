@@ -3128,6 +3128,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(44, m_smokeDoomAnalyticRemapBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, m_frameResources.rrGuideAlbedoTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, m_smokeRestirLightManagerCurrentToPreviousBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer));
@@ -3189,6 +3190,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
             if (texture)
@@ -3653,6 +3655,64 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->dispatchRays(cleanArgs);
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+        }
+        const bool cleanDlssRrEvaluateRequested =
+            cleanSpatialRoute &&
+            cleanRtxdiDiView == 16 &&
+            r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() == 0 &&
+            r_pathTracingDLSSRR.GetInteger() != 0 &&
+            r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
+        if (cleanDlssRrEvaluateRequested)
+        {
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+            commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->commitBarriers();
+
+            const bool cleanRrHistoryReset =
+                !m_frameResources.primarySurfaceHistoryView.valid ||
+                m_frameResources.primarySurfaceHistoryNeedsClear ||
+                m_frameResources.settings.resetReasonFlags != 0;
+            const bool cleanRrEvaluated = PathTraceDLSSRRBridge_Evaluate(
+                commandList,
+                m_frameResources.rrInputColorTexture,
+                m_frameResources.accumulationTexture,
+                m_frameResources.rrGuideAlbedoTexture,
+                m_frameResources.rrGuideSpecularAlbedoTexture,
+                m_frameResources.rrGuideNormalRoughnessTexture,
+                m_frameResources.rrGuideDepthTexture,
+                m_frameResources.motionVectorTexture,
+                m_frameResources.rrGuideHitDistanceTexture,
+                viewDef,
+                cleanConstants.frameIndex,
+                m_frameResources.width,
+                m_frameResources.height,
+                cleanRrHistoryReset);
+            if (cleanRrEvaluated)
+            {
+                commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+                commandList->commitBarriers();
+                commandList->copyTexture(m_frameResources.outputTexture, nvrhi::TextureSlice(), m_frameResources.accumulationTexture, nvrhi::TextureSlice());
+                commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                commandList->commitBarriers();
+            }
         }
         if (!cleanSpatialRoute && cleanRtxdiDiView >= 4 && cleanPromoteSubviewReservoir)
         {

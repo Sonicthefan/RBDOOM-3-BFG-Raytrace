@@ -102,6 +102,7 @@ struct PathTraceSmokeEmissiveTriangle
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
@@ -1078,12 +1079,14 @@ void RayGen()
         return;
     }
 
-    SmokeOutput[pixel] = float4(CleanResolve(
+    const float3 resolvedRadiance = CleanResolve(
         RTXDI_GetDIReservoirLightIndex(spatialReservoir),
         RTXDI_GetDIReservoirSampleUV(spatialReservoir),
         surface,
         reuseSurface,
-        spatialReservoir), 1.0);
+        spatialReservoir);
+    PathTraceRRInputColor[pixel] = float4(resolvedRadiance, 1.0);
+    SmokeOutput[pixel] = float4(resolvedRadiance, 1.0);
 }
 
 [shader("miss")]
