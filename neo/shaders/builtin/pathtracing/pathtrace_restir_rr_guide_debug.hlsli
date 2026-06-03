@@ -20,7 +20,7 @@
 
 uint RayReconstructionGuideDebugView()
 {
-    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 9u);
+    return clamp((uint)max(RayReconstructionInfo.x, 0.0), 0u, 10u);
 }
 
 float4 RayReconstructionMotionMaskDebugColor(uint motionMask)
@@ -147,6 +147,14 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
     {
         const RestirPTCombinedLighting lighting = RestirPTEvaluateCombinedLightingNoReflection(surface, pixel);
         return float4(RestirPTToneMapPreview(lighting.hdrRadiance), 1.0);
+    }
+
+    if (view == 10u)
+    {
+        const float2 motionPixels = PathTraceRRMotionVectors[pixel];
+        const float magnitude = saturate(length(motionPixels) / 64.0);
+        const float2 direction = saturate(motionPixels / 128.0 + 0.5);
+        return float4(direction.x, direction.y, magnitude, 1.0);
     }
 
     return float4(0.0, 0.0, 0.0, 1.0);

@@ -108,6 +108,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         restirPTReflectionTexture &&
         rrInputColorTexture &&
         motionVectorTexture &&
+        rrMotionVectorTexture &&
         motionVectorMaskTexture &&
         rrGuideAlbedoTexture &&
         rrGuideSpecularAlbedoTexture &&
@@ -133,6 +134,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         restirPTReflectionTexture ||
         rrInputColorTexture ||
         motionVectorTexture ||
+        rrMotionVectorTexture ||
         motionVectorMaskTexture ||
         rrGuideAlbedoTexture ||
         rrGuideSpecularAlbedoTexture ||
@@ -235,6 +237,16 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    nvrhi::TextureDesc rrMotionVectorDesc = outputDesc;
+    rrMotionVectorDesc.format = nvrhi::Format::RG16_FLOAT;
+    rrMotionVectorDesc.debugName = "PathTraceRRMotionVectors";
+    nvrhi::TextureHandle newRrMotionVectorTexture = device->createTexture(rrMotionVectorDesc);
+    if (!newRrMotionVectorTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR motion-vector UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     nvrhi::TextureDesc motionVectorMaskDesc = outputDesc;
     motionVectorMaskDesc.format = nvrhi::Format::R32_UINT;
     motionVectorMaskDesc.debugName = "PathTraceSmokeMotionVectorMask";
@@ -324,6 +336,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     restirPTReflectionTexture = newRestirPTReflectionTexture;
     rrInputColorTexture = newRrInputColorTexture;
     motionVectorTexture = newMotionVectorTexture;
+    rrMotionVectorTexture = newRrMotionVectorTexture;
     motionVectorMaskTexture = newMotionVectorMaskTexture;
     rrGuideAlbedoTexture = newRrGuideAlbedoTexture;
     rrGuideSpecularAlbedoTexture = newRrGuideSpecularAlbedoTexture;
@@ -335,12 +348,12 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     width = requestedWidth;
     height = requestedHeight;
     diagnostics.outputTexturesCreated += 4;
-    diagnostics.motionVectorTexturesCreated++;
+    diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 6;
     diagnostics.diagnosticReadbackResourcesCreated++;
     diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 4ull;
-    diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height);
+    diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height) + EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
         EstimateRgba16FloatTextureBytes(width, height) * 3ull +
@@ -515,7 +528,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(primarySurfaceHistoryBuffers.surfaceBytes),
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE);
 
-    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RGBA16_FLOAT vectorBytes=%llu vectorUav=u39 maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-or-dlssrr\n",
+    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RGBA16_FLOAT/u39 rrVectorFormat=RG16_FLOAT/u78 vectorBytes=%llu maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-and-rr\n",
         requestedWidth,
         requestedHeight,
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
@@ -537,6 +550,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     restirPTReflectionTexture = nullptr;
     rrInputColorTexture = nullptr;
     motionVectorTexture = nullptr;
+    rrMotionVectorTexture = nullptr;
     motionVectorMaskTexture = nullptr;
     rrGuideAlbedoTexture = nullptr;
     rrGuideSpecularAlbedoTexture = nullptr;

@@ -542,6 +542,10 @@ void StorePathTraceMotionVectorExport(uint2 pixel, RAB_Surface currentSurface)
     uint sourceKind;
     if (TryPathTraceCombinedGeometryMotionPixelsAndDepth(currentSurface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus, sourceKind))
     {
+        if (RayReconstructionInfo.z >= 0.5)
+        {
+            motionPixels -= RayReconstructionInfo.xy;
+        }
         PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - currentSurface.linearDepth, 0.0);
         PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
     }

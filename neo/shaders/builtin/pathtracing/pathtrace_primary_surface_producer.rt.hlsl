@@ -168,6 +168,7 @@ VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50)
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
+VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
 StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
@@ -660,6 +661,7 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
 {
     const PathTraceSmokeMaterial smokeMaterial = LoadSmokeMaterial(payload.materialIndex);
+    const float4 baseAlbedo = SampleSmokeDiffuseTexture(smokeMaterial, payload.texCoord);
     const float4 albedo = SampleSmokeSurfaceAlbedo(smokeMaterial, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd);
     const float3 specularColor = SampleSmokeDirectSpecular(smokeMaterial, payload.texCoord);
     float3 specularF0 = specularColor;
@@ -680,7 +682,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.materialIndex = payload.materialIndex;
     material.flags = smokeMaterial.flags;
     material.alphaCutoff = smokeMaterial.alphaCutoff;
-    material.diffuseAlbedo = albedo.rgb;
+    material.diffuseAlbedo = saturate(baseAlbedo.rgb);
     material.roughness = roughness;
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
@@ -731,6 +733,7 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
         PathTraceRRGuideNormalRoughness[pixel] = float4(0.5, 0.5, 1.0, 1.0);
         PathTraceRRGuideDepth[pixel] = 0.0;
         PathTraceRRGuideHitDistance[pixel] = 0.0;
+        PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
         return;
     }
 
@@ -789,6 +792,41 @@ uint RayReconstructionResetMaskFromStatus(RAB_Surface surface, bool motionValid,
     return mask;
 }
 
+bool TryRayReconstructionCameraMotionPixelsAndDepth(
+    RAB_Surface surface,
+    uint2 pixel,
+    out int2 previousPixel,
+    out float2 previousPixelFloat,
+    out float2 motionPixels,
+    out float expectedPrevDepth,
+    out uint debugStatus)
+{
+    previousPixel = int2(-1, -1);
+    previousPixelFloat = float2(-1.0, -1.0);
+    motionPixels = float2(0.0, 0.0);
+    expectedPrevDepth = 0.0;
+    debugStatus = RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION;
+
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        debugStatus = RT_PRIMARY_SURFACE_DEBUG_MISSING_CURRENT;
+        return false;
+    }
+    if (!ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepthWithStatus(
+        surface.worldPos,
+        PathTraceFullOutputSize(),
+        previousPixelFloat,
+        expectedPrevDepth,
+        debugStatus))
+    {
+        return false;
+    }
+
+    previousPixel = int2(floor(previousPixelFloat));
+    motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
+    return true;
+}
+
 void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
 {
     const bool motionVectorExportEnabled = MotionVectorInfo.x >= 0.5;
@@ -805,6 +843,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
         if (motionVectorExportEnabled)
         {
             PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+            PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION);
         }
         PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, false, RT_PRIMARY_SURFACE_DEBUG_NO_OBJECT_MOTION);
@@ -820,7 +859,26 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
     {
         if (motionVectorExportEnabled)
         {
+            if (RayReconstructionInfo.z >= 0.5)
+            {
+                motionPixels -= RayReconstructionInfo.xy;
+            }
             PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - surface.linearDepth, 0.0);
+            PathTraceRRMotionVectors[pixel] = motionPixels;
+            PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
+        }
+        PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, true, debugStatus);
+    }
+    else if (TryRayReconstructionCameraMotionPixelsAndDepth(surface, pixel, previousPixel, previousPixelFloat, motionPixels, expectedPrevDepth, debugStatus))
+    {
+        if (motionVectorExportEnabled)
+        {
+            if (RayReconstructionInfo.z >= 0.5)
+            {
+                motionPixels -= RayReconstructionInfo.xy;
+            }
+            PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - surface.linearDepth, 0.0);
+            PathTraceRRMotionVectors[pixel] = motionPixels;
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
         }
         PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, true, debugStatus);
@@ -830,6 +888,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
         if (motionVectorExportEnabled)
         {
             PathTraceMotionVectors[pixel] = float4(0.0, 0.0, 0.0, 0.0);
+            PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(false, sourceKind, debugStatus);
         }
         PathTraceRRGuideResetMask[pixel] = RayReconstructionResetMaskFromStatus(surface, false, debugStatus);
@@ -1171,7 +1230,8 @@ void RayGen()
         return;
     }
 
-    const float2 uv = (float2(outputPixel) + 0.5) / float2(max(fullDimensions, uint2(1u, 1u)));
+    const float2 rrJitterPixels = RayReconstructionInfo.z >= 0.5 ? RayReconstructionInfo.xy : float2(0.0, 0.0);
+    const float2 uv = (float2(outputPixel) + 0.5 + rrJitterPixels) / float2(max(fullDimensions, uint2(1u, 1u)));
     const float2 ndc = uv * 2.0 - 1.0;
     RayDesc ray;
     ray.Origin = CameraOriginAndTMax.xyz;

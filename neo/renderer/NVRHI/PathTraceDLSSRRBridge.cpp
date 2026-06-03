@@ -3,6 +3,7 @@
 
 #include "PathTraceDLSSRRBridge.h"
 #include "PathTraceCVars.h"
+#include "PathTraceFrameResources.h"
 
 #include <nvrhi/vulkan.h>
 #if USE_DX12
@@ -13,6 +14,8 @@
 #include "../../sys/DeviceManager.h"
 #include "../GLMatrix.h"
 #include "../RenderCommon.h"
+
+#include <algorithm>
 
 #if RB_PT_STREAMLINE_DLSS_RR
 #include <sl_consts.h>
@@ -35,6 +38,8 @@ namespace
 bool g_streamlineInitialized = false;
 bool g_streamlineDeviceSet = false;
 bool g_streamlineEvaluateWarned = false;
+bool g_streamlineChecklistWarned = false;
+uint32_t g_streamlineLastChecklistPreset = 0xffffffffu;
 
 #if RB_PT_STREAMLINE_DLSS_RR
 const char* StreamlineLogTypeName( sl::LogType type )
@@ -179,6 +184,83 @@ void CopyIdTechWorldCameraMatricesToStreamline( const viewDef_t* viewDef, sl::fl
 	CopyIdTechMatrixToStreamline( inverseModelView, cameraViewToWorld );
 }
 
+void BuildPathTraceProjectionMatrix( float tanX, float tanY, float zNear, float projectionMatrix[16] )
+{
+	std::fill( projectionMatrix, projectionMatrix + 16, 0.0f );
+	projectionMatrix[0 * 4 + 0] = 1.0f / Max( tanX, 1.0e-6f );
+	projectionMatrix[1 * 4 + 1] = 1.0f / Max( tanY, 1.0e-6f );
+	projectionMatrix[2 * 4 + 2] = -0.999f;
+	projectionMatrix[3 * 4 + 2] = -zNear;
+	projectionMatrix[2 * 4 + 3] = -1.0f;
+}
+
+void BuildPathTraceModelViewMatrix( const RtPathTraceFrameCameraState& camera, float modelViewMatrix[16] )
+{
+	const float flipMatrix[16] =
+	{
+		0.0f, 0.0f, -1.0f, 0.0f,
+		-1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f
+	};
+	float viewerMatrix[16] = {};
+	const idVec3& origin = camera.origin;
+	const idVec3& forward = camera.forward;
+	const idVec3& left = camera.left;
+	const idVec3& up = camera.up;
+
+	viewerMatrix[0 * 4 + 0] = forward.x;
+	viewerMatrix[1 * 4 + 0] = forward.y;
+	viewerMatrix[2 * 4 + 0] = forward.z;
+	viewerMatrix[3 * 4 + 0] = -origin.x * forward.x - origin.y * forward.y - origin.z * forward.z;
+	viewerMatrix[0 * 4 + 1] = left.x;
+	viewerMatrix[1 * 4 + 1] = left.y;
+	viewerMatrix[2 * 4 + 1] = left.z;
+	viewerMatrix[3 * 4 + 1] = -origin.x * left.x - origin.y * left.y - origin.z * left.z;
+	viewerMatrix[0 * 4 + 2] = up.x;
+	viewerMatrix[1 * 4 + 2] = up.y;
+	viewerMatrix[2 * 4 + 2] = up.z;
+	viewerMatrix[3 * 4 + 2] = -origin.x * up.x - origin.y * up.y - origin.z * up.z;
+	viewerMatrix[3 * 4 + 3] = 1.0f;
+	R_MatrixMultiply( viewerMatrix, flipMatrix, modelViewMatrix );
+}
+
+bool BuildPathTraceClipTransforms(
+	const viewDef_t* viewDef,
+	const RtPathTraceFrameCameraState* previousCamera,
+	bool resetHistory,
+	float clipToCameraView[16],
+	float clipToPrevClip[16],
+	float prevClipToClip[16] )
+{
+	if( !viewDef )
+	{
+		std::fill( clipToCameraView, clipToCameraView + 16, 0.0f );
+		return false;
+	}
+
+	R_MatrixFullInverse( viewDef->unjitteredProjectionMatrix, clipToCameraView );
+	if( resetHistory || previousCamera == nullptr || !previousCamera->valid )
+	{
+		return false;
+	}
+
+	float currentCameraToWorld[16];
+	R_MatrixFullInverse( viewDef->worldSpace.modelViewMatrix, currentCameraToWorld );
+	float previousWorldToCamera[16];
+	BuildPathTraceModelViewMatrix( *previousCamera, previousWorldToCamera );
+	float previousViewToClip[16];
+	BuildPathTraceProjectionMatrix( previousCamera->tanX, previousCamera->tanY, r_znear.GetFloat(), previousViewToClip );
+
+	float clipToWorld[16];
+	float clipToPreviousCamera[16];
+	R_MatrixMultiply( clipToCameraView, currentCameraToWorld, clipToWorld );
+	R_MatrixMultiply( clipToWorld, previousWorldToCamera, clipToPreviousCamera );
+	R_MatrixMultiply( clipToPreviousCamera, previousViewToClip, clipToPrevClip );
+	R_MatrixFullInverse( clipToPrevClip, prevClipToClip );
+	return true;
+}
+
 sl::CommandBuffer* GetStreamlineCommandBuffer( nvrhi::ICommandList* commandList )
 {
 	if( !commandList || !deviceManager )
@@ -269,6 +351,26 @@ uint32_t StreamlineUnorderedAccessState()
 #else
 	return 0;
 #endif
+}
+
+sl::DLSSDPreset PathTraceDLSSRRDenoiserPreset()
+{
+	switch( idMath::ClampInt( 0, 5, r_pathTracingDLSSRRDenoiserPreset.GetInteger() ) )
+	{
+		case 4: return sl::DLSSDPreset::ePresetD;
+		case 5: return sl::DLSSDPreset::ePresetE;
+		default: return sl::DLSSDPreset::eDefault;
+	}
+}
+
+const char* PathTraceDLSSRRDenoiserPresetName( sl::DLSSDPreset preset )
+{
+	switch( preset )
+	{
+		case sl::DLSSDPreset::ePresetD: return "D";
+		case sl::DLSSDPreset::ePresetE: return "E";
+		default: return "default";
+	}
 }
 #endif
 
@@ -454,10 +556,14 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* linearDepth,
 	nvrhi::ITexture* motionVectors,
 	nvrhi::ITexture* specularHitDistance,
+	nvrhi::ITexture* disocclusionMask,
 	const viewDef_t* viewDef,
 	uint32_t frameIndex,
 	int width,
 	int height,
+	float jitterOffsetX,
+	float jitterOffsetY,
+	const RtPathTraceFrameCameraState* previousCamera,
 	bool resetHistory )
 {
 	if( r_pathTracingDLSSRR.GetInteger() == 0 )
@@ -465,11 +571,11 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		return false;
 	}
 
-	if( !commandList || !inputColor || !outputColor || !albedo || !specularAlbedo || !normalRoughness || !linearDepth || !motionVectors || !specularHitDistance || !viewDef || width <= 0 || height <= 0 )
+	if( !commandList || !inputColor || !outputColor || !albedo || !specularAlbedo || !normalRoughness || !linearDepth || !motionVectors || !viewDef || width <= 0 || height <= 0 )
 	{
 		if( !g_streamlineEvaluateWarned )
 		{
-			common->Printf( "PathTraceDLSSRR: evaluate skipped because required mode-56 resources are missing\n" );
+			common->Printf( "PathTraceDLSSRR: evaluate skipped because required DLSS RR resources are missing\n" );
 			g_streamlineEvaluateWarned = true;
 		}
 		return false;
@@ -507,12 +613,30 @@ bool PathTraceDLSSRRBridge_Evaluate(
 
 	sl::ViewportHandle viewport( 0 );
 	sl::Constants constants{};
-	CopyIdTechMatrixToStreamline( viewDef->projectionMatrix, constants.cameraViewToClip );
-	CopyIdTechMatrixToStreamline( viewDef->unprojectionToCameraMatrix, constants.clipToCameraView );
+	float clipToCameraView[16];
+	float clipToPrevClip[16];
+	float prevClipToClip[16];
+	const bool validClipHistory = BuildPathTraceClipTransforms(
+		viewDef,
+		previousCamera,
+		resetHistory,
+		clipToCameraView,
+		clipToPrevClip,
+		prevClipToClip );
+	CopyIdTechMatrixToStreamline( viewDef->unjitteredProjectionMatrix, constants.cameraViewToClip );
+	CopyIdTechMatrixToStreamline( clipToCameraView, constants.clipToCameraView );
 	constants.clipToLensClip = StreamlineIdentityMatrix();
-	constants.clipToPrevClip = StreamlineIdentityMatrix();
-	constants.prevClipToClip = StreamlineIdentityMatrix();
-	constants.jitterOffset = sl::float2( 0.0f, 0.0f );
+	if( validClipHistory )
+	{
+		CopyIdTechMatrixToStreamline( clipToPrevClip, constants.clipToPrevClip );
+		CopyIdTechMatrixToStreamline( prevClipToClip, constants.prevClipToClip );
+	}
+	else
+	{
+		constants.clipToPrevClip = StreamlineIdentityMatrix();
+		constants.prevClipToClip = StreamlineIdentityMatrix();
+	}
+	constants.jitterOffset = sl::float2( jitterOffsetX, jitterOffsetY );
 	constants.mvecScale = sl::float2( 1.0f / static_cast<float>( width ), 1.0f / static_cast<float>( height ) );
 	constants.cameraPinholeOffset = sl::float2( 0.0f, 0.0f );
 	constants.cameraPos = sl::float3( viewDef->renderView.vieworg.x, viewDef->renderView.vieworg.y, viewDef->renderView.vieworg.z );
@@ -549,6 +673,28 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
 	CopyIdTechWorldCameraMatricesToStreamline( viewDef, options.worldToCameraView, options.cameraViewToWorld );
 	options.alphaUpscalingEnabled = sl::Boolean::eFalse;
+	const sl::DLSSDPreset rrDenoiserPreset = PathTraceDLSSRRDenoiserPreset();
+	options.dlaaPreset = rrDenoiserPreset;
+	options.qualityPreset = rrDenoiserPreset;
+	options.balancedPreset = rrDenoiserPreset;
+	options.performancePreset = rrDenoiserPreset;
+	options.ultraPerformancePreset = rrDenoiserPreset;
+	options.ultraQualityPreset = rrDenoiserPreset;
+
+	const uint32_t rrDenoiserPresetValue = static_cast<uint32_t>( rrDenoiserPreset );
+	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 &&
+		( !g_streamlineChecklistWarned || g_streamlineLastChecklistPreset != rrDenoiserPresetValue ) )
+	{
+		common->Printf(
+			"PathTraceDLSSRR: checklist status projectId=%s dlss+rr=loaded linearDepth=tagged invertedDepth=0 preset=%s(%u) jitter=%s clipHistory=%d specularMotion=missing disocclusion=not-tagged-until-float-mask mipBias=not-controlled-by-bridge\n",
+			"0f1fd5d4-b456-4c8c-9c08-9de33599b1a6",
+			PathTraceDLSSRRDenoiserPresetName( rrDenoiserPreset ),
+			static_cast<unsigned int>( rrDenoiserPresetValue ),
+			( idMath::Fabs( jitterOffsetX ) > 1.0e-6f || idMath::Fabs( jitterOffsetY ) > 1.0e-6f ) ? "pathtrace-primary-rays-jittered" : "zero-offset",
+			validClipHistory ? 1 : 0 );
+		g_streamlineChecklistWarned = true;
+		g_streamlineLastChecklistPreset = rrDenoiserPresetValue;
+	}
 
 	result = slDLSSDSetOptions( viewport, options );
 	if( result != sl::Result::eOk )
@@ -566,24 +712,39 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	sl::Resource normalRoughnessResource = BuildStreamlineTextureResource( normalRoughness, shaderResourceState );
 	sl::Resource linearDepthResource = BuildStreamlineTextureResource( linearDepth, shaderResourceState );
 	sl::Resource motionVectorResource = BuildStreamlineTextureResource( motionVectors, shaderResourceState );
-	sl::Resource specularHitDistanceResource = BuildStreamlineTextureResource( specularHitDistance, shaderResourceState );
+	sl::Resource specularHitDistanceResource{};
+	sl::Resource disocclusionMaskResource{};
+	if( specularHitDistance )
+	{
+		specularHitDistanceResource = BuildStreamlineTextureResource( specularHitDistance, shaderResourceState );
+	}
+	if( disocclusionMask )
+	{
+		disocclusionMaskResource = BuildStreamlineTextureResource( disocclusionMask, shaderResourceState );
+	}
 	sl::Extent extent{};
 	extent.width = static_cast<uint32_t>( width );
 	extent.height = static_cast<uint32_t>( height );
 
-	sl::ResourceTag tags[] =
+	sl::ResourceTag tags[9];
+	uint32_t tagCount = 0;
+	tags[tagCount++] = sl::ResourceTag( &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &albedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &specularAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &normalRoughnessResource, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &linearDepthResource, sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &motionVectorResource, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	if( specularHitDistance )
 	{
-		sl::ResourceTag( &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &albedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &specularAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &normalRoughnessResource, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &linearDepthResource, sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &motionVectorResource, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilEvaluate, &extent ),
-		sl::ResourceTag( &specularHitDistanceResource, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilEvaluate, &extent )
-	};
+		tags[tagCount++] = sl::ResourceTag( &specularHitDistanceResource, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	}
+	if( disocclusionMask )
+	{
+		tags[tagCount++] = sl::ResourceTag( &disocclusionMaskResource, sl::kBufferTypeDisocclusionMask, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	}
 
-	result = slSetTagForFrame( *frameToken, viewport, tags, static_cast<uint32_t>( std::size( tags ) ), nativeCommandBuffer );
+	result = slSetTagForFrame( *frameToken, viewport, tags, tagCount, nativeCommandBuffer );
 	if( result != sl::Result::eOk )
 	{
 		common->Printf( "PathTraceDLSSRR: slSetTagForFrame failed: %s\n", sl::getResultAsStr( result ) );
@@ -603,7 +764,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 
 	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 )
 	{
-		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f\n",
+		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f jitter=%.4f,%.4f clipHistory=%d specHit=%d disocclusion=%d\n",
 			frameIndex,
 			width,
 			height,
@@ -611,7 +772,12 @@ bool PathTraceDLSSRRBridge_Evaluate(
 			options.colorBuffersHDR == sl::Boolean::eTrue ? 1 : 0,
 			options.preExposure,
 			options.exposureScale,
-			options.sharpness );
+			options.sharpness,
+			jitterOffsetX,
+			jitterOffsetY,
+			validClipHistory ? 1 : 0,
+			specularHitDistance ? 1 : 0,
+			disocclusionMask ? 1 : 0 );
 	}
 	return true;
 #else

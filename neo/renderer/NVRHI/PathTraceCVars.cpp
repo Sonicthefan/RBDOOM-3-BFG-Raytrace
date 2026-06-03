@@ -1297,7 +1297,7 @@ idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs" );
+    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",
@@ -1891,7 +1891,7 @@ idCVar r_pathTracingDLSSRRGuideDebugView(
     "r_pathTracingDLSSRRGuideDebugView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0, 9 = RR input HDR preview" );
+    "Mode 56 DLSS RR guide debug view: 0 = off, 1 = albedo, 2 = normal, 3 = roughness, 4 = depth, 5 = hit distance, 6 = motion-vector mask, 7 = reset/disocclusion mask, 8 = specular albedo/F0, 9 = RR input HDR preview, 10 = RR motion vector" );
 
 idCVar r_pathTracingDLSSRRProbe(
     "r_pathTracingDLSSRRProbe",
@@ -1928,6 +1928,12 @@ idCVar r_pathTracingDLSSRRSharpness(
     "0.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "DLSS RR sharpness option for mode 56, clamped 0..1" );
+
+idCVar r_pathTracingDLSSRRDenoiserPreset(
+    "r_pathTracingDLSSRRDenoiserPreset",
+    "4",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "DLSS RR denoiser preset: 0 = SDK default, 4 = preset D/default transformer, 5 = preset E/latest transformer" );
 
 idCVar r_pathTracingDLSSRRVerbose(
     "r_pathTracingDLSSRRVerbose",

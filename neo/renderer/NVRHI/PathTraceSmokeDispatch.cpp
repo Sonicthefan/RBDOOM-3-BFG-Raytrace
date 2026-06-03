@@ -47,6 +47,33 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS = 1u << 16u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
+float PathTraceDLSSRRHalton(uint32_t index, uint32_t base)
+{
+    float result = 0.0f;
+    float fraction = 1.0f;
+    while (index > 0u)
+    {
+        fraction /= static_cast<float>(base);
+        result += fraction * static_cast<float>(index % base);
+        index /= base;
+    }
+    return result;
+}
+
+idVec2 PathTraceDLSSRRPixelJitter(const viewDef_t* viewDef, uint32_t frameIndex, bool enabled)
+{
+    (void)viewDef;
+    if (!enabled)
+    {
+        return idVec2(0.0f, 0.0f);
+    }
+
+    const uint32_t sequenceIndex = (frameIndex % 1024u) + 1u;
+    return idVec2(
+        PathTraceDLSSRRHalton(sequenceIndex, 2u) - 0.5f,
+        PathTraceDLSSRRHalton(sequenceIndex, 3u) - 0.5f);
+}
+
 void ReplaceStructuredBufferSrv(nvrhi::BindingSetDesc& desc, uint32_t slot, nvrhi::BufferHandle buffer)
 {
     const nvrhi::BindingSetItem item = nvrhi::BindingSetItem::StructuredBuffer_SRV(slot, buffer);
@@ -304,6 +331,7 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     float geometryInfo0[4] = {};
     float geometryInfo1[4] = {};
     float spatialInfo[4] = {};
+    float emissiveDistributionInfo[4] = {};
 };
 
 static_assert(sizeof(PathTraceCleanRtxdiDiSentinelConstants) <= 480, "PathTraceCleanRtxdiDiSentinelConstants exceeds allocated constant buffer size");
@@ -911,6 +939,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "real-analytic-material-validation";
         }
+        if (view == 17)
+        {
+            return "rr-motion-vector";
+        }
+        if (view == 18)
+        {
+            return "rr-input-mosaic";
+        }
         return "disabled";
     };
     auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
@@ -979,11 +1015,24 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "shared-rab-real-doom-analytic-material-resolve";
         }
+        if (view == 17)
+        {
+            return "clean-primary-surface-rr-motion-vector";
+        }
+        if (view == 18)
+        {
+            return "clean-primary-surface-rr-input-mosaic";
+        }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 16;
+    const bool cleanRtxdiDiRrInputMosaicView = cleanRtxdiDiView == 18;
+    const int cleanRtxdiDiResolveView = cleanRtxdiDiRrInputMosaicView ? 16 : cleanRtxdiDiView;
+    const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
+        ? 0u
+        : m_smokeCleanRtxdiDiFrameIndex;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 18;
     const bool cleanRtxdiDiSpatialEnabled =
         r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0 &&
         r_cleanDiSpatial.GetInteger() != 0 &&
@@ -991,6 +1040,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRtxdiDiSpatialShaderRequested =
         cleanRtxdiDiRouteRequested &&
         (cleanRtxdiDiView == 16 ||
+            cleanRtxdiDiRrInputMosaicView ||
             (cleanRtxdiDiSpatialEnabled &&
                 (cleanRtxdiDiView == 12 ||
                     (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
@@ -2033,7 +2083,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool smokeBaseResourcesValid =
         viewDef && m_smokeSceneBuilt && m_smokeShaderTable && m_smokeBindingSet && m_smokeTextureDescriptorTable &&
         m_frameResources.outputTexture && m_frameResources.accumulationTexture && m_frameResources.restirPTReflectionTexture &&
-        m_frameResources.rrInputColorTexture && m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
+        m_frameResources.rrInputColorTexture && m_frameResources.rrMotionVectorTexture && m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
         m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture && m_frameResources.rrGuideHitDistanceTexture &&
         m_frameResources.rrGuideResetMaskTexture && m_frameResources.readbackTexture && m_smokeConstantsBuffer && m_restirPTConstantsBuffer &&
         m_smokeBoundsOverlayLineBuffer && m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
@@ -2270,7 +2320,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9 || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 11 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiView == 16)
+        if (cleanRtxdiDiView == 2 || cleanRtxdiDiView == 3 || cleanRtxdiDiView == 4 || cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 || cleanRtxdiDiView == 7 || cleanRtxdiDiView == 8 || cleanRtxdiDiView == 9 || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 11 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiView == 16 || cleanRtxdiDiView == 17 || cleanRtxdiDiView == 18)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -2298,7 +2348,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_smokePreviousStaticTriangleClassBuffer && m_smokePreviousStaticTriangleMaterialBuffer &&
                 m_smokePreviousStaticTriangleMaterialIndexBuffer &&
                 m_frameResources.primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height)) &&
-                m_frameResources.motionVectorTexture && m_frameResources.motionVectorMaskTexture &&
+                m_frameResources.motionVectorTexture && m_frameResources.rrMotionVectorTexture && m_frameResources.motionVectorMaskTexture &&
                 m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
                 m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture &&
                 m_frameResources.rrGuideHitDistanceTexture && m_frameResources.rrGuideResetMaskTexture;
@@ -2319,6 +2369,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanCameraForward.Normalize();
             cleanCameraLeft.Normalize();
             cleanCameraUp.Normalize();
+            const bool cleanDlssRrJitterEnabled =
+                (cleanRtxdiDiView == 12 || cleanRtxdiDiResolveView == 16) &&
+                r_pathTracingDLSSRR.GetInteger() != 0;
+            const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, cleanRtxdiDiFrameIndexForDispatch, cleanDlssRrJitterEnabled);
 
             PathTraceSmokeConstants primarySurfaceConstants = {};
             primarySurfaceConstants.cameraOriginAndTMax[0] = cleanCameraOrigin.x;
@@ -2369,8 +2423,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
-                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && cleanRtxdiDiView == 16 ? 32u : 0u) |
-                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && cleanRtxdiDiView == 16 ? 128u : 0u);
+                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && cleanRtxdiDiResolveView == 16 ? 32u : 0u) |
+                (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && cleanRtxdiDiResolveView == 16 ? 128u : 0u);
             primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
             primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
             primarySurfaceConstants.safetyInfo[1] = primarySurfaceConstants.textureInfo[0];
@@ -2397,7 +2451,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
-            primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiView == 16
+            primarySurfaceConstants.rayReconstructionInfo[0] = cleanDlssRrJitterPixels.x;
+            primarySurfaceConstants.rayReconstructionInfo[1] = cleanDlssRrJitterPixels.y;
+            primarySurfaceConstants.rayReconstructionInfo[2] = cleanDlssRrJitterEnabled ? 1.0f : 0.0f;
+            primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiResolveView == 16
                 ? idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat())
                 : 0.0f;
 
@@ -2432,6 +2489,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 }
             }
             commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -2455,6 +2513,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorMaskTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
@@ -2582,15 +2641,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
 
         const bool cleanRtxdiDiNeedsPrimarySurface = cleanRtxdiDiView >= 2;
-        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiView == 16;
+        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16;
         const bool cleanRtxdiDiNeedsAnalyticTemporalInputs = cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 ||
             cleanRtxdiDiView == 12 ||
-            cleanRtxdiDiView == 16 ||
+            cleanRtxdiDiResolveView == 16 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
         const bool cleanRtxdiDiBindingInputsValid =
             (!cleanRtxdiDiNeedsPrimarySurface ||
                 (m_frameResources.primarySurfaceHistoryBuffers.current && m_frameResources.primarySurfaceHistoryBuffers.previous &&
-                    m_frameResources.motionVectorTexture && m_frameResources.motionVectorMaskTexture)) &&
+                    m_frameResources.motionVectorTexture && m_frameResources.rrMotionVectorTexture && m_frameResources.motionVectorMaskTexture)) &&
             (!cleanRtxdiDiNeedsCurrentAnalytic ||
                 (m_smokeDoomAnalyticLightBuffer && m_smokeDoomAnalyticCurrentIdentityBuffer)) &&
             (!cleanRtxdiDiNeedsAnalyticTemporalInputs ||
@@ -2816,6 +2875,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture),
                 nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture),
                 nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture),
+                nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(55, m_frameResources.restirPTGiReservoirBuffers.reservoirs),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(56, m_frameResources.restirPTDiReservoirBuffers.reservoirs),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(68, m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs ? m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs : m_frameResources.restirPTDiReservoirBuffers.reservoirs),
@@ -3127,7 +3187,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, m_smokeDoomAnalyticPreviousIdentityBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(44, m_smokeDoomAnalyticRemapBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(45, m_smokeDoomAnalyticPreviousLightBuffer));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, cleanOptionalSrv(m_smokeEmissiveDistributionBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, m_frameResources.rrGuideAlbedoTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(49, m_frameResources.rrGuideNormalRoughnessTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(50, m_frameResources.rrGuideDepthTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, m_frameResources.rrGuideHitDistanceTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, m_smokeRestirLightManagerCurrentToPreviousBuffer));
@@ -3141,6 +3207,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, cleanNeeCacheProviderSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, cleanNeeCacheCellSrv));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, cleanNeeCacheCandidateSrv));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, m_backend->GetCommonPasses().m_AnisotropicWrapSampler));
         nvrhi::BindingSetHandle cleanBindingSet = device->createBindingSet(cleanBindingSetDesc, m_smokeCleanRtxdiDiSentinelBindingLayout);
         if (!cleanBindingSet)
@@ -3190,6 +3257,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         for (nvrhi::TextureHandle texture : m_smokeActiveTextureTable)
         {
@@ -3207,7 +3279,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool cleanView12FullAnalyticDomain =
             cleanRtxdiDiView == 12 &&
             r_pathTracingCleanRtxdiDiView12FullAnalyticDomain.GetInteger() != 0;
-        const bool cleanPortalProofDomain = (!cleanView12FullAnalyticDomain && cleanRtxdiDiView == 12) || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiView == 16 ||
+        const bool cleanPortalProofDomain = (!cleanView12FullAnalyticDomain && cleanRtxdiDiView == 12) || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0) ||
             (cleanRtxdiDiView == 10 && r_pathTracingCleanRtxdiDiView10PortalDomain.GetInteger() != 0);
         const uint32_t cleanAvailableAnalyticLightCount = cleanPortalProofDomain
@@ -3273,7 +3345,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanCandidateDomainCount = cleanRluRoute
             ? (cleanRluDoomRangeCount > 0u ? cleanRluDoomRangeCount : cleanRluCurrentLightCount)
             : cleanAnalyticLightCount;
-        const uint32_t cleanCandidateCount = (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 16)
+        const uint32_t cleanCandidateCount = (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiResolveView == 16)
             ? Min(cleanCandidateDomainCount, cleanCandidateOverride)
             : 1u;
         const bool cleanSyntheticTemporalProofView =
@@ -3345,6 +3417,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             r_pathTracingCleanRtxdiDiSubviewSurfacePromote.GetInteger() != 0;
         const bool cleanSpatialRoute =
             (cleanRtxdiDiView == 16 ||
+                cleanRtxdiDiRrInputMosaicView ||
                 (cleanRtxdiDiSpatialEnabled &&
                     r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0 &&
                     (cleanRtxdiDiView == 12 ||
@@ -3389,16 +3462,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE;
         }
         PathTraceCleanRtxdiDiSentinelConstants cleanConstants = {};
-        cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
+        cleanConstants.view = static_cast<uint32_t>(cleanRtxdiDiResolveView);
         cleanConstants.status = cleanRtxdiDiView == 1 ? 1u : 2u;
         cleanConstants.width = static_cast<uint32_t>(Max(0, m_frameResources.width));
         cleanConstants.height = static_cast<uint32_t>(Max(0, m_frameResources.height));
         cleanConstants.analyticLightCount = cleanAnalyticLightCount;
         cleanConstants.analyticIdentityCount = cleanAnalyticIdentityCount;
         cleanConstants.lightMode = static_cast<uint32_t>(cleanRtxdiDiLightMode);
-        cleanConstants.frameIndex = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
-            ? 0u
-            : m_smokeCleanRtxdiDiFrameIndex++;
+        cleanConstants.frameIndex = cleanRtxdiDiFrameIndexForDispatch;
+        if (r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() == 0)
+        {
+            ++m_smokeCleanRtxdiDiFrameIndex;
+        }
         cleanConstants.reservoirCount = cleanReservoirCount;
         cleanConstants.candidateCount = cleanCandidateCount;
         cleanConstants.flags = cleanFlags;
@@ -3443,6 +3518,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.rluSampleInfo[1] = static_cast<float>(cleanRluShaderDoomSampleCount);
         cleanConstants.rluSampleInfo[2] = static_cast<float>(cleanRluShaderTotalSampleCount);
         cleanConstants.rluSampleInfo[3] = static_cast<float>(cleanRluShaderNonEmptyRangeCount);
+        const int cleanEmissiveDistributionCount =
+            !cleanDisableEmissiveTriangleSampling &&
+            r_pathTracingEmissiveDistribution.GetInteger() != 0 &&
+            m_sceneInputs.lights.emissiveDistributionValid
+                ? m_sceneInputs.lights.emissiveDistributionCount
+                : 0;
+        cleanConstants.emissiveDistributionInfo[0] = static_cast<float>(Max(0, cleanEmissiveDistributionCount));
+        cleanConstants.emissiveDistributionInfo[1] = cleanEmissiveDistributionCount > 0 ? 1.0f : 0.0f;
+        cleanConstants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
+        cleanConstants.emissiveDistributionInfo[3] = 0.0f;
         const int cleanTextureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0
             ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())
             : 0;
@@ -3657,30 +3742,59 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         }
-        const bool cleanDlssRrEvaluateRequested =
-            cleanSpatialRoute &&
-            cleanRtxdiDiView == 16 &&
-            r_pathTracingCleanRtxdiDiResolveBrdfTarget.GetInteger() == 0 &&
-            r_pathTracingDLSSRR.GetInteger() != 0 &&
-            r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
-        if (cleanDlssRrEvaluateRequested)
+        if (cleanRtxdiDiRrInputMosaicView)
         {
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+            nvrhi::rt::State cleanMosaicState = cleanState;
+            cleanMosaicState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
+            commandList->setRayTracingState(cleanMosaicState);
+            PathTraceCleanRtxdiDiSentinelConstants mosaicConstants = cleanConstants;
+            mosaicConstants.view = 18u;
+            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &mosaicConstants, sizeof(mosaicConstants));
+            commandList->dispatchRays(cleanArgs);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+        }
+        const bool cleanDlssRrEvaluateRequested =
+            cleanSpatialRoute &&
+            (cleanRtxdiDiView == 12 || cleanRtxdiDiView == 16) &&
+            r_pathTracingDLSSRR.GetInteger() != 0 &&
+            r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
+        if (cleanDlssRrEvaluateRequested)
+        {
+            const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, cleanConstants.frameIndex, true);
+            if (cleanRtxdiDiView == 12)
+            {
+                commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.5f, 0.5f, 1.0f, 1.0f));
+            }
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrMotionVectorTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideSpecularAlbedoTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideNormalRoughnessTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrMotionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
 
@@ -3696,12 +3810,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.rrGuideSpecularAlbedoTexture,
                 m_frameResources.rrGuideNormalRoughnessTexture,
                 m_frameResources.rrGuideDepthTexture,
-                m_frameResources.motionVectorTexture,
-                m_frameResources.rrGuideHitDistanceTexture,
+                m_frameResources.rrMotionVectorTexture,
+                nullptr,
+                nullptr,
                 viewDef,
                 cleanConstants.frameIndex,
                 m_frameResources.width,
                 m_frameResources.height,
+                cleanDlssRrJitterPixels.x,
+                cleanDlssRrJitterPixels.y,
+                cleanRrHistoryReset ? nullptr : &m_frameResources.primarySurfaceHistoryView,
                 cleanRrHistoryReset);
             if (cleanRrEvaluated)
             {
@@ -3760,6 +3878,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (m_sceneInputs.geometry.skinnedPreviousPositionBufferAvailable && m_sceneInputs.geometry.skinnedSurfaceDispatchCount > 0) ||
                 (m_sceneInputs.geometry.previousTransformAvailable && m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
             m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
+            m_frameResources.primarySurfaceHistoryNeedsClear = false;
         }
         if (!m_smokeTestDispatched)
         {
@@ -4174,6 +4293,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture),
             nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture),
             nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture),
+            nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(55, m_frameResources.restirPTGiReservoirBuffers.reservoirs),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(56, m_frameResources.restirPTDiReservoirBuffers.reservoirs),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(68, m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs ? m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs : m_frameResources.restirPTDiReservoirBuffers.reservoirs),
@@ -4550,7 +4670,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     uint64 mode56AccumulationSignature = accumulationSignature;
     mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(r_pathTracingRestirPTMode56Accumulation.GetInteger() != 0 ? 1 : 0));
     mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(1, 4096, r_pathTracingRestirPTMode56AccumulationMaxFrames.GetInteger())));
-    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 9, r_pathTracingDLSSRRGuideDebugView.GetInteger())));
+    mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger())));
     mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger())));
     mode56AccumulationSignature = HashSmokeDispatchValue(mode56AccumulationSignature, static_cast<uint64>(restirPTDiDebugView));
     if (!mode56AccumulationActive || mode56AccumulationSignature != m_frameResources.mode56AccumulationSignature)
@@ -4696,7 +4816,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             finalConsumesPrimary ? 1 : 0,
             finalUsesStandaloneResolve ? 1 : 0,
             reflectionProducer ? 1 : 0,
-            idMath::ClampInt(0, 9, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
+            idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()),
             restirPTDiDebugView,
             idMath::ClampInt(0, 4, r_pathTracingRestirPTGiDebugView.GetInteger()),
             nsightGpuMarkers ? 1 : 0,
@@ -4976,7 +5096,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.restirPTIndirectInfo[1] = stagedRestirGiInitialMode ? 1.0f : 0.0f;
     constants.restirPTIndirectInfo[2] = static_cast<float>(restirPTGiRaySparsity);
     constants.restirPTIndirectInfo[3] = static_cast<float>(restirPTGiRaySparsityPhase);
-    constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 9, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
+    constants.rayReconstructionInfo[0] = static_cast<float>(idMath::ClampInt(0, 10, r_pathTracingDLSSRRGuideDebugView.GetInteger()));
     constants.rayReconstructionInfo[1] = 0.0f;
     constants.rayReconstructionInfo[2] = 0.0f;
     constants.rayReconstructionInfo[3] = 0.0f;
@@ -6174,6 +6294,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint64 dlssRrStartUs = dispatchRaysCompleteUs;
     if (dlssRrEvaluateRequested)
     {
+        const idVec2 dlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, static_cast<uint32_t>(restirPTFrameIndex), false);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.motionVectorTexture);
@@ -6190,6 +6311,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setTextureState(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
         commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
 
@@ -6207,10 +6329,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.rrGuideDepthTexture,
             m_frameResources.motionVectorTexture,
             m_frameResources.rrGuideHitDistanceTexture,
+            nullptr,
             viewDef,
             static_cast<uint32_t>(restirPTFrameIndex),
             m_frameResources.width,
             m_frameResources.height,
+            dlssRrJitterPixels.x,
+            dlssRrJitterPixels.y,
+            historyReset ? nullptr : &m_frameResources.primarySurfaceHistoryView,
             historyReset);
         if (rrEvaluated)
         {

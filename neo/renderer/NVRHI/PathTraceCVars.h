@@ -286,6 +286,7 @@ extern idCVar r_pathTracingDLSSRRColorBuffersHDR;
 extern idCVar r_pathTracingDLSSRRPreExposure;
 extern idCVar r_pathTracingDLSSRRExposureScale;
 extern idCVar r_pathTracingDLSSRRSharpness;
+extern idCVar r_pathTracingDLSSRRDenoiserPreset;
 extern idCVar r_pathTracingDLSSRRVerbose;
 extern idCVar r_pathTracingRestirPTPassDump;
 extern idCVar r_pathTracingSafetyDump;

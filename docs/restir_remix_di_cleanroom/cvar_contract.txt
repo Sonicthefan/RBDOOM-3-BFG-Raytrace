@@ -77,6 +77,11 @@ r_pathTracingCleanRtxdiDiView
         8 = reservoir weight/targetPdf and rejection status
         16 = material validation resolve using clean current/temporal/spatial
             DI reservoirs and primary-surface material fields
+        17 = clean RR motion-vector diagnostic, reading the RR-facing
+            primary-surface motion vector texture used by DLSS RR
+        18 = clean DLSS RR input/guide mosaic from the clean primary-surface
+            producer: albedo, normal/roughness, specular, input color,
+            depth/hit distance, and motion/reset status
 
     Current diagnostic subviews:
         r_pathTracingCleanRtxdiDiView8Band -1 = stacked view-8 bands
@@ -100,10 +105,16 @@ r_pathTracingCleanRtxdiDiView
         buffer survival, or green valid pixels are diagnostics only and must
         not be reported as temporal accumulation.
 
-    Deferred:
-        DLSS Ray Reconstruction guide/input writes are not part of view 16.
-        The follow-up slice must add clean-owned guide writes explicitly rather
-        than using mode 56 or r_pathTracingRestirPTDiDebugView output as proof.
+    DLSS RR:
+        View 16 may feed the clean DLSS Ray Reconstruction bridge when
+        r_pathTracingDLSSRR is enabled. View 18 displays the clean-owned RR
+        inputs and guide buffers. Do not use mode 56 or
+        r_pathTracingRestirPTDiDebugView output as proof for this path.
+
+    r_pathTracingDLSSRRDenoiserPreset:
+        0 = SDK default, 4 = RR preset D/default transformer, 5 = RR preset
+        E/latest transformer. The bridge logs the selected preset when
+        r_pathTracingDLSSRRVerbose is enabled.
 
 
 r_pathTracingCleanRtxdiDiTemporal

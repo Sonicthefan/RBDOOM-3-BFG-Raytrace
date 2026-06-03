@@ -4,6 +4,7 @@
 
 class DeviceManager;
 struct DeviceCreationParameters;
+struct RtPathTraceFrameCameraState;
 struct viewDef_t;
 
 void PathTraceDLSSRRBridge_Init( nvrhi::GraphicsAPI api );
@@ -19,9 +20,13 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* linearDepth,
 	nvrhi::ITexture* motionVectors,
 	nvrhi::ITexture* specularHitDistance,
+	nvrhi::ITexture* disocclusionMask,
 	const viewDef_t* viewDef,
 	uint32_t frameIndex,
 	int width,
 	int height,
+	float jitterOffsetX,
+	float jitterOffsetY,
+	const RtPathTraceFrameCameraState* previousCamera,
 	bool resetHistory );
 void PathTraceDLSSRRBridge_Shutdown();

@@ -102,6 +102,14 @@ struct PathTraceSmokeEmissiveTriangle
     uint padding0;
 };
 
+struct PathTraceEmissiveDistributionEntry
+{
+    uint emissiveTriangleIndex;
+    float cumulativePdf;
+    float weight;
+    float padding0;
+};
+
 struct PathTraceDoomAnalyticLightCandidate
 {
     float4 originAndRadius;
@@ -172,6 +180,14 @@ struct PathTraceNeeCacheCellRecord
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceMotionVectorMask : register(u40);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideNormalRoughness : register(u49);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
+VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
+VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
@@ -182,6 +198,7 @@ StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
+StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
@@ -260,6 +277,8 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     float4 CleanRtxdiDiToyPathInfo;
     float4 CleanRtxdiDiGeometryInfo0;
     float4 CleanRtxdiDiGeometryInfo1;
+    float4 CleanRtxdiDiSpatialInfo;
+    float4 CleanRtxdiDiEmissiveDistributionInfo;
 };
 
 static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
@@ -341,6 +360,14 @@ static const uint CLEAN_TEMPORAL_DIAG_TEMPORAL_SAMPLE_PIXEL_VALID = 1u << 16u;
 static const uint CLEAN_TEMPORAL_DIAG_PREVIOUS_PIXEL_IN_BOUNDS = 1u << 17u;
 static const float CLEAN_TEMPORAL_AUDIT_FLAG_SCALE = 262143.0;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
+static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
+static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
+static const uint RT_RR_RESET_INVALID_SURFACE = 0x00000001u;
+static const uint RT_RR_RESET_MISSING_PREVIOUS = 0x00000002u;
+static const uint RT_RR_RESET_REJECTED_PREVIOUS = 0x00000004u;
+static const uint RT_RR_RESET_MATERIAL_MISMATCH = 0x00000008u;
+static const uint RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE = 0x00000010u;
+static const uint RT_RR_RESET_STOCHASTIC_TRANSLUCENT = 0x00000020u;
 static const uint CLEAN_RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE = 1u;
 static const uint CLEAN_RAB_LIGHT_TYPE_SYNTHETIC_CONSTANT = 2u;
 static const float3 CLEAN_SYNTHETIC_CONSTANT_RADIANCE = float3(2.0, 2.0, 2.0);
@@ -550,6 +577,87 @@ float PathTraceCleanRoomRluTypedSourcePdf(uint lightType)
     }
 
     return (float)sampleCount / max((float)range.y * (float)totalSampleCount, 1.0e-8);
+}
+
+uint PathTraceCleanRoomSelectDistributionEmissiveTriangle(uint emissiveTriangleCount, float randomValue)
+{
+    const uint distributionCount = (uint)max(CleanRtxdiDiEmissiveDistributionInfo.x, 0.0);
+    const bool distributionEnabled = CleanRtxdiDiEmissiveDistributionInfo.y > 0.5;
+    const uint fallbackIndex = min((uint)max(CleanRtxdiDiEmissiveDistributionInfo.z, 0.0), max(emissiveTriangleCount, 1u) - 1u);
+    if (!distributionEnabled || distributionCount == 0u || emissiveTriangleCount == 0u)
+    {
+        return 0xffffffffu;
+    }
+
+    uint low = 0u;
+    uint high = distributionCount;
+    const float target = saturate(randomValue);
+    [loop]
+    while (low < high)
+    {
+        const uint mid = low + ((high - low) >> 1u);
+        const PathTraceEmissiveDistributionEntry entry = SmokeEmissiveDistribution[mid];
+        if (target <= entry.cumulativePdf)
+        {
+            high = mid;
+        }
+        else
+        {
+            low = mid + 1u;
+        }
+    }
+
+    if (low < distributionCount)
+    {
+        const uint triangleIndex = SmokeEmissiveDistribution[low].emissiveTriangleIndex;
+        if (triangleIndex < emissiveTriangleCount)
+        {
+            return triangleIndex;
+        }
+    }
+
+    return fallbackIndex;
+}
+
+bool PathTraceCleanRoomSelectWeightedEmissiveRluCandidate(
+    uint2 range,
+    uint sampleCount,
+    uint totalSampleCount,
+    float randomValue,
+    out uint lightIndex,
+    out float sourcePdf)
+{
+    lightIndex = 0xffffffffu;
+    sourcePdf = 0.0;
+    if (CleanRtxdiDiView != 16u || range.y == 0u || sampleCount == 0u || totalSampleCount == 0u)
+    {
+        return false;
+    }
+
+    const uint emissiveTriangleCount = min(CleanRtxdiDiCurrentEmissiveTriangleCount, range.y);
+    const uint triangleIndex = PathTraceCleanRoomSelectDistributionEmissiveTriangle(emissiveTriangleCount, randomValue);
+    if (triangleIndex >= emissiveTriangleCount)
+    {
+        return false;
+    }
+
+    const uint candidateLightIndex = range.x + triangleIndex;
+    if (candidateLightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return false;
+    }
+
+    const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[candidateLightIndex];
+    if (record.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
+        record.sourceIndex != triangleIndex ||
+        record.sourcePdf <= 0.0)
+    {
+        return false;
+    }
+
+    lightIndex = candidateLightIndex;
+    sourcePdf = record.sourcePdf * ((float)sampleCount / max((float)totalSampleCount, 1.0e-8));
+    return sourcePdf > 0.0;
 }
 
 void PathTraceCleanRoomAnalyticDiagnosticRange(out uint firstLightIndex, out uint lightCount)
@@ -810,8 +918,39 @@ RAB_Surface PathTraceCleanRoomSurfaceFromRecord(PathTracePrimarySurfaceRecord re
     return surface;
 }
 
+RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
+{
+    RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(record);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return surface;
+    }
+
+    surface.flags = record.header.w;
+    surface.instanceId = record.instancePrimitiveObject.x;
+    surface.primitiveIndex = record.instancePrimitiveObject.y;
+
+    RAB_Material material = RAB_EmptyMaterial();
+    material.materialId = surface.materialId;
+    material.materialIndex = surface.materialIndex;
+    material.flags = record.materialAndSurface.z;
+    material.alphaCutoff = record.albedoAndAlphaCutoff.w;
+    material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
+    material.roughness = saturate(record.geometricNormalAndRoughness.w);
+    material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    material.opacity = saturate(record.shadingNormalAndOpacity.w);
+    material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
+    material.emissiveTextureIndex = record.instancePrimitiveObject.w;
+    surface.material = material;
+    return surface;
+}
+
 RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
+    if (CleanRtxdiDiView == 16u)
+    {
+        return PathTraceCleanRoomMaterialSurfaceFromRecord(record);
+    }
     return PathTraceCleanRoomSurfaceFromRecord(record);
 }
 
@@ -2079,7 +2218,7 @@ PathTraceCleanRoomPreviousBestSeed PathTraceCleanRoomResolvePreviousBestInitialS
 
     const float2 uv = PathTraceCleanRoomRandomLightUv(rng);
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
-    const float targetPdf = RAB_IsReplayableLightSample(lightSample)
+    float targetPdf = RAB_IsReplayableLightSample(lightSample)
         ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
         : 0.0;
     if (targetPdf <= 1.0e-8)
@@ -2134,18 +2273,36 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
 
     float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)range.y;
     const float stride = max(1.0, (float)range.y / (float)boundedSampleCount);
-    const float sourcePdf = PathTraceCleanRoomRluTypedSourcePdf(lightType);
-    if (sourcePdf <= 0.0)
+    const float uniformSourcePdf = PathTraceCleanRoomRluTypedSourcePdf(lightType);
+    if (uniformSourcePdf <= 0.0)
     {
         return false;
     }
 
-    const float invSourcePdf = 1.0 / max(sourcePdf, 1.0e-8);
     bool streamedAny = false;
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < boundedSampleCount; ++sampleIndex)
     {
-        const uint lightIndex = range.x + min((uint)lightIndexInRange, range.y - 1u);
+        uint lightIndex = range.x + min((uint)lightIndexInRange, range.y - 1u);
+        float sourcePdf = uniformSourcePdf;
+        if (lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+        {
+            uint weightedLightIndex;
+            float weightedSourcePdf;
+            if (PathTraceCleanRoomSelectWeightedEmissiveRluCandidate(
+                range,
+                boundedSampleCount,
+                totalSampleCount,
+                RTXDI_GetNextRandom(rng),
+                weightedLightIndex,
+                weightedSourcePdf))
+            {
+                lightIndex = weightedLightIndex;
+                sourcePdf = weightedSourcePdf;
+            }
+        }
+
+        const float invSourcePdf = 1.0 / max(sourcePdf, 1.0e-8);
         if (!(excludeLight && lightIndex == excludedLightIndex))
         {
             const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
@@ -2955,7 +3112,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer
         return result;
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(result.surface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(result.surface);
     if (!RAB_IsSurfaceValid(surface))
     {
         result.status = CLEAN_INITIAL_STATUS_INVALID_SURFACE;
@@ -3815,7 +3972,7 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
         return result;
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(currentSurface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(currentSurface);
     if (RAB_IsSurfaceValid(surface))
     {
         result.flags |= CLEAN_TEMPORAL_DIAG_CURRENT_SURFACE_VALID;
@@ -4809,6 +4966,161 @@ float3 PathTraceCleanRoomDeferredColor(uint2 pixel, uint view)
     return color;
 }
 
+float3 PathTraceCleanRoomMotionVectorDiagnosticColor(float2 motionPixels)
+{
+    if (any(!(motionPixels == motionPixels)))
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    const float maxVisualizedPixels = 32.0;
+    const float magnitude = length(motionPixels);
+    const float2 signedDirection = saturate(motionPixels / (maxVisualizedPixels * 2.0) + 0.5);
+    return float3(signedDirection, saturate(magnitude / maxVisualizedPixels));
+}
+
+float3 PathTraceCleanRoomMotionVectorInvalidColor(uint motionMask)
+{
+    const uint reason = (motionMask >> PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT) & 0xffu;
+    if (reason == 1u)
+    {
+        return float3(1.0, 0.05, 0.05);
+    }
+    if (reason == 2u || reason == 13u)
+    {
+        return float3(1.0, 0.85, 0.05);
+    }
+    if (reason == 3u || reason == 15u)
+    {
+        return float3(1.0, 0.35, 0.05);
+    }
+    if (reason == 4u || reason == 17u)
+    {
+        return float3(0.9, 0.05, 1.0);
+    }
+    if (reason == 7u || reason == 18u)
+    {
+        return float3(0.05, 0.35, 1.0);
+    }
+    return float3(0.6, 0.6, 0.6);
+}
+
+float3 PathTraceCleanRoomRRMotionVectorColor(uint2 pixel, uint2 dimensions)
+{
+    const uint motionMask = PathTraceMotionVectorMask[pixel];
+    const bool valid = (motionMask & PT_MOTION_VECTOR_MASK_VALID) != 0u;
+    const bool rrHalf = pixel.x >= (dimensions.x >> 1u);
+    const float2 motionPixels = rrHalf ? PathTraceRRMotionVectors[pixel] : PathTraceMotionVectors[pixel].xy;
+    float3 color = PathTraceCleanRoomMotionVectorDiagnosticColor(motionPixels);
+    if (!valid)
+    {
+        return color * 0.2 + PathTraceCleanRoomMotionVectorInvalidColor(motionMask) * 0.8;
+    }
+
+    const uint sourceKind = (motionMask >> PT_MOTION_VECTOR_MASK_SOURCE_SHIFT) & 0x0fu;
+    const float3 sourceTint =
+        sourceKind == 1u ? float3(0.05, 0.25, 0.05) :
+        sourceKind == 2u ? float3(0.25, 0.05, 0.25) :
+        sourceKind == 3u ? float3(0.05, 0.20, 0.25) :
+        float3(0.08, 0.08, 0.08);
+    color = saturate(color + sourceTint);
+    if (abs((int)pixel.x - (int)(dimensions.x >> 1u)) <= 1)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+    return color;
+}
+
+float3 PathTraceCleanRoomToneMapRRInput(float3 hdrColor)
+{
+    hdrColor = max(hdrColor, float3(0.0, 0.0, 0.0));
+    return hdrColor / (hdrColor + float3(1.0, 1.0, 1.0));
+}
+
+float3 PathTraceCleanRoomRRResetMaskColor(uint resetMask)
+{
+    if (resetMask == 0u)
+    {
+        return float3(0.03, 0.45, 0.12);
+    }
+    if ((resetMask & RT_RR_RESET_STOCHASTIC_TRANSLUCENT) != 0u)
+    {
+        return float3(0.75, 0.15, 0.85);
+    }
+    if ((resetMask & RT_RR_RESET_MATERIAL_MISMATCH) != 0u)
+    {
+        return float3(1.0, 0.6, 0.05);
+    }
+    if ((resetMask & RT_RR_RESET_REJECTED_PREVIOUS) != 0u)
+    {
+        return float3(0.95, 0.05, 0.05);
+    }
+    if ((resetMask & RT_RR_RESET_MISSING_PREVIOUS) != 0u)
+    {
+        return float3(0.6, 0.1, 0.1);
+    }
+    if ((resetMask & RT_RR_RESET_OBJECT_MOTION_UNAVAILABLE) != 0u)
+    {
+        return float3(0.8, 0.8, 0.15);
+    }
+    if ((resetMask & RT_RR_RESET_INVALID_SURFACE) != 0u)
+    {
+        return float3(0.02, 0.02, 0.02);
+    }
+    return float3(0.8, 0.3, 0.1);
+}
+
+float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
+{
+    const uint columns = 3u;
+    const uint rows = 2u;
+    const uint cellWidth = max(dimensions.x / columns, 1u);
+    const uint cellHeight = max(dimensions.y / rows, 1u);
+    const uint column = min(pixel.x / cellWidth, columns - 1u);
+    const uint row = min(pixel.y / cellHeight, rows - 1u);
+    const uint tile = row * columns + column;
+    const uint2 cellOrigin = uint2(column * cellWidth, row * cellHeight);
+    const uint2 cellExtent = max(uint2(
+        column == columns - 1u ? dimensions.x - cellOrigin.x : cellWidth,
+        row == rows - 1u ? dimensions.y - cellOrigin.y : cellHeight), uint2(1u, 1u));
+    const uint2 localPixel = min(pixel - cellOrigin, cellExtent - 1u);
+    const uint2 sourcePixel = min((localPixel * dimensions) / cellExtent, dimensions - 1u);
+
+    if (localPixel.x == 0u || localPixel.y == 0u)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+
+    if (tile == 0u)
+    {
+        return saturate(PathTraceRRGuideAlbedo[sourcePixel].rgb);
+    }
+    if (tile == 1u)
+    {
+        const float4 normalRoughness = PathTraceRRGuideNormalRoughness[sourcePixel];
+        return saturate(float3(normalRoughness.rg, normalRoughness.a));
+    }
+    if (tile == 2u)
+    {
+        return saturate(PathTraceRRGuideSpecularAlbedo[sourcePixel].rgb);
+    }
+    if (tile == 3u)
+    {
+        return PathTraceCleanRoomToneMapRRInput(PathTraceRRInputColor[sourcePixel].rgb);
+    }
+    if (tile == 4u)
+    {
+        const float depth = PathTraceRRGuideDepth[sourcePixel];
+        const float hitDistance = PathTraceRRGuideHitDistance[sourcePixel];
+        return float3(saturate(depth / 4096.0), saturate(hitDistance / 4096.0), 0.0);
+    }
+
+    const bool validMotion = (PathTraceMotionVectorMask[sourcePixel] & PT_MOTION_VECTOR_MASK_VALID) != 0u;
+    const float3 motionColor = PathTraceCleanRoomMotionVectorDiagnosticColor(PathTraceRRMotionVectors[sourcePixel]);
+    const float3 resetColor = PathTraceCleanRoomRRResetMaskColor(PathTraceRRGuideResetMask[sourcePixel]);
+    return validMotion ? saturate(motionColor) : saturate(resetColor);
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -4820,7 +5132,7 @@ void RayGen()
     }
 
     const uint view = CleanRtxdiDiView;
-    if (view < 1u || view > 16u)
+    if (view < 1u || view > 18u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
         return;
@@ -4860,6 +5172,14 @@ void RayGen()
     else if (view == 15u)
     {
         color = PathTraceCleanRoomRealAnalyticBinaryGateDiagnosticColor(pixel, dimensions);
+    }
+    else if (view == 17u)
+    {
+        color = PathTraceCleanRoomRRMotionVectorColor(pixel, dimensions);
+    }
+    else if (view == 18u)
+    {
+        color = PathTraceCleanRoomRRInputMosaicColor(pixel, dimensions);
     }
     else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u)
     {
