@@ -2369,6 +2369,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
                 (r_pathTracingUseNormalMaps.GetInteger() != 0 ? 8u : 0u) |
                 (r_pathTracingUseSpecularMaps.GetInteger() != 0 ? 16u : 0u) |
+                (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && cleanRtxdiDiView == 16 ? 32u : 0u) |
                 (r_pathTracingToyFakePBRSpecular.GetInteger() != 0 && cleanRtxdiDiView == 16 ? 128u : 0u);
             primarySurfaceConstants.textureInfo[3] = static_cast<float>(primarySurfaceTextureFlags);
             primarySurfaceConstants.safetyInfo[0] = static_cast<float>(BuildPathTraceSafetyDisableMask());
@@ -2396,6 +2397,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.motionVectorInfo[0] = cleanRtxdiDiView >= 5 || r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1.0f : 0.0f;
             primarySurfaceConstants.motionVectorInfo[3] = r_pathTracingMotionVectorDisableRigid.GetBool() ? 1.0f : 0.0f;
             primarySurfaceConstants.restirPTInfo[1] = r_pathTracingNormalMapFlipGreen.GetInteger() != 0 ? 1.0f : 0.0f;
+            primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiView == 16
+                ? idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat())
+                : 0.0f;
 
             commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);

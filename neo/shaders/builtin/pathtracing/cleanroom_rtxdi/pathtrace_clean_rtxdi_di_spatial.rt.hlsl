@@ -664,6 +664,10 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
 
 RAB_Surface CleanSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
+    if (CleanRtxdiDiView == 16u)
+    {
+        return CleanMaterialSurfaceFromRecord(record);
+    }
     return CleanSurfaceFromRecord(record);
 }
 
@@ -945,29 +949,31 @@ float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_Lig
 
 float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
 {
+    const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
+    if (CleanRtxdiDiResolveBrdfTarget != 0u)
+    {
+        return receiverAlbedo;
+    }
+
+    const float3 surfaceEmission = max(surface.material.emissiveRadiance, float3(0.0, 0.0, 0.0));
     if (!RTXDI_IsValidDIReservoir(reservoir))
     {
-        return float3(0.0, 0.0, 0.0);
+        return surfaceEmission;
     }
 
     const RAB_LightInfo lightInfo = CleanLoadRluLightInfo(lightIndex);
     const RAB_LightSample sample = RAB_SamplePolymorphicLight(lightInfo, surface, sampleUv);
     if (!RAB_IsReplayableLightSample(sample) || sample.solidAnglePdf <= 0.0)
     {
-        return float3(0.0, 0.0, 0.0);
+        return surfaceEmission;
     }
 
-    const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
-    if (CleanRtxdiDiResolveBrdfTarget != 0u)
-    {
-        return receiverAlbedo;
-    }
     surface.material.diffuseAlbedo = receiverAlbedo;
     const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
     const float visibility = CleanTraceVisibility(surface, lightInfo, sample);
     const float3 selectedLightContribution =
         reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / max(sample.solidAnglePdf, 1.0e-6);
-    return selectedLightContribution + max(surface.material.emissiveRadiance, float3(0.0, 0.0, 0.0));
+    return selectedLightContribution + surfaceEmission;
 }
 
 int2 CleanClampPixel(int2 pixel, uint2 dimensions)
