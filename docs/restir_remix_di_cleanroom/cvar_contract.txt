@@ -82,6 +82,10 @@ r_pathTracingCleanRtxdiDiView
         18 = clean DLSS RR input/guide mosaic from the clean primary-surface
             producer: albedo, normal/roughness, specular, input color,
             depth/hit distance, and motion/reset status
+        19 = clean DLSS RR guide albedo full-screen, after the same clean
+            view-16 producer path used by RR
+        20 = clean DLSS RR guide specular albedo full-screen, after the same
+            clean view-16 producer path used by RR
 
     Current diagnostic subviews:
         r_pathTracingCleanRtxdiDiView8Band -1 = stacked view-8 bands
@@ -89,6 +93,17 @@ r_pathTracingCleanRtxdiDiView
             full-screen
         r_pathTracingCleanRtxdiDiView8Band 8 = selected-sample black-output
             classifier; with temporal on, left is current and right is temporal
+        r_pathTracingCleanRtxdiDiView18Tile -1 = 2x3 DLSS RR input mosaic
+        r_pathTracingCleanRtxdiDiView18Tile 0 = RR guide albedo full-screen
+        r_pathTracingCleanRtxdiDiView18Tile 1 = RR guide normal.xy/roughness
+            full-screen
+        r_pathTracingCleanRtxdiDiView18Tile 2 = RR guide specular albedo
+            full-screen
+        r_pathTracingCleanRtxdiDiView18Tile 3 = RR input color full-screen
+        r_pathTracingCleanRtxdiDiView18Tile 4 = RR linear depth / hit distance
+            full-screen
+        r_pathTracingCleanRtxdiDiView18Tile 5 = RR motion / reset status
+            full-screen
 
     Stage availability:
         1 is the RDI-01 route sentinel.

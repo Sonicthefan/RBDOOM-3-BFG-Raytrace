@@ -39,6 +39,7 @@ bool g_streamlineInitialized = false;
 bool g_streamlineDeviceSet = false;
 bool g_streamlineEvaluateWarned = false;
 bool g_streamlineChecklistWarned = false;
+bool g_streamlineResourceTagDumped = false;
 uint32_t g_streamlineLastChecklistPreset = 0xffffffffu;
 
 #if RB_PT_STREAMLINE_DLSS_RR
@@ -323,6 +324,21 @@ sl::Resource BuildStreamlineTextureResource( nvrhi::ITexture* texture, uint32_t 
 #endif
 
 	return sl::Resource( sl::ResourceType::eTex2d, nullptr, state );
+}
+
+void DumpStreamlineTextureResource( const char* label, const sl::Resource& resource )
+{
+	common->Printf(
+		"PathTraceDLSSRR: tag %s native=%p view=%p format=%u state=%u size=%ux%u mips=%u layers=%u\n",
+		label,
+		resource.native,
+		resource.view,
+		static_cast<unsigned int>( resource.nativeFormat ),
+		static_cast<unsigned int>( resource.state ),
+		static_cast<unsigned int>( resource.width ),
+		static_cast<unsigned int>( resource.height ),
+		static_cast<unsigned int>( resource.mipLevels ),
+		static_cast<unsigned int>( resource.arrayLayers ) );
 }
 
 uint32_t StreamlineShaderResourceState()
@@ -616,10 +632,11 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	float clipToCameraView[16];
 	float clipToPrevClip[16];
 	float prevClipToClip[16];
+	const bool clipHistoryEnabled = r_pathTracingDLSSRRClipHistory.GetInteger() != 0;
 	const bool validClipHistory = BuildPathTraceClipTransforms(
 		viewDef,
 		previousCamera,
-		resetHistory,
+		resetHistory || !clipHistoryEnabled,
 		clipToCameraView,
 		clipToPrevClip,
 		prevClipToClip );
@@ -636,8 +653,16 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		constants.clipToPrevClip = StreamlineIdentityMatrix();
 		constants.prevClipToClip = StreamlineIdentityMatrix();
 	}
-	constants.jitterOffset = sl::float2( jitterOffsetX, jitterOffsetY );
-	constants.mvecScale = sl::float2( 1.0f / static_cast<float>( width ), 1.0f / static_cast<float>( height ) );
+	const float jitterScaleX = idMath::ClampFloat( -16.0f, 16.0f, r_pathTracingDLSSRRJitterScaleX.GetFloat() );
+	const float jitterScaleY = idMath::ClampFloat( -16.0f, 16.0f, r_pathTracingDLSSRRJitterScaleY.GetFloat() );
+	const float reportedJitterOffsetX = jitterOffsetX * jitterScaleX;
+	const float reportedJitterOffsetY = jitterOffsetY * jitterScaleY;
+	constants.jitterOffset = sl::float2( reportedJitterOffsetX, reportedJitterOffsetY );
+	const float motionVectorScaleX = idMath::ClampFloat( -16.0f, 16.0f, r_pathTracingDLSSRRMotionVectorScaleX.GetFloat() );
+	const float motionVectorScaleY = idMath::ClampFloat( -16.0f, 16.0f, r_pathTracingDLSSRRMotionVectorScaleY.GetFloat() );
+	constants.mvecScale = sl::float2(
+		motionVectorScaleX / static_cast<float>( width ),
+		motionVectorScaleY / static_cast<float>( height ) );
 	constants.cameraPinholeOffset = sl::float2( 0.0f, 0.0f );
 	constants.cameraPos = sl::float3( viewDef->renderView.vieworg.x, viewDef->renderView.vieworg.y, viewDef->renderView.vieworg.z );
 	constants.cameraFwd = sl::float3( viewDef->renderView.viewaxis[0].x, viewDef->renderView.viewaxis[0].y, viewDef->renderView.viewaxis[0].z );
@@ -690,7 +715,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 			"0f1fd5d4-b456-4c8c-9c08-9de33599b1a6",
 			PathTraceDLSSRRDenoiserPresetName( rrDenoiserPreset ),
 			static_cast<unsigned int>( rrDenoiserPresetValue ),
-			( idMath::Fabs( jitterOffsetX ) > 1.0e-6f || idMath::Fabs( jitterOffsetY ) > 1.0e-6f ) ? "pathtrace-primary-rays-jittered" : "zero-offset",
+			( idMath::Fabs( reportedJitterOffsetX ) > 1.0e-6f || idMath::Fabs( reportedJitterOffsetY ) > 1.0e-6f ) ? "pathtrace-primary-rays-jittered" : "zero-offset",
 			validClipHistory ? 1 : 0 );
 		g_streamlineChecklistWarned = true;
 		g_streamlineLastChecklistPreset = rrDenoiserPresetValue;
@@ -744,6 +769,33 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		tags[tagCount++] = sl::ResourceTag( &disocclusionMaskResource, sl::kBufferTypeDisocclusionMask, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	}
 
+	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 && !g_streamlineResourceTagDumped )
+	{
+		common->Printf(
+			"PathTraceDLSSRR: tag extent left=%u top=%u width=%u height=%u count=%u\n",
+			static_cast<unsigned int>( extent.left ),
+			static_cast<unsigned int>( extent.top ),
+			static_cast<unsigned int>( extent.width ),
+			static_cast<unsigned int>( extent.height ),
+			static_cast<unsigned int>( tagCount ) );
+		DumpStreamlineTextureResource( "inputColor", inputColorResource );
+		DumpStreamlineTextureResource( "outputColor", outputColorResource );
+		DumpStreamlineTextureResource( "albedo", albedoResource );
+		DumpStreamlineTextureResource( "specularAlbedo", specularAlbedoResource );
+		DumpStreamlineTextureResource( "normalRoughness", normalRoughnessResource );
+		DumpStreamlineTextureResource( "linearDepth", linearDepthResource );
+		DumpStreamlineTextureResource( "motionVectors", motionVectorResource );
+		if( specularHitDistance )
+		{
+			DumpStreamlineTextureResource( "specularHitDistance", specularHitDistanceResource );
+		}
+		if( disocclusionMask )
+		{
+			DumpStreamlineTextureResource( "disocclusionMask", disocclusionMaskResource );
+		}
+		g_streamlineResourceTagDumped = true;
+	}
+
 	result = slSetTagForFrame( *frameToken, viewport, tags, tagCount, nativeCommandBuffer );
 	if( result != sl::Result::eOk )
 	{
@@ -764,7 +816,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 
 	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 )
 	{
-		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f jitter=%.4f,%.4f clipHistory=%d specHit=%d disocclusion=%d\n",
+		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f jitter=%.4f,%.4f rawJitter=%.4f,%.4f mvecScale=%.4f,%.4f clipHistory=%d specHit=%d disocclusion=%d\n",
 			frameIndex,
 			width,
 			height,
@@ -773,8 +825,12 @@ bool PathTraceDLSSRRBridge_Evaluate(
 			options.preExposure,
 			options.exposureScale,
 			options.sharpness,
+			reportedJitterOffsetX,
+			reportedJitterOffsetY,
 			jitterOffsetX,
 			jitterOffsetY,
+			motionVectorScaleX,
+			motionVectorScaleY,
 			validClipHistory ? 1 : 0,
 			specularHitDistance ? 1 : 0,
 			disocclusionMask ? 1 : 0 );

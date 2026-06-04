@@ -93,8 +93,8 @@ float4 EvaluateRayReconstructionGuideDebug(uint2 pixel, uint view)
     {
         const float3 guideNormal = PathTraceRRGuideNormalRoughness[pixel].rgb;
         const float3 historyNormal = RAB_IsSurfaceValid(surface) ? surface.shadingNormal * 0.5 + 0.5 : float3(0.5, 0.5, 1.0);
-        const float normalHasGuide = any(abs(guideNormal - float3(0.5, 0.5, 1.0)) > float3(0.001, 0.001, 0.001)) ? 1.0 : 0.0;
-        return float4(saturate(lerp(historyNormal, guideNormal, normalHasGuide)), 1.0);
+        const float normalHasGuide = any(abs(guideNormal - float3(0.0, 0.0, 1.0)) > float3(0.001, 0.001, 0.001)) ? 1.0 : 0.0;
+        return float4(saturate(lerp(historyNormal, guideNormal * 0.5 + 0.5, normalHasGuide)), 1.0);
     }
     if (view == 8u)
     {

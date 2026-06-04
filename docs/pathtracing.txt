@@ -1312,6 +1312,11 @@ Denoise/upscale/Ray Reconstruction reservation:
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
   roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
   reset/disocclusion mask, 8 specular albedo/F0, 9 RR input HDR preview.
+- The clean RTXDI DI path has its own in-game guide checks that do not depend on
+  the DLSSRR debug overlay: `r_pathTracingCleanRtxdiDiView 19` displays the
+  clean RR guide albedo full-screen, and `r_pathTracingCleanRtxdiDiView 20`
+  displays the clean RR guide specular albedo/F0 full-screen. Both views run
+  the same clean view-16 producer first, then display the guide texture.
 - Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
   geometry universe must provide current/previous transforms or vertex data for
   surfaces whose history is reused.
@@ -1520,6 +1525,32 @@ Denoise/upscale/Ray Reconstruction reservation:
   work must use the RLU dense current domain and active RRX RAB bridge, then
   write the clean DI current reservoir page without depending on this old
   PDFNEE-09 external handoff or temporal accumulation behavior.
+
+- r_pathTracingCleanRtxdiDiSpatial / r_cleanDiSpatial / r_cleanSpatial
+  Clean-room RTXDI DI spatial reuse enable gates. All three must be nonzero for
+  the clean spatial reuse kernel to run. Defaults are 1. Set any one of them to
+  0 for temporal-only/current-only diagnostics.
+
+- r_cleanDiSpatialSamples
+  Defaults to 2, clamped to 1..16. Controls the normal clean DI spatial
+  neighbor sample count used by `pathtrace_clean_rtxdi_di_spatial.rt.hlsl`.
+
+- r_cleanDiSpatialDisocclusionSamples
+  Defaults to 4, clamped to 1..16. Controls the clean DI short-history spatial
+  sample count. The shader uses `max(r_cleanDiSpatialSamples,
+  r_cleanDiSpatialDisocclusionSamples)` while the center reservoir has less
+  than the configured temporal target history.
+
+- r_cleanDiSpatialRadius
+  Defaults to 30, clamped to 1..128. Screen-space radius in pixels for the clean
+  DI spatial neighbor pattern.
+
+  Long-form CVars also exist:
+  `r_pathTracingCleanRtxdiDiSpatialSamples`,
+  `r_pathTracingCleanRtxdiDiSpatialDisocclusionSamples`, and
+  `r_pathTracingCleanRtxdiDiSpatialRadius`. The current dispatch path writes
+  the shader constants from the short aliases above, so use the `r_cleanDi*`
+  controls for runtime adjustment.
 
 - r_pathTracingReservoirDump
   One-shot dump of current ReSTIR/PT reservoir ownership state: screen-sized
@@ -3058,6 +3089,22 @@ For selected-light influence inspection:
     r_pathTracingLightCount 4
     r_pathTracingLightSelection 1
     r_pathTracingLightDump 1
+
+For clean RTXDI DI spatial reuse tuning:
+
+    r_pathTracingCleanRtxdiDiEnable 1
+    r_pathTracingCleanRtxdiDiView 16
+    r_pathTracingCleanRtxdiDiTemporal 1
+    r_pathTracingCleanRtxdiDiSpatial 1
+    r_cleanDiSpatial 1
+    r_cleanSpatial 1
+    r_cleanDiSpatialSamples 2
+    r_cleanDiSpatialDisocclusionSamples 4
+    r_cleanDiSpatialRadius 30
+
+Disable any one of `r_pathTracingCleanRtxdiDiSpatial`, `r_cleanDiSpatial`, or
+`r_cleanSpatial` to remove the spatial reuse step. The sample/radius values
+used by the shader come from the `r_cleanDi*` aliases.
 
 For abusive selected-light scaling tests:
 

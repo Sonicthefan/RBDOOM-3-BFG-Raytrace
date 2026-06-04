@@ -102,27 +102,8 @@ float3 PathTraceCleanRoomRRResetMaskColor(uint resetMask)
     return float3(0.8, 0.3, 0.1);
 }
 
-float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
+float3 PathTraceCleanRoomRRInputTileColor(uint2 sourcePixel, uint tile)
 {
-    const uint columns = 3u;
-    const uint rows = 2u;
-    const uint cellWidth = max(dimensions.x / columns, 1u);
-    const uint cellHeight = max(dimensions.y / rows, 1u);
-    const uint column = min(pixel.x / cellWidth, columns - 1u);
-    const uint row = min(pixel.y / cellHeight, rows - 1u);
-    const uint tile = row * columns + column;
-    const uint2 cellOrigin = uint2(column * cellWidth, row * cellHeight);
-    const uint2 cellExtent = max(uint2(
-        column == columns - 1u ? dimensions.x - cellOrigin.x : cellWidth,
-        row == rows - 1u ? dimensions.y - cellOrigin.y : cellHeight), uint2(1u, 1u));
-    const uint2 localPixel = min(pixel - cellOrigin, cellExtent - 1u);
-    const uint2 sourcePixel = min((localPixel * dimensions) / cellExtent, dimensions - 1u);
-
-    if (localPixel.x == 0u || localPixel.y == 0u)
-    {
-        return float3(1.0, 1.0, 1.0);
-    }
-
     if (tile == 0u)
     {
         return saturate(PathTraceRRGuideAlbedo[sourcePixel].rgb);
@@ -130,7 +111,7 @@ float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
     if (tile == 1u)
     {
         const float4 normalRoughness = PathTraceRRGuideNormalRoughness[sourcePixel];
-        return saturate(float3(normalRoughness.rg, normalRoughness.a));
+        return saturate(float3(normalRoughness.rg * 0.5 + 0.5, normalRoughness.a));
     }
     if (tile == 2u)
     {
@@ -151,4 +132,44 @@ float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
     const float3 motionColor = PathTraceCleanRoomMotionVectorDiagnosticColor(PathTraceRRMotionVectors[sourcePixel]);
     const float3 resetColor = PathTraceCleanRoomRRResetMaskColor(PathTraceRRGuideResetMask[sourcePixel]);
     return validMotion ? saturate(motionColor) : saturate(resetColor);
+}
+
+float3 PathTraceCleanRoomRRGuideAlbedoDebugColor(uint2 pixel)
+{
+    return saturate(PathTraceRRGuideAlbedo[pixel].rgb);
+}
+
+float3 PathTraceCleanRoomRRGuideSpecularAlbedoDebugColor(uint2 pixel)
+{
+    return saturate(PathTraceRRGuideSpecularAlbedo[pixel].rgb);
+}
+
+float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
+{
+    const uint selectedTile = CleanRtxdiDiView8Band <= 5u ? CleanRtxdiDiView8Band : 0xffffffffu;
+    if (selectedTile <= 5u)
+    {
+        return PathTraceCleanRoomRRInputTileColor(pixel, selectedTile);
+    }
+
+    const uint columns = 3u;
+    const uint rows = 2u;
+    const uint cellWidth = max(dimensions.x / columns, 1u);
+    const uint cellHeight = max(dimensions.y / rows, 1u);
+    const uint column = min(pixel.x / cellWidth, columns - 1u);
+    const uint row = min(pixel.y / cellHeight, rows - 1u);
+    const uint tile = row * columns + column;
+    const uint2 cellOrigin = uint2(column * cellWidth, row * cellHeight);
+    const uint2 cellExtent = max(uint2(
+        column == columns - 1u ? dimensions.x - cellOrigin.x : cellWidth,
+        row == rows - 1u ? dimensions.y - cellOrigin.y : cellHeight), uint2(1u, 1u));
+    const uint2 localPixel = min(pixel - cellOrigin, cellExtent - 1u);
+    const uint2 sourcePixel = min((localPixel * dimensions) / cellExtent, dimensions - 1u);
+
+    if (localPixel.x == 0u || localPixel.y == 0u)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+
+    return PathTraceCleanRoomRRInputTileColor(sourcePixel, tile);
 }

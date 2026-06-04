@@ -1456,12 +1456,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         pdfNeeVerifierSceneBuildView > 0 &&
         pdfNeeVerifierSceneBuildLightMode == 7;
     const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
+    const int cleanRtxdiDiSceneBuildResolveView =
+        (cleanRtxdiDiSceneBuildView >= 18 && cleanRtxdiDiSceneBuildView <= 20) ? 16 : cleanRtxdiDiSceneBuildView;
     const bool cleanRtxdiDiSceneBuildRoute =
         requestedDebugMode == 0 &&
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
         r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
-        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15 || cleanRtxdiDiSceneBuildView == 16);
+        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15 || cleanRtxdiDiSceneBuildResolveView == 16);
     const int cleanRtxdiDiSceneBuildDomain = idMath::ClampInt(0, 2,
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
@@ -1491,7 +1493,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool cleanRtxdiDiMaterialValidationRoute =
         requestedDebugMode == 0 &&
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
-        cleanRtxdiDiSceneBuildView == 16;
+        cleanRtxdiDiSceneBuildResolveView == 16;
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || cleanRtxdiDiMaterialValidationRoute || neeCacheSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 
     if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
@@ -2483,10 +2485,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const std::vector<PathTraceEmissiveLightRemap> emissiveLightRemap = BuildSmokeEmissiveLightRemap(emissiveTriangles, previousEmissiveTriangles);
     const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
     const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
+    const int cleanRtxdiDiResolveView =
+        (cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 20) ? 16 : cleanRtxdiDiView;
     const bool cleanRtxdiDiRealAnalyticRoute =
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
-        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiView == 16);
+        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16);
     const int regirSceneLightDomain = idMath::ClampInt(0, 2, r_pathTracingReGIRLightDomain.GetInteger());
     const bool regirAnalyticLightUniverseRequested =
         r_pathTracingReGIREnable.GetInteger() != 0 &&

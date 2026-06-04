@@ -469,6 +469,9 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer
     result.targetPdf = result.reservoir.targetPdf;
     result.invSourcePdf = RTXDI_GetDIReservoirInvPdf(result.reservoir);
     result.visibility = PathTraceCleanRoomSelectedSampleVisibility(result.surface, result.reservoir, selectedSample);
-    RTXDI_StoreVisibilityInDIReservoir(result.reservoir, result.visibility.xxx, false);
+    RTXDI_StoreVisibilityInDIReservoir(
+        result.reservoir,
+        result.visibility.xxx,
+        PathTraceCleanRoomInitialVisibilityEnabled());
     return result;
 }

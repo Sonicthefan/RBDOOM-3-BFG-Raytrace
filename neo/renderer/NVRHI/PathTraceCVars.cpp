@@ -1297,7 +1297,7 @@ idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic" );
+    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",
@@ -1419,11 +1419,23 @@ idCVar r_pathTracingCleanRtxdiDiView8Band(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room Remix DI diagnostic: force view 8 to show one diagnostic band full-screen; -1 keeps stacked bands, valid forced range is 0..16; band 8 classifies selected-sample black output cause, band 9 splits RLU selected/mapped replay causes, band 10 shows the NEE cache secondary emissive candidate field, bands 11..14 show previous-best source/translation/candidate/selection, band 15 shows selected light type, band 16 shows basic spatial reuse output when enabled" );
 
+idCVar r_pathTracingCleanRtxdiDiView18Tile(
+    "r_pathTracingCleanRtxdiDiView18Tile",
+    "-1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI diagnostic: force view 18 to show one DLSS RR input full-screen; -1 keeps the 2x3 mosaic, 0 albedo, 1 normal/roughness, 2 specular albedo, 3 input color, 4 depth/hit distance, 5 motion/reset" );
+
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: in final resolve, reuse RTXDI reservoir visibility when valid before falling back to the current visibility trace" );
+
+idCVar r_pathTracingCleanRtxdiDiInitialVisibility(
+    "r_pathTracingCleanRtxdiDiInitialVisibility",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: trace selected initial DI sample visibility and discard invisible selected samples before temporal/spatial reuse" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveBrdfTarget(
     "r_pathTracingCleanRtxdiDiResolveBrdfTarget",
@@ -1922,6 +1934,42 @@ idCVar r_pathTracingDLSSRRExposureScale(
     "1.0",
     CVAR_RENDERER | CVAR_FLOAT,
     "DLSS RR exposureScale option for mode 56; diagnostic color/exposure tuning for the experimental RR bridge" );
+
+idCVar r_pathTracingDLSSRRForceReset(
+    "r_pathTracingDLSSRRForceReset",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic DLSS RR history isolation: force a Ray Reconstruction reset every evaluated frame" );
+
+idCVar r_pathTracingDLSSRRMotionVectorScaleX(
+    "r_pathTracingDLSSRRMotionVectorScaleX",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Diagnostic DLSS RR motion-vector Streamline scale multiplier for X; use -1 to test sign convention, 0 to remove X motion" );
+
+idCVar r_pathTracingDLSSRRMotionVectorScaleY(
+    "r_pathTracingDLSSRRMotionVectorScaleY",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Diagnostic DLSS RR motion-vector Streamline scale multiplier for Y; use -1 to test sign convention, 0 to remove Y motion" );
+
+idCVar r_pathTracingDLSSRRClipHistory(
+    "r_pathTracingDLSSRRClipHistory",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic DLSS RR clip-history constants gate: 1 sends clipToPrevClip/prevClipToClip, 0 sends identity while keeping RR history active" );
+
+idCVar r_pathTracingDLSSRRJitterScaleX(
+    "r_pathTracingDLSSRRJitterScaleX",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Diagnostic DLSS RR jitter offset scale for X as reported to Streamline; primary rays are unchanged" );
+
+idCVar r_pathTracingDLSSRRJitterScaleY(
+    "r_pathTracingDLSSRRJitterScaleY",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Diagnostic DLSS RR jitter offset scale for Y as reported to Streamline; primary rays are unchanged" );
 
 idCVar r_pathTracingDLSSRRSharpness(
     "r_pathTracingDLSSRRSharpness",

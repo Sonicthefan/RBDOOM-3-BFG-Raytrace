@@ -308,6 +308,7 @@ static const uint CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
 #define RB_RAB_CLEAN_REFERENCE_DOOM_ANALYTIC 1 // clean reference-RAB identity radiance modes live in the included helper
 #include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
+// The clean RTXDI target function uses Remix-style material floors before reservoir weighting.
 #include "../RtxdiBridge/RAB_LightTarget.hlsli"
 #include "../RtxdiBridge/RAB_NeeCache.hlsli"
 
@@ -338,6 +339,7 @@ static const uint CLEAN_FLAG_EXTERNAL_PDFNEE_CURRENT = 1u << 0u;
 static const uint CLEAN_FLAG_REMIX_LIGHT_UNIVERSE = 1u << 10u;
 static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 static const uint CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
+static const uint CLEAN_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 static const uint CLEAN_TEMPORAL_FLAG_ENABLE = 1u << 0u;
 static const uint CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID = 1u << 1u;
 static const uint CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;
@@ -714,6 +716,16 @@ uint PathTraceCleanRoomHash(uint value)
 float PathTraceCleanRoomRandom01(uint seed)
 {
     return (float)(PathTraceCleanRoomHash(seed) & 0x00ffffffu) * (1.0 / 16777215.0);
+}
+
+RTXDI_RandomSamplerState PathTraceCleanRoomInitDecorrelatedSampler(uint2 pixel, uint frameIndex, uint pass)
+{
+    uint seed = pixel.x * 0x9e3779b9u;
+    seed ^= pixel.y * 0x85ebca6bu;
+    seed ^= frameIndex * 0xc2b2ae35u;
+    seed ^= pass * 0x27d4eb2fu;
+    seed = PathTraceCleanRoomHash(seed ^ (seed >> 11u));
+    return RTXDI_CreateRandomSamplerFromDirectSeed(seed, 1u);
 }
 
 float3 PathTraceCleanRoomHashColor(uint value)
@@ -1933,6 +1945,12 @@ bool PathTraceCleanRoomPreviousBestInitialSeedEnabled()
         CleanRtxdiDiReservoirCount > 0u;
 }
 
+bool PathTraceCleanRoomInitialVisibilityEnabled()
+{
+    return (CleanRtxdiDiFlags & CLEAN_FLAG_INITIAL_VISIBILITY) != 0u &&
+        !PathTraceCleanRoomSyntheticMode();
+}
+
 PathTraceCleanRoomPreviousBestSeed PathTraceCleanRoomResolvePreviousBestInitialSeed(
     uint2 pixel,
     uint2 dimensions,
@@ -2043,7 +2061,6 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
         return false;
     }
 
-    float lightIndexInRange = RTXDI_GetNextRandom(rng) * (float)range.y;
     const float stride = max(1.0, (float)range.y / (float)boundedSampleCount);
     const float uniformSourcePdf = PathTraceCleanRoomRluTypedSourcePdf(lightType);
     if (uniformSourcePdf <= 0.0)
@@ -2055,6 +2072,9 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < boundedSampleCount; ++sampleIndex)
     {
+        const float lightIndexInRange = min(
+            ((float)sampleIndex + RTXDI_GetNextRandom(rng)) * stride,
+            (float)range.y - 1.0);
         uint lightIndex = range.x + min((uint)lightIndexInRange, range.y - 1u);
         float sourcePdf = uniformSourcePdf;
         if (lightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
@@ -2096,12 +2116,6 @@ bool PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
                 targetPdf,
                 invSourcePdf);
             streamedAny = streamedAny || targetPdf > 0.0;
-        }
-
-        lightIndexInRange += stride;
-        if (lightIndexInRange >= (float)range.y)
-        {
-            lightIndexInRange -= (float)range.y;
         }
     }
 
@@ -2171,7 +2185,8 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
         return result;
     }
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x524c553cu);
+    RTXDI_RandomSamplerState rng =
+        PathTraceCleanRoomInitDecorrelatedSampler(pixel, CleanRtxdiDiFrameIndex, 0x524c553cu);
     const PathTraceCleanRoomPreviousBestSeed previousBestSeed =
         PathTraceCleanRoomResolvePreviousBestInitialSeed(pixel, dimensions, result.surface, surface, rng);
     const bool streamedEmissive = PathTraceCleanRoomStreamTypedRluRangeIntoReservoir(
@@ -2207,7 +2222,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
 
     if (RTXDI_IsValidDIReservoir(result.reservoir))
     {
-        RTXDI_FinalizeResampling(result.reservoir, 1.0, (float)max(totalSampleCount, 1u));
+        RTXDI_FinalizeResampling(result.reservoir, 1.0, max(result.reservoir.M, 1.0));
         result.reservoir.M = 1.0;
         result.reservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
         result.reservoir.spatialDistance = int2(0, 0);
@@ -2234,7 +2249,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
             previousBestSeed.reservoir.targetPdf);
         if (RTXDI_IsValidDIReservoir(combinedReservoir))
         {
-            RTXDI_FinalizeResampling(combinedReservoir, 1.0, 1.0);
+            RTXDI_FinalizeResampling(combinedReservoir, 1.0, max(combinedReservoir.M, 1.0));
             combinedReservoir.M = 1.0;
             combinedReservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
             combinedReservoir.spatialDistance = int2(0, 0);
@@ -2277,7 +2292,10 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunTypedRluInitialProducer(
     result.targetPdf = result.reservoir.targetPdf;
     result.invSourcePdf = RTXDI_GetDIReservoirInvPdf(result.reservoir);
     result.visibility = PathTraceCleanRoomSelectedSampleVisibility(result.surface, result.reservoir, selectedSample);
-    RTXDI_StoreVisibilityInDIReservoir(result.reservoir, result.visibility.xxx, false);
+    RTXDI_StoreVisibilityInDIReservoir(
+        result.reservoir,
+        result.visibility.xxx,
+        PathTraceCleanRoomInitialVisibilityEnabled());
     return result;
 }
 
@@ -2382,7 +2400,10 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunInitialProducer(uint2 pi
     result.visibility = PathTraceCleanRoomSyntheticOverlapMode()
         ? PathTraceCleanRoomTraceVisibility(result.surface, result.samplePosition)
         : (syntheticMode ? 1.0 : PathTraceCleanRoomTraceVisibility(result.surface, result.samplePosition));
-    RTXDI_StoreVisibilityInDIReservoir(result.reservoir, result.visibility.xxx, false);
+    RTXDI_StoreVisibilityInDIReservoir(
+        result.reservoir,
+        result.visibility.xxx,
+        PathTraceCleanRoomInitialVisibilityEnabled());
     return result;
 }
 
@@ -2467,7 +2488,10 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunExternalPdfNeeCurrentPro
     result.targetPdf = result.reservoir.targetPdf;
     result.invSourcePdf = RTXDI_GetDIReservoirInvPdf(result.reservoir);
     result.visibility = PathTraceCleanRoomSelectedSampleVisibility(result.surface, result.reservoir, selectedSample);
-    RTXDI_StoreVisibilityInDIReservoir(result.reservoir, result.visibility.xxx, false);
+    RTXDI_StoreVisibilityInDIReservoir(
+        result.reservoir,
+        result.visibility.xxx,
+        PathTraceCleanRoomInitialVisibilityEnabled());
     return result;
 }
 
@@ -2689,7 +2713,7 @@ void RayGen()
     }
 
     const uint view = CleanRtxdiDiView;
-    if (view < 1u || view > 18u)
+    if (view < 1u || view > 20u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
         return;
@@ -2737,6 +2761,14 @@ void RayGen()
     else if (view == 18u)
     {
         color = PathTraceCleanRoomRRInputMosaicColor(pixel, dimensions);
+    }
+    else if (view == 19u)
+    {
+        color = PathTraceCleanRoomRRGuideAlbedoDebugColor(pixel);
+    }
+    else if (view == 20u)
+    {
+        color = PathTraceCleanRoomRRGuideSpecularAlbedoDebugColor(pixel);
     }
     else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u)
     {

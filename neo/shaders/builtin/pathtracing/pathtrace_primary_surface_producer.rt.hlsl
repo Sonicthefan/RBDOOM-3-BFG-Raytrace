@@ -661,7 +661,6 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
 {
     const PathTraceSmokeMaterial smokeMaterial = LoadSmokeMaterial(payload.materialIndex);
-    const float4 baseAlbedo = SampleSmokeDiffuseTexture(smokeMaterial, payload.texCoord);
     const float4 albedo = SampleSmokeSurfaceAlbedo(smokeMaterial, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd);
     const float3 specularColor = SampleSmokeDirectSpecular(smokeMaterial, payload.texCoord);
     float3 specularF0 = specularColor;
@@ -682,7 +681,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.materialIndex = payload.materialIndex;
     material.flags = smokeMaterial.flags;
     material.alphaCutoff = smokeMaterial.alphaCutoff;
-    material.diffuseAlbedo = saturate(baseAlbedo.rgb);
+    material.diffuseAlbedo = albedo.rgb;
     material.roughness = roughness;
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
@@ -730,7 +729,7 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
     {
         PathTraceRRGuideAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         PathTraceRRGuideSpecularAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
-        PathTraceRRGuideNormalRoughness[pixel] = float4(0.5, 0.5, 1.0, 1.0);
+        PathTraceRRGuideNormalRoughness[pixel] = float4(0.0, 0.0, 1.0, 1.0);
         PathTraceRRGuideDepth[pixel] = 0.0;
         PathTraceRRGuideHitDistance[pixel] = 0.0;
         PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
@@ -740,9 +739,9 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
     const float3 normal = SafeNormalize(surface.shadingNormal, surface.geometryNormal);
     PathTraceRRGuideAlbedo[pixel] = float4(saturate(surface.material.diffuseAlbedo), saturate(surface.material.opacity));
     PathTraceRRGuideSpecularAlbedo[pixel] = float4(saturate(surface.material.specularF0), 1.0);
-    PathTraceRRGuideNormalRoughness[pixel] = float4(normal * 0.5 + 0.5, saturate(surface.material.roughness));
+    PathTraceRRGuideNormalRoughness[pixel] = float4(normal, saturate(surface.material.roughness));
     PathTraceRRGuideDepth[pixel] = max(surface.linearDepth, 0.0);
-    PathTraceRRGuideHitDistance[pixel] = max(surface.linearDepth, 0.0);
+    PathTraceRRGuideHitDistance[pixel] = 0.0;
 }
 
 uint RayReconstructionResetMaskFromStatus(RAB_Surface surface, bool motionValid, uint debugStatus)

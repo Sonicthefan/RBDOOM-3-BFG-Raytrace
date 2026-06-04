@@ -185,6 +185,7 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     float4 CleanRtxdiDiGeometryInfo0;
     float4 CleanRtxdiDiGeometryInfo1;
     float4 CleanRtxdiDiSpatialInfo;
+    float4 CleanRtxdiDiEmissiveDistributionInfo;
 };
 
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
@@ -213,6 +214,7 @@ static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
+// The clean RTXDI target function uses Remix-style material floors before reservoir weighting.
 #include "../RtxdiBridge/RAB_LightTarget.hlsli"
 
 static const float2 CLEAN_RTXDI_DI_SPATIAL_NEIGHBOR_OFFSETS[32] =
@@ -996,6 +998,10 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525807u);
     RTXDI_DIReservoir result = RTXDI_EmptyDIReservoir();
     RTXDI_CombineDIReservoirs(result, centerReservoir, 0.5, centerReservoir.targetPdf);
+    int2 selectedSourcePixel = int2(pixel);
+    int2 acceptedNeighborPixels[16];
+    float acceptedNeighborM[16];
+    uint acceptedNeighborCount = 0u;
 
     const uint requestedSamples = clamp((uint)max(CleanRtxdiDiSpatialInfo.x, 1.0), 1u, 16u);
     const uint disocclusionSamples = clamp((uint)max(CleanRtxdiDiSpatialInfo.y, 1.0), 1u, 16u);
@@ -1033,12 +1039,52 @@ RTXDI_DIReservoir CleanSpatialReuse(uint2 pixel, uint2 dimensions, PathTracePrim
             RTXDI_GetDIReservoirSampleUV(neighborReservoir),
             surface);
         neighborReservoir.spatialDistance += neighborPixel - int2(pixel);
-        RTXDI_CombineDIReservoirs(result, neighborReservoir, RTXDI_GetNextRandom(rng), targetPdf);
+        const bool selectedNeighbor = RTXDI_CombineDIReservoirs(result, neighborReservoir, RTXDI_GetNextRandom(rng), targetPdf);
+        if (selectedNeighbor)
+        {
+            selectedSourcePixel = neighborPixel;
+        }
+        if (acceptedNeighborCount < 16u)
+        {
+            acceptedNeighborPixels[acceptedNeighborCount] = neighborPixel;
+            acceptedNeighborM[acceptedNeighborCount] = neighborReservoir.M;
+            acceptedNeighborCount++;
+        }
     }
 
     if (RTXDI_IsValidDIReservoir(result))
     {
-        RTXDI_FinalizeResampling(result, 1.0, max(result.M, 1.0));
+        const uint selectedLightIndex = RTXDI_GetDIReservoirLightIndex(result);
+        const float2 selectedSampleUv = RTXDI_GetDIReservoirSampleUV(result);
+        const float centerSelectedTargetPdf = max(result.targetPdf, 0.0);
+        float selectedSourceTargetPdf = centerSelectedTargetPdf;
+        if (any(selectedSourcePixel != int2(pixel)))
+        {
+            PathTracePrimarySurfaceRecord selectedSourceSurfaceRecord;
+            if (CleanLoadSurface((uint2)selectedSourcePixel, dimensions, selectedSourceSurfaceRecord))
+            {
+                selectedSourceTargetPdf = max(CleanTargetPdf(
+                    selectedLightIndex,
+                    selectedSampleUv,
+                    CleanSurfaceForView(selectedSourceSurfaceRecord)), 0.0);
+            }
+        }
+        float targetPdfSum = centerSelectedTargetPdf * max(centerReservoir.M, 0.0);
+
+        for (uint i = 0u; i < acceptedNeighborCount; ++i)
+        {
+            PathTracePrimarySurfaceRecord neighborSurfaceRecord;
+            if (!CleanLoadSurface((uint2)acceptedNeighborPixels[i], dimensions, neighborSurfaceRecord))
+            {
+                continue;
+            }
+
+            const RAB_Surface neighborSurface = CleanSurfaceForView(neighborSurfaceRecord);
+            const float neighborSelectedTargetPdf = CleanTargetPdf(selectedLightIndex, selectedSampleUv, neighborSurface);
+            targetPdfSum += max(neighborSelectedTargetPdf, 0.0) * max(acceptedNeighborM[i], 0.0);
+        }
+
+        RTXDI_FinalizeResampling(result, selectedSourceTargetPdf, max(targetPdfSum, 1.0e-6));
     }
     return result;
 }
