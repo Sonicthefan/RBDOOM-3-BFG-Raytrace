@@ -2011,7 +2011,7 @@ idCVar r_pathTracingDLSSRRVerbose(
     "r_pathTracingDLSSRRVerbose",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Verbose Streamline DLSS/RR probe logging, including required tags and Vulkan extension requirements" );
+    "Verbose Streamline DLSS/RR logging. 1 = events only (one-time CONTRACT dump, HISTORY RESET on fire, errors/warnings) -- no per-frame spam. 2 = also per-frame evaluate line + Streamline info messages" );
 
 idCVar r_pathTracingPortalTransitionDump(
     "r_pathTracingPortalTransitionDump",

@@ -61,7 +61,8 @@ void StreamlineLogCallback( sl::LogType type, const char* msg )
 		return;
 	}
 
-	if( type == sl::LogType::eError || type == sl::LogType::eWarn || r_pathTracingDLSSRRVerbose.GetInteger() != 0 )
+	// Streamline's own per-frame info messages only at verbose >= 2; errors/warnings always.
+	if( type == sl::LogType::eError || type == sl::LogType::eWarn || r_pathTracingDLSSRRVerbose.GetInteger() >= 2 )
 	{
 		common->Printf( "PathTraceDLSSRR: Streamline %s: %s\n", StreamlineLogTypeName( type ), msg );
 	}
@@ -916,7 +917,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		return false;
 	}
 
-	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 )
+	if( r_pathTracingDLSSRRVerbose.GetInteger() >= 2 )
 	{
 		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f jitter=%.4f,%.4f rawJitter=%.4f,%.4f mvecScale=%.4f,%.4f clipHistory=%d specHit=%d disocclusion=%d\n",
 			frameIndex,

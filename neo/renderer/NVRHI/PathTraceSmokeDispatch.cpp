@@ -3875,11 +3875,32 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->commitBarriers();
 
             const bool cleanRrForceReset = r_pathTracingDLSSRRForceReset.GetInteger() != 0;
+            // Only TRUE history discontinuities warrant resetting DLSS-RR's temporal history:
+            // resolution/backbuffer resize and a full scene/map rebuild. The reservoir-scene
+            // signature, reservoir-dispatch signature and GPU-idle-wait reasons are internal
+            // ReSTIR bookkeeping that churns every frame during motion -- forwarding them to
+            // DLSS-RR wiped its history continuously and was the motion-boiling root cause.
+            const uint32_t kRrHistoryResetMask =
+                RT_FRAME_RESET_OUTPUT_RESIZE |
+                RT_FRAME_RESET_BACKBUFFER_RESIZE |
+                RT_FRAME_RESET_SCENE_RESOURCES;
             const bool cleanRrHistoryReset =
                 cleanRrForceReset ||
                 !m_frameResources.primarySurfaceHistoryView.valid ||
                 m_frameResources.primarySurfaceHistoryNeedsClear ||
-                m_frameResources.settings.resetReasonFlags != 0;
+                ( m_frameResources.settings.resetReasonFlags & kRrHistoryResetMask ) != 0;
+            // Diagnostic: DLSS-RR history reset cadence. If this spams while merely moving,
+            // we are resetting RR history on internal scene/reservoir bookkeeping rather than
+            // on a true history discontinuity (the suspected motion-boiling root cause).
+            if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 && cleanRrHistoryReset )
+            {
+                common->Printf(
+                    "PathTraceDLSSRR: HISTORY RESET force=%d historyViewValid=%d needsClear=%d resetReasonFlags=0x%08x\n",
+                    cleanRrForceReset ? 1 : 0,
+                    m_frameResources.primarySurfaceHistoryView.valid ? 1 : 0,
+                    m_frameResources.primarySurfaceHistoryNeedsClear ? 1 : 0,
+                    static_cast<unsigned int>( m_frameResources.settings.resetReasonFlags ) );
+            }
             const bool cleanRrEvaluated = PathTraceDLSSRRBridge_Evaluate(
                 commandList,
                 m_frameResources.rrInputColorTexture,
