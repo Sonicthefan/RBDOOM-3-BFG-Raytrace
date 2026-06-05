@@ -103,6 +103,7 @@ struct RtPathTraceFrameResources
     nvrhi::TextureHandle rrGuideDepthTexture;
     nvrhi::TextureHandle rrGuideHitDistanceTexture;
     nvrhi::TextureHandle rrGuideResetMaskTexture;
+    nvrhi::TextureHandle rrGuidePositionTexture;
     nvrhi::StagingTextureHandle readbackTexture;
     int width = 0;
     int height = 0;

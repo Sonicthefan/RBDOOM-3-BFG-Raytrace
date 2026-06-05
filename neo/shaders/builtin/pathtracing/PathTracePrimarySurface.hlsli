@@ -66,7 +66,16 @@ uint PathTracePrimarySurfacePreviousProjectionStatus(float3 worldPosition, uint2
     {
         return RT_PRIMARY_SURFACE_DEBUG_PREVIOUS_BEHIND_CAMERA;
     }
-    previousLinearDepth = length(delta);
+    const bool projectedDepthEnabled = RayReconstructionInfo.w > 0.0;
+    if (projectedDepthEnabled)
+    {
+        const float zNear = max(RayReconstructionInfo.w, 1.0e-4);
+        previousLinearDepth = saturate(0.999 - zNear / max(forwardDistance, zNear));
+    }
+    else
+    {
+        previousLinearDepth = length(delta);
+    }
 
     const float ndcX = -dot(delta, PrevCameraLeftAndTanY.xyz) / max(forwardDistance * PrevCameraForwardAndTanX.w, 1.0e-5);
     const float ndcY = -dot(delta, PrevCameraUpAndTanY.xyz) / max(forwardDistance * PrevCameraLeftAndTanY.w, 1.0e-5);
@@ -111,6 +120,50 @@ bool ProjectPathTracePrimarySurfaceToPreviousPixelFloat(float3 worldPosition, ui
 {
     float previousLinearDepth;
     return ProjectPathTracePrimarySurfaceToPreviousPixelFloatAndDepth(worldPosition, dimensions, previousPixelFloat, previousLinearDepth);
+}
+
+float PathTracePrimarySurfaceCurrentViewZ(float3 worldPosition)
+{
+    return dot(worldPosition - CameraOriginAndTMax.xyz, CameraForwardAndTanX.xyz);
+}
+
+float PathTracePrimarySurfacePreviousViewZ(float3 worldPosition)
+{
+    return dot(worldPosition - PrevCameraOriginAndValid.xyz, PrevCameraForwardAndTanX.xyz);
+}
+
+float PathTracePrimarySurfaceProjectionDepthFromViewZ(float viewZ)
+{
+    const float zNear = max(RayReconstructionInfo.w, 1.0e-4);
+    const float safeViewZ = max(viewZ, zNear);
+#if defined(RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO)
+    const float cameraZ = -safeViewZ;
+    const float clipZ = RRProjectionDepthInfo.x * cameraZ + RRProjectionDepthInfo.y;
+    const float clipW = RRProjectionDepthInfo.z * cameraZ + RRProjectionDepthInfo.w;
+    if (abs(clipW) > 1.0e-6 && all(RRProjectionDepthInfo == RRProjectionDepthInfo))
+    {
+        return saturate(clipZ / clipW);
+    }
+#endif
+    return saturate(0.999 - zNear / safeViewZ);
+}
+
+float PathTracePrimarySurfaceCurrentProjectionDepth(float3 worldPosition)
+{
+    if (RayReconstructionInfo.w <= 0.0)
+    {
+        return length(worldPosition - CameraOriginAndTMax.xyz);
+    }
+    return PathTracePrimarySurfaceProjectionDepthFromViewZ(PathTracePrimarySurfaceCurrentViewZ(worldPosition));
+}
+
+float PathTracePrimarySurfacePreviousProjectionDepth(float3 worldPosition)
+{
+    if (RayReconstructionInfo.w <= 0.0)
+    {
+        return length(worldPosition - PrevCameraOriginAndValid.xyz);
+    }
+    return PathTracePrimarySurfaceProjectionDepthFromViewZ(PathTracePrimarySurfacePreviousViewZ(worldPosition));
 }
 
 #endif

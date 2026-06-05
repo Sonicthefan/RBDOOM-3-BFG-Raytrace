@@ -409,6 +409,7 @@ bool TryPathTracePreviousStaticSnapshotMotionPixelsAndDepth(RAB_Surface currentS
         return false;
     }
 
+    expectedPrevDepth = PathTracePrimarySurfacePreviousProjectionDepth(previousPosition);
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     return true;
@@ -445,6 +446,7 @@ bool TryPathTracePackedObjectMotionPixelsAndDepth(RAB_Surface currentSurface, ui
         return false;
     }
 
+    expectedPrevDepth = PathTracePrimarySurfacePreviousProjectionDepth(currentRecord.previousPositionOrMotion.xyz);
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     return true;
@@ -546,7 +548,7 @@ void StorePathTraceMotionVectorExport(uint2 pixel, RAB_Surface currentSurface)
         {
             motionPixels -= RayReconstructionInfo.xy;
         }
-        PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - currentSurface.linearDepth, 0.0);
+        PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - PathTracePrimarySurfaceCurrentProjectionDepth(currentSurface.worldPos), 0.0);
         PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
     }
     else

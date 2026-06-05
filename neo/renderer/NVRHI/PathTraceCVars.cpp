@@ -1297,7 +1297,7 @@ idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo" );
+    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo, 21 RR depth contract bands, 22 primary hit reprojection error, 23 previous hit/motion reprojection error" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",
@@ -1940,6 +1940,30 @@ idCVar r_pathTracingDLSSRRForceReset(
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic DLSS RR history isolation: force a Ray Reconstruction reset every evaluated frame" );
+
+idCVar r_pathTracingDLSSRRCameraFar(
+    "r_pathTracingDLSSRRCameraFar",
+    "2048",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "DLSS RR cameraFar (world units) for the finite-far RR depth projection. Sets the far plane the depth buffer + cameraViewToClip reach 1.0/0.0 at. <=znear falls back to 100000. 2048 validated for Doom 3 BFG (depth-overlay parity with reference DLSS-RR games)" );
+
+idCVar r_pathTracingDLSSRRReverseZ(
+    "r_pathTracingDLSSRRReverseZ",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "DLSS RR reverse-Z depth (only affects the legacy hyperbolic matrix path; inactive while r_pathTracingDLSSRRDepthMode selects linear depth)" );
+
+idCVar r_pathTracingDLSSRRDepthMode(
+    "r_pathTracingDLSSRRDepthMode",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "DLSS RR clean-path depth contract: 2 = hyperbolic hardware depth [0,1] tagged kBufferTypeDepth (default; the form DLSS-RR actually consumes), 0 = normalized linear view-Z [0,1], 1 = raw linear view-Z (0/1 tagged kBufferTypeLinearDepth). Tune cameraNear/cameraFar to spread the hyperbolic distribution" );
+
+idCVar r_pathTracingDLSSRRCameraNear(
+    "r_pathTracingDLSSRRCameraNear",
+    "0.2",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "DLSS RR cameraNear (world units) for the RR depth frustum. <=0 uses r_znear. 0.2 validated for Doom 3 BFG (depth-overlay parity with reference DLSS-RR games). far/near ratio controls the hyperbolic distribution; geometry closer than this clamps to the near plane" );
 
 idCVar r_pathTracingDLSSRRMotionVectorScaleX(
     "r_pathTracingDLSSRRMotionVectorScaleX",

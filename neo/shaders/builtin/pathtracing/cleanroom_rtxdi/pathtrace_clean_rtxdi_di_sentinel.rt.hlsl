@@ -2713,7 +2713,7 @@ void RayGen()
     }
 
     const uint view = CleanRtxdiDiView;
-    if (view < 1u || view > 20u)
+    if (view < 1u || view > 23u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
         return;
@@ -2769,6 +2769,18 @@ void RayGen()
     else if (view == 20u)
     {
         color = PathTraceCleanRoomRRGuideSpecularAlbedoDebugColor(pixel);
+    }
+    else if (view == 21u)
+    {
+        color = PathTraceCleanRoomRRDepthContractBandColor(pixel, dimensions);
+    }
+    else if (view == 22u)
+    {
+        color = PathTraceCleanRoomPrimaryHitReprojectionErrorColor(pixel, dimensions);
+    }
+    else if (view == 23u)
+    {
+        color = PathTraceCleanRoomPreviousHitReprojectionErrorColor(pixel, dimensions);
     }
     else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u)
     {

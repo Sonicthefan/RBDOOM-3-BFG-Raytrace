@@ -144,6 +144,129 @@ float3 PathTraceCleanRoomRRGuideSpecularAlbedoDebugColor(uint2 pixel)
     return saturate(PathTraceRRGuideSpecularAlbedo[pixel].rgb);
 }
 
+float3 PathTraceCleanRoomRRDepthContractBandColor(uint2 pixel, uint2 dimensions)
+{
+    const uint bandCount = 5u;
+    const bool forcedBand = CleanRtxdiDiView8Band < bandCount;
+    const uint band = forcedBand ? CleanRtxdiDiView8Band : min((pixel.y * bandCount) / max(dimensions.y, 1u), bandCount - 1u);
+
+    PathTracePrimarySurfaceRecord record;
+    const bool validRecord = PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record);
+    const float hitTDepth = validRecord ? max(record.worldPositionAndViewDepth.w, 0.0) : 0.0;
+    const float rrDepth = max(PathTraceRRGuideDepth[pixel], 0.0);
+
+    if (!forcedBand)
+    {
+        const uint bandStart = (band * max(dimensions.y, 1u)) / bandCount;
+        if (pixel.y == bandStart)
+        {
+            return float3(1.0, 1.0, 1.0);
+        }
+    }
+
+    if (band == 0u)
+    {
+        return float3(saturate(hitTDepth / 4096.0), 0.0, 0.0);
+    }
+    if (band == 1u)
+    {
+        // rrDepth is hardware [0,1] finite-far projection depth.
+        return float3(0.0, saturate(rrDepth), 0.0);
+    }
+    if (band == 2u)
+    {
+        const float viewZDepth = dot(record.worldPositionAndViewDepth.xyz - CleanRtxdiDiCameraOriginAndValid.xyz, CleanRtxdiDiCameraForwardAndTanX.xyz);
+        return float3(saturate(abs(hitTDepth - viewZDepth) / 512.0), saturate(rrDepth), saturate(hitTDepth / 4096.0));
+    }
+    if (band == 3u)
+    {
+        const float motionZ = PathTraceMotionVectors[pixel].z;
+        return float3(saturate(motionZ / 128.0 + 0.5), saturate(abs(motionZ) / 128.0), 0.0);
+    }
+
+    return PathTraceCleanRoomRRResetMaskColor(PathTraceRRGuideResetMask[pixel]);
+}
+
+float3 PathTraceCleanRoomPrimaryHitReprojectionErrorColor(uint2 pixel, uint2 dimensions)
+{
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 delta = record.worldPositionAndViewDepth.xyz - CleanRtxdiDiCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, CleanRtxdiDiCameraForwardAndTanX.xyz);
+    if (forwardDistance <= 1.0e-4)
+    {
+        return float3(0.0, 0.0, 1.0);
+    }
+
+    const float ndcX = -dot(delta, CleanRtxdiDiCameraLeftAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, CleanRtxdiDiCameraUpAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiCameraLeftAndTanY.w, 1.0e-5);
+    const float2 projectedPixel = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(max(dimensions, uint2(1u, 1u)));
+    if (!all(projectedPixel == projectedPixel))
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    const float2 sourcePixel = float2(pixel) + 0.5;
+    const float reprojectionErrorPixels = length(projectedPixel - sourcePixel);
+    const float errorColor = saturate(reprojectionErrorPixels / 4.0);
+    const float outsideFrame = (abs(ndcX) > 1.0 || abs(ndcY) > 1.0) ? 1.0 : 0.0;
+    const float stableColor = 1.0 - saturate(reprojectionErrorPixels);
+    return saturate(float3(errorColor, stableColor, outsideFrame));
+}
+
+float3 PathTraceCleanRoomPreviousHitReprojectionErrorColor(uint2 pixel, uint2 dimensions)
+{
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    if (CleanRtxdiDiPrevCameraOriginAndValid.w < 0.5)
+    {
+        return float3(0.0, 1.0, 1.0);
+    }
+
+    const bool hasObjectPrevious =
+        (record.header.y & (RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION)) ==
+            (RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION) &&
+        record.previousPositionOrMotion.w >= 0.5;
+    const float3 previousPosition = hasObjectPrevious ? record.previousPositionOrMotion.xyz : record.worldPositionAndViewDepth.xyz;
+    const float3 delta = previousPosition - CleanRtxdiDiPrevCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, CleanRtxdiDiPrevCameraForwardAndTanX.xyz);
+    if (forwardDistance <= 1.0e-4)
+    {
+        return float3(0.0, 0.0, 1.0);
+    }
+
+    const float ndcX = -dot(delta, CleanRtxdiDiPrevCameraLeftAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiPrevCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, CleanRtxdiDiPrevCameraUpAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiPrevCameraLeftAndTanY.w, 1.0e-5);
+    const float2 projectedPreviousPixel = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(max(dimensions, uint2(1u, 1u)));
+    if (!all(projectedPreviousPixel == projectedPreviousPixel))
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    const float2 exportedPreviousPixel = float2(pixel) + 0.5 + PathTraceRRMotionVectors[pixel];
+    const float reprojectionErrorPixels = length(projectedPreviousPixel - exportedPreviousPixel);
+    const float errorColor = saturate(reprojectionErrorPixels / 4.0);
+    const float coherentColor = 1.0 - saturate(reprojectionErrorPixels);
+    const float outsideFrame = (abs(ndcX) > 1.0 || abs(ndcY) > 1.0) ? 1.0 : 0.0;
+    const bool validMotion = (PathTraceMotionVectorMask[pixel] & PT_MOTION_VECTOR_MASK_VALID) != 0u;
+    if (!validMotion)
+    {
+        return saturate(float3(1.0, 0.55 * coherentColor, outsideFrame));
+    }
+    if (!hasObjectPrevious)
+    {
+        return saturate(float3(errorColor, coherentColor, 0.25 + outsideFrame));
+    }
+    return saturate(float3(errorColor, coherentColor, outsideFrame));
+}
+
 float3 PathTraceCleanRoomRRInputMosaicColor(uint2 pixel, uint2 dimensions)
 {
     const uint selectedTile = CleanRtxdiDiView8Band <= 5u ? CleanRtxdiDiView8Band : 0xffffffffu;

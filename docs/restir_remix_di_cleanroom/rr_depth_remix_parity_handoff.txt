@@ -1,0 +1,262 @@
+Clean RTXDI DI DLSS RR Depth Parity Handoff
+===========================================
+
+Goal
+----
+
+Build a clean RTXDI DI Ray Reconstruction depth/position path that matches the
+RTX Remix DLSS RR contract closely enough that the NVIDIA DLSS RR debug depth
+view behaves like Remix, not like rbdoom's current ray-length depth input.
+
+This is a depth contract slice only. Do not reopen DI sampling, temporal reuse,
+spatial reuse, demodulation, or denoising unless a depth/position proof requires
+a narrow diagnostic view.
+
+
+Why this slice exists
+---------------------
+
+The current clean path can feed stable albedo/specular-albedo guide views, raw
+normal/roughness, blank DI-only specular hit distance, jittered primary rays, and
+RR motion vectors. The remaining major mismatch seen in the NVIDIA DLSS RR debug
+viewer is depth.
+
+Current rbdoom path:
+
+    pathtrace_smoke_rab_surface_supplier.hlsli
+        surface.linearDepth = payload.hitT
+
+    pathtrace_primary_surface_producer.rt.hlsl
+        PathTraceRRGuideDepth[pixel] = max(surface.linearDepth, 0.0)
+        PathTraceMotionVectors[pixel].z = expectedPrevDepth - surface.linearDepth
+
+This means the RR "linear depth" is currently the primary ray length/hitT style
+depth used by the path-tracing surface record. That value can be stable in our
+own debug view and still be the wrong convention for DLSS RR history.
+
+RTX Remix reference path:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_resources.cpp
+        m_primaryDepthDLSSRR = R32_FLOAT "Primary Depth DLSSRR"
+        m_primaryWorldShadingNormalDLSSRR = RGBA16_FLOAT
+        m_primaryScreenSpaceMotionVectorDLSSRR = RG16_FLOAT
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_pathtracer_gbuffer.cpp
+        binds GBUFFER_BINDING_PRIMARY_DEPTH_DLSSRR_OUTPUT
+        binds GBUFFER_BINDING_PRIMARY_NORMAL_DLSSRR_OUTPUT
+        binds GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_DLSSRR_OUTPUT
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_ray_reconstruction.cpp
+        depthInput = m_primaryDepthDLSSRR
+        motionVectorInput = m_primaryScreenSpaceMotionVectorDLSSRR
+        buffers.pPosition = getCurrentPrimaryWorldPositionWorldTriangleNormal()
+        buffers.pHitDistance = m_rayReconstructionHitDistance only when enabled
+
+Remix therefore does not simply recycle a generic primary hit distance as RR
+depth. It has a dedicated DLSSRR primary depth resource and also gives RR a
+position buffer. rbdoom currently tags only `kBufferTypeLinearDepth`, not
+`kBufferTypePosition`.
+
+
+SDK contract to preserve
+------------------------
+
+From the DLSS RR guide:
+
+    Depth must be the same depth data used to generate motion vector data.
+    It may be view-space depth via kBufferTypeLinearDepth or hardware depth via
+    kBufferTypeDepth.
+
+    Specular hit distance is optional and is world-space ray distance for
+    specular rays. It is not the same thing as primary depth.
+
+For the clean DI-only path, keep `PathTraceRRGuideHitDistance` blank/zero unless
+we later implement real specular/reflection hit distance. Do not put primary
+depth into specular hit distance.
+
+
+Non-goals
+---------
+
+- Do not restore `r_pathTracingDLSSRRForwardDepth`; the scalar forward-depth
+  experiment was visually worse and was removed.
+- Do not invent a new denoiser or boil filter for this slice.
+- Do not change clean DI temporal/spatial behavior as a workaround.
+- Do not use mode 56 as the implementation target. It is only a legacy reference.
+- Do not feed `PathTraceRRGuideHitDistance` with primary depth.
+- Do not assume the NVIDIA debug depth view is just a grayscale display of our
+  current R32 texture. The mismatch may include how RR combines depth, motion,
+  position, and matrices internally.
+
+
+Implementation Plan
+-------------------
+
+1. Add an explicit RR depth convention helper.
+
+   Add a shared shader helper used by the primary-surface producer and motion
+   export, for example:
+
+       float PathTraceRRPrimaryDepthFromSurface(RAB_Surface surface)
+       float PathTraceRRPreviousPrimaryDepthFromWorldPosition(float3 previousWorldPos)
+
+   The important rule is that `PathTraceRRGuideDepth[pixel]` and
+   `PathTraceMotionVectors[pixel].z` must use the same convention.
+
+   The first candidate should be Remix-style virtual linear view Z, not ray
+   length:
+
+       currentDepth = dot(surface.worldPos - CameraOriginAndTMax.xyz,
+                          CameraForwardAndTanX.xyz)
+
+       previousDepth = dot(previousWorldPos - PrevCameraOriginAndValid.xyz,
+                           PrevCameraForwardAndTanX.xyz)
+
+   Only keep this if the DLSS RR debug depth view moves toward Remix behavior.
+   The previous broad forward-depth attempt failed because it was a toggle
+   grafted onto existing mixed contracts, not a dedicated depth/motion/position
+   slice.
+
+2. Add a dedicated clean RR depth debug view.
+
+   Extend the clean RR debug views so one view can compare, preferably as bands:
+
+       band 0: current rbdoom hitT/ray length
+       band 1: candidate RR primary view Z
+       band 2: abs(hitT - viewZ) scaled
+       band 3: motion-vector z delta under the candidate convention
+       band 4: invalid/reset mask overlay
+
+   Keep this under `r_pathTracingCleanRtxdiDiView`, not mode 56. A good target
+   is either a new `view 21` or a `view18Tile` extension if it stays readable.
+
+3. Add a position input path for Streamline/RR.
+
+   Remix supplies `buffers.pPosition` to NGX RR. Streamline exposes
+   `kBufferTypePosition`, described as position in the same space as normals.
+
+   rbdoom should add a `PathTraceRRGuidePosition` texture only if inspection
+   confirms Streamline accepts the tag in our SDK version. Candidate layout:
+
+       RGBA16_FLOAT or RGBA32_FLOAT
+       xyz = primary world position or view-space position, matching the
+             selected normal/position convention
+       w = validity/classification if useful, otherwise 1
+
+   Then tag it in `PathTraceDLSSRRBridge.cpp` with `sl::kBufferTypePosition`.
+   If the SDK rejects the tag or debug output regresses, stop and document the
+   exact Streamline error. Do not silently keep an unused position texture.
+
+4. Keep matrices jitter-free and depth/motion coherent.
+
+   Continue reporting jitter separately through Streamline constants.
+   Do not bake jitter into the matrices supplied to RR.
+   If the depth convention changes, update both:
+
+       PathTraceRRGuideDepth[pixel]
+       PathTraceMotionVectors[pixel].z
+
+   The xy motion vectors should remain pixel motion with the current Streamline
+   `mvecScale` path unless a separate MV parity slice proves otherwise.
+
+5. Preserve current validated guide contracts.
+
+   Keep:
+
+       raw normalized normal in PathTraceRRGuideNormalRoughness.rgb
+       roughness in PathTraceRRGuideNormalRoughness.a
+       material albedo in PathTraceRRGuideAlbedo
+       F0/specular albedo in PathTraceRRGuideSpecularAlbedo
+       zero/blank PathTraceRRGuideHitDistance for DI-only
+
+
+Acceptance Tests
+----------------
+
+Required build/deploy:
+
+    cmake --build --preset win64-pt-dev-release
+    copy RBDoom3BFG.exe to E:/prog/rbdoom-3-BFG-prebuilt/
+    copy rebuilt Vulkan SPIR-V blobs under base/renderprogs2/spirv only
+
+Required runtime checks:
+
+1. `r_pathTracingCleanRtxdiDiView 16`
+   - material DI still renders.
+   - no purple screen.
+   - no regression to flat fallback albedo.
+
+2. `r_pathTracingCleanRtxdiDiView 18`
+   - RR guide mosaic still works.
+   - depth tile changes according to the candidate convention.
+   - hit-distance tile remains blank/zero for DI-only.
+
+3. `r_pathTracingCleanRtxdiDiView 19` and `20`
+   - albedo and specular albedo stay stable and lighting-free.
+
+4. DLSS RR debug viewer
+   - depth view should visually approach RTX Remix's RR depth behavior.
+   - camera movement should not cause the depth debug view to break into the
+     prior unstable pattern.
+   - stationary camera should not hide the issue; test slow movement too.
+
+5. History stress
+   - `r_pathTracingDLSSRRForceReset 1` should still show the base current-frame
+     noise pattern.
+   - with reset off, slow movement should preserve RR history better than the
+     current committed baseline.
+
+
+Stop Conditions
+---------------
+
+Stop and report instead of continuing if any of these happen:
+
+- The depth view improves in rbdoom's own debug view but remains wrong in the
+  NVIDIA DLSS RR debug viewer.
+- Adding position input is rejected by Streamline or produces no visible change
+  and no tag confirmation in verbose logging.
+- Fixing depth requires changing DI sampling, reservoir weighting, or temporal
+  reuse. That is a different slice.
+- The implementation reintroduces primary depth into specular hit distance.
+- The shader blob size or binding layout starts failing at runtime.
+
+
+Files To Start From
+-------------------
+
+rbdoom:
+
+    neo/shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+    neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_surface_supplier.hlsli
+    neo/shaders/builtin/pathtracing/pathtrace_smoke_rab_motion_supplier.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_debug.hlsli
+    neo/renderer/NVRHI/PathTraceFrameResources.cpp
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
+    neo/renderer/NVRHI/PathTraceDLSSRRBridge.cpp
+
+RTX Remix:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_resources.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_pathtracer_gbuffer.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_ray_reconstruction.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_ngx_wrapper.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/gbuffer/gbuffer_binding_indices.h
+
+SDK:
+
+    E:/prog/references/dlss-sdk/docs/ProgrammingGuideDLSS_RR.md
+    E:/prog/references/dlss-sdk/docs/ProgrammingGuide.md
+    E:/prog/references/dlss-sdk/include/sl_core_types.h
+
+
+Expected Outcome
+----------------
+
+The desired result is not "a depth map that looks nicer." The desired result is
+a clean path whose RR depth, motion z, optional position, and Streamline tags
+match the Remix/DLSS RR contract tightly enough that the NVIDIA debug depth view
+no longer identifies rbdoom as using a fundamentally different depth source.
+
+Once that is true, revisit the remaining boiling/noise issue. Until then, do not
+spend more time tuning ReSTIR temporal/spatial knobs for the DLSS RR artifact.

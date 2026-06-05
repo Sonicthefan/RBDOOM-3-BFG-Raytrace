@@ -168,6 +168,7 @@ VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideDepth : register(u50)
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("r32ui") RWTexture2D<uint> PathTraceRRGuideResetMask : register(u52);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideSpecularAlbedo : register(u53);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRGuidePosition : register(u79);
 VK_IMAGE_FORMAT("rg16f") RWTexture2D<float2> PathTraceRRMotionVectors : register(u78);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
@@ -238,8 +239,10 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTSparsityInfo;
     float4 RestirPTIndirectInfo;
     float4 RayReconstructionInfo;
+    float4 RRProjectionDepthInfo;
 };
 
+#define RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO
 #define RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_PROJECTION_HELPERS
 #include "PathTracePrimarySurface.hlsli"
 
@@ -710,6 +713,7 @@ int2 PathTracePrimarySurfaceLoadPixel(int2 pixelPosition, bool previousFrame)
 }
 
 #include "pathtrace_smoke_rab_motion_supplier.hlsli"
+#include "cleanroom_rtxdi/pathtrace_clean_rtxdi_di_rr_geometry_guides.hlsli"
 
 void StorePrimarySurfaceRecord(uint2 pixel, RAB_Surface surface)
 {
@@ -730,8 +734,9 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
         PathTraceRRGuideAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         PathTraceRRGuideSpecularAlbedo[pixel] = float4(0.0, 0.0, 0.0, 1.0);
         PathTraceRRGuideNormalRoughness[pixel] = float4(0.0, 0.0, 1.0, 1.0);
-        PathTraceRRGuideDepth[pixel] = 0.0;
+        PathTraceRRGuideDepth[pixel] = PathTraceCleanRtxdiDiRRInvalidDepth();
         PathTraceRRGuideHitDistance[pixel] = 0.0;
+        PathTraceRRGuidePosition[pixel] = PathTraceCleanRtxdiDiRRInvalidPosition();
         PathTraceRRMotionVectors[pixel] = float2(0.0, 0.0);
         return;
     }
@@ -740,8 +745,9 @@ void StoreRayReconstructionGuides(uint2 pixel, RAB_Surface surface)
     PathTraceRRGuideAlbedo[pixel] = float4(saturate(surface.material.diffuseAlbedo), saturate(surface.material.opacity));
     PathTraceRRGuideSpecularAlbedo[pixel] = float4(saturate(surface.material.specularF0), 1.0);
     PathTraceRRGuideNormalRoughness[pixel] = float4(normal, saturate(surface.material.roughness));
-    PathTraceRRGuideDepth[pixel] = max(surface.linearDepth, 0.0);
+    PathTraceRRGuideDepth[pixel] = PathTraceCleanRtxdiDiRRPrimaryDepthFromSurface(surface);
     PathTraceRRGuideHitDistance[pixel] = 0.0;
+    PathTraceRRGuidePosition[pixel] = PathTraceCleanRtxdiDiRRPositionFromSurface(surface);
 }
 
 uint RayReconstructionResetMaskFromStatus(RAB_Surface surface, bool motionValid, uint debugStatus)
@@ -821,6 +827,7 @@ bool TryRayReconstructionCameraMotionPixelsAndDepth(
         return false;
     }
 
+    expectedPrevDepth = PathTraceCleanRtxdiDiRRPreviousDepthFromWorldPosition(surface.worldPos);
     previousPixel = int2(floor(previousPixelFloat));
     motionPixels = previousPixelFloat - (float2(pixel) + 0.5);
     return true;
@@ -862,7 +869,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
             {
                 motionPixels -= RayReconstructionInfo.xy;
             }
-            PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - surface.linearDepth, 0.0);
+            PathTraceMotionVectors[pixel] = float4(motionPixels, PathTraceCleanRtxdiDiRRMotionDepthDelta(surface, expectedPrevDepth), 0.0);
             PathTraceRRMotionVectors[pixel] = motionPixels;
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
         }
@@ -876,7 +883,7 @@ void StoreRayReconstructionMotionGuides(uint2 pixel, RAB_Surface surface)
             {
                 motionPixels -= RayReconstructionInfo.xy;
             }
-            PathTraceMotionVectors[pixel] = float4(motionPixels, expectedPrevDepth - surface.linearDepth, 0.0);
+            PathTraceMotionVectors[pixel] = float4(motionPixels, PathTraceCleanRtxdiDiRRMotionDepthDelta(surface, expectedPrevDepth), 0.0);
             PathTraceRRMotionVectors[pixel] = motionPixels;
             PathTraceMotionVectorMask[pixel] = PathTraceMotionVectorMaskFromStatus(true, sourceKind, debugStatus);
         }

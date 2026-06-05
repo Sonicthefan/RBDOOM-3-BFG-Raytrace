@@ -1457,7 +1457,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         pdfNeeVerifierSceneBuildLightMode == 7;
     const int cleanRtxdiDiSceneBuildView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiSceneBuildResolveView =
-        (cleanRtxdiDiSceneBuildView >= 18 && cleanRtxdiDiSceneBuildView <= 20) ? 16 : cleanRtxdiDiSceneBuildView;
+        (cleanRtxdiDiSceneBuildView >= 18 && cleanRtxdiDiSceneBuildView <= 23) ? 16 : cleanRtxdiDiSceneBuildView;
     const bool cleanRtxdiDiSceneBuildRoute =
         requestedDebugMode == 0 &&
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
@@ -1496,7 +1496,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         cleanRtxdiDiSceneBuildResolveView == 16;
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || cleanRtxdiDiMaterialValidationRoute || neeCacheSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49;
 
-    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
+    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
         return;
     }
@@ -2486,7 +2486,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool restirPTAnalyticLightCandidates = restirPTDebugMode && r_pathTracingRestirPTAnalyticLightCandidates.GetInteger() != 0;
     const int cleanRtxdiDiView = r_pathTracingCleanRtxdiDiView.GetInteger();
     const int cleanRtxdiDiResolveView =
-        (cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 20) ? 16 : cleanRtxdiDiView;
+        (cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23) ? 16 : cleanRtxdiDiView;
     const bool cleanRtxdiDiRealAnalyticRoute =
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
@@ -4524,6 +4524,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.rrGuideDepthTexture = m_frameResources.rrGuideDepthTexture;
     bindingBuildDesc.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
     bindingBuildDesc.rrGuideResetMaskTexture = m_frameResources.rrGuideResetMaskTexture;
+    bindingBuildDesc.rrGuidePositionTexture = m_frameResources.rrGuidePositionTexture;
     bindingBuildDesc.fallbackTexture = fallbackTexture;
     bindingBuildDesc.constantsBuffer = m_smokeConstantsBuffer;
     bindingBuildDesc.restirPTConstantsBuffer = m_restirPTConstantsBuffer;

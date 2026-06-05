@@ -185,14 +185,51 @@ void CopyIdTechWorldCameraMatricesToStreamline( const viewDef_t* viewDef, sl::fl
 	CopyIdTechMatrixToStreamline( inverseModelView, cameraViewToWorld );
 }
 
-void BuildPathTraceProjectionMatrix( float tanX, float tanY, float zNear, float projectionMatrix[16] )
+// FINITE-far perspective (idTech column-major). Unlike the engine's infinite-far
+// projection (-0.999 / -zNear, depth asymptotes to 0.999), this reaches exactly 1.0
+// at zFar so DLSS-RR can derive a sane near/far from cameraViewToClip and use the
+// full depth range. Must stay coherent with the RRProjectionDepthInfo z-terms in
+// PathTraceSmokeDispatch.cpp.
+// Finite-far depth (z-row) terms. reverseZ: near->1, far->0 (paired with
+// depthInverted=true) gives near-uniform float precision across the range and fixes
+// far/floor banding; forward: near->0, far->1. Must match the RRProjectionDepthInfo
+// terms in PathTraceSmokeDispatch.cpp.
+void PathTraceFiniteFarDepthTerms( float zNear, float zFar, bool reverseZ, float& zz, float& wz )
+{
+	const float range = Max( zFar - zNear, 1.0e-4f );
+	zz = reverseZ ? ( zNear / range ) : ( -zFar / range );
+	wz = reverseZ ? ( zNear * zFar / range ) : ( -zNear * zFar / range );
+}
+
+void BuildPathTraceProjectionMatrix( float tanX, float tanY, float zNear, float zFar, bool reverseZ, float projectionMatrix[16] )
 {
 	std::fill( projectionMatrix, projectionMatrix + 16, 0.0f );
+	float zz, wz;
+	PathTraceFiniteFarDepthTerms( zNear, zFar, reverseZ, zz, wz );
 	projectionMatrix[0 * 4 + 0] = 1.0f / Max( tanX, 1.0e-6f );
 	projectionMatrix[1 * 4 + 1] = 1.0f / Max( tanY, 1.0e-6f );
-	projectionMatrix[2 * 4 + 2] = -0.999f;
-	projectionMatrix[3 * 4 + 2] = -zNear;
+	projectionMatrix[2 * 4 + 2] = zz;
+	projectionMatrix[3 * 4 + 2] = wz;
 	projectionMatrix[2 * 4 + 3] = -1.0f;
+}
+
+// Copy an idTech projection and override ONLY its two depth (z-row) terms to make it
+// finite-far, preserving the engine's X/Y scale, offsets and Y-flip exactly. This is
+// the matrix handed to DLSS-RR as cameraViewToClip; the same two terms are written
+// into RRProjectionDepthInfo so the depth buffer and matrix agree.
+void ApplyPathTraceFiniteFarDepth( const float source[16], float zNear, float zFar, bool reverseZ, float out[16] )
+{
+	std::copy( source, source + 16, out );
+	float zz, wz;
+	PathTraceFiniteFarDepthTerms( zNear, zFar, reverseZ, zz, wz );
+	out[2 * 4 + 2] = zz;
+	out[3 * 4 + 2] = wz;
+}
+
+float PathTraceResolveDLSSRRFar( float zNear )
+{
+	const float farCvar = r_pathTracingDLSSRRCameraFar.GetFloat();
+	return farCvar > zNear ? farCvar : 100000.0f;
 }
 
 void BuildPathTraceModelViewMatrix( const RtPathTraceFrameCameraState& camera, float modelViewMatrix[16] )
@@ -230,6 +267,8 @@ bool BuildPathTraceClipTransforms(
 	const viewDef_t* viewDef,
 	const RtPathTraceFrameCameraState* previousCamera,
 	bool resetHistory,
+	float zFar,
+	bool reverseZ,
 	float clipToCameraView[16],
 	float clipToPrevClip[16],
 	float prevClipToClip[16] )
@@ -240,7 +279,11 @@ bool BuildPathTraceClipTransforms(
 		return false;
 	}
 
-	R_MatrixFullInverse( viewDef->unjitteredProjectionMatrix, clipToCameraView );
+	// Use the same FINITE-far projection we hand DLSS as cameraViewToClip so the
+	// clip space the reprojection matrices operate in matches the depth buffer.
+	float currentViewToClip[16];
+	ApplyPathTraceFiniteFarDepth( viewDef->unjitteredProjectionMatrix, r_znear.GetFloat(), zFar, reverseZ, currentViewToClip );
+	R_MatrixFullInverse( currentViewToClip, clipToCameraView );
 	if( resetHistory || previousCamera == nullptr || !previousCamera->valid )
 	{
 		return false;
@@ -251,7 +294,7 @@ bool BuildPathTraceClipTransforms(
 	float previousWorldToCamera[16];
 	BuildPathTraceModelViewMatrix( *previousCamera, previousWorldToCamera );
 	float previousViewToClip[16];
-	BuildPathTraceProjectionMatrix( previousCamera->tanX, previousCamera->tanY, r_znear.GetFloat(), previousViewToClip );
+	BuildPathTraceProjectionMatrix( previousCamera->tanX, previousCamera->tanY, r_znear.GetFloat(), zFar, reverseZ, previousViewToClip );
 
 	float clipToWorld[16];
 	float clipToPreviousCamera[16];
@@ -569,6 +612,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* albedo,
 	nvrhi::ITexture* specularAlbedo,
 	nvrhi::ITexture* normalRoughness,
+	nvrhi::ITexture* position,
 	nvrhi::ITexture* linearDepth,
 	nvrhi::ITexture* motionVectors,
 	nvrhi::ITexture* specularHitDistance,
@@ -632,15 +676,27 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	float clipToCameraView[16];
 	float clipToPrevClip[16];
 	float prevClipToClip[16];
+	const float rrCameraNearCvar = r_pathTracingDLSSRRCameraNear.GetFloat();
+	const float rrCameraNear = rrCameraNearCvar > 0.0f ? rrCameraNearCvar : r_znear.GetFloat();
+	const float rrCameraFar = PathTraceResolveDLSSRRFar( rrCameraNear );
+	const int rrDepthMode = idMath::ClampInt( 0, 2, r_pathTracingDLSSRRDepthMode.GetInteger() );
+	const bool rrHardwareDepth = rrDepthMode == 2;
+	// Linear depth contract: forward finite-far matrix (only its X/Y terms are used by
+	// DLSS to unproject the linear depth) and depthInverted=false.
+	const bool rrReverseZ = false;
+	float rrViewToClip[16];
+	ApplyPathTraceFiniteFarDepth( viewDef->unjitteredProjectionMatrix, rrCameraNear, rrCameraFar, rrReverseZ, rrViewToClip );
 	const bool clipHistoryEnabled = r_pathTracingDLSSRRClipHistory.GetInteger() != 0;
 	const bool validClipHistory = BuildPathTraceClipTransforms(
 		viewDef,
 		previousCamera,
 		resetHistory || !clipHistoryEnabled,
+		rrCameraFar,
+		rrReverseZ,
 		clipToCameraView,
 		clipToPrevClip,
 		prevClipToClip );
-	CopyIdTechMatrixToStreamline( viewDef->unjitteredProjectionMatrix, constants.cameraViewToClip );
+	CopyIdTechMatrixToStreamline( rrViewToClip, constants.cameraViewToClip );
 	CopyIdTechMatrixToStreamline( clipToCameraView, constants.clipToCameraView );
 	constants.clipToLensClip = StreamlineIdentityMatrix();
 	if( validClipHistory )
@@ -668,12 +724,12 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	constants.cameraFwd = sl::float3( viewDef->renderView.viewaxis[0].x, viewDef->renderView.viewaxis[0].y, viewDef->renderView.viewaxis[0].z );
 	constants.cameraRight = sl::float3( -viewDef->renderView.viewaxis[1].x, -viewDef->renderView.viewaxis[1].y, -viewDef->renderView.viewaxis[1].z );
 	constants.cameraUp = sl::float3( viewDef->renderView.viewaxis[2].x, viewDef->renderView.viewaxis[2].y, viewDef->renderView.viewaxis[2].z );
-	constants.cameraNear = r_znear.GetFloat();
-	constants.cameraFar = 100000.0f;
+	constants.cameraNear = rrCameraNear;
+	constants.cameraFar = rrCameraFar;
 	constants.cameraFOV = DEG2RAD( viewDef->renderView.fov_y );
 	constants.cameraAspectRatio = static_cast<float>( width ) / static_cast<float>( height );
 	constants.motionVectorsInvalidValue = 0.0f;
-	constants.depthInverted = sl::Boolean::eFalse;
+	constants.depthInverted = rrReverseZ ? sl::Boolean::eTrue : sl::Boolean::eFalse;
 	constants.cameraMotionIncluded = sl::Boolean::eTrue;
 	constants.motionVectors3D = sl::Boolean::eFalse;
 	constants.reset = resetHistory ? sl::Boolean::eTrue : sl::Boolean::eFalse;
@@ -685,6 +741,39 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	{
 		common->Printf( "PathTraceDLSSRR: slSetConstants failed: %s\n", sl::getResultAsStr( result ) );
 		return false;
+	}
+
+	// One-time dump of the exact depth/camera contract so it can be diffed field-by-field
+	// against a known-good DLSS-RR game captured via sl.interposer.json (logLevel 2).
+	static bool s_constantsDumped = false;
+	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 && !s_constantsDumped )
+	{
+		s_constantsDumped = true;
+		common->Printf(
+			"PathTraceDLSSRR: CONTRACT depthTag=%s depthMode=%d cameraNear=%.5f cameraFar=%.3f cameraFOV=%.5f aspect=%.5f depthInverted=%d cameraMotionIncluded=%d motionVectors3D=%d mvecScale=%.6f,%.6f jitter=%.5f,%.5f\n",
+			rrHardwareDepth ? "kBufferTypeDepth" : "kBufferTypeLinearDepth",
+			rrDepthMode,
+			constants.cameraNear,
+			constants.cameraFar,
+			constants.cameraFOV,
+			constants.cameraAspectRatio,
+			constants.depthInverted == sl::Boolean::eTrue ? 1 : 0,
+			constants.cameraMotionIncluded == sl::Boolean::eTrue ? 1 : 0,
+			constants.motionVectors3D == sl::Boolean::eTrue ? 1 : 0,
+			constants.mvecScale.x, constants.mvecScale.y,
+			constants.jitterOffset.x, constants.jitterOffset.y );
+		common->Printf(
+			"PathTraceDLSSRR: CONTRACT cameraViewToClip(rowmajor) = [%.5f %.5f %.5f %.5f][%.5f %.5f %.5f %.5f][%.5f %.5f %.5f %.5f][%.5f %.5f %.5f %.5f]\n",
+			rrViewToClip[0], rrViewToClip[1], rrViewToClip[2], rrViewToClip[3],
+			rrViewToClip[4], rrViewToClip[5], rrViewToClip[6], rrViewToClip[7],
+			rrViewToClip[8], rrViewToClip[9], rrViewToClip[10], rrViewToClip[11],
+			rrViewToClip[12], rrViewToClip[13], rrViewToClip[14], rrViewToClip[15] );
+		common->Printf(
+			"PathTraceDLSSRR: CONTRACT clipToCameraView = [%.6f %.6f %.6f %.6f][%.6f %.6f %.6f %.6f][%.6f %.6f %.6f %.6f][%.6f %.6f %.6f %.6f]\n",
+			clipToCameraView[0], clipToCameraView[1], clipToCameraView[2], clipToCameraView[3],
+			clipToCameraView[4], clipToCameraView[5], clipToCameraView[6], clipToCameraView[7],
+			clipToCameraView[8], clipToCameraView[9], clipToCameraView[10], clipToCameraView[11],
+			clipToCameraView[12], clipToCameraView[13], clipToCameraView[14], clipToCameraView[15] );
 	}
 
 	sl::DLSSDOptions options{};
@@ -711,7 +800,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		( !g_streamlineChecklistWarned || g_streamlineLastChecklistPreset != rrDenoiserPresetValue ) )
 	{
 		common->Printf(
-			"PathTraceDLSSRR: checklist status projectId=%s dlss+rr=loaded linearDepth=tagged invertedDepth=0 preset=%s(%u) jitter=%s clipHistory=%d specularMotion=missing disocclusion=not-tagged-until-float-mask mipBias=not-controlled-by-bridge\n",
+			"PathTraceDLSSRR: checklist status projectId=%s dlss+rr=loaded depth=tagged-mode-driven invertedDepth=0 preset=%s(%u) jitter=%s clipHistory=%d specularMotion=missing disocclusion=not-tagged-until-float-mask mipBias=not-controlled-by-bridge\n",
 			"0f1fd5d4-b456-4c8c-9c08-9de33599b1a6",
 			PathTraceDLSSRRDenoiserPresetName( rrDenoiserPreset ),
 			static_cast<unsigned int>( rrDenoiserPresetValue ),
@@ -735,6 +824,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	sl::Resource albedoResource = BuildStreamlineTextureResource( albedo, shaderResourceState );
 	sl::Resource specularAlbedoResource = BuildStreamlineTextureResource( specularAlbedo, shaderResourceState );
 	sl::Resource normalRoughnessResource = BuildStreamlineTextureResource( normalRoughness, shaderResourceState );
+	sl::Resource positionResource{};
 	sl::Resource linearDepthResource = BuildStreamlineTextureResource( linearDepth, shaderResourceState );
 	sl::Resource motionVectorResource = BuildStreamlineTextureResource( motionVectors, shaderResourceState );
 	sl::Resource specularHitDistanceResource{};
@@ -742,6 +832,10 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	if( specularHitDistance )
 	{
 		specularHitDistanceResource = BuildStreamlineTextureResource( specularHitDistance, shaderResourceState );
+	}
+	if( position )
+	{
+		positionResource = BuildStreamlineTextureResource( position, shaderResourceState );
 	}
 	if( disocclusionMask )
 	{
@@ -751,14 +845,18 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	extent.width = static_cast<uint32_t>( width );
 	extent.height = static_cast<uint32_t>( height );
 
-	sl::ResourceTag tags[9];
+	sl::ResourceTag tags[10];
 	uint32_t tagCount = 0;
 	tags[tagCount++] = sl::ResourceTag( &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	tags[tagCount++] = sl::ResourceTag( &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	tags[tagCount++] = sl::ResourceTag( &albedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	tags[tagCount++] = sl::ResourceTag( &specularAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	tags[tagCount++] = sl::ResourceTag( &normalRoughnessResource, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
-	tags[tagCount++] = sl::ResourceTag( &linearDepthResource, sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	if( position )
+	{
+		tags[tagCount++] = sl::ResourceTag( &positionResource, sl::kBufferTypePosition, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	}
+	tags[tagCount++] = sl::ResourceTag( &linearDepthResource, rrHardwareDepth ? sl::kBufferTypeDepth : sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	tags[tagCount++] = sl::ResourceTag( &motionVectorResource, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
 	if( specularHitDistance )
 	{
@@ -783,7 +881,11 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		DumpStreamlineTextureResource( "albedo", albedoResource );
 		DumpStreamlineTextureResource( "specularAlbedo", specularAlbedoResource );
 		DumpStreamlineTextureResource( "normalRoughness", normalRoughnessResource );
-		DumpStreamlineTextureResource( "linearDepth", linearDepthResource );
+		if( position )
+		{
+			DumpStreamlineTextureResource( "position", positionResource );
+		}
+		DumpStreamlineTextureResource( "depth", linearDepthResource );
 		DumpStreamlineTextureResource( "motionVectors", motionVectorResource );
 		if( specularHitDistance )
 		{

@@ -956,6 +956,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "rr-guide-specular-albedo";
         }
+        if (view == 21)
+        {
+            return "rr-depth-contract";
+        }
+        if (view == 22)
+        {
+            return "primary-hit-reprojection";
+        }
+        if (view == 23)
+        {
+            return "previous-hit-reprojection";
+        }
         return "disabled";
     };
     auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
@@ -1040,18 +1052,30 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "clean-primary-surface-rr-guide-specular-albedo";
         }
+        if (view == 21)
+        {
+            return "clean-primary-surface-rr-depth-contract";
+        }
+        if (view == 22)
+        {
+            return "clean-primary-surface-hit-reprojection";
+        }
+        if (view == 23)
+        {
+            return "clean-primary-surface-previous-hit-reprojection";
+        }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
     const int cleanRtxdiDiView = cleanRtxdiDiEnabled ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
     const bool cleanRtxdiDiRrInputMosaicView = cleanRtxdiDiView == 18;
-    const bool cleanRtxdiDiRrGuideDebugView = cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 20;
+    const bool cleanRtxdiDiRrGuideDebugView = cleanRtxdiDiView >= 18 && cleanRtxdiDiView <= 23;
     const int cleanRtxdiDiResolveView = cleanRtxdiDiRrGuideDebugView ? 16 : cleanRtxdiDiView;
     const int cleanRtxdiDiView18Tile = idMath::ClampInt(-1, 5, r_pathTracingCleanRtxdiDiView18Tile.GetInteger());
     const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
         ? 0u
         : m_smokeCleanRtxdiDiFrameIndex;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 20;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 23;
     const bool cleanRtxdiDiSpatialEnabled =
         r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0 &&
         r_cleanDiSpatial.GetInteger() != 0 &&
@@ -2105,7 +2129,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         m_frameResources.outputTexture && m_frameResources.accumulationTexture && m_frameResources.restirPTReflectionTexture &&
         m_frameResources.rrInputColorTexture && m_frameResources.rrMotionVectorTexture && m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
         m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture && m_frameResources.rrGuideHitDistanceTexture &&
-        m_frameResources.rrGuideResetMaskTexture && m_frameResources.readbackTexture && m_smokeConstantsBuffer && m_restirPTConstantsBuffer &&
+        m_frameResources.rrGuideResetMaskTexture && m_frameResources.rrGuidePositionTexture && m_frameResources.readbackTexture && m_smokeConstantsBuffer && m_restirPTConstantsBuffer &&
         m_smokeBoundsOverlayLineBuffer && m_smokeStaticVertexBuffer && m_smokeStaticIndexBuffer && m_smokeStaticTriangleClassBuffer &&
         m_smokeStaticTriangleMaterialBuffer && m_smokeStaticTriangleMaterialIndexBuffer && m_smokeDynamicVertexBuffer &&
         m_smokeDynamicIndexBuffer && m_smokeDynamicTriangleClassBuffer && m_smokeDynamicTriangleMaterialBuffer &&
@@ -2340,7 +2364,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 20)
+        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 23)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -2371,7 +2395,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.motionVectorTexture && m_frameResources.rrMotionVectorTexture && m_frameResources.motionVectorMaskTexture &&
                 m_frameResources.rrGuideAlbedoTexture && m_frameResources.rrGuideSpecularAlbedoTexture &&
                 m_frameResources.rrGuideNormalRoughnessTexture && m_frameResources.rrGuideDepthTexture &&
-                m_frameResources.rrGuideHitDistanceTexture && m_frameResources.rrGuideResetMaskTexture;
+                m_frameResources.rrGuideHitDistanceTexture && m_frameResources.rrGuideResetMaskTexture &&
+                m_frameResources.rrGuidePositionTexture;
             if (!primarySurfaceAdapterResourcesValid)
             {
                 if (cleanRtxdiDiDumpRequested)
@@ -2474,7 +2499,22 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.rayReconstructionInfo[0] = cleanDlssRrJitterPixels.x;
             primarySurfaceConstants.rayReconstructionInfo[1] = cleanDlssRrJitterPixels.y;
             primarySurfaceConstants.rayReconstructionInfo[2] = cleanDlssRrJitterEnabled ? 1.0f : 0.0f;
-            primarySurfaceConstants.rayReconstructionInfo[3] = 0.0f;
+            primarySurfaceConstants.rayReconstructionInfo[3] = r_znear.GetFloat();
+            // RRProjectionDepthInfo for the clean-path LINEAR depth contract:
+            //   .x = near, .y = far, .z = depth mode (0 normalized [0,1], 1 raw view-Z), .w unused.
+            // Linear view-Z depth spreads uniformly across the range instead of the hyperbolic
+            // cram that made our depth the outlier vs other DLSS-RR games. The bridge tags this
+            // kBufferTypeLinearDepth with depthInverted=false and matching cameraNear/cameraFar.
+            {
+                const float rrNearCvar = r_pathTracingDLSSRRCameraNear.GetFloat();
+                const float rrNear = Max( rrNearCvar > 0.0f ? rrNearCvar : r_znear.GetFloat(), 1.0e-4f );
+                const float rrFarCvar = r_pathTracingDLSSRRCameraFar.GetFloat();
+                const float rrFar = rrFarCvar > rrNear ? rrFarCvar : 100000.0f;
+                primarySurfaceConstants.unifiedLightInfo[0] = rrNear;
+                primarySurfaceConstants.unifiedLightInfo[1] = rrFar;
+                primarySurfaceConstants.unifiedLightInfo[2] = static_cast<float>( idMath::ClampInt( 0, 2, r_pathTracingDLSSRRDepthMode.GetInteger() ) );
+                primarySurfaceConstants.unifiedLightInfo[3] = 0.0f;
+            }
             primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiResolveView == 16
                 ? idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat())
                 : 0.0f;
@@ -2518,6 +2558,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
             commandList->writeBuffer(m_smokeConstantsBuffer, &primarySurfaceConstants, sizeof(primarySurfaceConstants));
 
@@ -2542,6 +2583,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
 
             if (cleanNeeCacheBuildPrepassRequested && m_smokeNeeCacheDebugShaderTable)
             {
@@ -2897,6 +2939,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture),
                 nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture),
                 nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture),
+                nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(55, m_frameResources.restirPTGiReservoirBuffers.reservoirs),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(56, m_frameResources.restirPTDiReservoirBuffers.reservoirs),
                 nvrhi::BindingSetItem::StructuredBuffer_UAV(68, m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs ? m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs : m_frameResources.restirPTDiReservoirBuffers.reservoirs),
@@ -3216,6 +3259,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(52, m_frameResources.rrGuideResetMaskTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture));
+        cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(57, cleanOptionalSrv(m_smokePreviousEmissiveTriangleBuffer)));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(64, m_smokeRestirLightManagerCurrentToPreviousBuffer));
         cleanBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(65, m_smokeRestirLightManagerPreviousToCurrentBuffer));
@@ -3782,6 +3826,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
             nvrhi::rt::State cleanMosaicState = cleanState;
             cleanMosaicState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
             commandList->setRayTracingState(cleanMosaicState);
@@ -3814,6 +3859,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideDepthTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
@@ -3824,6 +3870,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+            commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.accumulationTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->commitBarriers();
 
@@ -3840,6 +3887,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 m_frameResources.rrGuideAlbedoTexture,
                 m_frameResources.rrGuideSpecularAlbedoTexture,
                 m_frameResources.rrGuideNormalRoughnessTexture,
+                m_frameResources.rrGuidePositionTexture,
                 m_frameResources.rrGuideDepthTexture,
                 m_frameResources.rrMotionVectorTexture,
                 m_frameResources.rrGuideHitDistanceTexture,
@@ -4325,6 +4373,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::Texture_UAV(53, m_frameResources.rrGuideSpecularAlbedoTexture),
             nvrhi::BindingSetItem::Texture_UAV(54, m_frameResources.rrInputColorTexture),
             nvrhi::BindingSetItem::Texture_UAV(78, m_frameResources.rrMotionVectorTexture),
+            nvrhi::BindingSetItem::Texture_UAV(79, m_frameResources.rrGuidePositionTexture),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(55, m_frameResources.restirPTGiReservoirBuffers.reservoirs),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(56, m_frameResources.restirPTDiReservoirBuffers.reservoirs),
             nvrhi::BindingSetItem::StructuredBuffer_UAV(68, m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs ? m_remixRtxdiResources.GetDomain(PATH_TRACE_REMIX_RTXDI_RESERVOIR_DOMAIN_DI).reservoirs : m_frameResources.restirPTDiReservoirBuffers.reservoirs),
@@ -5689,6 +5738,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         }
         commandList->commitBarriers();
     }
@@ -5793,6 +5843,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->setTextureState(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
             commandList->setTextureState(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+            commandList->setTextureState(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
         }
         commandList->commitBarriers();
     }
@@ -5909,8 +5960,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->clearTextureFloat(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 1.0f, 1.0f));
-            commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+            commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+            commandList->clearTextureFloat(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
             commandList->clearTextureUInt(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, 0xffffffffu);
             if (accumulationTextureActive && accumulationFrameCount == 0)
             {
@@ -5932,8 +5984,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->clearTextureFloat(m_frameResources.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrGuideSpecularAlbedoTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 1.0f, 1.0f));
-            commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+            commandList->clearTextureFloat(m_frameResources.rrGuideDepthTexture, nvrhi::AllSubresources, nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
             commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+            commandList->clearTextureFloat(m_frameResources.rrGuidePositionTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
             commandList->clearTextureUInt(m_frameResources.rrGuideResetMaskTexture, nvrhi::AllSubresources, 0xffffffffu);
             if (accumulationTextureActive && accumulationFrameCount == 0)
             {
@@ -6359,6 +6412,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.rrGuideAlbedoTexture,
             m_frameResources.rrGuideSpecularAlbedoTexture,
             m_frameResources.rrGuideNormalRoughnessTexture,
+            nullptr,
             m_frameResources.rrGuideDepthTexture,
             m_frameResources.motionVectorTexture,
             m_frameResources.rrGuideHitDistanceTexture,
