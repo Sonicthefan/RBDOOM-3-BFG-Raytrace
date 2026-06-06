@@ -98,14 +98,48 @@ float PathTraceCleanRoomNeeCacheCurrentCandidateWeight(PathTraceNeeCacheCandidat
     return 0.0;
 }
 
+float PathTraceCleanRoomNeeCacheCacheIdentityPdf(PathTraceNeeCacheCellDebug cell, uint denseRluIndex, out bool hasCacheDistribution)
+{
+    hasCacheDistribution = false;
+
+    const PathTraceNeeCacheCellRecord storedCell = CleanRtxdiDiNeeCacheCells[cell.cellIndex];
+    if (storedCell.flags == 0u || storedCell.hash != cell.hash)
+    {
+        return 0.0;
+    }
+
+    const uint candidateSlots = PathTraceCleanRoomNeeCacheCandidateSlots();
+    const uint baseSlot = cell.cellIndex * candidateSlots;
+    float totalWeight = 0.0;
+    float selectedIdentityWeight = 0.0;
+
+    [loop]
+    for (uint slot = 0u; slot < candidateSlots; ++slot)
+    {
+        const PathTraceNeeCacheCandidateRecord candidate = CleanRtxdiDiNeeCacheCandidates[baseSlot + slot];
+        const float currentWeight = PathTraceCleanRoomNeeCacheCurrentCandidateWeight(candidate, cell);
+        if (currentWeight <= 0.0)
+        {
+            continue;
+        }
+
+        totalWeight += currentWeight;
+        if (candidate.denseRluIndex == denseRluIndex)
+        {
+            selectedIdentityWeight += currentWeight;
+        }
+    }
+
+    hasCacheDistribution = totalWeight > 0.0;
+    return hasCacheDistribution ? selectedIdentityWeight / max(totalWeight, 1.0e-8) : 0.0;
+}
+
 bool PathTraceCleanRoomNeeCacheSelectCandidate(
     inout RTXDI_RandomSamplerState rng,
     PathTraceNeeCacheCellDebug cell,
-    out uint selectedDenseRluIndex,
-    out float selectedInvSourcePdf)
+    out uint selectedDenseRluIndex)
 {
     selectedDenseRluIndex = 0xffffffffu;
-    selectedInvSourcePdf = 0.0;
 
     const PathTraceNeeCacheCellRecord storedCell = CleanRtxdiDiNeeCacheCells[cell.cellIndex];
     if (storedCell.flags == 0u || storedCell.hash != cell.hash)
@@ -161,37 +195,91 @@ bool PathTraceCleanRoomNeeCacheSelectCandidate(
         return false;
     }
 
-    float selectedIdentityWeight = 0.0;
+    selectedDenseRluIndex = selectedCandidate.denseRluIndex;
+    return true;
+}
+
+uint PathTraceCleanRoomNeeCacheStableAnalyticCount(uint analyticOffset, uint analyticAvailableCount)
+{
+    uint analyticCount = 0u;
     [loop]
-    for (uint pdfSlot = 0u; pdfSlot < candidateSlots; ++pdfSlot)
+    for (uint analyticIndex = 0u; analyticIndex < analyticAvailableCount; ++analyticIndex)
     {
-        const PathTraceNeeCacheCandidateRecord candidate = CleanRtxdiDiNeeCacheCandidates[baseSlot + pdfSlot];
-        if (candidate.denseRluIndex == selectedCandidate.denseRluIndex)
+        const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[analyticOffset + analyticIndex];
+        if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+            (record.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u)
         {
-            selectedIdentityWeight += PathTraceCleanRoomNeeCacheCurrentCandidateWeight(candidate, cell);
+            analyticCount++;
         }
     }
+    return analyticCount;
+}
 
-    const float cacheProbability = 1.0 - saturate(CleanRtxdiDiNeeCacheInfo0.y);
-    const float sourcePdf = cacheProbability * selectedIdentityWeight / max(totalWeight, 1.0e-8);
-    if (sourcePdf <= 0.0)
+float PathTraceCleanRoomNeeCacheFallbackIdentityPdf(uint denseRluIndex)
+{
+    if (CleanRtxdiDiRluCurrentLightCount == 0u ||
+        denseRluIndex >= CleanRtxdiDiRluCurrentLightCount)
     {
-        return false;
+        return 0.0;
     }
 
-    selectedDenseRluIndex = selectedCandidate.denseRluIndex;
-    selectedInvSourcePdf = 1.0 / max(sourcePdf, 1.0e-8);
-    return true;
+    const uint sourceDomain = PathTraceCleanRoomNeeCacheSourceDomain();
+    const uint emissiveOffset = 0u;
+    const uint emissiveCount = min(CleanRtxdiDiCurrentEmissiveTriangleCount, CleanRtxdiDiRluCurrentLightCount);
+    const uint analyticOffset = min(CleanRtxdiDiRluDoomAnalyticRangeOffset, CleanRtxdiDiRluCurrentLightCount);
+    const uint analyticAvailableCount = min(CleanRtxdiDiRluDoomAnalyticRangeCount, CleanRtxdiDiRluCurrentLightCount - analyticOffset);
+    const uint analyticCount = PathTraceCleanRoomNeeCacheStableAnalyticCount(analyticOffset, analyticAvailableCount);
+
+    if (sourceDomain == 0u)
+    {
+        return 1.0 / max((float)CleanRtxdiDiRluCurrentLightCount, 1.0);
+    }
+    if (sourceDomain == 1u)
+    {
+        return denseRluIndex >= emissiveOffset && denseRluIndex < emissiveOffset + emissiveCount
+            ? 1.0 / max((float)emissiveCount, 1.0)
+            : 0.0;
+    }
+    if (sourceDomain == 2u)
+    {
+        const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[denseRluIndex];
+        return denseRluIndex >= analyticOffset &&
+            denseRluIndex < analyticOffset + analyticAvailableCount &&
+            record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+            (record.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u
+            ? 1.0 / max((float)analyticCount, 1.0)
+            : 0.0;
+    }
+
+    const bool inEmissiveRange =
+        denseRluIndex >= emissiveOffset &&
+        denseRluIndex < emissiveOffset + emissiveCount;
+    if (inEmissiveRange)
+    {
+        const float classProbability = (emissiveCount > 0u && analyticCount > 0u) ? 0.5 : 1.0;
+        return classProbability / max((float)emissiveCount, 1.0);
+    }
+
+    const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[denseRluIndex];
+    const bool inStableAnalyticRange =
+        denseRluIndex >= analyticOffset &&
+        denseRluIndex < analyticOffset + analyticAvailableCount &&
+        record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
+        (record.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u;
+    if (inStableAnalyticRange)
+    {
+        const float classProbability = (emissiveCount > 0u && analyticCount > 0u) ? 0.5 : 1.0;
+        return classProbability / max((float)analyticCount, 1.0);
+    }
+
+    return 0.0;
 }
 
 bool PathTraceCleanRoomNeeCacheSelectFallback(
     inout RTXDI_RandomSamplerState rng,
-    float mixtureProbability,
-    out uint selectedDenseRluIndex,
-    out float selectedInvSourcePdf)
+    out uint selectedDenseRluIndex)
 {
     selectedDenseRluIndex = 0xffffffffu;
-    selectedInvSourcePdf = 0.0;
 
     if (CleanRtxdiDiRluCurrentLightCount == 0u)
     {
@@ -217,7 +305,6 @@ bool PathTraceCleanRoomNeeCacheSelectFallback(
 
     uint rangeOffset = 0u;
     uint rangeCount = CleanRtxdiDiRluCurrentLightCount;
-    float classProbability = 1.0;
     bool stableAnalyticRange = false;
 
     if (sourceDomain == 1u)
@@ -239,7 +326,6 @@ bool PathTraceCleanRoomNeeCacheSelectFallback(
         rangeOffset = chooseAnalytic ? analyticOffset : emissiveOffset;
         rangeCount = chooseAnalytic ? analyticCount : emissiveCount;
         stableAnalyticRange = chooseAnalytic;
-        classProbability = (emissiveCount > 0u && analyticCount > 0u) ? 0.5 : 1.0;
     }
 
     if (rangeCount == 0u)
@@ -280,15 +366,8 @@ bool PathTraceCleanRoomNeeCacheSelectFallback(
         return false;
     }
 
-    const float sourcePdf = saturate(mixtureProbability) * classProbability / max((float)rangeCount, 1.0);
-    if (sourcePdf <= 0.0)
-    {
-        return false;
-    }
-
     selectedDenseRluIndex = denseIndex;
-    selectedInvSourcePdf = 1.0 / max(sourcePdf, 1.0e-8);
-    return true;
+    return PathTraceCleanRoomNeeCacheFallbackIdentityPdf(denseIndex) > 0.0;
 }
 
 bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
@@ -297,7 +376,7 @@ bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
     RAB_Surface surface,
     uint lightIndex,
     float2 uv,
-    float invSourcePdf)
+    float sourceSelectionPdf)
 {
     const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
     if (!RAB_IsLightInfoValid(lightInfo))
@@ -312,7 +391,7 @@ bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
     }
 
     const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
-    if (targetPdf <= 0.0 || invSourcePdf <= 0.0)
+    if (targetPdf <= 0.0 || sourceSelectionPdf <= 0.0)
     {
         return false;
     }
@@ -323,7 +402,7 @@ bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
         uv,
         RTXDI_GetNextRandom(rng),
         targetPdf,
-        invSourcePdf);
+        1.0 / max(sourceSelectionPdf, 1.0e-8));
     return true;
 }
 
@@ -351,28 +430,35 @@ bool PathTraceCleanRoomNeeCacheStreamProviderIntoReservoir(
     }
 
     uint selectedDenseRluIndex = 0xffffffffu;
-    float selectedInvSourcePdf = 0.0;
     const float fallbackProbability = saturate(CleanRtxdiDiNeeCacheInfo0.y);
+    const float cacheProbability = 1.0 - fallbackProbability;
     const bool randomFallback = RTXDI_GetNextRandom(rng) < fallbackProbability;
     const bool selectedCacheCandidate =
         !randomFallback &&
         PathTraceCleanRoomNeeCacheSelectCandidate(
             rng,
             cell,
-            selectedDenseRluIndex,
-            selectedInvSourcePdf);
+            selectedDenseRluIndex);
 
     if (!selectedCacheCandidate)
     {
-        const float fallbackMixtureProbability = randomFallback ? fallbackProbability : 1.0;
         if (!PathTraceCleanRoomNeeCacheSelectFallback(
             rng,
-            fallbackMixtureProbability,
-            selectedDenseRluIndex,
-            selectedInvSourcePdf))
+            selectedDenseRluIndex))
         {
             return false;
         }
+    }
+
+    bool hasCacheDistribution = false;
+    const float cacheIdentityPdf = PathTraceCleanRoomNeeCacheCacheIdentityPdf(cell, selectedDenseRluIndex, hasCacheDistribution);
+    const float fallbackIdentityPdf = PathTraceCleanRoomNeeCacheFallbackIdentityPdf(selectedDenseRluIndex);
+    const float sourceSelectionPdf = hasCacheDistribution
+        ? cacheProbability * cacheIdentityPdf + fallbackProbability * fallbackIdentityPdf
+        : fallbackIdentityPdf;
+    if (sourceSelectionPdf <= 0.0)
+    {
+        return false;
     }
 
     return PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
@@ -381,7 +467,7 @@ bool PathTraceCleanRoomNeeCacheStreamProviderIntoReservoir(
         surface,
         selectedDenseRluIndex,
         PathTraceCleanRoomNeeCacheRandomLightUv(rng),
-        selectedInvSourcePdf);
+        sourceSelectionPdf);
 }
 
 PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer(uint2 pixel, uint2 dimensions)

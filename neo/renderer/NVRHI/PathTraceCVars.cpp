@@ -617,9 +617,9 @@ idCVar r_pathTracingNeeCacheDebugView(
 
 idCVar r_pathTracingNeeCacheCellResolution(
     "r_pathTracingNeeCacheCellResolution",
-    "8",
+    "64",
     CVAR_RENDERER | CVAR_INTEGER,
-    "NEE cache log/hash cell resolution parameter; higher values mean smaller cells; default 8 visually matches the Remix reference cell scale" );
+    "NEE cache log/hash cell resolution parameter; higher values mean smaller cells; default 64 keeps the moving high-resolution provider region dense enough for clean DI" );
 
 idCVar r_pathTracingNeeCacheMinRange(
     "r_pathTracingNeeCacheMinRange",
@@ -1447,7 +1447,7 @@ idCVar r_pathTracingCleanRtxdiDiResolveSolidAnglePdf(
     "r_pathTracingCleanRtxdiDiResolveSolidAnglePdf",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI diagnostic: include selected light solidAnglePdf in final resolve throughput; set 0 to test reuse fireflies from measure mismatch" );
+    "Clean-room Remix DI diagnostic: divide final resolve by selected light solidAnglePdf; default 1 matches the RTXDI DI target/source convention used by this renderer" );
 
 idCVar r_pathTracingCleanRtxdiDiInitialVisibility(
     "r_pathTracingCleanRtxdiDiInitialVisibility",
