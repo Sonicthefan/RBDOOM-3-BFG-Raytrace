@@ -48,7 +48,7 @@ bool PathTraceCleanRoomSelectWeightedEmissiveRluCandidate(
 {
     lightIndex = 0xffffffffu;
     sourcePdf = 0.0;
-    if (CleanRtxdiDiView != 16u || range.y == 0u || sampleCount == 0u || totalSampleCount == 0u)
+    if (range.y == 0u || sampleCount == 0u || totalSampleCount == 0u)
     {
         return false;
     }
