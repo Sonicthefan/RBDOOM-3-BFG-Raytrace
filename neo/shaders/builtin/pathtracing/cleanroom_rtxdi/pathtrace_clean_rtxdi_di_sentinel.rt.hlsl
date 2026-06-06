@@ -999,16 +999,22 @@ bool PathTraceCleanRoomRluPayloadValid(PathTraceUnifiedLightRecord light)
         light.uvOrDoomParams.x < 3.402823e+38;
 }
 
-float3 PathTraceCleanRoomTransformRigidRoutePoint(PathTraceRigidRouteInstance routeInstance, float3 localPoint)
+float3 PathTraceCleanRoomTransformRigidRoutePoint(PathTraceRigidRouteInstance routeInstance, float3 localPoint, bool previousFrame)
 {
+    const uint continuousFlags = PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+    const bool usePreviousTransform = previousFrame && ((routeInstance.flags & continuousFlags) == continuousFlags);
+    const float4 row0 = usePreviousTransform ? routeInstance.previousObjectToWorld0 : routeInstance.currentObjectToWorld0;
+    const float4 row1 = usePreviousTransform ? routeInstance.previousObjectToWorld1 : routeInstance.currentObjectToWorld1;
+    const float4 row2 = usePreviousTransform ? routeInstance.previousObjectToWorld2 : routeInstance.currentObjectToWorld2;
     return float3(
-        dot(routeInstance.currentObjectToWorld0, float4(localPoint, 1.0)),
-        dot(routeInstance.currentObjectToWorld1, float4(localPoint, 1.0)),
-        dot(routeInstance.currentObjectToWorld2, float4(localPoint, 1.0)));
+        dot(row0, float4(localPoint, 1.0)),
+        dot(row1, float4(localPoint, 1.0)),
+        dot(row2, float4(localPoint, 1.0)));
 }
 
 bool PathTraceCleanRoomLoadEmissiveTriangleGeometry(
     PathTraceSmokeEmissiveTriangle emissiveTriangle,
+    bool previousFrame,
     out float3 p0,
     out float3 p1,
     out float3 p2,
@@ -1118,9 +1124,9 @@ bool PathTraceCleanRoomLoadEmissiveTriangleGeometry(
     const PathTraceSmokeVertex v0 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i0];
     const PathTraceSmokeVertex v1 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i1];
     const PathTraceSmokeVertex v2 = SmokeRigidRouteVertices[routeInstance.vertexOffset + i2];
-    p0 = PathTraceCleanRoomTransformRigidRoutePoint(routeInstance, v0.position.xyz);
-    p1 = PathTraceCleanRoomTransformRigidRoutePoint(routeInstance, v1.position.xyz);
-    p2 = PathTraceCleanRoomTransformRigidRoutePoint(routeInstance, v2.position.xyz);
+    p0 = PathTraceCleanRoomTransformRigidRoutePoint(routeInstance, v0.position.xyz, previousFrame);
+    p1 = PathTraceCleanRoomTransformRigidRoutePoint(routeInstance, v1.position.xyz, previousFrame);
+    p2 = PathTraceCleanRoomTransformRigidRoutePoint(routeInstance, v2.position.xyz, previousFrame);
     uv0 = v0.texCoord.xy;
     uv1 = v1.texCoord.xy;
     uv2 = v2.texCoord.xy;
@@ -1224,6 +1230,7 @@ RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord li
         float2 uv2;
         const bool hasTriangleGeometry = PathTraceCleanRoomLoadEmissiveTriangleGeometry(
             emissiveTriangle,
+            previousFrame,
             p0,
             p1,
             p2,
