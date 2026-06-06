@@ -153,7 +153,10 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
 
     RTXDI_DITemporalResamplingParameters temporalParams = (RTXDI_DITemporalResamplingParameters)0;
     temporalParams.maxHistoryLength = (uint)clamp(CleanRtxdiDiRestirPTSurfaceInfo.y, 0.0, 64.0);
-    temporalParams.biasCorrectionMode = (uint)clamp(CleanRtxdiDiRestirPTSurfaceInfo.w, 0.0, 1.0);
+    temporalParams.biasCorrectionMode = (uint)clamp(
+        CleanRtxdiDiRestirPTSurfaceInfo.w,
+        0.0,
+        (float)RTXDI_BIAS_CORRECTION_RAY_TRACED);
     temporalParams.depthThreshold = 0.10;
     temporalParams.normalThreshold = 0.35;
     temporalParams.enableVisibilityShortcut = 0u;

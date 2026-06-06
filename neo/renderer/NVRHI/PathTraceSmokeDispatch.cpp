@@ -49,6 +49,14 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
+int CleanRtxdiDiTemporalBiasCorrectionValue()
+{
+    const int requested = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
+    // This tree builds against RTXDI-main, where ray-traced DI bias correction is 3.
+    // Keep console value 2 as the clean-route request for ray-traced parity with RTX Remix docs/builds.
+    return requested >= 2 ? 3 : requested;
+}
+
 struct PathTraceCleanRtxdiDiBoilingFilterConstants
 {
     uint32_t width = 0;
@@ -3669,7 +3677,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.regirBuildSamples = regirSettings.buildSamples;
         cleanGuiSnapshot.analyticDomainFreezeMs = r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger();
         cleanGuiSnapshot.doomColorSource = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger());
-        cleanGuiSnapshot.temporalBiasCorrection = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
+        cleanGuiSnapshot.temporalBiasCorrection = CleanRtxdiDiTemporalBiasCorrectionValue();
         cleanGuiSnapshot.temporalMaxHistory = idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger());
         cleanGuiSnapshot.candidateOverride = static_cast<int>(cleanCandidateOverride);
         cleanGuiSnapshot.view10LightCount = idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger());
@@ -3744,7 +3752,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger()));
         cleanConstants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger()));
         cleanConstants.restirPTSurfaceInfo[2] = static_cast<float>(idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger()));
-        cleanConstants.restirPTSurfaceInfo[3] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger()));
+        cleanConstants.restirPTSurfaceInfo[3] = static_cast<float>(CleanRtxdiDiTemporalBiasCorrectionValue());
         cleanConstants.neeCacheInfo0[0] = cleanNeeCacheProviderReady ? 1.0f : 0.0f;
         cleanConstants.neeCacheInfo0[1] = neeCacheSettings.fallbackProbability;
         cleanConstants.neeCacheInfo0[2] = static_cast<float>(neeCacheSettings.sourceDomain);

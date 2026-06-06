@@ -1567,7 +1567,7 @@ idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection(
     "r_pathTracingCleanRtxdiDiTemporalBiasCorrection",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: RTXDI temporal bias correction mode; 0 off, 1 basic, 2 ray traced. Default matches the current clean view-12 path" );
+    "Clean-room Remix DI diagnostic: RTXDI temporal bias correction mode; 0 off, 1 basic, 2+ ray traced. Default matches the current clean view-12 path" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory(
     "r_pathTracingCleanRtxdiDiTemporalMaxHistory",
