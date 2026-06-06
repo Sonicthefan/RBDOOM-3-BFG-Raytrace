@@ -262,6 +262,7 @@ extern idCVar r_pathTracingCleanRtxdiDiRelaxBrdfGates;
 extern idCVar r_pathTracingCleanRtxdiDiDoomTargetFloor;
 extern idCVar r_pathTracingCleanRtxdiDiDummyEmissiveNormals;
 extern idCVar r_pathTracingCleanRtxdiDiForceEmissiveVisibility;
+extern idCVar r_pathTracingCleanRtxdiDiTemporalRigidEmissives;
 extern idCVar r_pathTracingCleanRtxdiDiFrameFreeze;
 extern idCVar r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs;
 extern idCVar r_pathTracingCleanRtxdiDiBypassLightUniverse;

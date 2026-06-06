@@ -1533,6 +1533,12 @@ idCVar r_pathTracingCleanRtxdiDiForceEmissiveVisibility(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: force selected RLU emissive triangle samples visible; isolates clean shadow/ignore rejection without changing RTXDI reservoir math" );
 
+idCVar r_pathTracingCleanRtxdiDiTemporalRigidEmissives(
+    "r_pathTracingCleanRtxdiDiTemporalRigidEmissives",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: allow temporal reuse of routed rigid emissive lights; default off while moving emissive replay is isolated" );
+
 idCVar r_pathTracingCleanRtxdiDiFrameFreeze(
     "r_pathTracingCleanRtxdiDiFrameFreeze",
     "0",

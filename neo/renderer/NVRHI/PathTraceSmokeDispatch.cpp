@@ -46,6 +46,7 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE = 1u << 15u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS = 1u << 16u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_INITIAL_VISIBILITY = 1u << 17u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
 
@@ -3526,6 +3527,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         if (r_pathTracingCleanRtxdiDiForceEmissiveVisibility.GetInteger() != 0)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_FORCE_EMISSIVE_VISIBILITY;
+        }
+        if (r_pathTracingCleanRtxdiDiTemporalRigidEmissives.GetInteger() == 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_DISABLE_RIGID_EMISSIVE_TEMPORAL;
         }
         if (r_pathTracingCleanRtxdiDiInitialVisibility.GetInteger() != 0)
         {

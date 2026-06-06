@@ -303,6 +303,7 @@ static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 static const uint CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
+static const uint CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 static const uint PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 0x00000001u;
 static const uint PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 0x00000002u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
@@ -1418,6 +1419,11 @@ RAB_LightInfo PathTraceCleanRoomBuildSyntheticOverlapLightInfo(uint lightIndex)
     return lightInfo;
 }
 
+bool PathTraceCleanRoomIsRoutedRigidEmissiveRecord(PathTraceUnifiedLightRecord light)
+{
+    return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.instanceId >= 2u;
+}
+
 int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
 {
     if (PathTraceCleanRoomSyntheticMode())
@@ -1434,8 +1440,25 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
                 return -1;
             }
 
+            if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
+                PathTraceCleanRoomIsRoutedRigidEmissiveRecord(CleanRtxdiDiRluCurrentLights[lightIndex]))
+            {
+                return -1;
+            }
+
             const uint previousIndex = CleanRtxdiDiRluCurrentToPrevious[lightIndex];
-            return previousIndex < CleanRtxdiDiRluPreviousLightCount ? (int)previousIndex : -1;
+            if (previousIndex >= CleanRtxdiDiRluPreviousLightCount)
+            {
+                return -1;
+            }
+
+            if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
+                PathTraceCleanRoomIsRoutedRigidEmissiveRecord(CleanRtxdiDiRluPreviousLights[previousIndex]))
+            {
+                return -1;
+            }
+
+            return (int)previousIndex;
         }
 
         if (lightIndex >= CleanRtxdiDiRluPreviousLightCount || lightIndex >= CleanRtxdiDiRluPreviousToCurrentCount)
@@ -1443,8 +1466,25 @@ int RAB_TranslateLightIndex(uint lightIndex, bool currentToPrevious)
             return -1;
         }
 
+        if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
+            PathTraceCleanRoomIsRoutedRigidEmissiveRecord(CleanRtxdiDiRluPreviousLights[lightIndex]))
+        {
+            return -1;
+        }
+
         const uint currentIndex = CleanRtxdiDiRluPreviousToCurrent[lightIndex];
-        return currentIndex < CleanRtxdiDiRluCurrentLightCount ? (int)currentIndex : -1;
+        if (currentIndex >= CleanRtxdiDiRluCurrentLightCount)
+        {
+            return -1;
+        }
+
+        if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
+            PathTraceCleanRoomIsRoutedRigidEmissiveRecord(CleanRtxdiDiRluCurrentLights[currentIndex]))
+        {
+            return -1;
+        }
+
+        return (int)currentIndex;
     }
 
     if (PathTraceCleanRoomExternalPdfNeeCurrentEnabled())
