@@ -2136,7 +2136,7 @@ PathTraceCleanRoomPreviousBestSeed PathTraceCleanRoomResolvePreviousBestInitialS
         return seed;
     }
 
-    const float2 uv = PathTraceCleanRoomRandomLightUv(rng);
+    const float2 uv = RTXDI_GetDIReservoirSampleUV(previousReservoir);
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
     float targetPdf = RAB_IsReplayableLightSample(lightSample)
         ? max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0)
