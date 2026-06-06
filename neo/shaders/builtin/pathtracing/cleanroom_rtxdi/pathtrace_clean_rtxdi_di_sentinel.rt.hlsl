@@ -1814,6 +1814,21 @@ bool RAB_GetTemporalConservativeVisibility(RAB_Surface surface, RAB_Surface prev
                     record.viewDirectionAndReserved = float4(surface.viewDir, 0.0);
 
                     const bool historicalDynamicEmissive = (light.flags & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+                    if (!historicalDynamicEmissive && light.instanceId >= 2u)
+                    {
+                        const uint routeInstanceIndex = light.instanceId - 2u;
+                        const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+                        if (routeInstanceIndex < rigidRouteInstanceCount)
+                        {
+                            const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+                            const uint continuousFlags = PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+                            if ((routeInstance.flags & continuousFlags) == continuousFlags)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+
                     const uint ignoreInstanceId = historicalDynamicEmissive ? 0xffffffffu : light.instanceId;
                     const uint ignorePrimitiveIndex = historicalDynamicEmissive ? 0xffffffffu : light.primitiveIndex;
                     return PathTraceCleanRoomTraceVisibilityWithIgnore(
