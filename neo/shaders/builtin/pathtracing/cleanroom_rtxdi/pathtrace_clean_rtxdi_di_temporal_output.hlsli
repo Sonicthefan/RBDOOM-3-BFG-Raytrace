@@ -4,6 +4,25 @@ bool PathTraceCleanRoomTemporalReuseEnabled()
         (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID) != 0u;
 }
 
+bool PathTraceCleanRoomTemporalBypassRoutedRigidEmissive(RTXDI_DIReservoir reservoir)
+{
+    if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) == 0u ||
+        !PathTraceCleanRoomRemixLightUniverseEnabled() ||
+        !RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return false;
+    }
+
+    const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    if (lightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return false;
+    }
+
+    const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[lightIndex];
+    return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.instanceId >= 2u;
+}
+
 bool PathTraceCleanRoomProjectCameraMotion(PathTracePrimarySurfaceRecord currentSurface, uint2 pixel, uint2 dimensions, out float3 screenSpaceMotion)
 {
     screenSpaceMotion = float3(0.0, 0.0, 0.0);
@@ -83,6 +102,10 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
         result.flags |= CLEAN_TEMPORAL_DIAG_PREVIOUS_FRAME_VALID;
     }
     if (currentReservoir.M <= 0.0 || !PathTraceCleanRoomTemporalReuseEnabled())
+    {
+        return result;
+    }
+    if (PathTraceCleanRoomTemporalBypassRoutedRigidEmissive(currentReservoir))
     {
         return result;
     }

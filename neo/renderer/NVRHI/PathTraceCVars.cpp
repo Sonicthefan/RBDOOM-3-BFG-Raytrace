@@ -1535,9 +1535,9 @@ idCVar r_pathTracingCleanRtxdiDiForceEmissiveVisibility(
 
 idCVar r_pathTracingCleanRtxdiDiTemporalRigidEmissives(
     "r_pathTracingCleanRtxdiDiTemporalRigidEmissives",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI diagnostic: allow temporal reuse of routed rigid emissive lights; default on because temporal reuse stabilizes the current rigid emissive path" );
+    "Clean-room Remix DI diagnostic: allow temporal reuse of routed rigid emissive lights; default off because routed rigid emissive temporal reuse strobes during camera motion" );
 
 idCVar r_pathTracingCleanRtxdiDiFrameFreeze(
     "r_pathTracingCleanRtxdiDiFrameFreeze",
