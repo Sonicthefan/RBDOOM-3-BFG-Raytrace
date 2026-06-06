@@ -10,7 +10,14 @@ bool PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled()
         PathTraceCleanRoomRemixLightUniverseEnabled();
 }
 
-bool PathTraceCleanRoomCurrentReservoirSelectsRoutedRigidEmissive(RTXDI_DIReservoir reservoir)
+bool PathTraceCleanRoomLightIsTemporalUnsafeEmissive(PathTraceUnifiedLightRecord light)
+{
+    const bool dynamicHistory = (light.flags & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+    return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE &&
+        (light.instanceId != 0u || dynamicHistory);
+}
+
+bool PathTraceCleanRoomCurrentReservoirSelectsTemporalUnsafeEmissive(RTXDI_DIReservoir reservoir)
 {
     const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
     if (lightIndex >= CleanRtxdiDiRluCurrentLightCount)
@@ -19,10 +26,10 @@ bool PathTraceCleanRoomCurrentReservoirSelectsRoutedRigidEmissive(RTXDI_DIReserv
     }
 
     const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[lightIndex];
-    return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.instanceId >= 2u;
+    return PathTraceCleanRoomLightIsTemporalUnsafeEmissive(light);
 }
 
-bool PathTraceCleanRoomPreviousReservoirMapsToRoutedRigidEmissive(RTXDI_DIReservoir reservoir)
+bool PathTraceCleanRoomPreviousReservoirMapsToTemporalUnsafeEmissive(RTXDI_DIReservoir reservoir)
 {
     const uint previousLightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
     if (previousLightIndex >= CleanRtxdiDiRluPreviousToCurrentCount)
@@ -37,7 +44,7 @@ bool PathTraceCleanRoomPreviousReservoirMapsToRoutedRigidEmissive(RTXDI_DIReserv
     }
 
     const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[currentLightIndex];
-    return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.instanceId >= 2u;
+    return PathTraceCleanRoomLightIsTemporalUnsafeEmissive(light);
 }
 
 bool PathTraceCleanRoomProjectCameraMotion(PathTracePrimarySurfaceRecord currentSurface, uint2 pixel, uint2 dimensions, out float3 screenSpaceMotion)
@@ -124,7 +131,7 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     }
     const bool rigidEmissiveTemporalBypass = PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled();
     if (rigidEmissiveTemporalBypass &&
-        PathTraceCleanRoomCurrentReservoirSelectsRoutedRigidEmissive(currentReservoir))
+        PathTraceCleanRoomCurrentReservoirSelectsTemporalUnsafeEmissive(currentReservoir))
     {
         return result;
     }
@@ -173,7 +180,7 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
             result.previousTargetPdf = previousReservoir.targetPdf;
             result.previousInvPdf = RTXDI_GetDIReservoirInvPdf(previousReservoir);
             if (rigidEmissiveTemporalBypass &&
-                PathTraceCleanRoomPreviousReservoirMapsToRoutedRigidEmissive(previousReservoir))
+                PathTraceCleanRoomPreviousReservoirMapsToTemporalUnsafeEmissive(previousReservoir))
             {
                 return result;
             }
