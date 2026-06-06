@@ -946,6 +946,7 @@ void idRenderProgManager::Init( nvrhi::IDevice* device )
 		{ BUILTIN_HISTOGRAM_TEX_ARRAY_CS, "builtin/post/histogram", "_tex_array", { { "HISTOGRAM_BINS", "256" }, { "SOURCE_ARRAY", "1" }, { "USE_PUSH_CONSTANTS", usePushConstants( BINDING_LAYOUT_HISTOGRAM ) } }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_HISTOGRAM },
 		{ BUILTIN_EXPOSURE_CS, "builtin/post/exposure", "", { { "HISTOGRAM_BINS", "256" }, { "USE_PUSH_CONSTANTS", usePushConstants( BINDING_LAYOUT_EXPOSURE ) } }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_EXPOSURE },
 		{ BUILTIN_PT_SKINNING_CS, "builtin/pathtracing/pathtrace_skinning", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
+		{ BUILTIN_CLEAN_RTXDI_DI_BOILING_FILTER_CS, "builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_boiling_filter", "", { }, false, SHADER_STAGE_COMPUTE, LAYOUT_UNKNOWN, BINDING_LAYOUT_MIPMAPGEN },
 		// SP end
 	};
 	int numBuiltins = sizeof( builtins ) / sizeof( builtins[0] );

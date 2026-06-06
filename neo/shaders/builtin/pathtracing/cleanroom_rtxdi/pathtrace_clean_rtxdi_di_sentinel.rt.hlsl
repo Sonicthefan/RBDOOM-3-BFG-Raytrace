@@ -340,6 +340,7 @@ static const uint CLEAN_FLAG_REMIX_LIGHT_UNIVERSE = 1u << 10u;
 static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 static const uint CLEAN_FLAG_PREVIOUS_BEST_APPROXIMATION = 1u << 12u;
 static const uint CLEAN_FLAG_INITIAL_VISIBILITY = 1u << 17u;
+static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 static const uint CLEAN_TEMPORAL_FLAG_ENABLE = 1u << 0u;
 static const uint CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID = 1u << 1u;
 static const uint CLEAN_TEMPORAL_DIAG_CURRENT_VALID = 1u << 0u;
@@ -2568,7 +2569,8 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
         : max(lightSample.radiance, float3(0.0, 0.0, 0.0)) * flatDiffuse * ndotl;
     const float reservoirThroughput = referenceDoomAnalytic && CleanRtxdiDiReferenceRab == 10u
         ? 1.0
-        : max(RTXDI_GetDIReservoirInvPdf(reservoir), 0.0) / max(lightSample.solidAnglePdf, 1.0e-6);
+        : max(RTXDI_GetDIReservoirInvPdf(reservoir), 0.0) /
+            ((CleanRtxdiDiFlags & CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF) != 0u ? max(lightSample.solidAnglePdf, 1.0e-6) : 1.0);
     return reflectedRadiance *
         reservoirThroughput *
         visibility;

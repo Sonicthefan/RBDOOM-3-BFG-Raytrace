@@ -226,12 +226,17 @@ private:
     nvrhi::BindingLayoutHandle m_smokeReGIRDebugBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeNeeCacheDebugBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiBoilingFilterBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
     nvrhi::BindingSetHandle m_smokeBindingSet;
     nvrhi::BindingSetHandle m_smokeSkinnedGpuSkinningBindingSet;
+    nvrhi::BindingSetHandle m_smokeCleanRtxdiDiBoilingFilterBindingSet;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningOutputBuffer;
     nvrhi::BufferHandle m_smokeSkinnedGpuSkinningPreviousPositionBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSentinelConstantsBuffer;
+    nvrhi::BufferHandle m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer;
+    nvrhi::TextureHandle m_smokeCleanRtxdiDiBoilingFilterInputTexture;
+    nvrhi::TextureHandle m_smokeCleanRtxdiDiBoilingFilterOutputTexture;
     nvrhi::DescriptorTableHandle m_smokeTextureDescriptorTable;
     std::vector<nvrhi::TextureHandle> m_smokeActiveTextureTable;
     std::deque<RtRetiredSmokeScenePackage> m_retiredSmokeScenePackages;
@@ -282,7 +287,9 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeReGIRDebugShaderLibrary;
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
+    nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
+    nvrhi::ComputePipelineHandle m_smokeCleanRtxdiDiBoilingFilterPipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirInitialPipeline;

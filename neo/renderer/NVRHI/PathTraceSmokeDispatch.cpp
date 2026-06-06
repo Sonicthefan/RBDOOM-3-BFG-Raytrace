@@ -45,8 +45,17 @@ const uint32_t CLEAN_RTXDI_DI_FLAG_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_REUSE = 1u << 15u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS = 1u << 16u;
 const uint32_t CLEAN_RTXDI_DI_FLAG_INITIAL_VISIBILITY = 1u << 17u;
+const uint32_t CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 int g_smokeLastDispatchTimingLogMs = -1000000;
 PathTraceCleanRtxdiDiGuiSnapshot g_cleanRtxdiDiGuiSnapshot;
+
+struct PathTraceCleanRtxdiDiBoilingFilterConstants
+{
+    uint32_t width = 0;
+    uint32_t height = 0;
+    float threshold = 5.0f;
+    uint32_t enabled = 0;
+};
 
 float PathTraceDLSSRRHalton(uint32_t index, uint32_t base)
 {
@@ -3514,6 +3523,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_INITIAL_VISIBILITY;
         }
+        if (r_pathTracingCleanRtxdiDiResolveSolidAnglePdf.GetInteger() != 0)
+        {
+            cleanFlags |= CLEAN_RTXDI_DI_FLAG_RESOLVE_SOLID_ANGLE_PDF;
+        }
         if (cleanRluRoute)
         {
             cleanFlags |= CLEAN_RTXDI_DI_FLAG_REMIX_LIGHT_UNIVERSE;
@@ -3656,7 +3669,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.regirBuildSamples = regirSettings.buildSamples;
         cleanGuiSnapshot.analyticDomainFreezeMs = r_pathTracingCleanRtxdiDiAnalyticDomainFreezeMs.GetInteger();
         cleanGuiSnapshot.doomColorSource = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger());
-        cleanGuiSnapshot.temporalBiasCorrection = idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
+        cleanGuiSnapshot.temporalBiasCorrection = idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger());
         cleanGuiSnapshot.temporalMaxHistory = idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger());
         cleanGuiSnapshot.candidateOverride = static_cast<int>(cleanCandidateOverride);
         cleanGuiSnapshot.view10LightCount = idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger());
@@ -3731,7 +3744,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.restirPTSurfaceInfo[0] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiView10LightStart.GetInteger()));
         cleanConstants.restirPTSurfaceInfo[1] = static_cast<float>(idMath::ClampInt(0, 64, r_pathTracingCleanRtxdiDiTemporalMaxHistory.GetInteger()));
         cleanConstants.restirPTSurfaceInfo[2] = static_cast<float>(idMath::ClampInt(1, 8, r_pathTracingCleanRtxdiDiView10LightCount.GetInteger()));
-        cleanConstants.restirPTSurfaceInfo[3] = static_cast<float>(idMath::ClampInt(0, 1, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger()));
+        cleanConstants.restirPTSurfaceInfo[3] = static_cast<float>(idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiTemporalBiasCorrection.GetInteger()));
         cleanConstants.neeCacheInfo0[0] = cleanNeeCacheProviderReady ? 1.0f : 0.0f;
         cleanConstants.neeCacheInfo0[1] = neeCacheSettings.fallbackProbability;
         cleanConstants.neeCacheInfo0[2] = static_cast<float>(neeCacheSettings.sourceDomain);
@@ -3860,6 +3873,61 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideHitDistanceTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
+
+            const bool cleanDiBoilingFilterEnabled =
+                r_cleanDiBoilingFilter.GetInteger() != 0 &&
+                r_cleanDiBoilingThreshold.GetFloat() > 1.0f &&
+                m_smokeCleanRtxdiDiBoilingFilterPipeline &&
+                m_smokeCleanRtxdiDiBoilingFilterBindingLayout &&
+                m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer &&
+                m_frameResources.rrInputColorTexture &&
+                m_frameResources.cleanRtxdiDiBoilingFilterTexture;
+            if (cleanDiBoilingFilterEnabled)
+            {
+                if (!m_smokeCleanRtxdiDiBoilingFilterBindingSet ||
+                    m_smokeCleanRtxdiDiBoilingFilterInputTexture != m_frameResources.cleanRtxdiDiBoilingFilterTexture ||
+                    m_smokeCleanRtxdiDiBoilingFilterOutputTexture != m_frameResources.rrInputColorTexture)
+                {
+                    nvrhi::BindingSetDesc cleanDiBoilingFilterBindingSetDesc;
+                    cleanDiBoilingFilterBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer));
+                    cleanDiBoilingFilterBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_frameResources.cleanRtxdiDiBoilingFilterTexture));
+                    cleanDiBoilingFilterBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(2, m_frameResources.rrInputColorTexture));
+                    m_smokeCleanRtxdiDiBoilingFilterBindingSet = device->createBindingSet(cleanDiBoilingFilterBindingSetDesc, m_smokeCleanRtxdiDiBoilingFilterBindingLayout);
+                    m_smokeCleanRtxdiDiBoilingFilterInputTexture = m_smokeCleanRtxdiDiBoilingFilterBindingSet ? m_frameResources.cleanRtxdiDiBoilingFilterTexture : nullptr;
+                    m_smokeCleanRtxdiDiBoilingFilterOutputTexture = m_smokeCleanRtxdiDiBoilingFilterBindingSet ? m_frameResources.rrInputColorTexture : nullptr;
+                }
+
+                if (m_smokeCleanRtxdiDiBoilingFilterBindingSet)
+                {
+                    PathTraceCleanRtxdiDiBoilingFilterConstants boilingConstants;
+                    boilingConstants.width = static_cast<uint32_t>(Max(m_frameResources.width, 0));
+                    boilingConstants.height = static_cast<uint32_t>(Max(m_frameResources.height, 0));
+                    boilingConstants.threshold = idMath::ClampFloat(1.0f, 1024.0f, r_cleanDiBoilingThreshold.GetFloat());
+                    boilingConstants.enabled = 1u;
+                    commandList->writeBuffer(m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer, &boilingConstants, sizeof(boilingConstants));
+
+                    commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopySource);
+                    commandList->setTextureState(m_frameResources.cleanRtxdiDiBoilingFilterTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::CopyDest);
+                    commandList->commitBarriers();
+                    commandList->copyTexture(m_frameResources.cleanRtxdiDiBoilingFilterTexture, nvrhi::TextureSlice(), m_frameResources.rrInputColorTexture, nvrhi::TextureSlice());
+
+                    commandList->setTextureState(m_frameResources.cleanRtxdiDiBoilingFilterTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                    commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->commitBarriers();
+
+                    nvrhi::ComputeState cleanDiBoilingFilterState;
+                    cleanDiBoilingFilterState.pipeline = m_smokeCleanRtxdiDiBoilingFilterPipeline;
+                    cleanDiBoilingFilterState.bindings = { m_smokeCleanRtxdiDiBoilingFilterBindingSet };
+                    commandList->setComputeState(cleanDiBoilingFilterState);
+                    commandList->dispatch(
+                        static_cast<uint32_t>((m_frameResources.width + 7) / 8),
+                        static_cast<uint32_t>((m_frameResources.height + 7) / 8),
+                        1);
+
+                    nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
+                }
+            }
+
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
             commandList->setTextureState(m_frameResources.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);

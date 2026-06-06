@@ -1359,6 +1359,18 @@ idCVar r_cleanDiSpatialRadius(
     CVAR_RENDERER | CVAR_FLOAT,
     "Short alias for clean DI spatial screen-space neighbor radius in pixels" );
 
+idCVar r_cleanDiBoilingFilter(
+    "r_cleanDiBoilingFilter",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean DI DLSS RR input: enable post-resolve direct-light boiling clamp on the RR input color" );
+
+idCVar r_cleanDiBoilingThreshold(
+    "r_cleanDiBoilingThreshold",
+    "5.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean DI DLSS RR input: clamp pixels whose 8x8 tile luminance exceeds tile average times this threshold" );
+
 idCVar r_pathTracingCleanRtxdiDiBestLights(
     "r_pathTracingCleanRtxdiDiBestLights",
     "1",
@@ -1430,6 +1442,12 @@ idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI diagnostic: in final resolve, reuse RTXDI reservoir visibility when valid before falling back to the current visibility trace" );
+
+idCVar r_pathTracingCleanRtxdiDiResolveSolidAnglePdf(
+    "r_pathTracingCleanRtxdiDiResolveSolidAnglePdf",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix DI diagnostic: include selected light solidAnglePdf in final resolve throughput; set 0 to test reuse fireflies from measure mismatch" );
 
 idCVar r_pathTracingCleanRtxdiDiInitialVisibility(
     "r_pathTracingCleanRtxdiDiInitialVisibility",
@@ -1549,7 +1567,7 @@ idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection(
     "r_pathTracingCleanRtxdiDiTemporalBiasCorrection",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI diagnostic: RTXDI temporal bias correction mode; 0 off, 1 basic. Default matches the current clean view-12 path" );
+    "Clean-room Remix DI diagnostic: RTXDI temporal bias correction mode; 0 off, 1 basic, 2 ray traced. Default matches the current clean view-12 path" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory(
     "r_pathTracingCleanRtxdiDiTemporalMaxHistory",

@@ -211,6 +211,7 @@ bool RAB_UnifiedLightSampleEnabled()
 static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
+static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
@@ -974,8 +975,9 @@ float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRec
     surface.material.diffuseAlbedo = receiverAlbedo;
     const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
     const float visibility = CleanTraceVisibility(surface, lightInfo, sample);
+    const float resolvePdf = (CleanRtxdiDiFlags & CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF) != 0u ? max(sample.solidAnglePdf, 1.0e-6) : 1.0;
     const float3 selectedLightContribution =
-        reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / max(sample.solidAnglePdf, 1.0e-6);
+        reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / resolvePdf;
     return selectedLightContribution + surfaceEmission;
 }
 

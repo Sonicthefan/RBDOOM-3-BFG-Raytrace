@@ -107,6 +107,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         accumulationTexture &&
         restirPTReflectionTexture &&
         rrInputColorTexture &&
+        cleanRtxdiDiBoilingFilterTexture &&
         motionVectorTexture &&
         rrMotionVectorTexture &&
         motionVectorMaskTexture &&
@@ -134,6 +135,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         accumulationTexture ||
         restirPTReflectionTexture ||
         rrInputColorTexture ||
+        cleanRtxdiDiBoilingFilterTexture ||
         motionVectorTexture ||
         rrMotionVectorTexture ||
         motionVectorMaskTexture ||
@@ -236,6 +238,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     if (!newMotionVectorTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT motion-vector UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
+    outputDesc.debugName = "PathTraceCleanRtxdiDiBoilingFilter";
+    nvrhi::TextureHandle newCleanRtxdiDiBoilingFilterTexture = device->createTexture(outputDesc);
+    if (!newCleanRtxdiDiBoilingFilterTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create clean RTXDI DI boiling-filter scratch UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
@@ -347,6 +357,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     accumulationTexture = newAccumulationTexture;
     restirPTReflectionTexture = newRestirPTReflectionTexture;
     rrInputColorTexture = newRrInputColorTexture;
+    cleanRtxdiDiBoilingFilterTexture = newCleanRtxdiDiBoilingFilterTexture;
     motionVectorTexture = newMotionVectorTexture;
     rrMotionVectorTexture = newRrMotionVectorTexture;
     motionVectorMaskTexture = newMotionVectorMaskTexture;
@@ -360,12 +371,12 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     readbackTexture = newReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
-    diagnostics.outputTexturesCreated += 4;
+    diagnostics.outputTexturesCreated += 5;
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 7;
     diagnostics.diagnosticReadbackResourcesCreated++;
-    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 4ull;
+    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 5ull;
     diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height) + EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
@@ -553,7 +564,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         requestedHeight,
         static_cast<unsigned long long>(diagnostics.rrGuideBytes));
 
-    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47 rrInputColorUav=u54\n", requestedWidth, requestedHeight);
+    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47 rrInputColorUav=u54 cleanDiBoilingScratch=RGBA32_FLOAT\n", requestedWidth, requestedHeight);
     return true;
 }
 
@@ -563,6 +574,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     accumulationTexture = nullptr;
     restirPTReflectionTexture = nullptr;
     rrInputColorTexture = nullptr;
+    cleanRtxdiDiBoilingFilterTexture = nullptr;
     motionVectorTexture = nullptr;
     rrMotionVectorTexture = nullptr;
     motionVectorMaskTexture = nullptr;

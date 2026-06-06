@@ -1082,6 +1082,19 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BufferDesc cleanRtxdiDiBoilingFilterConstantsDesc;
+    cleanRtxdiDiBoilingFilterConstantsDesc.byteSize = 16;
+    cleanRtxdiDiBoilingFilterConstantsDesc.debugName = "PathTraceCleanRtxdiDiBoilingFilterConstants";
+    cleanRtxdiDiBoilingFilterConstantsDesc.isConstantBuffer = true;
+    cleanRtxdiDiBoilingFilterConstantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    cleanRtxdiDiBoilingFilterConstantsDesc.keepInitialState = true;
+    m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer = device->createBuffer(cleanRtxdiDiBoilingFilterConstantsDesc);
+    if (!m_smokeCleanRtxdiDiBoilingFilterConstantsBuffer)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI boiling-filter constants buffer\n");
+        return;
+    }
+
     nvrhi::BufferDesc boundsOverlayDesc;
     boundsOverlayDesc.byteSize = sizeof(RtPathTraceBoundsOverlayLine) * RT_PT_BOUNDS_OVERLAY_MAX_LINES;
     boundsOverlayDesc.debugName = "PathTraceSmokeBoundsOverlayLines";
@@ -1381,6 +1394,41 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
             if (!m_smokeSkinnedGpuSkinningPipeline)
             {
                 common->Printf("PathTracePrimaryPass: failed to create PT skinned GPU skinning compute pipeline\n");
+            }
+        }
+    }
+
+    nvrhi::BindingLayoutDesc cleanBoilingFilterBindingLayoutDesc;
+    cleanBoilingFilterBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+    cleanBoilingFilterBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setUnorderedAccessViewOffset(0)
+        .setConstantBufferOffset(0);
+    cleanBoilingFilterBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
+    cleanBoilingFilterBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(1));
+    cleanBoilingFilterBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(2));
+    m_smokeCleanRtxdiDiBoilingFilterBindingLayout = device->createBindingLayout(cleanBoilingFilterBindingLayoutDesc);
+    if (!m_smokeCleanRtxdiDiBoilingFilterBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI boiling-filter binding layout\n");
+    }
+    else
+    {
+        const programInfo_t cleanBoilingFilterProgram = renderProgManager.GetProgramInfo(BUILTIN_CLEAN_RTXDI_DI_BOILING_FILTER_CS);
+        m_smokeCleanRtxdiDiBoilingFilterShader = cleanBoilingFilterProgram.cs;
+        if (!m_smokeCleanRtxdiDiBoilingFilterShader)
+        {
+            common->Printf("PathTracePrimaryPass: clean-room RTXDI DI boiling-filter shader unavailable\n");
+        }
+        else
+        {
+            nvrhi::ComputePipelineDesc cleanBoilingFilterPipelineDesc;
+            cleanBoilingFilterPipelineDesc.CS = m_smokeCleanRtxdiDiBoilingFilterShader;
+            cleanBoilingFilterPipelineDesc.bindingLayouts = { m_smokeCleanRtxdiDiBoilingFilterBindingLayout };
+            m_smokeCleanRtxdiDiBoilingFilterPipeline = device->createComputePipeline(cleanBoilingFilterPipelineDesc);
+            if (!m_smokeCleanRtxdiDiBoilingFilterPipeline)
+            {
+                common->Printf("PathTracePrimaryPass: failed to create clean-room RTXDI DI boiling-filter compute pipeline\n");
             }
         }
     }
@@ -1996,8 +2044,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSkinnedCurrentJointMatrixBuffer = nullptr;
     m_smokeSkinnedPreviousJointMatrixBuffer = nullptr;
     m_smokeSkinnedGpuSkinningBindingSet = nullptr;
+    m_smokeCleanRtxdiDiBoilingFilterBindingSet = nullptr;
     m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
     m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
+    m_smokeCleanRtxdiDiBoilingFilterInputTexture = nullptr;
+    m_smokeCleanRtxdiDiBoilingFilterOutputTexture = nullptr;
     m_smokeCleanRtxdiDiCurrentReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiTemporalReservoirBuffer = nullptr;
     m_smokeCleanRtxdiDiPreviousReservoirBuffer = nullptr;
