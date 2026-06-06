@@ -1207,6 +1207,20 @@ RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord li
 
     if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
     {
+        PathTraceUnifiedLightRecord geometryLight = light;
+        if (previousFrame && light.instanceId >= 2u && lightIndex < CleanRtxdiDiRluPreviousToCurrentCount)
+        {
+            const uint currentLightIndex = CleanRtxdiDiRluPreviousToCurrent[lightIndex];
+            if (currentLightIndex < CleanRtxdiDiRluCurrentLightCount)
+            {
+                const PathTraceUnifiedLightRecord currentLight = CleanRtxdiDiRluCurrentLights[currentLightIndex];
+                if (currentLight.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && currentLight.instanceId >= 2u)
+                {
+                    geometryLight = currentLight;
+                }
+            }
+        }
+
         const uint sourceCount = previousFrame ? CleanRtxdiDiPreviousEmissiveTriangleCount : CleanRtxdiDiCurrentEmissiveTriangleCount;
         if (light.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX || light.sourceIndex >= sourceCount)
         {
@@ -1221,6 +1235,14 @@ RAB_LightInfo PathTraceCleanRoomBuildRluLightInfo(PathTraceUnifiedLightRecord li
         else
         {
             emissiveTriangle = SmokeEmissiveTriangles[light.sourceIndex];
+        }
+        if (previousFrame &&
+            light.instanceId >= 2u &&
+            geometryLight.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE &&
+            geometryLight.instanceId >= 2u &&
+            geometryLight.sourceIndex < CleanRtxdiDiCurrentEmissiveTriangleCount)
+        {
+            emissiveTriangle = SmokeEmissiveTriangles[geometryLight.sourceIndex];
         }
         float3 p0;
         float3 p1;
