@@ -387,7 +387,9 @@ void PathTraceRemixLightManager::PrepareSceneData(
     {
         const uint32_t currentEmissiveCount = build.currentEmissiveLightCount;
         const uint32_t currentAnalyticCount = build.currentAnalyticLightCount;
-        SortUnifiedLightPayloadRangeByStableIdentity(m_currentLightPayloads, 0u, currentEmissiveCount);
+        // Keep emissives in source-index order. The clean DI weighted emissive CDF
+        // returns SmokeEmissiveTriangles source indices and maps them directly into
+        // the RLU emissive range; sorting this range breaks that sampling contract.
         SortUnifiedLightPayloadRangeByStableIdentity(m_currentLightPayloads, currentEmissiveCount, currentAnalyticCount);
     }
     if (lightUniverseEnabled)
