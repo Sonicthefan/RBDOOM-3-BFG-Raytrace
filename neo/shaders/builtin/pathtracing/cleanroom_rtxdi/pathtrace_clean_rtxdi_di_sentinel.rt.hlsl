@@ -1689,6 +1689,13 @@ bool RAB_GetConservativeVisibility(RAB_Surface surface, RAB_LightSample lightSam
     return PathTraceCleanRoomTraceVisibility(record, lightSample.position) > 0.0;
 }
 
+float PathTraceCleanRoomTraceVisibilityWithIgnore(
+    PathTracePrimarySurfaceRecord surface,
+    float3 samplePosition,
+    uint ignoreInstanceId,
+    uint ignorePrimitiveIndex,
+    uint ignoreMaterialIndex);
+
 bool RAB_TraceRayForLocalLight(float3 rayOrigin, float3 rayDirection, float tMin, float tMax, out uint lightIndex, out float2 randXY)
 {
     lightIndex = RTXDI_InvalidLightIndex;
@@ -1713,6 +1720,42 @@ float RAB_EvaluateEnvironmentMapSamplingPdf(float3 sampleDir)
 
 bool RAB_GetTemporalConservativeVisibility(RAB_Surface surface, RAB_Surface previousSurface, RAB_LightSample lightSample)
 {
+    if (lightSample.lightType == RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY) != 0u)
+        {
+            return true;
+        }
+
+        if (PathTraceCleanRoomRemixLightUniverseEnabled())
+        {
+            const int currentLightIndex = RAB_TranslateLightIndex(lightSample.lightIndex, false);
+            if (currentLightIndex >= 0 && (uint)currentLightIndex < CleanRtxdiDiRluCurrentLightCount)
+            {
+                const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[(uint)currentLightIndex];
+                if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+                {
+                    PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
+                    record.header = uint4(RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION, RT_PRIMARY_SURFACE_VALID, 0u, 0u);
+                    record.worldPositionAndViewDepth = float4(surface.worldPos, surface.linearDepth);
+                    record.geometricNormalAndRoughness = float4(surface.geometryNormal, 0.5);
+                    record.shadingNormalAndOpacity = float4(surface.shadingNormal, 1.0);
+                    record.viewDirectionAndReserved = float4(surface.viewDir, 0.0);
+
+                    const bool historicalDynamicEmissive = (light.flags & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+                    const uint ignoreInstanceId = historicalDynamicEmissive ? 0xffffffffu : light.instanceId;
+                    const uint ignorePrimitiveIndex = historicalDynamicEmissive ? 0xffffffffu : light.primitiveIndex;
+                    return PathTraceCleanRoomTraceVisibilityWithIgnore(
+                        record,
+                        lightSample.position,
+                        ignoreInstanceId,
+                        ignorePrimitiveIndex,
+                        light.materialOrLightId) > 0.0;
+                }
+            }
+        }
+    }
+
     return RAB_GetConservativeVisibility(surface, lightSample);
 }
 
