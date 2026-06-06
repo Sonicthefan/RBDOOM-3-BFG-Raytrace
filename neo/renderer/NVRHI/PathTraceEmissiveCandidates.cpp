@@ -32,6 +32,18 @@ uint64 BuildSmokeEmissiveTriangleIdentity(uint32_t materialId, uint32_t instance
     return hash;
 }
 
+uint64 BuildSmokeEmissiveTriangleIdentity64(uint32_t materialId, uint64 instanceId, uint32_t primitiveIndex, uint32_t materialIndex, uint32_t triangleClassAndFlags)
+{
+    uint64 hash = 1469598103934665603ull;
+    hash = HashSmokeEmissiveIdentityValue(hash, materialId);
+    hash = HashSmokeEmissiveIdentityValue(hash, instanceId & 0xffffffffull);
+    hash = HashSmokeEmissiveIdentityValue(hash, instanceId >> 32);
+    hash = HashSmokeEmissiveIdentityValue(hash, primitiveIndex);
+    hash = HashSmokeEmissiveIdentityValue(hash, materialIndex);
+    hash = HashSmokeEmissiveIdentityValue(hash, triangleClassAndFlags);
+    return hash;
+}
+
 uint32_t FindSmokeMaterialTableIndexForId(const std::vector<uint32_t>& materialIds, uint32_t materialId)
 {
     for (int materialIndex = 0; materialIndex < static_cast<int>(materialIds.size()); ++materialIndex)
@@ -462,7 +474,10 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             record.materialId = materialIds[materialIndex];
             const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(record.materialId, materialIndex);
             record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(record.materialId, info).universeIndex;
-            const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(record.materialId, routeTlasInstanceId, localTriangleIndex, materialIndex, rigidClassAndFlags);
+            const uint64 sourceInstanceId =
+                static_cast<uint64>(routeInstance.instanceIdLo) |
+                (static_cast<uint64>(routeInstance.instanceIdHi) << 32);
+            const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity64(record.materialId, sourceInstanceId, localTriangleIndex, materialIndex, rigidClassAndFlags);
             record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
             record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
             record.padding0 = rigidClassAndFlags;
