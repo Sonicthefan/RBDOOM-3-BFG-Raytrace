@@ -303,6 +303,8 @@ static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 static const uint CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
+static const uint PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 0x00000001u;
+static const uint PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 0x00000002u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
@@ -1743,6 +1745,21 @@ bool RAB_GetTemporalConservativeVisibility(RAB_Surface surface, RAB_Surface prev
                     record.viewDirectionAndReserved = float4(surface.viewDir, 0.0);
 
                     const bool historicalDynamicEmissive = (light.flags & RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC) != 0u;
+                    if (!historicalDynamicEmissive && light.instanceId >= 2u)
+                    {
+                        const uint routeInstanceIndex = light.instanceId - 2u;
+                        const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+                        if (routeInstanceIndex < rigidRouteInstanceCount)
+                        {
+                            const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+                            const uint continuousFlags = PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM | PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+                            if ((routeInstance.flags & continuousFlags) == continuousFlags)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+
                     const uint ignoreInstanceId = historicalDynamicEmissive ? 0xffffffffu : light.instanceId;
                     const uint ignorePrimitiveIndex = historicalDynamicEmissive ? 0xffffffffu : light.primitiveIndex;
                     return PathTraceCleanRoomTraceVisibilityWithIgnore(
