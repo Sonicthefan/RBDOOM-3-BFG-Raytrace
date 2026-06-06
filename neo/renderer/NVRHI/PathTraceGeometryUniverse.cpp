@@ -2590,11 +2590,6 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
 
     for (const RigidResidentInstanceRecord& residentRecord : m_rigidResidentRecords)
     {
-        if (!residentRecord.seenThisFrame)
-        {
-            continue;
-        }
-
         const RtPathTraceRigidRouteInstanceObservation& instance = residentRecord.observation;
         if (instance.currentArea < 0)
         {
@@ -2620,7 +2615,14 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         const bool routeReady = hasMesh && meshRecord->rigidBlas;
 
         ++m_rigidResidencyStats.residentInstances;
-        ++m_rigidResidencyStats.residentSeenThisFrame;
+        if (residentRecord.seenThisFrame)
+        {
+            ++m_rigidResidencyStats.residentSeenThisFrame;
+        }
+        else
+        {
+            ++m_rigidResidencyStats.residentFromCache;
+        }
         if (!hasMesh)
         {
             ++m_rigidResidencyStats.residentMissingMesh;
@@ -2693,14 +2695,6 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
             }
 
             const renderEntity_t& renderEntity = entity->parms;
-            const uint64 entityKey = RigidResidencyEntityKey(entity->index, renderEntity.entityNum);
-            const std::unordered_map<uint64, int>::const_iterator visibleFrameIt = m_rigidVisibleEntityModifiedFrames.find(entityKey);
-            if (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
-                visibleFrameIt->second != entity->lastModifiedFrameNum)
-            {
-                continue;
-            }
-
             const idRenderModel* model = renderEntity.hModel;
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
@@ -3066,7 +3060,14 @@ void RtSmokeGeometryUniverse::RecordRigidResidentObservation(const RtPathTraceRi
     }
 
     RigidResidentInstanceRecord& record = m_rigidResidentRecords[found->second];
-    record.observation = instance;
+    RtPathTraceRigidRouteInstanceObservation updatedInstance = instance;
+    if (!updatedInstance.hasPreviousObjectToWorld && record.lastSeenFrame + 1 == m_currentFrameIndex)
+    {
+        updatedInstance.hasPreviousObjectToWorld = true;
+        updatedInstance.transformContinuous = true;
+        memcpy(updatedInstance.previousObjectToWorld, record.observation.objectToWorld, sizeof(updatedInstance.previousObjectToWorld));
+    }
+    record.observation = updatedInstance;
     record.lastSeenFrame = m_currentFrameIndex;
     record.seenThisFrame = true;
 }
@@ -3084,7 +3085,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame()
         liveResidentRecords.reserve(m_rigidResidentRecords.size());
         for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
         {
-            if (record.seenThisFrame)
+            if (record.seenThisFrame || m_rigidResidencyEnabled)
             {
                 liveResidentRecords.push_back(record);
             }
@@ -3107,7 +3108,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame()
         liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
         for (const RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
         {
-            if (record.valid && record.seenThisFrame)
+            if (record.valid && (record.seenThisFrame || m_rigidResidencyEnabled))
             {
                 liveMeshRecords.push_back(record);
             }
