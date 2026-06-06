@@ -4,15 +4,14 @@ bool PathTraceCleanRoomTemporalReuseEnabled()
         (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_PREVIOUS_VALID) != 0u;
 }
 
-bool PathTraceCleanRoomTemporalBypassRoutedRigidEmissive(RTXDI_DIReservoir reservoir)
+bool PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled()
 {
-    if ((CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) == 0u ||
-        !PathTraceCleanRoomRemixLightUniverseEnabled() ||
-        !RTXDI_IsValidDIReservoir(reservoir))
-    {
-        return false;
-    }
+    return (CleanRtxdiDiFlags & CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL) != 0u &&
+        PathTraceCleanRoomRemixLightUniverseEnabled();
+}
 
+bool PathTraceCleanRoomCurrentReservoirSelectsRoutedRigidEmissive(RTXDI_DIReservoir reservoir)
+{
     const uint lightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
     if (lightIndex >= CleanRtxdiDiRluCurrentLightCount)
     {
@@ -20,6 +19,24 @@ bool PathTraceCleanRoomTemporalBypassRoutedRigidEmissive(RTXDI_DIReservoir reser
     }
 
     const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[lightIndex];
+    return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.instanceId >= 2u;
+}
+
+bool PathTraceCleanRoomPreviousReservoirMapsToRoutedRigidEmissive(RTXDI_DIReservoir reservoir)
+{
+    const uint previousLightIndex = RTXDI_GetDIReservoirLightIndex(reservoir);
+    if (previousLightIndex >= CleanRtxdiDiRluPreviousToCurrentCount)
+    {
+        return false;
+    }
+
+    const uint currentLightIndex = CleanRtxdiDiRluPreviousToCurrent[previousLightIndex];
+    if (currentLightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return false;
+    }
+
+    const PathTraceUnifiedLightRecord light = CleanRtxdiDiRluCurrentLights[currentLightIndex];
     return light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE && light.instanceId >= 2u;
 }
 
@@ -105,7 +122,9 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     {
         return result;
     }
-    if (PathTraceCleanRoomTemporalBypassRoutedRigidEmissive(currentReservoir))
+    const bool rigidEmissiveTemporalBypass = PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled();
+    if (rigidEmissiveTemporalBypass &&
+        PathTraceCleanRoomCurrentReservoirSelectsRoutedRigidEmissive(currentReservoir))
     {
         return result;
     }
@@ -153,6 +172,11 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
             result.previousM = previousReservoir.M;
             result.previousTargetPdf = previousReservoir.targetPdf;
             result.previousInvPdf = RTXDI_GetDIReservoirInvPdf(previousReservoir);
+            if (rigidEmissiveTemporalBypass &&
+                PathTraceCleanRoomPreviousReservoirMapsToRoutedRigidEmissive(previousReservoir))
+            {
+                return result;
+            }
             const int mappedPreviousLightIndex = RAB_TranslateLightIndex(RTXDI_GetDIReservoirLightIndex(previousReservoir), false);
             if (mappedPreviousLightIndex >= 0)
             {

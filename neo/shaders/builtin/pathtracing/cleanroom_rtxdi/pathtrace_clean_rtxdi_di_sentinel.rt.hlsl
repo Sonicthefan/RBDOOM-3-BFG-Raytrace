@@ -2720,7 +2720,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolve(PathTraceCleanRtxdiDiInitialResult r
 }
 
 #include "pathtrace_clean_rtxdi_di_diagnostics.hlsli"
-// Includes the clean temporal producer; touch this line when temporal include contracts change.
+// Includes the clean temporal producer; update this line when temporal include contracts change.
 #include "pathtrace_clean_rtxdi_di_temporal_output.hlsli"
 float3 PathTraceCleanRoomAnalyticLightStatusColor(uint2 pixel, uint2 dimensions)
 {
