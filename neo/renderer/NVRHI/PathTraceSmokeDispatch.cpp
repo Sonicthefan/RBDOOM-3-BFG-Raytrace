@@ -986,6 +986,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "previous-hit-reprojection";
         }
+        if (view == 24)
+        {
+            return "material-classifier";
+        }
         return "disabled";
     };
     auto cleanRtxdiDiBehaviorLabel = [](int view) -> const char*
@@ -1082,6 +1086,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             return "clean-primary-surface-previous-hit-reprojection";
         }
+        if (view == 24)
+        {
+            return "clean-primary-surface-material-classifier";
+        }
         return "none";
     };
     const bool cleanRtxdiDiEnabled = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
@@ -1093,7 +1101,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t cleanRtxdiDiFrameIndexForDispatch = r_pathTracingCleanRtxdiDiFrameFreeze.GetInteger() != 0
         ? 0u
         : m_smokeCleanRtxdiDiFrameIndex;
-    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 23;
+    const bool cleanRtxdiDiRouteRequested = cleanRtxdiDiView >= 1 && cleanRtxdiDiView <= 24;
     const bool cleanRtxdiDiSpatialEnabled =
         r_pathTracingCleanRtxdiDiSpatial.GetInteger() != 0 &&
         r_cleanDiSpatial.GetInteger() != 0 &&
@@ -1110,7 +1118,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
     const int pdfNeeVerifierEntryLightMode = idMath::ClampInt(0, 9, r_pathTracingRestirPdfNeeVerifierLightMode.GetInteger());
     const int pdfNeeVerifierEntryDomain = idMath::ClampInt(0, 2, r_pathTracingRestirPdfNeeVerifierDomain.GetInteger());
-    const int pdfNeeVerifierEntryDebugMode = idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
+    const int pdfNeeVerifierEntryDebugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
     const int pdfNeeVerifierEntryVisibility = idMath::ClampInt(0, 1, r_pathTracingRestirPdfNeeVerifierVisibility.GetInteger());
     const int pdfNeeVerifierSelectedVisibilityPolicy = pdfNeeVerifierEntryVisibility != 0
         ? Max(1, idMath::ClampInt(0, 2, r_pathTracingRestirPTVisibilityPolicy.GetInteger()))
@@ -1600,7 +1608,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         const bool cleanEnabledNow = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
         const int cleanViewNow = cleanEnabledNow ? r_pathTracingCleanRtxdiDiView.GetInteger() : 0;
-        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 16;
+        const bool cleanRouteNow = cleanEnabledNow && cleanViewNow >= 1 && cleanViewNow <= 24;
         const int bindingSetReady = cleanRouteNow
             ? (m_smokeCleanRtxdiDiSentinelBindingLayout && m_frameResources.outputTexture ? 1 : 0)
             : (m_smokeBindingSet ? 1 : 0);
@@ -2380,7 +2388,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             return;
         }
 
-        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 23)
+        if (cleanRtxdiDiView >= 2 && cleanRtxdiDiView <= 24)
         {
             if (!m_smokePrimarySurfaceProducerShaderTable)
             {
@@ -4489,7 +4497,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
     }
 
-    int debugMode = standaloneDebugRouteRequested ? 0 : idMath::ClampInt(0, 56, r_pathTracingDebugMode.GetInteger());
+    int debugMode = standaloneDebugRouteRequested ? 0 : idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
@@ -5057,7 +5065,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (r_pathTracingTextureFilter.GetInteger() != 0 ? 2u : 0u) |
         (r_pathTracingTextureDecode.GetInteger() != 0 ? 4u : 0u) |
         (r_pathTracingUseNormalMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode) ? 8u : 0u) |
-        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || (integratorUsesSpecular && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode))) ? 16u : 0u) |
+        (r_pathTracingUseSpecularMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 57 || (integratorUsesSpecular && (debugMode == 18 || effectiveRestirPTMode || integratorDebugMode))) ? 16u : 0u) |
         (r_pathTracingUseEmissiveMaps.GetInteger() != 0 && (debugMode == 14 || debugMode == 18 || debugMode == 19 || debugMode == 20 || effectiveRestirPTMode || integratorDebugMode || cleanRtxdiDiRouteRequested) ? 32u : 0u) |
         (r_pathTracingReservoirTwoSidedEmissives.GetInteger() != 0 && (debugMode == 18 || debugMode == 20 || effectiveRestirPTMode || pdfNeeEmissiveVerifierRoute || cleanRtxdiDiRouteRequested) ? 64u : 0u) |
         (toyFakePBRSpecularEnabled ? 128u : 0u);

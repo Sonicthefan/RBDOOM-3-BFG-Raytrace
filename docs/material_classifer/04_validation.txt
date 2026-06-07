@@ -1,0 +1,81 @@
+VALIDATION METHODOLOGY
+======================
+Authored: 2026-06-07.
+A classifier is "done" only when (1) it provably reads engine metadata not names,
+and (2) the BSDF change is a visible quality win without temporal regressions.
+Mirror the convergence-discipline used for the NEE cache (don't accept a passing
+proxy that hides a real bug).
+
+--------------------------------------------------------------------------------
+V1. OFFLINE CORPUS REPLAY  (Layer 1 truth check)
+--------------------------------------------------------------------------------
+Corpus: E:/prog/references/doom3_MTR/materials (64 .mtr ASCII files).
+Goal: confirm Layer 1 classification matches the .mtr declaration, with names
+deliberately adversarial.
+  - For each material the engine loads, dump: name, GetSurfaceType raw int,
+    resolved RtSurfaceClass, confidence, packet roles, flags.
+  - Cross-check a hand-picked set against the .mtr source by eye:
+      * glass.mtr entries declare `glass` + `translucent` -> expect Glass,
+        Authoritative, transmission>0, twoSided. (Confirmed glass.mtr has the
+        `glass`,`twosided`,`translucent` parms.)
+      * base_wall.mtr `james`/`lfwall5_red` -> diffuse/bump/specular packets,
+        surfaceClass likely None/Stone -> default dielectric, Heuristic/Fallback.
+      * MISLEADING-NAME test (reference doc Test 3): find/confirm any material
+        whose name suffix contradicts its declared role/surfaceType and verify
+        the classifier follows the DECLARATION. If none in corpus, synthesize a
+        test .mtr.
+  - PASS: zero cases where a name token overrode a non-NONE GetSurfaceType;
+    every Heuristic/Fallback result is correctly flagged as such (not silently
+    promoted to Authoritative).
+
+--------------------------------------------------------------------------------
+V2. CONFIDENCE COVERAGE REPORT  (Layer 1 honesty check)
+--------------------------------------------------------------------------------
+r_pathTracingMatClassDebugList on a representative level -> histogram of
+confidence levels. Expect a meaningful fraction Authoritative (materials that DO
+declare a surface parm). If ~everything is Heuristic/Fallback, GetSurfaceType is
+not being read correctly (wiring bug) — investigate before trusting the BSDF.
+
+--------------------------------------------------------------------------------
+V3. IN-ENGINE A/B  (Layer 2 quality check)
+--------------------------------------------------------------------------------
+r_pathTracingMatClassEnable 0 (legacy) vs 1 (new), same camera, held still:
+  - Metal surfaces: visibly more metallic/reflective response vs flat legacy.
+  - Glass/liquid: transmission + reflection vs old opaque/decal fallback.
+  - Stone/wood/cardboard: rougher, no spurious shine.
+  - NO material goes black/untextured (texture binding regressed) — watch the
+    table-build reject counters (materialsRejectedTextures etc.).
+
+--------------------------------------------------------------------------------
+V4. TEMPORAL / STABILITY  (must not regress the rest of the arc)
+--------------------------------------------------------------------------------
+  - Held-still convergence: enabling the classifier must converge to a STABLE
+    image (no new boiling). Classification is cached per materialId so it must
+    not change frame-to-frame; verify the material-table cache hit rate stays
+    high (RtSmokeMaterialTableCacheStats) — a low hit rate means classification
+    is wrongly re-running / signature thrash.
+  - Motion: no new strobe/flicker introduced. The view-dependent universe issue
+    (00 sec.3) is pre-existing; confirm the classifier does not WORSEN it (run
+    enable 0 vs 1 through the same motion path).
+  - DLSS-RR: no new history resets attributable to material signature changes
+    (the material signature feeds reservoir-scene-signature indirectly; ensure
+    adding BSDF fields to the table signature doesn't fire resets every frame —
+    only on genuine override edits). See restir-rr-depth-contract-status memory.
+
+--------------------------------------------------------------------------------
+V5. PER-CLASS SPOT TUNING
+--------------------------------------------------------------------------------
+Sweep the r_pathTracingMatClass* cvars live per class and lock validated
+defaults into 03's table (record the chosen numbers back into that doc, as the
+RR depth slice locked its near/far defaults).
+
+--------------------------------------------------------------------------------
+ACCEPTANCE GATE (all required before default-enable)
+--------------------------------------------------------------------------------
+  [ ] V1 corpus replay: declaration beats name in 100% of conflict cases.
+  [ ] V2: Authoritative fraction is plausibly non-trivial on a real level.
+  [ ] V3: metal/glass/liquid visibly improved; no black materials.
+  [ ] V4: held-still stable, table-cache hit rate unchanged, no new RR resets.
+  [ ] 03 table defaults updated with validated numbers.
+Then flip r_pathTracingMatClassEnable default 0 -> 1, keep cvar for rollback.
+</content>

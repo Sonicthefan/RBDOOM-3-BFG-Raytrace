@@ -1,0 +1,142 @@
+DYNAMIC MATERIALS FRAMEWORK — FADE / ANIMATED-UV / FLIPBOOK / VIDEO / DECALS
+===========================================================================
+Authored: 2026-06-07.
+SCOPE: this is the framework/contract for time-varying + per-instance material
+behavior. It is SEPARATE from the static classifier (00-06). Implement the
+classifier's static TAGGING now (cheap); build the per-frame EVALUATOR + the
+per-instance GPU channel as a LATER stage. This doc is the placeholder so that
+work isn't lost and the seams are reserved.
+
+--------------------------------------------------------------------------------
+0. WHY SEPARATE FROM THE CLASSIFIER (two hard constraints)
+--------------------------------------------------------------------------------
+  (1) The classifier is cached per materialId and TEMPORALLY STABLE by design
+      (avoids adding to temporal/BVH churn — see nee-cache constraint). Fade/anim
+      values are per-FRAME; they cannot live in a once-cached record.
+  (2) Dynamic state is per-INSTANCE, not per-material. Two instances of the same
+      fading decal / emissive panel are at different fade points (different entity
+      spawn time / parm0..11). The GPU material table is shared per material, so a
+      per-TLAS-INSTANCE channel is required. That channel is the real new infra.
+
+So: classifier = static descriptor (what's animated, how to find it).
+    evaluator  = per-frame, per-surf, reads engine-evaluated registers.
+    channel    = per-instance GPU data the shader reads alongside the material row.
+
+--------------------------------------------------------------------------------
+1. ENGINE FACTS (verified — what we drive from)
+--------------------------------------------------------------------------------
+Material.h:
+  colorStage_t color.registers[4]      -> RGBA register indices (the FADE / tint).
+  shaderStage_t.conditionRegister      -> if regs[cond]==0 the stage is OFF this
+                                          frame (fade-out to nothing / toggles).
+  textureStage_t: hasMatrix, matrix[2][3] (register-indexed 2x3 tex matrix),
+                  texgen, cinematic (idCinematic*), dynamic (dynamicidImage_t).
+                  -> UV scroll/translate/rotate = FLIPBOOK + scrolling effects.
+  idMaterial::EvaluateRegisters(...)   -> fills a float[] from time + entity parms.
+  idMaterial::ConstantRegisters()      -> NON-NULL only for STATIC materials
+                                          (CheckForConstantRegisters). NULL => the
+                                          material is DYNAMIC. This is THE static
+                                          "is dynamic" signal for tagging.
+  idMaterial::GetDecalInfo()           -> decalInfo_t {stayTime, fadeTime, start[4],
+                                          end[4]} for projected decal fades.
+  dynamicImage_t DI_SCRATCH/DI_*_RENDER, Texgen() -> video / render-target / mirror.
+
+ALREADY WIRED (reuse, do not re-plumb):
+  PathTraceSceneCapture.cpp:320 already does
+      regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters
+                                       : material->ConstantRegisters();
+  and reads stage->color.registers[c] + conditionRegister per surf (today only to
+  decide a per-MATERIAL emissive boolean — it DISCARDS the per-instance color).
+  Stable per-instance instanceId system exists (PathTraceGeometryUniverse.cpp).
+NOT YET PRESENT:
+  - No texMatrix evaluation in capture (no MultiplyTextureMatrix / matrix[2][3]
+    read). Needed for flipbook/scroll.
+  - No per-instance GPU channel carrying color/alpha/texMatrix/frame. Evaluated
+    color currently collapses into shared per-material facts.
+
+--------------------------------------------------------------------------------
+2. CLASSIFIER STATIC TAGGING (do NOW — cheap, fits the cached record)
+--------------------------------------------------------------------------------
+Add to the NEW RtMaterialRecord a small dynamic descriptor (static only). Do not
+add this to RtSmokeMaterialUniverseFacts; the legacy facts record remains the
+default-off rollback path:
+  bool   isDynamic            = (ConstantRegisters()==NULL)
+  bool   hasDynamicColor      = any active stage with non-constant color.registers
+  bool   hasDynamicAlpha      = alpha register non-constant (fade)
+  bool   hasConditionToggle   = any stage with a conditionRegister
+  bool   hasTexMatrixAnim     = any drawn stage with texture.hasMatrix and
+                                non-constant matrix regs (or texgen scroll)
+  bool   isFlipbookAtlas      = hasTexMatrixAnim AND image aspect strongly non-1
+  uint16 flipbookFrames       = long_dim / short_dim   (e.g. 1024/128 = 8)
+  uint8  flipbookAxis         = 0=V(tall atlas) 1=U(wide atlas)
+  bool   isVideoMap           = stage.cinematic!=NULL or dynamic==DI_SCRATCH
+  bool   isProjectedDecal     = GetDecalInfo() meaningful / sort decal
+  // plus: which stage index feeds albedo / emissive / opacity (channel map)
+This is a pure read of the material declaration (no time, no parms) -> stays in
+the per-materialId cache, temporally stable. It tells the evaluator WHAT to do.
+
+NOTE on flipbook detection: "128x1024, each 128px a frame" = a tall atlas scrolled
+in V by a texMatrix translate; frames = 1024/128 = 8. The classifier only records
+the geometry (frames, axis); the evaluator computes the per-frame V offset.
+
+--------------------------------------------------------------------------------
+3. PER-FRAME EVALUATOR (LATER — per visible surf, per instance)
+--------------------------------------------------------------------------------
+Where: extend the capture/dynamic path (PathTraceSceneCapture.cpp +
+PathTraceDynamicMaterialState.cpp). Runs once per visible drawSurf per frame.
+Inputs: drawSurf->shaderRegisters (engine already evaluated from time+parms),
+        the material's static dynamic-descriptor (sec.2).
+Produces a per-instance dynamic block:
+  float4 colorMul     = (regs[color.registers.rgba])   // fade + tint
+  bool   stageEnabled = regs[conditionRegister] != 0   // hard toggle
+  float2x3 texMatrix  = MultiplyTextureMatrix(stage->texture, evaluated regs)
+                        // covers scroll/rotate AND flipbook V/U step
+  uint   videoFrame   = cinematic frame select (if video)
+Flipbook helper: frame = floor(time*fps) % flipbookFrames; the texMatrix the
+engine produces already encodes this if the .mtr uses translate/table — prefer
+the engine's MultiplyTextureMatrix output over recomputing fps ourselves.
+
+--------------------------------------------------------------------------------
+4. PER-INSTANCE GPU CHANNEL (LATER — the real new infrastructure)
+--------------------------------------------------------------------------------
+The shared per-material PathTraceSmokeMaterial row CANNOT hold per-instance fade.
+Add a per-TLAS-instance dynamic record (parallel to the instance/geometry tables):
+  - colorMul (rgba), texMatrix (2x3 or packed), stageEnabled bits, videoFrameIndex.
+  - Keyed by the existing stable instanceId so it tracks instances across frames.
+Shader: when shading a hit, look up the instance dynamic record (if the material
+is tagged dynamic) and apply colorMul to albedo/emissive, texMatrix to UV before
+sampling, skip disabled stages, select the video frame.
+Static materials skip the lookup entirely (isDynamic==false) -> zero cost.
+
+--------------------------------------------------------------------------------
+5. DEPENDENCY: DYNAMIC EMISSIVE  <->  NEE CACHE / EMISSIVE IDENTITY
+--------------------------------------------------------------------------------
+Fading/flickering emissive panels are the per-instance dynamic case AND the NEE
+cache's light candidates. The per-instance emissive colorMul/enable computed here
+MUST be the same value the emissive-candidate universe and NEE cache use as that
+light's intensity that frame, or DI and the fade will disagree (panel lit in
+beauty but cache thinks it's off, or vice versa). Wire the evaluator's per-instance
+emissive result INTO the emissive candidate intensity, do not compute it twice.
+This also intersects the known view-dependent universe / emissive-pop issue
+(see nee-cache-regir-status memory) — dynamic emissive must use stable instanceId.
+
+--------------------------------------------------------------------------------
+6. OUT OF SCOPE EVEN HERE (separate again)
+--------------------------------------------------------------------------------
+Volumetric "square" sprites (128x1024 flipbook billboards: smoke/steam/fire) are
+screen-facing alpha-blended cards with no real volume — poor path-tracer citizens.
+The flipbook EVALUATOR above handles their texture animation IF they are real
+geometry, but their billboard/volume nature (orientation, blending into a PT
+integrator) is a distinct problem. Decide per-effect: treat as emissive/alpha
+card, or exclude. Do not block the fade/flipbook framework on solving volumetrics.
+
+--------------------------------------------------------------------------------
+7. TASK HOOKS (added to 05 as a later phase)
+--------------------------------------------------------------------------------
+  MATCLASS-DYN-1  static dynamic-descriptor tagging on the cached facts (sec.2).
+  MATCLASS-DYN-2  per-frame evaluator: per-surf color/alpha/cond + texMatrix (sec.3).
+  MATCLASS-DYN-3  per-instance GPU channel + shader apply (sec.4).
+  MATCLASS-DYN-4  unify dynamic emissive with NEE/emissive-candidate intensity (sec.5).
+  MATCLASS-DYN-1 is cheap and can ship with the static classifier; DYN-2..4 are the
+  later "drive the animations" stage.
+</content>

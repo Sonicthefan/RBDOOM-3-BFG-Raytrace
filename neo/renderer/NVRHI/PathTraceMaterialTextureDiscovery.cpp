@@ -12,6 +12,7 @@
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceMaterialClassifier.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceTextureRegistry.h"
 
@@ -23,6 +24,12 @@ namespace {
 bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material);
 bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material);
 bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
+
+bool PathTraceMaterialClassifierRequested()
+{
+    return r_pathTracingMatClassEnable.GetInteger() != 0 ||
+        r_pathTracingMatClassDebugList.GetInteger() != 0;
+}
 
 enum class RtSmokeTextureCodeHint
 {
@@ -804,6 +811,10 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         {
             ++g_smokeMaterialMetadataFrameStats.cacheRefreshes;
             RefreshSmokeMaterialTextureHandleState(*info);
+            if (PathTraceMaterialClassifierRequested())
+            {
+                RegisterPathTraceMaterialRecord(material, *info);
+            }
             return;
         }
     }
@@ -950,6 +961,10 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             info->fallbackReason = va("%s; rejected texture desc", reason.c_str());
         }
     }
+    if (PathTraceMaterialClassifierRequested())
+    {
+        RegisterPathTraceMaterialRecord(material, *info);
+    }
 }
 
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled)
@@ -958,6 +973,11 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFra
 
     RtSmokeMaterialMetadataRegistrationTiming timing;
     g_smokeMaterialMetadataFrameStats = RtSmokeMaterialMetadataFrameStats();
+    if (PathTraceMaterialClassifierRequested())
+    {
+        BeginPathTraceMaterialClassifierFrame();
+        MaybeDumpPathTraceMaterialDeclSurfaceTypeDistribution();
+    }
 
     const int metadataStartMs = Sys_Milliseconds();
     if (enabled && viewDef)
@@ -1000,6 +1020,11 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextur
 
     RtSmokeMaterialMetadataRegistrationTiming timing;
     const int metadataStartMs = Sys_Milliseconds();
+    if (PathTraceMaterialClassifierRequested())
+    {
+        BeginPathTraceMaterialClassifierFrame();
+        MaybeDumpPathTraceMaterialDeclSurfaceTypeDistribution();
+    }
     if (!enabled || !viewDef || !viewDef->renderWorld)
     {
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;

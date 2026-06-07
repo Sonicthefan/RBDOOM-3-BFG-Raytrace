@@ -9,6 +9,7 @@
 
 #include "PathTraceCVars.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceMaterialClassifier.h"
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
@@ -89,6 +90,12 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(SmokeMaterialTextureRegistrySize()));
     hash = HashSmokeMaterialCacheValue(hash, SmokeMaterialTextureRegistryGeneration());
     hash = HashSmokeMaterialCacheValue(hash, SmokeMaterialOverrideGeneration());
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingMatClassEnable.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingMatClassUseRmao.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingMatClassDriveLegacySpec.GetInteger() != 0 ? 1 : 0));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingMatClassNormalDecodeMode.GetInteger())));
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(idMath::ClampInt(0, 1, r_pathTracingMatClassGlossRoughnessMode.GetInteger())));
+    hash = HashSmokeMaterialCacheValue(hash, GetPathTraceMaterialClassifierGeneration());
     return hash;
 }
 
@@ -200,6 +207,26 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     if (SmokeMaterialHasZeroRoughnessOverride(materialId))
     {
         material.padding0 |= RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS;
+    }
+    if (r_pathTracingMatClassEnable.GetInteger() != 0)
+    {
+        const RtMaterialRecord* materialClassRecord = FindPathTraceMaterialRecord(materialId);
+        if ((!materialClassRecord || !materialClassRecord->valid) && !info.materialName.IsEmpty())
+        {
+            const idMaterial* materialDecl = declManager ? declManager->FindMaterial(info.materialName.c_str(), false) : nullptr;
+            materialClassRecord = &RegisterPathTraceMaterialRecord(materialDecl, info);
+        }
+        if (materialClassRecord && materialClassRecord->valid)
+        {
+            material.padding1 = PackPathTraceMaterialClassifierFlags(*materialClassRecord);
+            material.padding2 = PackPathTraceMaterialClassifierParams(*materialClassRecord);
+            if (r_pathTracingMatClassDriveLegacySpec.GetInteger() != 0 &&
+                materialClassRecord->route == RtMaterialBsdfRoute::LegacySpecGloss &&
+                materialClassRecord->surfaceClass == RtMaterialSurfaceClass::Ricochet)
+            {
+                material.padding0 |= RT_SMOKE_MATERIAL_CLASSIFIER_DRIVE_LEGACY_SPEC;
+            }
+        }
     }
     table.materialIds.push_back(materialId);
     table.materials.push_back(material);

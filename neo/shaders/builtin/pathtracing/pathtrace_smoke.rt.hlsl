@@ -470,6 +470,8 @@ static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES = 0x00000080u;
 static const uint RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY = 0x00000100u;
 
+#include "pathtrace_material_classifier.hlsli"
+
 bool PathTraceSafetyDisabled(uint bit)
 {
     return (((uint)SafetyInfo.x) & bit) != 0u;
@@ -1071,6 +1073,99 @@ float3 MaterialIdToColor(uint materialId)
     return 0.15 + float3(r, g, b) * 0.85;
 }
 
+float3 SmokeMatClassRouteColor(uint route)
+{
+    if (route == RT_MATCLASS_ROUTE_REAL_PBR_RMAO)
+    {
+        return float3(0.10, 0.35, 1.00);
+    }
+    if (route == RT_MATCLASS_ROUTE_LEGACY_SPEC_GLOSS)
+    {
+        return float3(0.05, 0.90, 0.25);
+    }
+    if (route == RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK)
+    {
+        return float3(1.00, 0.62, 0.05);
+    }
+    return float3(0.18, 0.02, 0.02);
+}
+
+float3 SmokeMatClassSurfaceClassColor(uint surfaceClass)
+{
+    if (surfaceClass == 1u) return float3(0.00, 0.22, 1.00);
+    if (surfaceClass == 2u) return float3(0.48, 0.48, 0.43);
+    if (surfaceClass == 3u) return float3(0.95, 0.48, 0.40);
+    if (surfaceClass == 4u) return float3(0.42, 0.24, 0.08);
+    if (surfaceClass == 5u) return float3(0.72, 0.52, 0.22);
+    if (surfaceClass == 6u) return float3(0.05, 0.45, 1.00);
+    if (surfaceClass == 7u) return float3(0.45, 1.00, 0.92);
+    if (surfaceClass == 8u) return float3(0.70, 0.42, 1.00);
+    if (surfaceClass == 9u) return float3(1.00, 0.08, 0.04);
+    if (surfaceClass == 10u) return float3(1.00, 0.92, 0.05);
+    return float3(0.25, 0.25, 0.25);
+}
+
+PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex);
+float4 SampleSmokeSurfaceAlbedo(PathTraceSmokeMaterial material, float2 texCoord, uint surfaceClass, uint translucentSubtype, float4 vertexColor, float4 vertexColorAdd);
+float3 SampleSmokeDirectSpecular(PathTraceSmokeMaterial material, float2 texCoord);
+
+float4 EvaluateSmokeMaterialClassifierDebug(PathTraceSmokePayload payload, uint2 pixel, uint2 dimensions)
+{
+    const PathTraceSmokeMaterial material = LoadSmokeMaterial(payload.materialIndex);
+    const bool hasClassifierRecord = material.padding1 != 0u;
+    const bool right = pixel.x * 2u >= dimensions.x;
+    const bool bottom = pixel.y * 2u >= dimensions.y;
+
+    if (!hasClassifierRecord)
+    {
+        const uint checker = ((pixel.x >> 4u) ^ (pixel.y >> 4u)) & 1u;
+        return checker != 0u ? float4(0.0, 0.0, 0.0, 1.0) : float4(1.0, 1.0, 1.0, 1.0);
+    }
+
+    if (!right && !bottom)
+    {
+        return float4(SmokeMatClassRouteColor(SmokeMatClassRoute(material)), 1.0);
+    }
+    if (right && !bottom)
+    {
+        return float4(SmokeMatClassSurfaceClassColor(SmokeMatClassSurfaceClass(material)), 1.0);
+    }
+    if (!right)
+    {
+        const float3 specularColor = SampleSmokeDirectSpecular(material, payload.texCoord);
+        float3 specularF0 = saturate(specularColor);
+        float roughness = SmokeMatClassRoughness(material);
+        const bool hasSpecularInput =
+            material.specularTextureIndex != 0xffffffffu &&
+            ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS) != 0u) &&
+            max(max(specularColor.r, specularColor.g), specularColor.b) > 1.0e-4;
+        if (hasSpecularInput)
+        {
+            SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
+        }
+        if (SmokeMatClassHasPackedBsdf(material))
+        {
+            roughness = SmokeMatClassRoughness(material);
+        }
+        if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
+        {
+            roughness = 0.0;
+        }
+        return float4(roughness, roughness, roughness, 1.0);
+    }
+
+    if (SmokeMatClassDrivesLegacySpec(material))
+    {
+        return float4(1.0, 0.0, 0.0, 1.0);
+    }
+
+    return float4(
+        0.0,
+        SmokeMatClassMetallic(material),
+        SmokeMatClassTransmission(material),
+        1.0);
+}
+
 float3 TranslucentSubtypeToColor(uint subtype)
 {
     if (subtype == 0u)
@@ -1152,6 +1247,8 @@ bool BuildSmokeReflectionBounce(
     const float3 specularColor = SampleSmokeDirectSpecular(material, payload.texCoord);
     float3 F0;
     BuildSmokeSpecularLobe(specularColor, F0, roughness);
+    const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
+    SmokeApplyMaterialClassifierBsdf(material, albedo, F0, roughness);
     if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;
@@ -4471,6 +4568,10 @@ void RayGen()
                 ? EvaluateRestirPTCombinedDirectGiPreviewFromSurface(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5)
                 : EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
         }
+        else if (debugMode == 57)
+        {
+            SmokeOutput[pixel] = float4(0.0, 0.0, 0.0, 1.0);
+        }
         else
         {
             SmokeOutput[pixel] = SmokeMissColor();
@@ -4605,6 +4706,10 @@ void RayGen()
         SmokeOutput[pixel] = consumePrimarySurfaceHistory
             ? EvaluateRestirPTCombinedDirectGiPreviewFromSurface(primaryHistorySurface, pixel, RestirPTInfo.z >= 0.5)
             : EvaluateRestirPTCombinedDirectGiPreview(ray.Origin, ray.Direction, payload, pixel, RestirPTInfo.z >= 0.5);
+    }
+    else if (debugMode == 57)
+    {
+        SmokeOutput[pixel] = EvaluateSmokeMaterialClassifierDebug(payload, pixel, dimensions);
     }
     else if (debugMode == 38)
     {

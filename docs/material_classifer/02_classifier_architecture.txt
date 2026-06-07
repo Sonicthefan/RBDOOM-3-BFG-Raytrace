@@ -1,0 +1,112 @@
+CLASSIFIER ARCHITECTURE  ETWO LAYERS, ONE DATA MODEL
+====================================================
+Authored: 2026-06-07.
+Principle (from reference doc sec.8,17): keep "what idTech4 SAYS" strictly
+separate from "what we RENDER it as". Layer 1 is verifiable against the .mtr
+corpus; Layer 2 is a tunable rendering policy. A bug in one must not be
+diagnosable only through the other.
+
+--------------------------------------------------------------------------------
+LAYER 1  ECLASSIFICATION (engine truth, no rendering opinions)
+--------------------------------------------------------------------------------
+Input:  const idMaterial*
+Output: RtMaterialClassification (new struct, see below)
+Rules, in CONFIDENCE ORDER (reference doc sec.5 / sec.15):
+
+  1. surfaceClass:
+       primary   = map GetSurfaceType() -> RtSurfaceClass (1:1 with surfTypes_t)
+       if SURFTYPE_NONE: secondary = surface FLAGS / content flags if informative
+       if still unknown: tertiary = NAME-token heuristic (the existing token
+                          lists) -> set confidence = HEURISTIC and record reason.
+       NEVER let a name token override a non-NONE GetSurfaceType().
+
+  2. interaction packets:
+       Walk stages in declaration order. Group SL_BUMP/SL_DIFFUSE/SL_SPECULAR
+       into InteractionPacket(s); a new bump after a populated packet opens a
+       new packet (reference doc sec.7 grouping). Resolve each role's idImage
+       (already post-image-program). Non-interaction stages (SL_AMBIENT, additive,
+       blend, cubeMap, GUI, video, program) go to effectStages with a sub-kind.
+
+  3. render/content facts (pure reads, reuse existing helper logic):
+       coverage, translucent, twoSided, noShadows/noSelfShadow,
+       alphaTest+alphaCutoff (copy ResolveSmokeMaterialAlphaInfo logic into the
+       new module; do not route new ownership through the legacy helper),
+       sort (gui/decal/postprocess), polygonOffset, additive/filter blend kinds.
+
+  4. emissive intent:
+       additive ambient stage and/or self-illum -> emissive candidate (mirror the
+       existing source signals, but populate the new record separately); record
+       which stage/image is the emissive source.
+
+Layer 1 makes NO decision about roughness/metallic/IOR. It only reports tokens,
+roles, images, flags, and a per-field confidence.
+
+--------------------------------------------------------------------------------
+LAYER 2  ECONVERSION (rendering policy: classification -> BSDF params)
+--------------------------------------------------------------------------------
+Input:  RtMaterialClassification
+Output: RtMaterialBsdfParams (new) + fallback/decal compatibility flags in the
+new record
+Pure function, no idMaterial access. Drives metallic/roughness/IOR/transmission/
+specularF0/emission per the table in 03_surfacetype_bsdf_mapping.txt. All magic
+constants live HERE and are cvar-overridable for tuning. This layer is where
+"metal -> metallic=1" lives, isolated so it can be A/B'd without reclassifying.
+
+--------------------------------------------------------------------------------
+DATA MODEL (new; suggested names)
+--------------------------------------------------------------------------------
+enum class RtSurfaceClass : uint8 {
+    Unknown=0, Metal, Stone, Flesh, Wood, Cardboard, Liquid, Glass, Plastic,
+    Ricochet
+};   // 1:1 with the meaningful surfTypes_t entries
+
+enum class RtClassConfidence : uint8 { Authoritative, Flag, Heuristic, FallbackNone };
+
+enum class RtStageKind : uint8 {
+    Bump, Diffuse, Specular, Ambient, Emissive, Translucent, Reflection, Gui,
+    Video, CustomProgram, Unknown
+};
+
+struct RtMaterialClassification {
+    RtSurfaceClass   surfaceClass = RtSurfaceClass::Unknown;
+    RtClassConfidence surfaceClassConfidence = RtClassConfidence::FallbackNone;
+    // interaction packets: indices/handles into resolved idImages per role.
+    // new record owns has*Image / hasSafe*Texture-style booleans.
+    // Legacy UniverseFacts is reference behavior only; do not point at it.
+    bool   emissiveIntent = false;
+    uint16 reasonMask = 0;        // bitset: which heuristic/flag fired (debug)
+};
+
+struct RtMaterialBsdfParams {     // -> new GPU fields (03 + 01.E)
+    float roughness   = 0.7f;     // default non-shiny legacy
+    float metallic    = 0.0f;
+    float ior         = 1.5f;
+    float transmission= 0.0f;
+    float specularF0  = 0.04f;    // dielectric default
+    uint8 subsurfaceHint = 0;     // flesh
+    uint8 twoSidedBsdf  = 0;
+};
+
+INTEGRATION NOTE: 08 supersedes the earlier "extend the legacy facts" idea. Do
+create a separate RtMaterialRecord owned by PathTraceMaterialClassifier.{h,cpp}.
+The two layers are functions that fill disjoint field groups of that NEW cached
+record. RtSmokeMaterialUniverseFacts remains legacy-only and must not be mutated
+by the new classifier.
+
+--------------------------------------------------------------------------------
+CONFIDENCE / DIAGNOSTICS (non-negotiable, reference doc sec.5,11.5,14)
+--------------------------------------------------------------------------------
+Every material carries surfaceClassConfidence. A debug dump (extend
+PathTraceSurfaceDebugDumps / PathTraceDebugDumps) must be able to list, per
+visible material: name, GetSurfaceType raw value, resolved RtSurfaceClass,
+confidence, and the BSDF params. This is how we prove the classifier reads
+metadata and isn't silently falling back to name tokens.
+
+--------------------------------------------------------------------------------
+STABILITY (respect universe constraint, 00 sec.3)
+--------------------------------------------------------------------------------
+Classification is a pure function of idMaterial -> cached in the persistent
+record keyed by materialId. Same material => same class => same GPU row every
+frame. Classification must NOT depend on view, frame, instance, or universe
+membership, so it cannot contribute to temporal churn.
+</content>

@@ -297,6 +297,8 @@ static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
 
+#include "pathtrace_material_classifier.hlsli"
+
 uint PathTraceStaticVertexCount() { return (uint)max(GeometryInfo0.x, 0.0); }
 uint PathTraceStaticIndexCount() { return (uint)max(GeometryInfo0.y, 0.0); }
 uint PathTraceStaticTriangleCount() { return (uint)max(GeometryInfo0.z, 0.0); }
@@ -672,6 +674,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     {
         SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
     }
+    SmokeApplyMaterialClassifierBsdf(smokeMaterial, albedo.rgb, specularF0, roughness);
     if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;

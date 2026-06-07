@@ -291,6 +291,7 @@ static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x000000
 #define RestirPTSurfaceInfo CleanRtxdiDiRestirPTSurfaceInfo
 #define TextureInfo CleanRtxdiDiTextureInfo
 #define ToyPathInfo CleanRtxdiDiToyPathInfo
+#include "../pathtrace_material_classifier.hlsli"
 bool RAB_RestirLightManagerRABEnabled()
 {
     return false;
@@ -963,6 +964,83 @@ RAB_LightInfo PathTraceCleanRoomBuildAnalyticLightInfo(PathTraceDoomAnalyticLigh
 }
 
 #include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
+
+float3 PathTraceCleanRoomMatClassRouteColor(uint route)
+{
+    if (route == RT_MATCLASS_ROUTE_REAL_PBR_RMAO)
+    {
+        return float3(0.10, 0.35, 1.00);
+    }
+    if (route == RT_MATCLASS_ROUTE_LEGACY_SPEC_GLOSS)
+    {
+        return float3(0.05, 0.90, 0.25);
+    }
+    if (route == RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK)
+    {
+        return float3(1.00, 0.62, 0.05);
+    }
+    return float3(0.18, 0.02, 0.02);
+}
+
+float3 PathTraceCleanRoomMatClassSurfaceClassColor(uint surfaceClass)
+{
+    if (surfaceClass == 1u) return float3(0.00, 0.22, 1.00);
+    if (surfaceClass == 2u) return float3(0.48, 0.48, 0.43);
+    if (surfaceClass == 3u) return float3(0.95, 0.48, 0.40);
+    if (surfaceClass == 4u) return float3(0.42, 0.24, 0.08);
+    if (surfaceClass == 5u) return float3(0.72, 0.52, 0.22);
+    if (surfaceClass == 6u) return float3(0.05, 0.45, 1.00);
+    if (surfaceClass == 7u) return float3(0.45, 1.00, 0.92);
+    if (surfaceClass == 8u) return float3(0.70, 0.42, 1.00);
+    if (surfaceClass == 9u) return float3(1.00, 0.08, 0.04);
+    if (surfaceClass == 10u) return float3(1.00, 0.92, 0.05);
+    return float3(0.25, 0.25, 0.25);
+}
+
+float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensions)
+{
+    PathTracePrimarySurfaceRecord record;
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
+    {
+        return float3(0.18, 0.00, 0.18);
+    }
+
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(record.materialAndSurface.y);
+    const bool hasClassifierRecord = material.padding1 != 0u;
+    const bool right = pixel.x * 2u >= dimensions.x;
+    const bool bottom = pixel.y * 2u >= dimensions.y;
+
+    if (!hasClassifierRecord)
+    {
+        const uint checker = ((pixel.x >> 4u) ^ (pixel.y >> 4u)) & 1u;
+        return checker != 0u ? float3(0.0, 0.0, 0.0) : float3(1.0, 1.0, 1.0);
+    }
+
+    if (!right && !bottom)
+    {
+        return PathTraceCleanRoomMatClassRouteColor(SmokeMatClassRoute(material));
+    }
+    if (right && !bottom)
+    {
+        return PathTraceCleanRoomMatClassSurfaceClassColor(SmokeMatClassSurfaceClass(material));
+    }
+    if (!right)
+    {
+        const float roughness = saturate(record.geometricNormalAndRoughness.w);
+        return float3(roughness, roughness, roughness);
+    }
+
+    if (SmokeMatClassDrivesLegacySpec(material))
+    {
+        return float3(1.0, 0.0, 0.0);
+    }
+
+    return float3(
+        0.0,
+        SmokeMatClassMetallic(material),
+        SmokeMatClassTransmission(material));
+}
+
 bool PathTraceCleanRoomRluPayloadValid(PathTraceUnifiedLightRecord light)
 {
     if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
@@ -2845,7 +2923,7 @@ void RayGen()
     }
 
     const uint view = CleanRtxdiDiView;
-    if (view < 1u || view > 23u)
+    if (view < 1u || view > 24u)
     {
         SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
         return;
@@ -2913,6 +2991,10 @@ void RayGen()
     else if (view == 23u)
     {
         color = PathTraceCleanRoomPreviousHitReprojectionErrorColor(pixel, dimensions);
+    }
+    else if (view == 24u)
+    {
+        color = PathTraceCleanRoomMaterialClassifierDebugColor(pixel, dimensions);
     }
     else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u)
     {

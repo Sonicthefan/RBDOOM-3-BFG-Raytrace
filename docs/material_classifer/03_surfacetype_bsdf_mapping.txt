@@ -1,0 +1,96 @@
+SURFACE TYPE + STAGES -> BSDF PARAMETER MAPPING (LAYER 2 POLICY)
+================================================================
+Authored: 2026-06-07.
+
+*** SCOPE NARROWED by 06_engine_pbr_integration.txt: this table is ROUTE C ONLY
+*** (materials with NO usable specular/rmao info). Materials with real PBR maps
+*** (Route A, rmao usage) use rmao.R/G/B directly; legacy gloss (Route B) uses
+*** the canonical RB gloss->roughness estimate. Read 06 before applying this.
+
+This is rendering POLICY, not engine truth. All numbers are starting defaults to
+be tuned in-engine via cvars (see naming at bottom). idTech4 materials are NOT
+PBR (reference doc sec.8): diffusemap = legacy albedo (may bake AO/dirt),
+specularmap = legacy specular INTENSITY/COLOR (NOT roughness, NOT metallic).
+
+--------------------------------------------------------------------------------
+PRIMARY TABLE — keyed on RtSurfaceClass (from GetSurfaceType)
+--------------------------------------------------------------------------------
+Class      metallic roughness ior   transmission notes
+---------- -------- --------- ----- ------------ ---------------------------------
+Metal      1.0      0.25*     n/a   0.0          F0 from specularmap if present;
+                                                 roughness from specular luma (see
+                                                 derivation). Albedo tints F0.
+Stone      0.0      0.85      1.5   0.0          rough dielectric.
+Wood       0.0      0.75      1.5   0.0          dielectric; specularmap -> F0 mod.
+Plastic    0.0      0.45      1.5   0.0          smoother dielectric.
+Cardboard  0.0      0.95      1.5   0.0          very rough, near-lambertian.
+Flesh      0.0      0.55      1.4   0.0          subsurfaceHint=1; skin tint.
+Glass      0.0      0.05      1.50  0.9          twoSidedBsdf=1; specular reflect +
+                                                 transmit; combine w/ translucent.
+Liquid     0.0      0.02      1.33  0.9          water-like; ior 1.33 unless mtr
+                                                 implies otherwise.
+Ricochet   0.0      0.6       1.5   0.0          gameplay parm; treat as default
+                                                 dielectric (no special BSDF).
+Unknown/   0.0      0.7       1.5   0.0          legacy default dielectric.
+None                                             (DEFAULT — also the FallbackNone
+                                                 confidence path.)
+
+* Metal roughness 0.25 is a placeholder; prefer the specular-luma derivation.
+
+--------------------------------------------------------------------------------
+SPECULARMAP -> ROUGHNESS / F0 DERIVATION
+--------------------------------------------------------------------------------
+Doom 3 specularmap is a specular INTENSITY/color map, not roughness. Heuristic:
+  - If a specular stage image exists: treat its luminance as specular STRENGTH.
+    Higher strength -> smoother surface. roughness ~= clamp(1 - specLuma, lo, hi)
+    with class-dependent lo/hi (metal narrower+lower, stone wider+higher).
+  - For Metal: specular RGB tints F0 / reflectance; albedo also tints metal F0.
+  - For dielectrics: keep F0=0.04 (or specularF0 cvar); specLuma only nudges
+    roughness, NOT metallic.
+  - No specular stage: use the class default roughness from the table.
+This derivation runs in Layer 2 and is the main per-material variation; bake it
+from the resolved specular idImage's average/representative luma at classify
+time (it's cached, so a one-time texture sample/avg is acceptable; if sampling is
+too costly, fall back to class-default roughness and flag it).
+
+--------------------------------------------------------------------------------
+STAGE-KIND OVERRIDES (independent of surfaceClass)
+--------------------------------------------------------------------------------
+  translucent flag / glass class      -> transmission as table; ensure twoSided.
+  alphaTest (cutoff)                  -> cutout opacity; BSDF unchanged, alpha bit.
+  additive ambient / emissive intent  -> emission from emissiveColor*Luminance
+                                          (keep existing emissive pipeline); NOT a
+                                          lit BSDF.
+  cubeMap / cameraCubeMap reflection   -> high-spec / mirror hint; do not treat as
+                                          diffuse albedo.
+  GUI / video / remoteRender / mirror  -> special-surface; out of BSDF scope, mark
+                                          and leave to existing handling.
+  noShadows / noSelfShadow             -> preserve as compat flags (optional in PT).
+
+PRECEDENCE: emissive/GUI/video/mirror special-kinds win over the surfaceClass
+BSDF (an emissive metal panel emits; it is not shaded as plain metal). Glass/
+liquid transmission composes with surfaceClass (they ARE the class).
+
+--------------------------------------------------------------------------------
+MISSING-MAP DEFAULTS (reference doc sec.7)
+--------------------------------------------------------------------------------
+  no bump stage      -> flat tangent normal.
+  no specular stage  -> class-default roughness, F0=0.04 (dielectric) / albedo-
+                        derived (metal).
+  no diffuse stage   -> new record carries an equivalent fallbackAlbedo /
+                        hasFallbackAlbedo value; legacy UniverseFacts stays
+                        untouched.
+
+--------------------------------------------------------------------------------
+CVARS (tuning surface; mirror the r_pathTracing* convention)
+--------------------------------------------------------------------------------
+  r_pathTracingMatClassEnable           (0=legacy name-heuristic path, 1=new)
+  r_pathTracingMatClassMetalRoughness
+  r_pathTracingMatClassDielectricF0
+  r_pathTracingMatClassGlassIor / LiquidIor
+  r_pathTracingMatClassGlassTransmission
+  r_pathTracingMatClassSpecLumaToRoughness   (0=off -> class defaults only)
+  r_pathTracingMatClassDebugList             (dump per-material class+conf+bsdf)
+Default-enable only after the validation in 04 passes; ship behind the enable
+cvar so the legacy path stays as instant A/B rollback.
+</content>

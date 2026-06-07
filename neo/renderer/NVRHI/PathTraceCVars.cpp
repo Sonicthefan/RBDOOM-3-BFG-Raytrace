@@ -7,7 +7,7 @@ idCVar r_pathTracingDebugMode(
     "r_pathTracingDebugMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation, 26 = ReSTIR PT initial reservoir diagnostics, 27 = ReSTIR PT initial reservoir shading preview, 28 = ReSTIR PT initial reservoir visibility preview, 29 = ReSTIR PT primary-surface history validation, 30 = ReSTIR PT reprojection validation, 31 = ReSTIR PT temporal reservoir validation, 32 = ReSTIR PT temporal shading preview, 33 = temporal light-source attribution, 34-37 = path-tracer core visualizers, 38 = skinned object-motion vector diagnostic, 39 = routed-rigid object-motion eligibility, 40 = routed-rigid object-motion vector diagnostic, 41 = combined skinned/routed-rigid object-motion vector diagnostic, 42 = packed primary object-motion flags, 43 = packed object-motion reprojection match, 44 = previous static snapshot binding, 45 = previous static reprojection match, 46 = previous static motion-vector diagnostic, 47 = combined geometry motion-vector diagnostic, 48 = combined geometry reprojection-match diagnostic, 49 = combined geometry motion-source diagnostic, 50 = ReSTIR PT spatial reservoir shading preview, 51 = ReSTIR PT spatial source attribution, 52 = routed-rigid transform parity, 53 = ReSTIR PT indirect reservoir diagnostics, 54 = ReSTIR PT indirect reservoir shading, 55 = ReSTIR PT indirect path attribution, 56 = ReSTIR PT combined direct+GI preview" );
+    "RT smoke debug output mode: 0 = hit/miss, 1 = depth, 2 = interpolated normal, 3 = surface class, 4 = UV, 5 = geometric normal, 6 = material ID, 7 = material table, 8 = sampled diffuse texture, 9 = alpha test preview, 10 = albedo, 11 = translucent overlay inspection, 12 = translucent subtype, 13 = fixed Lambert lighting, 14 = selected point-light shadows, 15 = selected light influence, 16 = normal map, 17 = specular map, 18 = toy one-bounce path trace, 19 = emissive triangle inventory, 20 = single-frame reservoir direct lighting, 21 = solid drawSurf bounds boxes, 22 = wireframe drawSurf bounds boxes, 23 = experimental routed rigid TLAS instances, 24 = fallback-vs-rigid-route overlap validation, 25 = routed rigid lighting validation, 26 = ReSTIR PT initial reservoir diagnostics, 27 = ReSTIR PT initial reservoir shading preview, 28 = ReSTIR PT initial reservoir visibility preview, 29 = ReSTIR PT primary-surface history validation, 30 = ReSTIR PT reprojection validation, 31 = ReSTIR PT temporal reservoir validation, 32 = ReSTIR PT temporal shading preview, 33 = temporal light-source attribution, 34-37 = path-tracer core visualizers, 38 = skinned object-motion vector diagnostic, 39 = routed-rigid object-motion eligibility, 40 = routed-rigid object-motion vector diagnostic, 41 = combined skinned/routed-rigid object-motion vector diagnostic, 42 = packed primary object-motion flags, 43 = packed object-motion reprojection match, 44 = previous static snapshot binding, 45 = previous static reprojection match, 46 = previous static motion-vector diagnostic, 47 = combined geometry motion-vector diagnostic, 48 = combined geometry reprojection-match diagnostic, 49 = combined geometry motion-source diagnostic, 50 = ReSTIR PT spatial reservoir shading preview, 51 = ReSTIR PT spatial source attribution, 52 = routed-rigid transform parity, 53 = ReSTIR PT indirect reservoir diagnostics, 54 = ReSTIR PT indirect reservoir shading, 55 = ReSTIR PT indirect path attribution, 56 = ReSTIR PT combined direct+GI preview, 57 = material classifier GPU route/class/BSDF" );
 
 idCVar r_pathTracingMode20TestPreset(
     "r_pathTracingMode20TestPreset",
@@ -849,6 +849,54 @@ idCVar r_pathTracingForceTextureCodeUse(
     CVAR_RENDERER | CVAR_INTEGER,
     "Use four-digit Doom texture filename codes as RT smoke material image discovery hints" );
 
+idCVar r_pathTracingMatClassEnable(
+    "r_pathTracingMatClassEnable",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable the new material-classifier path; default 0 keeps the legacy classifier/table path active" );
+
+idCVar r_pathTracingMatClassUseRmao(
+    "r_pathTracingMatClassUseRmao",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Material classifier Route A: use TD_SPECULAR_PBR_RMAO/RMAOD specular images as real RMAO PBR inputs" );
+
+idCVar r_pathTracingMatClassDriveLegacySpec(
+    "r_pathTracingMatClassDriveLegacySpec",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Material classifier Route B opt-in: promote classified metal/ricochet legacy spec materials to metallic F0 while preserving specmap roughness" );
+
+idCVar r_pathTracingMatClassGlossRoughnessMode(
+    "r_pathTracingMatClassGlossRoughnessMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Material classifier Route B roughness mode: 0=PBRFromSpecmap, 1=legacy EstimateLegacyRoughness diagnostic" );
+
+idCVar r_pathTracingMatClassNormalDecodeMode(
+    "r_pathTracingMatClassNormalDecodeMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Material classifier normal decode: 0=image-format swizzle, 1=force RGB8 rg, 2=force compressed wy" );
+
+idCVar r_pathTracingMatClassAoIndirectOnly(
+    "r_pathTracingMatClassAoIndirectOnly",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Material classifier Route A: treat RMAO blue AO as indirect-only modulation" );
+
+idCVar r_pathTracingMatClassDebugList(
+    "r_pathTracingMatClassDebugList",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Dump new material-classifier records; 1=registered materials, 2=also one-shot all-decl surfaceType distribution" );
+
+idCVar r_pathTracingMatClassDebugMax(
+    "r_pathTracingMatClassDebugMax",
+    "64",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum material-classifier record lines printed per frame when r_pathTracingMatClassDebugList is enabled" );
+
 idCVar r_pathTracingUseNormalMaps(
     "r_pathTracingUseNormalMaps",
     "1",
@@ -1297,7 +1345,7 @@ idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo, 21 RR depth contract bands, 22 primary hit reprojection error, 23 previous hit/motion reprojection error" );
+    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo, 21 RR depth contract bands, 22 primary hit reprojection error, 23 previous hit/motion reprojection error, 24 material classifier consumed-surface debug" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",

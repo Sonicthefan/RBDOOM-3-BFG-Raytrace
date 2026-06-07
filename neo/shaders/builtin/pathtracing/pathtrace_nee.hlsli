@@ -170,6 +170,7 @@ SmokeNeeSurface BuildSmokeNeeSurface(
     {
         SmokePBRFromSpecmap(saturate(surface.specularColor), surface.f0, surface.roughness);
     }
+    SmokeApplyMaterialClassifierBsdf(material, surface.albedo, surface.f0, surface.roughness);
     surface.materialId = payload.materialId;
     surface.materialIndex = payload.materialIndex;
     surface.instanceId = payload.instanceId;

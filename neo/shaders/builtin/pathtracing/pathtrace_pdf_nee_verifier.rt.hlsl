@@ -419,6 +419,8 @@ static const uint RT_PT_SAFETY_DISABLE_PRIMARY_SURFACE_HISTORY = 0x00000040u;
 static const uint RT_PT_SAFETY_DISABLE_RESERVOIR_WRITES = 0x00000080u;
 static const uint RT_PT_SAFETY_DISABLE_RESTIR_VISIBILITY_RAY = 0x00000100u;
 
+#include "pathtrace_material_classifier.hlsli"
+
 bool PathTraceSafetyDisabled(uint bit)
 {
     return (((uint)SafetyInfo.x) & bit) != 0u;
@@ -1595,6 +1597,8 @@ bool BuildSmokeReflectionBounce(
     const float3 specularColor = SampleSmokeDirectSpecular(material, payload.texCoord);
     float3 F0;
     BuildSmokeSpecularLobe(specularColor, F0, roughness);
+    const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
+    SmokeApplyMaterialClassifierBsdf(material, albedo, F0, roughness);
     if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;

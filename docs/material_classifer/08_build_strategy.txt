@@ -1,0 +1,101 @@
+BUILD STRATEGY — PARALLEL NEW MODULE, LEGACY KEPT (AUTHORITATIVE)
+================================================================
+Authored: 2026-06-07.
+*** This OVERRIDES any "extend the existing classifier / extend
+*** RtSmokeMaterialUniverseFacts" wording in 00-07 where they conflict.
+
+DECISION: build an ENTIRELY NEW classifier stack ALONGSIDE the legacy one,
+toggled by r_pathTracingMatClassEnable (default 0). Do NOT upgrade the legacy
+classifier or the legacy material universe in place.
+
+WHY:
+  - The legacy classifier (PathTraceDoomMaterialClassifier.*) was thrown together
+    for basic debugging and was never meant to be expanded.
+  - The legacy material universe (RtSmokeMaterialUniverseFacts / PathTraceMaterial-
+    Universe) is not in a state worth building on.
+  - This work takes a while; legacy MUST stay working as (a) the default renderer
+    path and (b) a safety net so other game work can continue in parallel without
+    the half-built new system breaking the build or the picture.
+
+--------------------------------------------------------------------------------
+1. ISOLATION RULES (so parallel work is safe)
+--------------------------------------------------------------------------------
+  - New path is DEFAULT OFF and must not execute unless the cvar is on. When off,
+    behavior is byte-for-byte the legacy path.
+  - New path lives in NEW files with a NEW name prefix (NOT "Smoke"). Suggested:
+    PathTraceMaterialClassifier.{h,cpp} + RtMat* / PathTraceMaterial* types.
+  - New path owns its OWN persistent per-materialId cache (a new record struct +
+    new map). It does NOT read or mutate RtSmokeMaterialUniverseFacts.
+  - The ONLY shared mutable artifact is the GPU material struct, widened ADDITIVELY
+    (sec.3). Everything else the new path consumes from shared infra is read-only
+    or already per-frame rebuilt.
+  - Net effect: with the cvar off, the new code compiles but is inert; you can
+    work on unrelated game systems against a stable legacy renderer.
+
+--------------------------------------------------------------------------------
+2. WHAT IS SHARED vs NEW
+--------------------------------------------------------------------------------
+SHARED (reuse — these are NOT the throwaway parts):
+  - idMaterial / idImage (engine truth + resolved images + GetUsage rmao routing).
+  - Texture registry + bindless descriptor binding (PathTraceTextureRegistry).
+  - Geometry / TLAS / stable instanceId system (PathTraceGeometryUniverse).
+  - GPU material buffer upload + the shader BSDF eval skeleton.
+  - drawSurf->shaderRegisters access for the dynamic evaluator (doc 07).
+
+NEW (greenfield, clean data model unconstrained by legacy):
+  - Classification (Layer 1) + conversion (Layer 2) + route detection (06).
+  - Per-materialId record: surfaceClass, confidence, BSDF params (rough/metal/ior/
+    transmission/F0/ao), route A/B/C, normal convention, dynamic descriptor (07.2).
+  - Table population that fills the (widened) GPU material rows from the new record.
+
+--------------------------------------------------------------------------------
+3. GPU MATERIAL STRUCT — WIDEN ADDITIVELY, SHARE ONE BUFFER
+--------------------------------------------------------------------------------
+Extend PathTraceSmokeMaterial with the new BSDF/route fields (consume padding0..2,
+widen if needed, keep 16-byte align, mirror in HLSL). Both paths use ONE buffer:
+  - Legacy path leaves the new fields at default 0 -> identical behavior to today.
+  - New path fills them.
+  - Shader branches on the enable (or a per-material "classified" bit) to read the
+    new fields; off => legacy SmokePBRFromSpecmap path unchanged.
+Rationale: a second parallel GPU buffer + descriptor set is more isolation than we
+need and doubles upload/binding maintenance. Additive widen is low-risk and keeps
+the A/B in one place. (If a clean-room buffer is later wanted, it's a small step.)
+
+--------------------------------------------------------------------------------
+4. SWITCH SEAM (one place)
+--------------------------------------------------------------------------------
+CONCRETE LOCATION (verified 2026-06-07): the table is built in
+neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp ~2284-2327, ALREADY a three-way
+(legacy BuildSmokeMaterialTableCached / universe BuildSmokeMaterialTableFromUniverse
+Cached / validate-compare) gated by useMaterialUniverseTable. Add the MatClass
+producer as a THIRD branch at this same site, gated by r_pathTracingMatClassEnable:
+  enable 0 -> existing path (legacy or universe per current cvars), byte-identical.
+  enable 1 -> new GetMaterialRecord(materialId) + new row-fill into the widened
+              RtSmokeMaterialTableBuild rows.
+Keep the table-build OUTPUT type (RtSmokeMaterialTableBuild) shared so downstream
+descriptor binding / upload is identical for both paths. Only the row-FILL differs.
+The existing validate-compare harness (CompareSmokeMaterialTables) can A/B the new
+table vs legacy for free.
+
+--------------------------------------------------------------------------------
+5. LEGACY DISPOSITION / LIFECYCLE
+--------------------------------------------------------------------------------
+  - Keep legacy as DEFAULT until the new path passes the doc-04 acceptance gate
+    AND soaks on real levels.
+  - Even after default-flip (enable 0->1), KEEP the cvar + legacy code for instant
+    rollback (mirrors how the RR depth + history-reset work kept toggles).
+  - Only consider deleting legacy after the new path is the proven default for a
+    sustained period. Removal is a separate, later cleanup task — not part of this
+    build.
+
+--------------------------------------------------------------------------------
+6. CONSEQUENT EDITS TO EARLIER DOCS
+--------------------------------------------------------------------------------
+  - 01.D / 02 "add fields ONTO RtSmokeMaterialUniverseFacts": SUPERSEDED — the new
+    path uses its OWN record struct. The note that the persistent record is the
+    right HOME for cached classification still holds, but it's a NEW record.
+  - 05 MATCLASS-02 "add fields to RtSmokeMaterialUniverseFacts": read as "create a
+    new RtMaterialRecord + cache" instead.
+  - Everything else (routing 06, BSDF table 03 as Route C, dynamic framework 07,
+    validation 04) stands unchanged; it just lives in the new module.
+</content>

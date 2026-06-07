@@ -20,6 +20,8 @@
 #ifndef PATHTRACE_SMOKE_RAB_MATERIAL_SUPPLIER_HLSLI
 #define PATHTRACE_SMOKE_RAB_MATERIAL_SUPPLIER_HLSLI
 
+#include "pathtrace_material_classifier.hlsli"
+
 float4 LoadSmokeTextureTexel(uint textureIndex, uint2 texel, bool bindlessEnabled)
 {
     return bindlessEnabled
@@ -362,6 +364,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     {
         SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
     }
+    SmokeApplyMaterialClassifierBsdf(smokeMaterial, albedo.rgb, specularF0, roughness);
     if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;

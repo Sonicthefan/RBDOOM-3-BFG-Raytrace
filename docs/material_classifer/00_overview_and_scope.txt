@@ -1,0 +1,106 @@
+PROPER DOOM 3 / IDTECH4 MATERIAL CLASSIFIER — PLANNING OVERVIEW
+================================================================
+Branch: restir-development
+Authored: 2026-06-07
+Companion research doc: docs/doom3_idtech4_material_reference_for_coding_agent.txt
+Extracted .mtr corpus for study: E:/prog/references/doom3_MTR/materials (64 files, ASCII)
+
+*** BINDING ADDENDUM (read 06_engine_pbr_integration.txt FIRST). RBDOOM-3-BFG is
+*** a fork with NATIVE PBR support (basecolormap/normalmap/rmaomap; engine auto-
+*** generates _rmao overrides for old materials). The classifier's primary BSDF
+*** job is ROUTING (06): Route A real-PBR (rmao usage TD_SPECULAR_PBR_RMAO) >
+*** Route B legacy-gloss > Route C surfaceType-table fallback. The surfaceType->
+*** BSDF table in 03 is ROUTE C ONLY. 06 overrides 00/02/03 where they conflict.
+***
+*** BUILD STRATEGY (08, authoritative): this is a NEW module built ALONGSIDE the
+*** legacy classifier, gated by r_pathTracingMatClassEnable (default 0). Legacy
+*** (the throwaway debug classifier + RtSmokeMaterialUniverseFacts) is NOT
+*** upgraded in place — it stays as default + rollback + parallel-work safety net.
+*** The new path owns its OWN per-materialId record (not the legacy facts struct).
+*** 08 supersedes any "extend existing facts/classifier" wording in 00-07.
+
+--------------------------------------------------------------------------------
+0. ONE-LINE GOAL
+--------------------------------------------------------------------------------
+Replace the path tracer's name-string + blend-state material guessing with a
+DECLARATION-DRIVEN classifier that reads the metadata idTech4 already parsed into
+idMaterial — above all GetSurfaceType() (SURFTYPE_METAL/STONE/FLESH/WOOD/GLASS/
+LIQUID/PLASTIC/CARDBOARD/RICOCHET) and the per-stage lighting roles
+(SL_BUMP/SL_DIFFUSE/SL_SPECULAR/SL_AMBIENT) — and converts that, in a SEPARATE
+layer, into path-tracer BSDF inputs (albedo / normal / specular / roughness /
+metallic / transmission / IOR / emission).
+
+--------------------------------------------------------------------------------
+1. WHY NOW — THE CORE GAP (audited from current code 2026-06-07)
+--------------------------------------------------------------------------------
+The existing material path has three concrete gaps that this plan closes:
+
+  GAP-1  No use of authoritative surface metadata.
+         PathTraceDoomMaterialClassifier.cpp classifies ENTIRELY from material
+         NAME tokens ("glass","glow","decal","metal"...) and GL blend bits.
+         It NEVER calls idMaterial::GetSurfaceType(). idTech4 already resolved
+         the authoritative surface category (Material.h surfTypes_t, set from the
+         .mtr surface parm via CheckSurfaceParm). The reference doc's #1 rule —
+         "use the explicit surface parm before name guessing" — is unmet today.
+
+  GAP-2  No BSDF parameter channel to the GPU.
+         PathTraceSmokeMaterial (PathTraceEmissiveCandidates.h) carries diffuse/
+         normal/specular/emissive texture indices, alphaCutoff, a uint32 flags
+         field, and a debug albedo. There is NO roughness, metallic, IOR, or
+         transmission scalar. Even a perfect classifier currently has nowhere to
+         put "this is metal -> metallic=1, roughness from specular". A new
+         per-material BSDF parameter block (CPU facts + GPU struct fields) is a
+         prerequisite, not an afterthought.
+
+  GAP-3  Heuristics are tangled with conversion.
+         Today the same functions decide "is this an additive decal" AND drive
+         renderer fallback behavior. The reference doc insists the .mtr-truth
+         layer and the rendering-interpretation layer stay separate so each can
+         be validated independently. We adopt that split explicitly.
+
+--------------------------------------------------------------------------------
+2. SCOPE
+--------------------------------------------------------------------------------
+IN SCOPE (this plan):
+  - A classification layer that reports, per idMaterial, what idTech4 says:
+    surfaceType, per-stage interaction roles grouped into packets, render/content
+    flags (translucent, twoSided, noShadows, alphaTest+cutoff, decal sort), and
+    emissive intent.
+  - A SEPARATE conversion layer: surfaceType + stage data -> BSDF parameters.
+  - The GPU-side material struct extension to carry those BSDF parameters.
+  - A confidence + diagnostics channel (authoritative vs heuristic-fallback).
+  - Validation methodology (corpus replay + in-engine A/B).
+
+NOT IN SCOPE (explicitly deferred, do not chase here):
+  - Writing a standalone .mtr/PK4 parser/VFS. rbdoom IS idTech4; idMaterial is
+    already parsed in-engine. Sections 1-6 / 11 of the reference doc (build VFS,
+    parse .mtr) describe an EXTERNAL tool; we consume the engine's parsed result
+    instead. The .mtr corpus is for STUDY and offline validation only.
+  - Image-program (addnormals/heightmap) baking — engine already resolves stage
+    images to idImage; we read the resolved image, not the expression AST.
+  - Skin remap resolution (engine handles surface->material binding upstream).
+  - Full PBR re-authoring of textures; diffusemap stays legacy albedo.
+  - Any ReSTIR / NEE-cache / DLSS-RR work (separate arcs; see memory).
+
+--------------------------------------------------------------------------------
+3. KNOWN PROJECT CONSTRAINT TO RESPECT
+--------------------------------------------------------------------------------
+The geometry/light universe is view-dependent (see nee-cache-regir-status memory).
+The classifier is keyed on idMaterial, which is universe-independent, so this
+plan is largely orthogonal — but classification MUST be stable per material id
+(same material -> same class every frame) so it never adds to temporal churn.
+Cache classifier results in the persistent material record, not per-frame.
+
+--------------------------------------------------------------------------------
+4. DOCUMENT SET (this folder)
+--------------------------------------------------------------------------------
+  00_overview_and_scope.txt        (this file)
+  01_current_state_audit.txt       what exists, file-by-file, with the seams
+  02_classifier_architecture.txt   the two-layer design + data model
+  03_surfacetype_bsdf_mapping.txt  surfTypes_t + stages -> BSDF params table
+  04_validation.txt                corpus replay + in-engine A/B acceptance
+  05_task_breakdown.txt            phased MATCLASS-xx tasks with done-criteria
+
+Read in order. 05 is what an implementing agent executes from.
+</content>
+</invoke>

@@ -1,0 +1,214 @@
+TASK BREAKDOWN — MATCLASS-xx
+============================
+Authored: 2026-06-07.
+Execute in order. Each task lists files, the change, and a done-criterion.
+Read 00-04 AND 06 first. 06 (engine PBR routing) reorders the BSDF work: the
+core is route detection (A real-PBR rmao / B legacy gloss / C surfaceType), not
+the 03 table. Honor shader-rebuild-gotcha + build/deploy steps (below).
+Keep everything behind r_pathTracingMatClassEnable until the 04 gate passes.
+
+--------------------------------------------------------------------------------
+PHASE 0 — GROUNDING (read-only, no code)
+--------------------------------------------------------------------------------
+MATCLASS-00  Confirm GetSurfaceType is populated for loaded materials and study
+             the corpus.
+  - PRIMARY (camera-independent, definitive): iterate the WHOLE material decl set
+    (declManager GetNumDecls(DECL_MATERIAL) -> idMaterial), tabulate GetSurfaceType()
+    across all loaded materials -> the true distribution of non-NONE vs NONE. This
+    answers the premise regardless of what a single camera sees. If overwhelmingly
+    SURFTYPE_NONE, the surfaceType route is weak and Route C / name-fallback /
+    rmao-overrides carry the load — escalate before building the table.
+  - SECONDARY (in-context spot check): a representative default level, dump
+    GetSurfaceType for VISIBLE materials. No special map/camera required; pick a
+    material-diverse base level (e.g. mars_city1 / alphalabs1 — rich metal/wall/
+    glass/sign). NOTE: flesh/monster surfaceTypes only appear with a spawned
+    monster or model viewer, so flesh coverage from a walkthrough will read low.
+  - Skim glass.mtr / base_wall.mtr / characters.mtr / metal-ish entries to learn
+    which classes the shipped content actually declares.
+  DONE: a note appended here listing observed surfaceType distribution + any
+        material whose declared surfaceType is NONE but should be a class
+        (name-only). This calibrates how much name-fallback realistically matters.
+
+MATCLASS-00b  Build inclusion for the new files (verify before coding far).
+  - renderer/NVRHI/*.cpp|*.h are globbed with CONFIGURE_DEPENDS (CMakeLists.txt
+    :530-531), so new PathTraceMaterialClassifier.{h,cpp} are auto-included on the
+    next configure. Trigger a CMake reconfigure (CONFIGURE_DEPENDS usually re-globs
+    automatically; if VS doesn't, delete the cache / re-run the preset configure).
+  - The separate PathTraceCpuPlanningHarness target uses an EXPLICIT file list
+    (CMakeLists.txt ~1515-1518); the new classifier is NOT needed there -> no edit.
+  DONE: new empty .cpp/.h compile+link into RBDoom3BFG via the glob; harness
+        target untouched.
+
+MATCLASS-00c  Normal-map convention source (research gate for 01a / 06).
+  RESOLVED 2026-06-07 (see 06 finding C): NO green flip in the raster path; the
+  decode is a FORMAT swizzle in interactionSM.ps.hlsl ~131-138 (USE_NORMAL_FMT_RGB8
+  -> bumpMap.rg-0.5 ; else compressed -> bumpMap.wy-0.5 ; z reconstructed). Per-
+  material signal = normal idImage colorFormat (CFM_NORMAL_DXT5 vs RGB8). New path
+  mirrors this exact decode keyed on format -> retires global
+  r_pathTracingNormalMapFlipGreen for the classifier path. Implement in 01a/07.
+
+--------------------------------------------------------------------------------
+PHASE 1 — LAYER 1 CLASSIFICATION (engine truth)
+--------------------------------------------------------------------------------
+MATCLASS-01a  Add BSDF-ROUTE detection (the core of 06) — do this BEFORE the
+             surfaceType table.
+  Files: NEW PathTraceMaterialClassifier.h/.cpp. Use
+         PathTraceDoomMaterialClassifier.* only as read-only reference behavior.
+  - For the SL_SPECULAR stage, read stage->texture.image->GetUsage():
+      TD_SPECULAR_PBR_RMAO/RMAOD -> RouteA; TD_SPECULAR -> RouteB; none -> RouteC.
+  - Resolve basecolor(SL_DIFFUSE)/normal(SL_BUMP)/rmao(SL_SPECULAR) image handles
+    per route. Record route + per-material normal decode mode (RGB8 rg vs
+    compressed wy swizzle) on the classification.
+  DONE: V1 dump shows per-material route A/B/C and which images feed each.
+  ROBUSTNESS (from 09 DoomRTX findings sec.2): when deciding "has specular" for
+  Route A/B vs Route C, guard the Doom3 spec-map quirks — BLACK spec != missing
+  spec; RGB-only spec with validity-alpha 0 is still valid; the fallback-albedo
+  descriptor can masquerade as a spec map (specSample.rgb==baseAlbedo) so a missing
+  spec must not read albedo as specular.
+
+MATCLASS-01b  Canonical RB gloss->roughness + metal-rough GGX setup.
+  RESOLVED 2026-06-07 (see 06 findings A/B). Sources: interactionSM.ps.hlsl
+  ~478-504, BRDF.inc.hlsl EstimateLegacyRoughness:107 / PBRFromSpecmap:124 /
+  KENNY_PBR=1:119.
+  - Route A (USE_PBR): roughness=max(0.05,rmao.r), metallic=rmao.g, F0=lerp(0.04,
+    baseColor,metallic), diffuse=base*(1-metallic). THE missing branch.
+  - Route B: active raster legacy branch is KENNY_PBR(=1) = PBRFromSpecmap (final
+    extra sqrt). The PT placeholder SmokePBRFromSpecmap already copies this curve
+    faithfully, so Route B may REUSE it; the fault was applying it universally +
+    ignoring metallic/AO, not the curve. EstimateLegacyRoughness is INACTIVE
+    (only if KENNY_PBR==0) — don't mirror it unless that flips.
+  DONE (research). Implementation lands in MATCLASS-03/07.
+
+MATCLASS-01  Add RtSurfaceClass / RtClassConfidence enums + a
+             ClassifyDoomSurfaceType(const idMaterial*) function. (ROUTE C input)
+  Files: NEW PathTraceMaterialClassifier.h/.cpp.
+  - Map explicit material/stage/image facts first, then use GetSurfaceType() as
+    a Route-C fallback/diagnostic signal. SURFTYPE_NONE falls through to name
+    tokens and the industrial metal default; non-NONE surfaceType must not
+    override obvious authored texture-family or stage-kind evidence.
+  - Pure function; copy the useful token-list behavior for fallback only. Do not
+    call through the legacy classifier as the new system's owner.
+  DONE: unit-style corpus dump (V1) shows correct confidence labelling.
+
+MATCLASS-02  Create a NEW per-materialId record + cache (per 08 — do NOT extend
+             the legacy RtSmokeMaterialUniverseFacts).
+  Files: NEW PathTraceMaterialClassifier.{h,cpp} (new RtMaterialRecord struct +
+         its own materialId->record map). Legacy universe untouched.
+  - Record carries: surfaceClass, surfaceClassConfidence, RtMaterialBsdfParams
+    (roughness/metallic/ior/transmission/specularF0/ao/subsurfaceHint/twoSidedBsdf),
+    route A/B/C, normal convention, and the dynamic descriptor (07.2 / DYN-1).
+  - Classify once, cached per materialId (temporally stable).
+  DONE: new cache populated; legacy path byte-identical with cvar off; cache hits.
+
+--------------------------------------------------------------------------------
+PHASE 2 — LAYER 2 CONVERSION (policy)
+--------------------------------------------------------------------------------
+MATCLASS-03  Add ConvertToBsdfParams(classification) per 03's table, behind cvars.
+  Files: PathTraceMaterialClassifier.cpp (or a new sibling in the same new stack),
+         PathTraceCVars.cpp/.h for r_pathTracingMatClass* cvars.
+  - Implement primary table + stage-kind overrides + missing-map defaults.
+  - specularmap->roughness/F0 derivation (gated by SpecLumaToRoughness cvar;
+    needs a representative specular luma — see MATCLASS-04).
+  DONE: RtMaterialRecord.bsdf populated; toggling cvars changes the values in the
+        V1 dump.
+
+MATCLASS-04  Specular luma sampling (optional within MATCLASS-03 if cheap).
+  - At classify time, derive a representative specular intensity from the
+    resolved specular idImage. If sampling the image at runtime is impractical,
+    use image metadata (avg color if available) or fall back to class default and
+    flag it. Do NOT block phase 2 on this — class defaults are acceptable v1.
+  DONE: roughness varies with specular presence, or is documented as deferred.
+
+--------------------------------------------------------------------------------
+PHASE 3 — GPU PLUMBING
+--------------------------------------------------------------------------------
+MATCLASS-05  Extend PathTraceSmokeMaterial with BSDF fields (CPU + HLSL).
+  Files: PathTraceEmissiveCandidates.h (PathTraceSmokeMaterial), the HLSL
+         material struct, keep 16-byte alignment (consume padding0..2, widen if
+         needed). Mirror exactly on both sides.
+  - Add metallic, roughness, ior, transmission, specularF0, ao (rmao.B) (+flags
+    bits for subsurface/twoSided, route A/B/C, and per-material normal decode
+    mode).
+  - Where rmao maps exist (Route A), the shader samples roughness/metallic/AO from
+    the rmao texture per-texel; the scalars are the Route-B/C fallback values, so
+    carry BOTH the route bit and the scalars.
+  DONE: struct sizes match CPU<->HLSL; no validation-layer/size mismatch at load.
+
+MATCLASS-06  Copy RtMaterialRecord.bsdf -> PathTraceSmokeMaterial in the NEW
+             table row-fill path; extend the new-path table signature to include
+             the new fields.
+  Files: PathTraceDynamicMaterialState.cpp switch seam + new row-fill code.
+         Leave BuildSmokeMaterialTableFromUniverse* as the legacy/off path.
+  - Ensure signature changes ONLY on real edits/overrides, not per frame
+    (protect the cache hit rate + avoid RR history-reset churn — 04 V4).
+  DONE: GPU rows carry BSDF params; cache hit rate unchanged held-still.
+
+MATCLASS-07  Consume BSDF params in the path-tracing shader BSDF eval.
+  Files: the clean RTXDI DI material/BSDF hlsli(s). Behind MatClassEnable.
+  - Drive metallic/roughness/ior/transmission/F0 into the existing BSDF; glass/
+    liquid transmission; flesh subsurface hint (or just lower-roughness dielectric
+    if no SSS available v1).
+  - REMEMBER shader-rebuild-gotcha: delete affected .rt.bin before building.
+  DONE: enable 0 vs 1 produces the V3 visible differences.
+
+--------------------------------------------------------------------------------
+PHASE 4 — DIAGNOSTICS + VALIDATION
+--------------------------------------------------------------------------------
+MATCLASS-08  Debug list (r_pathTracingMatClassDebugList) per 02 diagnostics +
+             04 V1/V2 dump. Files: PathTraceSurfaceDebugDumps / PathTraceDebugDumps.
+  DONE: per-material name/surfaceType/class/confidence/bsdf listing works.
+
+MATCLASS-09  Run the 04 acceptance gate (V1-V5). Record validated cvar defaults
+             back into 03's table. Then flip MatClassEnable default 0->1.
+  DONE: all 04 gate boxes checked; defaults locked; legacy path retained.
+
+--------------------------------------------------------------------------------
+PHASE 5 — DYNAMIC MATERIALS (fade / flipbook / video / decals)
+--------------------------------------------------------------------------------
+See 07_dynamic_materials.txt for the full framework + engine anchors. SEPARATE
+from the static classifier (per-frame + per-instance, can't live in the cache).
+  MATCLASS-DYN-1  Static dynamic-descriptor tagging on the NEW RtMaterialRecord
+                  (isDynamic=ConstantRegisters()==NULL, hasDynamicColor/Alpha,
+                  hasConditionToggle, hasTexMatrixAnim, isFlipbookAtlas+frames/axis,
+                  isVideoMap, isProjectedDecal, channel map). CHEAP — ship with the
+                  static classifier. Files: new classifier + new record.
+  MATCLASS-DYN-2  Per-frame evaluator: per visible surf read drawSurf->shaderRegisters
+                  (already reachable, PathTraceSceneCapture.cpp:320) -> color/alpha/
+                  conditionEnabled + MultiplyTextureMatrix texMatrix. Files: capture +
+                  PathTraceDynamicMaterialState.cpp.
+  MATCLASS-DYN-3  Per-instance GPU dynamic channel (keyed by stable instanceId) +
+                  shader apply (colorMul to albedo/emissive, texMatrix to UV, skip
+                  disabled stages, video frame). The real new infra. shader-rebuild-
+                  gotcha applies.
+  MATCLASS-DYN-4  Unify per-instance dynamic EMISSIVE with the NEE/emissive-candidate
+                  intensity so DI and the fade agree (07 sec.5). Depends on stable
+                  instanceId; intersects the view-dependent universe issue.
+                  RISK MITIGATION (09 DoomRTX sec.3): the other fork TRIED emissive-
+                  as-light and gave up, keeping it bloom/direct-only. Keep a DEGRADED
+                  cvar mode (emissive = visible/bloom only, not a GI light) as
+                  fallback if emissive-as-light regresses. Their per-mesh emissive
+                  metadata (color+power, clamped 0..64) is a template for the per-
+                  instance emissive channel.
+  DYN-1 with static classifier; DYN-2..4 are the later "drive the animations" stage.
+
+--------------------------------------------------------------------------------
+BUILD / DEPLOY (from neo/)
+--------------------------------------------------------------------------------
+  cmake --build --preset win64-pt-dev-release
+  copy build-win64-pt-dev/Release/RBDoom3BFG.exe -> E:/prog/rbdoom-3-BFG-prebuilt/
+  copy rebuilt SPIR-V under base/renderprogs2/spirv ONLY (Vulkan runtime).
+  GOTCHA: editing a .hlsli may NOT trigger a rebuild — delete the affected
+  .rt.bin under base/renderprogs2/spirv/builtin/pathtracing/.../<entry>.rt.bin
+  first, then build. Verify new blob mtime > your edit.
+
+--------------------------------------------------------------------------------
+RISK / OPEN QUESTIONS (resolve as encountered, don't pre-chase)
+--------------------------------------------------------------------------------
+  - MATCLASS-00 may reveal most shipped surfaceTypes are NONE -> name fallback
+    matters more than hoped; the plan still holds (fallback path is built in) but
+    re-weight effort toward good heuristics if so.
+  - PathTraceSmokeMaterial widening must not break existing emissive/decal flag
+    semantics — additive only.
+  - Subsurface (flesh) may have no shader support yet; v1 = low-roughness
+    dielectric tint, real SSS deferred.
+</content>

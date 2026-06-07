@@ -1,0 +1,112 @@
+CURRENT MATERIAL-PATH STATE AUDIT
+=================================
+Authored: 2026-06-07. All paths under neo/renderer/.
+Purpose: ground the plan in what already exists so we EXTEND, not rewrite.
+
+--------------------------------------------------------------------------------
+A. AUTHORITATIVE METADATA AVAILABLE FROM idMaterial (engine, already parsed)
+--------------------------------------------------------------------------------
+Material.h exposes everything the reference doc calls "source of truth":
+
+  surfTypes_t GetSurfaceType() const            (Material.h:774)
+      SURFTYPE_NONE/METAL/STONE/FLESH/WOOD/CARDBOARD/LIQUID/GLASS/PLASTIC/
+      RICOCHET/10..15  (enum at Material.h:405-420)
+      -> set by CheckSurfaceParm from the .mtr surface parm. THE key signal.
+  int GetSurfaceFlags() const                   (Material.h:768)
+  materialCoverage_t Coverage()                 (MC_OPAQUE/PERFORATED/TRANSLUCENT)
+  float GetSort()                               (SS_GUI / SS_DECAL / SS_POST_PROCESS...)
+  bool IsDrawn()                                (Material.h:541)
+  per-stage: shaderStage_t.lighting (SL_BUMP/SL_DIFFUSE/SL_SPECULAR/SL_AMBIENT/
+      SL_COVERAGE), stage->texture.image (resolved idImage, post image-program),
+      drawStateBits (GL blend), hasAlphaTest, alphaTestRegister, texgen.
+  material flags: TestMaterialFlag(MF_POLYGONOFFSET / MF_NOSHADOWS / ...).
+
+CONFIRMED 2026-06-07: GetSurfaceType() and GetSurfaceFlags() are referenced in
+ZERO files under neo/renderer/NVRHI. The single most authoritative classification
+input is currently unused by the path tracer.
+
+--------------------------------------------------------------------------------
+B. EXISTING CLASSIFIER  (PathTraceDoomMaterialClassifier.cpp/.h, 389 lines)
+--------------------------------------------------------------------------------
+What it does today:
+  - RtSmokeTranslucentClassifierInfo: a bag of bools driven by
+      (1) MATERIAL-NAME token lists (guiTokens/glassTokens/glowTokens/
+          decalTokens/signageTokens/particleTokens) — the reference doc's
+          explicit DO-NOT list ("treat _d/_s/name as authoritative").
+      (2) GL blend-state bits (additive / filter / src-alpha) per stage.
+      (3) stage->lighting (SL_AMBIENT/SL_DIFFUSE) — partial role use.
+  - Decision helpers: ResolveSmokeMaterialAlphaInfo (alphaTest+cutoff — this part
+    IS metadata-correct, reads Coverage()/hasAlphaTest/alphaTestRegister),
+    IsSmokeAdditiveDecalMaterial, IsSmokeAdditiveWhiteKeyMaterial,
+    IsSmokeRgbKeyedBlendDecalMaterial, IsSmokeYCoCgDiffuseMapDecalMaterial.
+
+Assessment:
+  - GOOD and KEEP: the alpha-test/cutoff extraction and blend-bit inspection are
+    legitimate metadata reads. Reuse the same logic in the new classifier, but do
+    not move ownership into the legacy classifier or legacy facts record.
+  - WEAK / TO REPLACE: surface-CATEGORY inference is 100% name tokens. This is
+    where SURFTYPE_* must take over as the primary signal, with name tokens
+    demoted to fallback-only (and flagged LOW confidence).
+  - These helpers are pure (idMaterial -> info), so they are useful reference
+    code. Keep the existing entry points stable for legacy callers; implement the
+    new route/classification path in separate new module files.
+
+--------------------------------------------------------------------------------
+C. CONSUMERS (who calls the classifier — refactor blast radius)
+--------------------------------------------------------------------------------
+BuildSmokeTranslucentClassifierInfo / ResolveSmokeMaterialAlphaInfo / the
+Is*Decal helpers are referenced from 7 files:
+  PathTraceGeometryUniverse.cpp, PathTraceSceneUniverse.cpp,
+  PathTraceDrawSurfCapture.cpp, PathTraceSurfaceDebugDumps.cpp,
+  PathTraceMaterialTextureDiscovery.cpp, PathTraceSceneCapture.cpp,
+  PathTraceSurfaceClassification.cpp.
+=> Keep these signatures stable. The new classifier must not require these callers
+   to change while it is default-off; branch to the new module only at the
+   material-table switch seam described in 08.
+
+--------------------------------------------------------------------------------
+D. LEGACY PERSISTENT FACTS  (PathTraceMaterialUniverse.h)
+--------------------------------------------------------------------------------
+RtSmokeMaterialUniverseFacts is the per-material persistent record (cached,
+render-thread owned, keyed by materialId). It already stores: alphaTested,
+alphaCutoff, diffuseYCoCg, additiveDecal/whiteKey, filterDecal, emissive,
+emissiveColor/Luminance, has*Image/hasSafe*Texture booleans, fallbackAlbedo.
+
+=> DO NOT add new classifier output here. This record is the legacy safety net.
+   The new classifier should create its own persistent per-materialId record with
+   equivalent cached lifetime/stability, and may copy useful legacy facts into
+   that new record by value if needed.
+
+--------------------------------------------------------------------------------
+E. GPU MATERIAL STRUCT  (PathTraceEmissiveCandidates.h, PathTraceSmokeMaterial)
+--------------------------------------------------------------------------------
+Fields today: debugAlbedo[4], emissiveColor[4], {diffuse,alpha,normal,specular,
+emissive}TextureIndex, alphaCutoff, flags (uint32), texture dims, padding0..2.
+Flag bits live in PathTraceDynamicMaterialState.h (RT_SMOKE_MATERIAL_*).
+
+MISSING for a proper classifier: roughness, metallic, IOR, transmission,
+specularTint/F0. There are 3 padding words (padding0..2) — partial headroom, but
+a clean BSDF block likely needs the struct widened. Any field add must be mirrored
+in the HLSL material struct + keep 16-byte alignment, and triggers the shader-
+rebuild gotcha (delete affected .rt.bin). See shader-rebuild-gotcha memory.
+
+--------------------------------------------------------------------------------
+F. TABLE BUILD  (PathTraceDynamicMaterialState.cpp, ~44k)
+--------------------------------------------------------------------------------
+BuildSmokeMaterialTableFromUniverse* turns universe facts -> PathTraceSmokeMaterial
+rows + descriptor texture binding for the legacy path. The new path should have a
+parallel row-fill function that writes the same shared GPU row type from the new
+RtMaterialRecord. Cached by signature; the new-path signature must include the
+new BSDF fields so edits/overrides invalidate correctly.
+
+--------------------------------------------------------------------------------
+G. SUMMARY OF SEAMS THE PLAN USES
+--------------------------------------------------------------------------------
+  classify(idMaterial) ----------> NEW RtMaterialRecord (new cache)
+        |                                   |
+   (new route/surface layer +          cached per materialId
+    copied alpha/blend logic)               |
+                                  NEW table row-fill copies BSDF -> shared GPU row
+                                            |
+                                  PathTraceSmokeMaterial (new fields) -> HLSL
+</content>

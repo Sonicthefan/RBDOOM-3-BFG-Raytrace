@@ -1,0 +1,172 @@
+ENGINE PBR INTEGRATION  EAUTHORITATIVE ROUTING CONTRACT
+=======================================================
+Authored: 2026-06-07 after auditing RB-fork PBR support.
+*** This doc OVERRIDES the BSDF approach implied in 00/02/03 where they conflict.
+*** surfaceType->BSDF (03's table) is a LAST-RESORT fallback, NOT the primary path.
+
+RBDOOM-3-BFG is a fork with NATIVE PBR material support beyond stock Doom 3.
+The classifier must LEVERAGE that, not re-derive BSDF from surface category.
+
+================================================================================
+RESOLVED RESEARCH FINDINGS (2026-06-07)  Eread before implementing routes
+================================================================================
+Canonical raster source: neo/shaders/builtin/lighting/interactionSM.ps.hlsl
+(lines ~118-160 normal, ~478-504 roughness/F0) + neo/shaders/BRDF.inc.hlsl
+(EstimateLegacyRoughness:107, PBRFromSpecmap:124, KENNY_PBR defined =1 :119).
+
+A. ROUTE A (real PBR, USE_PBR branch)  EEXACT raster formula to mirror:
+     roughness     = max( 0.05, rmao.r )          // rmao.r is the raw spec.R
+     metallic      = rmao.g
+     baseColor     = diffuse/basecolor (YCoCg-decoded, linear)
+     diffuseColor  = baseColor * (1 - metallic)
+     specularColor = lerp( float3(0.04), baseColor, metallic )   // F0
+     AO (rmao.b)   = indirect/IBL only (see D).
+   This is the branch the PT placeholder NEVER does  Eit is the core missing work.
+
+B. ROUTE B (legacy gloss/spec)  Ethe ACTIVE raster branch is KENNY_PBR (=1),
+   i.e. BRDF.inc.hlsl PBRFromSpecmap(specMapSRGB.rgb) -> F0 + roughness, then a
+   final roughness = sqrt(roughness). CORRECTION to earlier wording: the PT
+   placeholder SmokePBRFromSpecmap IS a faithful copy of PBRFromSpecmap, so its
+   CURVE is correct for Route B. EstimateLegacyRoughness (the simpler Y^0.5 gloss
+   curve) is NOT active (only used if KENNY_PBR==0)  Edo not mirror it.
+   => The placeholder's real fault is NOT the curve; it is (1) applied to ALL
+      materials including rmao (never selecting Route A), and (2) ignoring
+      metallic/AO. Route B may REUSE the placeholder math; the fix is routing,
+      not replacing the legacy curve. (If KENNY_PBR is ever set 0, switch Route B
+      to EstimateLegacyRoughness to stay raster-faithful.)
+
+C. NORMAL CONVENTION  Ethere is NO green flip in the raster path. Decode is a
+   FORMAT-based swizzle (interactionSM.ps.hlsl ~131-138):
+     USE_NORMAL_FMT_RGB8 : localNormal.xy = bumpMap.rg - 0.5   // standard RGB8
+     else                : localNormal.xy = bumpMap.wy - 0.5   // compressed
+                                                                // (X in alpha,
+                                                                //  Y in green)
+     localNormal.z = sqrt( abs( dot(xy,xy) - 0.25 ) ); normalize.
+   Both read Y straight from green (no negation). So the correct per-material
+   signal is the NORMAL IMAGE FORMAT (RGB8 vs compressed RGTC/DXT5nm), reachable
+   via the normal idImage colorFormat/GetUsage (CFM_NORMAL_DXT5 etc., Image.h).
+   ACTION: the new path should mirror this exact decode keyed on the normal
+   image's format, which makes the global r_pathTracingNormalMapFlipGreen
+   unnecessary for the classifier path (the flip was a PT-only workaround for not
+   decoding identically to raster). Record format->convention in RtMaterialRecord.
+
+D. AO: rmao.b modulates INDIRECT/IBL only (raster mixes it with SSAO for env-probe
+   ambient). Never multiply direct lighting by AO.
+
+E. SWITCH SEAM (concrete): material table is built in
+   neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp ~2284-2327, already a
+   legacy/universe/validate three-way gated by useMaterialUniverseTable. Add the
+   new MatClass producer as a third branch HERE, filling the SHARED
+   RtSmokeMaterialTableBuild row type (so descriptor binding/upload downstream is
+   identical). enable 0 => existing BuildSmokeMaterialTable* path byte-identical.
+
+F. SURFACETYPE DISTRIBUTION: requires a runtime measurement (MATCLASS-00)  Eset
+   by idMaterial::CheckSurfaceParm from the .mtr surface parm. Static side is
+   confirmed (corpus declares glass/metal/flesh etc.); the NONE-vs-classified
+   RATIO in shipped content is the only part that still needs an in-engine run.
+
+--------------------------------------------------------------------------------
+1. ENGINE FACTS (verified in code)
+--------------------------------------------------------------------------------
+Stage keyword aliases (Material.cpp ParseBlend ~1101-1115, shortcuts ~2880-2906):
+  bumpmap     == normalmap                    -> SL_BUMP
+  diffusemap  == basecolormap                 -> SL_DIFFUSE
+  specularmap == rmaomap == reflectionmap == pbrmap -> SL_SPECULAR
+
+CRITICAL: rmaomap and legacy specularmap are the SAME stage lighting (SL_SPECULAR).
+The ONLY runtime signal distinguishing real-PBR from legacy gloss is the IMAGE
+USAGE on stage->texture.image->GetUsage() (Image.h):
+  TD_SPECULAR             -> legacy Blinn-Phong gloss/spec map (stock Doom 3).
+  TD_SPECULAR_PBR_RMAO    -> real PBR: linear RGB, R=Roughness G=Metalness B=AO.
+  TD_SPECULAR_PBR_RMAOD   -> RMAO + alpha = displacement.
+Usage is chosen from the filename (_rmao / _rmaod) at Material.cpp ~2277-2287.
+
+Auto-PBR overrides: the engine looks for `_rmao.[png|tga]` (and basecolor)
+overrides for OLD materials and rewrites the material to a real PBR path
+(Material.cpp ~4137-4333, even byte-swaps to RMAO channel order). So a stock
+material a user has dropped a `_rmao` next to ALREADY arrives at the path tracer
+as TD_SPECULAR_PBR_RMAO  Ewe get real PBR for free IF we read the usage.
+
+RB raster path: stock specularmaps still go through GGX Cook-Torrance. The active
+legacy branch is KENNY_PBR=1, so Route B should reuse the PBRFromSpecmap curve
+that SmokePBRFromSpecmap already mirrors. The placeholder's bug is routing: it is
+applied broadly instead of selecting Route A for RMAO and carrying metallic/AO.
+
+Normal maps: the raster path does not apply a semantic green-channel inversion.
+It decodes normals by texture format: RGB8 uses bumpMap.rg and compressed normal
+formats use bumpMap.wy. The classifier path should record a normal decode format
+/ swizzle mode from the normal idImage format and mirror that shader decode,
+making the global r_pathTracingNormalMapFlipGreen workaround unnecessary there.
+
+AO (rmao Blue): in RB raster, AO mixes with SSAO and affects ONLY indirect
+lighting from environment probes. In the path tracer, treat rmao.B as a modulator
+of INDIRECT/ambient contribution only  Enever multiply direct lighting by AO.
+
+--------------------------------------------------------------------------------
+2. THE ROUTING CONTRACT (replaces 02 Layer-2 "policy table is primary")
+--------------------------------------------------------------------------------
+Per material, the classifier picks ONE BSDF-source route, in this PRECEDENCE:
+
+  ROUTE A  EREAL PBR (best, highest confidence):
+    Trigger: SL_SPECULAR stage whose image usage == TD_SPECULAR_PBR_RMAO/RMAOD.
+    - albedo    = basecolormap (SL_DIFFUSE image), linear/base color.
+    - roughness = rmao.R (sampled, NOT estimated).
+    - metallic  = rmao.G.
+    - ao        = rmao.B -> indirect-only modulator.
+    - normal    = normalmap decoded by image format/swizzle (RGB8 rg, compressed wy).
+    - F0        = dielectric 0.04 lerp-> albedo by metallic (standard metal-rough).
+    No surfaceType guessing needed; surfaceType is diagnostic only here.
+
+  ROUTE B  ELEGACY GLOSS/SPEC (stock Doom 3):
+    Trigger: SL_SPECULAR stage with usage == TD_SPECULAR (no rmao override).
+    - albedo    = diffusemap.
+    - roughness = PBRFromSpecmap(specMapSRGB.rgb) via the existing Route-B curve
+                  already mirrored by SmokePBRFromSpecmap.
+    - metallic  = 0 (legacy is non-metal by default) UNLESS surfaceType==Metal
+                  (then nudge per 03 / use specular color as F0 tint).
+    - F0        = from spec color (legacy spec intensity).
+    - normal    = normalmap decoded by image format/swizzle (same raster rule).
+
+  ROUTE C  ENO SPECULAR INFO (fallback, lowest confidence):
+    Trigger: no SL_SPECULAR stage at all.
+    - albedo from diffuse/basecolor or fallbackAlbedo.
+    - roughness/metallic/ior/transmission from 03's surfaceType table.
+    - normal: flat if no bump; else convention from the bump image usage.
+
+  SPECIAL kinds (emissive / glass+liquid transmission / GUI / video / mirror /
+  cubeMap) compose/override per 03 stage-kind rules REGARDLESS of route A/B/C.
+
+Confidence: A = Authoritative(PBR), B = Authoritative(legacy-gloss),
+C = Heuristic/Flag/FallbackNone per 03. The 04 V2 coverage report should show
+how much content is A vs B vs C on a real level.
+
+--------------------------------------------------------------------------------
+3. WHAT THIS CHANGES vs THE ORIGINAL PLAN
+--------------------------------------------------------------------------------
+- 00 GAP-2 ("no BSDF channel") is only PARTLY true: shaders already carry
+  roughness/F0 locally and there IS a placeholder emulator + engine PBR maps.
+  The real gap = (a) the classifier doesn't read TD_SPECULAR_PBR_RMAO usage to
+  pick Route A vs B; (b) the Route-B curve is applied too broadly instead of
+  being route-gated; (c) metallic/AO from rmao are unused; (d) normal decode is a
+  global PT workaround instead of mirroring raster's image-format swizzle.
+  Widening PathTraceSmokeMaterial is still needed to carry metallic + AO +
+  per-material normal-decode mode + route/confidence to the GPU.
+- 03's surfaceType->BSDF table stays, but as ROUTE C only.
+- 02's "Layer 2 is the policy that sets metallic/roughness" still holds, but its
+  PRIMARY job is choosing the route and sampling rmao, not applying the table.
+
+--------------------------------------------------------------------------------
+4. NEW/CHANGED CVARS
+--------------------------------------------------------------------------------
+  r_pathTracingMatClassEnable            (master, as before)
+  r_pathTracingMatClassUseRmao           (1=Route A when rmao usage present)
+  r_pathTracingMatClassGlossRoughnessMode(0=Route-B PBRFromSpecmap, 1=legacy
+                                          EstimateLegacyRoughness diagnostic)
+  r_pathTracingMatClassNormalDecodeMode  (0=per-material image-format swizzle,
+                                          1=force RGB8 rg, 2=force compressed wy)
+                                          -- supersedes the global
+                                          r_pathTracingNormalMapFlipGreen for
+                                          the classifier path.
+  r_pathTracingMatClassAoIndirectOnly    (1=rmao.B modulates indirect only)
+Keep r_pathTracingToyFakePBRSpecular working for the legacy/off path.
+</content>

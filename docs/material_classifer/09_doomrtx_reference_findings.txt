@@ -1,0 +1,85 @@
+DOOMRTX-MAIN — CROSS-FORK REFERENCE FINDINGS
+============================================
+Authored: 2026-06-07. Source: E:/prog/references/DoomRTX-main (a SEPARATE
+path-traced Doom 3 fork by another author, older idTech4 base + D3D12 RT).
+Purpose: harvest anything useful for our classifier. Verdict up front:
+LIMITED architectural reuse (different paradigm), but valuable CAUTIONS, a
+Doom3 spec-map EDGE-CASE checklist, and a per-mesh emissive metadata reference.
+Do NOT port their code; our approach is more principled. This doc is reference
+only — it changes no contracts in 00-08.
+
+--------------------------------------------------------------------------------
+1. THEIR PARADIGM (why it's mostly not reusable for us)
+--------------------------------------------------------------------------------
+  - DEFERRED / G-BUFFER, not a material-table path tracer. RT shading reads
+    albedo/specular/emissive G-buffers (gl_raytracing.cpp ~3500-3640); there is NO
+    per-material BSDF table like ours.
+  - NO surfaceType->BSDF: GetSurfaceType/SURFTYPE_* appear ZERO times in the RT
+    path (gl_raytracing.cpp / gl_d3d12raylight.cpp). They classify nothing by
+    surface category. (Their Material.cpp infoParms even adds extra Q4/Prey-style
+    types: matter_tile/altmetal/forcefield/pipe/spirit/chaff/wallwalk — unused by
+    RT.) => Our surfaceType route (Route C) is something they simply don't do.
+  - NO PBR / rmao: no roughness or metallic maps. Roughness is INFERRED from
+    specular-map strength every frame (EstimateSpecularRoughness via SpecularPeak3,
+    gl_raytracing.cpp:3563). We are AHEAD here — RB gives us real rmao (Route A) +
+    the canonical PBRFromSpecmap curve (Route B, 06). Do not adopt their estimate.
+  => Net: there is no classifier to lift. The value is in their hard-won notes.
+
+--------------------------------------------------------------------------------
+2. DOOM3 SPECULAR-MAP EDGE-CASE CHECKLIST (genuinely useful for Route B / discovery)
+--------------------------------------------------------------------------------
+They spent real effort on Doom3 spec-map quirks (gl_raytracing.cpp ~3476-3640).
+Fold these as VALIDATION/robustness checks into our texture discovery + Route B:
+  - BLACK specular must mean ZERO specular, NOT "missing map" (they explicitly
+    guard this). Our discovery should distinguish black-but-present from absent.
+  - RGB-only specular inputs whose validity ALPHA is 0 are still valid spec maps;
+    don't reject on alpha==0 alone.
+  - The fallback-albedo descriptor can be mistaken for a spec map (specSample.rgb
+    == baseAlbedo when no spec bound) -> guard so a missing spec doesn't read the
+    albedo as specular. Relevant to our Route B/C "no specular stage" detection.
+  - Doom3's specular falloff was a lookup table with a high exponent; a single
+    fixed GGX power makes some materials lose specular -> they use a broad fit.
+    (We already mirror RB's canonical curve, so this is corroboration not action.)
+
+--------------------------------------------------------------------------------
+3. EMISSIVE -> GI: STRONG CAUTION (directly relevant to our NEE / DYN-4 work)
+--------------------------------------------------------------------------------
+Repeated, deliberate comments (gl_raytracing.cpp 4392-4408, gl_d3d12raylight.cpp
+5524-5525, 5964, 6023): glow-map emissive is INTENTIONALLY EXCLUDED from GI /
+secondary lighting and kept DIRECT/BLOOM-ONLY, "until real material-space emissive
+lighting." I.e. the other fork TRIED emissive-as-light, found it problematic, and
+GAVE UP on it for GI.
+  - LESSON: emissive-as-actual-light is the hard part (matches our own history:
+    emissive noise/strobe was the big battle, fixed via the NEE cache + stable
+    instanceId). We are attempting what they deferred, so treat emissive light
+    correctness (NEE cache + per-instance dynamic emissive, DYN-4) as high-risk and
+    validate hard. Their fallback (emissive = visible/bloom only, not a light) is a
+    sane DEGRADED MODE worth keeping as a cvar if our emissive-as-light regresses.
+  - Their emissive feed is PER-MESH metadata: glRaytracingSetMeshProcMetadata(...,
+    emissiveR,G,B,power), clamped 0..64 (gl_d3d12raylight.cpp:2290). A useful
+    reference shape for our per-instance dynamic-emissive channel (07 DYN-3/DYN-4):
+    push emissive color+power per mesh/instance from CPU rather than per-material.
+
+--------------------------------------------------------------------------------
+4. SMALLER CORROBORATIONS (our findings independently confirmed)
+--------------------------------------------------------------------------------
+  - AO must NOT multiply direct specular ("AO is a diffuse/ambient visibility term";
+    gl_raytracing.cpp ~4478-4482). Matches 06 finding D (rmao.B = indirect only).
+  - Normal-flip OVERSHOOT caution: "Avoid flipping normals so far that shadows/
+    specular explode" (gl_raytracing.cpp:2748). Reinforces that our format-keyed
+    normal decode (06 finding C) must be exact, not a blanket green-flip.
+  - Character/skin albedo (skin/cloth/armor) needs care so it doesn't "glow like
+    wax" (2686, 4308) — relevant if/when we wire flesh/subsurface (Route C flesh).
+
+--------------------------------------------------------------------------------
+5. ACTION ITEMS FOR OUR PLAN (small, additive)
+--------------------------------------------------------------------------------
+  [ ] Add the sec.2 spec-map edge-case guards to texture discovery / Route B
+      detection (black!=missing, alpha0-but-RGB valid, fallback-albedo!=spec).
+      -> note in MATCLASS-01a/03 validation.
+  [ ] Keep a DEGRADED emissive mode (visible/bloom-only, not a GI light) as a
+      cvar fallback for the emissive-as-light path (DYN-4 risk mitigation).
+  [ ] Per-instance emissive as color+power pushed per mesh/instance (DYN-3/DYN-4)
+      — their metadata shape is a good template.
+  No contract in 00-08 changes; these are robustness add-ons.
+</content>
