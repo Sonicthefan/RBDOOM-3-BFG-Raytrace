@@ -1,3 +1,12 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  The worker starts on NEECACHE-09R and must obey binding contracts:
+  A   sourcePdf = P_select * solidAnglePdf; resolve does NOT re-divide by
+      solidAnglePdf; selection-only sourcePdf is a bug.
+  A.2 cache/fallback is a real mixture pdf (both branches), not the taken branch.
+  B   cells world-anchored (no strobe under camera motion); onion = escape hatch.
+  C   prove convergence + emissive stress + movement no-strobe, not just baseline.
+================================================================================
+
 Paste-Ready NEE Cache Worker Launch Prompt
 =========================================
 

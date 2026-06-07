@@ -263,8 +263,10 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeCleanRtxdiDiBoilingFilterOutputTexture = nullptr;
     m_smokeSkinnedGpuSkinningPipeline = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterPipeline = nullptr;
+    m_smokeNeeCachePrimarySurfaceUpdatePipeline = nullptr;
     m_smokeSkinnedGpuSkinningShader = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterShader = nullptr;
+    m_smokeNeeCachePrimarySurfaceUpdateShader = nullptr;
     m_smokeRestirCombinedPipeline = nullptr;
     m_smokePrimarySurfaceProducerPipeline = nullptr;
     m_smokeRestirIndirectInitialProducerPipeline = nullptr;
@@ -286,6 +288,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokeTextureDescriptorTable = nullptr;
     m_smokeSkinnedGpuSkinningBindingLayout = nullptr;
     m_smokeCleanRtxdiDiBoilingFilterBindingLayout = nullptr;
+    m_smokeNeeCachePrimarySurfaceUpdateBindingLayout = nullptr;
     m_smokeCleanRtxdiDiSentinelBindingLayout = nullptr;
     m_smokeReGIRDebugBindingLayout = nullptr;
     m_smokeBindingLayout = nullptr;

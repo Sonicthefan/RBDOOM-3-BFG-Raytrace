@@ -617,9 +617,9 @@ idCVar r_pathTracingNeeCacheDebugView(
 
 idCVar r_pathTracingNeeCacheCellResolution(
     "r_pathTracingNeeCacheCellResolution",
-    "64",
+    "8",
     CVAR_RENDERER | CVAR_INTEGER,
-    "NEE cache log/hash cell resolution parameter; higher values mean smaller cells; default 64 keeps the moving high-resolution provider region dense enough for clean DI" );
+    "NEE cache log/hash cell resolution parameter; higher values mean smaller cells; default 8 gives 32-world-unit base cells at the default minRange 256; use 16 for sharper diagnostics" );
 
 idCVar r_pathTracingNeeCacheMinRange(
     "r_pathTracingNeeCacheMinRange",

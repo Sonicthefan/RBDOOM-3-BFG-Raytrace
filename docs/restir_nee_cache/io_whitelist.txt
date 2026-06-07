@@ -1,3 +1,10 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  Binding contracts A (sourcePdf = P_select * solidAnglePdf; resolve does not
+  re-divide), A.2 (real cache/fallback mixture pdf), B (world-anchored cells, no
+  strobe under camera motion), C (validation proves convergence, not just
+  baseline) override any conflicting text here. Start task: NEECACHE-09R.
+================================================================================
+
 Remix-Style NEE Cache I/O Whitelist
 ===================================
 

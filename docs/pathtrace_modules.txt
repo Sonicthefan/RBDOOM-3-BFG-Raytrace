@@ -376,6 +376,12 @@ PathTraceSmokeDispatch.cpp
     full-screen raygen work into sequential screen-space `DispatchRays` tiles
     for device-removal diagnosis; clears remain outside the tile loop and the
     shader uses absolute full-frame pixels for output/history/reservoir indexing.
+    It also binds the NEE-cache provider resources for the clean RTXDI DI
+    provider path: provider result SRV `t74`, cell SRV `t75`, and candidate SRV
+    `t77`. That path is only a proposal-provider feed into clean DI initial
+    sampling; dispatch must not promote it into mode-56 proof, old PDFNEE
+    proof, clean temporal edits, clean spatial edits, or a final direct-light
+    contribution inside the cache.
 
 PathTraceSmokeReadback.cpp
     Optional diagnostic readback of the smoke output texture. Handles delayed
@@ -781,6 +787,29 @@ PathTraceRestirPTReservoirs.cpp
     reads it yet. It also creates/reuses and clears the current/previous
     primary-surface buffers used by modes 29-33 and 50-51.
 
+PathTraceNeeCache.h
+    Host-side NEE-cache provider ABI declarations. The provider result, cell,
+    task, and candidate records have fixed 16-byte-aligned strides guarded by
+    static asserts; changing them is a shader ABI change. The state object owns
+    provider/cell/task/candidate buffers, settings snapshots, resource
+    descriptors, RLU signatures, invalidation flags, and the clean-provider
+    snapshot hold used by diagnostics.
+
+PathTraceNeeCache.cpp
+    Builds NEE-cache settings from CVars, sizes the fixed provider resources,
+    creates/reuses UAV buffers, observes RLU structural/mapping/payload
+    signatures, and exposes mode/source-domain names for dumps. This module
+    does not choose final lights and does not own RTXDI reservoirs. The clean DI
+    provider expects dense current RLU identity, `r_pathTracingNeeCacheMode 1`,
+    `r_pathTracingNeeCacheCellResolution 8`, and a real cache/fallback mixture
+    PDF. `cellResolution` is a density divisor for `minRange`: with the default
+    `r_pathTracingNeeCacheMinRange 256`, resolution 8 means 32-world-unit base
+    cells and resolution 16 means 16-world-unit base cells. Keep fallback
+    probability as a mixture weight over both branches:
+    cache-heavy diagnostics can set `r_pathTracingNeeCacheFallbackProbability 0`,
+    normal validation uses the default `0.25`, and fallback-only baseline uses
+    `1`.
+
 pathtrace_smoke.rt.hlsl
     Core smoke ray tracing shader. It keeps mode 18, mode 20, integrator
     visualizers, primary-surface helpers, payloads, hit/miss shaders, and
@@ -909,6 +938,37 @@ cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
     page from the RLU dense current domain without relying on the old external
     PDFNEE prepass, mode-56 routing, split-domain identity, or temporal
     accumulation changes.
+
+cleanroom_rtxdi/pathtrace_clean_rtxdi_di_nee_cache.hlsli
+    Clean RTXDI DI NEE-cache provider include. It maps the current surface to a
+    world-snapped moving-LOD cell, draws either a cache candidate or a fallback
+    dense current RLU light, evaluates the full cache/fallback mixture PDF for
+    the drawn identity, and streams the selected light through
+    `RTXDI_StreamSample`. The source PDF here is selection-domain probability;
+    final clean DI resolve still divides by the selected light `solidAnglePdf`
+    while `r_pathTracingCleanRtxdiDiResolveSolidAnglePdf` remains 1. Do not
+    change only this include to `P_select * solidAnglePdf`; that requires a
+    coordinated target-function and resolve migration.
+
+RtxdiBridge/RAB_NeeCache.hlsli
+    Shared NEE-cache shader mapping helpers. The mapper centers the high-detail
+    region on the camera, snaps that center to the base world-cell size, and
+    hashes world-grid coordinates plus level into fixed physical cells. This is
+    the maintenance boundary for the no-strobe contract: a high-resolution
+    region must follow player movement, but individual cells must not slide
+    continuously with the camera. Keep dump labels consistent with
+    `cellFrame=world-snapped-moving-lod` and
+    `cellMapping=snapped-camera-log-distance-hash`.
+
+pathtrace_nee_cache_debug.rt.hlsl
+    NEE-cache debug raygen library. CMake builds
+    `pathtrace_nee_cache_debug.rt.bin`, and PathTraceSmokeDispatch selects it
+    for `r_pathTracingNeeCacheDebugView` diagnostics when the NEE cache route
+    is requested. Views 2/3 are the first checks for cell identity and
+    occupancy, views 8/9 inspect cache-versus-fallback source and fallback
+    reason, and view 10 checks RAB replay. These views are diagnostics for the
+    provider resources; they are not final DI lighting or proof of spatial
+    reuse.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE

@@ -1,3 +1,16 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  Contract A measure: sourcePdf = P_select * solidAnglePdf (this matches the
+  "contribution uses sourcePdf * solidAnglePdf" note in this file). Because
+  solidAnglePdf is in sourcePdf and UCW carries 1/targetPdf, the resolve must
+  NOT divide by solidAnglePdf again:
+    r_pathTracingCleanRtxdiDiResolveSolidAnglePdf  -> default 0, diagnostic only.
+  Contract A.2: cache/fallback class probability folds into P_select as a real
+  mixture (both branches evaluated for the drawn light).
+  Contract B: cells world-anchored (no strobe under camera motion); the onion
+  cell-frame cvar value is escape-hatch only.
+  Start task: NEECACHE-09R.
+================================================================================
+
 Remix-Style NEE Cache CVar Contract
 ===================================
 

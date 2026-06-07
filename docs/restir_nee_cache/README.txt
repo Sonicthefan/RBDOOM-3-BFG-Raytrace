@@ -1,3 +1,13 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  A   ONE solid-angle measure: sourcePdf = P_select * solidAnglePdf; resolve
+      does NOT re-divide by solidAnglePdf. Selection-only sourcePdf is a bug.
+  A.2 cache/fallback is a real mixture pdf (both branches), not the taken branch.
+  B   cells WORLD-ANCHORED: no strobe under camera motion. Onion = escape hatch.
+  C   validation must prove convergence (cache+fallback -> same accumulated image
+      as fallback-only) + emissive stress + movement no-strobe, not just baseline.
+  Start task: NEECACHE-09R.
+================================================================================
+
 Remix-Style NEE Cache / RLU Spatial Proposal Lane
 =================================================
 

@@ -1526,6 +1526,72 @@ Denoise/upscale/Ray Reconstruction reservation:
   write the clean DI current reservoir page without depending on this old
   PDFNEE-09 external handoff or temporal accumulation behavior.
 
+- r_pathTracingCleanRtxdiDiNeeCacheProvider
+  Defaults to 0. Opt-in clean RTXDI DI proposal-provider consume path for the
+  Remix-style NEE cache. It is a proposal source for the clean DI initial
+  reservoir, not a separate final lighting path: clean DI still owns reservoir
+  construction, visibility, temporal reuse, spatial reuse, and final resolve.
+  Normal operation uses the dense current Remix Light Universe identity domain:
+
+      r_pathTracingRemixLightUniverseEnable 1
+      r_pathTracingNeeCacheEnable 1
+      r_pathTracingCleanRtxdiDiEnable 1
+      r_pathTracingCleanRtxdiDiView 12
+      r_pathTracingCleanRtxdiDiLightMode 1
+      r_pathTracingCleanRtxdiDiNeeCacheProvider 1
+      r_pathTracingCleanRtxdiDiResolveSolidAnglePdf 1
+      r_pathTracingNeeCacheCellResolution 8
+
+  Use `r_pathTracingCleanRtxdiDiDump 1` and `r_pathTracingNeeCacheDump 1` for a
+  one-shot route check. A ready clean-provider dump should report
+  `cleanNeeCacheProvider requested/ready=1/1`, SRVs at `providerResultSrv=t74`,
+  `cellSrv=t75`, and `candidateSrv=t77`, `resolveSolidAnglePdf=1`,
+  `cellFrame=world-snapped-moving-lod`, and `cellResolution=8`.
+
+- r_pathTracingCleanRtxdiDiResolveSolidAnglePdf
+  Defaults to 1 and should stay 1 for the current clean DI NEE-cache provider.
+  The provider streams a selection-domain PDF into `RTXDI_StreamSample`; the
+  rbdoom RTXDI DI target evaluator still follows the local convention
+  `luminance(reflected) / solidAnglePdf`, so final resolve divides by the
+  selected light's `solidAnglePdf`. Turning this CVar off makes the provider
+  visibly over-bright for this branch unless the target-function and final
+  resolve measure are migrated together. Do not reintroduce the older
+  `sourcePdf = P_select * solidAnglePdf` contract in only the provider.
+
+- r_pathTracingNeeCacheEnable / r_pathTracingNeeCacheMode /
+  r_pathTracingNeeCacheCellResolution / r_pathTracingNeeCacheFallbackProbability
+  / r_pathTracingNeeCacheSourceDomain / r_pathTracingNeeCacheDebugView /
+  r_pathTracingNeeCacheDump
+  NEE-cache provider controls. `r_pathTracingNeeCacheEnable 1` allocates and
+  updates the provider resources. `r_pathTracingNeeCacheMode` defaults to 1 for
+  the Remix-style log/hash cache shell. `r_pathTracingNeeCacheCellResolution`
+  defaults to 8. This is a density knob, not a cell-size knob:
+  `baseCellSize = r_pathTracingNeeCacheMinRange / cellResolution`, so the
+  default `minRange 256` gives 32-world-unit base cells at resolution 8 and
+  16-world-unit base cells at resolution 16. Higher values make cells smaller;
+  `64` gives 4-world-unit base cells and is too dense for normal validation.
+  The cell mapper centers the high-resolution region on the camera, snaps that
+  center to the base world-cell grid, and keeps the resulting cell coordinates
+  world-grid based. This prevents a fixed-origin high-res island while avoiding
+  continuous camera-relative cell sliding.
+
+  `r_pathTracingNeeCacheFallbackProbability` defaults to 0.25. The clean
+  provider evaluates the real mixture PDF for the selected dense RLU light:
+  `P_select(light) = cacheProbability * p_cache(light) + fallbackProbability *
+  p_fallback(light)`. It must evaluate both branches for the selected light,
+  not only the branch that happened to draw it. If no usable cache distribution
+  exists, fallback is forced with effective fallback probability 1. Useful A/B
+  values are `1` for fallback-only baseline, `0.25` for the default
+  cache/fallback mixture, and `0` for cache-heavy diagnostics only.
+
+  `r_pathTracingNeeCacheSourceDomain` selects the fallback/current source
+  domain: 0 all current RLU lights, 1 emissive range only, 2 analytic range
+  only, and 3 typed lists with mixture probabilities. Debug views 2 and 3
+  inspect cell identity and occupancy; views 8 and 9 inspect cache/fallback
+  source and fallback reason; view 10 checks RAB replay. Source-policy-2
+  PDFNEE consume remains a preserved visual/research lane, but it is not the
+  production clean DI proof path and must not replace the clean DI provider.
+
 - r_pathTracingCleanRtxdiDiSpatial / r_cleanDiSpatial / r_cleanSpatial
   Clean-room RTXDI DI spatial reuse enable gates. All three must be nonzero for
   the clean spatial reuse kernel to run. Defaults are 1. Set any one of them to

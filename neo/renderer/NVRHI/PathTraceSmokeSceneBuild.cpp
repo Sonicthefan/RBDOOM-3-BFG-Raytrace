@@ -2333,7 +2333,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         common->Printf("PathTracePrimaryPass: invalid RT smoke material table, skipping scene build\n");
         return;
     }
-    if ((cleanRtxdiDiSceneBuildRluEmissives && !cleanRtxdiDiMaterialValidationRoute) || neeCacheSceneBuildRluEmissives)
+    if ((cleanRtxdiDiSceneBuildRluEmissives || neeCacheSceneBuildRluEmissives) && !cleanRtxdiDiMaterialValidationRoute)
     {
         for (PathTraceSmokeMaterial& material : materialTable.materials)
         {

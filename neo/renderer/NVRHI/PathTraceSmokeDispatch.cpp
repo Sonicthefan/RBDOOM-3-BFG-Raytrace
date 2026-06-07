@@ -1362,11 +1362,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanNeeCacheBuildPrepassRequested =
         cleanNeeCacheProviderBuildPrepassRequested ||
         neeCacheSecondaryVisualRefreshRequested;
-    const bool cleanNeeCachePipelineWarmupRequested =
-        cleanNeeCacheProviderRequestedEarly &&
-        neeCacheSettings.enabled &&
-        neeCacheResourceReady &&
-        !neeCacheDebugForbiddenMode;
     const bool neeCacheRouteRequested = neeCacheDebugRouteRequested || neeCacheCandidateBuildRequested;
     auto printNeeCacheDump = [&](const char* stage, const char* earlyReturn)
     {
@@ -1403,13 +1398,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             firstMissingContract = "nee-cache-provider-buffers";
         }
-        if (neeCacheRouteRequested && !m_smokeNeeCacheDebugShaderTable)
+        if (neeCacheDebugRouteRequested && !m_smokeNeeCacheDebugShaderTable)
         {
             firstMissingContract = "nee-cache-debug-shader";
         }
-        if (neeCacheRouteRequested && !m_smokeNeeCacheDebugBindingLayout)
+        if (neeCacheDebugRouteRequested && !m_smokeNeeCacheDebugBindingLayout)
         {
             firstMissingContract = "nee-cache-debug-binding-layout";
+        }
+        if (cleanNeeCacheBuildPrepassRequested &&
+            (!m_smokeNeeCachePrimarySurfaceUpdatePipeline || !m_smokeNeeCachePrimarySurfaceUpdateBindingLayout))
+        {
+            firstMissingContract = "nee-cache-primary-surface-update-shader";
         }
         if (neeCacheDebugForbiddenMode && neeCacheSettings.debugView > 0)
         {
@@ -2369,15 +2369,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             }
             return;
         }
-        if (cleanNeeCachePipelineWarmupRequested && !m_smokeNeeCacheDebugShaderTable)
-        {
-            InitRayTracingSmokeRestirPipeline(19);
-        }
-        if (cleanNeeCacheBuildPrepassRequested && !m_smokeNeeCacheDebugShaderTable)
+        if (cleanNeeCacheBuildPrepassRequested &&
+            (!m_smokeNeeCachePrimarySurfaceUpdatePipeline || !m_smokeNeeCachePrimarySurfaceUpdateBindingLayout))
         {
             if (cleanRtxdiDiDumpRequested)
             {
-                printCleanRtxdiDiDump("dispatch-entry", "nee-cache-debug-shader", 0);
+                printCleanRtxdiDiDump("dispatch-entry", "nee-cache-primary-surface-update-shader", 0);
                 r_pathTracingCleanRtxdiDiDump.SetInteger(0);
             }
             return;
@@ -2604,24 +2601,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuideResetMaskTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrGuidePositionTexture);
 
-            if (cleanNeeCacheBuildPrepassRequested && m_smokeNeeCacheDebugShaderTable)
+            if (cleanNeeCacheBuildPrepassRequested &&
+                m_smokeNeeCachePrimarySurfaceUpdatePipeline &&
+                m_smokeNeeCachePrimarySurfaceUpdateBindingLayout)
             {
                 nvrhi::BindingSetDesc cleanNeeCacheBuildBindingSetDesc;
                 auto cleanNeeCacheOptionalSrv = [&](const nvrhi::BufferHandle& buffer) -> nvrhi::BufferHandle {
                     return buffer ? buffer : m_smokeNeeCacheState.placeholderSrvBuffer;
                 };
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, m_smokeTlas));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_frameResources.outputTexture));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, m_smokeConstantsBuffer));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, cleanNeeCacheOptionalSrv(m_smokeStaticVertexBuffer)));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, cleanNeeCacheOptionalSrv(m_smokeStaticIndexBuffer)));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, cleanNeeCacheOptionalSrv(m_smokeDynamicVertexBuffer)));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, cleanNeeCacheOptionalSrv(m_smokeDynamicIndexBuffer)));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, cleanNeeCacheOptionalSrv(m_smokeEmissiveTriangleBuffer)));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, cleanNeeCacheOptionalSrv(m_smokeRigidRouteVertexBuffer)));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, cleanNeeCacheOptionalSrv(m_smokeRigidRouteIndexBuffer)));
-                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, cleanNeeCacheOptionalSrv(m_smokeRigidRouteInstanceBuffer)));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, cleanNeeCacheOptionalSrv(m_smokeDoomAnalyticLightBuffer)));
+                cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(30, m_frameResources.primarySurfaceHistoryBuffers.current));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(42, cleanNeeCacheOptionalSrv(m_smokeDoomAnalyticCurrentIdentityBuffer)));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(43, cleanNeeCacheOptionalSrv(m_smokeDoomAnalyticPreviousIdentityBuffer)));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(44, cleanNeeCacheOptionalSrv(m_smokeDoomAnalyticRemapBuffer)));
@@ -2639,7 +2630,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CELL_UAV, m_smokeNeeCacheState.cellBuffer));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_TASK_UAV, m_smokeNeeCacheState.taskBuffer));
                 cleanNeeCacheBuildBindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CANDIDATE_UAV, m_smokeNeeCacheState.candidateBuffer));
-                nvrhi::BindingSetHandle cleanNeeCacheBuildBindingSet = device->createBindingSet(cleanNeeCacheBuildBindingSetDesc, m_smokeNeeCacheDebugBindingLayout);
+                nvrhi::BindingSetHandle cleanNeeCacheBuildBindingSet = device->createBindingSet(cleanNeeCacheBuildBindingSetDesc, m_smokeNeeCachePrimarySurfaceUpdateBindingLayout);
                 if (cleanNeeCacheBuildBindingSet)
                 {
                     PathTraceSmokeConstants cleanNeeCacheBuildConstants = primarySurfaceConstants;
@@ -2676,6 +2667,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     cleanNeeCacheBuildConstants.neeCacheInfo3[2] = static_cast<float>(neeCacheRluInputs.currentLightCount);
                     cleanNeeCacheBuildConstants.neeCacheInfo3[3] = static_cast<float>(m_frameResources.restirPTFrameIndex);
 
+                    commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::ShaderResource);
                     SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.providerResultBuffer, nvrhi::ResourceStates::UnorderedAccess);
                     SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::UnorderedAccess);
                     SetBufferStateIfPresent(commandList, m_smokeNeeCacheState.taskBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -2683,19 +2675,18 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     commandList->commitBarriers();
                     commandList->writeBuffer(m_smokeConstantsBuffer, &cleanNeeCacheBuildConstants, sizeof(cleanNeeCacheBuildConstants));
 
-                    nvrhi::rt::State cleanNeeCacheBuildState;
-                    cleanNeeCacheBuildState.shaderTable = m_smokeNeeCacheDebugShaderTable;
-                    cleanNeeCacheBuildState.bindings = { cleanNeeCacheBuildBindingSet, m_smokeTextureDescriptorTable };
-                    commandList->setRayTracingState(cleanNeeCacheBuildState);
-
-                    nvrhi::rt::DispatchRaysArguments cleanNeeCacheBuildArgs;
-                    cleanNeeCacheBuildArgs.width = m_frameResources.width;
-                    cleanNeeCacheBuildArgs.height = m_frameResources.height;
-                    cleanNeeCacheBuildArgs.depth = 1;
-                    commandList->dispatchRays(cleanNeeCacheBuildArgs);
+                    nvrhi::ComputeState cleanNeeCacheBuildState;
+                    cleanNeeCacheBuildState.pipeline = m_smokeNeeCachePrimarySurfaceUpdatePipeline;
+                    cleanNeeCacheBuildState.bindings = { cleanNeeCacheBuildBindingSet };
+                    commandList->setComputeState(cleanNeeCacheBuildState);
+                    commandList->dispatch(
+                        static_cast<uint32_t>((m_frameResources.width + 7) / 8),
+                        static_cast<uint32_t>((m_frameResources.height + 7) / 8),
+                        1);
                     nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.providerResultBuffer);
                     nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.cellBuffer);
                     nvrhi::utils::BufferUavBarrier(commandList, m_smokeNeeCacheState.candidateBuffer);
+                    commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::UnorderedAccess);
                     commandList->setBufferState(m_smokeNeeCacheState.providerResultBuffer, nvrhi::ResourceStates::ShaderResource);
                     commandList->setBufferState(m_smokeNeeCacheState.cellBuffer, nvrhi::ResourceStates::ShaderResource);
                     commandList->setBufferState(m_smokeNeeCacheState.candidateBuffer, nvrhi::ResourceStates::ShaderResource);

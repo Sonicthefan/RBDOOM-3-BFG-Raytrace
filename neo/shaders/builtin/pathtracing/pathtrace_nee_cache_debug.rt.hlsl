@@ -1,7 +1,12 @@
 #include "../../vulkan.hlsli"
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 #include "RtxdiBridge/RAB_NeeCache.hlsli"
+
+#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
 #include "Rtxdi/Utils/Math.hlsli"
+#else
+static const float RTXDI_PI = 3.14159265358979323846;
+#endif
 
 struct PathTraceNeeCachePayload
 {
@@ -173,6 +178,7 @@ struct PathTraceEmissiveLightRemap
     uint padding0;
 };
 
+#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
 RaytracingAccelerationStructure SmokeScene : register(t0);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
@@ -182,6 +188,7 @@ StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
+#endif
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticCurrentIdentities : register(t42);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidateIdentity> DoomAnalyticPreviousIdentities : register(t43);
@@ -247,7 +254,9 @@ bool PathTraceSafetyDisabled(uint bit)
 #define RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB 1
 #include "RtxdiBridge/RAB_LightInfoRuntime.hlsli"
 #include "RtxdiBridge/RAB_LightLoadRuntime.hlsli"
+#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
 #include "RtxdiBridge/RAB_LightTarget.hlsli"
+#endif
 
 float3 PathTraceNeeCacheSafeNormalize(float3 value, float3 fallback)
 {
@@ -266,20 +275,6 @@ uint PathTraceNeeCacheRigidRouteIndexCount() { return (uint)max(GeometryInfo1.w,
 uint PathTraceNeeCacheRigidRouteTriangleCount() { return (uint)max(GeometryInfo2.x, 0.0); }
 uint PathTraceNeeCacheRigidRouteInstanceCount() { return (uint)max(GeometryInfo2.y, 0.0); }
 
-float3 PathTraceNeeCacheTransformObjectVectorToWorld(float3 objectVector)
-{
-    const float3x4 objectToWorld = ObjectToWorld3x4();
-    return float3(
-        dot(objectToWorld[0].xyz, objectVector),
-        dot(objectToWorld[1].xyz, objectVector),
-        dot(objectToWorld[2].xyz, objectVector));
-}
-
-float3 PathTraceNeeCacheTransformObjectNormalToWorld(float3 objectNormal, float3 fallback)
-{
-    return PathTraceNeeCacheSafeNormalize(PathTraceNeeCacheTransformObjectVectorToWorld(objectNormal), fallback);
-}
-
 uint2 PathTraceNeeCacheDispatchTileOffset()
 {
     return uint2(max(DispatchTileInfo.x, 0.0), max(DispatchTileInfo.y, 0.0));
@@ -289,7 +284,11 @@ uint2 PathTraceNeeCacheFullOutputSize()
 {
     const uint width = (uint)max(DispatchTileInfo.z, 0.0);
     const uint height = (uint)max(DispatchTileInfo.w, 0.0);
+#ifdef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
+    return uint2(width, height);
+#else
     return (width > 0u && height > 0u) ? uint2(width, height) : DispatchRaysDimensions().xy;
+#endif
 }
 
 float4 PathTraceNeeCacheMissColor(uint view)
@@ -874,6 +873,21 @@ float2 PathTraceNeeCacheDenseRluSampleUv(uint denseIndex, uint salt)
     return float2(PathTraceNeeCacheHashToUnitFloat(seedA), PathTraceNeeCacheHashToUnitFloat(seedB));
 }
 
+#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
+float3 PathTraceNeeCacheTransformObjectVectorToWorld(float3 objectVector)
+{
+    const float3x4 objectToWorld = ObjectToWorld3x4();
+    return float3(
+        dot(objectToWorld[0].xyz, objectVector),
+        dot(objectToWorld[1].xyz, objectVector),
+        dot(objectToWorld[2].xyz, objectVector));
+}
+
+float3 PathTraceNeeCacheTransformObjectNormalToWorld(float3 objectNormal, float3 fallback)
+{
+    return PathTraceNeeCacheSafeNormalize(PathTraceNeeCacheTransformObjectVectorToWorld(objectNormal), fallback);
+}
+
 RAB_Surface PathTraceNeeCacheBuildFlatSurface(PathTraceNeeCachePayload payload, float3 rayOrigin, float3 rayDirection)
 {
     RAB_Surface surface = RAB_EmptySurface();
@@ -1036,6 +1050,7 @@ float4 PathTraceNeeCacheFlatFullRluLightView(RAB_Surface surface)
     const float3 mappedLight = 1.0 - exp(-directLight * exposure);
     return float4(saturate(flatBase * (0.025 + mappedLight)), 1.0);
 }
+#endif
 
 PathTraceNeeCacheCandidateRecord PathTraceNeeCacheMakeEmptyCandidate(uint cellIndex, uint slotIndex)
 {
@@ -1360,6 +1375,7 @@ float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, 
     return float4(0.02, 0.18 + 0.06 * persistentCandidateCount, 0.26, 1.0);
 }
 
+#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
 float4 PathTraceNeeCacheVisualizeBuiltCandidatesForCell(PathTraceNeeCacheCellDebug cell, uint view)
 {
     const uint candidateSlots = PathTraceNeeCacheCandidateSlotCount();
@@ -1765,3 +1781,4 @@ void ShadowClosestHit(inout PathTraceNeeCacheShadowPayload payload, BuiltInTrian
 {
     payload.hit = 1u;
 }
+#endif

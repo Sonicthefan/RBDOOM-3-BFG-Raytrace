@@ -226,9 +226,6 @@ float PathTraceCleanRoomNeeCacheFallbackIdentityPdf(uint denseRluIndex)
     const uint sourceDomain = PathTraceCleanRoomNeeCacheSourceDomain();
     const uint emissiveOffset = 0u;
     const uint emissiveCount = min(CleanRtxdiDiCurrentEmissiveTriangleCount, CleanRtxdiDiRluCurrentLightCount);
-    const uint analyticOffset = min(CleanRtxdiDiRluDoomAnalyticRangeOffset, CleanRtxdiDiRluCurrentLightCount);
-    const uint analyticAvailableCount = min(CleanRtxdiDiRluDoomAnalyticRangeCount, CleanRtxdiDiRluCurrentLightCount - analyticOffset);
-    const uint analyticCount = PathTraceCleanRoomNeeCacheStableAnalyticCount(analyticOffset, analyticAvailableCount);
 
     if (sourceDomain == 0u)
     {
@@ -240,6 +237,11 @@ float PathTraceCleanRoomNeeCacheFallbackIdentityPdf(uint denseRluIndex)
             ? 1.0 / max((float)emissiveCount, 1.0)
             : 0.0;
     }
+
+    const uint analyticOffset = min(CleanRtxdiDiRluDoomAnalyticRangeOffset, CleanRtxdiDiRluCurrentLightCount);
+    const uint analyticAvailableCount = min(CleanRtxdiDiRluDoomAnalyticRangeCount, CleanRtxdiDiRluCurrentLightCount - analyticOffset);
+    const uint analyticCount = PathTraceCleanRoomNeeCacheStableAnalyticCount(analyticOffset, analyticAvailableCount);
+
     if (sourceDomain == 2u)
     {
         const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[denseRluIndex];
@@ -292,15 +294,9 @@ bool PathTraceCleanRoomNeeCacheSelectFallback(
     const uint analyticOffset = min(CleanRtxdiDiRluDoomAnalyticRangeOffset, CleanRtxdiDiRluCurrentLightCount);
     const uint analyticAvailableCount = min(CleanRtxdiDiRluDoomAnalyticRangeCount, CleanRtxdiDiRluCurrentLightCount - analyticOffset);
     uint analyticCount = 0u;
-    [loop]
-    for (uint analyticIndex = 0u; analyticIndex < analyticAvailableCount; ++analyticIndex)
+    if (sourceDomain == 2u || sourceDomain == 3u)
     {
-        const PathTraceUnifiedLightRecord record = CleanRtxdiDiRluCurrentLights[analyticOffset + analyticIndex];
-        if (record.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC &&
-            (record.flags & PATH_TRACE_RLU_LIGHT_FLAG_STABLE_CACHEABLE) != 0u)
-        {
-            analyticCount++;
-        }
+        analyticCount = PathTraceCleanRoomNeeCacheStableAnalyticCount(analyticOffset, analyticAvailableCount);
     }
 
     uint rangeOffset = 0u;

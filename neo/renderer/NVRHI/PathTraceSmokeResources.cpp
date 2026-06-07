@@ -1361,6 +1361,60 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
         return;
     }
 
+    nvrhi::BindingLayoutDesc neeCachePrimarySurfaceUpdateBindingLayoutDesc;
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(30));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(42));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(43));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(44));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(45));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(57));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(58));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(59));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(60));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(61));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(64));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(65));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(67));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_PROVIDER_RESULT_UAV));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CELL_UAV));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_TASK_UAV));
+    neeCachePrimarySurfaceUpdateBindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(PATH_TRACE_NEE_CACHE_BINDING_CANDIDATE_UAV));
+    m_smokeNeeCachePrimarySurfaceUpdateBindingLayout = device->createBindingLayout(neeCachePrimarySurfaceUpdateBindingLayoutDesc);
+    if (!m_smokeNeeCachePrimarySurfaceUpdateBindingLayout)
+    {
+        common->Printf("PathTracePrimaryPass: failed to create NEE cache primary-surface update binding layout\n");
+        return;
+    }
+    else
+    {
+        const programInfo_t neeCachePrimarySurfaceUpdateProgram = renderProgManager.GetProgramInfo(BUILTIN_NEE_CACHE_PRIMARY_SURFACE_UPDATE_CS);
+        m_smokeNeeCachePrimarySurfaceUpdateShader = neeCachePrimarySurfaceUpdateProgram.cs;
+        if (!m_smokeNeeCachePrimarySurfaceUpdateShader)
+        {
+            common->Printf("PathTracePrimaryPass: NEE cache primary-surface update shader unavailable\n");
+        }
+        else
+        {
+            nvrhi::ComputePipelineDesc neeCachePrimarySurfaceUpdatePipelineDesc;
+            neeCachePrimarySurfaceUpdatePipelineDesc.CS = m_smokeNeeCachePrimarySurfaceUpdateShader;
+            neeCachePrimarySurfaceUpdatePipelineDesc.bindingLayouts = { m_smokeNeeCachePrimarySurfaceUpdateBindingLayout };
+            m_smokeNeeCachePrimarySurfaceUpdatePipeline = device->createComputePipeline(neeCachePrimarySurfaceUpdatePipelineDesc);
+            if (!m_smokeNeeCachePrimarySurfaceUpdatePipeline)
+            {
+                common->Printf("PathTracePrimaryPass: failed to create NEE cache primary-surface update compute pipeline\n");
+            }
+        }
+    }
+
     nvrhi::BindingLayoutDesc skinningBindingLayoutDesc;
     skinningBindingLayoutDesc.visibility = nvrhi::ShaderType::Compute;
     skinningBindingLayoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()

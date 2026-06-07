@@ -225,6 +225,7 @@ private:
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiSentinelBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeReGIRDebugBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeNeeCacheDebugBindingLayout;
+    nvrhi::BindingLayoutHandle m_smokeNeeCachePrimarySurfaceUpdateBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeSkinnedGpuSkinningBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeCleanRtxdiDiBoilingFilterBindingLayout;
     nvrhi::BindingLayoutHandle m_smokeTextureBindlessLayout;
@@ -288,8 +289,10 @@ private:
     nvrhi::ShaderLibraryHandle m_smokeNeeCacheDebugShaderLibrary;
     nvrhi::ShaderHandle m_smokeSkinnedGpuSkinningShader;
     nvrhi::ShaderHandle m_smokeCleanRtxdiDiBoilingFilterShader;
+    nvrhi::ShaderHandle m_smokeNeeCachePrimarySurfaceUpdateShader;
     nvrhi::ComputePipelineHandle m_smokeSkinnedGpuSkinningPipeline;
     nvrhi::ComputePipelineHandle m_smokeCleanRtxdiDiBoilingFilterPipeline;
+    nvrhi::ComputePipelineHandle m_smokeNeeCachePrimarySurfaceUpdatePipeline;
     nvrhi::rt::PipelineHandle m_smokePipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirPipeline;
     nvrhi::rt::PipelineHandle m_smokeRestirInitialPipeline;

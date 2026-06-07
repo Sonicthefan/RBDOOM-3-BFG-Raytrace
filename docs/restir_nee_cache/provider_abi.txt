@@ -1,3 +1,12 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  The result-struct sourcePdf/invSourcePdf fields carry the FULL source pdf
+  per Contract A: sourcePdf = P_select * solidAnglePdf (P_select = the cache/
+  fallback mixture probability, Contract A.2). A selection-only sourcePdf is a
+  bug. The consumer's resolve must not divide by solidAnglePdf again.
+  Cells are world-anchored (Contract B). Validation requires convergence
+  (Contract C). Start task: NEECACHE-09R.
+================================================================================
+
 NEE Cache Provider ABI
 ======================
 

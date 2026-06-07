@@ -8,607 +8,304 @@ Architecture note:
     The default Remix-aligned NEE cache lane feeds GI / secondary NEE.
     Clean RTXDI DI gets a separate lightweight ReGIR-style spatial proposal
     provider over dense RLU identities.
-    The current PDFNEE sourcePolicy 2 consume path is preserved as an
-    alternate visual testing lane and must not be deleted, but it is not the
-    default Remix-like consumer.
+    The PDFNEE sourcePolicy 2 consume path is preserved as an alternate visual
+    testing lane and must not be deleted, but it is not the default Remix-like
+    consumer.
     RTX Remix and ReSTIR PT do not use the Remix-style NEE cache as their
     primary DI path. Do not treat sourcePolicy 2 as a reference primary-DI
     design.
 
 
-NEECACHE-00: Read-Only Contract Audit
--------------------------------------
+================================================================================
+BINDING CONTRACTS  (authoritative; override any conflicting wording anywhere
+in this folder, including older task bodies below and the other *.txt files)
+================================================================================
+
+These three contracts were added after a clean-DI consume implementation
+(NEECACHE-09) shipped that BUILT correctly but produced emissive noise and
+movement strobing. Root cause was under-specified PDF/measure wording plus an
+ambiguous cell frame. Every consume task (06, 07, 08, 09, 10) and every
+validation step must satisfy these.
+
+
+CONTRACT A — Single PDF / measure convention (end to end)
+---------------------------------------------------------
+
+There is ONE measure: solid angle at the shading surface. Every proposal that is
+streamed into a reservoir, and the final resolve, must use it consistently.
+
+    targetPdf (p_hat):
+        = RAB_GetLightSampleTargetPdfForSurface(lightSample, surface)
+        unnormalized importance of the actual contribution
+        (luminance of brdf * radiance * NdotL), in solid-angle measure.
+        RAB owns it. Do not reconstruct it in the cache.
+
+    sourcePdf (the pdf the proposal was actually drawn from):
+        = P_select(light) * lightSample.solidAnglePdf
+        where:
+          - P_select(light) is the probability the proposal step chose this
+            light, INCLUDING the cache/fallback mixture (see Contract A.2), and
+          - lightSample.solidAnglePdf is the per-sample area/solid-angle
+            sampling pdf returned by RAB_SamplePolymorphicLight.
+        invSourcePdf = 1.0 / max(sourcePdf, eps).
+
+        REQUIRED: the per-sample solidAnglePdf MUST be folded into sourcePdf.
+        A selection-only sourcePdf (P_select alone, no solidAnglePdf) is a BUG.
+        It is the direct cause of emissive-area-light noise, because large/far/
+        grazing emitters have tiny solidAnglePdf and explode the RIS weight.
+
+    resolve:
+        final = (brdf * radiance * NdotL) * UCW * visibility
+        UCW = RTXDI_GetDIReservoirInvPdf(reservoir).
+        Do NOT divide again by solidAnglePdf in the resolve. solidAnglePdf
+        already lives in sourcePdf, and UCW already carries 1/targetPdf.
+        => r_pathTracingCleanRtxdiDiResolveSolidAnglePdf must be 0 under this
+           convention. The dividing path is retired; keep the cvar only as a
+           diagnostic, default 0.
+
+    Equivalently: a streamed proposal's RIS weight is
+        w = targetPdf / sourcePdf
+          = p_hat / (P_select * solidAnglePdf)
+    and the integrand multiplied by UCW at resolve is the raw contribution with
+    no extra pdf division. Source, target, and resolve must never disagree on
+    where solidAnglePdf lives.
+
+CONTRACT A.2 — Cache/fallback as a real mixture
+-----------------------------------------------
+
+    A proposal may come from the cache cell OR the fallback domain. P_select for
+    the drawn sample is the MIXTURE probability, not the probability of the
+    branch that happened to be taken:
+
+        P_select(light) =
+            cacheProbability   * p_cache(light)
+          + fallbackProbability* p_fallback(light)
+
+        cacheProbability + fallbackProbability = 1.
+
+    Both p_cache and p_fallback are evaluated for the SAME drawn light, even
+    when only one branch generated it (defensive / one-sample MIS). Using only
+    the taken branch's pdf is a BUG: it biases cache-served vs fallback-served
+    pixels and produces brightness seams between cells.
+
+    fallback-only (cacheProbability = 0) MUST reduce exactly to the existing
+    uniform/full-RLU baseline.
+
+
+CONTRACT B — Cell coordinate frame is WORLD-ANCHORED
+----------------------------------------------------
+
+    Cells are anchored in world space, NOT relative to the camera origin.
+    A pixel maps world position -> a fixed world cell whose id does not move
+    when the camera moves.
+
+    Camera-relative ("onion") grids shift their cell boundaries under camera
+    motion, which pops the per-cell candidate set frame to frame and strobes
+    under movement. That mode is demoted to the later escape hatch ONLY.
+
+    Required: a stationary world point keeps the same cell id regardless of
+    camera motion or rotation. "world-space stable while standing still" is not
+    sufficient wording; the test is stability under camera movement.
+
+    A world-anchored grid may still use variable cell size by distance for
+    budget (finer near the view, coarser far) as long as a given world point's
+    membership only changes when it crosses a fixed world boundary, not when the
+    camera moves.
+
+
+CONTRACT C — Validation proves CONVERGENCE, not just "distribution changed"
+--------------------------------------------------------------------------
+
+    Acceptance for every consume task must include a ground-truth / convergence
+    check, because a measure bug (Contract A) affects the cache and the baseline
+    the same way and therefore passes a baseline-only A/B.
+
+    Required validation, in addition to the existing baseline A/B:
+
+      1. Energy / convergence: with temporal accumulation on and the camera
+         held still, cache+fallback must converge to the SAME image as
+         fallback-only (within noise), not merely "look different." Compare a
+         held-still accumulated frame, or a long-accumulation reference.
+      2. Emissive stress: a bright/large emissive panel must not show
+         brightness that scales with how rarely it is sampled. Doubling emitter
+         intensity must not increase variance disproportionately once Contract A
+         holds.
+      3. Movement: walking past world cells must not strobe (Contract B).
+
+    "fallback-only matches baseline" and "cache changes proposal distribution"
+    are necessary but NOT sufficient and must never be the only acceptance.
+
+
+================================================================================
+TASK STATUS SUMMARY
+================================================================================
+
+    NEECACHE-00  Contract audit ................................ done
+    NEECACHE-01  CPU resource shell ............................ done
+    NEECACHE-02  Log/hash cell debug view ...................... done (see B*)
+    NEECACHE-03  Task accumulation buffer ...................... done
+    NEECACHE-04  Emissive candidate list ....................... done (see A*)
+    NEECACHE-05  Analytic candidate list ....................... done (see A*)
+    NEECACHE-06  Cache/fallback mixture provider ............... done (see A.2*)
+    NEECACHE-07  Experimental PDFNEE consume ................... done, preserved
+    NEECACHE-08  Experimental PDFNEE RIS ....................... done, research
+    NEECACHE-09  Clean DI spatial proposal provider ............ BUILT, NON-COMPLIANT
+    NEECACHE-09R Bring clean DI consume into contract A/B/C .... START HERE
+    NEECACHE-10  GI / secondary NEE consumer ................... after 09R
+
+    * = the PDF/measure or cell-frame wording in that task body predates the
+        Binding Contracts and is superseded by them. The code from those tasks
+        must be re-audited against Contract A/B during 09R if clean DI consumes
+        their buffers.
+
+
+>>> THE AGENT STARTS ON NEECACHE-09R. <<<
+
+
+================================================================================
+NEECACHE-09R: Bring clean RTXDI DI consume into compliance (START HERE)
+================================================================================
+
+Context:
+
+    NEECACHE-09 already streams per-cell candidates into the per-pixel clean DI
+    reservoir (RunNeeCacheProviderProducer -> StreamProviderIntoReservoir ->
+    RTXDI_StreamSample), which is the correct architecture: cells are a
+    candidate SOURCE, shading stays per-pixel. Do NOT redesign that. It is
+    non-compliant only on Contract A (source PDF omits solidAnglePdf and uses
+    branch-only mixture) and Contract B (camera-relative cell mapping).
 
 Goal:
 
-    Audit Remix NEE cache, RTXDI ReGIR, current rbdoom ReGIR scaffolding,
-    current RLU, current PDFNEE producer, and the clean RTXDI DI initial
-    sampling path before implementation.
+    Make the existing clean DI consume satisfy Contract A, A.2, and B, and
+    validate it with Contract C. No new architecture, no temporal/spatial
+    redesign.
 
-Reference file-equivalent:
+Required:
 
-    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.h
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/nee_cache/update_nee_cache.comp.slang
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIR.h
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
-
-Required rbdoom read set:
-
-    neo/renderer/NVRHI/PathTraceReGIR.cpp
-    neo/renderer/NVRHI/PathTraceReGIR.h
-    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
-    neo/renderer/NVRHI/PathTraceLightUniverse.cpp
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_regir_debug.rt.hlsl
-    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
-
-Allowed write set:
-
-    docs/restir_nee_cache only
+    Contract A:
+        - In PathTraceCleanRoomNeeCacheStreamLightIntoReservoir, the streamed
+          invSourcePdf must be 1 / (P_select * lightSample.solidAnglePdf).
+          P_select is the value from selection (cache) or fallback, made into a
+          mixture per Contract A.2.
+        - The light sample used to derive solidAnglePdf must be the SAME sample
+          (same UV) that is streamed. Do not select with one UV and stream with
+          a fresh unrelated UV; draw the UV, sample the light, read its
+          solidAnglePdf, then stream that exact sample.
+        - Set r_pathTracingCleanRtxdiDiResolveSolidAnglePdf default 0 and make
+          the resolve NOT divide by solidAnglePdf (Contract A resolve rule).
+    Contract A.2:
+        - selectedInvSourcePdf reflects the cache+fallback mixture probability
+          for the drawn light, evaluated in both branches.
+    Contract B:
+        - PathTraceNeeCacheMapWorldPositionToCell maps to a WORLD-ANCHORED cell
+          (remove the camera-origin dependence from cell identity). Variable
+          cell size by view distance is allowed; cell membership of a fixed
+          world point must not change under camera motion.
+    Keep:
+        - clean RTXDI DI remains reservoir and accumulation owner
+        - per-pixel proposal draw, no cell-owned reservoir, no cell-owned light
+        - selected candidate replays through RAB_LoadLightInfo,
+          RAB_SamplePolymorphicLight, RAB_GetLightSampleTargetPdfForSurface
+        - RTXDI_StreamSample / RTXDI_FinalizeResampling stay the selection path
+        - no clean RTXDI temporal/spatial edits
 
 Forbidden:
 
-    no code changes
-    no build
+    no full ReGIR/onion provider
+    no cell-owned final light or finished reservoir
+    no resolve that divides by solidAnglePdf while sourcePdf also includes it
+    no temporal/spatial reuse changes
 
-Acceptance:
-
-    report exact proposal-provider boundary
-    report exact split between:
-        GI / secondary NEE cache consume
-        clean DI spatial proposal consume
-        experimental PDFNEE visual consume
-    report exact old ReGIR pieces to reuse or discard
-    report exact RLU input contract
-    report exact PDFNEE handoff contract as alternate visual mode
-    report first missing or ambiguous contract
-
-
-NEECACHE-01: CPU Resource Shell
--------------------------------
-
-Goal:
-
-    Add a default-off CPU/resource shell for the new NEE cache provider.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_nee_cache.h
-    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_resources.cpp
-
-Required rbdoom read set:
-
-    neo/renderer/NVRHI/PathTraceReGIR.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTracePrimaryPass.h
-    neo/renderer/NVRHI/PathTraceCVars.cpp
-    neo/renderer/NVRHI/PathTraceCVars.h
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceNeeCache.cpp
-    neo/renderer/NVRHI/PathTraceNeeCache.h
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTracePrimaryPass.h
-    neo/renderer/NVRHI/PathTraceCVars.cpp
-    neo/renderer/NVRHI/PathTraceCVars.h
-    docs/restir_nee_cache
-
-Required:
-
-    CVars from cvar_contract.txt
-    concrete provider ABI before any candidate algorithm work
-    rbdoom-owned shader result struct with:
-        selectedDenseRluIndex
-        sourcePdf
-        invSourcePdf
-        sourceLabel
-        mixtureProbability
-        fallbackReason
-        cellIndex
-        candidateSlot
-        flags
-    documented sourceLabel enum
-    documented fallbackReason enum
-    exact binding/register slots for every provider buffer
-    exact buffer owner and lifetime/reset policy
-    exact provider function boundary
-    exact future consumer call/read boundaries:
-        GI / secondary NEE
-        clean RTXDI DI proposal
-        experimental PDFNEE visual
-    parameter struct
-    resource size calculation
-    disabled state
-    one-shot dump
-
-Forbidden:
-
-    no shader candidate build
-    no PDFNEE consume
-    no temporal edits
-
-Acceptance:
+Acceptance (must satisfy Contract C):
 
     build/deploy succeeds
-    dump proves resource sizes and disabled/enabled state
-    docs name the exact provider ABI and first missing contract is no longer
-    "provider-abi"
-    provider_abi.txt exists and names the exact struct/register/function
-    boundary
-
-
-NEECACHE-02: Log/Hash Cell Debug View
--------------------------------------
-
-Status:
-
-    implemented as standalone debug route
-
-Goal:
-
-    Add a standalone debug route that visualizes cache cell mapping.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
-
-Allowed rbdoom write set:
-
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/renderer/NVRHI/PathTracePrimaryPass.h
-    docs/restir_nee_cache
-
-Required:
-
-    debugView 1 route/status
-    debugView 2 cell id
-    debugView 3 empty occupancy
-    no candidate cache reads yet
-
-Acceptance:
-
-    user can visually confirm world-space cell stability while stationary
-    dump reports debugRoute=1, noCandidateReads=1, output=SmokeOutput
-    firstMissingContract=none for debugView 1-3 when current dense RLU is
-        available
-
-
-NEECACHE-03: Task Accumulation Buffer
--------------------------------------
-
-Status:
-
-    implemented as debug-primary-hit task accumulation
-
-Goal:
-
-    Add task slots and accumulation/decay/reset diagnostics.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/nee_cache/update_nee_cache.comp.slang
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceNeeCache.cpp
-    neo/renderer/NVRHI/PathTraceNeeCache.h
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/renderer/NVRHI/PathTraceSmokeSceneBuild.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    docs/restir_nee_cache
-
-Required:
-
-    task buffer
-    task slot count
-    task accumulation debug view 4
-    reset clears stale tasks
-    dump states insert and decay policy
-
-Forbidden:
-
-    no final lighting proof
-    no PDFNEE consume
-
-Acceptance:
-
-    task accumulation map changes coherently and clears on reset
-    dump names taskInsertPolicy, taskDecayPolicy, and taskResetPolicy
-    debugView 4 reports task=NEECACHE-03
-
-
-NEECACHE-04: Emissive Candidate List
-------------------------------------
-
-Goal:
-
-    Build per-cell emissive candidates from current RLU emissive records.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/integrate/visualize_nee.comp.slang
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
-
-Required rbdoom read set:
-
-    neo/renderer/NVRHI/PathTraceRemixLightManager.cpp
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_LightLoadRuntime.hlsli
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceNeeCache.cpp
-    neo/renderer/NVRHI/PathTraceNeeCache.h
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    docs/restir_nee_cache
-
-Required:
-
-    emissive candidate records use dense RLU identity
-    debugView 5 emissive triangle candidate map
-    sourcePdf / invSourcePdf proof
-    fallback rate proof
-
-Acceptance:
-
-    emissive candidates populate from current RLU without old ReGIR/PDFNEE
-    routes
-    normal candidate update is not gated on debugView 5
-
-
-NEECACHE-05: Analytic Candidate List
-------------------------------------
-
-Goal:
-
-    Build per-cell analytic candidates from current RLU Doom analytic records.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache.h
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceNeeCache.cpp
-    neo/renderer/NVRHI/PathTraceNeeCache.h
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_build.rt.hlsl
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    docs/restir_nee_cache
-
-Required:
-
-    analytic candidate records use dense RLU identity
-    debugView 6 selected analytic identity
-    debugView 7 sourcePdf / invSourcePdf
-    debugView 10 RAB replay validity
-
-Acceptance:
-
-    selected analytic identity visually matches clean RTXDI/RLU lighting
-    selected analytic identity remains stable under light animation
-    class/source PDF is explicit
-    debugViews 6, 7, 10, 11, and 12 report task=NEECACHE-05
-
-
-NEECACHE-06: Cache/Fallback Mixture Provider
---------------------------------------------
-
-Goal:
-
-    Add the proposal-provider output that samples cache candidates or full-RLU
-    fallback with an explicit mixture PDF. This is shared scaffolding, not a
-    final lighting path.
-
-Reference file-equivalent:
-
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceNeeCache.cpp
-    neo/renderer/NVRHI/PathTraceNeeCache.h
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    neo/shaders/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl
-    docs/restir_nee_cache
-
-Required:
-
-    selected dense RLU index
-    sourcePdf / invSourcePdf
-    source label cache/fallback
-    fallback probability
-    cache probability
-    debugView 8 mixture source
-    debugView 9 empty/fallback reason
-
-Acceptance:
-
-    fallback-only matches current uniform RLU baseline
-    cache+fallback changes only proposal distribution
-
-
-NEECACHE-07: Experimental PDFNEE Current-Frame Consume
-------------------------------------------------------
-
-Goal:
-
-    Let replacement PDFNEE consume the NEE cache provider as an optional
-    current-frame source for visual testing.
-
-    Preserve this lane. Do not delete it just because the default Remix-like
-    architecture now routes NEE cache toward GI / secondary NEE and clean DI
-    uses a separate spatial proposal provider.
-
-Reference file-equivalent:
-
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
-    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_restir_pdf_nee_rlu_current.rt.hlsl
-    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    docs/restir_nee_cache
-
-Required:
-
-    temporal off
-    spatial off
-    selected dense RLU identity
-    sourcePolicy 2 selects the NEE cache provider
-    provider result buffer is bound to PDFNEE as SRV t74
-    candidate buffer is bound to PDFNEE as SRV t77
-    PDFNEE maps primary-hit world position to the same log/hash cache cell
-    PDFNEE draws a per-pixel proposal from the cell candidate list or fallback
-        domain so cache cells do not become visible sample blocks
-    sourcePdf/invSourcePdf include cache/fallback mixture probability
-    visibility separate
-    RAB owns solidAnglePdf, targetPdf, reflected radiance
-    RTXDI current reservoir construction unchanged except source proposal
-
-Forbidden:
-
-    no clean RTXDI temporal edits
-    no RRX edits
-    no old lightMode 8/9 route
-
-Acceptance:
-
-    build/deploy succeeds
-    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
-    PDFNEE dump reports candidateSrv=t77
-    PDFNEE dump reports neeCacheProvider requested/ready=1/1 when enabled
-    stop for user visual test
-    result is documented as alternate/experimental visual mode, not default
-        Remix parity
-
-
-NEECACHE-08: Experimental PDFNEE Importance / RIS Proposal Selection
---------------------------------------------------------------------
-
-Goal:
-
-    Turn the sourcePolicy 2 PDFNEE consume bridge into a real current-frame
-    RIS proposal source over the cache/fallback distribution instead of a
-    single light draw from the mapped cache cell.
-
-    This improves the preserved PDFNEE visual lane. It is not the clean DI
-    proposal-provider integration.
-
-    Current outcome: sourcePolicy 2 can be visually interesting and sometimes
-    stabilizes in simple scenes, but it is not stable or performant enough to
-    promote to production primary DI. Further work in this lane is optional
-    research only; the next production-oriented work should be NEECACHE-09 or
-    NEECACHE-10, depending on the selected consumer.
-
-    Validation outcome:
-
-        The deployed NEECACHE-08 path reports the expected sourcePolicy 2 RIS
-        sequence and buffer bindings, but visual output remains the same class
-        of slightly unstable direct NEE-cache current-frame lighting. Runtime
-        dumps can show mapping/payload RLU signature changes and cache
-        invalidation, which is required to avoid stale light poisoning but also
-        prevents this lane from retaining enough history to behave as a stable
-        primary-DI replacement.
-
-Reference file-equivalent:
-
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/LightSampling/PresamplingFunctions.hlsli
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
-    docs/restir_nee_cache
-
-Required:
-
-    cache build updates persistent candidate slots instead of clearing and
-        rewriting a deterministic slot set per visible cell
-    slot replacement uses bounded RIS over the configured source domain
-    slot admission uses stable dense-identity target slots, duplicate refresh,
-        empty-slot fill, and materially-stronger target replacement
-    cache reads reject hash-cell collisions by comparing stored cell hash with
-        the currently mapped world cell
-    sourcePolicy 2 streams multiple proposals per pixel
-    proposal count comes from r_pathTracingRestirPdfNeeVerifierSamples
-    cache candidates are sampled by current importance weight
-    fallback proposals remain in the same mixture
-    every streamed proposal carries its exact sourcePdf/invSourcePdf
-    RTXDI_StreamSample / RTXDI_FinalizeResampling do the RIS selection
-    selected identity remains dense current RLU index
-    RAB replay boundary remains unchanged
-    temporal and spatial remain off
-
-Acceptance:
-
-    build/deploy succeeds
-    PDFNEE dump reports sourcePolicy=2(nee-cache-provider)
-    PDFNEE dump reports producerHelperSequence contains nee-cache-ris
-    changing r_pathTracingRestirPdfNeeVerifierSamples changes proposal quality
-        without changing the source domain contract
-    report explicitly states that RTX Remix/ReSTIR PT do not contain this as
-        their primary DI method
-    if visual output remains unstable, report the lane as research-only rather
-        than adding temporal/spatial reuse or weakening RLU invalidation
-
-
-NEECACHE-09: Clean RTXDI DI Spatial Proposal Provider
------------------------------------------------------
-
-Goal:
-
-    Let clean RTXDI DI use the spatial provider as an initial proposal source
-    over dense current RLU identities, in the same broad role that RTXDI/ReGIR
-    proposals play in the reference path.
-
-Reference file-equivalent:
-
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/DI/InitialSampling.hlsli
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/ReGIR/ReGIRSampling.hlsli
-    E:/prog/references/RTXDI-main/Samples/FullSample/Shaders/LightingPasses/DI/GenerateInitialSamples.hlsl
-
-Allowed rbdoom write set:
-
-    neo/renderer/NVRHI/PathTraceCVars.cpp
-    neo/renderer/NVRHI/PathTraceCVars.h
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
-    neo/shaders/builtin/pathtracing/RtxdiBridge/RAB_NeeCache.hlsli
-    docs/restir_nee_cache
-
-Required:
-
-    clean RTXDI DI remains reservoir and accumulation owner
-    r_pathTracingCleanRtxdiDiNeeCacheProvider gates this clean-DI consume path
-    clean sentinel binds provider/cell/candidate buffers as SRV t74/t75/t77
-    selected dense current RLU index plus sourcePdf/invSourcePdf are streamed
-        into clean DI initial sampling
-    every pixel draws its own cache/fallback proposal from the mapped cell
-    no cell-owned finished reservoir
-    no cell-owned final light
-    no clean RTXDI temporal edits
-    full-RLU or typed fallback remains mixed with explicit PDF
-    selected candidate replays through:
-        RAB_LoadLightInfo
-        RAB_SamplePolymorphicLight
-        RAB_GetLightSampleTargetPdfForSurface
-    RTXDI_StreamSample / RTXDI_FinalizeResampling remain the selection path
-    debug view proves selected dense index is stochastic/dithered rather than
-        square cell blocks
-
-Acceptance:
-
-    build/deploy succeeds
-    clean RTXDI DI view 12 works with provider enabled
-    fallback-only provider matches the existing full-RLU clean DI baseline
-    cache+fallback changes proposal distribution without visible cell squares
-    disabling the provider returns to the known clean DI baseline
     clean RTXDI DI dump reports:
         cleanNeeCacheProvider requested/ready=1/1
         providerResultSrv=t74 cellSrv=t75 candidateSrv=t77
+        cellFrame=world-anchored
+        resolveSolidAnglePdf=0
+    fallback-only (cacheProbability=0) matches the existing full-RLU clean DI
+        baseline
+    CONVERGENCE: with the camera held still, cache+fallback converges to the
+        same accumulated image as fallback-only (not just "different")
+    EMISSIVE: a bright/large emissive panel converges without variance that
+        scales with emitter intensity; doubling intensity does not blow up noise
+    MOVEMENT: walking past world cells does not strobe; debug view shows the
+        selected dense index is stochastic/dithered, not square cell blocks
+    disabling the provider returns to the known clean DI baseline
 
 
-NEECACHE-10: GI / Secondary NEE Cache Consumer
-----------------------------------------------
+================================================================================
+ORIGINAL TASK BODIES (history; PDF/measure/cell-frame wording superseded by the
+Binding Contracts above)
+================================================================================
 
-Goal:
+NEECACHE-00: Read-Only Contract Audit ........ done
+    Audit Remix NEE cache, RTXDI ReGIR, rbdoom ReGIR scaffolding, RLU, PDFNEE
+    producer, clean DI initial sampling. docs-only, no code, no build.
 
-    Consume the NEE cache in the Remix-like role: GI / secondary direct-to-light
-    sampling from emissive triangle/surface candidates with explicit PDFs and
-    MIS.
+NEECACHE-01: CPU Resource Shell .............. done
+    Default-off CPU/resource shell + provider ABI (provider_abi.txt). Result
+    struct: selectedDenseRluIndex, sourcePdf, invSourcePdf, sourceLabel,
+    mixtureProbability, fallbackReason, cellIndex, candidateSlot, flags.
+    NOTE: sourcePdf/invSourcePdf semantics are now defined by Contract A.
 
-Reference file-equivalent:
+NEECACHE-02: Log/Hash Cell Debug View ........ done
+    debugView 1 route/status, 2 cell id, 3 empty occupancy.
+    NOTE (Contract B): cell id must be world-anchored; the acceptance test is
+    "no strobe under camera movement," not only "stable while standing still."
 
-    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_pathtracer_integrate_indirect.cpp
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
-    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/nee_cache_light.slangh
+NEECACHE-03: Task Accumulation Buffer ........ done
+    Task slots + accumulation/decay/reset, debugView 4. Reset clears stale
+    tasks; dump names insert/decay/reset policy.
 
-Allowed rbdoom write set:
+NEECACHE-04: Emissive Candidate List ......... done
+    Per-cell emissive candidates from current RLU emissive records, dense RLU
+    identity, debugView 5. NOTE: any sourcePdf/invSourcePdf proof must follow
+    Contract A (include solidAnglePdf).
 
-    neo/renderer/NVRHI/PathTraceCVars.h
-    neo/renderer/NVRHI/PathTraceCVars.cpp
-    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp
-    neo/renderer/NVRHI/PathTraceSmokeResources.cpp
-    neo/shaders/builtin/pathtracing/RtxdiBridge/PathTracer/RAB_PathTracerNee.hlsli
-    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
-    docs/restir_nee_cache
+NEECACHE-05: Analytic Candidate List ......... done
+    Per-cell analytic candidates from current RLU Doom analytic records, dense
+    RLU identity, debugView 6/7/10. Selected analytic identity stable under
+    light animation. NOTE: Contract A applies to debugView 7 sourcePdf.
 
-Required:
+NEECACHE-06: Cache/Fallback Mixture Provider .. done
+    Proposal-provider output sampling cache OR fallback with an explicit mixture
+    PDF, debugView 8/9. NOTE: the mixture PDF is now defined by Contract A.2 and
+    must be a real mixture, not the taken branch only.
 
-    task feedback comes from real path/secondary events
-    emissive triangle/surface candidates are the first production consume target
-    selected candidate carries selection PDF, solidAnglePdf, emitted radiance,
-        visibility result, and MIS input
-    bounce policy is explicit
-    primary DI remains clean RTXDI DI
-    no cached radiance is painted directly as final lighting
+NEECACHE-07: Experimental PDFNEE Current-Frame Consume ... done, preserved
+    sourcePolicy 2 = NEE cache provider; provider SRV t74, candidate SRV t77;
+    per-pixel proposal so cells do not become visible blocks; visibility
+    separate; RAB owns solidAnglePdf/targetPdf/radiance. Alternate/experimental
+    visual mode only. NOTE: Contract A/A.2 apply to its sourcePdf.
 
-First slice:
+NEECACHE-08: Experimental PDFNEE Importance / RIS Proposal ... done, research
+    Persistent candidate slots via bounded RIS, hash-cell collision rejection,
+    multiple proposals per pixel (count = r_pathTracingRestirPdfNeeVerifierSamples),
+    every proposal carries exact sourcePdf/invSourcePdf (Contract A). Research
+    lane; not primary DI. If unstable, report research-only; do not add
+    temporal/spatial or weaken RLU invalidation.
 
-    r_pathTracingNeeCacheSecondaryEnable gates an opt-in ReSTIR PT
-        path-tracer NEE consumer at RAB_RecordSmokeNeeSample
-    r_pathTracingNeeCacheSecondaryDump reports the exact consumer boundary
-    the first production target is current-RLU emissive candidates only
-    stale/empty/non-emissive candidates reject and fall back to the existing
-        path-tracer NEE path
-    scenes whose current RLU has no emissive range must report
-        firstMissingContract=no-emissive-secondary-consume-domain instead of
-        claiming a meaningful consumer A/B
-    validation is route-dump, normal-render A/B, and the dedicated clean-DI
-        view 8 band 10 candidate-field diagnostic
-    selected candidates replay through RAB_LoadLightInfo,
-        RAB_SamplePolymorphicLight, RAB_GetReflectedBsdfRadianceForSurface,
-        RAB_GetSelectedNeeVisibility, and GetMISWeightForNEELight
-    primary legacy NEE calls and mode 18 remain excluded from the cache
-        consumer validation path
-    ReSTIR PT debug modes 53-55 are not proof views for this task
-    clean-DI view 8 band 10 shows the current-RLU emissive candidates the
-        secondary consumer can replay, but does not write final cached radiance
-        or prove secondary contribution by itself
-    r_pathTracingNeeCacheSecondaryVisualRefresh 1 refreshes that diagnostic
-        once and holds the snapshot while band 10 remains active; 2 is
-        continuous and may be expensive in portal-heavy views
+NEECACHE-09: Clean RTXDI DI Spatial Proposal Provider ... BUILT, NON-COMPLIANT
+    Clean RTXDI DI uses the spatial provider as an initial proposal source over
+    dense current RLU identities. Architecture is correct (per-pixel RIS, no
+    cell-owned light). SUPERSEDED for PDF/measure and cell frame by the Binding
+    Contracts; bring it into compliance in NEECACHE-09R before further work.
 
-Acceptance:
-
-    cache can be A/B tested independently from clean DI
-    empty/stale candidates reject or fall back without black/fake lighting
-    disabling GI/secondary NEE cache leaves clean DI behavior unchanged
-    r_pathTracingCleanRtxdiDiView 8 with r_pathTracingCleanRtxdiDiView8Band 10
-        shows non-solid candidate-field diagnostics when emissive RLU candidates
-        are present
-
+NEECACHE-10: GI / Secondary NEE Cache Consumer ... after 09R
+    Consume the NEE cache in the Remix role: GI / secondary direct-to-light from
+    emissive triangle/surface candidates with explicit PDFs and MIS.
+    r_pathTracingNeeCacheSecondaryEnable gates an opt-in ReSTIR PT consumer at
+    RAB_RecordSmokeNeeSample; first target = current-RLU emissive candidates
+    only; stale/empty/non-emissive reject and fall back; primary DI stays clean
+    RTXDI DI; no cached radiance painted as final lighting. Selected candidate
+    carries selection PDF, solidAnglePdf, emitted radiance, visibility, MIS
+    input. NOTE: its pdf must follow Contract A (sourcePdf = P_select *
+    solidAnglePdf), consistent with contract_matrix C-10.
 
 Later Escape Hatch: Full ReGIR / Onion Provider
------------------------------------------------
-
-Only if the lightweight clean DI spatial proposal provider is still
-insufficient, add a full ReGIR/onion provider behind the same source-provider
-interface. That fallback is not the next rung after NEECACHE-07; PDFNEE visual
-noise alone does not justify it.
+    Only if the world-anchored lightweight provider is still insufficient. A
+    camera-relative onion grid, if ever used, must still not strobe stationary
+    world points (Contract B). PDFNEE visual noise alone does not justify it.

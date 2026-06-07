@@ -1,3 +1,24 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  A   ONE measure (solid angle): sourcePdf = P_select * solidAnglePdf;
+      invSourcePdf = 1/that. The final resolve does NOT divide by solidAnglePdf
+      again (it already lives in sourcePdf; UCW carries 1/targetPdf). A
+      selection-only sourcePdf is a BUG. So every "sourcePdf" row below means
+      P_select*solidAnglePdf. This reconciles the C-* self-conflict: the Fail
+      "sourcePdf is only the candidate generation PDF" is correct, and
+      "weighted cell identity PDF multiplied by solidAnglePdf" is the rule.
+  A.2 cache/fallback is a REAL mixture pdf (both branches evaluated for the
+      drawn light), not the taken branch only.
+  B   cells are WORLD-ANCHORED: a stationary world point keeps its cell id under
+      camera movement (no strobe). "world-space stable while standing still" is
+      insufficient; the test is no strobe under camera motion. Onion = escape
+      hatch only.
+  C   every consume acceptance also requires CONVERGENCE (cache+fallback
+      converges to the same accumulated image as fallback-only), an emissive
+      intensity-stress check, and a movement no-strobe check. "fallback matches
+      baseline / distribution changed" is necessary but NOT sufficient.
+  Start task: NEECACHE-09R.
+================================================================================
+
 Remix-Style NEE Cache Contract Matrix
 =====================================
 

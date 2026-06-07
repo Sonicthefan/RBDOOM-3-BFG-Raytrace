@@ -1,3 +1,20 @@
+>>> BINDING CONTRACT AMENDMENT — worker_tasks.txt overrides conflicts here <<<
+  Contract C: every consume acceptance in this file is amended to ALSO require:
+    1. CONVERGENCE/energy: with temporal on and camera held still, cache+fallback
+       converges to the same accumulated image as fallback-only (within noise) —
+       not merely "looks different" / "distribution changed".
+    2. EMISSIVE stress: a bright/large emissive panel converges without variance
+       that scales with emitter intensity (doubling intensity must not blow up
+       noise). This catches the measure bug Contract A fixes.
+    3. MOVEMENT: walking past world cells does not strobe (cells world-anchored,
+       Contract B).
+  Rationale: a measure bug (selection-only sourcePdf) hits cache AND baseline
+  equally, so "fallback-only matches baseline" PASSES while the cache is still
+  biased. Baseline A/B alone is necessary but NOT sufficient.
+  Also: sourcePdf = P_select*solidAnglePdf (Contract A); resolve does not
+  re-divide by solidAnglePdf. Start task: NEECACHE-09R.
+================================================================================
+
 Remix-Style NEE Cache Validation Matrix
 =======================================
 
