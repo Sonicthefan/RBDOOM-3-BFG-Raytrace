@@ -754,6 +754,8 @@ float PathTraceCleanRoomLuminance(float3 value)
     return dot(max(value, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
 }
 
+#include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
+
 uint PathTraceCleanRoomReservoirBlockCount(uint dimension)
 {
     return (dimension + RTXDI_RESERVOIR_BLOCK_SIZE - 1u) / RTXDI_RESERVOIR_BLOCK_SIZE;
@@ -875,6 +877,11 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
+        material.materialIndex,
+        material.diffuseAlbedo,
+        material.specularF0,
+        material.roughness);
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
     material.emissiveTextureIndex = record.instancePrimitiveObject.w;
@@ -884,7 +891,8 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
 
 RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
-    if (CleanRtxdiDiView == 16u)
+    if (CleanRtxdiDiView == 16u ||
+        PathTraceCleanRoomLiveMaterialClassifierBsdfActive(record.materialAndSurface.y))
     {
         return PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     }
@@ -962,8 +970,6 @@ RAB_LightInfo PathTraceCleanRoomBuildAnalyticLightInfo(PathTraceDoomAnalyticLigh
     lightInfo.weight = PathTraceCleanRoomLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
 }
-
-#include "pathtrace_clean_rtxdi_di_material_texture.hlsli"
 
 float3 PathTraceCleanRoomMatClassRouteColor(uint route)
 {

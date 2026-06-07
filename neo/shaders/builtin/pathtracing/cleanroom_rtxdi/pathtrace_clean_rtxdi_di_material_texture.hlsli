@@ -33,6 +33,22 @@ PathTraceSmokeMaterial PathTraceCleanRoomLoadSmokeMaterial(uint materialIndex)
     return material;
 }
 
+bool PathTraceCleanRoomLiveMaterialClassifierBsdfActive(uint materialIndex)
+{
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
+    return SmokeMatClassDrivesLegacySpec(material) || SmokeMatClassHasPackedBsdf(material);
+}
+
+void PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
+    uint materialIndex,
+    float3 albedo,
+    inout float3 specularF0,
+    inout float roughness)
+{
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
+    SmokeApplyMaterialClassifierBsdf(material, albedo, specularF0, roughness);
+}
+
 float4 PathTraceCleanRoomLoadTextureTexel(uint textureIndex, uint2 texel, bool bindlessEnabled)
 {
     return bindlessEnabled
