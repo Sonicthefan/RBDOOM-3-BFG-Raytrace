@@ -1339,13 +1339,13 @@ idCVar r_pathTracingCleanRtxdiDiEnable(
     "r_pathTracingCleanRtxdiDiEnable",
     "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI path: default-on RLU view-12 route; set 0 to opt out for diagnostics; does not route through mode 56 or existing RRX debug views" );
+    "Clean-room Remix DI path: default-on clean material-classifier view-12 route; set 0 to opt out for diagnostics; does not route through mode 56 or existing RRX debug views" );
 
 idCVar r_pathTracingCleanRtxdiDiView(
     "r_pathTracingCleanRtxdiDiView",
     "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room Remix DI debug view: default 12 real analytic full-domain temporal; 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo, 21 RR depth contract bands, 22 primary hit reprojection error, 23 previous hit/motion reprojection error, 24 material classifier consumed-surface debug" );
+    "Clean-room Remix DI debug view: default 12 clean material-classifier live-material proof, 0 disabled, 1 route sentinel, 2 primary status, 3 analytic status, 4 raw flat current, 5 raw flat temporal, 6 raw flat split, 7 identity/M/history, 8 weight/targetPdf/rejection, 9 synthetic temporal, 10 synthetic analytic temporal, 11 synthetic overlap temporal, 13 real analytic one-sample scalar diagnostic, 14 real analytic target-factor diagnostic, 15 real analytic binary gate diagnostic, 16 material validation resolve from clean current/temporal/spatial reservoirs, 17 RR motion-vector diagnostic, 18 RR input/guide mosaic, 19 RR guide albedo, 20 RR guide specular albedo, 21 RR depth contract bands, 22 primary hit reprojection error, 23 previous hit/motion reprojection error, 24 material classifier consumed-surface debug" );
 
 idCVar r_pathTracingCleanRtxdiDiTemporal(
     "r_pathTracingCleanRtxdiDiTemporal",

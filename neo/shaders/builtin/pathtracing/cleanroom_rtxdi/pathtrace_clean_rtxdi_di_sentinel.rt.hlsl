@@ -1003,6 +1003,8 @@ float3 PathTraceCleanRoomMatClassSurfaceClassColor(uint surfaceClass)
     return float3(0.25, 0.25, 0.25);
 }
 
+uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex);
+
 float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensions)
 {
     PathTracePrimarySurfaceRecord record;
@@ -1011,7 +1013,12 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
         return float3(0.18, 0.00, 0.18);
     }
 
-    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(record.materialAndSurface.y);
+    const uint recordMaterialIndex = record.materialAndSurface.y;
+    const uint liveMaterialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(
+        record.instancePrimitiveObject.x,
+        record.instancePrimitiveObject.y);
+    const uint materialIndex = liveMaterialIndex < (uint)TextureInfo.z ? liveMaterialIndex : recordMaterialIndex;
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
     const bool hasClassifierRecord = material.padding1 != 0u;
     const bool right = pixel.x * 2u >= dimensions.x;
     const bool bottom = pixel.y * 2u >= dimensions.y;
@@ -1032,17 +1039,23 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
     }
     if (!right)
     {
-        const float roughness = saturate(record.geometricNormalAndRoughness.w);
+        float roughness = saturate(record.geometricNormalAndRoughness.w);
+        float3 specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+        SmokeApplyMaterialClassifierBsdf(material, saturate(record.albedoAndAlphaCutoff.xyz), specularF0, roughness);
         return float3(roughness, roughness, roughness);
     }
 
+    float roughness = saturate(record.geometricNormalAndRoughness.w);
+    float3 specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    SmokeApplyMaterialClassifierBsdf(material, saturate(record.albedoAndAlphaCutoff.xyz), specularF0, roughness);
+    const float f0Luminance = PathTraceCleanRoomLuminance(specularF0);
     if (SmokeMatClassDrivesLegacySpec(material))
     {
-        return float3(1.0, 0.0, 0.0);
+        return float3(max(f0Luminance, 0.35), 0.0, 0.0);
     }
 
     return float3(
-        0.0,
+        saturate(f0Luminance),
         SmokeMatClassMetallic(material),
         SmokeMatClassTransmission(material));
 }
@@ -2998,11 +3011,11 @@ void RayGen()
     {
         color = PathTraceCleanRoomPreviousHitReprojectionErrorColor(pixel, dimensions);
     }
-    else if (view == 24u)
+    else if (view == 12u || view == 24u)
     {
         color = PathTraceCleanRoomMaterialClassifierDebugColor(pixel, dimensions);
     }
-    else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 12u || view == 16u)
+    else if (view == 5u || view == 6u || view == 8u || view == 9u || view == 10u || view == 11u || view == 16u)
     {
         color = PathTraceCleanRoomTemporalReservoirOutput(pixel, dimensions, view);
     }
