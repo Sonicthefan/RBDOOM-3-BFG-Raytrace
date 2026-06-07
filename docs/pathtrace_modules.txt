@@ -808,7 +808,9 @@ PathTraceNeeCache.cpp
     probability as a mixture weight over both branches:
     cache-heavy diagnostics can set `r_pathTracingNeeCacheFallbackProbability 0`,
     normal validation uses the default `0.25`, and fallback-only baseline uses
-    `1`.
+    `1`. Mixed analytic/emissive NEE-cache validation also depends on clean DI
+    spatial reuse using `r_cleanDiSpatialSamples 5`; lower sample counts can make
+    one light class look stable while the other remains under-resolved.
 
 pathtrace_smoke.rt.hlsl
     Core smoke ray tracing shader. It keeps mode 18, mode 20, integrator
@@ -948,7 +950,10 @@ cleanroom_rtxdi/pathtrace_clean_rtxdi_di_nee_cache.hlsli
     final clean DI resolve still divides by the selected light `solidAnglePdf`
     while `r_pathTracingCleanRtxdiDiResolveSolidAnglePdf` remains 1. Do not
     change only this include to `P_select * solidAnglePdf`; that requires a
-    coordinated target-function and resolve migration.
+    coordinated target-function and resolve migration. Doom analytic cache
+    weights use the packed RLU source weight plus cell influence; do not multiply
+    that again by analytic luminance/area, because the RLU source weight already
+    carries the authored light energy scale.
 
 RtxdiBridge/RAB_NeeCache.hlsli
     Shared NEE-cache shader mapping helpers. The mapper centers the high-detail
@@ -968,7 +973,9 @@ pathtrace_nee_cache_debug.rt.hlsl
     occupancy, views 8/9 inspect cache-versus-fallback source and fallback
     reason, and view 10 checks RAB replay. These views are diagnostics for the
     provider resources; they are not final DI lighting or proof of spatial
-    reuse.
+    reuse. Candidate building now samples the full Doom analytic RLU range and
+    filters stable/replayable analytic records in the shader; do not assume
+    stable analytic records are packed as a contiguous prefix.
 
 pathtrace_nee.hlsli
     Native mode 18 NEE/direct-lighting include. It owns the selected-light NEE
@@ -1126,10 +1133,15 @@ RtxdiBridge/*.hlsli
     conservative RAB BRDF, fills `RTXDI_BrdfRaySample`, sets a continuation ray,
     lets RTXDI analyze reconnectibility, traces `SmokeScene`, converts the smoke
     hit payload back into `RAB_RayPayload`/`RAB_Surface`, records the
-    intersection, and records emissive surface hits. It is capped to a small
-    bridge bounce depth and does not yet implement NEE, environment radiance,
-    Russian roulette, PSR/denoiser state, traced RAB visibility, temporal replay,
-    or spatial reuse.
+    intersection, and records emissive surface hits. `RAB_PathTracerNee.hlsli`
+    supplies local secondary NEE for current-frame emissive triangles, Doom
+    analytic lights, and the NEE-cache typed analytic/emissive proposal path.
+    The NEE-cache consumer replays selected dense current RLU identities through
+    `RAB_LoadLightInfo` and `RAB_SamplePolymorphicLight`, evaluates a
+    cache/fallback mixture PDF for the selected identity, then multiplies by the
+    sampled light `solidAnglePdf` for the PT NEE PDF. It is still current-frame
+    local NEE, not RTXDI temporal/spatial reuse, environment radiance, Russian
+    roulette, PSR/denoiser state, or traced RAB visibility.
 
 PathTraceDebugDumps.h
     Shared diagnostic structs and dump/trigger APIs for scene build, material,

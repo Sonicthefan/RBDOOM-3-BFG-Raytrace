@@ -74,8 +74,7 @@ float PathTraceCleanRoomNeeCacheAnalyticCandidateWeight(PathTraceUnifiedLightRec
     const float influenceDistance = influenceRadius + cellRadius;
     const float edgeDistance = max(distanceToCell - radius, 0.0);
     const float falloff = saturate(1.0 - edgeDistance / max(influenceDistance - radius, 1.0));
-    const float area = max(record.normalAndArea.w, 4.0 * CLEAN_RTXDI_PI * radius * radius);
-    return sourceWeight * luminance * area * falloff * falloff /
+    return sourceWeight * falloff * falloff /
         max(dot(toCell, toCell) + radius * radius + cellRadius * cellRadius, 1.0);
 }
 

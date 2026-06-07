@@ -2,11 +2,7 @@
 #include "RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 #include "RtxdiBridge/RAB_NeeCache.hlsli"
 
-#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
-#include "Rtxdi/Utils/Math.hlsli"
-#else
 static const float RTXDI_PI = 3.14159265358979323846;
-#endif
 
 struct PathTraceNeeCachePayload
 {
@@ -254,9 +250,36 @@ bool PathTraceSafetyDisabled(uint bit)
 #define RB_PT_ENABLE_RESTIR_LIGHT_MANAGER_RAB 1
 #include "RtxdiBridge/RAB_LightInfoRuntime.hlsli"
 #include "RtxdiBridge/RAB_LightLoadRuntime.hlsli"
-#ifndef PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE
-#include "RtxdiBridge/RAB_LightTarget.hlsli"
-#endif
+#include "RtxdiBridge/RAB_LightSamplingCore.hlsli"
+
+float PathTraceNeeCacheDebugLightSampleTargetPdfForSurface(RAB_LightSample lightSample, RAB_Surface surface)
+{
+    if (!RAB_IsReplayableLightSample(lightSample) || !RAB_IsSurfaceValid(surface))
+    {
+        return 0.0;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), lightDir));
+    const float3 reflected = GetDiffuseAlbedo(surface.material) * (1.0 / RTXDI_PI) * lightSample.radiance * ndotl;
+    return RAB_Luminance(reflected) / max(lightSample.solidAnglePdf, 1.0e-6);
+}
+
+float3 PathTraceNeeCacheDebugReflectedRadianceForSurface(float3 samplePosition, float3 radiance, RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 toLight = samplePosition - RAB_GetSurfaceWorldPos(surface);
+    const float distanceSquared = max(dot(toLight, toLight), 1.0e-6);
+    const float3 lightDir = toLight * rsqrt(distanceSquared);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), lightDir));
+    return GetDiffuseAlbedo(surface.material) * (1.0 / RTXDI_PI) * max(radiance, float3(0.0, 0.0, 0.0)) * ndotl;
+}
 
 float3 PathTraceNeeCacheSafeNormalize(float3 value, float3 fallback)
 {
@@ -514,8 +537,7 @@ float PathTraceNeeCacheAnalyticCandidateWeight(PathTraceUnifiedLightRecord recor
     const float influenceDistance = influenceRadius + cellRadius;
     const float edgeDistance = max(distanceToCell - radius, 0.0);
     const float falloff = saturate(1.0 - edgeDistance / max(influenceDistance - radius, 1.0));
-    const float area = max(record.normalAndArea.w, 4.0 * RTXDI_PI * radius * radius);
-    return sourceWeight * luminance * area * falloff * falloff /
+    return sourceWeight * falloff * falloff /
         max(dot(toCell, toCell) + radius * radius + cellRadius * cellRadius, 1.0);
 }
 
@@ -948,13 +970,13 @@ float3 PathTraceNeeCacheShadeDenseRluThroughRab(uint denseIndex, RAB_Surface sur
         return float3(0.0, 0.0, 0.0);
     }
 
-    const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
+    const float targetPdf = max(PathTraceNeeCacheDebugLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
     if (targetPdf <= 0.0)
     {
         return float3(0.0, 0.0, 0.0);
     }
 
-    const float3 reflectedRadiance = RAB_GetReflectedBsdfRadianceForSurface(lightSample.position, lightSample.radiance, surface);
+    const float3 reflectedRadiance = PathTraceNeeCacheDebugReflectedRadianceForSurface(lightSample.position, lightSample.radiance, surface);
     return reflectedRadiance / max(lightSample.solidAnglePdf, 1.0e-6);
 }
 
@@ -1197,7 +1219,7 @@ float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, 
     const uint candidateSlots = PathTraceNeeCacheCandidateSlotCount();
     const uint baseSlot = cell.cellIndex * candidateSlots;
     const uint2 emissiveRange = PathTraceNeeCacheCurrentEmissiveRange();
-    const uint2 analyticRange = PathTraceNeeCacheCurrentStableDoomAnalyticRange();
+    const uint2 analyticRange = PathTraceNeeCacheCurrentDoomAnalyticRange();
     const uint currentRluCount = PathTraceNeeCacheCurrentRluCount();
     const uint emissiveRangeOffset = min(emissiveRange.x, currentRluCount);
     const uint emissiveRangeCount = min(emissiveRange.y, currentRluCount - emissiveRangeOffset);
@@ -1248,15 +1270,22 @@ float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, 
     PathTraceNeeCacheCandidateRecord updatedCandidate = PathTraceNeeCacheMakeEmptyCandidate(cell.cellIndex, updateSlot);
     if (PathTraceNeeCacheSourceDomain() == 0u)
     {
-        const uint combinedRangeOffset = activeEmissiveRangeCount > 0u ? emissiveRangeOffset : analyticRangeOffset;
-        const uint combinedRangeCount = activeEmissiveRangeCount + activeAnalyticRangeCount;
+        const bool chooseAnalytic =
+            activeAnalyticRangeCount > 0u &&
+            (activeEmissiveRangeCount == 0u ||
+                (PathTraceNeeCacheHashToUnitFloat(updateSeed ^ 0x165667b1u) *
+                    (float)(activeEmissiveRangeCount + activeAnalyticRangeCount)) >= (float)activeEmissiveRangeCount);
+        const float classProbability = activeEmissiveRangeCount + activeAnalyticRangeCount > 0u
+            ? (float)(chooseAnalytic ? activeAnalyticRangeCount : activeEmissiveRangeCount) /
+                max((float)(activeEmissiveRangeCount + activeAnalyticRangeCount), 1.0)
+            : 1.0;
         updatedCandidate = PathTraceNeeCacheBuildRisCandidateFromRange(
             cell,
             updateSlot,
-            combinedRangeOffset,
-            combinedRangeCount,
-            0u,
-            1.0,
+            chooseAnalytic ? analyticRangeOffset : emissiveRangeOffset,
+            chooseAnalytic ? activeAnalyticRangeCount : activeEmissiveRangeCount,
+            chooseAnalytic ? PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC : PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE,
+            classProbability,
             updateSeed);
     }
     else if (PathTraceNeeCacheSourceDomain() == 1u)

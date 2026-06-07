@@ -376,30 +376,239 @@ float RAB_NeeCacheSecondaryEmissiveWeight(RAB_LightInfo lightInfo, PathTraceNeeC
         max(distanceSquared + cellRadius * cellRadius, 1.0);
 }
 
+float RAB_NeeCacheSecondaryAnalyticWeight(RAB_LightInfo lightInfo, RAB_Surface surface, PathTraceNeeCacheCellDebug cell)
+{
+    if (!RAB_IsLightInfoValid(lightInfo) ||
+        lightInfo.unifiedLightType != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC ||
+        lightInfo.radius <= 0.0 ||
+        lightInfo.influenceRadius <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float3 cellCenter = (float3(cell.coord) + 0.5) * max(cell.cellSize, 1.0);
+    const float3 samplePoint = RAB_GetSurfaceWorldPos(surface);
+    const float3 toCellCenter = cellCenter - samplePoint;
+    const float3 lightPosition = lightInfo.position;
+    const float3 toLight = lightPosition - samplePoint;
+    const float lightDistanceSquared = max(dot(toLight, toLight), 1.0e-4);
+    const float lightDistance = sqrt(lightDistanceSquared);
+    const float3 lightDir = toLight / lightDistance;
+    const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float ndotl = saturate(dot(normal, lightDir));
+    if (ndotl <= 0.0 || dot(RAB_GetSurfaceGeoNormal(surface), lightDir) <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float cellRadius = max(cell.cellSize, 1.0) * 0.8660254;
+    const float distanceToCell = length(lightPosition - cellCenter);
+    const float edgeDistance = max(distanceToCell - max(lightInfo.radius, 1.0e-3), 0.0);
+    const float influenceDistance = max(lightInfo.influenceRadius + cellRadius, lightInfo.radius + 1.0);
+    const float influence = saturate(1.0 - edgeDistance / max(influenceDistance - lightInfo.radius, 1.0));
+    const float radius = min(max(lightInfo.radius, 1.0e-3), max(lightInfo.influenceRadius, 1.0e-3));
+    const float solidAngleApprox = max(2.0 * RTXDI_PI * (1.0 - sqrt(max(0.0, 1.0 - saturate((radius * radius) / lightDistanceSquared)))), 1.0e-5);
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(surface, lightDir, RAB_GetSurfaceViewDir(surface));
+    const float diffuseWeight = RAB_Luminance(brdf * lightInfo.radiance) * ndotl * solidAngleApprox;
+    const float distanceAnchor = 1.0 / max(dot(toCellCenter, toCellCenter) + cellRadius * cellRadius, 1.0);
+    return diffuseWeight * max(influence * influence, 0.0) * max(1.0, cellRadius * cellRadius) * distanceAnchor;
+}
+
 bool RAB_NeeCacheSecondaryCandidateUsable(
     PathTraceNeeCacheCandidateRecord candidate,
     uint currentRluLightCount,
+    uint requiredClass,
     out RAB_LightInfo lightInfo)
 {
     lightInfo = RAB_EmptyLightInfo();
     if (candidate.flags == 0u ||
         candidate.denseRluIndex >= currentRluLightCount ||
-        candidate.lightClass != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE ||
         candidate.sourcePdf <= 0.0 ||
         candidate.invSourcePdf <= 0.0)
+    {
+        return false;
+    }
+    if (requiredClass != 0u && candidate.lightClass != requiredClass)
+    {
+        return false;
+    }
+    if (candidate.lightClass != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE &&
+        candidate.lightClass != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
     {
         return false;
     }
 
     lightInfo = RAB_LoadLightInfo(candidate.denseRluIndex, false);
     return RAB_IsLightInfoValid(lightInfo) &&
-        lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+        lightInfo.unifiedLightType == candidate.lightClass;
 }
 
-bool RAB_NeeCacheSecondarySelectEmissiveCandidate(
+float RAB_NeeCacheSecondaryCandidateWeight(
+    RAB_LightInfo lightInfo,
+    RAB_Surface surface,
+    PathTraceNeeCacheCellDebug cell)
+{
+    if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        return RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
+    }
+    if (lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        return RAB_NeeCacheSecondaryAnalyticWeight(lightInfo, surface, cell);
+    }
+    return 0.0;
+}
+
+uint RAB_NeeCacheSecondarySourceDomain()
+{
+    return clamp((uint)max(NeeCacheInfo0.w, 0.0), 0u, 3u);
+}
+
+uint2 RAB_NeeCacheSecondaryEmissiveRange(uint currentRluLightCount)
+{
+    const uint offset = min((uint)max(RestirLightManagerRangeInfo.x, 0.0), currentRluLightCount);
+    const uint count = min((uint)max(RestirLightManagerRangeInfo.y, 0.0), currentRluLightCount - offset);
+    return uint2(offset, count);
+}
+
+uint2 RAB_NeeCacheSecondaryAnalyticRange(uint currentRluLightCount)
+{
+    const uint offset = min((uint)max(RestirLightManagerRangeInfo.z, 0.0), currentRluLightCount);
+    const uint count = min((uint)max(RestirLightManagerRangeInfo.w, 0.0), currentRluLightCount - offset);
+    return uint2(offset, count);
+}
+
+bool RAB_NeeCacheSecondaryFallbackAnalyticSampleable(uint denseRluIndex)
+{
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(denseRluIndex, false);
+    return RAB_IsLightInfoValid(lightInfo) &&
+        lightInfo.unifiedLightType == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+}
+
+uint RAB_NeeCacheSecondaryFallbackAnalyticCount(uint currentRluLightCount)
+{
+    const uint2 analyticRange = RAB_NeeCacheSecondaryAnalyticRange(currentRluLightCount);
+    uint count = 0u;
+    [loop]
+    for (uint localIndex = 0u; localIndex < analyticRange.y; ++localIndex)
+    {
+        if (RAB_NeeCacheSecondaryFallbackAnalyticSampleable(analyticRange.x + localIndex))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+float RAB_NeeCacheSecondaryFallbackIdentityPdf(uint denseRluIndex, uint currentRluLightCount)
+{
+    if (currentRluLightCount == 0u || denseRluIndex >= currentRluLightCount)
+    {
+        return 0.0;
+    }
+
+    const uint sourceDomain = RAB_NeeCacheSecondarySourceDomain();
+    const uint2 emissiveRange = RAB_NeeCacheSecondaryEmissiveRange(currentRluLightCount);
+    const uint2 analyticRange = RAB_NeeCacheSecondaryAnalyticRange(currentRluLightCount);
+    const bool inEmissiveRange = denseRluIndex >= emissiveRange.x && denseRluIndex < emissiveRange.x + emissiveRange.y;
+    const bool inAnalyticRange = denseRluIndex >= analyticRange.x && denseRluIndex < analyticRange.x + analyticRange.y &&
+        RAB_NeeCacheSecondaryFallbackAnalyticSampleable(denseRluIndex);
+
+    if (sourceDomain == 0u)
+    {
+        return 1.0 / max((float)currentRluLightCount, 1.0);
+    }
+    if (sourceDomain == 1u)
+    {
+        return inEmissiveRange ? 1.0 / max((float)emissiveRange.y, 1.0) : 0.0;
+    }
+
+    const uint analyticCount = RAB_NeeCacheSecondaryFallbackAnalyticCount(currentRluLightCount);
+    if (sourceDomain == 2u)
+    {
+        return inAnalyticRange ? 1.0 / max((float)analyticCount, 1.0) : 0.0;
+    }
+
+    if (inEmissiveRange)
+    {
+        const float classProbability = (emissiveRange.y > 0u && analyticCount > 0u) ? 0.5 : 1.0;
+        return classProbability / max((float)emissiveRange.y, 1.0);
+    }
+    if (inAnalyticRange)
+    {
+        const float classProbability = (emissiveRange.y > 0u && analyticCount > 0u) ? 0.5 : 1.0;
+        return classProbability / max((float)analyticCount, 1.0);
+    }
+    return 0.0;
+}
+
+bool RAB_NeeCacheSecondarySelectFallback(
     inout RTXDI_RandomSamplerState rng,
+    uint currentRluLightCount,
+    out uint selectedDenseRluIndex)
+{
+    selectedDenseRluIndex = RAB_INVALID_LIGHT_INDEX;
+    if (currentRluLightCount == 0u)
+    {
+        return false;
+    }
+
+    const uint sourceDomain = RAB_NeeCacheSecondarySourceDomain();
+    if (sourceDomain == 0u)
+    {
+        selectedDenseRluIndex = min((uint)(RTXDI_GetNextRandom(rng) * (float)currentRluLightCount), currentRluLightCount - 1u);
+        return true;
+    }
+
+    const uint2 emissiveRange = RAB_NeeCacheSecondaryEmissiveRange(currentRluLightCount);
+    const uint2 analyticRange = RAB_NeeCacheSecondaryAnalyticRange(currentRluLightCount);
+    const uint analyticCount = RAB_NeeCacheSecondaryFallbackAnalyticCount(currentRluLightCount);
+    const bool chooseAnalytic =
+        sourceDomain == 2u ||
+        (sourceDomain == 3u && analyticCount > 0u && (emissiveRange.y == 0u || RTXDI_GetNextRandom(rng) >= 0.5));
+
+    if (!chooseAnalytic)
+    {
+        if (emissiveRange.y == 0u)
+        {
+            return false;
+        }
+        const uint localIndex = min((uint)(RTXDI_GetNextRandom(rng) * (float)emissiveRange.y), emissiveRange.y - 1u);
+        selectedDenseRluIndex = emissiveRange.x + localIndex;
+        return selectedDenseRluIndex < currentRluLightCount;
+    }
+
+    if (analyticCount == 0u)
+    {
+        return false;
+    }
+
+    const uint selectedOrdinal = min((uint)(RTXDI_GetNextRandom(rng) * (float)analyticCount), analyticCount - 1u);
+    uint ordinal = 0u;
+    [loop]
+    for (uint localAnalyticIndex = 0u; localAnalyticIndex < analyticRange.y; ++localAnalyticIndex)
+    {
+        const uint denseRluIndex = analyticRange.x + localAnalyticIndex;
+        if (!RAB_NeeCacheSecondaryFallbackAnalyticSampleable(denseRluIndex))
+        {
+            continue;
+        }
+        if (ordinal == selectedOrdinal)
+        {
+            selectedDenseRluIndex = denseRluIndex;
+            return true;
+        }
+        ++ordinal;
+    }
+    return false;
+}
+
+bool RAB_NeeCacheSecondarySelectCandidate(
+    inout RTXDI_RandomSamplerState rng,
+    RAB_Surface surface,
     PathTraceNeeCacheCellDebug cell,
     uint currentRluLightCount,
+    uint requiredClass,
     out uint selectedDenseRluIndex,
     out float selectedSourcePdf)
 {
@@ -420,47 +629,61 @@ bool RAB_NeeCacheSecondarySelectEmissiveCandidate(
     {
         RAB_LightInfo lightInfo;
         const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + slot];
-        if (RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, lightInfo))
+        if (RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, requiredClass, lightInfo))
         {
-            totalWeight += RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
+            totalWeight += RAB_NeeCacheSecondaryCandidateWeight(lightInfo, surface, cell);
         }
     }
 
-    if (totalWeight <= 0.0)
-    {
-        return false;
-    }
-
-    const float threshold = RTXDI_GetNextRandom(rng) * totalWeight;
-    float cumulativeWeight = 0.0;
     PathTraceNeeCacheCandidateRecord selectedCandidate = (PathTraceNeeCacheCandidateRecord)0;
     selectedCandidate.denseRluIndex = RAB_INVALID_LIGHT_INDEX;
-
-    [loop]
-    for (uint selectSlot = 0u; selectSlot < candidateSlots; ++selectSlot)
+    const float fallbackProbability = saturate(NeeCacheInfo2.y);
+    const float cacheProbability = 1.0 - fallbackProbability;
+    const bool forceFallback = totalWeight <= 0.0 || RTXDI_GetNextRandom(rng) < fallbackProbability;
+    if (forceFallback)
     {
-        RAB_LightInfo lightInfo;
-        const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + selectSlot];
-        if (!RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, lightInfo))
+        if (!RAB_NeeCacheSecondarySelectFallback(rng, currentRluLightCount, selectedDenseRluIndex))
         {
-            continue;
-        }
-
-        const float currentWeight = RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
-        if (currentWeight <= 0.0)
-        {
-            continue;
-        }
-        cumulativeWeight += currentWeight;
-        if (selectedCandidate.denseRluIndex == RAB_INVALID_LIGHT_INDEX && cumulativeWeight >= threshold)
-        {
-            selectedCandidate = candidate;
+            return false;
         }
     }
-
-    if (selectedCandidate.denseRluIndex == RAB_INVALID_LIGHT_INDEX)
+    else
     {
-        return false;
+        const float threshold = RTXDI_GetNextRandom(rng) * totalWeight;
+        float cumulativeWeight = 0.0;
+        [loop]
+        for (uint selectSlot = 0u; selectSlot < candidateSlots; ++selectSlot)
+        {
+            RAB_LightInfo lightInfo;
+            const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + selectSlot];
+            if (!RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, requiredClass, lightInfo))
+            {
+                continue;
+            }
+
+            const float currentWeight = RAB_NeeCacheSecondaryCandidateWeight(lightInfo, surface, cell);
+            if (currentWeight <= 0.0)
+            {
+                continue;
+            }
+            cumulativeWeight += currentWeight;
+            if (selectedCandidate.denseRluIndex == RAB_INVALID_LIGHT_INDEX && cumulativeWeight >= threshold)
+            {
+                selectedCandidate = candidate;
+            }
+        }
+
+        if (selectedCandidate.denseRluIndex == RAB_INVALID_LIGHT_INDEX)
+        {
+            if (!RAB_NeeCacheSecondarySelectFallback(rng, currentRluLightCount, selectedDenseRluIndex))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            selectedDenseRluIndex = selectedCandidate.denseRluIndex;
+        }
     }
 
     float selectedIdentityWeight = 0.0;
@@ -470,20 +693,21 @@ bool RAB_NeeCacheSecondarySelectEmissiveCandidate(
         RAB_LightInfo lightInfo;
         const PathTraceNeeCacheCandidateRecord candidate = PathTraceNeeCacheCandidates[baseSlot + pdfSlot];
         if (candidate.denseRluIndex == selectedCandidate.denseRluIndex &&
-            RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, lightInfo))
+            RAB_NeeCacheSecondaryCandidateUsable(candidate, currentRluLightCount, requiredClass, lightInfo))
         {
-            selectedIdentityWeight += RAB_NeeCacheSecondaryEmissiveWeight(lightInfo, cell);
+            selectedIdentityWeight += RAB_NeeCacheSecondaryCandidateWeight(lightInfo, surface, cell);
         }
     }
 
-    const float cacheProbability = 1.0 - saturate(NeeCacheInfo2.y);
-    selectedSourcePdf = cacheProbability * selectedIdentityWeight / max(totalWeight, 1.0e-8);
+    const float cacheIdentityPdf = totalWeight > 0.0 ? selectedIdentityWeight / max(totalWeight, 1.0e-8) : 0.0;
+    const float fallbackIdentityPdf = RAB_NeeCacheSecondaryFallbackIdentityPdf(selectedDenseRluIndex, currentRluLightCount);
+    selectedSourcePdf = totalWeight > 0.0
+        ? cacheProbability * cacheIdentityPdf + fallbackProbability * fallbackIdentityPdf
+        : fallbackIdentityPdf;
     if (selectedSourcePdf <= 0.0)
     {
         return false;
     }
-
-    selectedDenseRluIndex = selectedCandidate.denseRluIndex;
     return true;
 }
 
@@ -491,12 +715,6 @@ bool RAB_RecordNeeCacheSecondarySample(inout RTXDI_PathTracerContext ctx, RAB_Su
 {
     if (!RAB_NeeCacheSecondaryConsumerReady() ||
         !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
-    {
-        return false;
-    }
-
-    const float fallbackProbability = saturate(NeeCacheInfo2.y);
-    if (RTXDI_GetNextRandom(ptRandContext.initialRandomSamplerState) < fallbackProbability)
     {
         return false;
     }
@@ -515,10 +733,12 @@ bool RAB_RecordNeeCacheSecondarySample(inout RTXDI_PathTracerContext ctx, RAB_Su
 
     uint selectedDenseRluIndex;
     float selectedSourcePdf;
-    if (!RAB_NeeCacheSecondarySelectEmissiveCandidate(
+    if (!RAB_NeeCacheSecondarySelectCandidate(
         ptRandContext.initialRandomSamplerState,
+        surface,
         cell,
         currentRluLightCount,
+        0u,
         selectedDenseRluIndex,
         selectedSourcePdf))
     {
@@ -527,7 +747,8 @@ bool RAB_RecordNeeCacheSecondarySample(inout RTXDI_PathTracerContext ctx, RAB_Su
 
     const RAB_LightInfo lightInfo = RAB_LoadLightInfo(selectedDenseRluIndex, false);
     if (!RAB_IsLightInfoValid(lightInfo) ||
-        lightInfo.unifiedLightType != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+        (lightInfo.unifiedLightType != PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE &&
+            lightInfo.unifiedLightType != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC))
     {
         return false;
     }
