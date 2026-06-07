@@ -284,6 +284,7 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
 static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
 static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 #define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
@@ -1004,6 +1005,111 @@ float3 PathTraceCleanRoomMatClassSurfaceClassColor(uint surfaceClass)
 }
 
 uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex);
+bool PathTraceCleanRoomLoadEmissiveTriangleGeometry(
+    PathTraceSmokeEmissiveTriangle emissiveTriangle,
+    bool previousFrame,
+    out float3 p0,
+    out float3 p1,
+    out float3 p2,
+    out float2 uv0,
+    out float2 uv1,
+    out float2 uv2);
+
+float PathTraceCleanRoomSmokeLinear1(float c)
+{
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+
+float3 PathTraceCleanRoomSmokeLinear3(float3 c)
+{
+    return float3(
+        PathTraceCleanRoomSmokeLinear1(c.r),
+        PathTraceCleanRoomSmokeLinear1(c.g),
+        PathTraceCleanRoomSmokeLinear1(c.b));
+}
+
+void PathTraceCleanRoomSmokePBRFromSpecmap(float3 specMap, out float3 F0, out float roughness)
+{
+    const float specLum = dot(float3(0.2125, 0.7154, 0.0721), specMap);
+
+    F0 = float3(0.04, 0.04, 0.04);
+
+    const float contrastMid = 0.214;
+    const float contrastAmount = 2.0;
+    float contrast = saturate((specLum - contrastMid) / (1.0 - contrastMid));
+    contrast += saturate(specLum / contrastMid) - 1.0;
+    contrast = exp2(contrastAmount * contrast);
+    F0 *= contrast;
+
+    const float linearBrightness = PathTraceCleanRoomSmokeLinear1(2.0 * specLum);
+    const float specPow = max(0.0, ((8.0 * linearBrightness) / max(F0.y, 1.0e-4)) - 2.0);
+    F0 *= min(1.0, linearBrightness / max(F0.y * 0.25, 1.0e-4));
+
+    roughness = sqrt(2.0 / (specPow + 2.0));
+
+    const float glossiness = saturate(1.0 - roughness);
+    const float metallic = step(0.7, glossiness);
+    const float3 glossColor = PathTraceCleanRoomSmokeLinear3(specMap.rgb);
+    F0 = lerp(F0, glossColor, metallic);
+
+    roughness = sqrt(roughness);
+}
+
+float3 PathTraceCleanRoomSampleDirectSpecular(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if (material.specularTextureIndex == 0xffffffffu ||
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS) == 0u))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    return saturate(PathTraceCleanRoomSampleTexture(
+        material.specularTextureIndex,
+        material.specularTextureWidth,
+        material.specularTextureHeight,
+        texCoord,
+        float4(0.0, 0.0, 0.0, 1.0)).rgb);
+}
+
+bool PathTraceCleanRoomResolveRecordTexCoord(PathTracePrimarySurfaceRecord record, out float2 texCoord)
+{
+    texCoord = float2(0.0, 0.0);
+
+    PathTraceSmokeEmissiveTriangle hitTriangle = (PathTraceSmokeEmissiveTriangle)0;
+    hitTriangle.instanceId = record.instancePrimitiveObject.x;
+    hitTriangle.primitiveIndex = record.instancePrimitiveObject.y;
+
+    float3 p0;
+    float3 p1;
+    float3 p2;
+    float2 uv0;
+    float2 uv1;
+    float2 uv2;
+    if (!PathTraceCleanRoomLoadEmissiveTriangleGeometry(hitTriangle, false, p0, p1, p2, uv0, uv1, uv2))
+    {
+        return false;
+    }
+
+    const float3 edge0 = p1 - p0;
+    const float3 edge1 = p2 - p0;
+    const float3 toHit = record.worldPositionAndViewDepth.xyz - p0;
+    const float d00 = dot(edge0, edge0);
+    const float d01 = dot(edge0, edge1);
+    const float d11 = dot(edge1, edge1);
+    const float d20 = dot(toHit, edge0);
+    const float d21 = dot(toHit, edge1);
+    const float denom = d00 * d11 - d01 * d01;
+    if (abs(denom) <= 1.0e-12)
+    {
+        return false;
+    }
+
+    const float b1 = (d11 * d20 - d01 * d21) / denom;
+    const float b2 = (d00 * d21 - d01 * d20) / denom;
+    const float b0 = 1.0 - b1 - b2;
+    texCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+    return all(texCoord == texCoord) && all(abs(texCoord) < float2(65536.0, 65536.0));
+}
 
 float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensions)
 {
@@ -1039,8 +1145,21 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
     }
     if (!right)
     {
+        float2 texCoord = float2(0.0, 0.0);
+        const bool hasTexCoord = PathTraceCleanRoomResolveRecordTexCoord(record, texCoord);
+        const float3 specularColor = hasTexCoord
+            ? PathTraceCleanRoomSampleDirectSpecular(material, texCoord)
+            : float3(0.0, 0.0, 0.0);
         float roughness = saturate(record.geometricNormalAndRoughness.w);
         float3 specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+        const bool hasSpecularInput =
+            material.specularTextureIndex != 0xffffffffu &&
+            ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS) != 0u) &&
+            max(max(specularColor.r, specularColor.g), specularColor.b) > 1.0e-4;
+        if (hasSpecularInput)
+        {
+            PathTraceCleanRoomSmokePBRFromSpecmap(specularColor, specularF0, roughness);
+        }
         SmokeApplyMaterialClassifierBsdf(material, saturate(record.albedoAndAlphaCutoff.xyz), specularF0, roughness);
         return float3(roughness, roughness, roughness);
     }
