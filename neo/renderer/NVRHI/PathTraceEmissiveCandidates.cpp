@@ -721,29 +721,9 @@ std::vector<PathTraceSmokeMaterial> BuildSmokeEmissiveMaterialViews(const std::v
     const int materialCount = Min(static_cast<int>(materialIds.size()), static_cast<int>(frameMaterials.size()));
     for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
     {
-        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialIds[materialIndex], materialIndex);
-        const RtSmokePersistentMaterialRecord& universeRecord = GetSmokePersistentMaterialRecord(materialIds[materialIndex], info);
-        const RtSmokeMaterialUniverseFacts& universeFacts = universeRecord.facts;
-        PathTraceSmokeMaterial material = universeRecord.material;
+        PathTraceSmokeMaterial material = frameMaterials[materialIndex];
 
-        // Texture descriptor slots are frame-local; stable flags/color come from the universe.
-        material.diffuseTextureIndex = frameMaterials[materialIndex].diffuseTextureIndex;
-        material.alphaTextureIndex = frameMaterials[materialIndex].alphaTextureIndex;
-        material.normalTextureIndex = frameMaterials[materialIndex].normalTextureIndex;
-        material.specularTextureIndex = frameMaterials[materialIndex].specularTextureIndex;
-        material.emissiveTextureIndex = frameMaterials[materialIndex].emissiveTextureIndex;
-        material.textureWidth = frameMaterials[materialIndex].textureWidth;
-        material.textureHeight = frameMaterials[materialIndex].textureHeight;
-        material.alphaTextureWidth = frameMaterials[materialIndex].alphaTextureWidth;
-        material.alphaTextureHeight = frameMaterials[materialIndex].alphaTextureHeight;
-        material.normalTextureWidth = frameMaterials[materialIndex].normalTextureWidth;
-        material.normalTextureHeight = frameMaterials[materialIndex].normalTextureHeight;
-        material.specularTextureWidth = frameMaterials[materialIndex].specularTextureWidth;
-        material.specularTextureHeight = frameMaterials[materialIndex].specularTextureHeight;
-        material.emissiveTextureWidth = frameMaterials[materialIndex].emissiveTextureWidth;
-        material.emissiveTextureHeight = frameMaterials[materialIndex].emissiveTextureHeight;
-
-        if (!universeFacts.emissive || (frameMaterials[materialIndex].flags & emissiveMaterialFlag) == 0)
+        if ((material.flags & emissiveMaterialFlag) == 0)
         {
             material.flags &= ~emissiveMaterialFlag;
             material.emissiveColor[0] = 0.0f;
