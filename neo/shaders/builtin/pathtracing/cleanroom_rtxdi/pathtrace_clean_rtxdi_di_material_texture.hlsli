@@ -43,7 +43,7 @@ bool PathTraceCleanRoomLiveMaterialClassifierBsdfActive(uint materialIndex)
 
 void PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
     uint materialIndex,
-    float3 albedo,
+    inout float3 albedo,
     inout float3 specularF0,
     inout float roughness)
 {

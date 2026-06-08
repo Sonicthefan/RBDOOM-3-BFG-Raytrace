@@ -593,7 +593,7 @@ bool CleanLiveMaterialClassifierBsdfActive(uint materialIndex)
 
 void CleanApplyLiveMaterialClassifierBsdf(
     uint materialIndex,
-    float3 albedo,
+    inout float3 albedo,
     inout float3 specularF0,
     inout float roughness)
 {

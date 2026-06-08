@@ -188,10 +188,9 @@ void SmokeApplyMaterialClassifierBsdfWithSpecularTexel(
     SmokeApplyMaterialClassifierBsdfInternal(material, albedo, specularTexel, true, specularF0, roughness);
 }
 
-void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, float3 albedo, inout float3 specularF0, inout float roughness)
+void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, inout float3 albedo, inout float3 specularF0, inout float roughness)
 {
-    float3 mutableAlbedo = albedo;
-    SmokeApplyMaterialClassifierBsdfInternal(material, mutableAlbedo, float3(0.0, 0.0, 0.0), false, specularF0, roughness);
+    SmokeApplyMaterialClassifierBsdfInternal(material, albedo, float3(0.0, 0.0, 0.0), false, specularF0, roughness);
 }
 
 #endif

@@ -1056,9 +1056,10 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
     }
     if (!right)
     {
+        float3 debugAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
         float roughness = saturate(record.geometricNormalAndRoughness.w);
         float3 specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
-        SmokeApplyMaterialClassifierBsdf(material, saturate(record.albedoAndAlphaCutoff.xyz), specularF0, roughness);
+        SmokeApplyMaterialClassifierBsdf(material, debugAlbedo, specularF0, roughness);
         return PathTraceCleanRoomVisibleMatClassDebug(
             float3(roughness, roughness, roughness),
             float3(0.12, 0.12, 0.12));
