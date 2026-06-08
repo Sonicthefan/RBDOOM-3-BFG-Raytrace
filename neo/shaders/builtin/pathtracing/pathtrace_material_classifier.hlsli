@@ -6,6 +6,11 @@ static const uint RT_MATCLASS_ROUTE_LEGACY_SPEC_GLOSS = 2u;
 static const uint RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK = 3u;
 static const uint RT_MATCLASS_ROUTE_SHIFT = 10u;
 static const uint RT_MATCLASS_ROUTE_MASK = 0x0fu;
+static const uint RT_MATCLASS_NORMAL_DECODE_NONE = 0u;
+static const uint RT_MATCLASS_NORMAL_DECODE_RGB8_RG = 1u;
+static const uint RT_MATCLASS_NORMAL_DECODE_COMPRESSED_WY = 2u;
+static const uint RT_MATCLASS_NORMAL_DECODE_SHIFT = 18u;
+static const uint RT_MATCLASS_NORMAL_DECODE_MASK = 0x03u;
 static const uint RT_MATCLASS_SURFACE_CLASS_METAL = 1u;
 static const uint RT_MATCLASS_SURFACE_CLASS_RICOCHET = 9u;
 static const uint RT_MATCLASS_SURFACE_CLASS_SPECIAL = 10u;
@@ -31,6 +36,11 @@ uint SmokeMatClassRoute(PathTraceSmokeMaterial material)
 uint SmokeMatClassSurfaceClass(PathTraceSmokeMaterial material)
 {
     return material.padding1 & 0x0fu;
+}
+
+uint SmokeMatClassNormalDecodeMode(PathTraceSmokeMaterial material)
+{
+    return (material.padding1 >> RT_MATCLASS_NORMAL_DECODE_SHIFT) & RT_MATCLASS_NORMAL_DECODE_MASK;
 }
 
 float SmokeMatClassUnpackUnit8(uint packed, uint shift)
@@ -96,6 +106,22 @@ float3 SmokeMatClassDynamicDebugColor(PathTraceSmokeMaterial material)
         (dynamicFlags & (RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION)) != 0u ? 1.0 : 0.0,
         (dynamicFlags & (RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER)) != 0u ? 1.0 : 0.0,
         (dynamicFlags & (RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM)) != 0u ? 1.0 : 0.0);
+}
+
+float2 SmokeMatClassNormalXY(PathTraceSmokeMaterial material, float4 bump, float globalFlipGreen)
+{
+    const uint normalDecodeMode = SmokeMatClassNormalDecodeMode(material);
+    if (normalDecodeMode == RT_MATCLASS_NORMAL_DECODE_RGB8_RG)
+    {
+        return bump.rg;
+    }
+    if (normalDecodeMode == RT_MATCLASS_NORMAL_DECODE_COMPRESSED_WY)
+    {
+        return bump.wy;
+    }
+
+    const float normalY = globalFlipGreen > 0.5 ? -bump.y : bump.y;
+    return float2(bump.w, normalY);
 }
 
 float3 SmokeMatClassMetallicF0(PathTraceSmokeMaterial material, float3 albedo)

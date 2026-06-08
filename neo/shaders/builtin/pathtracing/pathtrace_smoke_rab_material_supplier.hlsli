@@ -195,8 +195,8 @@ float3 DecodeSmokeNormalTexture(PathTraceSmokeMaterial material, float2 texCoord
         return normal;
     }
 
-    const float normalY = RestirPTInfo.y > 0.5 ? -bump.y : bump.y;
-    float3 decoded = float3(bump.w, normalY, 0.0);
+    const float2 normalXY = SmokeMatClassNormalXY(material, bump, RestirPTInfo.y);
+    float3 decoded = float3(normalXY, 0.0);
     const float xyLengthSquared = dot(decoded.xy, decoded.xy);
     if (xyLengthSquared >= 1.0)
     {
