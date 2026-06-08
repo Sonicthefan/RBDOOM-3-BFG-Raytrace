@@ -95,6 +95,19 @@ struct RtMaterialStageFacts
     int routeStage = -1;
 };
 
+struct RtMaterialDynamicFacts
+{
+    int conditionRegisterStages = 0;
+    int colorRegisterStages = 0;
+    int alphaTestRegisterStages = 0;
+    int textureMatrixStages = 0;
+    int textureMatrixRegisterStages = 0;
+    int dynamicImageStages = 0;
+    int cinematicStages = 0;
+    int guiRenderTargetStages = 0;
+    int customProgramStages = 0;
+};
+
 struct RtMaterialBsdfParams
 {
     float roughness = 0.7f;
@@ -134,6 +147,7 @@ struct RtMaterialRecord
     RtMaterialBsdfRouteReason routeReason = RtMaterialBsdfRouteReason::Unknown;
     RtMaterialNormalDecodeMode normalDecodeMode = RtMaterialNormalDecodeMode::None;
     RtMaterialStageFacts stageFacts;
+    RtMaterialDynamicFacts dynamicFacts;
     RtMaterialBsdfParams bsdf;
     textureUsage_t diffuseUsage = TD_DEFAULT;
     textureUsage_t normalUsage = TD_DEFAULT;

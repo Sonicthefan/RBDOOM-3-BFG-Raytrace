@@ -219,6 +219,19 @@ bool RtStageConditionCanBeActive(const idMaterial* material, const shaderStage_t
     return true;
 }
 
+bool RtMaterialRegisterDependsOnRuntime(const idMaterial* material, int registerIndex)
+{
+    if (registerIndex < 0)
+    {
+        return false;
+    }
+    if (registerIndex < EXP_REG_NUM_PREDEFINED)
+    {
+        return true;
+    }
+    return material && material->ConstantRegisters() == nullptr;
+}
+
 float RtStageConstantRegisterValue(const idMaterial* material, int registerIndex, float fallback)
 {
     if (!material)
@@ -414,6 +427,86 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
             ++facts.effectStages;
         }
     }
+    return facts;
+}
+
+RtMaterialDynamicFacts AnalyzeRtMaterialDynamicFacts(const idMaterial* material)
+{
+    RtMaterialDynamicFacts facts;
+    if (!material)
+    {
+        return facts;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !RtStageConditionCanBeActive(material, stage))
+        {
+            continue;
+        }
+
+        if (RtMaterialRegisterDependsOnRuntime(material, stage->conditionRegister))
+        {
+            ++facts.conditionRegisterStages;
+        }
+
+        bool colorDependsOnRuntime = false;
+        for (int component = 0; component < 4; ++component)
+        {
+            colorDependsOnRuntime = colorDependsOnRuntime ||
+                RtMaterialRegisterDependsOnRuntime(material, stage->color.registers[component]);
+        }
+        if (colorDependsOnRuntime)
+        {
+            ++facts.colorRegisterStages;
+        }
+
+        if (stage->hasAlphaTest &&
+            RtMaterialRegisterDependsOnRuntime(material, stage->alphaTestRegister))
+        {
+            ++facts.alphaTestRegisterStages;
+        }
+
+        if (stage->texture.hasMatrix)
+        {
+            ++facts.textureMatrixStages;
+            bool matrixDependsOnRuntime = false;
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    matrixDependsOnRuntime = matrixDependsOnRuntime ||
+                        RtMaterialRegisterDependsOnRuntime(material, stage->texture.matrix[row][column]);
+                }
+            }
+            if (matrixDependsOnRuntime)
+            {
+                ++facts.textureMatrixRegisterStages;
+            }
+        }
+
+        if (stage->texture.dynamic != DI_STATIC || stage->texture.dynamicFrameCount > 0)
+        {
+            ++facts.dynamicImageStages;
+        }
+        if (stage->texture.cinematic != nullptr)
+        {
+            ++facts.cinematicStages;
+        }
+        if (stage->texture.texgen == TG_SCREEN ||
+            stage->texture.texgen == TG_SCREEN2 ||
+            stage->texture.dynamic == DI_GUI_RENDER ||
+            stage->texture.dynamic == DI_RENDER_TARGET)
+        {
+            ++facts.guiRenderTargetStages;
+        }
+        if (stage->newStage != nullptr)
+        {
+            ++facts.customProgramStages;
+        }
+    }
+
     return facts;
 }
 
@@ -1548,14 +1641,22 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
             hash = HashRtMaterialValue(hash, stage ? stage->drawStateBits : 0u);
             hash = HashRtMaterialValue(hash, stage ? static_cast<uint64>(stage->texture.texgen) : 0u);
             hash = HashRtMaterialValue(hash, stage ? static_cast<uint64>(stage->texture.dynamic) : 0u);
+            hash = HashRtMaterialValue(hash, stage ? static_cast<uint64>(stage->texture.dynamicFrameCount) : 0u);
+            hash = HashRtMaterialValue(hash, stage && stage->texture.hasMatrix ? 1u : 0u);
             hash = HashRtMaterialValue(hash, stage && stage->newStage ? 1u : 0u);
             hash = HashRtMaterialValue(hash, stage && stage->texture.cinematic ? 1u : 0u);
             if (stage)
             {
                 hash = HashRtMaterialValue(hash, static_cast<uint64>(stage->conditionRegister));
+                hash = HashRtMaterialValue(hash, stage->hasAlphaTest ? 1u : 0u);
+                hash = HashRtMaterialValue(hash, static_cast<uint64>(stage->alphaTestRegister));
                 if (constantRegisters && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount)
                 {
                     hash = HashRtMaterialFloat(hash, constantRegisters[stage->conditionRegister]);
+                }
+                if (constantRegisters && stage->alphaTestRegister >= 0 && stage->alphaTestRegister < registerCount)
+                {
+                    hash = HashRtMaterialFloat(hash, constantRegisters[stage->alphaTestRegister]);
                 }
                 for (int component = 0; component < 4; ++component)
                 {
@@ -1564,6 +1665,21 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
                     if (constantRegisters && registerIndex >= 0 && registerIndex < registerCount)
                     {
                         hash = HashRtMaterialFloat(hash, constantRegisters[registerIndex]);
+                    }
+                }
+                if (stage->texture.hasMatrix)
+                {
+                    for (int row = 0; row < 2; ++row)
+                    {
+                        for (int column = 0; column < 3; ++column)
+                        {
+                            const int registerIndex = stage->texture.matrix[row][column];
+                            hash = HashRtMaterialValue(hash, static_cast<uint64>(registerIndex));
+                            if (constantRegisters && registerIndex >= 0 && registerIndex < registerCount)
+                            {
+                                hash = HashRtMaterialFloat(hash, constantRegisters[registerIndex]);
+                            }
+                        }
                     }
                 }
             }
@@ -1611,6 +1727,7 @@ RtMaterialRecord BuildRtMaterialRecord(const idMaterial* material, const RtSmoke
     record.alphaTested = info.hasAlphaTest;
     record.emissiveIntent = info.emissive;
     record.stageFacts = AnalyzeRtMaterialStages(material);
+    record.dynamicFacts = AnalyzeRtMaterialDynamicFacts(material);
 
     const RtMaterialClassCandidate surfaceCandidate = ResolveSurfaceClassCandidate(material, info, record.stageFacts);
     record.surfaceClass = surfaceCandidate.surfaceClass;
@@ -1803,6 +1920,27 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.stageFacts.cinematicStages,
         record.stageFacts.cubeMapStages,
         record.stageFacts.customProgramStages);
+    const bool needsPerInstanceDynamic =
+        record.dynamicFacts.conditionRegisterStages > 0 ||
+        record.dynamicFacts.colorRegisterStages > 0 ||
+        record.dynamicFacts.alphaTestRegisterStages > 0 ||
+        record.dynamicFacts.textureMatrixRegisterStages > 0 ||
+        record.dynamicFacts.dynamicImageStages > 0 ||
+        record.dynamicFacts.cinematicStages > 0 ||
+        record.dynamicFacts.guiRenderTargetStages > 0 ||
+        record.dynamicFacts.customProgramStages > 0;
+    common->Printf("MatClass: dynamic id=%u condition=%d color=%d alphaTest=%d texMatrix=%d texMatrixRegs=%d dynamicImage=%d cinematic=%d guiRender=%d program=%d needsInstance=%d\n",
+        record.materialId,
+        record.dynamicFacts.conditionRegisterStages,
+        record.dynamicFacts.colorRegisterStages,
+        record.dynamicFacts.alphaTestRegisterStages,
+        record.dynamicFacts.textureMatrixStages,
+        record.dynamicFacts.textureMatrixRegisterStages,
+        record.dynamicFacts.dynamicImageStages,
+        record.dynamicFacts.cinematicStages,
+        record.dynamicFacts.guiRenderTargetStages,
+        record.dynamicFacts.customProgramStages,
+        needsPerInstanceDynamic ? 1 : 0);
     common->Printf("MatClass: images id=%u diffuse=%d/%s/%s normal=%d/%s/%s specular=%d/%s/%s emissive=%d/%s/%s alphaTest=%d emissiveIntent=%d\n",
         record.materialId,
         record.hasDiffuseImage ? 1 : 0,
