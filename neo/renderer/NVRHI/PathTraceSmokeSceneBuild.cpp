@@ -176,6 +176,24 @@ float SmokeRuntimeMaterialLuminance(const idVec4& color);
 
 bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStats, uint32_t materialId, idVec4& color, bool& disabled)
 {
+    for (const RtSmokeDynamicMaterialEvalSample& sample : materialStats.dynamicEvalMaterialSamples)
+    {
+        if (!sample.valid || sample.id != materialId)
+        {
+            continue;
+        }
+
+        color = idVec4(
+            Max(0.0f, sample.color[0]),
+            Max(0.0f, sample.color[1]),
+            Max(0.0f, sample.color[2]),
+            idMath::ClampFloat(0.0f, 1.0f, sample.color[3]));
+        disabled = sample.condition == 0.0f ||
+            sample.enabledStages <= 0 ||
+            SmokeRuntimeMaterialLuminance(color) <= 1.0e-5f;
+        return true;
+    }
+
     for (int sampleIndex = 0; sampleIndex < materialStats.dynamicEvalSampleCount; ++sampleIndex)
     {
         const RtSmokeDynamicMaterialEvalSample& sample = materialStats.dynamicEvalSamples[sampleIndex];

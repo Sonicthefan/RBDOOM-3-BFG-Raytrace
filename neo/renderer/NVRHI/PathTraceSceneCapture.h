@@ -149,6 +149,7 @@ struct RtSmokeMaterialStats
     int dynamicEvalProgramStages = 0;
     RtSmokeDynamicMaterialEvalSample dynamicEvalSamples[RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES];
     int dynamicEvalSampleCount = 0;
+    std::vector<RtSmokeDynamicMaterialEvalSample> dynamicEvalMaterialSamples;
     int translucentSubtypeSurfaces[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
     int translucentSubtypeTriangles[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
     RtSmokeMaterialSample translucentSubtypeSamples[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT][RT_SMOKE_MATERIAL_REASON_SAMPLES];

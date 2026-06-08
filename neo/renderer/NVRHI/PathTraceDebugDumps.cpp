@@ -889,7 +889,7 @@ void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats)
 
     if (stats.dynamicEvalSurfaces > 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke dynamic material eval surfaces=%d triangles=%d stages=%d enabled=%d disabled=%d color=%d alpha=%d alphaTest=%d texMatrix=%d dynamicImage=%d cinematic=%d guiRender=%d program=%d samples=",
+        common->Printf("PathTracePrimaryPass: RT smoke dynamic material eval surfaces=%d triangles=%d stages=%d enabled=%d disabled=%d color=%d alpha=%d alphaTest=%d texMatrix=%d dynamicImage=%d cinematic=%d guiRender=%d program=%d materialSamples=%d samples=",
             stats.dynamicEvalSurfaces,
             stats.dynamicEvalTriangles,
             stats.dynamicEvalStages,
@@ -902,7 +902,8 @@ void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats)
             stats.dynamicEvalDynamicImageStages,
             stats.dynamicEvalCinematicStages,
             stats.dynamicEvalGuiRenderTargetStages,
-            stats.dynamicEvalProgramStages);
+            stats.dynamicEvalProgramStages,
+            static_cast<int>(stats.dynamicEvalMaterialSamples.size()));
 
         for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
         {

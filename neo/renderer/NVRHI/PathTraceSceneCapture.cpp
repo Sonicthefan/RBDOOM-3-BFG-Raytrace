@@ -416,6 +416,43 @@ static void SmokeDynamicEvalCopySelectedStage(RtSmokeDynamicMaterialEvalSample& 
     }
 }
 
+static void SmokeDynamicEvalAccumulateSample(RtSmokeDynamicMaterialEvalSample& sample, const RtSmokeDynamicMaterialEvalSample& surfaceSample, int indexes)
+{
+    ++sample.surfaces;
+    sample.triangles += indexes / 3;
+    sample.enabledStages += surfaceSample.enabledStages;
+    sample.disabledStages += surfaceSample.disabledStages;
+    sample.colorStages += surfaceSample.colorStages;
+    sample.alphaStages += surfaceSample.alphaStages;
+    sample.alphaTestStages += surfaceSample.alphaTestStages;
+    sample.texMatrixStages += surfaceSample.texMatrixStages;
+    sample.dynamicImageStages += surfaceSample.dynamicImageStages;
+    sample.cinematicStages += surfaceSample.cinematicStages;
+    sample.guiRenderTargetStages += surfaceSample.guiRenderTargetStages;
+    sample.programStages += surfaceSample.programStages;
+    if (SmokeDynamicEvalSampleShouldReplace(sample, surfaceSample))
+    {
+        SmokeDynamicEvalCopySelectedStage(sample, surfaceSample);
+    }
+}
+
+static void SmokeDynamicEvalAddMaterialSample(RtSmokeMaterialStats& stats, const RtSmokeDynamicMaterialEvalSample& surfaceSample, int indexes)
+{
+    for (RtSmokeDynamicMaterialEvalSample& sample : stats.dynamicEvalMaterialSamples)
+    {
+        if (sample.id == surfaceSample.id)
+        {
+            SmokeDynamicEvalAccumulateSample(sample, surfaceSample, indexes);
+            return;
+        }
+    }
+
+    RtSmokeDynamicMaterialEvalSample sample = surfaceSample;
+    sample.surfaces = 1;
+    sample.triangles = indexes / 3;
+    stats.dynamicEvalMaterialSamples.push_back(sample);
+}
+
 int AppendSmokeSurfaceGeometry(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -922,22 +959,8 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
         RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[sampleIndex];
         if (sample.id == surfaceSample.id)
         {
-            ++sample.surfaces;
-            sample.triangles += indexes / 3;
-            sample.enabledStages += surfaceSample.enabledStages;
-            sample.disabledStages += surfaceSample.disabledStages;
-            sample.colorStages += surfaceSample.colorStages;
-            sample.alphaStages += surfaceSample.alphaStages;
-            sample.alphaTestStages += surfaceSample.alphaTestStages;
-            sample.texMatrixStages += surfaceSample.texMatrixStages;
-            sample.dynamicImageStages += surfaceSample.dynamicImageStages;
-            sample.cinematicStages += surfaceSample.cinematicStages;
-            sample.guiRenderTargetStages += surfaceSample.guiRenderTargetStages;
-            sample.programStages += surfaceSample.programStages;
-            if (SmokeDynamicEvalSampleShouldReplace(sample, surfaceSample))
-            {
-                SmokeDynamicEvalCopySelectedStage(sample, surfaceSample);
-            }
+            SmokeDynamicEvalAccumulateSample(sample, surfaceSample, indexes);
+            SmokeDynamicEvalAddMaterialSample(stats, surfaceSample, indexes);
             return;
         }
     }
@@ -949,6 +972,7 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
         sample.surfaces = 1;
         sample.triangles = indexes / 3;
     }
+    SmokeDynamicEvalAddMaterialSample(stats, surfaceSample, indexes);
 }
 
 void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeTranslucentSubtype subtype)
