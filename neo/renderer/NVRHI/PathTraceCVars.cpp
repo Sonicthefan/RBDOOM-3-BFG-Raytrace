@@ -889,7 +889,7 @@ idCVar r_pathTracingMatClassDebugList(
     "r_pathTracingMatClassDebugList",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Dump new material-classifier records; 1=registered materials, 2=also one-shot all-decl surfaceType distribution" );
+    "Dump new material-classifier records; 1=registered materials, 2=also one-shot all-decl surfaceType distribution, 3=also per-stage .mtr evidence" );
 
 idCVar r_pathTracingMatClassDebugMax(
     "r_pathTracingMatClassDebugMax",

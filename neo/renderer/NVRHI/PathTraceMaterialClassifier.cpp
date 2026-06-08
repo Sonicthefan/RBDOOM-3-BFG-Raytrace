@@ -196,6 +196,41 @@ bool RtStageConditionCanBeActive(const idMaterial* material, const shaderStage_t
     return true;
 }
 
+float RtStageConstantRegisterValue(const idMaterial* material, int registerIndex, float fallback)
+{
+    if (!material)
+    {
+        return fallback;
+    }
+
+    const float* constantRegisters = material->ConstantRegisters();
+    const int registerCount = material->GetNumRegisters();
+    if (constantRegisters && registerIndex >= 0 && registerIndex < registerCount)
+    {
+        return constantRegisters[registerIndex];
+    }
+    return fallback;
+}
+
+const char* RtStageLightingName(stageLighting_t lighting)
+{
+    switch (lighting)
+    {
+        case SL_AMBIENT:
+            return "ambient";
+        case SL_BUMP:
+            return "bump";
+        case SL_DIFFUSE:
+            return "diffuse";
+        case SL_SPECULAR:
+            return "specular";
+        case SL_COVERAGE:
+            return "coverage";
+        default:
+            return "unknown";
+    }
+}
+
 const char* RtTextureUsageName(textureUsage_t usage)
 {
     switch (usage)
@@ -1478,6 +1513,11 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
             hash = HashRtMaterialValue(hash, stage && stage->texture.cinematic ? 1u : 0u);
             if (stage)
             {
+                hash = HashRtMaterialValue(hash, static_cast<uint64>(stage->conditionRegister));
+                if (constantRegisters && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount)
+                {
+                    hash = HashRtMaterialFloat(hash, constantRegisters[stage->conditionRegister]);
+                }
                 for (int component = 0; component < 4; ++component)
                 {
                     const int registerIndex = stage->color.registers[component];
@@ -1587,6 +1627,94 @@ void AccumulateRecordStats(const RtMaterialRecord& record)
     }
 }
 
+const char* RtMaterialStageRouteEvidence(const shaderStage_t* stage)
+{
+    if (!stage || stage->lighting != SL_SPECULAR || !stage->texture.image)
+    {
+        return "-";
+    }
+
+    const textureUsage_t usage = stage->texture.image->GetUsage();
+    if (usage == TD_SPECULAR_PBR_RMAO || usage == TD_SPECULAR_PBR_RMAOD)
+    {
+        return "routeA_rmao";
+    }
+    return "routeB_specular";
+}
+
+void MaybeDumpRecordStages(const RtMaterialRecord& record)
+{
+    if (r_pathTracingMatClassDebugList.GetInteger() < 3)
+    {
+        return;
+    }
+
+    const idMaterial* material = declManager ? declManager->FindMaterial(record.materialName.c_str(), false) : nullptr;
+    if (!material)
+    {
+        common->Printf("MatClass: stageDump id=%u material='%s' materialDeclMissing=1\n",
+            record.materialId,
+            record.materialName.c_str());
+        return;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+
+        idImage* image = stage->texture.image;
+        const bool active = RtStageConditionCanBeActive(material, stage);
+        const bool additive = RtStageIsAdditiveBlend(stage);
+        const bool filter = RtStageIsFilterBlend(stage);
+        const bool alphaBlend = RtStageBlendUsesSourceAlpha(stage);
+        const bool guiOrScreen =
+            stage->texture.texgen == TG_SCREEN ||
+            stage->texture.texgen == TG_SCREEN2 ||
+            stage->texture.dynamic == DI_GUI_RENDER ||
+            stage->texture.dynamic == DI_RENDER_TARGET;
+        const bool cubeMap =
+            stage->texture.texgen == TG_SKYBOX_CUBE ||
+            stage->texture.texgen == TG_WOBBLESKY_CUBE ||
+            stage->texture.texgen == TG_REFLECT_CUBE ||
+            stage->texture.texgen == TG_REFLECT_CUBE2;
+        const float conditionValue = RtStageConstantRegisterValue(material, stage->conditionRegister, 1.0f);
+        const float alphaTestValue = RtStageConstantRegisterValue(material, stage->alphaTestRegister, -1.0f);
+        const textureUsage_t usage = image ? image->GetUsage() : TD_DEFAULT;
+        const textureColor_t colorFormat = image ? image->GetOpts().colorFormat : CFM_DEFAULT;
+
+        common->Printf("MatClass: stage id=%u index=%d active=%d conditionReg=%d condition=%.3f lighting=%s routeEvidence=%s image='%s' usage=%s color=%s drawState=0x%llx srcBlend=%llu dstBlend=%llu additive=%d filter=%d alphaBlend=%d alphaTest=%d alphaReg=%d alphaValue=%.3f guiScreen=%d dynamic=%d cinematic=%d cube=%d customProgram=%d texgen=%d\n",
+            record.materialId,
+            stageIndex,
+            active ? 1 : 0,
+            stage->conditionRegister,
+            conditionValue,
+            RtStageLightingName(stage->lighting),
+            RtMaterialStageRouteEvidence(stage),
+            image ? image->GetName() : "<none>",
+            RtTextureUsageName(usage),
+            RtTextureColorFormatName(colorFormat),
+            static_cast<unsigned long long>(stage->drawStateBits),
+            static_cast<unsigned long long>((stage->drawStateBits & GLS_SRCBLEND_BITS) >> 0),
+            static_cast<unsigned long long>((stage->drawStateBits & GLS_DSTBLEND_BITS) >> 3),
+            additive ? 1 : 0,
+            filter ? 1 : 0,
+            alphaBlend ? 1 : 0,
+            stage->hasAlphaTest ? 1 : 0,
+            stage->alphaTestRegister,
+            alphaTestValue,
+            guiOrScreen ? 1 : 0,
+            static_cast<int>(stage->texture.dynamic),
+            stage->texture.cinematic ? 1 : 0,
+            cubeMap ? 1 : 0,
+            stage->newStage ? 1 : 0,
+            static_cast<int>(stage->texture.texgen));
+    }
+}
+
 void MaybeDumpRecord(const RtMaterialRecord& record)
 {
     const int debugList = r_pathTracingMatClassDebugList.GetInteger();
@@ -1673,6 +1801,7 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.materialId,
         PackPathTraceMaterialClassifierFlags(record),
         PackPathTraceMaterialClassifierParams(record));
+    MaybeDumpRecordStages(record);
     ++g_recordDebugLogs;
 }
 
