@@ -431,6 +431,15 @@ uint CleanLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
     return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
 }
 
+uint CleanResolveLiveMaterialIndex(PathTracePrimarySurfaceRecord record)
+{
+    const uint recordMaterialIndex = record.materialAndSurface.y;
+    const uint liveMaterialIndex = CleanLoadTriangleMaterialIndex(
+        record.instancePrimitiveObject.x,
+        record.instancePrimitiveObject.y);
+    return liveMaterialIndex < (uint)CleanRtxdiDiTextureInfo.z ? liveMaterialIndex : recordMaterialIndex;
+}
+
 bool CleanLoadSurfaceTriangleGeometry(PathTracePrimarySurfaceRecord record, out float3 p0, out float3 p1, out float3 p2, out float2 uv0, out float2 uv1, out float2 uv2)
 {
     p0 = record.worldPositionAndViewDepth.xyz;
@@ -668,9 +677,11 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     surface.instanceId = record.instancePrimitiveObject.x;
     surface.primitiveIndex = record.instancePrimitiveObject.y;
 
+    const uint resolvedMaterialIndex = CleanResolveLiveMaterialIndex(record);
+
     RAB_Material material = RAB_EmptyMaterial();
     material.materialId = surface.materialId;
-    material.materialIndex = surface.materialIndex;
+    material.materialIndex = resolvedMaterialIndex;
     material.flags = record.materialAndSurface.z;
     material.alphaCutoff = record.albedoAndAlphaCutoff.w;
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
@@ -684,6 +695,7 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
     material.emissiveTextureIndex = record.instancePrimitiveObject.w;
+    surface.materialIndex = resolvedMaterialIndex;
     surface.material = material;
     return surface;
 }
@@ -691,7 +703,7 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
 RAB_Surface CleanSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
     if (CleanRtxdiDiView == 16u ||
-        CleanLiveMaterialClassifierBsdfActive(record.materialAndSurface.y))
+        CleanLiveMaterialClassifierBsdfActive(CleanResolveLiveMaterialIndex(record)))
     {
         return CleanMaterialSurfaceFromRecord(record);
     }

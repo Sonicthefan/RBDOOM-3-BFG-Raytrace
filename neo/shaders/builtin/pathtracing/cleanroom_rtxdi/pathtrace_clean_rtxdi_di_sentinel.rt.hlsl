@@ -830,6 +830,17 @@ bool PathTraceCleanRoomLoadSurfaceRecordSigned(int2 pixel, uint2 dimensions, boo
         (record.header.y & RT_PRIMARY_SURFACE_VALID) != 0u;
 }
 
+uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex);
+
+uint PathTraceCleanRoomResolveLiveMaterialIndex(PathTracePrimarySurfaceRecord record)
+{
+    const uint recordMaterialIndex = record.materialAndSurface.y;
+    const uint liveMaterialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(
+        record.instancePrimitiveObject.x,
+        record.instancePrimitiveObject.y);
+    return liveMaterialIndex < (uint)TextureInfo.z ? liveMaterialIndex : recordMaterialIndex;
+}
+
 RAB_Surface PathTraceCleanRoomSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
 {
     RAB_Surface surface = RAB_EmptySurface();
@@ -847,7 +858,7 @@ RAB_Surface PathTraceCleanRoomSurfaceFromRecord(PathTracePrimarySurfaceRecord re
     surface.viewDir = PathTraceCleanRoomSafeNormalize(record.viewDirectionAndReserved.xyz, -surface.shadingNormal);
     surface.materialId = record.materialAndSurface.x;
     surface.materialIndex = record.materialAndSurface.y;
-    surface.surfaceClass = record.materialAndSurface.w;
+    surface.surfaceClass = record.materialAndSurface.w & 0xffu;
     surface.material = RAB_EmptyMaterial();
     surface.material.materialId = surface.materialId;
     surface.material.materialIndex = surface.materialIndex;
@@ -869,9 +880,11 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     surface.instanceId = record.instancePrimitiveObject.x;
     surface.primitiveIndex = record.instancePrimitiveObject.y;
 
+    const uint resolvedMaterialIndex = PathTraceCleanRoomResolveLiveMaterialIndex(record);
+
     RAB_Material material = RAB_EmptyMaterial();
     material.materialId = surface.materialId;
-    material.materialIndex = surface.materialIndex;
+    material.materialIndex = resolvedMaterialIndex;
     material.flags = record.materialAndSurface.z;
     material.alphaCutoff = record.albedoAndAlphaCutoff.w;
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
@@ -885,6 +898,7 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
     material.emissiveTextureIndex = record.instancePrimitiveObject.w;
+    surface.materialIndex = resolvedMaterialIndex;
     surface.material = material;
     return surface;
 }
@@ -892,7 +906,7 @@ RAB_Surface PathTraceCleanRoomMaterialSurfaceFromRecord(PathTracePrimarySurfaceR
 RAB_Surface PathTraceCleanRoomSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
     if (CleanRtxdiDiView == 16u ||
-        PathTraceCleanRoomLiveMaterialClassifierBsdfActive(record.materialAndSurface.y))
+        PathTraceCleanRoomLiveMaterialClassifierBsdfActive(PathTraceCleanRoomResolveLiveMaterialIndex(record)))
     {
         return PathTraceCleanRoomMaterialSurfaceFromRecord(record);
     }
@@ -1003,8 +1017,6 @@ float3 PathTraceCleanRoomMatClassSurfaceClassColor(uint surfaceClass)
     return float3(0.25, 0.25, 0.25);
 }
 
-uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex);
-
 float3 PathTraceCleanRoomVisibleMatClassDebug(float3 color, float3 fallback)
 {
     return PathTraceCleanRoomLuminance(color) > 0.02 ? color : fallback;
@@ -1018,11 +1030,7 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
         return float3(0.75, 0.00, 0.75);
     }
 
-    const uint recordMaterialIndex = record.materialAndSurface.y;
-    const uint liveMaterialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(
-        record.instancePrimitiveObject.x,
-        record.instancePrimitiveObject.y);
-    const uint materialIndex = liveMaterialIndex < (uint)TextureInfo.z ? liveMaterialIndex : recordMaterialIndex;
+    const uint materialIndex = PathTraceCleanRoomResolveLiveMaterialIndex(record);
     const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
     const bool hasClassifierRecord = material.padding1 != 0u;
     const bool right = pixel.x * 2u >= dimensions.x;
