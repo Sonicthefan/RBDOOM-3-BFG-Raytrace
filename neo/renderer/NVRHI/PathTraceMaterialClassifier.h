@@ -163,8 +163,6 @@ struct RtMaterialRecord
     textureColor_t normalColorFormat = CFM_DEFAULT;
     textureColor_t specularColorFormat = CFM_DEFAULT;
     textureColor_t emissiveColorFormat = CFM_DEFAULT;
-    float specularRepresentativeRgb[3] = { 0.0f, 0.0f, 0.0f };
-    float specularRepresentativeLuma = 0.0f;
     bool hasDiffuseImage = false;
     bool hasNormalImage = false;
     bool hasSpecularImage = false;

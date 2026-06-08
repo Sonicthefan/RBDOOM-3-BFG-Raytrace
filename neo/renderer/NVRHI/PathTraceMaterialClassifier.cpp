@@ -1,15 +1,11 @@
 #include "precompiled.h"
 #pragma hdrstop
 
-#include "../BinaryImage.h"
-#include "../DXT/DXTCodec.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceMaterialClassifier.h"
 
 #include <cstring>
-#include <cmath>
-#include <string>
 #include <unordered_map>
 
 namespace {
@@ -55,15 +51,6 @@ RtMaterialClassifierStats g_materialClassifierStats;
 bool g_dumpedDeclSurfaceDistribution = false;
 int g_recordDebugLogs = 0;
 uint32_t g_materialClassifierGeneration = 1u;
-
-struct RtSpecularAverageCacheEntry
-{
-    bool valid = false;
-    float rgb[3] = { 0.0f, 0.0f, 0.0f };
-    idStr evidence;
-};
-
-std::unordered_map<std::string, RtSpecularAverageCacheEntry> g_specularAverageCache;
 
 uint64 HashRtMaterialValue(uint64 hash, uint64 value)
 {
@@ -1332,285 +1319,6 @@ uint32_t QuantizeRtMaterialUnitFloat(float value)
     return static_cast<uint32_t>(clamped * 255.0f + 0.5f);
 }
 
-float RtSmokeLinear1(float value)
-{
-    return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
-}
-
-float RtSmokeSpecularLuma(const float rgb[3])
-{
-    return rgb[0] * 0.2125f + rgb[1] * 0.7154f + rgb[2] * 0.0721f;
-}
-
-float RtSmokeEstimateLegacyRoughnessCpu(const float specMap[3])
-{
-    const float y = idMath::ClampFloat(0.0f, 1.0f, RtSmokeSpecularLuma(specMap));
-    const float glossiness = idMath::ClampFloat(0.0f, 0.98f, std::sqrt(y));
-    return idMath::ClampFloat(0.02f, 1.0f, 1.0f - glossiness);
-}
-
-void RtSmokePbrFromSpecmapCpu(const float specMap[3], float& outF0, float& outRoughness)
-{
-    const float specLum = RtSmokeSpecularLuma(specMap);
-    float f0 = 0.04f;
-    const float contrastMid = 0.214f;
-    const float contrastAmount = 2.0f;
-    float contrast = idMath::ClampFloat(0.0f, 1.0f, (specLum - contrastMid) / (1.0f - contrastMid));
-    contrast += idMath::ClampFloat(0.0f, 1.0f, specLum / contrastMid) - 1.0f;
-    contrast = std::pow(2.0f, contrastAmount * contrast);
-    f0 *= contrast;
-    const float linearBrightness = RtSmokeLinear1(2.0f * specLum);
-    const float specPow = Max(0.0f, ((8.0f * linearBrightness) / Max(f0, 1.0e-4f)) - 2.0f);
-    f0 *= Min(1.0f, linearBrightness / Max(f0 * 0.25f, 1.0e-4f));
-    float roughness = std::sqrt(2.0f / (specPow + 2.0f));
-    const float glossiness = idMath::ClampFloat(0.0f, 1.0f, 1.0f - roughness);
-    const float metallic = glossiness >= 0.7f ? 1.0f : 0.0f;
-    const float glossColor[3] = {
-        RtSmokeLinear1(specMap[0]),
-        RtSmokeLinear1(specMap[1]),
-        RtSmokeLinear1(specMap[2])
-    };
-    const float glossF0 = RtSmokeSpecularLuma(glossColor);
-    f0 = f0 * (1.0f - metallic) + glossF0 * metallic;
-    roughness = std::sqrt(roughness);
-
-    outF0 = idMath::ClampFloat(0.0f, 1.0f, f0);
-    outRoughness = idMath::ClampFloat(0.02f, 1.0f, roughness);
-}
-
-bool RtSpecularRouteStageConstantColor(const idMaterial* material, const RtMaterialRecord& record, float color[3])
-{
-    color[0] = 1.0f;
-    color[1] = 1.0f;
-    color[2] = 1.0f;
-
-    if (!material || record.stageFacts.routeStage < 0 || record.stageFacts.routeStage >= material->GetNumStages())
-    {
-        return false;
-    }
-
-    const float* constantRegisters = material->ConstantRegisters();
-    const int registerCount = material->GetNumRegisters();
-    const shaderStage_t* stage = material->GetStage(record.stageFacts.routeStage);
-    if (!constantRegisters || registerCount <= 0 || !stage)
-    {
-        return false;
-    }
-
-    for (int component = 0; component < 3; ++component)
-    {
-        const int registerIndex = stage->color.registers[component];
-        if (registerIndex < 0 || registerIndex >= registerCount)
-        {
-            return false;
-        }
-        color[component] = idMath::ClampFloat(0.0f, 1.0f, constantRegisters[registerIndex]);
-    }
-    return true;
-}
-
-void RtAverageRgbaPixels(const byte* pixels, int width, int height, int strideBytes, float outRgb[3])
-{
-    const int pixelCount = width * height;
-    const int stride = Max(1, pixelCount / 4096);
-    double sum[3] = { 0.0, 0.0, 0.0 };
-    int samples = 0;
-    for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += stride)
-    {
-        const byte* pixel = pixels + pixelIndex * strideBytes;
-        sum[0] += static_cast<double>(pixel[0]) * (1.0 / 255.0);
-        sum[1] += static_cast<double>(pixel[1]) * (1.0 / 255.0);
-        sum[2] += static_cast<double>(pixel[2]) * (1.0 / 255.0);
-        ++samples;
-    }
-
-    if (samples <= 0)
-    {
-        outRgb[0] = 0.0f;
-        outRgb[1] = 0.0f;
-        outRgb[2] = 0.0f;
-        return;
-    }
-
-    outRgb[0] = static_cast<float>(sum[0] / samples);
-    outRgb[1] = static_cast<float>(sum[1] / samples);
-    outRgb[2] = static_cast<float>(sum[2] / samples);
-}
-
-bool RtAverageSourceImageProgramRgb(const idStr& imageName, float outRgb[3], idStr& evidence)
-{
-    if (imageName.IsEmpty() || imageName.Icmp("<none>") == 0 || imageName[0] == '_')
-    {
-        evidence = "specularAvg:invalidName";
-        return false;
-    }
-
-    byte* pic = nullptr;
-    int width = 0;
-    int height = 0;
-    textureUsage_t usage = TD_DEFAULT;
-    R_LoadImageProgram(imageName.c_str(), &pic, &width, &height, nullptr, &usage);
-    if (!pic || width <= 0 || height <= 0)
-    {
-        if (pic)
-        {
-            R_StaticFree(pic);
-        }
-        evidence = "sourceLoadFailed";
-        return false;
-    }
-
-    RtAverageRgbaPixels(pic, width, height, 4, outRgb);
-    R_StaticFree(pic);
-
-    evidence = va("source:%dx%d/%d", width, height, Min(width * height, 4096));
-    return true;
-}
-
-bool RtAverageGeneratedImageRgb(const RtMaterialRecord& record, float outRgb[3], idStr& evidence)
-{
-    idStr generatedName = record.specularImageName;
-    idImage::GetGeneratedName(generatedName, record.specularUsage, CF_2D);
-
-    idBinaryImage binaryImage(generatedName.c_str());
-    if (binaryImage.LoadFromGeneratedFile(FILE_NOT_FOUND_TIMESTAMP) == FILE_NOT_FOUND_TIMESTAMP)
-    {
-        evidence = va("bimageMissing:%s", generatedName.c_str());
-        return false;
-    }
-
-    if (binaryImage.NumImages() <= 0)
-    {
-        evidence = va("bimageNoImages:%s", generatedName.c_str());
-        return false;
-    }
-
-    const bimageFile_t& fileHeader = binaryImage.GetFileHeader();
-    const bimageImage_t& imageHeader = binaryImage.GetImageHeader(0);
-    const byte* imageData = binaryImage.GetImageData(0);
-    if (!imageData || imageHeader.width <= 0 || imageHeader.height <= 0)
-    {
-        evidence = va("bimageInvalid:%s", generatedName.c_str());
-        return false;
-    }
-
-    const textureFormat_t format = static_cast<textureFormat_t>(fileHeader.format);
-    if (format == FMT_DXT1 || format == FMT_DXT5)
-    {
-        idTempArray<byte> decoded(imageHeader.width * imageHeader.height * 4);
-        idDxtDecoder decoder;
-        if (format == FMT_DXT1)
-        {
-            decoder.DecompressImageDXT1(imageData, decoded.Ptr(), imageHeader.width, imageHeader.height);
-        }
-        else
-        {
-            decoder.DecompressImageDXT5(imageData, decoded.Ptr(), imageHeader.width, imageHeader.height);
-        }
-        RtAverageRgbaPixels(decoded.Ptr(), imageHeader.width, imageHeader.height, 4, outRgb);
-        evidence = va("bimage:%s:%dx%d/%d", format == FMT_DXT1 ? "DXT1" : "DXT5", imageHeader.width, imageHeader.height, Min(imageHeader.width * imageHeader.height, 4096));
-        return true;
-    }
-
-    if (format == FMT_RGBA8 || format == FMT_XRGB8)
-    {
-        RtAverageRgbaPixels(imageData, imageHeader.width, imageHeader.height, 4, outRgb);
-        evidence = va("bimage:RGBA8:%dx%d/%d", imageHeader.width, imageHeader.height, Min(imageHeader.width * imageHeader.height, 4096));
-        return true;
-    }
-
-    if (format == FMT_LUM8 || format == FMT_INT8 || format == FMT_ALPHA)
-    {
-        const int pixelCount = imageHeader.width * imageHeader.height;
-        const int stride = Max(1, pixelCount / 4096);
-        double sum = 0.0;
-        int samples = 0;
-        for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += stride)
-        {
-            sum += static_cast<double>(imageData[pixelIndex]) * (1.0 / 255.0);
-            ++samples;
-        }
-        const float average = samples > 0 ? static_cast<float>(sum / samples) : 0.0f;
-        outRgb[0] = average;
-        outRgb[1] = average;
-        outRgb[2] = average;
-        evidence = va("bimage:L8:%dx%d/%d", imageHeader.width, imageHeader.height, samples);
-        return true;
-    }
-
-    if (format == FMT_L8A8)
-    {
-        const int pixelCount = imageHeader.width * imageHeader.height;
-        const int stride = Max(1, pixelCount / 4096);
-        double sum = 0.0;
-        int samples = 0;
-        for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += stride)
-        {
-            sum += static_cast<double>(imageData[pixelIndex * 2]) * (1.0 / 255.0);
-            ++samples;
-        }
-        const float average = samples > 0 ? static_cast<float>(sum / samples) : 0.0f;
-        outRgb[0] = average;
-        outRgb[1] = average;
-        outRgb[2] = average;
-        evidence = va("bimage:L8A8:%dx%d/%d", imageHeader.width, imageHeader.height, samples);
-        return true;
-    }
-
-    evidence = va("bimageUnsupportedFormat:%d:%s", static_cast<int>(format), generatedName.c_str());
-    return false;
-}
-
-bool RtAverageSpecularImageRgb(const RtMaterialRecord& record, float outRgb[3], idStr& evidence)
-{
-    const idStr& imageName = record.specularImageName;
-    if (imageName.IsEmpty() || imageName.Icmp("<none>") == 0 || imageName[0] == '_')
-    {
-        evidence = "specularAvg:invalidName";
-        return false;
-    }
-
-    const std::string cacheKey = va("%s#%d", imageName.c_str(), static_cast<int>(record.specularUsage));
-    auto cached = g_specularAverageCache.find(cacheKey);
-    if (cached != g_specularAverageCache.end())
-    {
-        outRgb[0] = cached->second.rgb[0];
-        outRgb[1] = cached->second.rgb[1];
-        outRgb[2] = cached->second.rgb[2];
-        evidence = cached->second.evidence;
-        return cached->second.valid;
-    }
-
-    RtSpecularAverageCacheEntry entry;
-    idStr sourceEvidence;
-    if (RtAverageSourceImageProgramRgb(imageName, entry.rgb, sourceEvidence))
-    {
-        entry.valid = true;
-        entry.evidence = va("specularAvg:%s", sourceEvidence.c_str());
-    }
-    else
-    {
-        idStr binaryEvidence;
-        if (RtAverageGeneratedImageRgb(record, entry.rgb, binaryEvidence))
-        {
-            entry.valid = true;
-            entry.evidence = va("specularAvg:%s", binaryEvidence.c_str());
-        }
-        else
-        {
-            entry.valid = false;
-            entry.evidence = va("specularAvg:%s/%s", sourceEvidence.c_str(), binaryEvidence.c_str());
-        }
-    }
-
-    outRgb[0] = entry.rgb[0];
-    outRgb[1] = entry.rgb[1];
-    outRgb[2] = entry.rgb[2];
-    evidence = entry.evidence;
-    g_specularAverageCache[cacheKey] = entry;
-    return entry.valid;
-}
-
 void ApplyRouteBBsdfPolicy(const idMaterial* material, RtMaterialRecord& record)
 {
     if (record.route != RtMaterialBsdfRoute::LegacySpecGloss)
@@ -2002,7 +1710,7 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.normalReason.c_str(),
         record.specularReason.c_str(),
         record.emissiveReason.c_str());
-    common->Printf("MatClass: bsdf id=%u roughness=%.3f metallic=%.3f ior=%.3f transmission=%.3f f0=%.3f ao=%.3f subsurface=%d twoSided=%d bsdfEvidence='%s' specAvg=(%.3f,%.3f,%.3f) specLuma=%.3f\n",
+    common->Printf("MatClass: bsdf id=%u roughness=%.3f metallic=%.3f ior=%.3f transmission=%.3f f0=%.3f ao=%.3f subsurface=%d twoSided=%d bsdfEvidence='%s'\n",
         record.materialId,
         record.bsdf.roughness,
         record.bsdf.metallic,
@@ -2012,11 +1720,7 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.bsdf.ao,
         static_cast<int>(record.bsdf.subsurfaceHint),
         static_cast<int>(record.bsdf.twoSidedBsdf),
-        record.bsdfEvidence.c_str(),
-        record.specularRepresentativeRgb[0],
-        record.specularRepresentativeRgb[1],
-        record.specularRepresentativeRgb[2],
-        record.specularRepresentativeLuma);
+        record.bsdfEvidence.c_str());
     common->Printf("MatClass: packed id=%u flags=0x%08x params=0x%08x dynamic=0x%08x\n",
         record.materialId,
         PackPathTraceMaterialClassifierFlags(record),
