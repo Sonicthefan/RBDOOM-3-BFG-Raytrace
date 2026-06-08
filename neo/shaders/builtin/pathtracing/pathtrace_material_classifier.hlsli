@@ -71,7 +71,9 @@ float SmokeMatClassF0(PathTraceSmokeMaterial material)
 bool SmokeMatClassHasPackedBsdf(PathTraceSmokeMaterial material)
 {
     const uint route = SmokeMatClassRoute(material);
-    return route == RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK;
+    const uint surfaceClass = SmokeMatClassSurfaceClass(material);
+    return route == RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK &&
+        surfaceClass != RT_MATCLASS_SURFACE_CLASS_SPECIAL;
 }
 
 bool SmokeMatClassDrivesLegacySpec(PathTraceSmokeMaterial material)
