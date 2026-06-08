@@ -156,6 +156,22 @@ bool SmokeRuntimeMaterialStageIsEmissiveLike(const shaderStage_t* stage)
         (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE);
 }
 
+bool SmokeRuntimeMaterialCanApplyTableWide(const char* materialName)
+{
+    if (!materialName || !materialName[0])
+    {
+        return false;
+    }
+
+    // Swinglight materials are switched through entity/material parms. A shared
+    // material-table row cannot represent their per-instance on/off state yet.
+    if (idStr::FindText(materialName, "swinglight", false) >= 0)
+    {
+        return false;
+    }
+    return true;
+}
+
 idVec4 SmokeRuntimeMaterialStageColor(const idMaterial* material, const shaderStage_t* stage, const float* regs)
 {
     idVec4 color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -266,6 +282,11 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         ++stats.candidates;
         const RtSmokeMaterialTextureInfo* info = materialIndex < static_cast<int>(table.materialInfos.size()) ? &table.materialInfos[materialIndex] : nullptr;
         const char* materialName = info ? info->materialName.c_str() : nullptr;
+        if (!SmokeRuntimeMaterialCanApplyTableWide(materialName))
+        {
+            continue;
+        }
+
         const idMaterial* materialDecl = materialName && materialName[0] ? declManager->FindMaterial(materialName, false) : nullptr;
         if (!materialDecl)
         {
