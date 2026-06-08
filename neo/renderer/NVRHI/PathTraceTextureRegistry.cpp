@@ -249,6 +249,36 @@ uint32_t SmokeMaterialTextureVariantBase(uint32_t materialId)
     return variant != g_smokeMaterialTextureVariantBases.end() ? variant->second : materialId;
 }
 
+int ClearSmokeMaterialTextureVariants()
+{
+    if (g_smokeMaterialTextureVariantBases.empty())
+    {
+        return 0;
+    }
+
+    const int removedCount = static_cast<int>(g_smokeMaterialTextureVariantBases.size());
+    std::vector<RtSmokeMaterialTextureInfo> retainedRegistry;
+    retainedRegistry.reserve(g_smokeMaterialTextureRegistry.size() - g_smokeMaterialTextureVariantBases.size());
+    for (const RtSmokeMaterialTextureInfo& info : g_smokeMaterialTextureRegistry)
+    {
+        if (g_smokeMaterialTextureVariantBases.find(info.materialId) == g_smokeMaterialTextureVariantBases.end())
+        {
+            retainedRegistry.push_back(info);
+        }
+    }
+
+    g_smokeMaterialTextureRegistry.swap(retainedRegistry);
+    g_smokeMaterialTextureRegistryLookup.clear();
+    g_smokeMaterialTextureRegistryLookup.reserve(g_smokeMaterialTextureRegistry.size());
+    for (int index = 0; index < static_cast<int>(g_smokeMaterialTextureRegistry.size()); ++index)
+    {
+        g_smokeMaterialTextureRegistryLookup[g_smokeMaterialTextureRegistry[index].materialId] = index;
+    }
+    g_smokeMaterialTextureVariantBases.clear();
+    ++g_smokeMaterialTextureRegistryGeneration;
+    return removedCount;
+}
+
 void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
 {
     const bool oldHasTextureHandle = info.hasTextureHandle;

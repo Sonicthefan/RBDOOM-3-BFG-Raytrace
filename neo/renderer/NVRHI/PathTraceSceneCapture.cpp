@@ -844,15 +844,6 @@ uint32_t SmokeRuntimeMaterialVariantHashValue(uint32_t hash, uint32_t value)
     return hash;
 }
 
-uint32_t SmokeRuntimeMaterialVariantHashPointer(uint32_t hash, uintptr_t value)
-{
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(value));
-#if defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(value >> 32));
-#endif
-    return hash;
-}
-
 enum class RtSmokeDynamicEvalBuildResult
 {
     NoMaterial,
@@ -1337,18 +1328,19 @@ uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, ui
         return baseMaterialId;
     }
 
-    const srfTriangles_t* tri = drawSurf->frontEndGeo;
     const viewEntity_t* space = drawSurf->space;
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    if (!entity)
+    {
+        return baseMaterialId;
+    }
 
     uint32_t hash = 2166136261u;
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72747631u);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72747632u);
     hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
     hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity ? entity->index : -1));
     hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity ? renderEntity->entityNum : -1));
-    hash = SmokeRuntimeMaterialVariantHashPointer(hash, reinterpret_cast<uintptr_t>(tri));
-    hash = SmokeRuntimeMaterialVariantHashPointer(hash, reinterpret_cast<uintptr_t>(space));
 
     uint32_t variantMaterialId = hash | 0x80000000u;
     if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)

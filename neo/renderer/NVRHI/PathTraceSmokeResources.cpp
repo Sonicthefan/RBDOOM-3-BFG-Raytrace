@@ -2038,6 +2038,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_sceneUniverse.Clear();
     m_instanceUniverse.Clear();
     m_smokeLightUniverse.Clear();
+    ClearSmokeMaterialTextureVariants();
     m_remixFramePrepare.Clear();
     m_remixLightManager.Clear();
     m_remixRtxdiResources.Clear();
