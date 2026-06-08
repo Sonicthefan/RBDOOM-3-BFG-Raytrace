@@ -94,6 +94,10 @@ struct RtSmokeDynamicMaterialEvalSample
     int alphaStages = 0;
     int alphaTestStages = 0;
     int texMatrixStages = 0;
+    int dynamicImageStages = 0;
+    int cinematicStages = 0;
+    int guiRenderTargetStages = 0;
+    int programStages = 0;
     idStr name;
     float condition = 1.0f;
     float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -138,6 +142,10 @@ struct RtSmokeMaterialStats
     int dynamicEvalAlphaStages = 0;
     int dynamicEvalAlphaTestStages = 0;
     int dynamicEvalTexMatrixStages = 0;
+    int dynamicEvalDynamicImageStages = 0;
+    int dynamicEvalCinematicStages = 0;
+    int dynamicEvalGuiRenderTargetStages = 0;
+    int dynamicEvalProgramStages = 0;
     RtSmokeDynamicMaterialEvalSample dynamicEvalSamples[RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES];
     int dynamicEvalSampleCount = 0;
     int translucentSubtypeSurfaces[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};

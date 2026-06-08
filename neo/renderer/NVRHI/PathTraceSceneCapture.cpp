@@ -686,39 +686,46 @@ bool SmokeEvalRegister(const float* regs, int registerCount, int registerIndex, 
 
 bool SmokeStageUsesPerSurfaceMaterialState(const idMaterial* material, const shaderStage_t* stage)
 {
-    if (!material || !stage || material->ConstantRegisters() != nullptr)
+    if (!material || !stage)
     {
         return false;
     }
 
-    if (stage->conditionRegister >= 0)
+    const bool materialUsesRuntimeRegisters = material->ConstantRegisters() == nullptr;
+    if (materialUsesRuntimeRegisters && stage->conditionRegister >= 0)
     {
         return true;
     }
-    if (stage->hasAlphaTest && stage->alphaTestRegister >= 0)
+    if (materialUsesRuntimeRegisters && stage->hasAlphaTest && stage->alphaTestRegister >= 0)
     {
         return true;
     }
-    for (int component = 0; component < 4; ++component)
+    if (materialUsesRuntimeRegisters)
     {
-        if (stage->color.registers[component] >= 0)
+        for (int component = 0; component < 4; ++component)
+        {
+            if (stage->color.registers[component] >= 0)
+            {
+                return true;
+            }
+        }
+        if (stage->texture.hasMatrix)
         {
             return true;
         }
     }
-    if (stage->texture.hasMatrix)
-    {
-        return true;
-    }
     return stage->texture.dynamic != DI_STATIC ||
+        stage->texture.dynamicFrameCount > 0 ||
         stage->texture.cinematic != nullptr ||
+        stage->texture.texgen == TG_SCREEN ||
+        stage->texture.texgen == TG_SCREEN2 ||
         stage->newStage != nullptr;
 }
 
 void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes)
 {
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-    if (!material || material->ConstantRegisters() != nullptr)
+    if (!material)
     {
         return;
     }
@@ -791,6 +798,25 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
                 }
             }
         }
+        if (stage->texture.dynamic != DI_STATIC || stage->texture.dynamicFrameCount > 0)
+        {
+            ++surfaceSample.dynamicImageStages;
+        }
+        if (stage->texture.cinematic != nullptr)
+        {
+            ++surfaceSample.cinematicStages;
+        }
+        if (stage->texture.texgen == TG_SCREEN ||
+            stage->texture.texgen == TG_SCREEN2 ||
+            stage->texture.dynamic == DI_GUI_RENDER ||
+            stage->texture.dynamic == DI_RENDER_TARGET)
+        {
+            ++surfaceSample.guiRenderTargetStages;
+        }
+        if (stage->newStage != nullptr)
+        {
+            ++surfaceSample.programStages;
+        }
 
         if (!surfaceSample.valid)
         {
@@ -829,6 +855,10 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
     stats.dynamicEvalAlphaStages += surfaceSample.alphaStages;
     stats.dynamicEvalAlphaTestStages += surfaceSample.alphaTestStages;
     stats.dynamicEvalTexMatrixStages += surfaceSample.texMatrixStages;
+    stats.dynamicEvalDynamicImageStages += surfaceSample.dynamicImageStages;
+    stats.dynamicEvalCinematicStages += surfaceSample.cinematicStages;
+    stats.dynamicEvalGuiRenderTargetStages += surfaceSample.guiRenderTargetStages;
+    stats.dynamicEvalProgramStages += surfaceSample.programStages;
 
     for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
     {
@@ -843,6 +873,10 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
             sample.alphaStages += surfaceSample.alphaStages;
             sample.alphaTestStages += surfaceSample.alphaTestStages;
             sample.texMatrixStages += surfaceSample.texMatrixStages;
+            sample.dynamicImageStages += surfaceSample.dynamicImageStages;
+            sample.cinematicStages += surfaceSample.cinematicStages;
+            sample.guiRenderTargetStages += surfaceSample.guiRenderTargetStages;
+            sample.programStages += surfaceSample.programStages;
             return;
         }
     }

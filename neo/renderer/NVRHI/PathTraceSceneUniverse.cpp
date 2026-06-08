@@ -379,38 +379,45 @@ bool SceneUniverseEvalRegister(const float* regs, int registerCount, int registe
 
 bool SceneUniverseStageUsesPerSurfaceMaterialState(const idMaterial* material, const shaderStage_t* stage)
 {
-    if (!material || !stage || material->ConstantRegisters() != nullptr)
+    if (!material || !stage)
     {
         return false;
     }
 
-    if (stage->conditionRegister >= 0)
+    const bool materialUsesRuntimeRegisters = material->ConstantRegisters() == nullptr;
+    if (materialUsesRuntimeRegisters && stage->conditionRegister >= 0)
     {
         return true;
     }
-    if (stage->hasAlphaTest && stage->alphaTestRegister >= 0)
+    if (materialUsesRuntimeRegisters && stage->hasAlphaTest && stage->alphaTestRegister >= 0)
     {
         return true;
     }
-    for (int component = 0; component < 4; ++component)
+    if (materialUsesRuntimeRegisters)
     {
-        if (stage->color.registers[component] >= 0)
+        for (int component = 0; component < 4; ++component)
+        {
+            if (stage->color.registers[component] >= 0)
+            {
+                return true;
+            }
+        }
+        if (stage->texture.hasMatrix)
         {
             return true;
         }
     }
-    if (stage->texture.hasMatrix)
-    {
-        return true;
-    }
     return stage->texture.dynamic != DI_STATIC ||
+        stage->texture.dynamicFrameCount > 0 ||
         stage->texture.cinematic != nullptr ||
+        stage->texture.texgen == TG_SCREEN ||
+        stage->texture.texgen == TG_SCREEN2 ||
         stage->newStage != nullptr;
 }
 
 void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const idMaterial* material, const float* regs, int indexes)
 {
-    if (!material || !regs || material->ConstantRegisters() != nullptr)
+    if (!material || !regs)
     {
         return;
     }
@@ -477,6 +484,25 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
                 }
             }
         }
+        if (stage->texture.dynamic != DI_STATIC || stage->texture.dynamicFrameCount > 0)
+        {
+            ++surfaceSample.dynamicImageStages;
+        }
+        if (stage->texture.cinematic != nullptr)
+        {
+            ++surfaceSample.cinematicStages;
+        }
+        if (stage->texture.texgen == TG_SCREEN ||
+            stage->texture.texgen == TG_SCREEN2 ||
+            stage->texture.dynamic == DI_GUI_RENDER ||
+            stage->texture.dynamic == DI_RENDER_TARGET)
+        {
+            ++surfaceSample.guiRenderTargetStages;
+        }
+        if (stage->newStage != nullptr)
+        {
+            ++surfaceSample.programStages;
+        }
 
         if (!surfaceSample.valid)
         {
@@ -515,6 +541,10 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
     stats.dynamicEvalAlphaStages += surfaceSample.alphaStages;
     stats.dynamicEvalAlphaTestStages += surfaceSample.alphaTestStages;
     stats.dynamicEvalTexMatrixStages += surfaceSample.texMatrixStages;
+    stats.dynamicEvalDynamicImageStages += surfaceSample.dynamicImageStages;
+    stats.dynamicEvalCinematicStages += surfaceSample.cinematicStages;
+    stats.dynamicEvalGuiRenderTargetStages += surfaceSample.guiRenderTargetStages;
+    stats.dynamicEvalProgramStages += surfaceSample.programStages;
 
     for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
     {
@@ -529,6 +559,10 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
             sample.alphaStages += surfaceSample.alphaStages;
             sample.alphaTestStages += surfaceSample.alphaTestStages;
             sample.texMatrixStages += surfaceSample.texMatrixStages;
+            sample.dynamicImageStages += surfaceSample.dynamicImageStages;
+            sample.cinematicStages += surfaceSample.cinematicStages;
+            sample.guiRenderTargetStages += surfaceSample.guiRenderTargetStages;
+            sample.programStages += surfaceSample.programStages;
             return;
         }
     }
@@ -549,7 +583,7 @@ void SceneUniverseAddDynamicMaterialEvalStats(
     const idMaterial* material,
     int indexes)
 {
-    if (!viewDef || !entity || !material || material->ConstantRegisters() != nullptr)
+    if (!viewDef || !entity || !material)
     {
         return;
     }
@@ -583,13 +617,18 @@ void SceneUniverseAddDynamicMaterialEvalStats(
         shaderParms = generatedShaderParms;
     }
 
-    float regs[MAX_EXPRESSION_REGISTERS];
-    material->EvaluateRegisters(
-        regs,
-        shaderParms,
-        globalParms,
-        floatTime,
-        renderEntity.referenceSound);
+    const float* regs = material->ConstantRegisters();
+    float dynamicRegs[MAX_EXPRESSION_REGISTERS];
+    if (!regs)
+    {
+        material->EvaluateRegisters(
+            dynamicRegs,
+            shaderParms,
+            globalParms,
+            floatTime,
+            renderEntity.referenceSound);
+        regs = dynamicRegs;
+    }
     SceneUniverseAccumulateDynamicMaterialEvalStats(stats, material, regs, indexes);
 }
 
