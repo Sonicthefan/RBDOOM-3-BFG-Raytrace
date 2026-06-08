@@ -357,6 +357,7 @@ struct RtSmokeSurfaceSkipStats
     int nullSpace = 0;
     int nullModel = 0;
     int invalidIndexCount = 0;
+    int conditionedOff = 0;
     int nonCurrentCache = 0;
     int limitExceeded = 0;
     int zeroAreaOnly = 0;

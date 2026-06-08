@@ -45,6 +45,40 @@ void TransformSurfaceVectorToWorld(const drawSurf_t* drawSurf, const idVec3& loc
     worldVector = localVector;
 }
 
+static bool SmokeDrawSurfaceHasAnyActiveStage(const drawSurf_t* drawSurf)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!material)
+    {
+        return false;
+    }
+
+    const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
+    if (!regs)
+    {
+        return true;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+
+        const int conditionRegister = stage->conditionRegister;
+        const float condition = conditionRegister >= 0 && conditionRegister < registerCount ? regs[conditionRegister] : 1.0f;
+        if (condition != 0.0f)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t*& tri, RtSmokeSurfaceSkipStats* skipStats)
 {
     tri = nullptr;
@@ -71,6 +105,15 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         if (skipStats)
         {
             ++skipStats->nullMaterial;
+        }
+        return false;
+    }
+
+    if (!SmokeDrawSurfaceHasAnyActiveStage(drawSurf))
+    {
+        if (skipStats)
+        {
+            ++skipStats->conditionedOff;
         }
         return false;
     }
@@ -129,7 +172,10 @@ bool ValidateSmokeDrawSurface(const viewDef_t* viewDef, const drawSurf_t* drawSu
         return false;
     }
 
-    if ((tri->numIndexes % 3) != 0 || drawSurf->numIndexes < 3)
+    if ((tri->numIndexes % 3) != 0 ||
+        (drawSurf->numIndexes % 3) != 0 ||
+        drawSurf->numIndexes < 3 ||
+        drawSurf->numIndexes > tri->numIndexes)
     {
         if (skipStats)
         {
@@ -501,7 +547,7 @@ int AppendSmokeSurfaceGeometry(
         vertices.push_back(vertex);
     }
 
-    for (int sourceIndex = 0; sourceIndex + 2 < tri->numIndexes; sourceIndex += 3)
+    for (int sourceIndex = 0; sourceIndex + 2 < drawSurf->numIndexes; sourceIndex += 3)
     {
         const int i0 = tri->indexes[sourceIndex + 0];
         const int i1 = tri->indexes[sourceIndex + 1];
