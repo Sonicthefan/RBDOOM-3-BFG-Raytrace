@@ -344,12 +344,14 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         float selectedLuminance = -1.0f;
         bool activeEmissiveStage = false;
         bool disableFromLiveSample = false;
+        bool selectedFromLiveSample = false;
         const char* applySource = "fallback";
         if (FindSmokeRuntimeMaterialEvalSample(materialStats, materialId, selectedStageColor, disableFromLiveSample))
         {
             ++stats.evaluated;
             selectedLuminance = SmokeRuntimeMaterialLuminance(selectedStageColor);
             activeEmissiveStage = !disableFromLiveSample && selectedLuminance > 1.0e-5f;
+            selectedFromLiveSample = true;
             applySource = "live";
         }
         else
@@ -412,9 +414,18 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             continue;
         }
 
-        material.emissiveColor[0] *= selectedStageColor.x * selectedStageColor.w;
-        material.emissiveColor[1] *= selectedStageColor.y * selectedStageColor.w;
-        material.emissiveColor[2] *= selectedStageColor.z * selectedStageColor.w;
+        if (runtimeVariant && selectedFromLiveSample)
+        {
+            material.emissiveColor[0] = selectedStageColor.x * selectedStageColor.w;
+            material.emissiveColor[1] = selectedStageColor.y * selectedStageColor.w;
+            material.emissiveColor[2] = selectedStageColor.z * selectedStageColor.w;
+        }
+        else
+        {
+            material.emissiveColor[0] *= selectedStageColor.x * selectedStageColor.w;
+            material.emissiveColor[1] *= selectedStageColor.y * selectedStageColor.w;
+            material.emissiveColor[2] *= selectedStageColor.z * selectedStageColor.w;
+        }
         material.emissiveColor[3] = selectedStageColor.w;
         if (SmokeRuntimeMaterialLuminance(idVec4(material.emissiveColor[0], material.emissiveColor[1], material.emissiveColor[2], material.emissiveColor[3])) <= 1.0e-5f)
         {
