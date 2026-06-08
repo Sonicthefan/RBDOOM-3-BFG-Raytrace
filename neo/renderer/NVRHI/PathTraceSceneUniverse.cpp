@@ -366,6 +366,233 @@ void SceneUniverseAddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMat
     }
 }
 
+bool SceneUniverseEvalRegister(const float* regs, int registerCount, int registerIndex, float fallback, float& value)
+{
+    if (regs && registerIndex >= 0 && registerIndex < registerCount)
+    {
+        value = regs[registerIndex];
+        return true;
+    }
+    value = fallback;
+    return false;
+}
+
+bool SceneUniverseStageUsesPerSurfaceMaterialState(const idMaterial* material, const shaderStage_t* stage)
+{
+    if (!material || !stage || material->ConstantRegisters() != nullptr)
+    {
+        return false;
+    }
+
+    if (stage->conditionRegister >= 0)
+    {
+        return true;
+    }
+    if (stage->hasAlphaTest && stage->alphaTestRegister >= 0)
+    {
+        return true;
+    }
+    for (int component = 0; component < 4; ++component)
+    {
+        if (stage->color.registers[component] >= 0)
+        {
+            return true;
+        }
+    }
+    if (stage->texture.hasMatrix)
+    {
+        return true;
+    }
+    return stage->texture.dynamic != DI_STATIC ||
+        stage->texture.cinematic != nullptr ||
+        stage->newStage != nullptr;
+}
+
+void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const idMaterial* material, const float* regs, int indexes)
+{
+    if (!material || !regs || material->ConstantRegisters() != nullptr)
+    {
+        return;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    RtSmokeDynamicMaterialEvalSample surfaceSample;
+    surfaceSample.valid = false;
+    surfaceSample.id = SmokeMaterialId(material);
+    surfaceSample.name = material->GetName();
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!SceneUniverseStageUsesPerSurfaceMaterialState(material, stage))
+        {
+            continue;
+        }
+
+        float condition = 1.0f;
+        SceneUniverseEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, condition);
+        const bool enabled = condition != 0.0f;
+        ++surfaceSample.enabledStages;
+        if (!enabled)
+        {
+            --surfaceSample.enabledStages;
+            ++surfaceSample.disabledStages;
+        }
+
+        bool hasColor = false;
+        float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        for (int component = 0; component < 4; ++component)
+        {
+            hasColor = SceneUniverseEvalRegister(regs, registerCount, stage->color.registers[component], 1.0f, color[component]) || hasColor;
+        }
+        if (hasColor)
+        {
+            ++surfaceSample.colorStages;
+        }
+        if (hasColor && idMath::Fabs(color[3] - 1.0f) > 1.0e-4f)
+        {
+            ++surfaceSample.alphaStages;
+        }
+
+        float alphaTest = 0.0f;
+        const bool hasAlphaTest = stage->hasAlphaTest &&
+            SceneUniverseEvalRegister(regs, registerCount, stage->alphaTestRegister, 0.0f, alphaTest);
+        if (hasAlphaTest)
+        {
+            ++surfaceSample.alphaTestStages;
+        }
+
+        bool hasTexMatrix = false;
+        float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+        if (stage->texture.hasMatrix)
+        {
+            hasTexMatrix = true;
+            ++surfaceSample.texMatrixStages;
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    const float fallback = row == column ? 1.0f : 0.0f;
+                    SceneUniverseEvalRegister(regs, registerCount, stage->texture.matrix[row][column], fallback, texMatrix[row][column]);
+                }
+            }
+        }
+
+        if (!surfaceSample.valid)
+        {
+            surfaceSample.valid = true;
+            surfaceSample.stageIndex = stageIndex;
+            surfaceSample.condition = condition;
+            surfaceSample.alphaTest = alphaTest;
+            for (int component = 0; component < 4; ++component)
+            {
+                surfaceSample.color[component] = color[component];
+            }
+            if (hasTexMatrix)
+            {
+                for (int row = 0; row < 2; ++row)
+                {
+                    for (int column = 0; column < 3; ++column)
+                    {
+                        surfaceSample.texMatrix[row][column] = texMatrix[row][column];
+                    }
+                }
+            }
+        }
+    }
+
+    if (!surfaceSample.valid)
+    {
+        return;
+    }
+
+    ++stats.dynamicEvalSurfaces;
+    stats.dynamicEvalTriangles += indexes / 3;
+    stats.dynamicEvalStages += surfaceSample.enabledStages + surfaceSample.disabledStages;
+    stats.dynamicEvalEnabledStages += surfaceSample.enabledStages;
+    stats.dynamicEvalDisabledStages += surfaceSample.disabledStages;
+    stats.dynamicEvalColorStages += surfaceSample.colorStages;
+    stats.dynamicEvalAlphaStages += surfaceSample.alphaStages;
+    stats.dynamicEvalAlphaTestStages += surfaceSample.alphaTestStages;
+    stats.dynamicEvalTexMatrixStages += surfaceSample.texMatrixStages;
+
+    for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
+    {
+        RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[sampleIndex];
+        if (sample.id == surfaceSample.id)
+        {
+            ++sample.surfaces;
+            sample.triangles += indexes / 3;
+            sample.enabledStages += surfaceSample.enabledStages;
+            sample.disabledStages += surfaceSample.disabledStages;
+            sample.colorStages += surfaceSample.colorStages;
+            sample.alphaStages += surfaceSample.alphaStages;
+            sample.alphaTestStages += surfaceSample.alphaTestStages;
+            sample.texMatrixStages += surfaceSample.texMatrixStages;
+            return;
+        }
+    }
+
+    if (stats.dynamicEvalSampleCount < RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES)
+    {
+        RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[stats.dynamicEvalSampleCount++];
+        sample = surfaceSample;
+        sample.surfaces = 1;
+        sample.triangles = indexes / 3;
+    }
+}
+
+void SceneUniverseAddDynamicMaterialEvalStats(
+    RtSmokeMaterialStats& stats,
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    const idMaterial* material,
+    int indexes)
+{
+    if (!viewDef || !entity || !material || material->ConstantRegisters() != nullptr)
+    {
+        return;
+    }
+
+    const renderEntity_t& renderEntity = entity->parms;
+    const float* shaderParms = renderEntity.shaderParms;
+    const float* globalParms = viewDef->renderView.shaderParms;
+    const int timeGroup = idMath::ClampInt(0, 1, renderEntity.timeGroup);
+    float floatTime = viewDef->renderView.time[timeGroup] * 0.001f;
+
+    float generatedShaderParms[MAX_ENTITY_SHADER_PARMS];
+    if (renderEntity.referenceShader != nullptr)
+    {
+        float refRegs[MAX_EXPRESSION_REGISTERS];
+        renderEntity.referenceShader->EvaluateRegisters(
+            refRegs,
+            shaderParms,
+            globalParms,
+            floatTime,
+            renderEntity.referenceSound);
+
+        const shaderStage_t* referenceStage = renderEntity.referenceShader->GetStage(0);
+        memcpy(generatedShaderParms, shaderParms, sizeof(generatedShaderParms));
+        if (referenceStage)
+        {
+            const int referenceRegisterCount = renderEntity.referenceShader->GetNumRegisters();
+            SceneUniverseEvalRegister(refRegs, referenceRegisterCount, referenceStage->color.registers[0], generatedShaderParms[0], generatedShaderParms[0]);
+            SceneUniverseEvalRegister(refRegs, referenceRegisterCount, referenceStage->color.registers[1], generatedShaderParms[1], generatedShaderParms[1]);
+            SceneUniverseEvalRegister(refRegs, referenceRegisterCount, referenceStage->color.registers[2], generatedShaderParms[2], generatedShaderParms[2]);
+        }
+        shaderParms = generatedShaderParms;
+    }
+
+    float regs[MAX_EXPRESSION_REGISTERS];
+    material->EvaluateRegisters(
+        regs,
+        shaderParms,
+        globalParms,
+        floatTime,
+        renderEntity.referenceSound);
+    SceneUniverseAccumulateDynamicMaterialEvalStats(stats, material, regs, indexes);
+}
+
 PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* entity, const srfTriangles_t* tri, int vertexIndex)
 {
     const idDrawVert& drawVert = tri->verts[vertexIndex];
@@ -807,6 +1034,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                     classStats.staticWorldTriangles += record->currentRange.triangles.count;
                 }
                 SceneUniverseAddSmokeMaterialStats(materialStats, material, record->currentRange.indexes.count);
+                SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, record->currentRange.indexes.count);
                 continue;
             }
 
@@ -860,6 +1088,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 classStats.staticWorldTriangles += emittedIndexes / 3;
             }
             SceneUniverseAddSmokeMaterialStats(materialStats, material, emittedIndexes);
+            SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, emittedIndexes);
         }
     }
 
@@ -989,6 +1218,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             classStats.staticWorldIndexes += record->currentRange.indexes.count;
             classStats.staticWorldTriangles += record->currentRange.triangles.count;
             SceneUniverseAddSmokeMaterialStats(materialStats, material, record->currentRange.indexes.count);
+            SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, record->currentRange.indexes.count);
             continue;
         }
 
@@ -1030,6 +1260,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         classStats.staticWorldIndexes += emittedIndexes;
         classStats.staticWorldTriangles += emittedIndexes / 3;
         SceneUniverseAddSmokeMaterialStats(materialStats, material, emittedIndexes);
+        SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, emittedIndexes);
     }
 
     RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];
