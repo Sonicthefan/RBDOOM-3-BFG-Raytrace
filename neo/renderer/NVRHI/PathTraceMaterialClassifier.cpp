@@ -1501,13 +1501,6 @@ void ApplyRouteBBsdfPolicy(const idMaterial* material, RtMaterialRecord& record)
         return;
     }
 
-    if (record.surfaceClass == RtMaterialSurfaceClass::Special && record.emissiveIntent)
-    {
-        record.bsdf = RtDefaultBsdfForSurfaceClass(RtMaterialSurfaceClass::Special);
-        record.bsdfEvidence = "routeB:specialEmissiveDefaultNoSpecSample";
-        return;
-    }
-
     record.bsdfEvidence = "routeB:shaderPerPixelSpec";
 }
 
