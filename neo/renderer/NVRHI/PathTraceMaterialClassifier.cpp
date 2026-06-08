@@ -931,6 +931,14 @@ bool RtSpecialStageIntentFromNames(const RtSmokeMaterialTextureInfo& info, const
         evidence = "stageSpecial:emissiveImage";
         return true;
     }
+    if (info.emissive &&
+        stageFacts.additiveBlendStages > 0 &&
+        stageFacts.diffuseStages == 0 &&
+        stageFacts.specularStages == 0)
+    {
+        evidence = "stageSpecial:emissiveAdditiveOnly";
+        return true;
+    }
 
     const bool hasTranslucentOrEffectBlend =
         stageFacts.additiveBlendStages > 0 ||
