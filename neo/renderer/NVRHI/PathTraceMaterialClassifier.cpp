@@ -1626,49 +1626,7 @@ void ApplyRouteBBsdfPolicy(const idMaterial* material, RtMaterialRecord& record)
         return;
     }
 
-    float specMap[3] = { 0.0f, 0.0f, 0.0f };
-    idStr specEvidence;
-    const bool hasAverageSpecular = RtAverageSpecularImageRgb(record, specMap, specEvidence);
-    if (!hasAverageSpecular)
-    {
-        specMap[0] = 0.0f;
-        specMap[1] = 0.0f;
-        specMap[2] = 0.0f;
-    }
-
-    float stageColor[3] = { 1.0f, 1.0f, 1.0f };
-    const bool hasStageColor = RtSpecularRouteStageConstantColor(material, record, stageColor);
-    if (hasStageColor)
-    {
-        specMap[0] *= stageColor[0];
-        specMap[1] *= stageColor[1];
-        specMap[2] *= stageColor[2];
-    }
-
-    record.specularRepresentativeRgb[0] = idMath::ClampFloat(0.0f, 1.0f, specMap[0]);
-    record.specularRepresentativeRgb[1] = idMath::ClampFloat(0.0f, 1.0f, specMap[1]);
-    record.specularRepresentativeRgb[2] = idMath::ClampFloat(0.0f, 1.0f, specMap[2]);
-    record.specularRepresentativeLuma = RtSmokeSpecularLuma(record.specularRepresentativeRgb);
-
-    float representativeF0 = 0.04f;
-    float representativeRoughness = 1.0f;
-    const bool useLegacyEstimate = idMath::ClampInt(0, 1, r_pathTracingMatClassGlossRoughnessMode.GetInteger()) != 0;
-    if (useLegacyEstimate)
-    {
-        representativeRoughness = RtSmokeEstimateLegacyRoughnessCpu(record.specularRepresentativeRgb);
-        representativeF0 = Max(0.04f, record.specularRepresentativeLuma);
-    }
-    else
-    {
-        RtSmokePbrFromSpecmapCpu(record.specularRepresentativeRgb, representativeF0, representativeRoughness);
-    }
-
-    record.bsdf.roughness = representativeRoughness;
-    record.bsdf.specularF0 = representativeF0;
-    record.bsdfEvidence = va("routeB:%s:%s%s",
-        useLegacyEstimate ? "EstimateLegacyRoughness" : "PBRFromSpecmap",
-        specEvidence.c_str(),
-        hasStageColor ? ":stageColor" : "");
+    record.bsdfEvidence = "routeB:shaderPerPixelSpec";
 }
 
 uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmokeMaterialTextureInfo& info)
