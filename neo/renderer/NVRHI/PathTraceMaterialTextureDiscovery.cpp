@@ -150,6 +150,22 @@ bool SmokeImageNameLooksSpecularSuffix(const char* imageName)
     return false;
 }
 
+bool SmokeStageConditionCanBeActive(const idMaterial* material, const shaderStage_t* stage)
+{
+    if (!material || !stage)
+    {
+        return false;
+    }
+
+    const float* constantRegisters = material->ConstantRegisters();
+    const int registerCount = material->GetNumRegisters();
+    if (constantRegisters && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount)
+    {
+        return constantRegisters[stage->conditionRegister] != 0.0f;
+    }
+    return true;
+}
+
 idImage* FindSmokeImageByTextureCode(const idMaterial* material, RtSmokeTextureCodeHint wantedHint, idStr& reason)
 {
     if (!material || wantedHint == RtSmokeTextureCodeHint::Unknown || r_pathTracingForceTextureCodeUse.GetInteger() == 0)
@@ -160,7 +176,7 @@ idImage* FindSmokeImageByTextureCode(const idMaterial* material, RtSmokeTextureC
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || !stage->texture.image)
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || !stage->texture.image)
         {
             continue;
         }
@@ -186,7 +202,7 @@ idImage* FindSmokeImageBySpecularSuffix(const idMaterial* material, idStr& reaso
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || !stage->texture.image)
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || !stage->texture.image)
         {
             continue;
         }
@@ -211,7 +227,7 @@ idImage* FindSmokeImageByUsageAndFormat(const idMaterial* material, textureUsage
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || !stage->texture.image)
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || !stage->texture.image)
         {
             continue;
         }
@@ -261,7 +277,7 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || stage->lighting != SL_DIFFUSE || !stage->texture.image)
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || stage->lighting != SL_DIFFUSE || !stage->texture.image)
         {
             continue;
         }
@@ -276,7 +292,7 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
         {
             const shaderStage_t* stage = material->GetStage(stageIndex);
-            if (!stage || !stage->texture.image)
+            if (!stage || !SmokeStageConditionCanBeActive(material, stage) || !stage->texture.image)
             {
                 continue;
             }
@@ -294,7 +310,7 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
         {
             const shaderStage_t* stage = material->GetStage(stageIndex);
-            if (!stage || !stage->texture.image)
+            if (!stage || !SmokeStageConditionCanBeActive(material, stage) || !stage->texture.image)
             {
                 continue;
             }
@@ -312,7 +328,7 @@ idImage* FindSmokeDiffuseImage(const idMaterial* material, idStr& reason)
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
         {
             const shaderStage_t* stage = material->GetStage(stageIndex);
-            if (!stage || stage->lighting != SL_AMBIENT || !stage->texture.image)
+            if (!stage || !SmokeStageConditionCanBeActive(material, stage) || stage->lighting != SL_AMBIENT || !stage->texture.image)
             {
                 continue;
             }
@@ -356,7 +372,7 @@ idImage* FindSmokeNormalImage(const idMaterial* material, idStr& reason)
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || stage->lighting != SL_BUMP || !stage->texture.image)
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || stage->lighting != SL_BUMP || !stage->texture.image)
         {
             continue;
         }
@@ -405,7 +421,7 @@ idImage* FindSmokeSpecularImage(const idMaterial* material, idStr& reason)
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage || stage->lighting != SL_SPECULAR || !stage->texture.image)
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || stage->lighting != SL_SPECULAR || !stage->texture.image)
         {
             continue;
         }

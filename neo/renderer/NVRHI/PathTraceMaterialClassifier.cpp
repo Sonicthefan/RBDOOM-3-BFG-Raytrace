@@ -180,6 +180,22 @@ bool RtStageIsFilterBlend(const shaderStage_t* stage)
         (srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR && dstBlend == GLS_DSTBLEND_ONE);
 }
 
+bool RtStageConditionCanBeActive(const idMaterial* material, const shaderStage_t* stage)
+{
+    if (!material || !stage)
+    {
+        return false;
+    }
+
+    const float* constantRegisters = material->ConstantRegisters();
+    const int registerCount = material->GetNumRegisters();
+    if (constantRegisters && stage->conditionRegister >= 0 && stage->conditionRegister < registerCount)
+    {
+        return constantRegisters[stage->conditionRegister] != 0.0f;
+    }
+    return true;
+}
+
 const char* RtTextureUsageName(textureUsage_t usage)
 {
     switch (usage)
@@ -232,7 +248,7 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
-        if (!stage)
+        if (!stage || !RtStageConditionCanBeActive(material, stage))
         {
             continue;
         }
