@@ -1064,20 +1064,9 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
             float3(0.12, 0.12, 0.12));
     }
 
-    float roughness = saturate(record.geometricNormalAndRoughness.w);
-    float3 specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
-    SmokeApplyMaterialClassifierBsdf(material, saturate(record.albedoAndAlphaCutoff.xyz), specularF0, roughness);
-    const float f0Luminance = PathTraceCleanRoomLuminance(specularF0);
-    if (SmokeMatClassDrivesLegacySpec(material))
-    {
-        return float3(max(f0Luminance, 0.35), 0.0, 0.0);
-    }
-
-    return PathTraceCleanRoomVisibleMatClassDebug(float3(
-        saturate(f0Luminance),
-        SmokeMatClassMetallic(material),
-        SmokeMatClassTransmission(material)),
-        float3(0.08, 0.20, 0.38));
+    return PathTraceCleanRoomVisibleMatClassDebug(
+        SmokeMatClassDynamicDebugColor(material),
+        float3(0.04, 0.04, 0.04));
 }
 
 bool PathTraceCleanRoomRluPayloadValid(PathTraceUnifiedLightRecord light)

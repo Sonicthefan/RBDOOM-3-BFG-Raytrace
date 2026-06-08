@@ -222,6 +222,7 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
         }
         if (materialClassRecord && materialClassRecord->valid)
         {
+            material.padding0 |= PackPathTraceMaterialClassifierDynamicFlags(*materialClassRecord);
             material.padding1 = PackPathTraceMaterialClassifierFlags(*materialClassRecord);
             material.padding2 = PackPathTraceMaterialClassifierParams(*materialClassRecord);
             if (r_pathTracingMatClassDriveLegacySpec.GetInteger() != 0 &&

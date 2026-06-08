@@ -11,6 +11,17 @@ static const uint RT_MATCLASS_SURFACE_CLASS_RICOCHET = 9u;
 static const uint RT_MATCLASS_SURFACE_CLASS_SPECIAL = 10u;
 static const uint RT_MATCLASS_EMISSIVE_INTENT = 0x02000000u;
 static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DRIVE_LEGACY_SPEC = 0x00000002u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS = 0x00000004u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR = 0x00000008u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA = 0x00000010u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION = 0x00000020u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX = 0x00000040u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO = 0x00000080u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL = 0x00000100u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM = 0x00000400u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK = 0x00000800u;
+static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_MASK = 0x00000ffcu;
 
 uint SmokeMatClassRoute(PathTraceSmokeMaterial material)
 {
@@ -61,6 +72,30 @@ bool SmokeMatClassDrivesLegacySpec(PathTraceSmokeMaterial material)
         (material.padding0 & RT_SMOKE_MATERIAL_CLASSIFIER_DRIVE_LEGACY_SPEC) != 0u &&
         route == RT_MATCLASS_ROUTE_LEGACY_SPEC_GLOSS &&
         surfaceClass == RT_MATCLASS_SURFACE_CLASS_RICOCHET;
+}
+
+uint SmokeMatClassDynamicFlags(PathTraceSmokeMaterial material)
+{
+    return material.padding0 & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_MASK;
+}
+
+bool SmokeMatClassNeedsDynamicInstance(PathTraceSmokeMaterial material)
+{
+    return SmokeMatClassDynamicFlags(material) != 0u;
+}
+
+float3 SmokeMatClassDynamicDebugColor(PathTraceSmokeMaterial material)
+{
+    const uint dynamicFlags = SmokeMatClassDynamicFlags(material);
+    if (dynamicFlags == 0u)
+    {
+        return float3(0.03, 0.03, 0.03);
+    }
+
+    return float3(
+        (dynamicFlags & (RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION)) != 0u ? 1.0 : 0.0,
+        (dynamicFlags & (RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER)) != 0u ? 1.0 : 0.0,
+        (dynamicFlags & (RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL | RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM)) != 0u ? 1.0 : 0.0);
 }
 
 float3 SmokeMatClassMetallicF0(PathTraceSmokeMaterial material, float3 albedo)

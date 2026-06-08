@@ -97,8 +97,11 @@ struct RtMaterialStageFacts
 
 struct RtMaterialDynamicFacts
 {
+    bool materialUsesRuntimeRegisters = false;
+    bool projectedDecal = false;
     int conditionRegisterStages = 0;
     int colorRegisterStages = 0;
+    int alphaRegisterStages = 0;
     int alphaTestRegisterStages = 0;
     int textureMatrixStages = 0;
     int textureMatrixRegisterStages = 0;
@@ -106,6 +109,9 @@ struct RtMaterialDynamicFacts
     int cinematicStages = 0;
     int guiRenderTargetStages = 0;
     int customProgramStages = 0;
+    int flipbookAtlasStages = 0;
+    int flipbookFrames = 0;
+    int flipbookAxis = -1;
 };
 
 struct RtMaterialBsdfParams
@@ -199,4 +205,5 @@ RtMaterialClassifierStats GetPathTraceMaterialClassifierStats();
 uint32_t GetPathTraceMaterialClassifierGeneration();
 uint32_t PackPathTraceMaterialClassifierFlags(const RtMaterialRecord& record);
 uint32_t PackPathTraceMaterialClassifierParams(const RtMaterialRecord& record);
+uint32_t PackPathTraceMaterialClassifierDynamicFlags(const RtMaterialRecord& record);
 void MaybeDumpPathTraceMaterialDeclSurfaceTypeDistribution();

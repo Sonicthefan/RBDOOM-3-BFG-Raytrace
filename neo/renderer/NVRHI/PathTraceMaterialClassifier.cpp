@@ -438,6 +438,9 @@ RtMaterialDynamicFacts AnalyzeRtMaterialDynamicFacts(const idMaterial* material)
         return facts;
     }
 
+    facts.materialUsesRuntimeRegisters = material->ConstantRegisters() == nullptr;
+    facts.projectedDecal = material->GetSort() >= SS_DECAL && material->GetSort() < SS_FAR;
+
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
         const shaderStage_t* stage = material->GetStage(stageIndex);
@@ -461,6 +464,10 @@ RtMaterialDynamicFacts AnalyzeRtMaterialDynamicFacts(const idMaterial* material)
         {
             ++facts.colorRegisterStages;
         }
+        if (RtMaterialRegisterDependsOnRuntime(material, stage->color.registers[3]))
+        {
+            ++facts.alphaRegisterStages;
+        }
 
         if (stage->hasAlphaTest &&
             RtMaterialRegisterDependsOnRuntime(material, stage->alphaTestRegister))
@@ -483,6 +490,19 @@ RtMaterialDynamicFacts AnalyzeRtMaterialDynamicFacts(const idMaterial* material)
             if (matrixDependsOnRuntime)
             {
                 ++facts.textureMatrixRegisterStages;
+
+                idImage* image = stage->texture.image;
+                const int imageWidth = image && image->GetUploadWidth() > 0 ? image->GetUploadWidth() : stage->texture.width;
+                const int imageHeight = image && image->GetUploadHeight() > 0 ? image->GetUploadHeight() : stage->texture.height;
+                const int shortDim = Min(imageWidth, imageHeight);
+                const int longDim = Max(imageWidth, imageHeight);
+                if (shortDim > 0 && longDim >= shortDim * 2)
+                {
+                    const int frames = Max(2, longDim / shortDim);
+                    ++facts.flipbookAtlasStages;
+                    facts.flipbookFrames = Max(facts.flipbookFrames, frames);
+                    facts.flipbookAxis = imageWidth >= imageHeight ? 1 : 0;
+                }
             }
         }
 
@@ -1921,18 +1941,22 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.stageFacts.cubeMapStages,
         record.stageFacts.customProgramStages);
     const bool needsPerInstanceDynamic =
+        record.dynamicFacts.materialUsesRuntimeRegisters ||
         record.dynamicFacts.conditionRegisterStages > 0 ||
         record.dynamicFacts.colorRegisterStages > 0 ||
+        record.dynamicFacts.alphaRegisterStages > 0 ||
         record.dynamicFacts.alphaTestRegisterStages > 0 ||
         record.dynamicFacts.textureMatrixRegisterStages > 0 ||
         record.dynamicFacts.dynamicImageStages > 0 ||
         record.dynamicFacts.cinematicStages > 0 ||
         record.dynamicFacts.guiRenderTargetStages > 0 ||
         record.dynamicFacts.customProgramStages > 0;
-    common->Printf("MatClass: dynamic id=%u condition=%d color=%d alphaTest=%d texMatrix=%d texMatrixRegs=%d dynamicImage=%d cinematic=%d guiRender=%d program=%d needsInstance=%d\n",
+    common->Printf("MatClass: dynamic id=%u materialRegs=%d condition=%d color=%d alpha=%d alphaTest=%d texMatrix=%d texMatrixRegs=%d dynamicImage=%d cinematic=%d guiRender=%d program=%d decal=%d flipbook=%d frames=%d axis=%d needsInstance=%d\n",
         record.materialId,
+        record.dynamicFacts.materialUsesRuntimeRegisters ? 1 : 0,
         record.dynamicFacts.conditionRegisterStages,
         record.dynamicFacts.colorRegisterStages,
+        record.dynamicFacts.alphaRegisterStages,
         record.dynamicFacts.alphaTestRegisterStages,
         record.dynamicFacts.textureMatrixStages,
         record.dynamicFacts.textureMatrixRegisterStages,
@@ -1940,6 +1964,10 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.dynamicFacts.cinematicStages,
         record.dynamicFacts.guiRenderTargetStages,
         record.dynamicFacts.customProgramStages,
+        record.dynamicFacts.projectedDecal ? 1 : 0,
+        record.dynamicFacts.flipbookAtlasStages,
+        record.dynamicFacts.flipbookFrames,
+        record.dynamicFacts.flipbookAxis,
         needsPerInstanceDynamic ? 1 : 0);
     common->Printf("MatClass: images id=%u diffuse=%d/%s/%s normal=%d/%s/%s specular=%d/%s/%s emissive=%d/%s/%s alphaTest=%d emissiveIntent=%d\n",
         record.materialId,
@@ -1984,10 +2012,11 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.specularRepresentativeRgb[1],
         record.specularRepresentativeRgb[2],
         record.specularRepresentativeLuma);
-    common->Printf("MatClass: packed id=%u flags=0x%08x params=0x%08x\n",
+    common->Printf("MatClass: packed id=%u flags=0x%08x params=0x%08x dynamic=0x%08x\n",
         record.materialId,
         PackPathTraceMaterialClassifierFlags(record),
-        PackPathTraceMaterialClassifierParams(record));
+        PackPathTraceMaterialClassifierParams(record),
+        PackPathTraceMaterialClassifierDynamicFlags(record));
     MaybeDumpRecordStages(record);
     ++g_recordDebugLogs;
 }
@@ -2238,6 +2267,23 @@ uint32_t PackPathTraceMaterialClassifierParams(const RtMaterialRecord& record)
         (QuantizeRtMaterialUnitFloat(record.bsdf.metallic) << 8) |
         (QuantizeRtMaterialUnitFloat(record.bsdf.transmission) << 16) |
         (QuantizeRtMaterialUnitFloat(record.bsdf.specularF0) << 24);
+}
+
+uint32_t PackPathTraceMaterialClassifierDynamicFlags(const RtMaterialRecord& record)
+{
+    const RtMaterialDynamicFacts& facts = record.dynamicFacts;
+    uint32_t flags = 0;
+    flags |= facts.materialUsesRuntimeRegisters ? (1u << 2) : 0u;
+    flags |= facts.colorRegisterStages > 0 ? (1u << 3) : 0u;
+    flags |= (facts.alphaRegisterStages > 0 || facts.alphaTestRegisterStages > 0) ? (1u << 4) : 0u;
+    flags |= facts.conditionRegisterStages > 0 ? (1u << 5) : 0u;
+    flags |= facts.textureMatrixRegisterStages > 0 ? (1u << 6) : 0u;
+    flags |= (facts.dynamicImageStages > 0 || facts.cinematicStages > 0) ? (1u << 7) : 0u;
+    flags |= facts.projectedDecal ? (1u << 8) : 0u;
+    flags |= facts.guiRenderTargetStages > 0 ? (1u << 9) : 0u;
+    flags |= facts.customProgramStages > 0 ? (1u << 10) : 0u;
+    flags |= facts.flipbookAtlasStages > 0 ? (1u << 11) : 0u;
+    return flags;
 }
 
 void MaybeDumpPathTraceMaterialDeclSurfaceTypeDistribution()
