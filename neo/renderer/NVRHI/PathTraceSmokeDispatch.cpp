@@ -940,7 +940,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 12)
         {
-            return "material-classifier";
+            return "real-analytic-portal-region-temporal";
         }
         if (view == 13)
         {
@@ -1040,7 +1040,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 12)
         {
-            return "clean-primary-surface-live-material-classifier";
+            return "shared-rab-rtxdi-initial-portal-region-temporal";
         }
         if (view == 13)
         {
@@ -1111,7 +1111,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         (cleanRtxdiDiView == 16 ||
             cleanRtxdiDiRrGuideDebugView ||
             (cleanRtxdiDiSpatialEnabled &&
-                (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)));
+                (cleanRtxdiDiView == 12 ||
+                    (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))));
     const bool cleanExternalPdfNeeRequested = r_pathTracingCleanRtxdiDiExternalPdfNeeCurrent.GetInteger() != 0;
     const bool pdfNeeVerifierDumpRequested = r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0;
     const int pdfNeeVerifierEntryView = idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger());
@@ -2438,7 +2439,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanCameraLeft.Normalize();
             cleanCameraUp.Normalize();
             const bool cleanDlssRrJitterEnabled =
-                cleanRtxdiDiResolveView == 16 &&
+                (cleanRtxdiDiView == 12 || cleanRtxdiDiResolveView == 16) &&
                 r_pathTracingDLSSRR.GetInteger() != 0;
             const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, cleanRtxdiDiFrameIndexForDispatch, cleanDlssRrJitterEnabled);
 
@@ -2721,8 +2722,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
 
         const bool cleanRtxdiDiNeedsPrimarySurface = cleanRtxdiDiView >= 2;
-        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16;
+        const bool cleanRtxdiDiNeedsCurrentAnalytic = (cleanRtxdiDiView >= 3 && cleanRtxdiDiView <= 8) || cleanRtxdiDiView == 10 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16;
         const bool cleanRtxdiDiNeedsAnalyticTemporalInputs = cleanRtxdiDiView == 5 || cleanRtxdiDiView == 6 ||
+            cleanRtxdiDiView == 12 ||
             cleanRtxdiDiResolveView == 16 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0);
         const bool cleanRtxdiDiBindingInputsValid =
@@ -3357,7 +3359,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         commandList->setBufferState(m_smokeCleanRtxdiDiSpatialReservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
         commandList->commitBarriers();
         const int cleanRtxdiDiLightMode = idMath::ClampInt(0, 3, r_pathTracingCleanRtxdiDiLightMode.GetInteger());
-        const bool cleanPortalProofDomain = cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16 ||
+        const bool cleanView12FullAnalyticDomain =
+            cleanRtxdiDiView == 12 &&
+            r_pathTracingCleanRtxdiDiView12FullAnalyticDomain.GetInteger() != 0;
+        const bool cleanPortalProofDomain = (!cleanView12FullAnalyticDomain && cleanRtxdiDiView == 12) || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16 ||
             (cleanRtxdiDiView == 8 && r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0) ||
             (cleanRtxdiDiView == 10 && r_pathTracingCleanRtxdiDiView10PortalDomain.GetInteger() != 0);
         const uint32_t cleanAvailableAnalyticLightCount = cleanPortalProofDomain
@@ -3423,7 +3428,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const uint32_t cleanCandidateDomainCount = cleanRluRoute
             ? (cleanRluDoomRangeCount > 0u ? cleanRluDoomRangeCount : cleanRluCurrentLightCount)
             : cleanAnalyticLightCount;
-        const uint32_t cleanCandidateCount = (cleanRtxdiDiView == 8 || cleanRtxdiDiResolveView == 16)
+        const uint32_t cleanCandidateCount = (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiResolveView == 16)
             ? Min(cleanCandidateDomainCount, cleanCandidateOverride)
             : 1u;
         const bool cleanSyntheticTemporalProofView =
@@ -3444,7 +3449,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(idMath::Ftoi(neeCacheSettings.fallbackProbability * 1000.0f)));
         }
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool() ? 1 : 0));
-        cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, 0ull);
+        cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanView12FullAnalyticDomain ? 1 : 0));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingCleanRtxdiDiBypassLightUniverse.GetInteger() != 0 ? 1 : 0));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger())));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(r_pathTracingCleanRtxdiDiRequireProvenDoomLights.GetInteger() != 0 ? 1 : 0));
@@ -3498,7 +3503,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanRtxdiDiRrGuideDebugView ||
                 (cleanRtxdiDiSpatialEnabled &&
                     r_pathTracingCleanRtxdiDiTemporal.GetInteger() != 0 &&
-                    (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16))) &&
+                    (cleanRtxdiDiView == 12 ||
+                        (cleanRtxdiDiView == 8 && idMath::ClampInt(-1, 16, r_pathTracingCleanRtxdiDiView8Band.GetInteger()) == 16)))) &&
             cleanPromoteSubviewReservoir &&
             m_smokeCleanRtxdiDiSpatialShaderTable != nullptr;
         uint32_t cleanFlags = 0u;
@@ -3658,7 +3664,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanGuiSnapshot.spatialReservoir = m_smokeCleanRtxdiDiSpatialReservoirBuffer != nullptr;
         cleanGuiSnapshot.previousReservoirValid = m_smokeCleanRtxdiDiPreviousReservoirValid;
         cleanGuiSnapshot.portalProofDomain = cleanPortalProofDomain;
-        cleanGuiSnapshot.fullAnalyticDomain = false;
+        cleanGuiSnapshot.fullAnalyticDomain = cleanView12FullAnalyticDomain;
         cleanGuiSnapshot.doomRadiusCutoff = r_pathTracingAnalyticLightDoomRadiusCutoff.GetBool();
         cleanGuiSnapshot.relaxBrdfGates = r_pathTracingCleanRtxdiDiRelaxBrdfGates.GetInteger() != 0;
         cleanGuiSnapshot.doomTargetFloor = r_pathTracingCleanRtxdiDiDoomTargetFloor.GetInteger() != 0;
@@ -3858,12 +3864,16 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         const bool cleanDlssRrEvaluateRequested =
             cleanSpatialRoute &&
-            cleanRtxdiDiView == 16 &&
+            (cleanRtxdiDiView == 12 || cleanRtxdiDiView == 16) &&
             r_pathTracingDLSSRR.GetInteger() != 0 &&
             r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
         if (cleanDlssRrEvaluateRequested)
         {
             const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, cleanConstants.frameIndex, true);
+            if (cleanRtxdiDiView == 12)
+            {
+                commandList->clearTextureFloat(m_frameResources.rrGuideNormalRoughnessTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 1.0f, 1.0f));
+            }
             commandList->clearTextureFloat(m_frameResources.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
