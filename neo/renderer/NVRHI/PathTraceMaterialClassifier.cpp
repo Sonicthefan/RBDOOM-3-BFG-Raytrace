@@ -316,7 +316,7 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
                         facts.routeStage = stageIndex;
                     }
                 }
-                else if (usage == TD_SPECULAR)
+                else if (image != nullptr)
                 {
                     ++facts.legacySpecStages;
                     if (facts.routeStage < 0)
