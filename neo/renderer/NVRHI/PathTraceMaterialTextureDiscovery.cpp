@@ -1110,11 +1110,6 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextur
 
     RtSmokeMaterialMetadataRegistrationTiming timing;
     const int metadataStartMs = Sys_Milliseconds();
-    if (PathTraceMaterialClassifierRequested())
-    {
-        BeginPathTraceMaterialClassifierFrame();
-        MaybeDumpPathTraceMaterialDeclSurfaceTypeDistribution();
-    }
     if (!enabled || !viewDef || !viewDef->renderWorld)
     {
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
