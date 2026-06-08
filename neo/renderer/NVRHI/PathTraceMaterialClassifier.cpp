@@ -1343,6 +1343,13 @@ float RtSmokeSpecularLuma(const float rgb[3])
     return rgb[0] * 0.2125f + rgb[1] * 0.7154f + rgb[2] * 0.0721f;
 }
 
+float RtSmokeEstimateLegacyRoughnessCpu(const float specMap[3])
+{
+    const float y = idMath::ClampFloat(0.0f, 1.0f, RtSmokeSpecularLuma(specMap));
+    const float glossiness = idMath::ClampFloat(0.0f, 0.98f, std::sqrt(y));
+    return idMath::ClampFloat(0.02f, 1.0f, 1.0f - glossiness);
+}
+
 void RtSmokePbrFromSpecmapCpu(const float specMap[3], float& outF0, float& outRoughness)
 {
     const float specLum = RtSmokeSpecularLuma(specMap);
@@ -1620,7 +1627,49 @@ void ApplyRouteBBsdfPolicy(const idMaterial* material, RtMaterialRecord& record)
         return;
     }
 
-    record.bsdfEvidence = "routeB:shaderPerPixelSpec";
+    float specMap[3] = { 0.0f, 0.0f, 0.0f };
+    idStr specEvidence;
+    const bool hasAverageSpecular = RtAverageSpecularImageRgb(record, specMap, specEvidence);
+    if (!hasAverageSpecular)
+    {
+        specMap[0] = 0.0f;
+        specMap[1] = 0.0f;
+        specMap[2] = 0.0f;
+    }
+
+    float stageColor[3] = { 1.0f, 1.0f, 1.0f };
+    const bool hasStageColor = RtSpecularRouteStageConstantColor(material, record, stageColor);
+    if (hasStageColor)
+    {
+        specMap[0] *= stageColor[0];
+        specMap[1] *= stageColor[1];
+        specMap[2] *= stageColor[2];
+    }
+
+    record.specularRepresentativeRgb[0] = idMath::ClampFloat(0.0f, 1.0f, specMap[0]);
+    record.specularRepresentativeRgb[1] = idMath::ClampFloat(0.0f, 1.0f, specMap[1]);
+    record.specularRepresentativeRgb[2] = idMath::ClampFloat(0.0f, 1.0f, specMap[2]);
+    record.specularRepresentativeLuma = RtSmokeSpecularLuma(record.specularRepresentativeRgb);
+
+    float representativeF0 = 0.04f;
+    float representativeRoughness = 1.0f;
+    const bool useLegacyEstimate = idMath::ClampInt(0, 1, r_pathTracingMatClassGlossRoughnessMode.GetInteger()) != 0;
+    if (useLegacyEstimate)
+    {
+        representativeRoughness = RtSmokeEstimateLegacyRoughnessCpu(record.specularRepresentativeRgb);
+        representativeF0 = Max(0.04f, record.specularRepresentativeLuma);
+    }
+    else
+    {
+        RtSmokePbrFromSpecmapCpu(record.specularRepresentativeRgb, representativeF0, representativeRoughness);
+    }
+
+    record.bsdf.roughness = representativeRoughness;
+    record.bsdf.specularF0 = representativeF0;
+    record.bsdfEvidence = va("routeB:%s:%s%s",
+        useLegacyEstimate ? "EstimateLegacyRoughness" : "PBRFromSpecmap",
+        specEvidence.c_str(),
+        hasStageColor ? ":stageColor" : "");
 }
 
 uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmokeMaterialTextureInfo& info)
