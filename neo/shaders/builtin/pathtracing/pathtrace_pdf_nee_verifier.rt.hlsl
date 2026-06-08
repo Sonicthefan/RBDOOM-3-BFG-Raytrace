@@ -1598,7 +1598,8 @@ bool BuildSmokeReflectionBounce(
     float3 F0;
     BuildSmokeSpecularLobe(specularColor, F0, roughness);
     const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
-    SmokeApplyMaterialClassifierBsdf(material, albedo, F0, roughness);
+    float3 materialAlbedo = albedo;
+    SmokeApplyMaterialClassifierBsdfWithSpecularTexel(material, materialAlbedo, saturate(specularColor), F0, roughness);
     if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;

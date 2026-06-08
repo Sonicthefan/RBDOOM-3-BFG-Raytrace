@@ -357,6 +357,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
         payload.translucentSubtype,
         payload.vertexColor,
         payload.vertexColorAdd);
+    float3 materialAlbedo = albedo.rgb;
     const float3 specularColor = SampleSmokeDirectSpecular(smokeMaterial, payload.texCoord);
     float3 specularF0 = specularColor;
     float roughness = 1.0;
@@ -364,7 +365,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     {
         SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
     }
-    SmokeApplyMaterialClassifierBsdf(smokeMaterial, albedo.rgb, specularF0, roughness);
+    SmokeApplyMaterialClassifierBsdfWithSpecularTexel(smokeMaterial, materialAlbedo, saturate(specularColor), specularF0, roughness);
     if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;
@@ -378,7 +379,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.materialIndex = payload.materialIndex;
     material.flags = smokeMaterial.flags;
     material.alphaCutoff = smokeMaterial.alphaCutoff;
-    material.diffuseAlbedo = albedo.rgb;
+    material.diffuseAlbedo = materialAlbedo;
     material.roughness = roughness;
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);

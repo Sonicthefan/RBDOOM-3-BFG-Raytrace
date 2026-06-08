@@ -76,8 +76,27 @@ float3 SmokeMatClassMetallicF0(PathTraceSmokeMaterial material, float3 albedo)
     return lerp(dielectricF0, max(saturate(albedo), dielectricF0), saturate(classifiedMetallic));
 }
 
-void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, float3 albedo, inout float3 specularF0, inout float roughness)
+void SmokeApplyMaterialClassifierBsdfInternal(
+    PathTraceSmokeMaterial material,
+    inout float3 albedo,
+    float3 specularTexel,
+    bool hasSpecularTexel,
+    inout float3 specularF0,
+    inout float roughness)
 {
+    const bool canUseSpecularTexel =
+        hasSpecularTexel &&
+        material.specularTextureIndex != 0xffffffffu;
+    if (canUseSpecularTexel && SmokeMatClassRoute(material) == RT_MATCLASS_ROUTE_REAL_PBR_RMAO)
+    {
+        const float rmaoRoughness = max(0.05, saturate(specularTexel.r));
+        const float rmaoMetallic = saturate(specularTexel.g);
+        roughness = rmaoRoughness;
+        specularF0 = lerp(float3(0.04, 0.04, 0.04), saturate(albedo), rmaoMetallic);
+        albedo *= 1.0 - rmaoMetallic;
+        return;
+    }
+
     if (SmokeMatClassDrivesLegacySpec(material))
     {
         specularF0 = max(specularF0, SmokeMatClassMetallicF0(material, albedo));
@@ -99,6 +118,22 @@ void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, float3 al
         roughness = saturate(classifiedRoughness);
     }
     specularF0 = SmokeMatClassMetallicF0(material, albedo);
+}
+
+void SmokeApplyMaterialClassifierBsdfWithSpecularTexel(
+    PathTraceSmokeMaterial material,
+    inout float3 albedo,
+    float3 specularTexel,
+    inout float3 specularF0,
+    inout float roughness)
+{
+    SmokeApplyMaterialClassifierBsdfInternal(material, albedo, specularTexel, true, specularF0, roughness);
+}
+
+void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, float3 albedo, inout float3 specularF0, inout float roughness)
+{
+    float3 mutableAlbedo = albedo;
+    SmokeApplyMaterialClassifierBsdfInternal(material, mutableAlbedo, float3(0.0, 0.0, 0.0), false, specularF0, roughness);
 }
 
 #endif

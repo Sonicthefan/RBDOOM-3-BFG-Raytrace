@@ -1135,6 +1135,7 @@ float4 EvaluateSmokeMaterialClassifierDebug(PathTraceSmokePayload payload, uint2
         const float3 specularColor = SampleSmokeDirectSpecular(material, payload.texCoord);
         float3 specularF0 = saturate(specularColor);
         float roughness = SmokeMatClassRoughness(material);
+        float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
         const bool hasSpecularInput =
             material.specularTextureIndex != 0xffffffffu &&
             ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS) != 0u) &&
@@ -1143,6 +1144,7 @@ float4 EvaluateSmokeMaterialClassifierDebug(PathTraceSmokePayload payload, uint2
         {
             SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
         }
+        SmokeApplyMaterialClassifierBsdfWithSpecularTexel(material, albedo, saturate(specularColor), specularF0, roughness);
         if (SmokeMatClassHasPackedBsdf(material))
         {
             roughness = SmokeMatClassRoughness(material);
@@ -1247,8 +1249,8 @@ bool BuildSmokeReflectionBounce(
     const float3 specularColor = SampleSmokeDirectSpecular(material, payload.texCoord);
     float3 F0;
     BuildSmokeSpecularLobe(specularColor, F0, roughness);
-    const float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
-    SmokeApplyMaterialClassifierBsdf(material, albedo, F0, roughness);
+    float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
+    SmokeApplyMaterialClassifierBsdfWithSpecularTexel(material, albedo, saturate(specularColor), F0, roughness);
     if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;
