@@ -1120,8 +1120,7 @@ bool SmokeParticleDitherRejectsHit(PathTraceSmokeMaterial material, float2 texCo
     {
         return true;
     }
-    const float4 alphaTexel = SampleSmokeAlphaTexture(material, texCoord);
-    const float textureMask = saturate(max(alphaTexel.a, max(max(alphaTexel.r, alphaTexel.g), alphaTexel.b)));
+    const float textureMask = SmokeAlphaCoverage(material, texCoord);
     const float2 wrappedTexCoord = frac(abs(texCoord));
     const float2 edgeDistance = min(wrappedTexCoord, 1.0 - wrappedTexCoord);
     const float edgeFade = (smokeParticleFlags & 2u) != 0u
