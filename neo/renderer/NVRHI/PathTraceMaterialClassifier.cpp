@@ -141,6 +141,29 @@ RtMaterialSurfaceClass RtSurfaceClassFromTokenRules(
     return RtMaterialSurfaceClass::Unknown;
 }
 
+idStr RtMaterialFieldEvidence(const char* fieldName, const idStr& evidence)
+{
+    if (!fieldName || !fieldName[0] || evidence.IsEmpty())
+    {
+        return evidence;
+    }
+
+    const int fieldNameLength = static_cast<int>(std::strlen(fieldName));
+    if (evidence.Icmpn(fieldName, fieldNameLength) == 0 && evidence[fieldNameLength] == ':')
+    {
+        return evidence;
+    }
+
+    const char* detail = evidence.c_str();
+    static const char materialPrefix[] = "material:";
+    const int materialPrefixLength = static_cast<int>(sizeof(materialPrefix) - 1);
+    if (evidence.Icmpn(materialPrefix, materialPrefixLength) == 0)
+    {
+        detail += materialPrefixLength;
+    }
+    return idStr(va("%s:%s", fieldName, detail));
+}
+
 bool RtStageBlendUsesSourceAlpha(const shaderStage_t* stage)
 {
     if (!stage)
@@ -571,29 +594,25 @@ RtMaterialSurfaceClass RtSurfaceClassFromImageNameFallback(const RtSmokeMaterial
     RtMaterialSurfaceClass surfaceClass = RtSurfaceClassFromNameFallback(info.diffuseImageName, evidence);
     if (surfaceClass != RtMaterialSurfaceClass::Unknown)
     {
-        const idStr matchedEvidence = evidence;
-        evidence = va("diffuseImage:%s", matchedEvidence.c_str());
+        evidence = RtMaterialFieldEvidence("diffuseImage", evidence);
         return surfaceClass;
     }
     surfaceClass = RtSurfaceClassFromNameFallback(info.normalImageName, evidence);
     if (surfaceClass != RtMaterialSurfaceClass::Unknown)
     {
-        const idStr matchedEvidence = evidence;
-        evidence = va("normalImage:%s", matchedEvidence.c_str());
+        evidence = RtMaterialFieldEvidence("normalImage", evidence);
         return surfaceClass;
     }
     surfaceClass = RtSurfaceClassFromNameFallback(info.specularImageName, evidence);
     if (surfaceClass != RtMaterialSurfaceClass::Unknown)
     {
-        const idStr matchedEvidence = evidence;
-        evidence = va("specularImage:%s", matchedEvidence.c_str());
+        evidence = RtMaterialFieldEvidence("specularImage", evidence);
         return surfaceClass;
     }
     surfaceClass = RtSurfaceClassFromNameFallback(info.emissiveImageName, evidence);
     if (surfaceClass != RtMaterialSurfaceClass::Unknown)
     {
-        const idStr matchedEvidence = evidence;
-        evidence = va("emissiveImage:%s", matchedEvidence.c_str());
+        evidence = RtMaterialFieldEvidence("emissiveImage", evidence);
         return surfaceClass;
     }
     evidence = "";
@@ -801,7 +820,7 @@ RtMaterialSurfaceClass RtExplicitNonMetalClassFromNames(const RtSmokeMaterialTex
         const RtMaterialSurfaceClass surfaceClass = RtSurfaceClassFromNameFallback(*fields[fieldIndex], fieldEvidence);
         if (surfaceClass != RtMaterialSurfaceClass::Unknown && surfaceClass != RtMaterialSurfaceClass::Metal)
         {
-            evidence = va("%s:%s", fieldNames[fieldIndex], fieldEvidence.c_str());
+            evidence = RtMaterialFieldEvidence(fieldNames[fieldIndex], fieldEvidence);
             return surfaceClass;
         }
     }
