@@ -172,6 +172,34 @@ bool SmokeRuntimeMaterialCanApplyTableWide(const char* materialName)
     return true;
 }
 
+float SmokeRuntimeMaterialLuminance(const idVec4& color);
+
+bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStats, uint32_t materialId, idVec4& color, bool& disabled)
+{
+    for (int sampleIndex = 0; sampleIndex < materialStats.dynamicEvalSampleCount; ++sampleIndex)
+    {
+        const RtSmokeDynamicMaterialEvalSample& sample = materialStats.dynamicEvalSamples[sampleIndex];
+        if (!sample.valid || sample.id != materialId)
+        {
+            continue;
+        }
+
+        color = idVec4(
+            Max(0.0f, sample.color[0]),
+            Max(0.0f, sample.color[1]),
+            Max(0.0f, sample.color[2]),
+            idMath::ClampFloat(0.0f, 1.0f, sample.color[3]));
+        disabled = sample.condition == 0.0f ||
+            sample.enabledStages <= 0 ||
+            SmokeRuntimeMaterialLuminance(color) <= 1.0e-5f;
+        return true;
+    }
+
+    color = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    disabled = true;
+    return false;
+}
+
 idVec4 SmokeRuntimeMaterialStageColor(const idMaterial* material, const shaderStage_t* stage, const float* regs)
 {
     idVec4 color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -257,7 +285,7 @@ void AddSmokeRuntimeMaterialApplySample(
     sample.disabled = disabled;
 }
 
-RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const viewDef_t* viewDef, RtSmokeMaterialTableBuild& table)
+RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const viewDef_t* viewDef, RtSmokeMaterialTableBuild& table, const RtSmokeMaterialStats& materialStats)
 {
     RtSmokeRuntimeMaterialApplyStats stats;
     if (!viewDef || r_pathTracingMatClassEnable.GetInteger() == 0)
@@ -287,47 +315,57 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             continue;
         }
 
-        const idMaterial* materialDecl = materialName && materialName[0] ? declManager->FindMaterial(materialName, false) : nullptr;
-        if (!materialDecl)
-        {
-            continue;
-        }
-
-        float dynamicRegs[MAX_EXPRESSION_REGISTERS];
-        const float* regs = nullptr;
-        if (!SmokeRuntimeMaterialEvaluateRegisters(viewDef, materialDecl, regs, dynamicRegs))
-        {
-            continue;
-        }
-        ++stats.evaluated;
-
         idVec4 selectedStageColor(0.0f, 0.0f, 0.0f, 0.0f);
         float selectedLuminance = -1.0f;
         bool activeEmissiveStage = false;
-        const int registerCount = materialDecl->GetNumRegisters();
-        for (int stageIndex = 0; stageIndex < materialDecl->GetNumStages(); ++stageIndex)
+        bool disableFromLiveSample = false;
+        if (FindSmokeRuntimeMaterialEvalSample(materialStats, table.materialIds[materialIndex], selectedStageColor, disableFromLiveSample))
         {
-            const shaderStage_t* stage = materialDecl->GetStage(stageIndex);
-            if (!SmokeRuntimeMaterialStageIsEmissiveLike(stage))
+            ++stats.evaluated;
+            selectedLuminance = SmokeRuntimeMaterialLuminance(selectedStageColor);
+            activeEmissiveStage = !disableFromLiveSample && selectedLuminance > 1.0e-5f;
+        }
+        else
+        {
+            const idMaterial* materialDecl = materialName && materialName[0] ? declManager->FindMaterial(materialName, false) : nullptr;
+            if (!materialDecl)
             {
                 continue;
             }
 
-            float condition = 1.0f;
-            SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, condition);
-            if (condition == 0.0f)
+            float dynamicRegs[MAX_EXPRESSION_REGISTERS];
+            const float* regs = nullptr;
+            if (!SmokeRuntimeMaterialEvaluateRegisters(viewDef, materialDecl, regs, dynamicRegs))
             {
                 continue;
             }
+            ++stats.evaluated;
 
-            const idVec4 stageColor = SmokeRuntimeMaterialStageColor(materialDecl, stage, regs);
-            const float luminance = SmokeRuntimeMaterialLuminance(stageColor);
-            if (luminance > selectedLuminance)
+            const int registerCount = materialDecl->GetNumRegisters();
+            for (int stageIndex = 0; stageIndex < materialDecl->GetNumStages(); ++stageIndex)
             {
-                selectedLuminance = luminance;
-                selectedStageColor = stageColor;
+                const shaderStage_t* stage = materialDecl->GetStage(stageIndex);
+                if (!SmokeRuntimeMaterialStageIsEmissiveLike(stage))
+                {
+                    continue;
+                }
+
+                float condition = 1.0f;
+                SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, condition);
+                if (condition == 0.0f)
+                {
+                    continue;
+                }
+
+                const idVec4 stageColor = SmokeRuntimeMaterialStageColor(materialDecl, stage, regs);
+                const float luminance = SmokeRuntimeMaterialLuminance(stageColor);
+                if (luminance > selectedLuminance)
+                {
+                    selectedLuminance = luminance;
+                    selectedStageColor = stageColor;
+                }
+                activeEmissiveStage = true;
             }
-            activeEmissiveStage = true;
         }
 
         if (!activeEmissiveStage || selectedLuminance <= 1.0e-5f)
@@ -2634,7 +2672,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             material.specularTextureHeight = 1;
         }
     }
-    ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable);
+    ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
     if (needTextureCoverageStats)
