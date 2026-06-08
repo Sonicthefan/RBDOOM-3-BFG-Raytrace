@@ -1005,12 +1005,17 @@ float3 PathTraceCleanRoomMatClassSurfaceClassColor(uint surfaceClass)
 
 uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex);
 
+float3 PathTraceCleanRoomVisibleMatClassDebug(float3 color, float3 fallback)
+{
+    return PathTraceCleanRoomLuminance(color) > 0.02 ? color : fallback;
+}
+
 float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensions)
 {
     PathTracePrimarySurfaceRecord record;
     if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, record))
     {
-        return float3(0.18, 0.00, 0.18);
+        return float3(0.75, 0.00, 0.75);
     }
 
     const uint recordMaterialIndex = record.materialAndSurface.y;
@@ -1026,23 +1031,29 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
     if (!hasClassifierRecord)
     {
         const uint checker = ((pixel.x >> 4u) ^ (pixel.y >> 4u)) & 1u;
-        return checker != 0u ? float3(0.0, 0.0, 0.0) : float3(1.0, 1.0, 1.0);
+        return checker != 0u ? float3(0.75, 0.00, 0.75) : float3(1.0, 1.0, 1.0);
     }
 
     if (!right && !bottom)
     {
-        return PathTraceCleanRoomMatClassRouteColor(SmokeMatClassRoute(material));
+        return PathTraceCleanRoomVisibleMatClassDebug(
+            PathTraceCleanRoomMatClassRouteColor(SmokeMatClassRoute(material)),
+            float3(0.75, 0.05, 0.05));
     }
     if (right && !bottom)
     {
-        return PathTraceCleanRoomMatClassSurfaceClassColor(SmokeMatClassSurfaceClass(material));
+        return PathTraceCleanRoomVisibleMatClassDebug(
+            PathTraceCleanRoomMatClassSurfaceClassColor(SmokeMatClassSurfaceClass(material)),
+            float3(0.10, 0.55, 0.95));
     }
     if (!right)
     {
         float roughness = saturate(record.geometricNormalAndRoughness.w);
         float3 specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
         SmokeApplyMaterialClassifierBsdf(material, saturate(record.albedoAndAlphaCutoff.xyz), specularF0, roughness);
-        return float3(roughness, roughness, roughness);
+        return PathTraceCleanRoomVisibleMatClassDebug(
+            float3(roughness, roughness, roughness),
+            float3(0.12, 0.12, 0.12));
     }
 
     float roughness = saturate(record.geometricNormalAndRoughness.w);
@@ -1054,10 +1065,11 @@ float3 PathTraceCleanRoomMaterialClassifierDebugColor(uint2 pixel, uint2 dimensi
         return float3(max(f0Luminance, 0.35), 0.0, 0.0);
     }
 
-    return float3(
+    return PathTraceCleanRoomVisibleMatClassDebug(float3(
         saturate(f0Luminance),
         SmokeMatClassMetallic(material),
-        SmokeMatClassTransmission(material));
+        SmokeMatClassTransmission(material)),
+        float3(0.08, 0.20, 0.38));
 }
 
 bool PathTraceCleanRoomRluPayloadValid(PathTraceUnifiedLightRecord light)
