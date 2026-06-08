@@ -529,6 +529,90 @@ bool IsSmokeAbsorbingBlackMaterial(const idMaterial* material)
     return materialName.Icmp("textures/sfx/black") == 0;
 }
 
+bool SmokeNameLooksParticleOrSfxCard(const char* name)
+{
+    if (!name || !name[0])
+    {
+        return false;
+    }
+
+    idStr path = name;
+    path.BackSlashesToSlashes();
+    path.ToLower();
+    return idStr::FindText(path.c_str(), "/particles/", false) >= 0 ||
+        idStr::FindText(path.c_str(), "particles/", false) == 0 ||
+        idStr::FindText(path.c_str(), "/sfx/", false) >= 0 ||
+        idStr::FindText(path.c_str(), "sfx/", false) == 0;
+}
+
+bool SmokeImageNameLooksExplicitAlpha(const char* name)
+{
+    if (!name || !name[0])
+    {
+        return false;
+    }
+
+    idStr path = name;
+    path.BackSlashesToSlashes();
+    path.ToLower();
+    path.StripFileExtension();
+
+    const char* text = path.c_str();
+    const int length = path.Length();
+    int segmentStart = 0;
+    for (int index = length - 1; index >= 0; --index)
+    {
+        if (text[index] == '/')
+        {
+            segmentStart = index + 1;
+            break;
+        }
+    }
+
+    const char* segment = text + segmentStart;
+    return idStr::FindText(segment, "alpha", false) >= 0 ||
+        idStr::FindText(segment, "alph", false) >= 0 ||
+        idStr::FindText(segment, "mask", false) >= 0 ||
+        idStr::FindText(segment, "_a", false) >= 0 ||
+        idStr::FindText(segment, "-a", false) >= 0 ||
+        idStr::FindText(segment, "_coverage", false) >= 0 ||
+        idStr::FindText(segment, "-coverage", false) >= 0;
+}
+
+bool SmokeImageHasExplicitAlphaFormat(const idImage* image)
+{
+    if (!image)
+    {
+        return false;
+    }
+
+    const idImageOpts& opts = image->GetOpts();
+    return image->GetUsage() == TD_COVERAGE ||
+        opts.colorFormat == CFM_GREEN_ALPHA ||
+        opts.format == FMT_ALPHA ||
+        opts.format == FMT_L8A8;
+}
+
+bool ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(const idMaterial* material, const idImage* diffuseImage, const idImage* alphaImage)
+{
+    if (!material || !diffuseImage || alphaImage)
+    {
+        return false;
+    }
+
+    if (!SmokeNameLooksParticleOrSfxCard(material->GetName()) && !SmokeNameLooksParticleOrSfxCard(diffuseImage->GetName()))
+    {
+        return false;
+    }
+
+    if (SmokeImageHasExplicitAlphaFormat(diffuseImage) || SmokeImageNameLooksExplicitAlpha(diffuseImage->GetName()))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
 {
     info.diffuseImage = nullptr;
@@ -999,10 +1083,11 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         }
     }
     info->alphaFromDiffuseLuma =
-        info->hasAlphaTest &&
-        diffuseImage != nullptr &&
-        alphaImage == diffuseImage &&
-        (diffuseImage->GetUsage() == TD_DIFFUSE || diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5);
+        (info->hasAlphaTest &&
+            diffuseImage != nullptr &&
+            alphaImage == diffuseImage &&
+            (diffuseImage->GetUsage() == TD_DIFFUSE || diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5)) ||
+        ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
     info->forceFallbackAlbedo = IsSmokeReflectiveEyewearMaterial(material);
     info->alphaFromDiffuseDarkKey = info->alphaFromDiffuseLuma && info->forceFallbackAlbedo;
     info->portalWindowFallback = IsSmokePortalWindowFallbackMaterial(material);
