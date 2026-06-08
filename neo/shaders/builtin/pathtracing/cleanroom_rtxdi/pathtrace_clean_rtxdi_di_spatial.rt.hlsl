@@ -98,6 +98,7 @@ struct PathTraceSmokeEmissiveTriangle
     uint padding0;
 };
 
+#include "../pathtrace_material_classifier.hlsli"
 #include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
@@ -573,6 +574,22 @@ float3 CleanBarycentric(float3 position, float3 p0, float3 p1, float3 p2)
 PathTraceSmokeMaterial CleanLoadSmokeMaterial(uint materialIndex);
 float4 CleanSampleDecodedDiffuse(PathTraceSmokeMaterial material, float2 texCoord, float4 fallback);
 
+bool CleanLiveMaterialClassifierBsdfActive(uint materialIndex)
+{
+    const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(materialIndex);
+    return SmokeMatClassDrivesLegacySpec(material) || SmokeMatClassHasPackedBsdf(material);
+}
+
+void CleanApplyLiveMaterialClassifierBsdf(
+    uint materialIndex,
+    float3 albedo,
+    inout float3 specularF0,
+    inout float roughness)
+{
+    const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(materialIndex);
+    SmokeApplyMaterialClassifierBsdf(material, albedo, specularF0, roughness);
+}
+
 float3 CleanTexturedSurfaceAlbedo(PathTracePrimarySurfaceRecord record)
 {
     const float3 fallbackAlbedo = CleanSurfaceFallbackAlbedo(record);
@@ -629,7 +646,7 @@ RAB_Surface CleanSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     surface.viewDir = CleanSafeNormalize(record.viewDirectionAndReserved.xyz, -surface.shadingNormal);
     surface.materialId = record.materialAndSurface.x;
     surface.materialIndex = record.materialAndSurface.y;
-    surface.surfaceClass = record.materialAndSurface.w;
+    surface.surfaceClass = record.materialAndSurface.w & 0xffu;
     surface.material = RAB_EmptyMaterial();
     surface.material.materialId = surface.materialId;
     surface.material.materialIndex = surface.materialIndex;
@@ -659,6 +676,11 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
     material.diffuseAlbedo = saturate(record.albedoAndAlphaCutoff.xyz);
     material.roughness = saturate(record.geometricNormalAndRoughness.w);
     material.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    CleanApplyLiveMaterialClassifierBsdf(
+        material.materialIndex,
+        material.diffuseAlbedo,
+        material.specularF0,
+        material.roughness);
     material.opacity = saturate(record.shadingNormalAndOpacity.w);
     material.emissiveRadiance = max(record.emissiveAndHeight.xyz, float3(0.0, 0.0, 0.0));
     material.emissiveTextureIndex = record.instancePrimitiveObject.w;
@@ -668,7 +690,8 @@ RAB_Surface CleanMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord record)
 
 RAB_Surface CleanSurfaceForView(PathTracePrimarySurfaceRecord record)
 {
-    if (CleanRtxdiDiView == 16u)
+    if (CleanRtxdiDiView == 16u ||
+        CleanLiveMaterialClassifierBsdfActive(record.materialAndSurface.y))
     {
         return CleanMaterialSurfaceFromRecord(record);
     }
