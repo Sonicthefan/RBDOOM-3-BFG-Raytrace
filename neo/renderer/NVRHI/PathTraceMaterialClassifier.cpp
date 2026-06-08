@@ -1123,6 +1123,14 @@ RtMaterialClassCandidate ResolveSurfaceClassCandidate(const idMaterial* material
         return candidate;
     }
 
+    if (RtMaterialSpecialFromStageFacts(stageFacts, candidate.evidence))
+    {
+        candidate.surfaceClass = RtMaterialSurfaceClass::Special;
+        candidate.reason = RtMaterialSurfaceClassReason::StageKind;
+        candidate.confidence = RtMaterialClassConfidence::Authoritative;
+        return candidate;
+    }
+
     if (RtCharacterFleshFromNames(info, candidate.evidence))
     {
         candidate.surfaceClass = RtMaterialSurfaceClass::Flesh;
@@ -1180,14 +1188,6 @@ RtMaterialClassCandidate ResolveSurfaceClassCandidate(const idMaterial* material
         candidate.reason = RtMaterialSurfaceClassReason::SurfaceType;
         candidate.confidence = RtMaterialClassConfidence::Authoritative;
         candidate.evidence = va("surfaceType:%d", material ? static_cast<int>(material->GetSurfaceType()) : static_cast<int>(SURFTYPE_NONE));
-        return candidate;
-    }
-
-    if (RtMaterialSpecialFromStageFacts(stageFacts, candidate.evidence))
-    {
-        candidate.surfaceClass = RtMaterialSurfaceClass::Special;
-        candidate.reason = RtMaterialSurfaceClassReason::StageKind;
-        candidate.confidence = RtMaterialClassConfidence::Heuristic;
         return candidate;
     }
 
