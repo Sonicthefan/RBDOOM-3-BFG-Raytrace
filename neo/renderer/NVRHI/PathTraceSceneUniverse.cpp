@@ -126,6 +126,7 @@ void SceneUniverseDynamicEvalCopySelectedStage(RtSmokeDynamicMaterialEvalSample&
     dst.stagePriority = src.stagePriority;
     dst.condition = src.condition;
     dst.alphaTest = src.alphaTest;
+    dst.image = src.image;
     for (int component = 0; component < 4; ++component)
     {
         dst.color[component] = src.color[component];
@@ -606,6 +607,7 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
         stageSample.stagePriority = stagePriority;
         stageSample.condition = condition;
         stageSample.alphaTest = alphaTest;
+        stageSample.image = stage->texture.image;
         for (int component = 0; component < 4; ++component)
         {
             stageSample.color[component] = color[component];
