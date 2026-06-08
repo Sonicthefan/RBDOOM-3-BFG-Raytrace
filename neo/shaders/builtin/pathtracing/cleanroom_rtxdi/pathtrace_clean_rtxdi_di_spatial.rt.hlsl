@@ -586,7 +586,9 @@ float4 CleanSampleDecodedDiffuse(PathTraceSmokeMaterial material, float2 texCoor
 bool CleanLiveMaterialClassifierBsdfActive(uint materialIndex)
 {
     const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(materialIndex);
-    return SmokeMatClassDrivesLegacySpec(material) || SmokeMatClassHasPackedBsdf(material);
+    return SmokeMatClassRoute(material) == RT_MATCLASS_ROUTE_REAL_PBR_RMAO ||
+        SmokeMatClassDrivesLegacySpec(material) ||
+        SmokeMatClassHasPackedBsdf(material);
 }
 
 void CleanApplyLiveMaterialClassifierBsdf(

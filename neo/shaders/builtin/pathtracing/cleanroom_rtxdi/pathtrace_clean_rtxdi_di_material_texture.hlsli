@@ -36,7 +36,9 @@ PathTraceSmokeMaterial PathTraceCleanRoomLoadSmokeMaterial(uint materialIndex)
 bool PathTraceCleanRoomLiveMaterialClassifierBsdfActive(uint materialIndex)
 {
     const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
-    return SmokeMatClassDrivesLegacySpec(material) || SmokeMatClassHasPackedBsdf(material);
+    return SmokeMatClassRoute(material) == RT_MATCLASS_ROUTE_REAL_PBR_RMAO ||
+        SmokeMatClassDrivesLegacySpec(material) ||
+        SmokeMatClassHasPackedBsdf(material);
 }
 
 void PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
