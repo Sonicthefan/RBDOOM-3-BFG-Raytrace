@@ -1090,6 +1090,108 @@ void LogSmokeMaterialTable(const RtSmokeMaterialTableBuild& table)
     }
 
     common->Printf("\n");
+
+    int dynamicRecordCount = 0;
+    int runtimeRegCount = 0;
+    int colorCount = 0;
+    int alphaCount = 0;
+    int conditionCount = 0;
+    int texMatrixCount = 0;
+    int videoCount = 0;
+    int decalCount = 0;
+    int guiRenderCount = 0;
+    int programCount = 0;
+    int flipbookCount = 0;
+    for (int materialIndex = 0; materialIndex < materialTableCount; ++materialIndex)
+    {
+        const PathTraceSmokeMaterial& material = table.materials[materialIndex];
+        const uint32_t dynamicFlags = material.padding0 & (
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK);
+        if (dynamicFlags == 0u)
+        {
+            continue;
+        }
+
+        ++dynamicRecordCount;
+        runtimeRegCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS) != 0u ? 1 : 0;
+        colorCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR) != 0u ? 1 : 0;
+        alphaCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA) != 0u ? 1 : 0;
+        conditionCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION) != 0u ? 1 : 0;
+        texMatrixCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX) != 0u ? 1 : 0;
+        videoCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO) != 0u ? 1 : 0;
+        decalCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL) != 0u ? 1 : 0;
+        guiRenderCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER) != 0u ? 1 : 0;
+        programCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM) != 0u ? 1 : 0;
+        flipbookCount += (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK) != 0u ? 1 : 0;
+    }
+
+    if (dynamicRecordCount <= 0)
+    {
+        return;
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke material table dynamic flags records=%d runtimeRegs=%d color=%d alpha=%d condition=%d texMatrix=%d video=%d decal=%d guiRender=%d program=%d flipbook=%d samples=",
+        dynamicRecordCount,
+        runtimeRegCount,
+        colorCount,
+        alphaCount,
+        conditionCount,
+        texMatrixCount,
+        videoCount,
+        decalCount,
+        guiRenderCount,
+        programCount,
+        flipbookCount);
+
+    int dynamicSampleCount = 0;
+    for (int materialIndex = 0; materialIndex < materialTableCount && dynamicSampleCount < RT_SMOKE_DEBUG_MATERIAL_REASON_SAMPLES; ++materialIndex)
+    {
+        const PathTraceSmokeMaterial& material = table.materials[materialIndex];
+        const uint32_t dynamicFlags = material.padding0 & (
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK);
+        if (dynamicFlags == 0u)
+        {
+            continue;
+        }
+
+        const RtSmokeMaterialTextureInfo* info = materialIndex < static_cast<int>(table.materialInfos.size()) ? &table.materialInfos[materialIndex] : nullptr;
+        common->Printf("%sindex=%d id=%u material='%s' flags=0x%x regs=%d color=%d alpha=%d condition=%d texMatrix=%d video=%d decal=%d guiRender=%d program=%d flipbook=%d",
+            dynamicSampleCount == 0 ? "" : ", ",
+            materialIndex,
+            table.materialIds[materialIndex],
+            info ? info->materialName.c_str() : "<unknown>",
+            dynamicFlags,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_TEX_MATRIX) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_VIDEO) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM) != 0u ? 1 : 0,
+            (dynamicFlags & RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK) != 0u ? 1 : 0);
+        ++dynamicSampleCount;
+    }
+    common->Printf("\n");
 }
 
 void LogSmokeTextureProbe(const RtSmokeMaterialTableBuild& table)
