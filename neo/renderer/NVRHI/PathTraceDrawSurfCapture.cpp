@@ -789,6 +789,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
 
         AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
+        AddSmokeDynamicMaterialEvalStats(materialStats, drawSurf, emittedIndexes);
         ++sourceSurfaces;
         ++dynamicSurfaces;
         sourceVerts += tri->numVerts;
