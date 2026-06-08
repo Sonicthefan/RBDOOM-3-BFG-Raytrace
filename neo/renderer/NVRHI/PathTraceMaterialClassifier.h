@@ -58,6 +58,7 @@ enum class RtMaterialBsdfRouteReason : uint8_t
     Unknown = 0,
     PbrRmaoStage,
     LegacySpecularStage,
+    DiscoveredLegacySpecularImage,
     RmaoDisabled,
     NoCompatibleSpecularStage
 };

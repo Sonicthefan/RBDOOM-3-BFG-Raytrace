@@ -1103,6 +1103,13 @@ RtMaterialBsdfRoute ResolveBsdfRoute(const RtSmokeMaterialTextureInfo& info, con
         routeReason = RtMaterialBsdfRouteReason::LegacySpecularStage;
         return RtMaterialBsdfRoute::LegacySpecGloss;
     }
+    if (info.hasSpecularImage &&
+        info.specularUsage != TD_SPECULAR_PBR_RMAO &&
+        info.specularUsage != TD_SPECULAR_PBR_RMAOD)
+    {
+        routeReason = RtMaterialBsdfRouteReason::DiscoveredLegacySpecularImage;
+        return RtMaterialBsdfRoute::LegacySpecGloss;
+    }
     if (stageFacts.pbrRmaoStages > 0)
     {
         routeReason = RtMaterialBsdfRouteReason::RmaoDisabled;
@@ -1774,6 +1781,8 @@ const char* RtMaterialBsdfRouteReasonName(RtMaterialBsdfRouteReason reason)
             return "PbrRmaoStage";
         case RtMaterialBsdfRouteReason::LegacySpecularStage:
             return "LegacySpecularStage";
+        case RtMaterialBsdfRouteReason::DiscoveredLegacySpecularImage:
+            return "DiscoveredLegacySpecularImage";
         case RtMaterialBsdfRouteReason::RmaoDisabled:
             return "RmaoDisabled";
         case RtMaterialBsdfRouteReason::NoCompatibleSpecularStage:
