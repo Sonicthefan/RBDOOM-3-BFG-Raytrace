@@ -141,20 +141,10 @@ bool SmokeImageNameLooksSpecularSuffix(const char* imageName)
         {
             return true;
         }
-
-        bool numericSuffix = true;
-        for (int digit = index + 2; digit < length; ++digit)
-        {
-            if (text[digit] < '0' || text[digit] > '9')
-            {
-                numericSuffix = false;
-                break;
-            }
-        }
-        if (numericSuffix)
-        {
-            return true;
-        }
+        const char afterSpecToken = text[index + 2];
+        return afterSpecToken == '_' ||
+            afterSpecToken == '-' ||
+            (afterSpecToken >= '0' && afterSpecToken <= '9');
     }
 
     return false;
