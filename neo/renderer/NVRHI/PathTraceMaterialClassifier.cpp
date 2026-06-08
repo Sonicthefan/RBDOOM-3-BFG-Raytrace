@@ -496,6 +496,11 @@ RtMaterialSurfaceClass RtSurfaceClassFromNameFallback(const idStr& materialName,
         { "hose", RtMaterialSurfaceClass::Plastic },
         { "foamcup", RtMaterialSurfaceClass::Plastic },
         { "cola", RtMaterialSurfaceClass::Plastic },
+        { "duffle", RtMaterialSurfaceClass::Plastic },
+        { "canvas", RtMaterialSurfaceClass::Plastic },
+        { "cloth", RtMaterialSurfaceClass::Plastic },
+        { "fabric", RtMaterialSurfaceClass::Plastic },
+        { "leather", RtMaterialSurfaceClass::Plastic },
 
         { "cardboard", RtMaterialSurfaceClass::Cardboard },
         { "paper", RtMaterialSurfaceClass::Cardboard },
@@ -534,7 +539,9 @@ RtMaterialSurfaceClass RtSurfaceClassFromNameFallback(const idStr& materialName,
         { "textures/recycle_floor/", RtMaterialSurfaceClass::Metal, true },
         { "textures/recycle_wall/", RtMaterialSurfaceClass::Metal, true },
         { "models/mapobjects/enpro/", RtMaterialSurfaceClass::Metal, true },
+        { "models/mapobjects/cpu/", RtMaterialSurfaceClass::Metal, true },
         { "models/mapobjects/doors/", RtMaterialSurfaceClass::Metal, true },
+        { "models/mapobjects/kiosk/", RtMaterialSurfaceClass::Metal, true },
         { "models/mapobjects/skmachines/", RtMaterialSurfaceClass::Metal, true },
         { "models/mapobjects/swinglights/", RtMaterialSurfaceClass::Metal, true },
         { "steel", RtMaterialSurfaceClass::Metal },
@@ -672,7 +679,9 @@ bool RtIndustrialMetalFamilyFromNames(const RtSmokeMaterialTextureInfo& info, id
         { "textures/recycle_floor/", RtMaterialSurfaceClass::Metal, true },
         { "textures/recycle_wall/", RtMaterialSurfaceClass::Metal, true },
         { "models/mapobjects/enpro/", RtMaterialSurfaceClass::Metal, true },
-        { "models/mapobjects/doors/", RtMaterialSurfaceClass::Metal, true }
+        { "models/mapobjects/cpu/", RtMaterialSurfaceClass::Metal, true },
+        { "models/mapobjects/doors/", RtMaterialSurfaceClass::Metal, true },
+        { "models/mapobjects/kiosk/", RtMaterialSurfaceClass::Metal, true },
     };
 
     const idStr* fields[] = {
