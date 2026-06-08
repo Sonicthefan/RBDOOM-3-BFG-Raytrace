@@ -32,6 +32,7 @@ bool SmokeNameContainsAny(const idStr& name, const char* const* tokens, int toke
 bool SmokeStageBlendUsesSourceAlpha(const shaderStage_t* stage);
 bool SmokeStageIsAdditiveBlend(const shaderStage_t* stage);
 bool SmokeStageIsFilterBlend(const shaderStage_t* stage, bool& blackKey);
+bool SmokeStageIsRenderMap(const shaderStage_t* stage);
 const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage);
 RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material);
 void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTest, float& alphaCutoff);

@@ -120,6 +120,20 @@ bool SmokeStageIsFilterBlend(const shaderStage_t* stage, bool& blackKey)
     return false;
 }
 
+bool SmokeStageIsRenderMap(const shaderStage_t* stage)
+{
+    if (!stage)
+    {
+        return false;
+    }
+
+    return stage->texture.dynamic == DI_GUI_RENDER ||
+        stage->texture.dynamic == DI_RENDER_TARGET ||
+        stage->texture.dynamic == DI_MIRROR_RENDER ||
+        stage->texture.dynamic == DI_REMOTE_RENDER ||
+        stage->texture.dynamic == DI_XRAY_RENDER;
+}
+
 const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage)
 {
     if (!stage || !stage->texture.image)
@@ -194,7 +208,7 @@ RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMat
             continue;
         }
 
-        if (stage->texture.texgen == TG_SCREEN || stage->texture.texgen == TG_SCREEN2)
+        if (stage->texture.texgen == TG_SCREEN || stage->texture.texgen == TG_SCREEN2 || SmokeStageIsRenderMap(stage))
         {
             info.hasScreenTexgen = true;
         }

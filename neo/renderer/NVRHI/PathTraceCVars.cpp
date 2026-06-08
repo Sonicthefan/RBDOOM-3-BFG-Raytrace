@@ -1535,7 +1535,7 @@ idCVar r_pathTracingCleanRtxdiDiView10PortalDomain(
 
 idCVar r_pathTracingCleanRtxdiDiSubviewDispatch(
     "r_pathTracingCleanRtxdiDiSubviewDispatch",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room Remix DI mirror/subview diagnostic: allow clean dispatch during subviews; set 0 to block the mirror-glitch route at entry" );
 

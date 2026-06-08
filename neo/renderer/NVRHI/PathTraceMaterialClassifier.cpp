@@ -4,6 +4,7 @@
 #include "../BinaryImage.h"
 #include "../DXT/DXTCodec.h"
 #include "PathTraceCVars.h"
+#include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceMaterialClassifier.h"
 
 #include <cstring>
@@ -332,8 +333,7 @@ RtMaterialStageFacts AnalyzeRtMaterialStages(const idMaterial* material)
         const bool guiOrScreen =
             stage->texture.texgen == TG_SCREEN ||
             stage->texture.texgen == TG_SCREEN2 ||
-            stage->texture.dynamic == DI_GUI_RENDER ||
-            stage->texture.dynamic == DI_RENDER_TARGET;
+            SmokeStageIsRenderMap(stage);
         const bool cubeMap =
             stage->texture.texgen == TG_SKYBOX_CUBE ||
             stage->texture.texgen == TG_WOBBLESKY_CUBE ||
@@ -516,8 +516,7 @@ RtMaterialDynamicFacts AnalyzeRtMaterialDynamicFacts(const idMaterial* material)
         }
         if (stage->texture.texgen == TG_SCREEN ||
             stage->texture.texgen == TG_SCREEN2 ||
-            stage->texture.dynamic == DI_GUI_RENDER ||
-            stage->texture.dynamic == DI_RENDER_TARGET)
+            SmokeStageIsRenderMap(stage))
         {
             ++facts.guiRenderTargetStages;
         }
@@ -1903,8 +1902,7 @@ void MaybeDumpRecordStages(const RtMaterialRecord& record)
         const bool guiOrScreen =
             stage->texture.texgen == TG_SCREEN ||
             stage->texture.texgen == TG_SCREEN2 ||
-            stage->texture.dynamic == DI_GUI_RENDER ||
-            stage->texture.dynamic == DI_RENDER_TARGET;
+            SmokeStageIsRenderMap(stage);
         const bool cubeMap =
             stage->texture.texgen == TG_SKYBOX_CUBE ||
             stage->texture.texgen == TG_WOBBLESKY_CUBE ||

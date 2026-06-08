@@ -590,8 +590,7 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
         }
         if (stage->texture.texgen == TG_SCREEN ||
             stage->texture.texgen == TG_SCREEN2 ||
-            stage->texture.dynamic == DI_GUI_RENDER ||
-            stage->texture.dynamic == DI_RENDER_TARGET)
+            SmokeStageIsRenderMap(stage))
         {
             ++surfaceSample.guiRenderTargetStages;
         }
