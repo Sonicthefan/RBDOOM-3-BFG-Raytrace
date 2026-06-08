@@ -1253,8 +1253,7 @@ RtMaterialBsdfParams RtDefaultBsdfForSurfaceClass(RtMaterialSurfaceClass surface
             bsdf.subsurfaceHint = 1;
             break;
         case RtMaterialSurfaceClass::Ricochet:
-            bsdf.metallic = 1.0f;
-            bsdf.roughness = 0.35f;
+            bsdf.roughness = 0.6f;
             break;
         case RtMaterialSurfaceClass::Special:
             bsdf.roughness = 0.7f;
