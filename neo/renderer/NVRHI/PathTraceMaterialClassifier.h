@@ -117,6 +117,10 @@ struct RtMaterialRecord
     idStr normalImageName;
     idStr specularImageName;
     idStr emissiveImageName;
+    idStr diffuseReason;
+    idStr normalReason;
+    idStr specularReason;
+    idStr emissiveReason;
     idStr surfaceClassEvidence;
     idStr bsdfEvidence;
     int rawSurfaceType = 0;

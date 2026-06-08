@@ -1484,6 +1484,10 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
     hash = HashRtMaterialString(hash, info.normalImageName);
     hash = HashRtMaterialString(hash, info.specularImageName);
     hash = HashRtMaterialString(hash, info.emissiveImageName);
+    hash = HashRtMaterialString(hash, info.fallbackReason);
+    hash = HashRtMaterialString(hash, info.normalReason);
+    hash = HashRtMaterialString(hash, info.specularReason);
+    hash = HashRtMaterialString(hash, info.emissiveReason);
     hash = HashRtMaterialValue(hash, material ? static_cast<uint64>(material->GetSurfaceType()) : 0u);
     hash = HashRtMaterialValue(hash, material ? static_cast<uint64>(material->GetSurfaceFlags()) : 0u);
     hash = HashRtMaterialFloat(hash, material ? material->GetSort() : 0.0f);
@@ -1549,6 +1553,10 @@ RtMaterialRecord BuildRtMaterialRecord(const idMaterial* material, const RtSmoke
     record.normalImageName = info.normalImageName;
     record.specularImageName = info.specularImageName;
     record.emissiveImageName = info.emissiveImageName;
+    record.diffuseReason = info.fallbackReason;
+    record.normalReason = info.normalReason;
+    record.specularReason = info.specularReason;
+    record.emissiveReason = info.emissiveReason;
     record.rawSurfaceType = material ? static_cast<int>(material->GetSurfaceType()) : static_cast<int>(SURFTYPE_NONE);
     record.surfaceFlags = material ? material->GetSurfaceFlags() : 0;
     record.sort = material ? material->GetSort() : 0.0f;
@@ -1782,6 +1790,12 @@ void MaybeDumpRecord(const RtMaterialRecord& record)
         record.normalImageName.c_str(),
         record.specularImageName.c_str(),
         record.emissiveImageName.c_str());
+    common->Printf("MatClass: imageReasons id=%u diffuse='%s' normal='%s' specular='%s' emissive='%s'\n",
+        record.materialId,
+        record.diffuseReason.c_str(),
+        record.normalReason.c_str(),
+        record.specularReason.c_str(),
+        record.emissiveReason.c_str());
     common->Printf("MatClass: bsdf id=%u roughness=%.3f metallic=%.3f ior=%.3f transmission=%.3f f0=%.3f ao=%.3f subsurface=%d twoSided=%d bsdfEvidence='%s' specAvg=(%.3f,%.3f,%.3f) specLuma=%.3f\n",
         record.materialId,
         record.bsdf.roughness,

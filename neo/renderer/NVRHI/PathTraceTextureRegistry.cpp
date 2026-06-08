@@ -260,6 +260,13 @@ RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, 
     return missing;
 }
 
+bool SmokeMaterialTextureInfoHasMaterialMetadata(const RtSmokeMaterialTextureInfo& info)
+{
+    return !info.materialName.IsEmpty() &&
+        info.materialName.Icmp("<unseen material>") != 0 &&
+        info.materialName.Icmp("<none>") != 0;
+}
+
 const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info)
 {
     if (info.hasSafeTexture)
