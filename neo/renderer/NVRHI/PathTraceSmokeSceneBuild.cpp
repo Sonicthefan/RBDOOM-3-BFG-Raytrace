@@ -1463,7 +1463,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
         r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0 &&
-        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 12 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15 || cleanRtxdiDiSceneBuildResolveView == 16);
+        (cleanRtxdiDiSceneBuildView == 8 || cleanRtxdiDiSceneBuildView == 13 || cleanRtxdiDiSceneBuildView == 14 || cleanRtxdiDiSceneBuildView == 15 || cleanRtxdiDiSceneBuildResolveView == 16);
     const int cleanRtxdiDiSceneBuildDomain = idMath::ClampInt(0, 2,
         r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
             ? r_pathTracingRemixLightUniverseDomain.GetInteger()
@@ -2490,7 +2490,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool cleanRtxdiDiRealAnalyticRoute =
         r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0 &&
         r_pathTracingCleanRtxdiDiLightMode.GetInteger() == 1 &&
-        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 12 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16);
+        (cleanRtxdiDiView == 8 || cleanRtxdiDiView == 13 || cleanRtxdiDiView == 14 || cleanRtxdiDiView == 15 || cleanRtxdiDiResolveView == 16);
     const int regirSceneLightDomain = idMath::ClampInt(0, 2, r_pathTracingReGIRLightDomain.GetInteger());
     const bool regirAnalyticLightUniverseRequested =
         r_pathTracingReGIREnable.GetInteger() != 0 &&
