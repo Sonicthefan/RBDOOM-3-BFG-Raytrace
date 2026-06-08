@@ -90,8 +90,14 @@ void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, float3 al
     }
 
     const float classifiedRoughness = SmokeMatClassRoughness(material);
+    const bool hasIncomingTexturedRoughness =
+        material.specularTextureIndex != 0xffffffffu &&
+        roughness < 0.999;
 
-    roughness = saturate(classifiedRoughness);
+    if (!hasIncomingTexturedRoughness)
+    {
+        roughness = saturate(classifiedRoughness);
+    }
     specularF0 = SmokeMatClassMetallicF0(material, albedo);
 }
 
