@@ -161,6 +161,12 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
         return false;
     }
 
+    const uint32_t baseMaterialId = SmokeMaterialId(material);
+    if (SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, baseMaterialId) != baseMaterialId)
+    {
+        return false;
+    }
+
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     if (classifier.hasScreenTexgen ||
         classifier.hasAddDefault0200Texture ||
@@ -570,6 +576,12 @@ void CapturePathTraceDrawSurfMirror(
         }
         if (geometryUniverse)
         {
+            const uint32_t candidateBaseMaterialId = SmokeMaterialId(material);
+            if (SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, candidateBaseMaterialId) != candidateBaseMaterialId)
+            {
+                continue;
+            }
+
             RtPathTraceRigidMeshCandidateObservation candidateObservation;
             candidateObservation.tri = tri;
             candidateObservation.meshHash = meshObservation.stableHash;
