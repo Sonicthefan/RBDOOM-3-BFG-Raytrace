@@ -99,6 +99,7 @@ struct RtSmokeDynamicMaterialEvalSample
     int guiRenderTargetStages = 0;
     int programStages = 0;
     idStr name;
+    int stagePriority = -1;
     float condition = 1.0f;
     float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     float alphaTest = 0.0f;

@@ -99,6 +99,46 @@ bool SceneUniverseStageIsAdditiveOrGlowLike(const shaderStage_t* stage)
         (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE);
 }
 
+float SceneUniverseDynamicEvalColorLuminance(const float color[4])
+{
+    return Max(0.0f, color[0]) * 0.2126f +
+        Max(0.0f, color[1]) * 0.7152f +
+        Max(0.0f, color[2]) * 0.0722f;
+}
+
+bool SceneUniverseDynamicEvalSampleShouldReplace(const RtSmokeDynamicMaterialEvalSample& current, const RtSmokeDynamicMaterialEvalSample& candidate)
+{
+    if (!current.valid)
+    {
+        return true;
+    }
+    if (candidate.stagePriority != current.stagePriority)
+    {
+        return candidate.stagePriority > current.stagePriority;
+    }
+    return SceneUniverseDynamicEvalColorLuminance(candidate.color) > SceneUniverseDynamicEvalColorLuminance(current.color);
+}
+
+void SceneUniverseDynamicEvalCopySelectedStage(RtSmokeDynamicMaterialEvalSample& dst, const RtSmokeDynamicMaterialEvalSample& src)
+{
+    dst.valid = src.valid;
+    dst.stageIndex = src.stageIndex;
+    dst.stagePriority = src.stagePriority;
+    dst.condition = src.condition;
+    dst.alphaTest = src.alphaTest;
+    for (int component = 0; component < 4; ++component)
+    {
+        dst.color[component] = src.color[component];
+    }
+    for (int row = 0; row < 2; ++row)
+    {
+        for (int column = 0; column < 3; ++column)
+        {
+            dst.texMatrix[row][column] = src.texMatrix[row][column];
+        }
+    }
+}
+
 bool SceneUniverseStageConditionCanBeActive(const idMaterial* material, const shaderStage_t* stage)
 {
     if (!material || !stage)
@@ -504,26 +544,30 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
             ++surfaceSample.programStages;
         }
 
-        if (!surfaceSample.valid)
+        const int stagePriority = (enabled ? 2 : 0) + (SceneUniverseStageIsAdditiveOrGlowLike(stage) ? 1 : 0);
+        RtSmokeDynamicMaterialEvalSample stageSample;
+        stageSample.valid = true;
+        stageSample.stageIndex = stageIndex;
+        stageSample.stagePriority = stagePriority;
+        stageSample.condition = condition;
+        stageSample.alphaTest = alphaTest;
+        for (int component = 0; component < 4; ++component)
         {
-            surfaceSample.valid = true;
-            surfaceSample.stageIndex = stageIndex;
-            surfaceSample.condition = condition;
-            surfaceSample.alphaTest = alphaTest;
-            for (int component = 0; component < 4; ++component)
+            stageSample.color[component] = color[component];
+        }
+        if (hasTexMatrix)
+        {
+            for (int row = 0; row < 2; ++row)
             {
-                surfaceSample.color[component] = color[component];
-            }
-            if (hasTexMatrix)
-            {
-                for (int row = 0; row < 2; ++row)
+                for (int column = 0; column < 3; ++column)
                 {
-                    for (int column = 0; column < 3; ++column)
-                    {
-                        surfaceSample.texMatrix[row][column] = texMatrix[row][column];
-                    }
+                    stageSample.texMatrix[row][column] = texMatrix[row][column];
                 }
             }
+        }
+        if (SceneUniverseDynamicEvalSampleShouldReplace(surfaceSample, stageSample))
+        {
+            SceneUniverseDynamicEvalCopySelectedStage(surfaceSample, stageSample);
         }
     }
 
@@ -563,6 +607,10 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
             sample.cinematicStages += surfaceSample.cinematicStages;
             sample.guiRenderTargetStages += surfaceSample.guiRenderTargetStages;
             sample.programStages += surfaceSample.programStages;
+            if (SceneUniverseDynamicEvalSampleShouldReplace(sample, surfaceSample))
+            {
+                SceneUniverseDynamicEvalCopySelectedStage(sample, surfaceSample);
+            }
             return;
         }
     }

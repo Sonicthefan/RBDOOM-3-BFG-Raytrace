@@ -907,13 +907,14 @@ void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats)
         for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
         {
             const RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[sampleIndex];
-            common->Printf("%s%s(id=%u surfaces=%d triangles=%d stage=%d enabled=%d disabled=%d colorStages=%d alphaStages=%d alphaTestStages=%d texMatrixStages=%d dynamicImageStages=%d cinematicStages=%d guiRenderStages=%d programStages=%d condition=%.3f color=(%.3f %.3f %.3f %.3f) alphaTest=%.3f texMatrix=((%.3f %.3f %.3f)(%.3f %.3f %.3f)))",
+            common->Printf("%s%s(id=%u surfaces=%d triangles=%d stage=%d priority=%d enabled=%d disabled=%d colorStages=%d alphaStages=%d alphaTestStages=%d texMatrixStages=%d dynamicImageStages=%d cinematicStages=%d guiRenderStages=%d programStages=%d condition=%.3f color=(%.3f %.3f %.3f %.3f) alphaTest=%.3f texMatrix=((%.3f %.3f %.3f)(%.3f %.3f %.3f)))",
                 sampleIndex == 0 ? "" : ", ",
                 sample.name.c_str(),
                 sample.id,
                 sample.surfaces,
                 sample.triangles,
                 sample.stageIndex,
+                sample.stagePriority,
                 sample.enabledStages,
                 sample.disabledStages,
                 sample.colorStages,
