@@ -2727,6 +2727,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
+    if (r_pathTracingSmokeLog.GetInteger() != 0 && r_pathTracingMatClassEnable.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke material classifier live records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d routes(rmao/legacy/fallback)=%d/%d/%d confidence(auth/flag/heur/fallback)=%d/%d/%d/%d\n",
+            materialClassifierStats.records,
+            materialClassifierStats.hits,
+            materialClassifierStats.misses,
+            materialClassifierStats.rebuilds,
+            materialClassifierStats.frameHits,
+            materialClassifierStats.frameMisses,
+            materialClassifierStats.frameRebuilds,
+            materialClassifierStats.routeRealPbr,
+            materialClassifierStats.routeLegacySpec,
+            materialClassifierStats.routeFallback,
+            materialClassifierStats.confidenceAuthoritative,
+            materialClassifierStats.confidenceFlag,
+            materialClassifierStats.confidenceHeuristic,
+            materialClassifierStats.confidenceFallbackNone);
+    }
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
     if (needTextureCoverageStats)
