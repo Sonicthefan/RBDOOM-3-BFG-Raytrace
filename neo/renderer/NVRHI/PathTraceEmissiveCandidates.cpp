@@ -799,8 +799,6 @@ void BuildSmokeEmissiveLightCandidateSummaries(
             newCandidate.materialId = materialId;
             newCandidate.universeMaterialIndex = facts.universeIndex;
             newCandidate.materialIndex = record.materialIndex;
-            newCandidate.emissiveColor = facts.emissiveColor;
-            newCandidate.emissiveLuminance = facts.emissiveLuminance;
             newCandidate.hasEmissiveTexture = facts.hasEmissiveImage;
             newCandidate.hasSafeEmissiveTexture = facts.hasSafeEmissiveTexture;
             newCandidate.emissiveTextureIndex = record.emissiveTextureIndex;
@@ -808,6 +806,28 @@ void BuildSmokeEmissiveLightCandidateSummaries(
             newCandidate.emissiveTextureHeight = record.emissiveTextureHeight;
             stats.lightCandidates.push_back(newCandidate);
             candidate = &stats.lightCandidates.back();
+        }
+
+        const idVec4 recordEmissiveColor(
+            Max(0.0f, record.estimatedRadianceAndLuminance[0]),
+            Max(0.0f, record.estimatedRadianceAndLuminance[1]),
+            Max(0.0f, record.estimatedRadianceAndLuminance[2]),
+            1.0f);
+        const float recordLuminance = Max(0.0f, record.estimatedRadianceAndLuminance[3]);
+        const float recordWeight = Max(0.0f, record.centroidUvAndWeight[2]);
+        const float previousWeight = candidate->weightedLuminance;
+        const float nextWeight = previousWeight + recordWeight;
+        if (nextWeight > 1.0e-8f)
+        {
+            const float previousScale = previousWeight / nextWeight;
+            const float recordScale = recordWeight / nextWeight;
+            candidate->emissiveColor = candidate->emissiveColor * previousScale + recordEmissiveColor * recordScale;
+            candidate->emissiveLuminance = candidate->emissiveLuminance * previousScale + recordLuminance * recordScale;
+        }
+        else if (candidate->triangles == 0)
+        {
+            candidate->emissiveColor = recordEmissiveColor;
+            candidate->emissiveLuminance = recordLuminance;
         }
 
         ++candidate->triangles;
@@ -820,7 +840,7 @@ void BuildSmokeEmissiveLightCandidateSummaries(
             ++candidate->dynamicTriangles;
         }
         candidate->area += record.centerAndArea[3];
-        candidate->weightedLuminance += record.centroidUvAndWeight[2];
+        candidate->weightedLuminance = nextWeight;
         if (candidate->emissiveTextureIndex == UINT32_MAX && record.emissiveTextureIndex != UINT32_MAX)
         {
             candidate->emissiveTextureIndex = record.emissiveTextureIndex;
