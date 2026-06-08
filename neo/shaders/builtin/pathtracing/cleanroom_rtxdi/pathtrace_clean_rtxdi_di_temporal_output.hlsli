@@ -486,7 +486,7 @@ float3 PathTraceCleanRoomRluSelectedReplaySplitDiagnosticColor(
         return PathTraceCleanRoomTemporalGateColor(temporal.flags, CLEAN_TEMPORAL_DIAG_PREVIOUS_LIGHT_MAPPED);
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(initial.surface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(initial.surface);
     if (!RAB_IsSurfaceValid(surface))
     {
         return float3(0.45, 0.0, 0.65);
@@ -614,7 +614,7 @@ float3 PathTraceCleanRoomRluAnalyticReplayDiagnosticColor(
         return PathTraceCleanRoomRluAnalyticDirectPreviousProbeColor();
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(initial.surface);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(initial.surface);
     if (!RAB_IsSurfaceValid(surface))
     {
         return float3(0.45, 0.0, 0.65);

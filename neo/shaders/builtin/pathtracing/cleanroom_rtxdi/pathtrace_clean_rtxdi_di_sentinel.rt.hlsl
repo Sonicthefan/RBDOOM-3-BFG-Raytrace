@@ -2771,7 +2771,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
         return float3(0.0, 0.0, 0.0);
     }
 
-    const RAB_Surface surface = PathTraceCleanRoomSurfaceFromRecord(surfaceRecord);
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(surfaceRecord);
     const RAB_LightInfo lightInfo = RAB_LoadLightInfo(lightIndex, false);
     const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, RTXDI_GetDIReservoirSampleUV(reservoir));
     if (!RAB_IsReplayableLightSample(lightSample))
