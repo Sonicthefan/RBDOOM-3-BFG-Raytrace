@@ -480,6 +480,85 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
     return stats;
 }
 
+void LogSmokeMaterialClassifierLiveSummary(const RtSmokeMaterialTableBuild& table, const RtMaterialClassifierStats& stats)
+{
+    if (r_pathTracingSmokeLog.GetInteger() == 0 || r_pathTracingMatClassEnable.GetInteger() == 0)
+    {
+        return;
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke material classifier live records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d frameRoutes(rmao/legacy/fallback)=%d/%d/%d frameConfidence(auth/flag/heur/fallback)=%d/%d/%d/%d\n",
+        stats.records,
+        stats.hits,
+        stats.misses,
+        stats.rebuilds,
+        stats.frameHits,
+        stats.frameMisses,
+        stats.frameRebuilds,
+        stats.routeRealPbr,
+        stats.routeLegacySpec,
+        stats.routeFallback,
+        stats.confidenceAuthoritative,
+        stats.confidenceFlag,
+        stats.confidenceHeuristic,
+        stats.confidenceFallbackNone);
+
+    const int materialCount = Min(static_cast<int>(table.materials.size()), static_cast<int>(table.materialIds.size()));
+    int routeFallbackTotal = 0;
+    int confidenceFallbackTotal = 0;
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        const RtMaterialRecord* record = FindPathTraceMaterialRecord(table.materialIds[materialIndex]);
+        if (!record || !record->valid)
+        {
+            continue;
+        }
+        const bool routeFallback = record->route == RtMaterialBsdfRoute::SurfaceTypeFallback;
+        const bool confidenceFallback = record->surfaceClassConfidence == RtMaterialClassConfidence::FallbackNone;
+        routeFallbackTotal += routeFallback ? 1 : 0;
+        confidenceFallbackTotal += confidenceFallback ? 1 : 0;
+    }
+    if (routeFallbackTotal <= 0 && confidenceFallbackTotal <= 0)
+    {
+        return;
+    }
+
+    common->Printf("PathTracePrimaryPass: RT smoke material classifier fallback samples routeFallback=%d confidenceFallback=%d samples=",
+        routeFallbackTotal,
+        confidenceFallbackTotal);
+    int sampleCount = 0;
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        const RtMaterialRecord* record = FindPathTraceMaterialRecord(table.materialIds[materialIndex]);
+        if (!record || !record->valid)
+        {
+            continue;
+        }
+        const bool routeFallback = record->route == RtMaterialBsdfRoute::SurfaceTypeFallback;
+        const bool confidenceFallback = record->surfaceClassConfidence == RtMaterialClassConfidence::FallbackNone;
+        if (!routeFallback && !confidenceFallback)
+        {
+            continue;
+        }
+        if (sampleCount < 8)
+        {
+            common->Printf("%sindex=%d id=%u material='%s' route=%s routeReason=%s class=%s classReason=%s confidence=%s evidence='%s'",
+                sampleCount == 0 ? "" : ", ",
+                materialIndex,
+                table.materialIds[materialIndex],
+                record->materialName.c_str(),
+                RtMaterialBsdfRouteName(record->route),
+                RtMaterialBsdfRouteReasonName(record->routeReason),
+                RtMaterialSurfaceClassName(record->surfaceClass),
+                RtMaterialSurfaceClassReasonName(record->surfaceClassReason),
+                RtMaterialClassConfidenceName(record->surfaceClassConfidence),
+                record->surfaceClassEvidence.c_str());
+        }
+        ++sampleCount;
+    }
+    common->Printf("%s\n", sampleCount > 8 ? ", ..." : "");
+}
+
 void ApplyCleanRtxdiDiAnalyticDomainFreeze(
     const viewDef_t* viewDef,
     std::vector<PathTraceDoomAnalyticLightCandidate>& doomAnalyticLights,
@@ -2727,24 +2806,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
-    if (r_pathTracingSmokeLog.GetInteger() != 0 && r_pathTracingMatClassEnable.GetInteger() != 0)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke material classifier live records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d routes(rmao/legacy/fallback)=%d/%d/%d confidence(auth/flag/heur/fallback)=%d/%d/%d/%d\n",
-            materialClassifierStats.records,
-            materialClassifierStats.hits,
-            materialClassifierStats.misses,
-            materialClassifierStats.rebuilds,
-            materialClassifierStats.frameHits,
-            materialClassifierStats.frameMisses,
-            materialClassifierStats.frameRebuilds,
-            materialClassifierStats.routeRealPbr,
-            materialClassifierStats.routeLegacySpec,
-            materialClassifierStats.routeFallback,
-            materialClassifierStats.confidenceAuthoritative,
-            materialClassifierStats.confidenceFlag,
-            materialClassifierStats.confidenceHeuristic,
-            materialClassifierStats.confidenceFallbackNone);
-    }
+    LogSmokeMaterialClassifierLiveSummary(materialTable, materialClassifierStats);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
     if (needTextureCoverageStats)
