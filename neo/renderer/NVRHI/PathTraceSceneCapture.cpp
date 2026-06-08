@@ -841,6 +841,7 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
     const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
     if (!regs)
     {
+        ++stats.dynamicEvalNoRegisterSurfaces;
         return;
     }
 
@@ -955,6 +956,7 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
 
     if (!surfaceSample.valid)
     {
+        ++stats.dynamicEvalNoSelectedStageSurfaces;
         return;
     }
 

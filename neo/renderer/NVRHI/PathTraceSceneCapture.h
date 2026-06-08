@@ -147,6 +147,8 @@ struct RtSmokeMaterialStats
     int dynamicEvalCinematicStages = 0;
     int dynamicEvalGuiRenderTargetStages = 0;
     int dynamicEvalProgramStages = 0;
+    int dynamicEvalNoRegisterSurfaces = 0;
+    int dynamicEvalNoSelectedStageSurfaces = 0;
     RtSmokeDynamicMaterialEvalSample dynamicEvalSamples[RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES];
     int dynamicEvalSampleCount = 0;
     std::vector<RtSmokeDynamicMaterialEvalSample> dynamicEvalMaterialSamples;

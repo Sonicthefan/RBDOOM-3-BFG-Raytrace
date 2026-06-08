@@ -71,6 +71,7 @@ struct RtSmokeRuntimeMaterialApplySample
     idStr materialName;
     idVec4 stageColor = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
     idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    idStr source;
     bool disabled = false;
 };
 
@@ -283,6 +284,7 @@ void AddSmokeRuntimeMaterialApplySample(
     const char* materialName,
     const idVec4& stageColor,
     const PathTraceSmokeMaterial& material,
+    const char* source,
     bool disabled)
 {
     if (stats.sampleCount >= RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES)
@@ -295,6 +297,7 @@ void AddSmokeRuntimeMaterialApplySample(
     sample.materialId = materialId;
     sample.materialName = materialName && materialName[0] ? materialName : "<unknown>";
     sample.stageColor = stageColor;
+    sample.source = source && source[0] ? source : "<unknown>";
     sample.emissiveColor = idVec4(
         material.emissiveColor[0],
         material.emissiveColor[1],
@@ -337,11 +340,13 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         float selectedLuminance = -1.0f;
         bool activeEmissiveStage = false;
         bool disableFromLiveSample = false;
+        const char* applySource = "fallback";
         if (FindSmokeRuntimeMaterialEvalSample(materialStats, table.materialIds[materialIndex], selectedStageColor, disableFromLiveSample))
         {
             ++stats.evaluated;
             selectedLuminance = SmokeRuntimeMaterialLuminance(selectedStageColor);
             activeEmissiveStage = !disableFromLiveSample && selectedLuminance > 1.0e-5f;
+            applySource = "live";
         }
         else
         {
@@ -394,7 +399,7 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             material.emissiveColor[2] = 0.0f;
             material.emissiveColor[3] = 1.0f;
             ++stats.emissiveDisabled;
-            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, true);
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, applySource, true);
             continue;
         }
 
@@ -406,12 +411,12 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         {
             material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
             ++stats.emissiveDisabled;
-            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, true);
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, applySource, true);
         }
         else
         {
             ++stats.emissiveScaled;
-            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, false);
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, applySource, false);
         }
     }
 
@@ -425,11 +430,12 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         for (int sampleIndex = 0; sampleIndex < stats.sampleCount; ++sampleIndex)
         {
             const RtSmokeRuntimeMaterialApplySample& sample = stats.samples[sampleIndex];
-            common->Printf("%sindex=%d id=%u material='%s' disabled=%d stageColor=(%.3f %.3f %.3f %.3f) emissive=(%.3f %.3f %.3f %.3f)",
+            common->Printf("%sindex=%d id=%u material='%s' source=%s disabled=%d stageColor=(%.3f %.3f %.3f %.3f) emissive=(%.3f %.3f %.3f %.3f)",
                 sampleIndex == 0 ? "" : ", ",
                 sample.tableIndex,
                 sample.materialId,
                 sample.materialName.c_str(),
+                sample.source.c_str(),
                 sample.disabled ? 1 : 0,
                 sample.stageColor.x,
                 sample.stageColor.y,

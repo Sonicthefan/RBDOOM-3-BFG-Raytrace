@@ -514,6 +514,7 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
 {
     if (!material || !regs)
     {
+        ++stats.dynamicEvalNoRegisterSurfaces;
         return;
     }
 
@@ -628,6 +629,7 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
 
     if (!surfaceSample.valid)
     {
+        ++stats.dynamicEvalNoSelectedStageSurfaces;
         return;
     }
 
