@@ -210,11 +210,15 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     }
     if (r_pathTracingMatClassEnable.GetInteger() != 0)
     {
-        const RtMaterialRecord* materialClassRecord = FindPathTraceMaterialRecord(materialId);
-        if ((!materialClassRecord || !materialClassRecord->valid) && !info.materialName.IsEmpty())
+        const RtMaterialRecord* materialClassRecord = nullptr;
+        if (!info.materialName.IsEmpty())
         {
             const idMaterial* materialDecl = declManager ? declManager->FindMaterial(info.materialName.c_str(), false) : nullptr;
             materialClassRecord = &RegisterPathTraceMaterialRecord(materialDecl, info);
+        }
+        else
+        {
+            materialClassRecord = FindPathTraceMaterialRecord(materialId);
         }
         if (materialClassRecord && materialClassRecord->valid)
         {
