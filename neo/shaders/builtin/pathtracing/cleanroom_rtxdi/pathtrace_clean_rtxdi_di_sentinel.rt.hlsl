@@ -257,7 +257,7 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint CleanRtxdiDiDoomAnalyticFullCurrentCount;
     uint CleanRtxdiDiDoomAnalyticFullPreviousCount;
     uint CleanRtxdiDiRluDomain;
-    uint CleanRtxdiDiMatClassProofMode;
+    uint CleanRtxdiDiRluDoomAnalyticParityProof;
     float4 CleanRtxdiDiTextureInfo;
     float4 CleanRtxdiDiPrevCameraOriginAndValid;
     float4 CleanRtxdiDiPrevCameraForwardAndTanX;
@@ -2784,16 +2784,7 @@ float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceReco
     const float3 toSample = lightSample.position - surfaceRecord.worldPositionAndViewDepth.xyz;
     const float3 lightDirection = PathTraceCleanRoomSafeNormalize(toSample, PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz));
     const float ndotl = saturate(dot(PathTraceCleanRoomSafeNormalize(surfaceRecord.shadingNormalAndOpacity.xyz, surfaceRecord.geometricNormalAndRoughness.xyz), lightDirection));
-    float3 resolveDiffuse = float3(0.5, 0.5, 0.5);
-    if (CleanRtxdiDiMatClassProofMode != 0u)
-    {
-        const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(surface.material.materialIndex);
-        if (SmokeMatClassDrivesLegacySpec(material) || SmokeMatClassHasPackedBsdf(material))
-        {
-            resolveDiffuse = lerp(resolveDiffuse, SmokeMatClassProofColor(material), 0.80);
-        }
-    }
-    const float3 flatDiffuse = resolveDiffuse * (1.0 / CLEAN_RTXDI_PI);
+    const float3 flatDiffuse = float3(0.5, 0.5, 0.5) * (1.0 / CLEAN_RTXDI_PI);
     float visibility = PathTraceCleanRoomSyntheticSingleLightMode()
         ? 1.0
         : PathTraceCleanRoomSelectedSampleVisibility(surfaceRecord, reservoir, lightSample);

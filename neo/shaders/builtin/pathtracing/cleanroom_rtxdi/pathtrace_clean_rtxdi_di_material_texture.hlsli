@@ -47,10 +47,6 @@ void PathTraceCleanRoomApplyLiveMaterialClassifierBsdf(
 {
     const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
     SmokeApplyMaterialClassifierBsdf(material, albedo, specularF0, roughness);
-    if (CleanRtxdiDiMatClassProofMode != 0u)
-    {
-        SmokeApplyMaterialClassifierProofBsdf(material, specularF0, roughness);
-    }
 }
 
 float4 PathTraceCleanRoomLoadTextureTexel(uint textureIndex, uint2 texel, bool bindlessEnabled)

@@ -165,7 +165,7 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint CleanRtxdiDiDoomAnalyticFullCurrentCount;
     uint CleanRtxdiDiDoomAnalyticFullPreviousCount;
     uint CleanRtxdiDiRluDomain;
-    uint CleanRtxdiDiMatClassProofMode;
+    uint CleanRtxdiDiRluDoomAnalyticParityProof;
     float4 CleanRtxdiDiTextureInfo;
     float4 CleanRtxdiDiPrevCameraOriginAndValid;
     float4 CleanRtxdiDiPrevCameraForwardAndTanX;
@@ -588,10 +588,6 @@ void CleanApplyLiveMaterialClassifierBsdf(
 {
     const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(materialIndex);
     SmokeApplyMaterialClassifierBsdf(material, albedo, specularF0, roughness);
-    if (CleanRtxdiDiMatClassProofMode != 0u)
-    {
-        SmokeApplyMaterialClassifierProofBsdf(material, specularF0, roughness);
-    }
 }
 
 float3 CleanTexturedSurfaceAlbedo(PathTracePrimarySurfaceRecord record)

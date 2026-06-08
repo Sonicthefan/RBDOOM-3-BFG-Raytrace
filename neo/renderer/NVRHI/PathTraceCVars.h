@@ -154,7 +154,6 @@ extern idCVar r_pathTracingMatClassDriveLegacySpec;
 extern idCVar r_pathTracingMatClassGlossRoughnessMode;
 extern idCVar r_pathTracingMatClassNormalDecodeMode;
 extern idCVar r_pathTracingMatClassAoIndirectOnly;
-extern idCVar r_pathTracingMatClassCleanProof;
 extern idCVar r_pathTracingMatClassDebugList;
 extern idCVar r_pathTracingMatClassDebugMax;
 extern idCVar r_pathTracingUseNormalMaps;

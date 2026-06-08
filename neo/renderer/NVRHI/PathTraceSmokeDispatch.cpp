@@ -329,7 +329,7 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t doomAnalyticFullCurrentCount = 0;
     uint32_t doomAnalyticFullPreviousCount = 0;
     uint32_t rluDomain = 0;
-    uint32_t matClassProofMode = 0;
+    uint32_t rluDoomAnalyticParityProof = 0;
     float textureInfo[4] = {};
     float prevCameraOriginAndValid[4] = {};
     float prevCameraForwardAndTanX[4] = {};
@@ -3480,10 +3480,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 }
             }
         }
-        cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(
-            r_pathTracingMatClassEnable.GetInteger() != 0
-                ? idMath::ClampInt(0, 1, r_pathTracingMatClassCleanProof.GetInteger())
-                : 0));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(cleanReservoirCount));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(Max(0, m_frameResources.width)));
         cleanHistorySignature = HashSmokeDispatchValue(cleanHistorySignature, static_cast<uint64>(Max(0, m_frameResources.height)));
@@ -3612,10 +3608,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.doomAnalyticFullCurrentCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
         cleanConstants.doomAnalyticFullPreviousCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
         cleanConstants.rluDomain = cleanRluRoute ? cleanRluStats.domain : 0u;
-        cleanConstants.matClassProofMode = static_cast<uint32_t>(
-            r_pathTracingMatClassEnable.GetInteger() != 0
-                ? idMath::ClampInt(0, 1, r_pathTracingMatClassCleanProof.GetInteger())
-                : 0);
+        cleanConstants.rluDoomAnalyticParityProof = 0u;
         const uint32_t cleanRluShaderEmissiveSampleCount = (cleanRluRoute && !cleanDisableEmissiveTriangleSampling) ? cleanRluStats.emissiveSampleCount : 0u;
         const uint32_t cleanRluShaderDoomSampleCount = cleanRluRoute ? cleanRluStats.doomAnalyticSampleCount : 0u;
         const uint32_t cleanRluShaderTotalSampleCount = cleanRluShaderEmissiveSampleCount + cleanRluShaderDoomSampleCount;

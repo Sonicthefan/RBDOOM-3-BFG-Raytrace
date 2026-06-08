@@ -76,40 +76,6 @@ float3 SmokeMatClassMetallicF0(PathTraceSmokeMaterial material, float3 albedo)
     return lerp(dielectricF0, max(saturate(albedo), dielectricF0), saturate(classifiedMetallic));
 }
 
-float3 SmokeMatClassProofColor(PathTraceSmokeMaterial material)
-{
-    const uint route = SmokeMatClassRoute(material);
-    if (route == RT_MATCLASS_ROUTE_REAL_PBR_RMAO)
-    {
-        return float3(0.15, 0.95, 0.25);
-    }
-    if (route == RT_MATCLASS_ROUTE_LEGACY_SPEC_GLOSS)
-    {
-        return float3(0.95, 0.20, 0.12);
-    }
-    if (route == RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK)
-    {
-        return float3(0.10, 0.38, 1.00);
-    }
-    return float3(0.70, 0.70, 0.70);
-}
-
-void SmokeApplyMaterialClassifierProofBsdf(PathTraceSmokeMaterial material, inout float3 specularF0, inout float roughness)
-{
-    if (!SmokeMatClassDrivesLegacySpec(material) && !SmokeMatClassHasPackedBsdf(material))
-    {
-        return;
-    }
-
-    const uint route = SmokeMatClassRoute(material);
-    specularF0 = max(specularF0, SmokeMatClassProofColor(material) * 0.9);
-    roughness = route == RT_MATCLASS_ROUTE_LEGACY_SPEC_GLOSS
-        ? 0.72
-        : route == RT_MATCLASS_ROUTE_SURFACE_TYPE_FALLBACK
-        ? 0.18
-        : 0.05;
-}
-
 void SmokeApplyMaterialClassifierBsdf(PathTraceSmokeMaterial material, float3 albedo, inout float3 specularF0, inout float roughness)
 {
     if (SmokeMatClassDrivesLegacySpec(material))
