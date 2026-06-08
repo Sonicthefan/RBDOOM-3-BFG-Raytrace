@@ -934,7 +934,13 @@ bool RtSpecialStageIntentFromNames(const RtSmokeMaterialTextureInfo& info, const
         }
     }
 
+    const bool hasCompleteLitSurfaceStages =
+        stageFacts.bumpStages > 0 &&
+        stageFacts.diffuseStages > 0 &&
+        stageFacts.specularStages > 0;
+
     if (info.emissive &&
+        !hasCompleteLitSurfaceStages &&
         RtFieldHasAnyToken(info.emissiveImageName, effectLeafTokens, static_cast<int>(sizeof(effectLeafTokens) / sizeof(effectLeafTokens[0]))))
     {
         evidence = "stageSpecial:emissiveImage";
@@ -954,7 +960,7 @@ bool RtSpecialStageIntentFromNames(const RtSmokeMaterialTextureInfo& info, const
         stageFacts.filterBlendStages > 0 ||
         stageFacts.alphaBlendStages > 0 ||
         stageFacts.coverageStages > 0;
-    if (hasTranslucentOrEffectBlend)
+    if (!hasCompleteLitSurfaceStages && hasTranslucentOrEffectBlend)
     {
         for (int fieldIndex = 0; fieldIndex < 5; ++fieldIndex)
         {
