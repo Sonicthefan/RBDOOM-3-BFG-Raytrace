@@ -107,6 +107,59 @@ RtSmokeTextureCodeHint SmokeTextureCodeHintFromImageName(const char* imageName)
     return RtSmokeTextureCodeHint::Unknown;
 }
 
+bool SmokeImageNameLooksSpecularSuffix(const char* imageName)
+{
+    if (!imageName || !imageName[0])
+    {
+        return false;
+    }
+
+    idStr name = imageName;
+    name.BackSlashesToSlashes();
+    name.ToLower();
+    name.StripFileExtension();
+
+    const char* text = name.c_str();
+    const int length = name.Length();
+    int segmentStart = 0;
+    for (int index = length - 1; index >= 0; --index)
+    {
+        if (text[index] == '/')
+        {
+            segmentStart = index + 1;
+            break;
+        }
+    }
+
+    for (int index = segmentStart; index < length - 1; ++index)
+    {
+        if (text[index] != '_' || text[index + 1] != 's')
+        {
+            continue;
+        }
+        if (index + 2 == length)
+        {
+            return true;
+        }
+
+        bool numericSuffix = true;
+        for (int digit = index + 2; digit < length; ++digit)
+        {
+            if (text[digit] < '0' || text[digit] > '9')
+            {
+                numericSuffix = false;
+                break;
+            }
+        }
+        if (numericSuffix)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 idImage* FindSmokeImageByTextureCode(const idMaterial* material, RtSmokeTextureCodeHint wantedHint, idStr& reason)
 {
     if (!material || wantedHint == RtSmokeTextureCodeHint::Unknown || r_pathTracingForceTextureCodeUse.GetInteger() == 0)
@@ -126,6 +179,31 @@ idImage* FindSmokeImageByTextureCode(const idMaterial* material, RtSmokeTextureC
         if (hint == wantedHint)
         {
             reason = va("stage %d texture code %s", stageIndex, SmokeTextureCodeHintName(hint));
+            return stage->texture.image;
+        }
+    }
+
+    return nullptr;
+}
+
+idImage* FindSmokeImageBySpecularSuffix(const idMaterial* material, idStr& reason)
+{
+    if (!material)
+    {
+        return nullptr;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !stage->texture.image)
+        {
+            continue;
+        }
+
+        if (SmokeImageNameLooksSpecularSuffix(stage->texture.image->GetName()))
+        {
+            reason = va("stage %d _s suffix", stageIndex);
             return stage->texture.image;
         }
     }
@@ -323,6 +401,12 @@ idImage* FindSmokeSpecularImage(const idMaterial* material, idStr& reason)
     }
 
     image = FindSmokeImageByTextureCode(material, RtSmokeTextureCodeHint::Specular0000, reason);
+    if (image)
+    {
+        return image;
+    }
+
+    image = FindSmokeImageBySpecularSuffix(material, reason);
     if (image)
     {
         return image;
