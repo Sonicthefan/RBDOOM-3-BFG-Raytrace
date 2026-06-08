@@ -980,15 +980,7 @@ float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_Lig
 
 float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
 {
-    float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
-    if (CleanRtxdiDiMatClassProofMode != 0u)
-    {
-        const PathTraceSmokeMaterial material = CleanLoadSmokeMaterial(surface.material.materialIndex);
-        if (SmokeMatClassDrivesLegacySpec(material) || SmokeMatClassHasPackedBsdf(material))
-        {
-            receiverAlbedo = lerp(receiverAlbedo, SmokeMatClassProofColor(material), 0.80);
-        }
-    }
+    const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
     if (CleanRtxdiDiResolveBrdfTarget != 0u)
     {
         return receiverAlbedo;
