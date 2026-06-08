@@ -885,6 +885,12 @@ idCVar r_pathTracingMatClassAoIndirectOnly(
     CVAR_RENDERER | CVAR_INTEGER,
     "Material classifier Route A: treat RMAO blue AO as indirect-only modulation" );
 
+idCVar r_pathTracingMatClassCleanProof(
+    "r_pathTracingMatClassCleanProof",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean RTXDI DI material-classifier diagnostic: 1 tint lit resolve and exaggerate classified BSDF from live SmokeMaterials" );
+
 idCVar r_pathTracingMatClassDebugList(
     "r_pathTracingMatClassDebugList",
     "0",
