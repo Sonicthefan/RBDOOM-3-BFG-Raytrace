@@ -940,7 +940,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 12)
         {
-            return "real-analytic-portal-region-temporal";
+            return "material-classifier-proof";
         }
         if (view == 13)
         {
@@ -1040,7 +1040,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (view == 12)
         {
-            return "shared-rab-rtxdi-initial-portal-region-temporal";
+            return "live-smoke-material-classifier-texture-proof";
         }
         if (view == 13)
         {
