@@ -36,6 +36,7 @@
 #include "PathTraceUnifiedLight.h"
 #include "../RenderBackend.h"
 #include "../Image.h"
+#include "../Material.h"
 #include "../Model_local.h"
 #include "../Passes/CommonPasses.h"
 #include "../../framework/Common_local.h"
@@ -57,10 +58,31 @@ const int RT_SMOKE_GEOMETRY_VALIDATION_DUMP_RECORDS = 16;
 const int RT_SMOKE_GEOMETRY_RANGE_DUMP_RECORDS = 16;
 const int RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES = 64;
 const float RT_SMOKE_SKINNED_TELEPORT_DISTANCE = 1024.0f;
+const int RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES = 8;
 
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
 int g_smokeLastGeometryValidationDumpErrors = 0;
+
+struct RtSmokeRuntimeMaterialApplySample
+{
+    int tableIndex = -1;
+    uint32_t materialId = 0;
+    idStr materialName;
+    idVec4 stageColor = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    idVec4 emissiveColor = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    bool disabled = false;
+};
+
+struct RtSmokeRuntimeMaterialApplyStats
+{
+    int candidates = 0;
+    int evaluated = 0;
+    int emissiveScaled = 0;
+    int emissiveDisabled = 0;
+    RtSmokeRuntimeMaterialApplySample samples[RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES];
+    int sampleCount = 0;
+};
 
 struct CleanRtxdiDiAnalyticDomainFreezeState
 {
@@ -109,6 +131,242 @@ struct CleanRtxdiDiBypassLightUniverseState
 };
 
 CleanRtxdiDiBypassLightUniverseState g_cleanRtxdiDiBypassLightUniverse;
+
+bool SmokeRuntimeMaterialEvalRegister(const float* regs, int registerCount, int registerIndex, float fallback, float& value)
+{
+    if (regs && registerIndex >= 0 && registerIndex < registerCount)
+    {
+        value = regs[registerIndex];
+        return true;
+    }
+    value = fallback;
+    return false;
+}
+
+bool SmokeRuntimeMaterialStageIsEmissiveLike(const shaderStage_t* stage)
+{
+    if (!stage)
+    {
+        return false;
+    }
+
+    const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
+    const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
+    return (stage->lighting == SL_AMBIENT && dstBlend == GLS_DSTBLEND_ONE) ||
+        (srcBlend == GLS_SRCBLEND_ONE && dstBlend == GLS_DSTBLEND_ONE);
+}
+
+idVec4 SmokeRuntimeMaterialStageColor(const idMaterial* material, const shaderStage_t* stage, const float* regs)
+{
+    idVec4 color(1.0f, 1.0f, 1.0f, 1.0f);
+    if (!material || !stage || !regs)
+    {
+        return color;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->color.registers[0], 1.0f, color.x);
+    SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->color.registers[1], 1.0f, color.y);
+    SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->color.registers[2], 1.0f, color.z);
+    SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->color.registers[3], 1.0f, color.w);
+    color.x = Max(0.0f, color.x);
+    color.y = Max(0.0f, color.y);
+    color.z = Max(0.0f, color.z);
+    color.w = idMath::ClampFloat(0.0f, 1.0f, color.w);
+    return color;
+}
+
+float SmokeRuntimeMaterialLuminance(const idVec4& color)
+{
+    return Max(0.0f, color.x) * 0.2126f +
+        Max(0.0f, color.y) * 0.7152f +
+        Max(0.0f, color.z) * 0.0722f;
+}
+
+bool SmokeRuntimeMaterialEvaluateRegisters(
+    const viewDef_t* viewDef,
+    const idMaterial* material,
+    const float*& regs,
+    float dynamicRegs[MAX_EXPRESSION_REGISTERS])
+{
+    regs = material ? material->ConstantRegisters() : nullptr;
+    if (!viewDef || !material)
+    {
+        return false;
+    }
+    if (regs)
+    {
+        return true;
+    }
+
+    float localShaderParms[MAX_ENTITY_SHADER_PARMS] = {};
+    localShaderParms[0] = 1.0f;
+    localShaderParms[1] = 1.0f;
+    localShaderParms[2] = 1.0f;
+    localShaderParms[3] = 1.0f;
+    material->EvaluateRegisters(
+        dynamicRegs,
+        localShaderParms,
+        viewDef->renderView.shaderParms,
+        viewDef->renderView.time[0] * 0.001f,
+        nullptr);
+    regs = dynamicRegs;
+    return true;
+}
+
+void AddSmokeRuntimeMaterialApplySample(
+    RtSmokeRuntimeMaterialApplyStats& stats,
+    int tableIndex,
+    uint32_t materialId,
+    const char* materialName,
+    const idVec4& stageColor,
+    const PathTraceSmokeMaterial& material,
+    bool disabled)
+{
+    if (stats.sampleCount >= RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES)
+    {
+        return;
+    }
+
+    RtSmokeRuntimeMaterialApplySample& sample = stats.samples[stats.sampleCount++];
+    sample.tableIndex = tableIndex;
+    sample.materialId = materialId;
+    sample.materialName = materialName && materialName[0] ? materialName : "<unknown>";
+    sample.stageColor = stageColor;
+    sample.emissiveColor = idVec4(
+        material.emissiveColor[0],
+        material.emissiveColor[1],
+        material.emissiveColor[2],
+        material.emissiveColor[3]);
+    sample.disabled = disabled;
+}
+
+RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const viewDef_t* viewDef, RtSmokeMaterialTableBuild& table)
+{
+    RtSmokeRuntimeMaterialApplyStats stats;
+    if (!viewDef || r_pathTracingMatClassEnable.GetInteger() == 0)
+    {
+        return stats;
+    }
+
+    const int materialCount = Min(static_cast<int>(table.materials.size()), static_cast<int>(table.materialIds.size()));
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        PathTraceSmokeMaterial& material = table.materials[materialIndex];
+        const uint32_t dynamicFlags = material.padding0 & (
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA |
+            RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION);
+        if (dynamicFlags == 0u || (material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
+        {
+            continue;
+        }
+
+        ++stats.candidates;
+        const RtSmokeMaterialTextureInfo* info = materialIndex < static_cast<int>(table.materialInfos.size()) ? &table.materialInfos[materialIndex] : nullptr;
+        const char* materialName = info ? info->materialName.c_str() : nullptr;
+        const idMaterial* materialDecl = materialName && materialName[0] ? declManager->FindMaterial(materialName, false) : nullptr;
+        if (!materialDecl)
+        {
+            continue;
+        }
+
+        float dynamicRegs[MAX_EXPRESSION_REGISTERS];
+        const float* regs = nullptr;
+        if (!SmokeRuntimeMaterialEvaluateRegisters(viewDef, materialDecl, regs, dynamicRegs))
+        {
+            continue;
+        }
+        ++stats.evaluated;
+
+        idVec4 selectedStageColor(0.0f, 0.0f, 0.0f, 0.0f);
+        float selectedLuminance = -1.0f;
+        bool activeEmissiveStage = false;
+        const int registerCount = materialDecl->GetNumRegisters();
+        for (int stageIndex = 0; stageIndex < materialDecl->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = materialDecl->GetStage(stageIndex);
+            if (!SmokeRuntimeMaterialStageIsEmissiveLike(stage))
+            {
+                continue;
+            }
+
+            float condition = 1.0f;
+            SmokeRuntimeMaterialEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, condition);
+            if (condition == 0.0f)
+            {
+                continue;
+            }
+
+            const idVec4 stageColor = SmokeRuntimeMaterialStageColor(materialDecl, stage, regs);
+            const float luminance = SmokeRuntimeMaterialLuminance(stageColor);
+            if (luminance > selectedLuminance)
+            {
+                selectedLuminance = luminance;
+                selectedStageColor = stageColor;
+            }
+            activeEmissiveStage = true;
+        }
+
+        if (!activeEmissiveStage || selectedLuminance <= 1.0e-5f)
+        {
+            material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+            material.emissiveColor[0] = 0.0f;
+            material.emissiveColor[1] = 0.0f;
+            material.emissiveColor[2] = 0.0f;
+            material.emissiveColor[3] = 1.0f;
+            ++stats.emissiveDisabled;
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, true);
+            continue;
+        }
+
+        material.emissiveColor[0] *= selectedStageColor.x * selectedStageColor.w;
+        material.emissiveColor[1] *= selectedStageColor.y * selectedStageColor.w;
+        material.emissiveColor[2] *= selectedStageColor.z * selectedStageColor.w;
+        material.emissiveColor[3] = selectedStageColor.w;
+        if (SmokeRuntimeMaterialLuminance(idVec4(material.emissiveColor[0], material.emissiveColor[1], material.emissiveColor[2], material.emissiveColor[3])) <= 1.0e-5f)
+        {
+            material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+            ++stats.emissiveDisabled;
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, true);
+        }
+        else
+        {
+            ++stats.emissiveScaled;
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, false);
+        }
+    }
+
+    if (r_pathTracingSmokeLog.GetInteger() != 0 && stats.candidates > 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke runtime material register apply candidates=%d evaluated=%d emissiveScaled=%d emissiveDisabled=%d samples=",
+            stats.candidates,
+            stats.evaluated,
+            stats.emissiveScaled,
+            stats.emissiveDisabled);
+        for (int sampleIndex = 0; sampleIndex < stats.sampleCount; ++sampleIndex)
+        {
+            const RtSmokeRuntimeMaterialApplySample& sample = stats.samples[sampleIndex];
+            common->Printf("%sindex=%d id=%u material='%s' disabled=%d stageColor=(%.3f %.3f %.3f %.3f) emissive=(%.3f %.3f %.3f %.3f)",
+                sampleIndex == 0 ? "" : ", ",
+                sample.tableIndex,
+                sample.materialId,
+                sample.materialName.c_str(),
+                sample.disabled ? 1 : 0,
+                sample.stageColor.x,
+                sample.stageColor.y,
+                sample.stageColor.z,
+                sample.stageColor.w,
+                sample.emissiveColor.x,
+                sample.emissiveColor.y,
+                sample.emissiveColor.z,
+                sample.emissiveColor.w);
+        }
+        common->Printf("\n");
+    }
+    return stats;
+}
 
 void ApplyCleanRtxdiDiAnalyticDomainFreeze(
     const viewDef_t* viewDef,
@@ -2355,6 +2613,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             material.specularTextureHeight = 1;
         }
     }
+    ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
     if (needTextureCoverageStats)
