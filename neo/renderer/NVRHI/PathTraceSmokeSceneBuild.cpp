@@ -176,7 +176,7 @@ bool SmokeRuntimeMaterialCanApplyTableWide(const char* materialName)
 
 float SmokeRuntimeMaterialLuminance(const idVec4& color);
 
-bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStats, uint32_t materialId, idVec4& color, bool& disabled)
+bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStats, uint32_t materialId, idVec4& color, bool& disabled, idImage*& image)
 {
     for (const RtSmokeDynamicMaterialEvalSample& sample : materialStats.dynamicEvalMaterialSamples)
     {
@@ -193,6 +193,7 @@ bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStat
         disabled = sample.condition == 0.0f ||
             sample.enabledStages <= 0 ||
             SmokeRuntimeMaterialLuminance(color) <= 1.0e-5f;
+        image = sample.image;
         return true;
     }
 
@@ -212,11 +213,13 @@ bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStat
         disabled = sample.condition == 0.0f ||
             sample.enabledStages <= 0 ||
             SmokeRuntimeMaterialLuminance(color) <= 1.0e-5f;
+        image = sample.image;
         return true;
     }
 
     color = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
     disabled = true;
+    image = nullptr;
     return false;
 }
 
@@ -307,7 +310,7 @@ void AddSmokeRuntimeMaterialApplySample(
     sample.disabled = disabled;
 }
 
-RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const viewDef_t* viewDef, RtSmokeMaterialTableBuild& table, const RtSmokeMaterialStats& materialStats)
+RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const viewDef_t* viewDef, RtSmokeMaterialTableBuild& table, const RtSmokeMaterialStats& materialStats, int materialTextureTableMinimum)
 {
     RtSmokeRuntimeMaterialApplyStats stats;
     if (!viewDef || r_pathTracingMatClassEnable.GetInteger() == 0)
@@ -345,8 +348,9 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         bool activeEmissiveStage = false;
         bool disableFromLiveSample = false;
         bool selectedFromLiveSample = false;
+        idImage* selectedImage = nullptr;
         const char* applySource = "fallback";
-        if (FindSmokeRuntimeMaterialEvalSample(materialStats, materialId, selectedStageColor, disableFromLiveSample))
+        if (FindSmokeRuntimeMaterialEvalSample(materialStats, materialId, selectedStageColor, disableFromLiveSample, selectedImage))
         {
             ++stats.evaluated;
             selectedLuminance = SmokeRuntimeMaterialLuminance(selectedStageColor);
@@ -435,6 +439,10 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         }
         else
         {
+            if (runtimeVariant && selectedFromLiveSample && selectedImage)
+            {
+                BindSmokeMaterialRuntimeEmissiveTexture(table, materialIndex, selectedImage, materialTextureTableMinimum);
+            }
             ++stats.emissiveScaled;
             AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, applySource, false);
         }
@@ -2716,7 +2724,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             material.specularTextureHeight = 1;
         }
     }
-    ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats);
+    ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
     if (needTextureCoverageStats)

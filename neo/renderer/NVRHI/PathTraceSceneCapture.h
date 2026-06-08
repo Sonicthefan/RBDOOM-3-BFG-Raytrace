@@ -18,6 +18,7 @@ struct drawSurf_t;
 struct srfTriangles_t;
 struct viewDef_t;
 class idJointMat;
+class idImage;
 
 const int RT_SMOKE_MAX_SURFACES = 128;
 const int RT_SMOKE_MAX_VERTS = 65536;
@@ -103,6 +104,7 @@ struct RtSmokeDynamicMaterialEvalSample
     float condition = 1.0f;
     float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     float alphaTest = 0.0f;
+    idImage* image = nullptr;
     float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
 };
 

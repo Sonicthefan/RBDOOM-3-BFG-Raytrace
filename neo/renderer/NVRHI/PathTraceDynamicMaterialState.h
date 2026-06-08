@@ -14,6 +14,7 @@
 #include <vector>
 
 class idMaterial;
+class idImage;
 
 const int RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY = 2048;
 const int RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP = 2048;
@@ -115,6 +116,7 @@ uint32_t HashSmokeMaterialName(const char* materialName);
 uint32_t SmokeMaterialId(const idMaterial* material);
 bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table);
 bool SmokeMaterialTableIndexIsValid(const RtSmokeMaterialTableBuild& table, int tableIndex);
+bool BindSmokeMaterialRuntimeEmissiveTexture(RtSmokeMaterialTableBuild& table, int tableIndex, idImage* image, int minimumTextureTableLimit = 0);
 std::vector<int> BuildSmokeSafeMaterialIndexOrder(const RtSmokeMaterialTableBuild& table);
 void BuildSmokeMaterialTableFromUniverse(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit = 0);
 bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit, uint64& signature, bool& cacheHit);

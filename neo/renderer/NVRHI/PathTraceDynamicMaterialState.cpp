@@ -414,6 +414,48 @@ uint32_t AddSmokeMaterialTextureSlot(RtSmokeMaterialTableBuild& table, nvrhi::Te
     return descriptorIndex;
 }
 
+bool BindSmokeMaterialRuntimeEmissiveTexture(RtSmokeMaterialTableBuild& table, int tableIndex, idImage* image, int minimumTextureTableLimit)
+{
+    if (!SmokeMaterialTableIndexIsValid(table, tableIndex) || !image || !IsSmokeDiffuseImageSafeForRayTracing(image))
+    {
+        return false;
+    }
+
+    const nvrhi::TextureHandle texture = image->GetTextureHandle();
+    if (!texture)
+    {
+        return false;
+    }
+
+    for (int textureIndex = 0; textureIndex < static_cast<int>(table.diffuseTextures.size()); ++textureIndex)
+    {
+        if (table.diffuseTextures[textureIndex].Get() == texture.Get())
+        {
+            table.materials[tableIndex].emissiveTextureIndex = static_cast<uint32_t>(textureIndex);
+            const nvrhi::TextureDesc& desc = texture->getDesc();
+            table.materials[tableIndex].emissiveTextureWidth = Max(1u, desc.width);
+            table.materials[tableIndex].emissiveTextureHeight = Max(1u, desc.height);
+            return true;
+        }
+    }
+
+    const int textureTableLimit = GetSmokeTextureTableEffectiveLimitWithMinimum(minimumTextureTableLimit);
+    if (textureTableLimit <= 0 || static_cast<int>(table.diffuseTextures.size()) >= textureTableLimit)
+    {
+        ++table.materialsOverTextureSlotLimit;
+        return false;
+    }
+
+    table.diffuseTextures.push_back(texture);
+    table.materials[tableIndex].emissiveTextureIndex = static_cast<uint32_t>(table.diffuseTextures.size() - 1);
+    const nvrhi::TextureDesc& desc = texture->getDesc();
+    table.materials[tableIndex].emissiveTextureWidth = Max(1u, desc.width);
+    table.materials[tableIndex].emissiveTextureHeight = Max(1u, desc.height);
+    ++table.materialsWithEmissiveTextures;
+    g_smokeMaterialTableBuildStats.descriptorTextures = static_cast<int>(table.diffuseTextures.size());
+    return true;
+}
+
 void AccumulateSmokeGuiTextureDiagnostic(RtSmokeMaterialTableBuild& table, idImage* image, bool safe)
 {
     if (!image || !IsSmokeImageNameGuiLike(image->GetName()))
