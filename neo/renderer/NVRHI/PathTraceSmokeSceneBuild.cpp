@@ -33,6 +33,7 @@
 #include "PathTraceSmokeResources.h"
 #include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceSurfaceClassification.h"
+#include "PathTraceTextureRegistry.h"
 #include "PathTraceUnifiedLight.h"
 #include "../RenderBackend.h"
 #include "../Image.h"
@@ -330,8 +331,11 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
 
         ++stats.candidates;
         const RtSmokeMaterialTextureInfo* info = materialIndex < static_cast<int>(table.materialInfos.size()) ? &table.materialInfos[materialIndex] : nullptr;
+        const uint32_t materialId = table.materialIds[materialIndex];
         const char* materialName = info ? info->materialName.c_str() : nullptr;
-        if (!SmokeRuntimeMaterialCanApplyTableWide(materialName))
+        const bool runtimeVariant = IsSmokeMaterialTextureVariant(materialId);
+        const bool canApplySharedRow = SmokeRuntimeMaterialCanApplyTableWide(materialName);
+        if (!runtimeVariant && !canApplySharedRow)
         {
             continue;
         }
@@ -341,7 +345,7 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         bool activeEmissiveStage = false;
         bool disableFromLiveSample = false;
         const char* applySource = "fallback";
-        if (FindSmokeRuntimeMaterialEvalSample(materialStats, table.materialIds[materialIndex], selectedStageColor, disableFromLiveSample))
+        if (FindSmokeRuntimeMaterialEvalSample(materialStats, materialId, selectedStageColor, disableFromLiveSample))
         {
             ++stats.evaluated;
             selectedLuminance = SmokeRuntimeMaterialLuminance(selectedStageColor);
@@ -350,6 +354,11 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         }
         else
         {
+            if (runtimeVariant)
+            {
+                continue;
+            }
+
             const idMaterial* materialDecl = materialName && materialName[0] ? declManager->FindMaterial(materialName, false) : nullptr;
             if (!materialDecl)
             {
@@ -399,7 +408,7 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             material.emissiveColor[2] = 0.0f;
             material.emissiveColor[3] = 1.0f;
             ++stats.emissiveDisabled;
-            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, applySource, true);
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, applySource, true);
             continue;
         }
 
@@ -411,12 +420,12 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         {
             material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
             ++stats.emissiveDisabled;
-            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, applySource, true);
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, applySource, true);
         }
         else
         {
             ++stats.emissiveScaled;
-            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, table.materialIds[materialIndex], materialName, selectedStageColor, material, applySource, false);
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, applySource, false);
         }
     }
 

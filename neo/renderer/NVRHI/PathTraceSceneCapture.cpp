@@ -830,25 +830,54 @@ bool SmokeStageUsesPerSurfaceMaterialState(const idMaterial* material, const sha
         stage->newStage != nullptr;
 }
 
-void AddSmokeDynamicMaterialEvalStatsInternal(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes)
+uint32_t SmokeRuntimeMaterialVariantHashValue(uint32_t hash, uint32_t value)
 {
+    hash ^= value & 0xffu;
+    hash *= 16777619u;
+    hash ^= (value >> 8) & 0xffu;
+    hash *= 16777619u;
+    hash ^= (value >> 16) & 0xffu;
+    hash *= 16777619u;
+    hash ^= (value >> 24) & 0xffu;
+    hash *= 16777619u;
+    return hash;
+}
+
+uint32_t SmokeRuntimeMaterialVariantHashPointer(uint32_t hash, uintptr_t value)
+{
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(value));
+#if defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(value >> 32));
+#endif
+    return hash;
+}
+
+enum class RtSmokeDynamicEvalBuildResult
+{
+    NoMaterial,
+    NoRegisters,
+    NoSelectedStage,
+    Built
+};
+
+RtSmokeDynamicEvalBuildResult BuildSmokeDynamicMaterialEvalSampleForId(const drawSurf_t* drawSurf, uint32_t materialId, RtSmokeDynamicMaterialEvalSample& surfaceSample)
+{
+    surfaceSample = RtSmokeDynamicMaterialEvalSample();
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
     if (!material)
     {
-        return;
+        return RtSmokeDynamicEvalBuildResult::NoMaterial;
     }
 
     const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
     if (!regs)
     {
-        ++stats.dynamicEvalNoRegisterSurfaces;
-        return;
+        return RtSmokeDynamicEvalBuildResult::NoRegisters;
     }
 
     const int registerCount = material->GetNumRegisters();
-    RtSmokeDynamicMaterialEvalSample surfaceSample;
     surfaceSample.valid = false;
-    surfaceSample.id = SmokeMaterialId(material);
+    surfaceSample.id = materialId;
     surfaceSample.name = material->GetName();
 
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -954,10 +983,26 @@ void AddSmokeDynamicMaterialEvalStatsInternal(RtSmokeMaterialStats& stats, const
         }
     }
 
-    if (!surfaceSample.valid)
+    return surfaceSample.valid ? RtSmokeDynamicEvalBuildResult::Built : RtSmokeDynamicEvalBuildResult::NoSelectedStage;
+}
+
+void AddSmokeDynamicMaterialEvalStatsInternal(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes, uint32_t materialId)
+{
+    RtSmokeDynamicMaterialEvalSample surfaceSample;
+    const RtSmokeDynamicEvalBuildResult buildResult = BuildSmokeDynamicMaterialEvalSampleForId(drawSurf, materialId, surfaceSample);
+    switch (buildResult)
     {
-        ++stats.dynamicEvalNoSelectedStageSurfaces;
-        return;
+        case RtSmokeDynamicEvalBuildResult::Built:
+            break;
+        case RtSmokeDynamicEvalBuildResult::NoRegisters:
+            ++stats.dynamicEvalNoRegisterSurfaces;
+            return;
+        case RtSmokeDynamicEvalBuildResult::NoSelectedStage:
+            ++stats.dynamicEvalNoSelectedStageSurfaces;
+            return;
+        case RtSmokeDynamicEvalBuildResult::NoMaterial:
+        default:
+            return;
     }
 
     ++stats.dynamicEvalSurfaces;
@@ -1269,7 +1314,46 @@ uint64 BuildSmokeStaticSurfaceKeyForDiagnostics(const drawSurf_t* drawSurf, cons
 
 void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes)
 {
-    AddSmokeDynamicMaterialEvalStatsInternal(stats, drawSurf, indexes);
+    AddSmokeDynamicMaterialEvalStatsForMaterialId(stats, drawSurf, indexes, SmokeMaterialId(drawSurf ? drawSurf->material : nullptr));
+}
+
+void AddSmokeDynamicMaterialEvalStatsForMaterialId(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes, uint32_t materialId)
+{
+    AddSmokeDynamicMaterialEvalStatsInternal(stats, drawSurf, indexes, materialId);
+}
+
+uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
+{
+    if (!drawSurf || !drawSurf->material || baseMaterialId == 0u)
+    {
+        return baseMaterialId;
+    }
+
+    RtSmokeDynamicMaterialEvalSample surfaceSample;
+    if (BuildSmokeDynamicMaterialEvalSampleForId(drawSurf, baseMaterialId, surfaceSample) != RtSmokeDynamicEvalBuildResult::Built)
+    {
+        return baseMaterialId;
+    }
+
+    const srfTriangles_t* tri = drawSurf->frontEndGeo;
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+
+    uint32_t hash = 2166136261u;
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72747631u);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity ? entity->index : -1));
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity ? renderEntity->entityNum : -1));
+    hash = SmokeRuntimeMaterialVariantHashPointer(hash, reinterpret_cast<uintptr_t>(tri));
+    hash = SmokeRuntimeMaterialVariantHashPointer(hash, reinterpret_cast<uintptr_t>(space));
+
+    uint32_t variantMaterialId = hash | 0x80000000u;
+    if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)
+    {
+        variantMaterialId = (hash ^ 0x5bd1e995u) | 0x80000000u;
+    }
+    return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
 }
 
 bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)

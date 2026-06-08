@@ -12,6 +12,7 @@ namespace {
 
 std::vector<RtSmokeMaterialTextureInfo> g_smokeMaterialTextureRegistry;
 std::unordered_map<uint32_t, int> g_smokeMaterialTextureRegistryLookup;
+std::unordered_map<uint32_t, uint32_t> g_smokeMaterialTextureVariantBases;
 uint64 g_smokeMaterialTextureRegistryGeneration = 1;
 
 }
@@ -200,6 +201,52 @@ RtSmokeMaterialTextureInfo& AddSmokeMaterialTextureInfo(uint32_t materialId, con
     g_smokeMaterialTextureRegistryLookup[materialId] = static_cast<int>(g_smokeMaterialTextureRegistry.size() - 1);
     ++g_smokeMaterialTextureRegistryGeneration;
     return g_smokeMaterialTextureRegistry.back();
+}
+
+bool RegisterSmokeMaterialTextureVariant(uint32_t variantMaterialId, uint32_t baseMaterialId)
+{
+    if (variantMaterialId == 0u || baseMaterialId == 0u || variantMaterialId == baseMaterialId)
+    {
+        return false;
+    }
+
+    const RtSmokeMaterialTextureInfo* baseInfo = FindSmokeMaterialTextureInfo(baseMaterialId);
+    if (!baseInfo)
+    {
+        return false;
+    }
+
+    RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(variantMaterialId);
+    if (existing)
+    {
+        const std::unordered_map<uint32_t, uint32_t>::const_iterator variant = g_smokeMaterialTextureVariantBases.find(variantMaterialId);
+        if (variant == g_smokeMaterialTextureVariantBases.end() || variant->second != baseMaterialId)
+        {
+            return false;
+        }
+        RefreshSmokeMaterialTextureHandleState(*existing);
+        return true;
+    }
+
+    RtSmokeMaterialTextureInfo variantInfo = *baseInfo;
+    variantInfo.materialId = variantMaterialId;
+    variantInfo.tableIndex = -1;
+    g_smokeMaterialTextureRegistry.push_back(variantInfo);
+    g_smokeMaterialTextureRegistryLookup[variantMaterialId] = static_cast<int>(g_smokeMaterialTextureRegistry.size() - 1);
+    g_smokeMaterialTextureVariantBases[variantMaterialId] = baseMaterialId;
+    ++g_smokeMaterialTextureRegistryGeneration;
+    return true;
+}
+
+bool IsSmokeMaterialTextureVariant(uint32_t materialId)
+{
+    return g_smokeMaterialTextureVariantBases.find(materialId) != g_smokeMaterialTextureVariantBases.end();
+}
+
+uint32_t SmokeMaterialTextureVariantBase(uint32_t materialId)
+{
+    const std::unordered_map<uint32_t, uint32_t>::const_iterator variant = g_smokeMaterialTextureVariantBases.find(materialId);
+    return variant != g_smokeMaterialTextureVariantBases.end() ? variant->second : materialId;
 }
 
 void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)

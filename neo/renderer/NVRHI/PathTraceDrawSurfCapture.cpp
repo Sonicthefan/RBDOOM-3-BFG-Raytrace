@@ -13,6 +13,7 @@
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
+#include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
 
 #include <algorithm>
@@ -733,7 +734,12 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
 
         const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
         const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-        const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+        const uint32_t baseMaterialId = SmokeMaterialId(drawSurf->material);
+        uint32_t materialId = SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, baseMaterialId);
+        if (materialId != baseMaterialId && !RegisterSmokeMaterialTextureVariant(materialId, baseMaterialId))
+        {
+            materialId = baseMaterialId;
+        }
         const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
 
         std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
@@ -789,7 +795,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
 
         AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
-        AddSmokeDynamicMaterialEvalStats(materialStats, drawSurf, emittedIndexes);
+        AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, emittedIndexes, materialId);
         ++sourceSurfaces;
         ++dynamicSurfaces;
         sourceVerts += tri->numVerts;
