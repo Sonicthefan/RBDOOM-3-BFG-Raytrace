@@ -9,6 +9,7 @@
 #include "PathTraceCVars.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceSurfaceDebugDumps.h"
 #include "PathTraceTextureRegistry.h"
@@ -637,6 +638,24 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.materialUniverseTableCompareStats.dynamicIndexMismatches,
         desc.materialUniverseTableCompareStats.textureCountMismatches,
         desc.materialUniverseTableCompareStats.textureHandleMismatches);
+    if (r_pathTracingMatClassEnable.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke material classifier records=%d hits=%d misses=%d rebuilds=%d frame=%d/%d/%d routes(rmao/legacy/fallback)=%d/%d/%d confidence(auth/flag/heur/fallback)=%d/%d/%d/%d\n",
+            desc.materialClassifierStats.records,
+            desc.materialClassifierStats.hits,
+            desc.materialClassifierStats.misses,
+            desc.materialClassifierStats.rebuilds,
+            desc.materialClassifierStats.frameHits,
+            desc.materialClassifierStats.frameMisses,
+            desc.materialClassifierStats.frameRebuilds,
+            desc.materialClassifierStats.routeRealPbr,
+            desc.materialClassifierStats.routeLegacySpec,
+            desc.materialClassifierStats.routeFallback,
+            desc.materialClassifierStats.confidenceAuthoritative,
+            desc.materialClassifierStats.confidenceFlag,
+            desc.materialClassifierStats.confidenceHeuristic,
+            desc.materialClassifierStats.confidenceFallbackNone);
+    }
     if (desc.emissiveInventoryStats)
     {
         common->Printf("PathTracePrimaryPass: RT smoke light candidates materials=%d textured=%d untextured=%d bufferBytes=%d uploaded=%d\n",
@@ -1987,6 +2006,10 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.materialTableSignature = desc.materialTableSignature;
     sceneSummaryLog.materialTableCacheStats = *desc.materialTableCacheStats;
     sceneSummaryLog.materialTableBuildStats = *desc.materialTableBuildStats;
+    if (desc.materialClassifierStats)
+    {
+        sceneSummaryLog.materialClassifierStats = *desc.materialClassifierStats;
+    }
     sceneSummaryLog.materialUniverseStats = *desc.materialUniverseStats;
     sceneSummaryLog.materialUniverseTableCompareStats = *desc.materialUniverseTableCompareStats;
     sceneSummaryLog.materialStats = desc.materialStats;

@@ -18,6 +18,7 @@
 #include "PathTraceDrawSurfCapture.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTracePrimaryPass.h"
@@ -2700,6 +2701,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     const RtSmokeMaterialTableCacheStats materialTableCacheStats = GetSmokeMaterialTableCacheStats();
     const RtSmokeMaterialTableBuildStats materialTableBuildStats = GetSmokeMaterialTableBuildStats();
+    const RtMaterialClassifierStats materialClassifierStats = GetPathTraceMaterialClassifierStats();
     const RtSmokeMaterialUniverseStats materialUniverseStats = GetSmokeMaterialUniverseStats();
     if (!ValidateSmokeMaterialIndexes(materialTable))
     {
@@ -5546,6 +5548,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.lightCandidateBytes = static_cast<int>(lightCandidates.size() * sizeof(lightCandidates[0]));
     sceneLogDesc.materialTableCacheStats = &materialTableCacheStats;
     sceneLogDesc.materialTableBuildStats = &materialTableBuildStats;
+    sceneLogDesc.materialClassifierStats = &materialClassifierStats;
     sceneLogDesc.materialUniverseStats = &materialUniverseStats;
     sceneLogDesc.materialUniverseTableCompareStats = &materialUniverseTableCompareStats;
     sceneLogDesc.textureCoverageStats = &textureCoverageStats;

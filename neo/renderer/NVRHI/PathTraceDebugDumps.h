@@ -7,6 +7,7 @@
 // diagnostic CVar reset/latch behavior.
 
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceMaterialClassifier.h"
 #include "PathTraceSceneCapture.h"
 #include "../Image.h"
 #include "../Material.h"
@@ -253,6 +254,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
     uint64 materialTableSignature = 0;
     RtSmokeMaterialTableCacheStats materialTableCacheStats;
     RtSmokeMaterialTableBuildStats materialTableBuildStats;
+    RtMaterialClassifierStats materialClassifierStats;
     RtSmokeMaterialUniverseStats materialUniverseStats;
     RtSmokeMaterialTableCompareStats materialUniverseTableCompareStats;
     const RtSmokeMaterialStats* materialStats = nullptr;
@@ -388,6 +390,7 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int lightCandidateBytes = 0;
     const RtSmokeMaterialTableCacheStats* materialTableCacheStats = nullptr;
     const RtSmokeMaterialTableBuildStats* materialTableBuildStats = nullptr;
+    const RtMaterialClassifierStats* materialClassifierStats = nullptr;
     const RtSmokeMaterialUniverseStats* materialUniverseStats = nullptr;
     const RtSmokeMaterialTableCompareStats* materialUniverseTableCompareStats = nullptr;
     const RtSmokeTextureCoverageStats* textureCoverageStats = nullptr;
