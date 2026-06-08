@@ -774,6 +774,19 @@ bool SmokeEvalRegister(const float* regs, int registerCount, int registerIndex, 
     return false;
 }
 
+bool SmokeRegisterDependsOnRuntime(const idMaterial* material, int registerIndex)
+{
+    if (registerIndex < 0)
+    {
+        return false;
+    }
+    if (registerIndex < EXP_REG_NUM_PREDEFINED)
+    {
+        return true;
+    }
+    return material && material->ConstantRegisters() == nullptr;
+}
+
 bool SmokeStageUsesPerSurfaceMaterialState(const idMaterial* material, const shaderStage_t* stage)
 {
     if (!material || !stage)
@@ -781,27 +794,32 @@ bool SmokeStageUsesPerSurfaceMaterialState(const idMaterial* material, const sha
         return false;
     }
 
-    const bool materialUsesRuntimeRegisters = material->ConstantRegisters() == nullptr;
-    if (materialUsesRuntimeRegisters && stage->conditionRegister >= 0)
+    if (SmokeRegisterDependsOnRuntime(material, stage->conditionRegister))
     {
         return true;
     }
-    if (materialUsesRuntimeRegisters && stage->hasAlphaTest && stage->alphaTestRegister >= 0)
+    if (stage->hasAlphaTest && SmokeRegisterDependsOnRuntime(material, stage->alphaTestRegister))
     {
         return true;
     }
-    if (materialUsesRuntimeRegisters)
+    for (int component = 0; component < 4; ++component)
     {
-        for (int component = 0; component < 4; ++component)
-        {
-            if (stage->color.registers[component] >= 0)
-            {
-                return true;
-            }
-        }
-        if (stage->texture.hasMatrix)
+        if (SmokeRegisterDependsOnRuntime(material, stage->color.registers[component]))
         {
             return true;
+        }
+    }
+    if (stage->texture.hasMatrix)
+    {
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                if (SmokeRegisterDependsOnRuntime(material, stage->texture.matrix[row][column]))
+                {
+                    return true;
+                }
+            }
         }
     }
     return stage->texture.dynamic != DI_STATIC ||
