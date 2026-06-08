@@ -1422,7 +1422,6 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
     hash = HashRtMaterialValue(hash, info.emissive ? 1u : 0u);
     hash = HashRtMaterialValue(hash, static_cast<uint64>(r_pathTracingMatClassUseRmao.GetInteger() != 0 ? 1 : 0));
     hash = HashRtMaterialValue(hash, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingMatClassNormalDecodeMode.GetInteger())));
-    hash = HashRtMaterialValue(hash, static_cast<uint64>(idMath::ClampInt(0, 1, r_pathTracingMatClassGlossRoughnessMode.GetInteger())));
     return hash;
 }
 

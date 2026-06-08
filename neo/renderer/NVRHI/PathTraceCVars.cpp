@@ -865,13 +865,13 @@ idCVar r_pathTracingMatClassDriveLegacySpec(
     "r_pathTracingMatClassDriveLegacySpec",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Material classifier Route B opt-in: promote classified metal/ricochet legacy spec materials to metallic F0 while preserving specmap roughness" );
+    "Material classifier Route B opt-in: promote classified Ricochet legacy spec materials to metallic F0 while preserving specmap roughness" );
 
 idCVar r_pathTracingMatClassGlossRoughnessMode(
     "r_pathTracingMatClassGlossRoughnessMode",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Material classifier Route B roughness mode: 0=PBRFromSpecmap, 1=legacy EstimateLegacyRoughness diagnostic" );
+    "Material classifier Route B roughness mode reserved for diagnostics; no active effect while shader-per-pixel spec roughness is used" );
 
 idCVar r_pathTracingMatClassNormalDecodeMode(
     "r_pathTracingMatClassNormalDecodeMode",
