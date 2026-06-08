@@ -25,6 +25,7 @@ const int RT_SMOKE_MAX_INDEXES = 196608;
 const int RT_SMOKE_CLASS_REASON_SAMPLES = 8;
 const int RT_SMOKE_MATERIAL_REASON_SAMPLES = 12;
 const int RT_SMOKE_TRANSLUCENT_REASON_SAMPLES = 24;
+const int RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES = 12;
 const uint32_t RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 const uint32_t RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 const uint32_t RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
@@ -80,6 +81,26 @@ struct RtSmokeMaterialSample
     idStr name;
 };
 
+struct RtSmokeDynamicMaterialEvalSample
+{
+    bool valid = false;
+    uint32_t id = 0;
+    int surfaces = 0;
+    int triangles = 0;
+    int stageIndex = -1;
+    int enabledStages = 0;
+    int disabledStages = 0;
+    int colorStages = 0;
+    int alphaStages = 0;
+    int alphaTestStages = 0;
+    int texMatrixStages = 0;
+    idStr name;
+    float condition = 1.0f;
+    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float alphaTest = 0.0f;
+    float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+};
+
 struct RtSmokeTranslucentSubtypeDebugSample
 {
     bool valid = false;
@@ -108,6 +129,17 @@ struct RtSmokeMaterialStats
     RtSmokeMaterialSample translucentSamples[RT_SMOKE_MATERIAL_REASON_SAMPLES];
     int sampleCount = 0;
     int translucentSampleCount = 0;
+    int dynamicEvalSurfaces = 0;
+    int dynamicEvalTriangles = 0;
+    int dynamicEvalStages = 0;
+    int dynamicEvalEnabledStages = 0;
+    int dynamicEvalDisabledStages = 0;
+    int dynamicEvalColorStages = 0;
+    int dynamicEvalAlphaStages = 0;
+    int dynamicEvalAlphaTestStages = 0;
+    int dynamicEvalTexMatrixStages = 0;
+    RtSmokeDynamicMaterialEvalSample dynamicEvalSamples[RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES];
+    int dynamicEvalSampleCount = 0;
     int translucentSubtypeSurfaces[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
     int translucentSubtypeTriangles[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT] = {};
     RtSmokeMaterialSample translucentSubtypeSamples[RT_SMOKE_TRANSLUCENT_SUBTYPE_COUNT][RT_SMOKE_MATERIAL_REASON_SAMPLES];

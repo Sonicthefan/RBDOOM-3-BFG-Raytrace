@@ -673,6 +673,189 @@ void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* materi
     }
 }
 
+bool SmokeEvalRegister(const float* regs, int registerCount, int registerIndex, float fallback, float& value)
+{
+    if (regs && registerIndex >= 0 && registerIndex < registerCount)
+    {
+        value = regs[registerIndex];
+        return true;
+    }
+    value = fallback;
+    return false;
+}
+
+bool SmokeStageUsesPerSurfaceMaterialState(const idMaterial* material, const shaderStage_t* stage)
+{
+    if (!material || !stage || material->ConstantRegisters() != nullptr)
+    {
+        return false;
+    }
+
+    if (stage->conditionRegister >= 0)
+    {
+        return true;
+    }
+    if (stage->hasAlphaTest && stage->alphaTestRegister >= 0)
+    {
+        return true;
+    }
+    for (int component = 0; component < 4; ++component)
+    {
+        if (stage->color.registers[component] >= 0)
+        {
+            return true;
+        }
+    }
+    if (stage->texture.hasMatrix)
+    {
+        return true;
+    }
+    return stage->texture.dynamic != DI_STATIC ||
+        stage->texture.cinematic != nullptr ||
+        stage->newStage != nullptr;
+}
+
+void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!material || material->ConstantRegisters() != nullptr)
+    {
+        return;
+    }
+
+    const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
+    if (!regs)
+    {
+        return;
+    }
+
+    const int registerCount = material->GetNumRegisters();
+    RtSmokeDynamicMaterialEvalSample surfaceSample;
+    surfaceSample.valid = false;
+    surfaceSample.id = SmokeMaterialId(material);
+    surfaceSample.name = material->GetName();
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!SmokeStageUsesPerSurfaceMaterialState(material, stage))
+        {
+            continue;
+        }
+
+        float condition = 1.0f;
+        SmokeEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, condition);
+        const bool enabled = condition != 0.0f;
+        ++surfaceSample.enabledStages;
+        if (!enabled)
+        {
+            --surfaceSample.enabledStages;
+            ++surfaceSample.disabledStages;
+        }
+
+        bool hasColor = false;
+        float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        for (int component = 0; component < 4; ++component)
+        {
+            hasColor = SmokeEvalRegister(regs, registerCount, stage->color.registers[component], 1.0f, color[component]) || hasColor;
+        }
+        if (hasColor)
+        {
+            ++surfaceSample.colorStages;
+        }
+        if (hasColor && idMath::Fabs(color[3] - 1.0f) > 1.0e-4f)
+        {
+            ++surfaceSample.alphaStages;
+        }
+
+        float alphaTest = 0.0f;
+        const bool hasAlphaTest = stage->hasAlphaTest &&
+            SmokeEvalRegister(regs, registerCount, stage->alphaTestRegister, 0.0f, alphaTest);
+        if (hasAlphaTest)
+        {
+            ++surfaceSample.alphaTestStages;
+        }
+
+        bool hasTexMatrix = false;
+        float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+        if (stage->texture.hasMatrix)
+        {
+            hasTexMatrix = true;
+            ++surfaceSample.texMatrixStages;
+            for (int row = 0; row < 2; ++row)
+            {
+                for (int column = 0; column < 3; ++column)
+                {
+                    const float fallback = row == column ? 1.0f : 0.0f;
+                    SmokeEvalRegister(regs, registerCount, stage->texture.matrix[row][column], fallback, texMatrix[row][column]);
+                }
+            }
+        }
+
+        if (!surfaceSample.valid)
+        {
+            surfaceSample.valid = true;
+            surfaceSample.stageIndex = stageIndex;
+            surfaceSample.condition = condition;
+            surfaceSample.alphaTest = alphaTest;
+            for (int component = 0; component < 4; ++component)
+            {
+                surfaceSample.color[component] = color[component];
+            }
+            if (hasTexMatrix)
+            {
+                for (int row = 0; row < 2; ++row)
+                {
+                    for (int column = 0; column < 3; ++column)
+                    {
+                        surfaceSample.texMatrix[row][column] = texMatrix[row][column];
+                    }
+                }
+            }
+        }
+    }
+
+    if (!surfaceSample.valid)
+    {
+        return;
+    }
+
+    ++stats.dynamicEvalSurfaces;
+    stats.dynamicEvalTriangles += indexes / 3;
+    stats.dynamicEvalStages += surfaceSample.enabledStages + surfaceSample.disabledStages;
+    stats.dynamicEvalEnabledStages += surfaceSample.enabledStages;
+    stats.dynamicEvalDisabledStages += surfaceSample.disabledStages;
+    stats.dynamicEvalColorStages += surfaceSample.colorStages;
+    stats.dynamicEvalAlphaStages += surfaceSample.alphaStages;
+    stats.dynamicEvalAlphaTestStages += surfaceSample.alphaTestStages;
+    stats.dynamicEvalTexMatrixStages += surfaceSample.texMatrixStages;
+
+    for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
+    {
+        RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[sampleIndex];
+        if (sample.id == surfaceSample.id)
+        {
+            ++sample.surfaces;
+            sample.triangles += indexes / 3;
+            sample.enabledStages += surfaceSample.enabledStages;
+            sample.disabledStages += surfaceSample.disabledStages;
+            sample.colorStages += surfaceSample.colorStages;
+            sample.alphaStages += surfaceSample.alphaStages;
+            sample.alphaTestStages += surfaceSample.alphaTestStages;
+            sample.texMatrixStages += surfaceSample.texMatrixStages;
+            return;
+        }
+    }
+
+    if (stats.dynamicEvalSampleCount < RT_SMOKE_DYNAMIC_MATERIAL_REASON_SAMPLES)
+    {
+        RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[stats.dynamicEvalSampleCount++];
+        sample = surfaceSample;
+        sample.surfaces = 1;
+        sample.triangles = indexes / 3;
+    }
+}
+
 void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeTranslucentSubtype subtype)
 {
     if (stats.translucentDebugSampleCount >= RT_SMOKE_TRANSLUCENT_REASON_SAMPLES)
@@ -1055,6 +1238,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             ++sourceSurfaces;
             ++bucketRanges.buckets[0].surfaceCount;
             AddSmokeMaterialStats(materialStats, drawSurf->material, tri->numIndexes, surfaceClass, translucentSubtype);
+            AddSmokeDynamicMaterialEvalStats(materialStats, drawSurf, tri->numIndexes);
 
             if (staticSurfaceRecord)
             {
@@ -1213,6 +1397,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
 
             AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
+            AddSmokeDynamicMaterialEvalStats(materialStats, drawSurf, emittedIndexes);
             if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
             {
                 AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
@@ -1367,6 +1552,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     }
 
                     AddSmokeMaterialStats(materialStats, shader, emittedIndexes, surfaceClass, translucentSubtype);
+                    AddSmokeDynamicMaterialEvalStats(materialStats, &retainedDrawSurf, emittedIndexes);
                     ++sourceSurfaces;
                     ++dynamicSurfaces;
                     ++retainedSurfaces;

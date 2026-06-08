@@ -887,6 +887,51 @@ void LogSmokeMaterialStats(const RtSmokeMaterialStats& stats)
 
     common->Printf("\n");
 
+    if (stats.dynamicEvalSurfaces > 0)
+    {
+        common->Printf("PathTracePrimaryPass: RT smoke dynamic material eval surfaces=%d triangles=%d stages=%d enabled=%d disabled=%d color=%d alpha=%d alphaTest=%d texMatrix=%d samples=",
+            stats.dynamicEvalSurfaces,
+            stats.dynamicEvalTriangles,
+            stats.dynamicEvalStages,
+            stats.dynamicEvalEnabledStages,
+            stats.dynamicEvalDisabledStages,
+            stats.dynamicEvalColorStages,
+            stats.dynamicEvalAlphaStages,
+            stats.dynamicEvalAlphaTestStages,
+            stats.dynamicEvalTexMatrixStages);
+
+        for (int sampleIndex = 0; sampleIndex < stats.dynamicEvalSampleCount; ++sampleIndex)
+        {
+            const RtSmokeDynamicMaterialEvalSample& sample = stats.dynamicEvalSamples[sampleIndex];
+            common->Printf("%s%s(id=%u surfaces=%d triangles=%d stage=%d enabled=%d disabled=%d colorStages=%d alphaStages=%d alphaTestStages=%d texMatrixStages=%d condition=%.3f color=(%.3f %.3f %.3f %.3f) alphaTest=%.3f texMatrix=((%.3f %.3f %.3f)(%.3f %.3f %.3f)))",
+                sampleIndex == 0 ? "" : ", ",
+                sample.name.c_str(),
+                sample.id,
+                sample.surfaces,
+                sample.triangles,
+                sample.stageIndex,
+                sample.enabledStages,
+                sample.disabledStages,
+                sample.colorStages,
+                sample.alphaStages,
+                sample.alphaTestStages,
+                sample.texMatrixStages,
+                sample.condition,
+                sample.color[0],
+                sample.color[1],
+                sample.color[2],
+                sample.color[3],
+                sample.alphaTest,
+                sample.texMatrix[0][0],
+                sample.texMatrix[0][1],
+                sample.texMatrix[0][2],
+                sample.texMatrix[1][0],
+                sample.texMatrix[1][1],
+                sample.texMatrix[1][2]);
+        }
+        common->Printf("\n");
+    }
+
     if (stats.translucentSampleCount <= 0)
     {
         return;
