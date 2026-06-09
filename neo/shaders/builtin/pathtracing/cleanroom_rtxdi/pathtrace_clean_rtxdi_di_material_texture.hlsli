@@ -1,3 +1,53 @@
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+
+uint PathTraceCleanRoomDynamicMaterialRecordCount()
+{
+    return (uint)max(CleanRtxdiDiEmissiveDistributionInfo.w, 0.0);
+}
+
+bool PathTraceCleanRoomFindDynamicMaterialRecord(uint materialIndex, out PathTraceDynamicMaterialRecord record)
+{
+    record = (PathTraceDynamicMaterialRecord)0;
+    const uint recordCount = PathTraceCleanRoomDynamicMaterialRecordCount();
+    if (materialIndex >= recordCount)
+    {
+        return false;
+    }
+
+    record = SmokeDynamicMaterials[materialIndex];
+    return (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) != 0u &&
+        record.materialIndex == materialIndex;
+}
+
+void PathTraceCleanRoomApplyDynamicMaterialRecord(uint materialIndex, inout PathTraceSmokeMaterial material)
+{
+    PathTraceDynamicMaterialRecord record;
+    if (!PathTraceCleanRoomFindDynamicMaterialRecord(materialIndex, record))
+    {
+        return;
+    }
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u)
+    {
+        return;
+    }
+
+    const bool stageEnabled =
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+        record.texMatrix0.w != 0.0 &&
+        max(max(record.color.r, record.color.g), record.color.b) > 1.0e-5;
+    if (!stageEnabled)
+    {
+        material.emissiveColor = float4(0.0, 0.0, 0.0, 1.0);
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        return;
+    }
+
+    material.emissiveColor = float4(max(record.color.rgb, float3(0.0, 0.0, 0.0)), saturate(record.color.a));
+    material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+}
+
 PathTraceSmokeMaterial PathTraceCleanRoomLoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material;
@@ -28,6 +78,7 @@ PathTraceSmokeMaterial PathTraceCleanRoomLoadSmokeMaterial(uint materialIndex)
     if (materialIndex < materialCount)
     {
         material = SmokeMaterials[materialIndex];
+        PathTraceCleanRoomApplyDynamicMaterialRecord(materialIndex, material);
     }
 
     return material;

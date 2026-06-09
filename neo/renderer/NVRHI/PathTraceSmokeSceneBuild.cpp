@@ -289,7 +289,14 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     const RtSmokeMaterialStats& materialStats)
 {
     std::vector<PathTraceDynamicMaterialRecord> records;
-    records.reserve(materialStats.dynamicEvalMaterialSamples.size());
+    const int materialCount = Min(static_cast<int>(table.materials.size()), static_cast<int>(table.materialIds.size()));
+    if (materialCount <= 0)
+    {
+        return records;
+    }
+
+    records.resize(materialCount);
+    int validRecordCount = 0;
 
     for (const RtSmokeDynamicMaterialEvalSample& sample : materialStats.dynamicEvalMaterialSamples)
     {
@@ -353,9 +360,17 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         {
             record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM;
         }
-        records.push_back(record);
+        if ((records[materialIndex].flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u)
+        {
+            ++validRecordCount;
+        }
+        records[materialIndex] = record;
     }
 
+    if (validRecordCount == 0)
+    {
+        records.clear();
+    }
     return records;
 }
 

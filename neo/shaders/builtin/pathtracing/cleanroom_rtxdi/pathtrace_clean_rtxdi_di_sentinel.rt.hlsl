@@ -102,6 +102,17 @@ struct PathTraceSmokeEmissiveTriangle
     uint padding0;
 };
 
+struct PathTraceDynamicMaterialRecord
+{
+    float4 color;
+    float4 texMatrix0;
+    float4 texMatrix1;
+    uint materialIndex;
+    uint materialId;
+    uint stageIndex;
+    uint flags;
+};
+
 struct PathTraceEmissiveDistributionEntry
 {
     uint emissiveTriangleIndex;
@@ -197,6 +208,7 @@ StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
+StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t15);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
