@@ -240,6 +240,31 @@ RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMat
     return info;
 }
 
+bool IsSmokeDetailDecalCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    if (!material)
+    {
+        return false;
+    }
+    // Detail decals are surface-locked coplanar cards: level-authored grime, trim,
+    // panels, signage, scorch sitting on a wall/floor. Effect cards are excluded by
+    // orientation/deform/particle signals ONLY -- a dynamic or additive surface-locked
+    // decal is still a detail decal (docs/decal_cards 02 M1 / 07).
+    if (material->Deform() != DFRM_NONE)
+    {
+        return false;
+    }
+    if (classifier.hasScreenTexgen || classifier.sortIsGuiOrSubview || classifier.sortIsPostProcess)
+    {
+        return false;
+    }
+    if (classifier.nameLooksParticle || classifier.nameLooksGui)
+    {
+        return false;
+    }
+    return classifier.sortIsDecal || classifier.polygonOffsetDecal;
+}
+
 void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTest, float& alphaCutoff)
 {
     hasAlphaTest = false;

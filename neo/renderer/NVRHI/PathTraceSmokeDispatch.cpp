@@ -677,6 +677,7 @@ struct PathTraceSmokeConstants
     float neeCacheInfo2[4];
     float neeCacheInfo3[4];
     float neeCacheConsumerInfo[4];
+    float decalInfo[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -2549,6 +2550,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.toyPathInfo[2] = cleanRtxdiDiResolveView == 16
                 ? idMath::ClampFloat(0.0f, 32.0f, r_pathTracingToyEmissiveScale.GetFloat())
                 : 0.0f;
+            primarySurfaceConstants.decalInfo[0] = static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingDecalComposite.GetInteger()));
+            primarySurfaceConstants.decalInfo[1] = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
+            primarySurfaceConstants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
+            primarySurfaceConstants.decalInfo[3] = 0.0f;
 
             commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);

@@ -501,6 +501,93 @@ static void SmokeDynamicEvalAddMaterialSample(RtSmokeMaterialStats& stats, const
     stats.dynamicEvalMaterialSamples.push_back(sample);
 }
 
+// DECAL-02 (docs/decal_cards/04): lift detail-decal cards along their outward face
+// normal so coplanar any-hit accumulation is deterministic and stacked decals
+// separate. Baked into the captured static vertex positions; view-independent.
+// The offset index derives from the persistent static-surface key instead of a
+// global submission counter so a re-captured surface keeps the same lift and the
+// static BVH stays temporally stable.
+static void ApplySmokeDetailDecalNormalOffset(
+    const drawSurf_t* drawSurf,
+    uint64 staticSurfaceKey,
+    std::vector<PathTraceSmokeVertex>& vertices,
+    const std::vector<uint32_t>& indexes,
+    size_t vertexStart,
+    size_t indexStart)
+{
+    if (r_pathTracingDecalComposite.GetInteger() <= 0)
+    {
+        return;
+    }
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    if (!material)
+    {
+        return;
+    }
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    if (!IsSmokeDetailDecalCardMaterial(material, classifier))
+    {
+        return;
+    }
+
+    const float step = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
+    const int maxOffsetIndex = Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger());
+    uint64 hash = staticSurfaceKey;
+    hash ^= hash >> 33;
+    hash *= 0xff51afd7ed558ccdull;
+    hash ^= hash >> 33;
+    const int offsetIndex = 1 + static_cast<int>(hash % static_cast<uint64>(maxOffsetIndex));
+    const float lift = step * static_cast<float>(offsetIndex);
+    if (lift <= 0.0f)
+    {
+        return;
+    }
+
+    std::vector<bool> vertexLifted(vertices.size() - vertexStart, false);
+    for (size_t indexCursor = indexStart; indexCursor + 2 < indexes.size(); indexCursor += 3)
+    {
+        const uint32_t i0 = indexes[indexCursor + 0];
+        const uint32_t i1 = indexes[indexCursor + 1];
+        const uint32_t i2 = indexes[indexCursor + 2];
+        if (i0 < vertexStart || i1 < vertexStart || i2 < vertexStart ||
+            i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size())
+        {
+            continue;
+        }
+
+        const idVec3 p0 = SmokeVertexPosition(vertices[i0]);
+        const idVec3 p1 = SmokeVertexPosition(vertices[i1]);
+        const idVec3 p2 = SmokeVertexPosition(vertices[i2]);
+        idVec3 faceNormal = (p1 - p0).Cross(p2 - p0);
+        if (faceNormal.Normalize() == 0.0f)
+        {
+            continue;
+        }
+        // Use the FACE normal (planar cards stay planar) but orient it outward by
+        // the authored vertex normal so the lift never pushes into the receiver.
+        const idVec3 vertexNormal = SmokeVertexNormal(vertices[i0]);
+        if (faceNormal * vertexNormal < 0.0f)
+        {
+            faceNormal = -faceNormal;
+        }
+
+        const uint32_t triangleVerts[3] = { i0, i1, i2 };
+        for (int corner = 0; corner < 3; ++corner)
+        {
+            const size_t localVertex = triangleVerts[corner] - vertexStart;
+            if (vertexLifted[localVertex])
+            {
+                continue;
+            }
+            vertexLifted[localVertex] = true;
+            PathTraceSmokeVertex& vertex = vertices[triangleVerts[corner]];
+            vertex.position[0] += faceNormal.x * lift;
+            vertex.position[1] += faceNormal.y * lift;
+            vertex.position[2] += faceNormal.z * lift;
+        }
+    }
+}
+
 int AppendSmokeSurfaceGeometry(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -1591,6 +1678,13 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 continue;
             }
 
+            ApplySmokeDetailDecalNormalOffset(
+                drawSurf,
+                staticSurfaceKey,
+                staticVertexCache,
+                staticIndexCache,
+                static_cast<size_t>(staticAppend.vertexOffset),
+                static_cast<size_t>(staticAppend.indexOffset));
             ++captureTiming.staticNewSurfaces;
             geometryUniverse.CompleteStaticSurfaceAppend(staticAppend, emittedIndexes);
             staticCacheChanged = true;

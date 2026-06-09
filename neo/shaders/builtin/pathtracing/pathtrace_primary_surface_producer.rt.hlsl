@@ -5,6 +5,8 @@
 #endif
 #endif
 
+#define RT_SMOKE_DECAL_BIN_SIZE 3
+
 struct PathTraceSmokePayload
 {
     uint value;
@@ -30,6 +32,14 @@ struct PathTraceSmokePayload
     uint shadowIgnoreMaterialId;
     float3 debugVector;
     uint debugFlags;
+    // Detail-decal blend-through bin (docs/decal_cards/02 M4): any-hit accumulates
+    // decal layers here and IgnoreHit()s; the base wall stays the committed
+    // closest hit and the layers composite at surface-build time.
+    uint decalCount;
+    uint decalMaterialIndex[RT_SMOKE_DECAL_BIN_SIZE];
+    uint decalPackedTexCoord[RT_SMOKE_DECAL_BIN_SIZE];
+    uint decalSortKey[RT_SMOKE_DECAL_BIN_SIZE];
+    float decalHitT[RT_SMOKE_DECAL_BIN_SIZE];
 };
 
 struct PathTraceSmokeShadowPayload
@@ -240,6 +250,10 @@ cbuffer PathTraceSmokeConstants : register(b2)
     float4 RestirPTIndirectInfo;
     float4 RayReconstructionInfo;
     float4 RRProjectionDepthInfo;
+    // Padding spans the light-manager/verifier/ReGIR/NEE-cache fields of the CPU
+    // PathTraceSmokeConstants struct, which this shader does not consume.
+    float4 ProducerReservedTail[20];
+    float4 DecalInfo;
 };
 
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO
@@ -270,6 +284,8 @@ static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL = 0x00002000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC = 0x00004000u;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
 static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
@@ -334,6 +350,18 @@ uint2 PathTraceDispatchTileOffset()
 bool PathTraceSafetyDisabled(uint bit)
 {
     return (((uint)SafetyInfo.x) & bit) != 0u;
+}
+
+// Detail-decal composite staging (docs/decal_cards/06): 0=legacy stochastic,
+// 1=composite, 2=offset-geometry only, 3=any-hit collect only, 4=composite diagnostic.
+uint PathTraceDecalCompositeStage()
+{
+    return (uint)max(DecalInfo.x, 0.0);
+}
+
+bool PathTraceDecalCollectEnabled(uint stage)
+{
+    return stage == 1u || stage == 3u || stage == 4u;
 }
 
 float3 SafeNormalize(float3 value, float3 fallback)
@@ -1040,6 +1068,15 @@ PathTraceSmokePayload InitSmokePayload()
     payload.shadowIgnoreMaterialId = 0xffffffffu;
     payload.debugVector = float3(0.0, 0.0, 0.0);
     payload.debugFlags = 0u;
+    payload.decalCount = 0u;
+    [unroll]
+    for (uint decalSlot = 0u; decalSlot < RT_SMOKE_DECAL_BIN_SIZE; ++decalSlot)
+    {
+        payload.decalMaterialIndex[decalSlot] = 0xffffffffu;
+        payload.decalPackedTexCoord[decalSlot] = 0u;
+        payload.decalSortKey[decalSlot] = 0u;
+        payload.decalHitT[decalSlot] = 0.0;
+    }
     return payload;
 }
 
@@ -1349,6 +1386,117 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBaryce
     return SmokeAlphaCoverage(material, texCoord) < material.alphaCutoff;
 }
 
+// DECAL-05 (docs/decal_cards/03): deterministic blend-through composite. The bin
+// is sorted ascending by draw-order sort key and each surviving layer composites
+// onto the base material -- over / modulate / additive -- using the decal card's
+// own authored UVs and textures. Pure arithmetic; no recursion.
+void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload payload, float3 rayDirection)
+{
+    const uint stage = PathTraceDecalCompositeStage();
+    if ((stage != 1u && stage != 4u) || payload.decalCount == 0u || !RAB_IsSurfaceValid(surface))
+    {
+        return;
+    }
+
+    const uint count = min(payload.decalCount, RT_SMOKE_DECAL_BIN_SIZE);
+    uint order[RT_SMOKE_DECAL_BIN_SIZE];
+    [unroll]
+    for (uint initSlot = 0u; initSlot < RT_SMOKE_DECAL_BIN_SIZE; ++initSlot)
+    {
+        order[initSlot] = initSlot;
+    }
+    for (uint sortOuter = 0u; sortOuter + 1u < count; ++sortOuter)
+    {
+        for (uint sortInner = sortOuter + 1u; sortInner < count; ++sortInner)
+        {
+            if (payload.decalSortKey[order[sortInner]] < payload.decalSortKey[order[sortOuter]])
+            {
+                const uint swap = order[sortOuter];
+                order[sortOuter] = order[sortInner];
+                order[sortInner] = swap;
+            }
+        }
+    }
+
+    // Receiver-validation guard (docs/decal_cards/04 sec.5): keep only decals whose
+    // hit lies within the offset envelope of the committed base hit, measured along
+    // the receiver normal -- never raw ray-T, which cuts circular halos at grazing
+    // angles. The lifted decal sits in front of its receiver by at most
+    // maxOffsetIndex * step; anything further belongs to other geometry (thin
+    // doors, unrelated nearby cards).
+    const float offsetEnvelope = DecalInfo.y * DecalInfo.z * 1.5 + 0.05;
+    const float normalCosine = abs(dot(rayDirection, surface.geometryNormal));
+
+    uint appliedCount = 0u;
+    for (uint applySlot = 0u; applySlot < count; ++applySlot)
+    {
+        const uint entry = order[applySlot];
+        const float normalSeparation = abs(payload.hitT - payload.decalHitT[entry]) * normalCosine;
+        if (normalSeparation > offsetEnvelope)
+        {
+            continue;
+        }
+
+        const PathTraceSmokeMaterial decalMaterial = LoadSmokeMaterial(payload.decalMaterialIndex[entry]);
+        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) == 0u)
+        {
+            continue;
+        }
+        const uint packedTexCoord = payload.decalPackedTexCoord[entry];
+        const float2 decalTexCoord = float2(f16tof32(packedTexCoord & 0xffffu), f16tof32(packedTexCoord >> 16));
+        const float3 decalRgb = saturate(SampleSmokeDiffuseTexture(decalMaterial, decalTexCoord).rgb);
+
+        float coverage;
+        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u)
+        {
+            // MODULATE: out = lerp(base, decal*base, coverage) -- the product the
+            // stochastic path could never express (docs/decal_cards/03 sec.1).
+            const bool blackKey = (decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
+            coverage = saturate(blackKey
+                ? max(max(decalRgb.r, decalRgb.g), decalRgb.b)
+                : 1.0 - min(min(decalRgb.r, decalRgb.g), decalRgb.b));
+            surface.material.diffuseAlbedo = lerp(
+                surface.material.diffuseAlbedo,
+                surface.material.diffuseAlbedo * decalRgb,
+                coverage);
+        }
+        else if ((decalMaterial.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
+        {
+            // ADDITIVE: contributes radiance, mirroring the unlit-color fallback the
+            // stochastic path uses for additive cards (glows, light leaks).
+            coverage = saturate(SmokeAdditiveDecalMaterialOpacity(decalMaterial, decalRgb));
+            surface.material.emissiveRadiance += decalRgb * coverage;
+        }
+        else
+        {
+            // OVER: src-alpha blend -- signage, posters, alpha-cut grime.
+            coverage = saturate(SmokeAlphaCoverage(decalMaterial, decalTexCoord));
+            surface.material.diffuseAlbedo = lerp(surface.material.diffuseAlbedo, decalRgb, coverage);
+        }
+
+        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0u)
+        {
+            const float3 decalEmissive = SampleSmokeEmissive(decalMaterial, decalTexCoord, surface.surfaceClass, true) * max(ToyPathInfo.z, 0.0);
+            surface.material.emissiveRadiance += decalEmissive * coverage;
+        }
+        ++appliedCount;
+    }
+
+    if (stage == 4u && appliedCount > 0u)
+    {
+        // Composite diagnostic: false-color by applied-layer count (1=red 2=green 3=blue).
+        const float3 countTints[RT_SMOKE_DECAL_BIN_SIZE] = {
+            float3(1.0, 0.1, 0.1),
+            float3(0.1, 1.0, 0.1),
+            float3(0.1, 0.1, 1.0)
+        };
+        surface.material.diffuseAlbedo = lerp(
+            surface.material.diffuseAlbedo,
+            countTints[min(appliedCount, RT_SMOKE_DECAL_BIN_SIZE) - 1u],
+            0.65);
+    }
+}
+
 [shader("raygeneration")]
 void RayGen()
 {
@@ -1374,17 +1522,25 @@ void RayGen()
     ray.TMax = CameraOriginAndTMax.w;
 
     PathTraceSmokePayload payload = InitSmokePayload();
-    payload.value = RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
+    // Detail-decal composite stages collect decals in any-hit, so the primary ray
+    // runs in plain mode (0) and the legacy filter-decal pass-through experiment is
+    // bypassed (docs/decal_cards/08 sec.4 -- do not build on the receiver re-trace).
+    const bool decalCollectMode = PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage());
+    payload.value = decalCollectMode ? 0u : RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
     TraceRay(SmokeScene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
     RAB_Surface surface = RAB_EmptySurface();
     if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
     {
         PathTraceSmokePayload filterDecalPayload;
-        const bool filterDecalComposite = ResolvePrimaryFilterDecalReceiver(payload, ray, filterDecalPayload);
+        const bool filterDecalComposite = !decalCollectMode && ResolvePrimaryFilterDecalReceiver(payload, ray, filterDecalPayload);
         surface = BuildSurfaceFromPayload(payload, ray.Origin, ray.Direction);
         if (filterDecalComposite)
         {
             ApplyPrimaryFilterDecalToSurface(surface, filterDecalPayload);
+        }
+        if (decalCollectMode)
+        {
+            ApplyDetailDecalComposite(surface, payload, ray.Direction);
         }
     }
     StorePrimarySurfaceRecord(pixel, surface);
@@ -1404,6 +1560,58 @@ void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
     payload.hit = 0u;
 }
 
+// Remix-style conditionallyStoreDecal: keep the RT_SMOKE_DECAL_BIN_SIZE entries
+// with the highest sort keys (the topmost-drawn layers). The decal never commits;
+// receiver validation happens at composite time where the base hitT is known.
+void ConditionallyStoreDetailDecal(inout PathTraceSmokePayload payload, uint materialIndex, uint instanceId, uint primitiveIndex, float2 barycentrics)
+{
+    // Draw-order proxy sort key (docs/decal_cards/02 M2, conservative v1): static
+    // capture appends in submission order, so the BLAS primitive index preserves
+    // draw order within an instance.
+    const uint sortKey = (instanceId << 30) | (primitiveIndex & 0x3fffffffu);
+
+    [unroll]
+    for (uint existingSlot = 0u; existingSlot < RT_SMOKE_DECAL_BIN_SIZE; ++existingSlot)
+    {
+        if (existingSlot < payload.decalCount && payload.decalSortKey[existingSlot] == sortKey)
+        {
+            return;
+        }
+    }
+
+    uint slot;
+    if (payload.decalCount < RT_SMOKE_DECAL_BIN_SIZE)
+    {
+        slot = payload.decalCount;
+        payload.decalCount += 1u;
+    }
+    else
+    {
+        uint lowestSlot = 0u;
+        uint lowestKey = payload.decalSortKey[0];
+        [unroll]
+        for (uint binSlot = 1u; binSlot < RT_SMOKE_DECAL_BIN_SIZE; ++binSlot)
+        {
+            if (payload.decalSortKey[binSlot] < lowestKey)
+            {
+                lowestKey = payload.decalSortKey[binSlot];
+                lowestSlot = binSlot;
+            }
+        }
+        if (sortKey <= lowestKey)
+        {
+            return;
+        }
+        slot = lowestSlot;
+    }
+
+    const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
+    payload.decalMaterialIndex[slot] = materialIndex;
+    payload.decalPackedTexCoord[slot] = (f32tof16(texCoord.x) & 0xffffu) | (f32tof16(texCoord.y) << 16);
+    payload.decalSortKey[slot] = sortKey;
+    payload.decalHitT[slot] = RayTCurrent();
+}
+
 [shader("anyhit")]
 void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
@@ -1416,6 +1624,20 @@ void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttr
         const uint materialId = LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
         if (primitiveIndex == payload.shadowIgnorePrimitiveIndex || materialId == payload.shadowIgnoreMaterialId)
         {
+            IgnoreHit();
+            return;
+        }
+    }
+    if (payload.value == 0u &&
+        instanceId < 2u &&
+        PathTraceDecalCollectEnabled(PathTraceDecalCompositeStage()) &&
+        !PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA) &&
+        SmokeTriangleIndexRangeValid(instanceId, primitiveIndex))
+    {
+        const uint materialIndex = LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex);
+        if ((LoadSmokeMaterial(materialIndex).flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) != 0u)
+        {
+            ConditionallyStoreDetailDecal(payload, materialIndex, instanceId, primitiveIndex, attributes.barycentrics);
             IgnoreHit();
             return;
         }

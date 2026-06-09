@@ -669,6 +669,8 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.additiveDecalWhiteKey = false;
     info.filterDecal = false;
     info.filterDecalBlackKey = false;
+    info.detailDecal = false;
+    info.detailDecalDynamic = false;
     info.alphaFromDiffuseLuma = false;
     info.forceFallbackAlbedo = true;
     info.alphaFromDiffuseDarkKey = false;
@@ -1088,6 +1090,8 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     const bool yCoCgDiffuseMapDecal = IsSmokeYCoCgDiffuseMapDecalMaterial(material, classifier);
     const bool particleOrSfxDiffuseLumaAlpha = ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
     info->filterDecal = !info->additiveDecal && (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
+    info->detailDecal = IsSmokeDetailDecalCardMaterial(material, classifier);
+    info->detailDecalDynamic = info->detailDecal && material && material->ConstantRegisters() == NULL;
     info->filterDecalBlackKey = false;
     if (info->filterDecal)
     {

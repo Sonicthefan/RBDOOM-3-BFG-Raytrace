@@ -1833,6 +1833,24 @@ idCVar r_pathTracingAdditiveDecalKey(
     CVAR_RENDERER | CVAR_INTEGER,
     "Treat additive translucent decal/signage materials as RGB-keyed RT overlays" );
 
+idCVar r_pathTracingDecalComposite(
+    "r_pathTracingDecalComposite",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Detail-decal blend-through composite stage: 0=legacy stochastic, 1=composite on, 2=normal-offset geometry only, 3=any-hit collect only (no composite), 4=composite diagnostic tint. Changing the offset stages re-captures static geometry on map reload" );
+
+idCVar r_pathTracingDecalOffsetStep(
+    "r_pathTracingDecalOffsetStep",
+    "0.15",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "World-unit step per offset index for the detail-decal face-normal lift" );
+
+idCVar r_pathTracingDecalMaxOffsetIndex(
+    "r_pathTracingDecalMaxOffsetIndex",
+    "8",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Cap for the incrementing detail-decal offset index" );
+
 idCVar r_pathTracingAllowGuiTextures(
     "r_pathTracingAllowGuiTextures",
     "0",

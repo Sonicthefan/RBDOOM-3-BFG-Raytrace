@@ -1,0 +1,103 @@
+IMPLEMENTATION NOTES - V1 LANDED (2026-06-10)
+==============================================
+Phases 1-3 of 05_task_breakdown.txt are implemented and build clean
+(win64-pt-dev-release; exe + producer SPIR-V deployed to the prebuilt dir).
+Everything is behind r_pathTracingDecalComposite (default 0 = legacy path,
+byte-identical: ray mode 3 + the filter-decal pass-through experiment unchanged).
+
+WHAT LANDED, FILE BY FILE
+-------------------------
+DECAL-01  isDetailDecal predicate
+  - IsSmokeDetailDecalCardMaterial(material, classifier)
+    (PathTraceDoomMaterialClassifier.cpp). (sortIsDecal OR MF_POLYGONOFFSET)
+    AND deform==DFRM_NONE AND no screen texgen / gui-or-subview / postprocess
+    sort AND NOT nameLooksParticle/nameLooksGui. Per plan, neither "static" nor
+    "additive" is used to exclude.
+  - RtSmokeMaterialTextureInfo.detailDecal / detailDecalDynamic
+    (ConstantRegisters()==NULL), set in PathTraceMaterialTextureDiscovery.cpp.
+    NOT cleared by the emissive-overlay block (a glowing decal stays a detail
+    decal) but forced off for absorbing-black materials.
+  - RT_SMOKE_MATERIAL_DETAIL_DECAL (0x2000) / _DETAIL_DECAL_DYNAMIC (0x4000)
+    flags (PathTraceDynamicMaterialState.h), mapped + hashed + compared in
+    PathTraceMaterialUniverse.{h,cpp} (facts.detailDecal/detailDecalDynamic).
+
+DECAL-02  Face-normal offset at static capture
+  - ApplySmokeDetailDecalNormalOffset (PathTraceSceneCapture.cpp), called in the
+    STATIC pass right after a successful AppendSmokeSurfaceGeometry. Face normal
+    per triangle (cross of edges, oriented by the authored vertex normal), all
+    verts of a triangle pushed by the same vector; each vertex lifted once.
+  - DEVIATION from 04: the offset index is NOT a global monotonic counter. It is
+    hashed from the persistent static-surface key into [1, maxOffsetIndex]. The
+    static cache appends incrementally across frames and evicts/re-appends, so a
+    counter is capture-order-dependent (view-dependent) and would churn the BVH;
+    the key hash is stable per surface forever. Stacked same-spot decals get
+    different keys -> different indices with collision chance 1/maxOffsetIndex.
+    If a real stacked pair collides, raise r_pathTracingDecalMaxOffsetIndex.
+  - The offset is per-SURFACE (per drawSurf batch), i.e. Remix's per-batch mode;
+    D3 batches static decals per material per area so same-material stacking
+    within one surface is the rare case.
+  - CAVEAT: toggling the cvar does not re-capture already-cached static
+    surfaces; reload the map (or vid_restart) after changing stage 0 <-> 1+.
+
+DECAL-03  Sort key (conservative v1)
+  - sortKey = (instanceId << 30) | primitiveIndex, computed in the any-hit.
+    Static capture appends in submission order so BLAS primitive order is the
+    draw-order proxy. NOTE: the plan's 16-bit primitiveIndex packing was NOT
+    used - static world primitive indexes exceed 16 bits. No CPU-side metadata
+    buffer yet; triangleClassAndFlags untouched.
+
+DECAL-04  Payload bin + any-hit accumulation
+  - PathTraceSmokePayload grows: decalCount + 3x {decalMaterialIndex,
+    decalPackedTexCoord (2x f16), decalSortKey, decalHitT} (13 dwords).
+  - AnyHit: in collect stages (1/3/4) a primary-mode ray (payload.value==0)
+    hitting an instance<2 triangle whose material has DETAIL_DECAL stores via
+    ConditionallyStoreDetailDecal (keeps the N HIGHEST sort keys = topmost
+    layers; dedupes by sort key) then IgnoreHit(). The decal never commits.
+  - In collect stages RayGen launches with mode 0 (not 3) and the filter-decal
+    pass-through experiment (ResolvePrimaryFilterDecalReceiver) is bypassed.
+
+DECAL-05  Composite
+  - ApplyDetailDecalComposite (producer raygen path, after
+    BuildSurfaceFromPayload). Sorts ascending by sort key (selection sort, n<=3),
+    applies per blend kind:
+      FILTER  : albedo = lerp(albedo, albedo*decalRgb, coverage), coverage from
+                white/black key (the headline modulate fix; no 0.12 floor - the
+                raster contract is a true multiply).
+      ADDITIVE: emissiveRadiance += decalRgb * additiveOpacity. DEVIATION: adds
+                radiance, not albedo, mirroring the unlit-color fallback the
+                stochastic path used for additive cards; albedo addition would
+                double-count under DI.
+      OVER    : albedo = lerp(albedo, decalRgb, SmokeAlphaCoverage).
+    Decal-material EMISSIVE flag additionally folds SampleSmokeEmissive * coverage.
+  - RECEIVER GUARD: |baseHitT - decalHitT| * |dot(rayDir, baseGeometricNormal)|
+    <= step*maxOffsetIndex*1.5 + 0.05 (normal-space, never raw ray-T).
+  - v1.5 roughness/metallic/F0 projection (DECAL-06) NOT implemented yet.
+
+DECAL-08/08b  Diagnostics
+  - Crosshair dump (PathTraceSurfaceDebugDumps.cpp) now prints
+    isDetailDecal / isDynamic / blendKind / compositeStage.
+  - Stage 4 of r_pathTracingDecalComposite is the bin-count false-color view
+    (1 layer=red, 2=green, 3=blue) - serves as the 08b debug view without a new
+    debugMode.
+
+CVARS / PLUMBING
+----------------
+  r_pathTracingDecalComposite      0..4 staging ladder per 06_validation.txt
+  r_pathTracingDecalOffsetStep     default 0.15 (world units)
+  r_pathTracingDecalMaxOffsetIndex default 8
+  Values reach the shader via a decalInfo float4 appended to
+  PathTraceSmokeConstants (PathTraceSmokeDispatch.cpp); the producer cbuffer
+  pads the unconsumed light-manager/ReGIR/NEE fields with
+  ProducerReservedTail[20] then DecalInfo. If fields are ever appended to the
+  CPU struct, DecalInfo must stay LAST or both sides updated together.
+
+NOT DONE / NEXT (DECAL-09 gate)
+-------------------------------
+  - In-game validation V1-V5 (06_validation.txt) has NOT been run yet. Next
+    session: load alphalabs1/mars_city1, find a `blend filter` grime decal
+    (e.g. textures/decals/stainwallfade), A/B stage 0 vs 1, walk the ladder
+    2/3/4, check thin doors + stacked decals, then record tuned defaults here
+    and consider flipping the cvar default.
+  - DECAL-06 (roughness/metallic), DECAL-10..13, Phase 6 DYN-x: untouched.
+  - Payload grew by 13 dwords; if register pressure shows up, drop the bin to
+    N=2 first (RT_SMOKE_DECAL_BIN_SIZE).
