@@ -1128,23 +1128,32 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->emissive = info->hasEmissiveImage || emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f;
     if (info->emissive)
     {
-        info->alphaImage = nullptr;
-        info->alphaImageName = "<none>";
-        info->hasAlphaImage = false;
-        info->hasAlphaTextureHandle = false;
-        info->hasSafeAlphaTexture = false;
-        info->alphaUsage = TD_DEFAULT;
-        info->alphaColorFormat = CFM_DEFAULT;
         info->additiveDecal = false;
         info->additiveDecalWhiteKey = false;
         info->filterDecal = false;
         info->filterDecalBlackKey = false;
-        if (info->alphaFromDiffuseMagentaKey)
+        const bool preservePerforatedCoverage =
+            material &&
+            material->Coverage() == MC_PERFORATED &&
+            info->hasAlphaTest &&
+            info->hasAlphaImage;
+        if (preservePerforatedCoverage)
+        {
+            info->alphaReason = va("%s; preserved for perforated emissive overlay", alphaReason.c_str());
+        }
+        else if (info->alphaFromDiffuseMagentaKey)
         {
             info->alphaReason = "diffuse magenta key alpha-test with emissive overlay";
         }
         else
         {
+            info->alphaImage = nullptr;
+            info->alphaImageName = "<none>";
+            info->hasAlphaImage = false;
+            info->hasAlphaTextureHandle = false;
+            info->hasSafeAlphaTexture = false;
+            info->alphaUsage = TD_DEFAULT;
+            info->alphaColorFormat = CFM_DEFAULT;
             info->hasAlphaTest = false;
             info->alphaReason = "emissive stage ignores alpha/blend semantics";
             info->alphaCutoff = 0.0f;
