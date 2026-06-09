@@ -594,6 +594,28 @@ bool SmokeImageHasExplicitAlphaFormat(const idImage* image)
         opts.format == FMT_L8A8;
 }
 
+bool SmokeMaterialUsesSourceAlphaBlend(const idMaterial* material)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || !SmokeStageConditionCanBeActive(material, stage) || !stage->texture.image)
+        {
+            continue;
+        }
+        if (stage->lighting == SL_AMBIENT && SmokeStageBlendUsesSourceAlpha(stage))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(const idMaterial* material, const idImage* diffuseImage, const idImage* alphaImage)
 {
     if (!material || !diffuseImage || alphaImage)
@@ -607,6 +629,10 @@ bool ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(const idMaterial* material, con
     }
 
     if (SmokeImageHasExplicitAlphaFormat(diffuseImage) || SmokeImageNameLooksExplicitAlpha(diffuseImage->GetName()))
+    {
+        return false;
+    }
+    if (SmokeMaterialUsesSourceAlphaBlend(material))
     {
         return false;
     }
@@ -1086,7 +1112,14 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->additiveDecalWhiteKey = IsSmokeAdditiveWhiteKeyMaterial(material, classifier);
     const bool rgbKeyedBlendDecal = IsSmokeRgbKeyedBlendDecalMaterial(material, classifier);
     const bool yCoCgDiffuseMapDecal = IsSmokeYCoCgDiffuseMapDecalMaterial(material, classifier);
-    info->filterDecal = !info->additiveDecal && (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
+    const bool particleOrSfxSourceAlphaCard =
+        SmokeMaterialUsesSourceAlphaBlend(material) &&
+        (SmokeNameLooksParticleOrSfxCard(material->GetName()) ||
+            (diffuseImage && SmokeNameLooksParticleOrSfxCard(diffuseImage->GetName())));
+    const bool particleOrSfxDiffuseLumaAlpha = ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
+    info->filterDecal = !particleOrSfxSourceAlphaCard &&
+        !info->additiveDecal &&
+        (IsSmokeTranslucentOverlayCardMaterial(material, classifier) || rgbKeyedBlendDecal);
     info->filterDecalBlackKey = false;
     if (info->filterDecal)
     {
@@ -1111,13 +1144,17 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         {
             info->filterDecalBlackKey = true;
         }
+        if (particleOrSfxDiffuseLumaAlpha)
+        {
+            info->filterDecalBlackKey = true;
+        }
     }
     info->alphaFromDiffuseLuma =
         (info->hasAlphaTest &&
             diffuseImage != nullptr &&
             alphaImage == diffuseImage &&
             (diffuseImage->GetUsage() == TD_DIFFUSE || diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5)) ||
-        ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
+        particleOrSfxDiffuseLumaAlpha;
     info->alphaFromDiffuseMagentaKey =
         info->hasAlphaTest &&
         ShouldSmokeAlphaTestUseDiffuseMagentaKey(material, diffuseImage, alphaImage);
