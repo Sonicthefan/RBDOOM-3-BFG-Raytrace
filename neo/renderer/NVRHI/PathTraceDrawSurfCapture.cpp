@@ -53,6 +53,23 @@ uint64 PtInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, u
     return hash;
 }
 
+uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t materialId, uint32_t localTriangleIndex)
+{
+    const idRenderEntityLocal* entity = (drawSurf && drawSurf->space) ? drawSurf->space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const int entityIndex = entity ? entity->index : -1;
+    const int renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
+    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
+    uint64 hash = 14695981039346656037ull;
+    hash = PtHashBytes(hash, &entityIndex, sizeof(entityIndex));
+    hash = PtHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
+    hash = PtHashBytes(hash, &materialId, sizeof(materialId));
+    hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
+    hash = PtHashBytes(hash, &localTriangleIndex, sizeof(localTriangleIndex));
+    const uint32_t folded = static_cast<uint32_t>(hash) ^ static_cast<uint32_t>(hash >> 32);
+    return folded != 0u ? folded : 1u;
+}
+
 void CopyDrawSurfObjectToWorld(const drawSurf_t* drawSurf, float objectToWorld[16])
 {
     if (drawSurf && drawSurf->space)
@@ -616,6 +633,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<uint32_t>& triangleClassData,
     std::vector<uint32_t>& triangleMaterialData,
     std::vector<uint32_t>* triangleInstanceData,
+    std::vector<uint32_t>* triangleIdentityData,
     int& sourceSurfaces,
     int& sourceVerts,
     int& sourceIndexes,
@@ -654,6 +672,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     {
         triangleInstanceData->clear();
     }
+    if (triangleIdentityData)
+    {
+        triangleIdentityData->clear();
+    }
     vertexData.reserve(RT_SMOKE_MAX_VERTS);
     indexData.reserve(RT_SMOKE_MAX_INDEXES);
     triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
@@ -672,6 +694,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<uint32_t> bucketTriangleClassData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleMaterialData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleInstanceData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketTriangleIdentityData[RT_SMOKE_CLASS_COUNT];
     for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
     {
         bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
@@ -679,6 +702,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
         bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
         bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleIdentityData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
     }
 
     int dynamicVerts = 0;
@@ -762,6 +786,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
         std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
         std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
+        std::vector<uint32_t>& bucketIdentities = bucketTriangleIdentityData[bucketIndex];
         const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
         const int bucketVertexStart = static_cast<int>(bucketVertices.size());
         const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
@@ -795,7 +820,12 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
         const int entityIndex = (drawSurf->space && drawSurf->space->entityDef) ? drawSurf->space->entityDef->index : -1;
         const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
-        bucketInstances.insert(bucketInstances.end(), emittedIndexes / 3, dynamicInstanceId);
+        const int emittedTriangles = emittedIndexes / 3;
+        bucketInstances.insert(bucketInstances.end(), emittedTriangles, dynamicInstanceId);
+        for (int localTriangleIndex = 0; localTriangleIndex < emittedTriangles; ++localTriangleIndex)
+        {
+            bucketIdentities.push_back(PtDynamicTriangleIdentitySeed(drawSurf, tri, baseMaterialId, static_cast<uint32_t>(localTriangleIndex)));
+        }
         if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
         {
             AddSmokeSkinnedSurfaceRecord(
@@ -856,6 +886,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             if (triangleInstanceData)
             {
                 triangleInstanceData->insert(triangleInstanceData->end(), bucketTriangleInstanceData[bucketIndex].begin(), bucketTriangleInstanceData[bucketIndex].end());
+            }
+            if (triangleIdentityData)
+            {
+                triangleIdentityData->insert(triangleIdentityData->end(), bucketTriangleIdentityData[bucketIndex].begin(), bucketTriangleIdentityData[bucketIndex].end());
             }
         }
     }

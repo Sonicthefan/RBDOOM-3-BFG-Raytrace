@@ -88,6 +88,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
     const std::vector<uint32_t>& triangleMaterialIndexes,
     uint32_t instanceId,
     const std::vector<uint32_t>* triangleInstanceIds,
+    const std::vector<uint32_t>* triangleIdentityIds,
     uint32_t emissiveMaterialFlag,
     uint32_t triangleClassMask,
     uint32_t skinnedSurfaceClassId,
@@ -132,6 +133,10 @@ void AppendSmokeEmissiveInventoryForGeometry(
             (triangleInstanceIds && primitiveIndex < static_cast<int>(triangleInstanceIds->size()))
                 ? (*triangleInstanceIds)[primitiveIndex]
                 : instanceId;
+        const uint32_t identityPrimitiveIndex =
+            (triangleIdentityIds && primitiveIndex < static_cast<int>(triangleIdentityIds->size()))
+                ? (*triangleIdentityIds)[primitiveIndex]
+                : static_cast<uint32_t>(primitiveIndex);
         ++stats.totalTriangles;
         if (instanceId == 0)
         {
@@ -225,7 +230,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.materialId = materialId;
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
         record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(materialId, info).universeIndex;
-        const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, identityInstanceId, static_cast<uint32_t>(primitiveIndex), materialIndex, triangleClassAndFlags);
+        const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, identityInstanceId, identityPrimitiveIndex, materialIndex, triangleClassAndFlags);
         record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
         record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
         record.padding0 = triangleClassAndFlags;
@@ -963,6 +968,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& dynamicTriangleClasses,
     const std::vector<uint32_t>& dynamicTriangleMaterialIndexes,
     const std::vector<uint32_t>& dynamicTriangleInstanceIds,
+    const std::vector<uint32_t>& dynamicTriangleIdentityIds,
     uint32_t emissiveMaterialFlag,
     uint32_t triangleClassMask,
     uint32_t skinnedSurfaceClassId,
@@ -976,8 +982,8 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     maxRecords = Max(1, maxRecords);
     emissiveTriangles.reserve(Min(maxRecords, 1024));
     const std::vector<PathTraceSmokeMaterial> materialViews = BuildSmokeEmissiveMaterialViews(materialIds, materials, emissiveMaterialFlag);
-    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, nullptr, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
-    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, &dynamicTriangleInstanceIds, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, staticVertices, staticIndexes, staticTriangleClasses, staticTriangleMaterialIndexes, 0, nullptr, nullptr, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
+    AppendSmokeEmissiveInventoryForGeometry(materialIds, materialViews, dynamicVertices, dynamicIndexes, dynamicTriangleClasses, dynamicTriangleMaterialIndexes, 1, &dynamicTriangleInstanceIds, &dynamicTriangleIdentityIds, emissiveMaterialFlag, triangleClassMask, skinnedSurfaceClassId, maxRecords, emissiveTriangles, stats);
     stats.capturedTriangles = static_cast<int>(emissiveTriangles.size());
     stats.uniqueMaterials = static_cast<int>(stats.materialIndexes.size());
     FinalizeSmokeEmissiveTriangleSamplingFields(emissiveTriangles, stats);
