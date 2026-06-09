@@ -523,6 +523,10 @@ void LogSmokeMaterialClassifierLiveSummary(const RtSmokeMaterialTableBuild& tabl
         return;
     }
 
+    const int maxFallbackSamples = r_pathTracingMatClassDebugMax.GetInteger() > 0
+        ? idMath::ClampInt(1, 64, r_pathTracingMatClassDebugMax.GetInteger())
+        : 8;
+
     common->Printf("PathTracePrimaryPass: RT smoke material classifier fallback samples routeFallback=%d confidenceFallback=%d samples=",
         routeFallbackTotal,
         confidenceFallbackTotal);
@@ -540,7 +544,7 @@ void LogSmokeMaterialClassifierLiveSummary(const RtSmokeMaterialTableBuild& tabl
         {
             continue;
         }
-        if (sampleCount < 8)
+        if (sampleCount < maxFallbackSamples)
         {
             common->Printf("%sindex=%d id=%u material='%s' route=%s routeReason=%s class=%s classReason=%s confidence=%s evidence='%s'",
                 sampleCount == 0 ? "" : ", ",
@@ -556,7 +560,7 @@ void LogSmokeMaterialClassifierLiveSummary(const RtSmokeMaterialTableBuild& tabl
         }
         ++sampleCount;
     }
-    common->Printf("%s\n", sampleCount > 8 ? ", ..." : "");
+    common->Printf("%s\n", sampleCount > maxFallbackSamples ? ", ..." : "");
 }
 
 void ApplyCleanRtxdiDiAnalyticDomainFreeze(
