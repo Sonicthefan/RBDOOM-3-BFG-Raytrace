@@ -128,12 +128,12 @@ void AppendSmokeEmissiveInventoryForGeometry(
             continue;
         }
 
-        const uint32_t triangleInstanceId =
+        const uint32_t identityInstanceId =
             (triangleInstanceIds && primitiveIndex < static_cast<int>(triangleInstanceIds->size()))
                 ? (*triangleInstanceIds)[primitiveIndex]
                 : instanceId;
         ++stats.totalTriangles;
-        if (triangleInstanceId == 0)
+        if (instanceId == 0)
         {
             ++stats.staticTriangles;
         }
@@ -216,7 +216,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.sampleWeightAndPdf[2] = area;
         record.sampleWeightAndPdf[3] = 0.0f;
         record.materialIndex = materialIndex;
-        record.instanceId = triangleInstanceId;
+        record.instanceId = instanceId;
         record.primitiveIndex = static_cast<uint32_t>(primitiveIndex);
         record.flags = material.flags;
         record.emissiveTextureIndex = material.emissiveTextureIndex;
@@ -225,7 +225,7 @@ void AppendSmokeEmissiveInventoryForGeometry(
         record.materialId = materialId;
         const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, materialIndex);
         record.universeMaterialIndex = GetSmokeMaterialUniverseFacts(materialId, info).universeIndex;
-        const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, triangleInstanceId, static_cast<uint32_t>(primitiveIndex), materialIndex, triangleClassAndFlags);
+        const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity(materialId, identityInstanceId, static_cast<uint32_t>(primitiveIndex), materialIndex, triangleClassAndFlags);
         record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
         record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
         record.padding0 = triangleClassAndFlags;
