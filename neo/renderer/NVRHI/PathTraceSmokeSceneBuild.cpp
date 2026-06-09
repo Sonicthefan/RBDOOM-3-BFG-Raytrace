@@ -81,6 +81,7 @@ struct RtSmokeRuntimeMaterialApplyStats
 {
     int candidates = 0;
     int evaluated = 0;
+    int skipped = 0;
     int emissiveScaled = 0;
     int emissiveDisabled = 0;
     RtSmokeRuntimeMaterialApplySample samples[RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES];
@@ -350,12 +351,14 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         const char* materialName = info ? info->materialName.c_str() : nullptr;
         const bool runtimeVariant = IsSmokeMaterialTextureVariant(materialId);
         const bool canApplySharedRow = SmokeRuntimeMaterialCanApplyTableWide(materialName);
+        idVec4 selectedStageColor(0.0f, 0.0f, 0.0f, 0.0f);
         if (!runtimeVariant && !canApplySharedRow)
         {
+            ++stats.skipped;
+            AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, "skip:shared-row", true);
             continue;
         }
 
-        idVec4 selectedStageColor(0.0f, 0.0f, 0.0f, 0.0f);
         float selectedLuminance = -1.0f;
         bool activeEmissiveStage = false;
         bool disableFromLiveSample = false;
@@ -374,12 +377,16 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         {
             if (runtimeVariant)
             {
+                ++stats.skipped;
+                AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, "skip:no-live-emissive", true);
                 continue;
             }
 
             const idMaterial* materialDecl = materialName && materialName[0] ? declManager->FindMaterial(materialName, false) : nullptr;
             if (!materialDecl)
             {
+                ++stats.skipped;
+                AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, "skip:no-decl", true);
                 continue;
             }
 
@@ -387,6 +394,8 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             const float* regs = nullptr;
             if (!SmokeRuntimeMaterialEvaluateRegisters(viewDef, materialDecl, regs, dynamicRegs))
             {
+                ++stats.skipped;
+                AddSmokeRuntimeMaterialApplySample(stats, materialIndex, materialId, materialName, selectedStageColor, material, "skip:no-registers", true);
                 continue;
             }
             ++stats.evaluated;
@@ -462,9 +471,10 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
 
     if (r_pathTracingSmokeLog.GetInteger() != 0 && stats.candidates > 0)
     {
-        common->Printf("PathTracePrimaryPass: RT smoke runtime material register apply candidates=%d evaluated=%d emissiveScaled=%d emissiveDisabled=%d samples=",
+        common->Printf("PathTracePrimaryPass: RT smoke runtime material register apply candidates=%d evaluated=%d skipped=%d emissiveScaled=%d emissiveDisabled=%d samples=",
             stats.candidates,
             stats.evaluated,
+            stats.skipped,
             stats.emissiveScaled,
             stats.emissiveDisabled);
         for (int sampleIndex = 0; sampleIndex < stats.sampleCount; ++sampleIndex)
