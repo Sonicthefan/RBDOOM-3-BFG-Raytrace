@@ -295,7 +295,14 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
 
 static const uint RT_SMOKE_EMISSIVE_TRIANGLE_HISTORY_DYNAMIC = 0x00020000u;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
+static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
+static const uint RT_SMOKE_MATERIAL_FILTER_DECAL = 0x00000010u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA = 0x00000040u;
+static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
+static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 #define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
@@ -2055,9 +2062,7 @@ float PathTraceCleanRoomTraceVisibilityWithIgnore(
     shadowPayload.ignoreInstanceId = ignoreInstanceId;
     shadowPayload.ignorePrimitiveIndex = ignorePrimitiveIndex;
     shadowPayload.ignoreMaterialIndex = ignoreMaterialIndex;
-    const uint rayFlags = ignoreInstanceId != 0xffffffffu
-        ? (RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE)
-        : RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
+    const uint rayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE;
     TraceRay(
         SmokeScene,
         rayFlags,
@@ -2069,6 +2074,25 @@ float PathTraceCleanRoomTraceVisibilityWithIgnore(
         shadowPayload);
 
     return shadowPayload.value == 0u ? 1.0 : 0.0;
+}
+
+bool PathTraceCleanRoomMaterialDoesNotOccludeVisibility(uint materialIndex)
+{
+    if (materialIndex >= (uint)TextureInfo.z)
+    {
+        return false;
+    }
+
+    const PathTraceSmokeMaterial material = PathTraceCleanRoomLoadSmokeMaterial(materialIndex);
+    const uint transparentCardFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
+        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    return (material.flags & transparentCardFlags) != 0u;
 }
 
 float PathTraceCleanRoomTraceVisibility(PathTracePrimarySurfaceRecord surface, float3 samplePosition)
@@ -3074,11 +3098,17 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
 [shader("anyhit")]
 void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    if (payload.rayMode == 2u &&
-        InstanceID() == payload.ignoreInstanceId)
+    const uint instanceId = InstanceID();
+    const uint primitiveIndex = PrimitiveIndex();
+    const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+    if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(materialIndex))
     {
-        const uint primitiveIndex = PrimitiveIndex();
-        const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(payload.ignoreInstanceId, primitiveIndex);
+        IgnoreHit();
+    }
+
+    if (payload.rayMode == 2u &&
+        instanceId == payload.ignoreInstanceId)
+    {
         if (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex)
         {
             IgnoreHit();
