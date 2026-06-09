@@ -431,6 +431,7 @@ bool CaptureDoomSurfacesForSmokeTest(
     std::vector<uint32_t>& indexData,
     std::vector<uint32_t>& triangleClassData,
     std::vector<uint32_t>& triangleMaterialData,
+    std::vector<uint32_t>* triangleInstanceData,
     RtSmokeGeometryUniverse& geometryUniverse,
     bool& staticCacheChanged,
     idVec3& sceneOrigin,

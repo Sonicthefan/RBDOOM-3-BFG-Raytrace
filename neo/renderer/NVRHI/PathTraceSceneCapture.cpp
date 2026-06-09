@@ -1408,7 +1408,7 @@ uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint
     return RegisterSmokeMaterialTextureVariant(variantMaterialId, baseMaterialId) ? variantMaterialId : baseMaterialId;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -1457,6 +1457,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
         indexData.clear();
         triangleClassData.clear();
         triangleMaterialData.clear();
+        if (triangleInstanceData)
+        {
+            triangleInstanceData->clear();
+        }
         vertexData.reserve(RT_SMOKE_MAX_VERTS);
         indexData.reserve(RT_SMOKE_MAX_INDEXES);
         triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
@@ -1472,12 +1476,14 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
     std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleClassData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleMaterialData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketTriangleInstanceData[RT_SMOKE_CLASS_COUNT];
     for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
     {
         bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
         bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
         bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
         bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
     }
 
     int dynamicVerts = 0;
@@ -1629,6 +1635,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
             std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
             std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+            std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
             const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
             const int bucketVertexStart = static_cast<int>(bucketVertices.size());
             const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
@@ -1660,6 +1667,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             {
                 continue;
             }
+            const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
+            bucketInstances.insert(bucketInstances.end(), emittedIndexes / 3, dynamicInstanceId);
             if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
             {
                 AddSmokeSkinnedSurfaceRecord(
@@ -1809,6 +1818,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
                     std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
                     std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+                    std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
                     const int appendStartMs = Sys_Milliseconds();
                     const int emittedIndexes = AppendSmokeSurfaceGeometry(
                         &retainedDrawSurf,
@@ -1832,6 +1842,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     {
                         continue;
                     }
+                    const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
+                    bucketInstances.insert(bucketInstances.end(), emittedIndexes / 3, dynamicInstanceId);
 
                     AddSmokeMaterialStats(materialStats, shader, emittedIndexes, surfaceClass, translucentSubtype);
                     AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, &retainedDrawSurf, emittedIndexes, materialId);
@@ -1893,6 +1905,10 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
             triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
             triangleMaterialData.insert(triangleMaterialData.end(), bucketTriangleMaterialData[bucketIndex].begin(), bucketTriangleMaterialData[bucketIndex].end());
+            if (triangleInstanceData)
+            {
+                triangleInstanceData->insert(triangleInstanceData->end(), bucketTriangleInstanceData[bucketIndex].begin(), bucketTriangleInstanceData[bucketIndex].end());
+            }
         }
     }
     captureTiming.bucketMergeMs = Sys_Milliseconds() - bucketMergeStartMs;

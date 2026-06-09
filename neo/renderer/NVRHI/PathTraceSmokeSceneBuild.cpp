@@ -1809,6 +1809,7 @@ void DumpSource3CaptureCompare(
         oldDynamicIndexes,
         oldDynamicTriangleClasses,
         oldDynamicTriangleMaterialIds,
+        nullptr,
         oldGeometryUniverse,
         oldStaticCacheChanged,
         oldSceneOrigin,
@@ -2134,6 +2135,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicIndexData;
     std::vector<uint32_t> dynamicTriangleClassData;
     std::vector<uint32_t> dynamicTriangleMaterialData;
+    std::vector<uint32_t> dynamicTriangleInstanceData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
     int sourceSurfaces = 0;
@@ -2271,7 +2273,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (useDrawSurfMirrorDynamicFrame)
         {
-            usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
+            usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
             const bool staticAreaPreloadEnabled =
                 r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
                 r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
@@ -2323,7 +2325,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             int mirrorSourceSurfaces = 0;
             int mirrorSourceVerts = 0;
             int mirrorSourceIndexes = 0;
-            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, dumpClassReasons ? &mirrorReasonSamples : nullptr, &currentSkinnedSurfaceRecords);
+            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, dumpClassReasons ? &mirrorReasonSamples : nullptr, &currentSkinnedSurfaceRecords);
 
             classStats = RtSmokeSurfaceClassStats();
             classStats.staticWorldSurfaces = staticClassStats.staticWorldSurfaces;
@@ -2365,7 +2367,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         else
         {
-            usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+            usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
         }
         {
             OPTICK_EVENT("PT DrawSurf Mirror");
@@ -2903,6 +2905,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicIndexData,
             dynamicTriangleClassData,
             materialTable.dynamicMaterialIndexes,
+            dynamicTriangleInstanceData,
             RT_SMOKE_MATERIAL_EMISSIVE,
             RT_SMOKE_TRIANGLE_CLASS_MASK,
             static_cast<uint32_t>(RtSmokeSurfaceClass::SkinnedDeformed),

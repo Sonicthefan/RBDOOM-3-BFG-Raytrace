@@ -40,6 +40,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<uint32_t>& indexData,
     std::vector<uint32_t>& triangleClassData,
     std::vector<uint32_t>& triangleMaterialData,
+    std::vector<uint32_t>* triangleInstanceData,
     int& sourceSurfaces,
     int& sourceVerts,
     int& sourceIndexes,

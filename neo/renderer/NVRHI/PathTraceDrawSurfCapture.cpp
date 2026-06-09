@@ -615,6 +615,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<uint32_t>& indexData,
     std::vector<uint32_t>& triangleClassData,
     std::vector<uint32_t>& triangleMaterialData,
+    std::vector<uint32_t>* triangleInstanceData,
     int& sourceSurfaces,
     int& sourceVerts,
     int& sourceIndexes,
@@ -649,6 +650,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     indexData.clear();
     triangleClassData.clear();
     triangleMaterialData.clear();
+    if (triangleInstanceData)
+    {
+        triangleInstanceData->clear();
+    }
     vertexData.reserve(RT_SMOKE_MAX_VERTS);
     indexData.reserve(RT_SMOKE_MAX_INDEXES);
     triangleClassData.reserve(RT_SMOKE_MAX_INDEXES / 3);
@@ -666,12 +671,14 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<uint32_t> bucketIndexData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleClassData[RT_SMOKE_CLASS_COUNT];
     std::vector<uint32_t> bucketTriangleMaterialData[RT_SMOKE_CLASS_COUNT];
+    std::vector<uint32_t> bucketTriangleInstanceData[RT_SMOKE_CLASS_COUNT];
     for (int bucketIndex = 0; bucketIndex < RT_SMOKE_CLASS_COUNT; ++bucketIndex)
     {
         bucketVertexData[bucketIndex].reserve(RT_SMOKE_MAX_VERTS / RT_SMOKE_CLASS_COUNT);
         bucketIndexData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / RT_SMOKE_CLASS_COUNT);
         bucketTriangleClassData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
         bucketTriangleMaterialData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
+        bucketTriangleInstanceData[bucketIndex].reserve(RT_SMOKE_MAX_INDEXES / (3 * RT_SMOKE_CLASS_COUNT));
     }
 
     int dynamicVerts = 0;
@@ -754,6 +761,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
         std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
         std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+        std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
         const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
         const int bucketVertexStart = static_cast<int>(bucketVertices.size());
         const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
@@ -785,6 +793,9 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         {
             continue;
         }
+        const int entityIndex = (drawSurf->space && drawSurf->space->entityDef) ? drawSurf->space->entityDef->index : -1;
+        const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
+        bucketInstances.insert(bucketInstances.end(), emittedIndexes / 3, dynamicInstanceId);
         if (surfaceClass == RtSmokeSurfaceClass::SkinnedDeformed)
         {
             AddSmokeSkinnedSurfaceRecord(
@@ -842,6 +853,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             }
             triangleClassData.insert(triangleClassData.end(), bucketTriangleClassData[bucketIndex].begin(), bucketTriangleClassData[bucketIndex].end());
             triangleMaterialData.insert(triangleMaterialData.end(), bucketTriangleMaterialData[bucketIndex].begin(), bucketTriangleMaterialData[bucketIndex].end());
+            if (triangleInstanceData)
+            {
+                triangleInstanceData->insert(triangleInstanceData->end(), bucketTriangleInstanceData[bucketIndex].begin(), bucketTriangleInstanceData[bucketIndex].end());
+            }
         }
     }
     captureTiming.bucketMergeMs = Sys_Milliseconds() - bucketMergeStartMs;

@@ -232,6 +232,7 @@ std::vector<PathTraceSmokeEmissiveTriangle> BuildSmokeEmissiveTriangleInventory(
     const std::vector<uint32_t>& dynamicIndexes,
     const std::vector<uint32_t>& dynamicTriangleClasses,
     const std::vector<uint32_t>& dynamicTriangleMaterialIndexes,
+    const std::vector<uint32_t>& dynamicTriangleInstanceIds,
     uint32_t emissiveMaterialFlag,
     uint32_t triangleClassMask,
     uint32_t skinnedSurfaceClassId,
