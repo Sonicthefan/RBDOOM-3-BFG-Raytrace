@@ -269,6 +269,7 @@ static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
 static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
 static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
@@ -557,6 +558,12 @@ float SmokeAlphaCoverage(PathTraceSmokeMaterial material, float2 texCoord)
     {
         const float3 decoded = SampleSmokeDecodedDiffuseTexture(material, texCoord).rgb;
         return max(max(decoded.r, decoded.g), decoded.b);
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY) != 0u)
+    {
+        const float3 decoded = SampleSmokeDecodedDiffuseTexture(material, texCoord).rgb;
+        const float keyDistance = max(abs(decoded.r - 1.0), max(abs(decoded.g), abs(decoded.b - 1.0)));
+        return keyDistance <= 0.08 ? 0.0 : 1.0;
     }
     return SampleSmokeAlphaTexture(material, texCoord).a;
 }

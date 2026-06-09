@@ -135,7 +135,7 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         classifier.nameLooksGlow ? 1 : 0,
         classifier.nameLooksSignage ? 1 : 0);
 
-    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d alphaMagentaKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",
         info.diffuseImageName.c_str(),
         SmokeTextureUsageName(info.diffuseUsage),
         SmokeTextureColorFormatName(info.diffuseColorFormat),
@@ -154,6 +154,7 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         info.alphaCutoff,
         info.alphaFromDiffuseLuma ? 1 : 0,
         info.alphaFromDiffuseDarkKey ? 1 : 0,
+        info.alphaFromDiffuseMagentaKey ? 1 : 0,
         info.normalImageName.c_str(),
         SmokeTextureUsageName(info.normalUsage),
         SmokeTextureColorFormatName(info.normalColorFormat),

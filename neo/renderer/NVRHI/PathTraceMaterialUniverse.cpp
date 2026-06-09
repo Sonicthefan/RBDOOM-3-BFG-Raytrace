@@ -129,6 +129,7 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.forceFallbackAlbedo ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseMagentaKey ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.portalWindowFallback ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.objectGlassFallback ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.emissive ? 1u : 0u);
@@ -165,7 +166,11 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
         record.material.debugAlbedo[2] = info.fallbackAlbedo.z;
         record.material.debugAlbedo[3] = info.fallbackAlbedo.w;
     }
-    if (info.hasAlphaTest && info.hasAlphaImage)
+    const bool hasDiffuseAlphaCoverage =
+        info.alphaFromDiffuseLuma ||
+        info.alphaFromDiffuseDarkKey ||
+        info.alphaFromDiffuseMagentaKey;
+    if (info.hasAlphaTest && (info.hasAlphaImage || hasDiffuseAlphaCoverage))
     {
         record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_TEST;
         record.material.alphaCutoff = info.alphaCutoff;
@@ -204,6 +209,10 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     {
         record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY;
     }
+    if (info.alphaFromDiffuseMagentaKey)
+    {
+        record.material.flags |= RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    }
     if (info.portalWindowFallback)
     {
         record.material.flags |= RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK;
@@ -236,6 +245,7 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     record.facts.alphaFromDiffuseLuma = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA) != 0;
     record.facts.forceFallbackAlbedo = (record.material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0;
     record.facts.alphaFromDiffuseDarkKey = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY) != 0;
+    record.facts.alphaFromDiffuseMagentaKey = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY) != 0;
     record.facts.portalWindowFallback = (record.material.flags & RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK) != 0;
     record.facts.objectGlassFallback = (record.material.flags & RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK) != 0;
     record.facts.emissive = (record.material.flags & RT_SMOKE_MATERIAL_EMISSIVE) != 0;
@@ -275,6 +285,7 @@ bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& 
         lhs.facts.alphaFromDiffuseLuma == rhs.facts.alphaFromDiffuseLuma &&
         lhs.facts.forceFallbackAlbedo == rhs.facts.forceFallbackAlbedo &&
         lhs.facts.alphaFromDiffuseDarkKey == rhs.facts.alphaFromDiffuseDarkKey &&
+        lhs.facts.alphaFromDiffuseMagentaKey == rhs.facts.alphaFromDiffuseMagentaKey &&
         lhs.facts.portalWindowFallback == rhs.facts.portalWindowFallback &&
         lhs.facts.objectGlassFallback == rhs.facts.objectGlassFallback &&
         lhs.facts.emissive == rhs.facts.emissive &&

@@ -32,6 +32,7 @@ struct RtSmokeMaterialUniverseFacts
     bool alphaFromDiffuseLuma = false;
     bool forceFallbackAlbedo = false;
     bool alphaFromDiffuseDarkKey = false;
+    bool alphaFromDiffuseMagentaKey = false;
     bool portalWindowFallback = false;
     bool objectGlassFallback = false;
     bool emissive = false;

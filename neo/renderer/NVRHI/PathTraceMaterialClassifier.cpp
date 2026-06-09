@@ -1367,6 +1367,11 @@ uint64 ComputeRtMaterialRecordSignature(const idMaterial* material, const RtSmok
     hash = HashRtMaterialValue(hash, static_cast<uint64>(info.diffuseColorFormat));
     hash = HashRtMaterialValue(hash, static_cast<uint64>(info.normalColorFormat));
     hash = HashRtMaterialValue(hash, static_cast<uint64>(info.specularColorFormat));
+    hash = HashRtMaterialValue(hash, info.hasAlphaTest ? 1u : 0u);
+    hash = HashRtMaterialFloat(hash, info.alphaCutoff);
+    hash = HashRtMaterialValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);
+    hash = HashRtMaterialValue(hash, info.alphaFromDiffuseMagentaKey ? 1u : 0u);
     hash = HashRtMaterialValue(hash, material ? static_cast<uint64>(material->GetNumStages()) : 0u);
     if (material)
     {

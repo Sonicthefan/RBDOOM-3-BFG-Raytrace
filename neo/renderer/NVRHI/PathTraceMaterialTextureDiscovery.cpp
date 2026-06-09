@@ -613,6 +613,34 @@ bool ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(const idMaterial* material, con
     return true;
 }
 
+bool SmokeNameLooksSterlightMagentaKey(const char* name)
+{
+    if (!name || !name[0])
+    {
+        return false;
+    }
+
+    idStr path = name;
+    path.BackSlashesToSlashes();
+    path.ToLower();
+    return idStr::FindText(path.c_str(), "textures/base_light/sterlightdecal", false) >= 0;
+}
+
+bool ShouldSmokeAlphaTestUseDiffuseMagentaKey(const idMaterial* material, const idImage* diffuseImage, const idImage* alphaImage)
+{
+    if (!material || !diffuseImage || alphaImage)
+    {
+        return false;
+    }
+    if (material->Coverage() != MC_PERFORATED)
+    {
+        return false;
+    }
+
+    return SmokeNameLooksSterlightMagentaKey(material->GetName()) ||
+        SmokeNameLooksSterlightMagentaKey(diffuseImage->GetName());
+}
+
 void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
 {
     info.diffuseImage = nullptr;
@@ -643,6 +671,7 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.alphaFromDiffuseLuma = false;
     info.forceFallbackAlbedo = true;
     info.alphaFromDiffuseDarkKey = false;
+    info.alphaFromDiffuseMagentaKey = false;
     info.portalWindowFallback = false;
     info.objectGlassFallback = false;
     info.emissive = false;
@@ -1088,6 +1117,9 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             alphaImage == diffuseImage &&
             (diffuseImage->GetUsage() == TD_DIFFUSE || diffuseImage->GetOpts().colorFormat == CFM_YCOCG_DXT5)) ||
         ShouldSmokeParticleOrSfxUseDiffuseLumaAlpha(material, diffuseImage, alphaImage);
+    info->alphaFromDiffuseMagentaKey =
+        info->hasAlphaTest &&
+        ShouldSmokeAlphaTestUseDiffuseMagentaKey(material, diffuseImage, alphaImage);
     info->forceFallbackAlbedo = IsSmokeReflectiveEyewearMaterial(material);
     info->alphaFromDiffuseDarkKey = info->alphaFromDiffuseLuma && info->forceFallbackAlbedo;
     info->portalWindowFallback = IsSmokePortalWindowFallbackMaterial(material);
@@ -1096,22 +1128,29 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->emissive = info->hasEmissiveImage || emissiveColor.x > 0.0f || emissiveColor.y > 0.0f || emissiveColor.z > 0.0f;
     if (info->emissive)
     {
-        info->hasAlphaTest = false;
         info->alphaImage = nullptr;
         info->alphaImageName = "<none>";
-        info->alphaReason = "emissive stage ignores alpha/blend semantics";
         info->hasAlphaImage = false;
         info->hasAlphaTextureHandle = false;
         info->hasSafeAlphaTexture = false;
         info->alphaUsage = TD_DEFAULT;
         info->alphaColorFormat = CFM_DEFAULT;
-        info->alphaCutoff = 0.0f;
         info->additiveDecal = false;
         info->additiveDecalWhiteKey = false;
         info->filterDecal = false;
         info->filterDecalBlackKey = false;
-        info->alphaFromDiffuseLuma = false;
-        info->alphaFromDiffuseDarkKey = false;
+        if (info->alphaFromDiffuseMagentaKey)
+        {
+            info->alphaReason = "diffuse magenta key alpha-test with emissive overlay";
+        }
+        else
+        {
+            info->hasAlphaTest = false;
+            info->alphaReason = "emissive stage ignores alpha/blend semantics";
+            info->alphaCutoff = 0.0f;
+            info->alphaFromDiffuseLuma = false;
+            info->alphaFromDiffuseDarkKey = false;
+        }
     }
     info->fallbackAlbedo = fallbackAlbedo;
     info->hasFallbackAlbedo = hasFallbackAlbedo;
