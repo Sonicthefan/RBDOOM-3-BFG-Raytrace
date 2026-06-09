@@ -393,11 +393,9 @@ float SmokeHashToUnitFloat(uint hash)
 uint SmokeAlphaStochasticHash(uint stableHash, uint salt)
 {
     const uint2 pixel = DispatchRaysIndex().xy + PathTraceDispatchTileOffset();
-    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
     return stableHash ^
         pixel.x * 1597334677u ^
         pixel.y * 3812015801u ^
-        frameIndex * 277803737u ^
         salt * 3266489917u;
 }
 
@@ -551,7 +549,7 @@ float4 SampleSmokeSurfaceAlbedo(PathTraceSmokeMaterial material, float2 texCoord
     return saturate(albedo);
 }
 
-bool SmokeMaterialIsUnlitAlphaCard(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
+bool SmokeMaterialUsesUnlitAdditiveStage(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
 {
     if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
     {
@@ -564,14 +562,7 @@ bool SmokeMaterialIsUnlitAlphaCard(PathTraceSmokeMaterial material, uint surface
         return false;
     }
 
-    const uint unlitCardFlags =
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
-        RT_SMOKE_MATERIAL_FILTER_DECAL |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
-    return translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE ||
-        (material.flags & unlitCardFlags) != 0u;
+    return (material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u;
 }
 
 float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
@@ -734,7 +725,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
     material.emissiveRadiance = SampleSmokeEmissive(smokeMaterial, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
-    if (SmokeMaterialIsUnlitAlphaCard(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
+    if (SmokeMaterialUsesUnlitAdditiveStage(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
     {
         material.emissiveRadiance = max(material.emissiveRadiance, materialAlbedo);
     }
@@ -1109,7 +1100,7 @@ float SmokeAdditiveDecalMaterialOpacity(PathTraceSmokeMaterial material, float3 
     return max(max(albedo.r, albedo.g), albedo.b);
 }
 
-bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, bool shadowRay)
+bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, bool shadowRay)
 {
     if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) == 0u)
     {
@@ -1119,8 +1110,17 @@ bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
     {
         return true;
     }
-    const float opacity = SmokeAdditiveDecalMaterialOpacity(material, SampleSmokeDiffuseTexture(material, texCoord).rgb);
-    return opacity < 0.035;
+    const float opacity = saturate(SmokeAdditiveDecalMaterialOpacity(material, SampleSmokeDiffuseTexture(material, texCoord).rgb) * 0.5);
+    const uint2 ditherCell = uint2(floor(frac(abs(texCoord)) * 128.0));
+    const uint2 baryCell = uint2(saturate(barycentrics) * 255.0);
+    const uint hash =
+        primitiveIndex * 2246822519u ^
+        instanceId * 3266489917u ^
+        ditherCell.x * 668265263u ^
+        ditherCell.y * 747796405u ^
+        baryCell.x * 2891336453u ^
+        baryCell.y * 277803737u;
+    return opacity < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 7u));
 }
 
 bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, bool shadowRay)
@@ -1135,7 +1135,7 @@ bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord
     }
     const float3 albedo = SampleSmokeDiffuseTexture(material, texCoord).rgb;
     const bool blackKey = (material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
-    const float key = blackKey ? max(max(albedo.r, albedo.g), albedo.b) : 1.0 - min(min(albedo.r, albedo.g), albedo.b);
+    const float key = (blackKey ? max(max(albedo.r, albedo.g), albedo.b) : 1.0 - min(min(albedo.r, albedo.g), albedo.b)) * 0.5;
     const uint2 ditherCell = uint2(floor(frac(abs(texCoord)) * 128.0));
     const uint2 baryCell = uint2(saturate(barycentrics) * 255.0);
     const uint hash =
@@ -1257,7 +1257,7 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBaryce
     {
         return true;
     }
-    if (SmokeAdditiveDecalRejectsHit(material, texCoord, shadowRay))
+    if (SmokeAdditiveDecalRejectsHit(material, texCoord, hitBarycentrics, instanceId, primitiveIndex, shadowRay))
     {
         return true;
     }
