@@ -551,6 +551,29 @@ float4 SampleSmokeSurfaceAlbedo(PathTraceSmokeMaterial material, float2 texCoord
     return saturate(albedo);
 }
 
+bool SmokeMaterialIsUnlitAlphaCard(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
+{
+    if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    {
+        return false;
+    }
+    if (translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS ||
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW ||
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN)
+    {
+        return false;
+    }
+
+    const uint unlitCardFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    return translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE ||
+        (material.flags & unlitCardFlags) != 0u;
+}
+
 float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
     return material.alphaTextureIndex != 0xffffffffu
@@ -711,6 +734,10 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
     material.emissiveRadiance = SampleSmokeEmissive(smokeMaterial, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
+    if (SmokeMaterialIsUnlitAlphaCard(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
+    {
+        material.emissiveRadiance = max(material.emissiveRadiance, materialAlbedo);
+    }
     material.emissiveTextureIndex = smokeMaterial.emissiveTextureIndex;
     return material;
 }
