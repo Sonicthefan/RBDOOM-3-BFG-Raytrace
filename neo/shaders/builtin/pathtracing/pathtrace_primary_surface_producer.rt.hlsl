@@ -1451,13 +1451,18 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         {
             // MODULATE: out = lerp(base, decal*base, coverage) -- the product the
             // stochastic path could never express (docs/decal_cards/03 sec.1).
+            // The multiply factor is floored: an exact-zero albedo product reads
+            // as a hole and breaks the DI/RR consumers, which treat near-zero
+            // guide albedo as an invalid surface (docs/decal_cards/08
+            // ZERO-ALBEDO VOID).
             const bool blackKey = (decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
             coverage = saturate(blackKey
                 ? max(max(decalRgb.r, decalRgb.g), decalRgb.b)
                 : 1.0 - min(min(decalRgb.r, decalRgb.g), decalRgb.b));
+            const float modulateFloor = saturate(DecalInfo.w);
             surface.material.diffuseAlbedo = lerp(
                 surface.material.diffuseAlbedo,
-                surface.material.diffuseAlbedo * decalRgb,
+                surface.material.diffuseAlbedo * max(decalRgb, float3(modulateFloor, modulateFloor, modulateFloor)),
                 coverage);
         }
         else if ((decalMaterial.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
@@ -1480,6 +1485,14 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             surface.material.emissiveRadiance += decalEmissive * coverage;
         }
         ++appliedCount;
+    }
+
+    if (appliedCount > 0u)
+    {
+        // Keep the composited surface above the DI/RR validity threshold: the
+        // clean pipeline rejects guide albedo with near-zero luminance, which
+        // turns authored-black decal texels into apparent holes.
+        surface.material.diffuseAlbedo = max(surface.material.diffuseAlbedo, float3(0.01, 0.01, 0.01));
     }
 
     if (stage == 4u && appliedCount > 0u)

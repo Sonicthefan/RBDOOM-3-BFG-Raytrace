@@ -2553,7 +2553,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.decalInfo[0] = static_cast<float>(idMath::ClampInt(0, 4, r_pathTracingDecalComposite.GetInteger()));
             primarySurfaceConstants.decalInfo[1] = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
             primarySurfaceConstants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
-            primarySurfaceConstants.decalInfo[3] = 0.0f;
+            primarySurfaceConstants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
 
             commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);

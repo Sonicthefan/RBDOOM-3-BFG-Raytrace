@@ -339,6 +339,7 @@ extern idCVar r_pathTracingAdditiveDecalKey;
 extern idCVar r_pathTracingDecalComposite;
 extern idCVar r_pathTracingDecalOffsetStep;
 extern idCVar r_pathTracingDecalMaxOffsetIndex;
+extern idCVar r_pathTracingDecalModulateFloor;
 extern idCVar r_pathTracingAllowGuiTextures;
 extern idCVar r_pathTracingAllowGuiSurfaces;
 extern idCVar r_pathTracingSkipCallbackEntities;

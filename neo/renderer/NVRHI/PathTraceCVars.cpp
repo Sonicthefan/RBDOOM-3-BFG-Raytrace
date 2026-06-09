@@ -1851,6 +1851,12 @@ idCVar r_pathTracingDecalMaxOffsetIndex(
     CVAR_RENDERER | CVAR_INTEGER,
     "Cap for the incrementing detail-decal offset index" );
 
+idCVar r_pathTracingDecalModulateFloor(
+    "r_pathTracingDecalModulateFloor",
+    "0.12",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Per-channel floor for the filter/modulate decal multiply factor. Prevents exact-zero albedo, which the DI/RR pipeline treats as an invalid surface (reads as holes)" );
+
 idCVar r_pathTracingAllowGuiTextures(
     "r_pathTracingAllowGuiTextures",
     "0",

@@ -80,11 +80,36 @@ DECAL-08/08b  Diagnostics
     (1 layer=red, 2=green, 3=blue) - serves as the 08b debug view without a new
     debugMode.
 
+POST-V1 FIX: ZERO-ALBEDO VOID RECURRED (2026-06-10, same day)
+-------------------------------------------------------------
+First in-game test reproduced the 08 sec.3 failure THROUGH THE NEW PATH: the
+dark sections of textures/decals/stainwallfade cut apparent holes. Mechanism
+(confirmed in code, not speculation): the v1 modulate was the raster-pure
+product base*decalRgb with no floor, so authored-black texels drive the
+composited diffuse albedo to EXACTLY zero. The clean DI/RR pipeline treats
+near-zero albedo as an invalid surface: CleanTexturedSurfaceAlbedo
+(pathtrace_clean_rtxdi_di_spatial.rt.hlsl:618-626) rejects guide albedo with
+luminance <= 1e-5, and a zero albedo also zeroes the DI target pdf (NaN risk in
+reservoir weights). The result renders as holes/garbage, not as a dark stain.
+
+LESSON: the 08 ZERO-ALBEDO VOID warning applies to ANY composite that can
+produce exact-zero albedo, not just to the pass-through experiment. The
+experiment's max(decalRgb, 0.12) floor was load-bearing, not cosmetic.
+
+Fix shipped:
+  - Modulate multiply factor floored per channel: max(decalRgb, DecalInfo.w),
+    cvar r_pathTracingDecalModulateFloor (default 0.12, the value the prior
+    experiment validated).
+  - After any composite, final diffuseAlbedo floored at 0.01 so every blend
+    kind (incl. OVER with black stickers) stays above the DI validity
+    threshold.
+
 CVARS / PLUMBING
 ----------------
   r_pathTracingDecalComposite      0..4 staging ladder per 06_validation.txt
   r_pathTracingDecalOffsetStep     default 0.15 (world units)
   r_pathTracingDecalMaxOffsetIndex default 8
+  r_pathTracingDecalModulateFloor  default 0.12 (decalInfo.w)
   Values reach the shader via a decalInfo float4 appended to
   PathTraceSmokeConstants (PathTraceSmokeDispatch.cpp); the producer cbuffer
   pads the unconsumed light-manager/ReGIR/NEE fields with
