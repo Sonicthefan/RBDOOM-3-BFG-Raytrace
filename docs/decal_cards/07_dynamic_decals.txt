@@ -1,0 +1,103 @@
+DYNAMIC DETAIL DECALS — THE CINEMATIC GLOW-CARD CASE
+====================================================
+Authored: 2026-06-10. SCOPE: the framework for detail decals that are DYNAMIC —
+they appear, animate (e.g. a glow ramp), then are removed. Mostly a set-piece /
+cinematic case; the static bulk (Phases 1-4) does not need this. This is Phase 6
+(DECAL-DYN-x) and it BRIDGES this plan to the material_classifer DYN-x arc — do not
+re-build that framework, drive it.
+
+--------------------------------------------------------------------------------
+0. THE OBSERVED CASE (the requirement)
+--------------------------------------------------------------------------------
+In a cinematic: a decal card is added to a surface, a large decal plays a GLOW
+animation, and when the animation finishes the card is REMOVED. This is one
+material, surface-locked (coplanar detail decal), but DYNAMIC: its color/emissive
+animates and its visibility toggles off at the end. It must (a) composite correctly
+(no stochastic speckle) WHILE animating, (b) actually light the scene while glowing
+if authored to, and (c) disappear cleanly when done.
+
+--------------------------------------------------------------------------------
+1. WHY THE STATIC ASSUMPTION WAS WRONG (and the fix)
+--------------------------------------------------------------------------------
+The detail-decal-vs-effect-card decision is a GEOMETRIC property (a flat card lying
+on a surface) and is ORTHOGONAL to dynamic-ness. The original predicate used
+"static (ConstantRegisters()!=NULL)" as a proxy to exclude effect cards — that proxy
+WRONGLY rejects this glow card (it is dynamic) and would speckle it. Likewise
+"additive" must not exclude it — a glowing decal can be additive and still be a
+surface-locked detail decal.
+
+FIX (already folded into 02 M1 / DECAL-01): isDetailDecal excludes effect cards by
+ORIENTATION/deform/particle signals only. Dynamic-ness is carried as a SEPARATE
+isDynamic flag (ConstantRegisters()==NULL) that gates this evaluator, NOT the
+composite path. So a dynamic detail decal takes the deterministic composite (Phases
+2-3) AND the per-instance dynamic evaluation (this doc).
+
+--------------------------------------------------------------------------------
+2. WHAT IS DYNAMIC HERE (engine facts — same anchors as material_classifer 07)
+--------------------------------------------------------------------------------
+  - color.registers[4] (RGBA) animate -> the glow tint/intensity ramp.
+  - conditionRegister -> if regs[cond]==0 the stage is OFF this frame = the REMOVAL
+    at sequence end (the card may still be submitted but must render as nothing).
+  - drawSurf->shaderRegisters is the engine-evaluated register array, already
+    reachable in capture (PathTraceSceneCapture.cpp:320 reads it today, then
+    DISCARDS the per-instance color).
+  - Removal can ALSO be the entity despawning (card simply stops being submitted) —
+    handled for free by capture; the conditionRegister path is the one that needs
+    explicit handling so a finished glow does not linger.
+
+--------------------------------------------------------------------------------
+3. THE THREE PIECES (DECAL-DYN-1..3)
+--------------------------------------------------------------------------------
+DYN-1  OFFSET IN THE DYNAMIC CAPTURE PATH.
+   The 04 face-normal offset currently lands only in STATIC capture
+   (PathTraceGeometryUniverse.cpp static build / m_staticVertexCache). A dynamic
+   decal card is captured per-frame as dynamic geometry, so the SAME offset math
+   (face normal * incrementing index * step) must also run in the dynamic/per-frame
+   geometry path. Same algorithm, different seam. Without it the dynamic card
+   coplanar-z-fights exactly like an un-offset static one.
+   Note: dynamic geometry is per-frame, so the offset index is recomputed per frame;
+   keep it stable for a held instance (key by stable instanceId) to avoid flicker.
+
+DYN-2  PER-INSTANCE DYNAMIC EVAL FOR THE DECAL (color/alpha/condition).
+   Reuse material_classifer DYN-2/DYN-3: per visible decal surf, read
+   drawSurf->shaderRegisters -> evaluated colorMul (the glow), alpha, and
+   conditionEnabled. Feed colorMul into the decal's composite contribution (03) and
+   skip the decal entirely when conditionEnabled==false (THE REMOVAL). The
+   per-instance value rides the per-TLAS-instance dynamic channel (DYN-3 of the
+   material_classifer arc), keyed by stable instanceId, read in the shader alongside
+   the decal bin.
+   CRITICAL: the bin/composite must DROP a condition-off decal, not composite it at
+   zero — otherwise a finished glow leaves a dark/zero-alpha artifact depending on
+   blend op.
+
+DYN-3  GLOW-AS-LIGHT (the hard, optional-degrade piece).
+   If the glow is meant to illuminate (likely the cinematic intent), the per-instance
+   dynamic EMISSIVE computed in DYN-2 MUST be the same value the emissive-candidate /
+   NEE cache uses as that decal's light intensity that frame (material_classifer 07
+   sec.5 / DYN-4) — or DI and the glow disagree (lit in beauty, dark in GI, or a
+   ghost light after removal). Wire the evaluator's emissive result INTO the emissive
+   candidate; do not compute it twice. Keep a DEGRADED cvar (emissive = beauty/bloom
+   only, not a GI light) as the fallback if emissive-as-light regresses — the
+   DoomRTX fork tried emissive-as-light and fell back to bloom-only
+   (material_classifer 09 / DYN-4 risk note). Depends on stable instanceId, and
+   intersects the known view-dependent universe / emissive-pop issue.
+
+--------------------------------------------------------------------------------
+4. ORDERING / SCHEDULING
+--------------------------------------------------------------------------------
+Do NOT block the static composite (Phases 1-4, the bulk win) on any of this. Ship
+static first, validate (DECAL-09), THEN do DYN-1 (cheap, unblocks correct cinematic
+compositing), then DYN-2 (animation + removal), then DYN-3 (glow-as-light, with the
+degrade fallback). DYN-3 is the only genuinely hard part and can stay degraded
+(bloom-only) indefinitely if emissive-as-light is not ready.
+
+--------------------------------------------------------------------------------
+5. DONE-CRITERIA
+--------------------------------------------------------------------------------
+  - The cinematic glow decal tags isDetailDecal=1 isDynamic=1 (DECAL-01 / DECAL-08).
+  - It composites with no speckle and no z-fight WHILE the glow animates (DYN-1+DYN-2).
+  - The glow's color/intensity tracks the engine registers; at sequence end the decal
+    disappears cleanly (conditionRegister==0 drops it from the bin) — no lingering
+    glow, no dark ghost.
+  - (DYN-3) the glow illuminates nearby surfaces, or is documented as running in the
+    degraded bloom-only mode.

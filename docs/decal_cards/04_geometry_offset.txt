@@ -1,0 +1,102 @@
+COPLANAR NORMAL OFFSET FOR DETAIL-DECAL CARDS
+=============================================
+Authored: 2026-06-10. The offset that makes coplanar accumulation reliable and
+separates stacked decals. Mirrors RTX Remix's per-decal offset
+(rtx_instance_manager.cpp:1942; options rtx_options.h:231-259), adapted to this
+fork's static, view-independent world BVH.
+
+--------------------------------------------------------------------------------
+1. THE TWO JOBS THE OFFSET DOES
+--------------------------------------------------------------------------------
+  J1. Make decal_t < base_t reliably. Any-hit only fires for candidates CLOSER than
+      the current committed closest. Coplanar decal and wall are within float
+      epsilon, so without an offset whether the decal's any-hit fires depends on
+      undefined traversal order — accumulation becomes a coin flip. Lifting the
+      decal a hair toward the room guarantees its any-hit fires before the wall
+      commits.
+  J2. Separate STACKED decals from each other. Two decals on the same wall spot are
+      also coplanar with EACH OTHER. An INCREMENTING offset (decal k pushed further
+      than decal k-1) keeps their draw/blend order geometrically consistent and
+      stops them fighting. This is why the offset is an INDEX, not a fixed epsilon.
+
+--------------------------------------------------------------------------------
+2. DIRECTION — OUTWARD FACE NORMAL, NEVER CAMERA-WARD
+--------------------------------------------------------------------------------
+The static world BVH (instances 0/1) is built ONCE and is VIEW-INDEPENDENT
+(BuildRigidLocalSmokeVertex / m_staticVertexCache; 01.E). You CANNOT lift "toward
+the viewer" without making the BVH view-dependent and breaking temporal stability.
+Lift along the decal triangle's OUTWARD GEOMETRIC FACE NORMAL — which points into
+the room where the camera will be anyway. Use the FACE normal (cross of two edges),
+NOT smoothed vertex normals: a decal that wraps a corner would splay/tear if pushed
+along divergent vertex normals. Push all three verts of the card by the SAME vector
+so the card stays planar.
+
+--------------------------------------------------------------------------------
+3. MAGNITUDE — WORLD UNITS, INCREMENTING INDEX, CAPPED
+--------------------------------------------------------------------------------
+offset = faceNormal * (offsetIndex * r_pathTracingDecalOffsetStep)
+  - r_pathTracingDecalOffsetStep: world-space step (D3 units ~ inches). START
+    ~0.1-0.25. Too small -> distant z-fight returns (TLAS float precision); too
+    large -> visible PEELING / floating at grazing angles + poke-through of nearby
+    perpendicular walls. Single tuned cvar. (A prior implementation attempt found a
+    conservative ~0.05 was workable as the LOW end — treat as a starting point to
+    tune up from, not a validated default; confirm against V3 before trusting it.)
+  - offsetIndex: a monotonically-incrementing counter (Remix's "global decal offset
+    index"). Increment per detail-decal card (or per draw-call batch — see sec.4).
+    Cap at r_pathTracingDecalMaxOffsetIndex (Remix: decals.maxOffsetIndex; a prior
+    attempt started this at 4); beyond the cap, reuse the max (accept rare mis-stack
+    rather than unbounded lift).
+  - Consider distance-scaling ONLY if a fixed step shows distant z-fight after
+    tuning; a constant world step is the v1 default.
+
+--------------------------------------------------------------------------------
+4. PER-CARD vs PER-BATCH (Remix singleOffsetDecalTextures)
+--------------------------------------------------------------------------------
+Remix offers two modes (rtx_options.h:245-258):
+  - PER-CARD (default here): each card gets its own incrementing index. Correct for
+    stacked decals; grows the index fastest.
+  - PER-BATCH (singleOffsetDecalTextures): one shared offset for all cards in a
+    draw-call batch that are known NOT to inter-overlap. Grows the index slower,
+    stabilizes batched dynamic decals.
+v1: PER-CARD. Expose a per-batch cvar only if index growth hits the cap in real
+levels. Also mirror nonOffsetDecalTextures intent: if any source geometry is ALREADY
+offset from the base, skip our offset (rare for D3; a cvar/skip-flag, not v1 work).
+
+--------------------------------------------------------------------------------
+5. WHERE IT LANDS (the seam)
+--------------------------------------------------------------------------------
+Per-triangle/per-surface STATIC capture in PathTraceGeometryUniverse.cpp (NOT the
+per-vertex BuildRigidLocalSmokeVertex:738). At the surface level you have all three
+positions + the material together, so you can:
+  (a) classify isDetailDecal (DECAL-01 cached predicate),
+  (b) compute the face normal from the triangle,
+  (c) push the three baked positions by offset before they enter m_staticVertexCache.
+The offset is baked into the captured vertex positions (zero trace-time cost), not
+applied at trace time. Because the decal is never the SHADED surface (it any-hit
+accumulates; the wall is the closest hit), the lifted position never reaches the
+G-buffer — depth/normal/position all come from the base. The offset is invisible
+except as the thing that makes accumulation deterministic.
+
+CORRECTNESS GUARD (learned from a prior attempt — keep it): the offset lifts the
+decal toward the room, which means a decal's any-hit can fire on rays that are NOT
+actually hitting its receiver — the ray may be skimming past and the lifted card
+sits in its path, or the decal belongs to a wall on the far side of a thin door.
+So the shader MUST validate each accumulated decal against the committed base hit
+before compositing: keep the decal only if its hit lies within the offset envelope
+of the base surface (i.e. the decal is within ~maxOffsetIndex*step of the base
+along the base normal). CRITICAL: measure this in NORMAL space (distance along the
+base/decal face normal), NOT as raw ray-T distance — at grazing angles a small
+normal offset becomes a large along-ray T, so a ray-T cutoff produces circular
+halos and wrongly drops valid grazing decals. Without this guard you get decals
+bleeding through doors/thin walls and onto unrelated nearby cards.
+
+--------------------------------------------------------------------------------
+6. PITFALLS / DONE-CRITERIA
+--------------------------------------------------------------------------------
+  - Peeling sliver at grazing angles: minimized by small step + applying only to the
+    tagged detail-decal subset (never to large surfaces).
+  - Poke-through of perpendicular neighbors: cap the step; verify in a corner-dense
+    level (alphalabs/mars_city).
+  DONE: with the offset on, a detail decal accumulates EVERY frame held-still (no
+  flicker), stacked decals (e.g. grime over a panel seam) keep a stable order, and
+  no visible floating at normal viewing distances.

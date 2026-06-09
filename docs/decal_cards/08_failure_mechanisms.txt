@@ -1,0 +1,157 @@
+DECAL FAILURE MECHANISMS - WHY FILTER CARDS CUT HOLES
+=====================================================
+Authored: 2026-06-10. This note records the observed `textures/decals/stainwallfade`
+failure and the unsafe temporary fixes, so the real geometry-card decal path does
+not repeat them.
+
+--------------------------------------------------------------------------------
+1. THE RASTER CONTRACT
+--------------------------------------------------------------------------------
+Example material:
+
+  textures/decals/stainwallfade
+  {
+      DECAL_MACRO
+      {
+          blend gl_dst_color, gl_zero
+          map textures/decals/stainwallfade.tga
+      }
+  }
+
+In raster this is framebuffer multiplication:
+
+  out.rgb = decal.rgb * destination.rgb
+
+Meaning:
+  - white texel: destination wall unchanged.
+  - gray texel: destination wall darkened/tinted.
+  - black texel: destination wall multiplied to black.
+
+The decal does not replace wall geometry. It is not a transmissive material. It is
+not a black object in the world. It is an operation applied to the already-drawn
+receiver color.
+
+--------------------------------------------------------------------------------
+2. THE RAY-TRACING MISMATCH
+--------------------------------------------------------------------------------
+A primary ray commits one closest hit. When a coplanar decal card is in the BVH,
+the ray can hit the decal card before the receiver wall/floor. At that point the
+shader has only the decal card payload. It does not automatically have the
+destination wall color that raster blending used.
+
+The current stochastic fallback approximates cards by choosing either:
+
+  - decal wins: shade the decal card itself, or
+  - decal loses: IgnoreHit() and shade whatever is behind it.
+
+This cannot express `decal.rgb * receiver.rgb`, because that product requires both
+the decal layer and the receiver material in the same surface build. The visible
+result is random black speckle or black card patches instead of a smoothly
+darkened receiver.
+
+--------------------------------------------------------------------------------
+3. WHY BLACK TEXELS LOOK LIKE HOLES
+--------------------------------------------------------------------------------
+For `blend gl_dst_color, gl_zero`, black texels are the strongest authored effect.
+They mean "multiply the receiver by zero." In a path-traced final image this can
+look indistinguishable from a hole when the system mistakenly treats the decal
+card as the primary surface:
+
+  - The card's own albedo is near black.
+  - Direct lighting on a near-black primary surface contributes almost nothing.
+  - The final image shows a black silhouette at the decal card shape.
+  - If the ray or history path uses a different/deeper surface under that card,
+    deeper scene geometry may be visible in the card footprint.
+
+This is not evidence that the texture alpha is wrong. The observed case did not
+show as a hole in albedo/roughness debug views and displayed black correctly in
+mode 56/stochastic diagnostics. The failure is the final shading route allowing a
+filter decal to become the resolved surface or using an unsafe receiver lookup.
+
+--------------------------------------------------------------------------------
+4. UNSAFE TEMPORARY REPAIR: PASS-THROUGH RECEIVER TRACE
+--------------------------------------------------------------------------------
+A narrow experiment repaired the most obvious black-card case by doing this:
+
+  1. Let a primary filter decal commit.
+  2. Trace through that decal, ignoring the same decal primitive/material.
+  3. Use the second hit as the receiver.
+  4. Modulate receiver albedo by the decal RGB.
+
+This proved the material route could connect to the live receiver surface, but it
+is not a robust decal system. Failure mechanisms:
+
+  WRONG RECEIVER:
+    The pass-through ray travels along the camera ray and commits the next hit
+    after the decal. If coplanar precision, offsets, thin walls, stacked cards, or
+    nearby geometry put another surface behind the decal, the "receiver" can be
+    unrelated scene geometry. The footprint then looks like a cut-through window.
+
+  ZERO-ALBEDO VOID:
+    Raster-accurate full multiply uses `receiverAlbedo * decalRgb`. For black
+    decal texels this is exactly zero. In final lighting, a valid wall with zero
+    albedo can visually read as a geometric hole even when the receiver was found.
+
+  NO LAYER STATE:
+    The second ray recovers one receiver hit, but it does not preserve the ordered
+    decal stack. It cannot correctly handle multiple decals, additive-over-filter
+    ordering, animated color stages, dynamic condition toggles, liquid roughness,
+    or emissive glow layers.
+
+  RECURSION CONTRACT RISK:
+    The engine path tracing pipeline is configured with maxRecursionDepth=1. The
+    real architecture must not depend on closest-hit retracing. Any repair that
+    grows into "trace from closest-hit to find receiver" violates the pipeline
+    constraint and risks shader/resource instability.
+
+Use this experiment only as a diagnostic proof that receiver-side compositing is
+the right target. Do not build the production decal path from pass-through primary
+traces.
+
+--------------------------------------------------------------------------------
+5. REQUIRED ARCHITECTURE TO AVOID THIS BUG
+--------------------------------------------------------------------------------
+The robust path is blend-through accumulation:
+
+  any-hit on detail decal:
+      collect decal layer {materialIndex, uv, sortKey, stage/dynamic state}
+      IgnoreHit()
+
+  closest-hit on base receiver:
+      build the wall/floor material as the real primary surface
+
+  surface build:
+      sort collected decal layers
+      composite each layer onto the receiver material
+
+This prevents the hole class by construction:
+
+  - The decal card never becomes the primary surface.
+  - The receiver wall/floor remains the committed closest hit.
+  - Black texels are interpreted as a blend operation on the receiver, not as a
+    standalone black surface or transparent portal.
+  - Animated/emissive/liquid material properties can be projected as material
+    layers instead of only albedo darkening.
+
+--------------------------------------------------------------------------------
+6. VALIDATION CHECKS
+--------------------------------------------------------------------------------
+For `textures/decals/stainwallfade` and similar filter/modulate decals:
+
+  - Final output must show a darkened receiver, not see-through geometry.
+  - Albedo/roughness debug views must identify whether the committed primary
+    surface is the receiver or an uncomposited diagnostic path.
+  - Toggling the old/new material classifier must not affect the hole failure; the
+    issue is blend/receiver semantics, not classifier identity.
+  - Prepass on/off must not change the receiver identity under a decal.
+  - Thin walls and stacked decal cards are mandatory tests; they catch the wrong
+    receiver/pass-through failure quickly.
+
+For animated/emissive/liquid detail decals:
+
+  - Stage conditions and animated colors must be evaluated per decal layer.
+  - Emissive contribution must affect both visible glow and light contribution
+    where the existing emissive-light system supports it.
+  - Roughness/specular projection must be visible on liquid floor decals without
+    replacing the floor as geometry.
+

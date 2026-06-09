@@ -462,6 +462,7 @@ static const uint RT_SMOKE_MAX_DEBUG_LIGHTS = 32u;
 static const uint RT_DOOM_ANALYTIC_LIGHT_CASTS_SHADOWS = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_ANY_HIT_ALPHA = 0x00000001u;
 static const uint RT_PT_SAFETY_DISABLE_SELECTED_LIGHT_LOOP = 0x00000002u;
+static const uint RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE = 3u;
 static const uint RT_PT_SAFETY_DISABLE_ANALYTIC_LIGHT_LOOP = 0x00000004u;
 static const uint RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING = 0x00000008u;
 static const uint RT_PT_SAFETY_DISABLE_DIFFUSE_SECONDARY_RAY = 0x00000010u;
@@ -1346,7 +1347,7 @@ bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
     return opacity < 0.035;
 }
 
-bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, bool shadowRay)
+bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, bool shadowRay, uint rayMode)
 {
     if ((material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) == 0u)
     {
@@ -1356,6 +1357,11 @@ bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord
     if (shadowRay)
     {
         return true;
+    }
+
+    if (rayMode == RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE)
+    {
+        return false;
     }
 
     const float3 albedo = SampleSmokeDiffuseTexture(material, texCoord).rgb;
@@ -1419,6 +1425,77 @@ PathTraceSmokePayload InitSmokePayload()
 bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload);
 float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload firstPayload);
 uint SelectSmokeWeightedEmissiveTriangle(uint emissiveTriangleCount, float randomValue);
+
+bool SmokePayloadIsFilterDecal(PathTraceSmokePayload payload)
+{
+    return payload.value != 0u &&
+        (LoadSmokeMaterial(payload.materialIndex).flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u;
+}
+
+bool ResolvePrimaryFilterDecalReceiver(inout PathTraceSmokePayload payload, RayDesc ray, uint traceMask, out PathTraceSmokePayload decalPayload)
+{
+    decalPayload = payload;
+    if (!SmokePayloadIsFilterDecal(payload))
+    {
+        return false;
+    }
+
+    PathTraceSmokePayload receiverPayload = InitSmokePayload();
+    receiverPayload.value = 2u;
+    receiverPayload.shadowIgnoreInstanceId = payload.instanceId;
+    receiverPayload.shadowIgnorePrimitiveIndex = payload.primitiveIndex;
+    receiverPayload.shadowIgnoreMaterialId = payload.materialId;
+
+    RayDesc receiverRay = ray;
+    receiverRay.TMin = max(ray.TMin, max(payload.hitT - 0.05, 0.001));
+    TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, receiverRay, receiverPayload);
+    if (receiverPayload.value == 0u || SmokePayloadIsGuiScreen(receiverPayload))
+    {
+        return false;
+    }
+
+    payload = receiverPayload;
+    return true;
+}
+
+void ApplyPrimaryFilterDecalToSurface(inout RAB_Surface surface, PathTraceSmokePayload decalPayload)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return;
+    }
+
+    const PathTraceSmokeMaterial decalMaterial = LoadSmokeMaterial(decalPayload.materialIndex);
+    if ((decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) == 0u)
+    {
+        return;
+    }
+
+    const float3 decalAlbedo = saturate(SampleSmokeSurfaceAlbedo(
+        decalMaterial,
+        decalPayload.texCoord,
+        decalPayload.surfaceClass,
+        decalPayload.translucentSubtype,
+        decalPayload.vertexColor,
+        decalPayload.vertexColorAdd).rgb);
+    const bool blackKey = (decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
+    const float effect = blackKey
+        ? max(max(decalAlbedo.r, decalAlbedo.g), decalAlbedo.b)
+        : 1.0 - min(min(decalAlbedo.r, decalAlbedo.g), decalAlbedo.b);
+    const float coverage = saturate(effect);
+    surface.material.diffuseAlbedo = lerp(
+        surface.material.diffuseAlbedo,
+        surface.material.diffuseAlbedo * max(decalAlbedo, float3(0.12, 0.12, 0.12)),
+        coverage);
+}
+
+bool SmokePrimaryFilterDecalCompositeEnabled(uint debugMode)
+{
+    return debugMode == 0u ||
+        debugMode == 18u ||
+        (debugMode >= 26u && debugMode <= 37u) ||
+        (debugMode >= 50u && debugMode <= 56u);
+}
 
 #include "pathtrace_emissive_sampling.hlsli"
 #include "pathtrace_smoke_rab_environment_stub.hlsli"
@@ -3107,7 +3184,7 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
         return false;
     }
 
-    const bool shadowRay = rayMode != 0u;
+    const bool shadowRay = rayMode != 0u && rayMode != RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
     const PathTraceSmokeMaterial material = LoadSmokeMaterial(LoadSmokeTriangleMaterialIndex(instanceId, primitiveIndex));
     const float2 texCoord = InterpolateSmokeTexCoord(instanceId, primitiveIndex, barycentrics);
     const uint triangleClassAndFlags = LoadSmokeTriangleClassAndFlags(instanceId, primitiveIndex);
@@ -3131,7 +3208,7 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
         return true;
     }
 
-    if (SmokeFilterDecalRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, shadowRay))
+    if (SmokeFilterDecalRejectsHit(material, texCoord, barycentrics, instanceId, primitiveIndex, shadowRay, rayMode))
     {
         return true;
     }
@@ -4427,10 +4504,23 @@ void RayGen()
     }
     else
     {
+        const bool filterDecalCompositeEnabled = SmokePrimaryFilterDecalCompositeEnabled(debugMode);
+        if (filterDecalCompositeEnabled)
+        {
+            payload.value = RT_SMOKE_RAY_MODE_PRIMARY_FILTER_DECAL_COMPOSITE;
+        }
         TraceRay(SmokeScene, RAY_FLAG_NONE, traceMask, 0, 1, 0, ray, payload);
         if (payload.value != 0u && !SmokePayloadIsGuiScreen(payload))
         {
+            PathTraceSmokePayload filterDecalPayload;
+            const bool filterDecalComposite =
+                filterDecalCompositeEnabled &&
+                ResolvePrimaryFilterDecalReceiver(payload, ray, traceMask, filterDecalPayload);
             primaryHistorySurface = RAB_BuildSurfaceFromSmokePayload(payload, ray.Origin, ray.Direction, true);
+            if (filterDecalComposite)
+            {
+                ApplyPrimaryFilterDecalToSurface(primaryHistorySurface, filterDecalPayload);
+            }
         }
     }
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY

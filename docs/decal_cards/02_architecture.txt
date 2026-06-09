@@ -1,0 +1,135 @@
+ARCHITECTURE — BLEND-THROUGH DECALS IN THE BVH
+==============================================
+Authored: 2026-06-10. This is the end-to-end design. It is DECIDED (00 BINDING
+ADDENDUM). Sections: the data path, the four mechanisms, the rejected alternatives,
+and the effect-card boundary.
+
+--------------------------------------------------------------------------------
+1. THE DATA PATH (one camera ray)
+--------------------------------------------------------------------------------
+  1. Ray traverses the world BLAS (instances 0/1). Detail-decal cards are NON-OPAQUE
+     so their ANY-HIT fires; the wall behind them is opaque/closest.
+  2. For each detail-decal card the ray crosses, AnyHit:
+       - samples NOTHING heavy; records {decalMaterialIndex, decalTexCoord,
+         decalSortKey, decalHitT} into a fixed-size decal BIN in the payload (keep
+         the highest priority N by sort key), then IgnoreHit().
+       - => the decal NEVER becomes the closest hit. No z-fight; deterministic.
+  3. The base wall is the committed CLOSEST hit. ClosestHit fills the payload with
+     the wall's geometry + materialIndex as today.
+  4. In raygen, RAB_BuildMaterialFromSmokePayload (701-733) resolves the BASE
+     material, then SORTS the decal bin by sort key, drops decal hits whose
+     projected normal-space separation is outside the configured normal-offset
+     envelope of the committed base hit, and COMPOSITES each remaining decal layer
+     (over / modulate / additive) onto base albedo + emissive (+ roughness/metallic
+     at v1.5). One merged RAB_Surface is written to the G-buffer.
+  5. Everything downstream (RTXDI DI, denoise, RR) consumes the merged surface
+     unchanged. The decal offset is invisible to the G-buffer because the decal is
+     never the shaded surface — only its texel feeds the composite.
+
+No recursion anywhere (maxRecursionDepth=1 honored): accumulation is in any-hit,
+composite is arithmetic in surface-build.
+
+--------------------------------------------------------------------------------
+2. THE FOUR MECHANISMS (each maps to a Remix-validated technique — see 09)
+--------------------------------------------------------------------------------
+M1. DETAIL-DECAL CLASSIFICATION (DECAL-01)
+    Pure idMaterial read. isDetailDecal is a GEOMETRIC property:
+        (sort is decal OR MF_POLYGONOFFSET) AND it is a SURFACE-LOCKED COPLANAR CARD
+        AND NOT an effect card (NOT particle-system / deform-billboard / view-facing
+        sprite).
+    *** "static" is NOT part of this test. *** Dynamic-ness (ConstantRegisters()==NULL)
+    and additive blend are ORTHOGONAL — a glowing, animated, surface-locked decal is
+    still a detail decal (see 07). Excluding effect cards is done by ORIENTATION/deform/
+    particle signals, never by "is it static" and never by "is it additive". blendKind
+    in {Over, Additive} from the existing RT_SMOKE_MATERIAL_*_DECAL flags.
+    Filter/modulate decals stay on the legacy stochastic path until their
+    receiver-owned composite semantics are proven stable.
+    A separate isDynamic = (ConstantRegisters()==NULL) flag is carried alongside (it
+    gates the per-instance evaluator in 07, it does NOT gate composite-vs-stochastic).
+    Cached per materialId.
+    NOTE: we use the AUTHORITATIVE classifier instead of Remix's hand-maintained
+    texture-hash lists (decalTextures sets). This is strictly better and less brittle.
+
+M2. DRAW-ORDER SORT KEY (DECAL-03)
+    Coplanar decal DEPTH is unreliable; DRAW ORDER is the order raster blended in
+    and is deterministic. Assign a monotonically-incrementing decalSortOrder
+    (0..255) per detail-decal surface during capture, in submission order (Remix:
+    rtx_instance_manager.cpp:1118-1126). Pack the 8-bit local order around the
+    translucent subtype field: low nibble in bits 20..23, high nibble in bits
+    28..31. Bits 24..27 are already used by translucent subtype. The shader sort
+    key mirrors Remix (resolve.slangh:1389):
+        sortKey = (decalSortOrder<<24) | (geometryIndex<<16) | primitiveIndex
+    Lower draws first (under), higher draws last (on top).
+
+M3. INCREMENTING NORMAL OFFSET (DECAL-02 — see 04 for the full treatment)
+    Push detail-decal card verts along the OUTWARD FACE NORMAL by
+    (globalDecalOffsetIndex * r_pathTracingDecalOffsetStep), capped at a max index.
+    Two jobs: (a) guarantee decal_t < base_t so the decal's any-hit reliably fires
+    before the base commits; (b) SEPARATE STACKED decals from each other (each gets
+    a larger index). Applied at static capture; view-independent.
+
+M4. ANY-HIT BIN + COMPOSITE (DECAL-04 / DECAL-05)
+    Payload carries a small bin (N=3..4) of decal entries plus each entry's hitT.
+    AnyHit conditionally stores the decal if its sort key ranks among the top N
+    (Remix conditionallyStoreDecal, resolve.slangh:1393). Surface-build first rejects
+    decal hits too far in front of or behind the committed base hit. This distance
+    check is projected onto the receiver normal; comparing raw ray-T creates
+    angle-dependent circular cutoffs on valid decals. The surviving bin is sorted
+    ascending by sort key and composited front-to-back onto the base (Remix
+    find-lowest-and-draw, resolve.slangh:1616-1643). O(n^2) sort is free at N<=4
+    (RTG II Ch.27 perf table, 09).
+
+--------------------------------------------------------------------------------
+3. WHY THIS ARCHITECTURE (and the rejected alternatives)
+--------------------------------------------------------------------------------
+CHOSEN: blend-through in BVH / any-hit accumulation. It keeps decals as the
+geometry the level already authored (correct UVs, correct placement), needs no new
+spatial structure, and — critically — needs NO recursion. RTG II Ch.27's perf table
+(RTX 3080, 36k decals) shows any-hit accumulation ~1.3ms vs the TraceRay-in-a-loop
+methods ~12ms; the loop methods are also impossible here (maxRecursionDepth=1).
+RTX Remix ships exactly this design in production.
+
+REJECTED — Clustered / separate decal TLAS + box projection (RTG II Ch.27 core
+model): decoupling decals into projection boxes queried from the base hit. Rejected
+because (a) it is the most new infrastructure, (b) D3 detail decals are authored as
+coplanar CARDS not boxes — you'd synthesize boxes and lose the authored UV mapping,
+(c) the per-hit decal query wants a second trace (recursion or inline RayQuery
+retrofit). Its one unique strength — projecting onto arbitrary/curved receivers —
+is irrelevant for flat static detail decals. See 09 sec.1.
+
+REJECTED — Load-time bake into the base material: compositing decals into the
+receiver's albedo/normal at load. Rejected for heavy load-time cost and decal/base
+UV-space reconciliation; also loses per-decal dynamic behavior entirely.
+
+--------------------------------------------------------------------------------
+4. CHANNELS / WHAT GETS PROJECTED (full detail in 03)
+--------------------------------------------------------------------------------
+Because any-hit fires ON the decal card, we have the card's barycentrics -> the
+card's OWN authored UVs -> we sample the card's OWN textures (albedo/normal/spec),
+routed through the SAME classifier (Route A rmao / B gloss / C surfaceType) as any
+surface. So we composite a real MATERIAL LAYER, not just a color:
+  v1   : albedo + emissive
+  v1.5 : roughness + metallic + specularF0 (material-modifying decals: rust/wet/scuff)
+  v2   : APPROXIMATE normal (decal normal sample in the BASE TBN). EXACT normal
+         (tangent-frame reconciliation) is deferred — even Remix punts it
+         (resolve.slangh:1398, TODO[REMIX-3080]).
+
+--------------------------------------------------------------------------------
+5. INDIRECT RAYS (cost control — later, optional)
+--------------------------------------------------------------------------------
+v1 targets the PRIMARY-surface producer only (the G-buffer). If/when decals must
+also appear on secondary bounces/reflections, mirror Remix: PRIMARY rays get the
+full sorted bin; INDIRECT rays use a single reservoir-sampled decal
+(resolve.slangh:1402-1409) to bound cost. Do not build this until primary is proven.
+
+--------------------------------------------------------------------------------
+6. THE EFFECT-CARD BOUNDARY (do not cross)
+--------------------------------------------------------------------------------
+Effect cards — smoke, steam, fire, additive glows, screen-facing sprites,
+particle/deform billboards — KEEP the existing stochastic any-hit path
+(SmokeParticleDitherRejectsHit etc.) UNCHANGED. They are screen-facing alpha volumes
+with no real surface to composite onto; the short-term bar is only "roughly on par
+with the old raster cards" (00 sec.2). The M1 predicate's NOT-effect-card test is
+the gate that keeps the two paths disjoint. A material must resolve to exactly one
+path. If a material is ambiguous, default it to the STOCHASTIC path (safe fallback)
+and log it for the debug list.

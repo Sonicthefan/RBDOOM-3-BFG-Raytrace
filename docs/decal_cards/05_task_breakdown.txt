@@ -1,0 +1,201 @@
+TASK BREAKDOWN — DECAL-xx
+=========================
+Authored: 2026-06-10. Execute in order. Each task lists files, the change, and a
+done-criterion. Read 00-04 AND 09 first. Keep everything behind
+r_pathTracingDecalComposite (default 0) until the 06 gate passes; with it 0 the
+detail-decal path falls back to today's stochastic rejection BYTE-IDENTICAL.
+Diagnostic staging: 0 = legacy stochastic, 1 = composite on, 2 =
+normal-offset geometry only, 3 = any-hit collect only, 4 = composite diagnostic.
+Honor the shader-rebuild gotcha (BUILD/DEPLOY below).
+
+================================================================================
+GUARDRAILS (read before any code)
+================================================================================
+  - maxRecursionDepth=1 (PathTraceSmokeResources.cpp:979). Any-hit accumulation
+    only; NO TraceRay in closest-hit.
+  - Do not repair filter decals by making the decal commit and tracing through it
+    to "find" the wall. That diagnostic proves the receiver-composite target, but
+    it can select the wrong receiver behind thin/stacked geometry and recreate the
+    see-through hole. See 08_failure_mechanisms.txt.
+  - Effect cards (smoke/particles/glows) stay on the stochastic path UNTOUCHED.
+    A material resolves to exactly ONE path; ambiguous -> stochastic + log (02 sec.6).
+  - The offset is along the OUTWARD FACE NORMAL, baked at static capture,
+    view-independent (04 sec.2). Never camera-ward.
+  - Decal data lives in the shared SmokeMaterials table + per-triangle capture
+    data, read at LoadSmokeMaterial — NEVER in the primary-surface history record
+    (the material_classifer 05 dead end).
+
+--------------------------------------------------------------------------------
+PHASE 0 — GROUNDING (read-only, no code)
+--------------------------------------------------------------------------------
+DECAL-00  Confirm the detail-decal population and current failure.
+  - Iterate DECL_MATERIAL; tabulate how many materials are sort>=SS_DECAL &&
+    <SS_FAR and/or MF_POLYGONOFFSET, and of those how many are STATIC
+    (ConstantRegisters()!=NULL) vs dynamic. This sizes the detail-decal subset vs
+    effect cards.
+  - In a material-diverse base level (alphalabs1 / mars_city1), find a visible
+    `blend filter` grime/trim decal and confirm the current stochastic SPECKLE
+    (GAP-1) and any coplanar flicker (GAP-2) at the crosshair via
+    PathTraceSurfaceDebugDumps (:120-124).
+  DONE: a note here listing the static-detail-decal count + one named example
+        material exhibiting the speckle, as the before-shot for 06.
+
+--------------------------------------------------------------------------------
+PHASE 1 — CLASSIFY + TAG (engine truth, cached)
+--------------------------------------------------------------------------------
+DECAL-01  isDetailDecal predicate + blendKind + isDynamic on the cached record.
+  Files: PathTraceMaterialClassifier.{h,cpp} (the NEW classifier/record).
+  - isDetailDecal = (RtMaterialSortIsDecal OR MF_POLYGONOFFSET) AND surface-locked
+    coplanar card AND NOT effect-card. Exclude effect cards by ORIENTATION/deform/
+    particle signals ONLY (reuse the existing particle/deform/screen-facing tests).
+    *** Do NOT use "static" and do NOT use "additive" to exclude — a glowing animated
+    surface-locked decal is still a detail decal (07, DECAL-DYN-x). *** Pure
+    idMaterial read; cached per materialId.
+  - blendKind in {Over, Additive} (+ key variant) from the existing
+    RT_SMOKE_MATERIAL_*_DECAL / _WHITE_KEY flags (01.D). Exclude filter/modulate
+    decals from composite for now; they remain on the legacy stochastic path.
+  - isDynamic = (ConstantRegisters()==NULL). Orthogonal flag; gates the 07 evaluator,
+    NOT the composite-vs-stochastic decision.
+  DONE: debug list (DECAL-08) shows, per material: name, isDetailDecal, blendKind,
+        isDynamic; NO effect card tagged detail-decal; the cinematic glow decal (07)
+        tags isDetailDecal=1 isDynamic=1.
+
+DECAL-02  Incrementing face-normal offset at static capture.   (see 04)
+  Files: PathTraceGeometryUniverse.cpp (per-surface/per-triangle static build),
+         PathTraceCVars.{h,cpp} (r_pathTracingDecalOffsetStep,
+         r_pathTracingDecalMaxOffsetIndex).
+  - For detail-decal surfaces: compute face normal, push all verts by
+    faceNormal * (offsetIndex * step); increment offsetIndex per card; cap.
+  - Gate the whole offset behind r_pathTracingDecalComposite so cvar-off is
+    byte-identical geometry.
+  DONE: held-still, a detail decal accumulates every frame (no flicker); stacked
+        decals hold stable order; no visible floating at normal distance.
+
+DECAL-03  Draw-order decalSortOrder capture.    (see 02 M2)
+  Files: PathTraceSceneCapture.cpp / PathTraceGeometryUniverse.cpp + the
+         per-triangle class/flags data read by LoadSmokeTriangleClassAndFlags.
+  - Do not overload triangleClassAndFlags for decal sort; that word is consumed
+    by multiple RT shader paths. V1 uses BLAS geometry/primitive order as a
+    conservative sort key until a dedicated decal metadata buffer exists.
+  DONE: shader can recover a stable per-decal sort key without changing the
+        shared triangle class word.
+
+--------------------------------------------------------------------------------
+PHASE 2 — PAYLOAD BIN + ANY-HIT ACCUMULATION (shader)
+--------------------------------------------------------------------------------
+DECAL-04  Decal bin in payload + any-hit accumulate/IgnoreHit for detail decals.
+  Files: pathtrace_primary_surface_producer.rt.hlsl (PathTraceSmokePayload:8,
+         SmokeAlphaRejectsHit:1241, AnyHit:1329).
+  - Add a fixed bin: N=3 (start), entries {decalMaterialIndex, decalTexCoord,
+    decalSortKey}, plus count. sortKey per 02 M2.
+  - In any-hit, if the hit material isDetailDecal AND r_pathTracingDecalComposite:
+    conditionallyStore into the bin keeping the top-N by sort key (mirror Remix
+    conditionallyStoreDecal, resolve.slangh:1393), then IgnoreHit() — the decal
+    never commits. Effect cards + non-detail decals keep the existing reject logic.
+  - RECEIVER-VALIDATION GUARD (04 sec.5 — do NOT skip): only store a decal whose hit
+    lies within the base surface's offset envelope, measured in NORMAL space (along
+    the face normal), NOT raw ray-T. Without it, offset-lifted decals bleed through
+    thin doors/walls and onto unrelated nearby cards, and a ray-T cutoff makes
+    circular halos at grazing angles. The committed base hitT is known at composite
+    time (DECAL-05); if the guard needs the base hit during accumulation, defer it to
+    the DECAL-05 sort/composite step where base hitT is available.
+  - REMEMBER shader-rebuild-gotcha: delete the affected .rt.bin before building.
+  DONE: with composite on, the base wall is always the committed closest hit under
+        a detail decal (no z-fight); the bin fills (verify via DECAL-08b view); no
+        decal bleeds through a thin door/wall (the guard works).
+
+--------------------------------------------------------------------------------
+PHASE 3 — COMPOSITE (policy)   (see 03)
+--------------------------------------------------------------------------------
+DECAL-05  Sort the bin + composite onto the base material.
+  Files: pathtrace_primary_surface_producer.rt.hlsl
+         (RAB_BuildMaterialFromSmokePayload:704-733).
+  - After base albedo (707) and emissive (733) resolve: sort bin ascending by sort
+    key (O(n^2), n<=3), composite front-to-back per blendKind (over/modulate/add,
+    03 sec.1) onto albedo + emissive. Sample each decal via its OWN UV
+    (InterpolateSmokeTexCoord on the decal materialIndex's card data) + its OWN
+    textures routed through the classifier.
+  - All magic constants cvar-overridable. Gate behind r_pathTracingDecalComposite.
+  DONE: a `blend filter` grime decal renders as a smoothly darkened wall (not
+        speckle); over/additive decals look correct; cvar-off restores stochastic.
+
+DECAL-06  (v1.5, behind its own cvar) roughness/metallic/F0 projection.
+  Files: same composite point (:710-731).
+  - Composite the decal card's resolved roughness/metallic/specularF0 onto the base
+    with the same blend op. Default the cvar OFF; do not block v1.
+  DONE: a rust/wet decal visibly changes base roughness/metallic where it sits.
+
+--------------------------------------------------------------------------------
+PHASE 4 — DIAGNOSTICS + VALIDATION
+--------------------------------------------------------------------------------
+DECAL-08  Debug list (r_pathTracingDecalDebugList).
+  Files: PathTraceSurfaceDebugDumps.cpp / PathTraceDebugDumps.cpp.
+  - Per visible material: name, isDetailDecal, blendKind, decalSortOrder,
+    offsetIndex. Prove the predicate splits detail vs effect correctly.
+  DONE: listing works; no effect card listed as detail-decal.
+
+DECAL-08b  Color-coded decal debug view.
+  - Extend debugMode 57 (EvaluateSmokeMaterialClassifierDebug, pathtrace_smoke.rt.hlsl)
+    or add a sibling: color base-under-decal by decal-bin COUNT, and tint
+    detail-decal-tagged surfaces. Read padding/per-triangle data at LoadSmokeMaterial
+    — NEVER the history record (01.F).
+  DONE: bin-count view matches expected decal coverage; stacked spots show count>1.
+
+DECAL-09  Run the 06 acceptance gate (V1-V5). Record validated cvar defaults back
+          into 04. Then flip r_pathTracingDecalComposite default 0->1.
+  DONE: all 06 boxes checked; composite defaults on; stochastic path remains via
+        r_pathTracingDecalComposite 0.
+
+--------------------------------------------------------------------------------
+PHASE 5 — LATER / OPTIONAL (do not pre-chase)
+--------------------------------------------------------------------------------
+  DECAL-10  Approximate NORMAL projection (v2): decal normal sample applied in the
+            BASE TBN (03 sec.3). Exact tangent-frame reconciliation stays deferred.
+  DECAL-11  Indirect-ray decals via single reservoir-sampled decal (02 sec.5,
+            resolve.slangh:1402-1409) — only if decals must show in reflections.
+  DECAL-12  Per-batch single-offset mode + nonOffset skip (04 sec.4) if the offset
+            index cap is hit in real levels.
+  DECAL-13  translucentDecalAlbedoFactor for decals on glass (03 sec.6).
+
+--------------------------------------------------------------------------------
+PHASE 6 — DYNAMIC DETAIL DECALS (the cinematic glow-card case)   (see 07)
+--------------------------------------------------------------------------------
+Bridges this plan to the material_classifer DYN-x arc. Needed for set-piece decals
+that appear, animate (e.g. glow), then are removed. NOT required for the static bulk
+(Phases 1-4); schedule after the static composite is validated (DECAL-09).
+  DECAL-DYN-1  Apply the face-normal offset (04 / DECAL-02 math) in the DYNAMIC /
+               per-frame geometry capture path, not just static capture.
+  DECAL-DYN-2  Per-instance dynamic eval for detail decals: animated color/alpha
+               (color.registers) + conditionRegister. REMOVAL = conditionRegister==0
+               OR card not submitted -> drop the decal from the bin/composite so a
+               finished glow does not linger. Reuse material_classifer DYN-2/DYN-3.
+  DECAL-DYN-3  Glow-as-light: route the per-instance dynamic EMISSIVE of the decal
+               into the emissive-candidate / NEE intensity (material_classifer DYN-4)
+               so the glow actually illuminates, with a DEGRADED cvar (beauty/bloom
+               only) fallback. Depends on stable instanceId.
+  DONE: the cinematic decal composites correctly (no speckle) WHILE glowing, the
+        glow lights the scene, and it disappears cleanly when the sequence ends.
+
+--------------------------------------------------------------------------------
+BUILD / DEPLOY (from neo/)
+--------------------------------------------------------------------------------
+  cmake --build --preset win64-pt-dev-release
+  copy build-win64-pt-dev/Release/RBDoom3BFG.exe -> E:/prog/rbdoom-3-BFG-prebuilt/
+  copy rebuilt SPIR-V under base/renderprogs2/spirv ONLY (Vulkan runtime).
+  GOTCHA: editing a .hlsli/.rt.hlsl may NOT trigger a rebuild — delete the affected
+  .rt.bin under base/renderprogs2/spirv/builtin/pathtracing/.../<entry>.rt.bin
+  first, then build. Verify new blob mtime > your edit.
+
+--------------------------------------------------------------------------------
+RISK / OPEN QUESTIONS (resolve as encountered)
+--------------------------------------------------------------------------------
+  - Payload size: the decal bin widens PathTraceSmokePayload (already fat). If
+    register pressure regresses, drop N to 2 or pack entries tighter before
+    abandoning the bin.
+  - Population is MOSTLY STATIC, but DYNAMIC detail decals exist and matter for
+    cinematic set-pieces (confirmed: a glow card that animates then is removed —
+    see 07). v1 (Phases 1-4) ships the static subset; the dynamic case is Phase 6
+    (DECAL-DYN-x) with its seams reserved in 07. The detail-decal predicate is
+    deliberately NOT gated on staticness so a dynamic decal still composites.
+  - If a material legitimately needs both effect-card AND detail-decal treatment,
+    it does not exist in D3 content; treat as a bug and log, do not special-case.

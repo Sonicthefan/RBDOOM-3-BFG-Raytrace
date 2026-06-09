@@ -1,0 +1,113 @@
+CURRENT DECAL/CARD STATE AUDIT
+==============================
+Authored: 2026-06-10. Paths under neo/ unless noted. Purpose: ground the plan in
+the exact seams we extend so we EXTEND, not rewrite.
+
+--------------------------------------------------------------------------------
+A. HOW CARDS ARE SHADED TODAY — STOCHASTIC ANY-HIT REJECTION
+--------------------------------------------------------------------------------
+File: shaders/builtin/pathtracing/pathtrace_primary_surface_producer.rt.hlsl
+This is the PRIMARY SURFACE PRODUCER: it traces ONE camera ray (RayGen:1281,
+TraceRay:1306) and writes a G-buffer record (RAB_Surface) for the clean RTXDI DI
+pipeline. It is NOT a recursive integrator.
+
+  - AnyHit:1329 -> SmokeAlphaRejectsHit:1241 dispatches per card kind:
+      SmokeGuiRejectsTransparentHit, SmokeParticleDitherRejectsHit:1157,
+      SmokeGlassFallbackRejectsHit:1193, SmokeAdditiveDecalRejectsHit:1109,
+      SmokeFilterDecalRejectsHit:1132, then the plain alpha-test branch (1274).
+    Each computes an opacity/key and IgnoreHit()s with probability 1-opacity using
+    a hash of (primitiveIndex, instanceId, ditherCell, baryCell). This is
+    stochastic transparency: correct-on-average for EFFECT cards, WRONG for
+    detail decals (see 00 GAP-1/GAP-2).
+  - ClosestHit:1356 fills the payload (PathTraceSmokePayload, struct at line 8)
+    with the COMMITTED triangle's geometry + material index. instanceId>=2u is the
+    rigid route-instance path (1365); static world detail decals are instance 0/1.
+  - The material/albedo is resolved later, in raygen, by
+    RAB_BuildMaterialFromSmokePayload:704 (albedo sample at 707, specular/roughness
+    710-716, classifier BSDF apply 716, emissive 733) -> BuildSurfaceFromPayload:746.
+
+KEY SEAM: the composite injection point is RAB_BuildMaterialFromSmokePayload:707-733,
+driven ENTIRELY by payload fields. If any-hit accumulates a decal layer into the
+payload, the composite is pure arithmetic here — no recursion, fits maxRecursionDepth=1.
+
+--------------------------------------------------------------------------------
+B. PAYLOAD (the channel we extend)
+--------------------------------------------------------------------------------
+struct PathTraceSmokePayload (pathtrace_primary_surface_producer.rt.hlsl:8) already
+carries the full surface basis (normal/tangent/bitangent, texCoord, vertexColor,
+surfaceClass, materialIndex, ...). It is already fat — budget the decal-bin add
+(see 02 / 05 DECAL-04): a small fixed array of {decalMaterialIndex, decalTexCoord,
+decalSortKey} entries, plus a count. N=3..4 (Remix uses 4 bins; resolve.slangh:1202).
+The shadow payload (PathTraceSmokeShadowPayload:35) is separate and v1 leaves decal
+shadowing untouched (decals stay shadow-transparent — see 03 sec.4).
+
+--------------------------------------------------------------------------------
+C. CLASSIFIER — DECAL TAGS THAT ALREADY EXIST (reuse, don't re-derive)
+--------------------------------------------------------------------------------
+NEW classifier (PathTraceMaterialClassifier.cpp):
+  - facts.projectedDecal = GetSort()>=SS_DECAL && GetSort()<SS_FAR  (:429)
+  - RtMaterialSortIsDecal(material) (:1110, uses the same sort window)
+  - decal texture-family + name-token tables (:549-572, :756-758, :996-1012)
+  - flags |= projectedDecal -> bit (1u<<8) packed at :2026
+LEGACY reference classifier (PathTraceDoomMaterialClassifier.cpp):
+  - info.sortIsDecal = sort>=SS_DECAL && sort<SS_FAR  (:186)
+  - info.polygonOffsetDecal = TestMaterialFlag(MF_POLYGONOFFSET)  (:188)
+  - decal name heuristic combined at :312, :357
+
+=> The DETAIL-DECAL predicate (05 DECAL-01) is built from these PLUS a STATIC test
+   (ConstantRegisters()!=NULL) and a NOT-effect-card test (not particle/deform/
+   screen-facing/additive-only). This is the authoritative tagger — we do NOT need
+   Remix's hand-maintained texture-hash lists (09 sec.2). The classifier IS the tagger.
+
+--------------------------------------------------------------------------------
+D. GPU MATERIAL STRUCT + FLAGS
+--------------------------------------------------------------------------------
+PathTraceSmokeMaterial (mirrored CPU in PathTraceEmissiveCandidates.h, HLSL at
+pathtrace_primary_surface_producer.rt.hlsl:53). Flag bits RT_SMOKE_MATERIAL_* in
+PathTraceDynamicMaterialState.h, including RT_SMOKE_MATERIAL_ADDITIVE_DECAL,
+RT_SMOKE_MATERIAL_FILTER_DECAL (+_BLACK_KEY/_WHITE_KEY) consumed by the stochastic
+helpers today. The deterministic composite reads the SAME blend-kind flags to pick
+over/modulate/additive (03 sec.1). A new flag distinguishes DETAIL DECAL (composite)
+from EFFECT-CARD decal (stochastic) so the two paths never cross.
+
+--------------------------------------------------------------------------------
+E. STATIC GEOMETRY CAPTURE (where the normal-offset lands)
+--------------------------------------------------------------------------------
+File: renderer/NVRHI/PathTraceGeometryUniverse.cpp
+  - BuildRigidLocalSmokeVertex(const idDrawVert&):738 builds ONE vertex (position
+    748-751 copied straight from drawVert.xyz). This is the WRONG altitude for the
+    offset — it sees one vertex, knows neither the face normal nor whether the
+    surface is a detail decal.
+  - The static world vertex cache is m_staticVertexCache (used at :2944,
+    SmokeVertexPosition). Per-triangle/per-surface static build is where all three
+    positions + the material are in hand together -> the offset MUST be applied
+    there (04 / DECAL-02): confirm detail-decal via classifier, compute face normal
+    from the triangle, push all three verts uniformly. Keeps the card planar and
+    only touches the tagged subset. View-independent (see 00 sec.3b).
+
+--------------------------------------------------------------------------------
+F. DEBUG / DIAGNOSTICS HOOKS (reuse)
+--------------------------------------------------------------------------------
+  - debugMode 57 EvaluateSmokeMaterialClassifierDebug (pathtrace_smoke.rt.hlsl)
+    reads padding1/padding2 from LoadSmokeMaterial(payload.materialIndex) — the
+    correct, primary-pipeline place to read classifier data (material_classifer 05
+    COURSE CORRECTION). Extend it / add a sibling mode to color detail-decal hits
+    and show decal-bin count. NEVER route decal data through the primary-surface
+    HISTORY record (the prior dead end documented in material_classifer 05).
+  - PathTraceSurfaceDebugDumps.cpp already dumps decalSort/polyOffset classifiers
+    at the crosshair (:120-124) — extend to print the detail-decal predicate result.
+
+--------------------------------------------------------------------------------
+G. SUMMARY OF SEAMS THE PLAN USES
+--------------------------------------------------------------------------------
+  classify(idMaterial) --> isDetailDecal + blendKind   (cached record; DECAL-01)
+        |
+  static capture --> face-normal offset on detail-decal verts   (DECAL-02)
+        |
+  AnyHit --> accumulate decal {matIndex,uv,sortKey} into payload bin, IgnoreHit()
+        |     base wall stays committed closest hit                 (DECAL-04)
+        |
+  RAB_BuildMaterialFromSmokePayload:707 --> sort bin by sortKey, composite
+        over/modulate/add onto base albedo/emissive/(roughness,metallic) (DECAL-05)
+        |
+  G-buffer RAB_Surface (merged) --> RTXDI DI, unchanged downstream

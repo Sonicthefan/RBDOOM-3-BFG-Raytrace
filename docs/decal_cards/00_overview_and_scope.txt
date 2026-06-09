@@ -1,0 +1,132 @@
+ROBUST GEOMETRY DECAL CARDS FOR THE PATH TRACER — PLANNING OVERVIEW
+==================================================================
+Branch: restir-development
+Authored: 2026-06-10
+Companion plan set: docs/material_classifer/ (the static material classifier this
+  work builds ON TOP OF — read 00/01/02/07 there first).
+Reference material studied for this plan (see 09):
+  - Ray Tracing Gems II, Ch.27 "Ray Tracing Decals" (E:/prog/references/Ray_Tracing_Decals.pdf)
+  - RTX Remix decal implementation (E:/prog/references/dxvk-remix-git/src/dxvk)
+
+*** BINDING ADDENDUM — ARCHITECTURE IS DECIDED. This plan implements ONE chosen
+*** architecture: BLEND-THROUGH IN THE BVH via any-hit accumulation. The decal
+*** card stays as geometry in the existing world BLAS; on a ray hit the decal is
+*** accumulated into the payload and IgnoreHit()'d, the base wall stays the
+*** committed closest hit, and the decal is composited onto the base material
+*** deterministically at surface-build time. The alternative architectures
+*** (clustered/separate-decal-TLAS box projection, or load-time bake) were
+*** evaluated and REJECTED for this fork — do not reintroduce them. Rationale and
+*** the rejected options are in 02 and 09.
+***
+*** HARD ENGINE CONSTRAINT: PathTraceSmokeResources.cpp:979 sets
+*** maxRecursionDepth = 1. The closest-hit shader CANNOT TraceRay. Every design
+*** choice here is shaped by that: accumulation happens in ANY-HIT (which runs
+*** before commit and needs no recursion), never via a re-trace from closest-hit.
+
+--------------------------------------------------------------------------------
+0. ONE-LINE GOAL
+--------------------------------------------------------------------------------
+Make idTech4 STATIC GEOMETRY DETAIL DECALS (the coplanar cards that drive real
+level texture detail — grime, trim, panels, signage, scorch) render correctly in
+the path tracer by COMPOSITING them onto the surface they sit on, with correct
+over / modulate / additive blending across a full material layer, instead of the
+current stochastic any-hit rejection that can only ever show decal-OR-base and
+cannot express modulate.
+
+--------------------------------------------------------------------------------
+1. WHY NOW — WHAT IS BROKEN TODAY (audited 2026-06-10)
+--------------------------------------------------------------------------------
+Today ALL cards (smoke, additive glows, alpha cards, AND geometry detail decals)
+go through ONE mechanism: stochastic any-hit rejection in
+pathtrace_primary_surface_producer.rt.hlsl (SmokeAlphaRejectsHit:1241, the
+SmokeAdditiveDecalRejectsHit:1109 / SmokeFilterDecalRejectsHit:1132 helpers, and
+AnyHit:1329). Per ray the card either "wins" (you shade the card's own albedo) or
+"loses" (the ray passes through to whatever is behind). Two concrete failures for
+geometry detail decals:
+
+  GAP-1  Modulate/filter math is unrepresentable. A `blend filter` grime/trim
+         decal must compute decal*base (darken/tint the wall underneath).
+         Stochastic rejection returns EITHER decal OR base, never the product, so
+         SmokeFilterDecalRejectsHit (1132) approximates with a coverage
+         probability — a near-black grime decal becomes random black SPECKLE
+         instead of a smoothly darkened wall.
+
+  GAP-2  Coplanar z-fight noise. Detail decals are coplanar with the wall (raster
+         used MF_POLYGONOFFSET; the BVH has no polygon offset). Which triangle the
+         ray "hits first" is precision-dependent, so even before the stochastic
+         dice-roll the result is unstable frame to frame.
+
+The classifier already TAGS these correctly (projectedDecal,
+PathTraceMaterialClassifier.cpp:429; polygonOffsetDecal/MF_POLYGONOFFSET,
+PathTraceDoomMaterialClassifier.cpp:188) — the wrong thing is the SHADING
+MECHANISM, not the classification. This plan replaces the mechanism for the
+detail-decal subset only.
+
+--------------------------------------------------------------------------------
+2. SCOPE
+--------------------------------------------------------------------------------
+IN SCOPE (this plan):
+  - A classifier predicate that separates GEOMETRY DETAIL DECAL (deterministic
+    composite) from EFFECT CARD (keep stochastic). Reuses existing tags.
+  - A draw-order decal sort key captured per detail-decal surface (deterministic
+    blend ordering — coplanar depth is unreliable, draw order is what raster used).
+  - An incrementing normal-offset applied to detail-decal card geometry at static
+    capture, to make coplanar accumulation reliable and to separate STACKED decals.
+  - Payload decal-bin fields + any-hit accumulation of up to N (3-4) decals.
+  - Deterministic composite (over / modulate / additive) onto the base material at
+    surface-build time, across albedo + emissive (v1), roughness/metallic/F0 (v1.5).
+  - Debug view + validation gate.
+  - DYNAMIC detail decals (the cinematic glow-card: appears, animates, is removed)
+    as a defined LATER phase (07 / DECAL-DYN-x), bridging to the material_classifer
+    DYN-x arc. The detail-decal vs effect-card decision is GEOMETRIC, not gated on
+    staticness, so dynamic decals still composite correctly.
+
+NOT IN SCOPE (explicitly deferred — do not chase here):
+  - VOLUMETRICS / smoke / additive effect sprites. They stay on the EXISTING
+    stochastic any-hit path unchanged; the short-term bar for them is only
+    "roughly on par with the old raster cards." See 02 sec.6. Do NOT route effect
+    cards through the deterministic composite.
+  - Box-projection decals onto arbitrary/curved receivers (the RTG II Ch.27 core
+    model). D3 static detail decals are authored as flat cards on flat receivers;
+    the card model is sufficient and the box model is rejected (09 sec.1).
+  - EXACT decal normal-map projection (tangent-frame reconciliation). v2 only; an
+    APPROXIMATE base-TBN version is the most we attempt, and only after v1/v1.5.
+    Even RTX Remix punts exact normal blending (09 sec.2, resolve.slangh:1398).
+  - GENERAL per-instance dynamic fade/flipbook for non-decal materials (that stays
+    the material_classifer DYN-x arc). This plan only pulls in the dynamic behavior
+    a DETAIL DECAL needs (animated color/alpha, condition toggle, glow-as-light) and
+    only in Phase 6 — see 07.
+  - Any ReSTIR / NEE-cache / DLSS-RR changes.
+
+--------------------------------------------------------------------------------
+3. KNOWN PROJECT CONSTRAINTS TO RESPECT
+--------------------------------------------------------------------------------
+  (a) maxRecursionDepth = 1 (PathTraceSmokeResources.cpp:979). Accumulation in
+      any-hit only; no closest-hit re-trace.
+  (b) The static world BVH (instances 0/1, where detail decals live — see ClosestHit
+      instanceId>=2u route split at pathtrace_primary_surface_producer.rt.hlsl:1365)
+      is built ONCE and is VIEW-INDEPENDENT. The geometric normal-offset must be
+      along the decal's OUTWARD FACE NORMAL (view-independent), NEVER toward the
+      camera, or BVH stability / temporal churn breaks. See 04.
+  (c) Classification is cached per materialId and temporally stable. The
+      detail-decal predicate is a pure read of idMaterial; it lives in the cached
+      record (material_classifer 02 STABILITY), adds nothing per-frame.
+  (d) Shader-rebuild gotcha: editing a .hlsli may not trigger a rebuild — delete
+      the affected .rt.bin first. See 05 BUILD/DEPLOY and the shader-rebuild-gotcha
+      memory.
+
+--------------------------------------------------------------------------------
+4. DOCUMENT SET (this folder)
+--------------------------------------------------------------------------------
+  00_overview_and_scope.txt          (this file)
+  01_current_state_audit.txt         what exists today + the seams we use
+  02_architecture.txt                blend-through design, end to end
+  03_blending_and_material_layer.txt blend ops + which channels can be projected
+  04_geometry_offset.txt             the coplanar normal-offset (incrementing)
+  05_task_breakdown.txt              phased DECAL-xx tasks with done-criteria
+  06_validation.txt                  acceptance gate
+  07_dynamic_decals.txt              dynamic detail decals (cinematic glow card)
+  08_failure_mechanisms.txt          observed hole failures + unsafe fixes
+  09_reference_findings.txt          RTG II Ch.27 + RTX Remix, distilled
+
+Read in order. 05 is what an implementing agent executes from.

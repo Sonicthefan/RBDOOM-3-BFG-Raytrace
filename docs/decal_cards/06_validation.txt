@@ -1,0 +1,82 @@
+VALIDATION / ACCEPTANCE GATE
+============================
+Authored: 2026-06-10. The gate DECAL-09 runs before flipping
+r_pathTracingDecalComposite default 0->1. Every check is A/B against the cvar
+(0 = today's stochastic path, must stay byte-identical; 1 = new composite).
+
+SUGGESTED DIAGNOSTIC STAGING (from a prior attempt — isolates the three new pieces
+so a failure points at one stage, not the whole path). Drive via an int cvar, e.g.
+r_pathTracingDecalDebugStage:
+  0 = off (stochastic path, baseline).
+  1 = full composite ON (the production path).
+  2 = NORMAL-OFFSET geometry only (DECAL-02): decals still shade via the old
+      stochastic path, but the offset is applied — isolates z-fight/peeling from
+      the composite. Use for V3.
+  3 = ANY-HIT COLLECT only (DECAL-04): bin fills + base stays closest, but skip the
+      composite (e.g. visualize bin count) — isolates accumulation from blending.
+  4 = COMPOSITE diagnostic: tint/false-color the composited contribution so the
+      blend op is visible independent of base texture — isolates the blend math.
+Keep these as the debug ladder behind DECAL-08/08b; production ships stage 1.
+
+--------------------------------------------------------------------------------
+V1 — CLASSIFICATION SPLIT IS CLEAN
+--------------------------------------------------------------------------------
+Via DECAL-08 debug list, in alphalabs1 + mars_city1:
+  - Every STATIC decal-sort / MF_POLYGONOFFSET wall-detail material is tagged
+    isDetailDecal with a plausible blendKind.
+  - NO effect card (smoke/steam/fire/glow/particle/screen-facing sprite) is tagged
+    detail-decal. Spot-check 10 known effect materials -> all route stochastic.
+PASS = zero misclassifications in the spot set; ambiguous materials defaulted to
+stochastic and logged.
+
+--------------------------------------------------------------------------------
+V2 — MODULATE/FILTER IS CORRECT (the headline fix)
+--------------------------------------------------------------------------------
+On the DECAL-00 named `blend filter` grime/trim example:
+  - cvar 0: visible stochastic SPECKLE (the before-shot).
+  - cvar 1: smoothly darkened/tinted wall, no speckle, stable held-still.
+PASS = product blending (decal*base) visibly correct, no per-frame noise.
+
+--------------------------------------------------------------------------------
+V3 — NO COPLANAR Z-FIGHT / FLICKER
+--------------------------------------------------------------------------------
+Held-still on several detail decals incl. a STACKED spot (e.g. grime over a panel
+seam) and a corner-dense area:
+  - No frame-to-frame flicker between decal and wall.
+  - Stacked decals keep a stable, draw-order-consistent layering.
+  - No visible peeling/floating sliver at normal viewing distance; check grazing
+    angle for the worst case and confirm it is acceptable at the tuned offset step.
+PASS = stable accumulation every frame; documented offset-step default.
+
+--------------------------------------------------------------------------------
+V4 — BLEND-OP COVERAGE
+--------------------------------------------------------------------------------
+One example each of OVER (signage/poster), MODULATE (grime), ADDITIVE (glow trim):
+  - Each renders per 03 sec.1; additive trim also reads as emissive where authored.
+PASS = all three op classes correct on real content.
+
+--------------------------------------------------------------------------------
+V5 — NO REGRESSION / STABILITY / PERF
+--------------------------------------------------------------------------------
+  - cvar 0 produces byte-identical output to pre-change (stochastic path untouched).
+  - Effect cards (smoke etc.) unchanged with cvar 1 (still stochastic).
+  - No RTXDI/RR history-reset churn from the new path (the merged surface is stable;
+    decal offset never reaches the G-buffer — 02 sec.1 / 04 sec.5).
+  - Frame-time delta from the composite is small and bounded (RTG II Ch.27 perf
+    table predicts ~near-free for N<=4 any-hit accumulation; confirm no pathological
+    decal-dense spot regresses). Record the measured delta here.
+PASS = no regression at cvar 0; effect cards unchanged; bounded perf cost.
+
+--------------------------------------------------------------------------------
+V1.5 (only if DECAL-06 shipped) — MATERIAL-LAYER PROJECTION
+--------------------------------------------------------------------------------
+A rust/wet/scuff decal visibly changes base roughness/metallic where it sits, with
+its own cvar; default-off leaves v1 albedo behavior intact.
+PASS = roughness/metallic modulation visible and isolated behind its cvar.
+
+--------------------------------------------------------------------------------
+RECORD-BACK
+--------------------------------------------------------------------------------
+On PASS: record tuned defaults (r_pathTracingDecalOffsetStep,
+r_pathTracingDecalMaxOffsetIndex, bin N, measured perf delta) into 04/05, flip
+r_pathTracingDecalComposite default to 1, and note the validated levels here.

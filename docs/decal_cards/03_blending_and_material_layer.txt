@@ -1,0 +1,106 @@
+BLENDING CAPABILITIES + MATERIAL-LAYER PROJECTION
+=================================================
+Authored: 2026-06-10. Answers two questions precisely: WHAT blend math the
+composite supports, and WHICH material channels a decal can project onto the base.
+This is Layer-2 policy (the composite); it lives in
+RAB_BuildMaterialFromSmokePayload (pathtrace_primary_surface_producer.rt.hlsl:707-733).
+
+--------------------------------------------------------------------------------
+1. BLEND OPERATIONS
+--------------------------------------------------------------------------------
+The composite is deterministic arithmetic on already-resolved channels, so the full
+idTech4 decal blend set is expressible. blendKind comes from the classifier (the
+existing RT_SMOKE_MATERIAL_*_DECAL flags + _BLACK_KEY/_WHITE_KEY, see 01.D). Let
+`d` = decal channel sample, `b` = base channel, `a` = decal coverage/alpha.
+
+  OVER (src-alpha):      out = b*(1-a) + d*a
+      Signage, posters, painted detail, alpha-cut grime. The common case.
+
+  MODULATE / FILTER:     out = lerp(b, d*b, a)        (i.e. d*b at full coverage)
+      *** THE CASE THAT IS IMPOSSIBLE TODAY. *** Dirt, scorch, AO-style darkening
+      that TINTS THE WALL UNDERNEATH. Stochastic rejection can never form a product;
+      this can. White-key/black-key variants choose how coverage is derived from the
+      decal texel (mirror SmokeFilterDecalRejectsHit:1132-1144 logic, but apply it as
+      a blend instead of a reject probability).
+
+  ADDITIVE:              out = b + d*a
+      Glows, light leaks, emissive trim (also feeds emissive, see sec.3).
+
+  MODULATE2X / overbright (only if content needs it): out = lerp(b, 2*d*b, a)
+
+DONE-CRITERION anchor: a `blend filter` grime decal renders as a smoothly darkened
+wall (not speckle), and toggling r_pathTracingDecalComposite 0 restores today's
+stochastic look.
+
+--------------------------------------------------------------------------------
+2. WHY WE CAN PROJECT A MATERIAL, NOT JUST A COLOR
+--------------------------------------------------------------------------------
+The any-hit fires ON the decal card, so we have the card's barycentrics ->
+InterpolateSmokeTexCoord on the DECAL card -> the card's OWN authored UVs. We are
+NOT projecting a box texture onto an arbitrary receiver and guessing UVs (the RTG II
+box model); the level designer authored the card coplanar with correct UVs. So a
+decal contributes whatever channels ITS OWN material declares, resolved through the
+SAME classifier route (A real-PBR rmao / B legacy gloss / C surfaceType) as any
+surface. That is what makes "project a material" real rather than a color overlay.
+
+--------------------------------------------------------------------------------
+3. CHANNELS — WHAT CAN BE PROJECTED, AND WHEN
+--------------------------------------------------------------------------------
+  ALBEDO            v1.  Composite per sec.1 onto materialAlbedo
+                         (RAB_BuildMaterialFromSmokePayload:708).
+  EMISSIVE          v1.  Decal emissive folds into material.emissiveRadiance (:733)
+                         with the same blend op (additive decals naturally add).
+                         Glowing signage/trim works here.
+  ROUGHNESS         v1.5 Composite onto `roughness` (:711-730). Enables material-
+  METALLIC               modifying decals: rust/wet/scuff that make the wall ROUGHER
+  SPECULAR-F0            or MORE METALLIC where the decal sits. Feasible because the
+                         composite point already computes these for the base and the
+                         decal card's own spec/rmao resolves identically. Gate behind
+                         a cvar; default OFF until validated so v1 albedo work is
+                         not blocked.
+  NORMAL            v2.  HARD. The decal card and wall are coplanar (geometric
+                         normals match) but their TANGENT FRAMES differ (card UV vs
+                         wall UV orientation). Exact compositing needs frame
+                         reconciliation — DEFERRED. Even Remix stores the decal
+                         tangent frame but leaves blending unimplemented
+                         (resolve.slangh:1398-1400, TODO[REMIX-3080]). The v2
+                         APPROXIMATION: apply the decal's tangent-space normal sample
+                         in the BASE surface's TBN ("any decal's tangent space should
+                         work", per Remix's note). Good enough for dents/rivets/seams.
+                         Do NOT attempt before v1/v1.5 land.
+  OPACITY/COVERAGE  Always: drives `a` in sec.1. From the decal alpha texture
+                         (SmokeAlphaCoverage) and/or key (white/black) as the
+                         classifier indicates.
+
+--------------------------------------------------------------------------------
+4. SHADOWS (v1 decision)
+--------------------------------------------------------------------------------
+v1: detail decals stay SHADOW-TRANSPARENT (the shadow any-hit keeps today's
+behavior of passing decals through — ShadowAnyHit path / the `shadowRay` early
+returns in the *RejectsHit helpers). The composite is BEAUTY-only; a darkening
+grime decal does not also cast a darker shadow. This matches raster (decals did not
+contribute to shadow maps as separate occluders) and keeps the shadow payload
+untouched. Revisit only if a specific decal needs to occlude (would be a later,
+alpha-cutoff-masked shadow contribution).
+
+--------------------------------------------------------------------------------
+5. EVALUATION-ORDER NOTE (minor optimization, RTG II 27.5.4)
+--------------------------------------------------------------------------------
+If the topmost decal fully overrides a channel at full coverage (a=1, opaque
+sticker), the base's contribution to that channel is unused. Optional micro-opt:
+skip base albedo work when the resolved decal stack is fully opaque. Not required
+for correctness; only consider after the composite is validated.
+
+--------------------------------------------------------------------------------
+6. TRANSLUCENT-RECEIVER NOTE (RTX Remix translucentDecalAlbedoFactor)
+--------------------------------------------------------------------------------
+Decals authored for opaque walls have low albedo that reads too dark if composited
+onto a TRANSLUCENT base (glass). Remix multiplies decal albedo by a factor (~10) in
+that case (rtx_options.h:858-861). If/when detail decals land on glass, mirror this
+behind a cvar; otherwise out of scope.
+
+--------------------------------------------------------------------------------
+SUMMARY: blend ops = over / modulate / additive (/modulate2x). Projected channels =
+albedo+emissive (v1), roughness+metallic+F0 (v1.5), approximate normal (v2). This is
+strictly MORE than raster D3, which was albedo-blend only and never touched
+roughness/metallic. Exact normal projection is the single deferred item.
