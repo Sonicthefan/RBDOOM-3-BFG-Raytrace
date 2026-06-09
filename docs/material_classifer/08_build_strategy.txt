@@ -5,7 +5,7 @@ Authored: 2026-06-07.
 *** RtSmokeMaterialUniverseFacts" wording in 00-07 where they conflict.
 
 DECISION: build an ENTIRELY NEW classifier stack ALONGSIDE the legacy one,
-toggled by r_pathTracingMatClassEnable (default 0). Do NOT upgrade the legacy
+toggled by r_pathTracingMatClassEnable (default 1). Do NOT upgrade the legacy
 classifier or the legacy material universe in place.
 
 WHY:
@@ -13,14 +13,13 @@ WHY:
     for basic debugging and was never meant to be expanded.
   - The legacy material universe (RtSmokeMaterialUniverseFacts / PathTraceMaterial-
     Universe) is not in a state worth building on.
-  - This work takes a while; legacy MUST stay working as (a) the default renderer
-    path and (b) a safety net so other game work can continue in parallel without
-    the half-built new system breaking the build or the picture.
+  - This work took a while; legacy MUST stay working as a safety net so other
+    game work can continue in parallel if the new system needs a rollback.
 
 --------------------------------------------------------------------------------
 1. ISOLATION RULES (so parallel work is safe)
 --------------------------------------------------------------------------------
-  - New path is DEFAULT OFF and must not execute unless the cvar is on. When off,
+  - New path is DEFAULT ON after the acceptance gate. When the cvar is set to 0,
     behavior is byte-for-byte the legacy path.
   - New path lives in NEW files with a NEW name prefix (NOT "Smoke"). Suggested:
     PathTraceMaterialClassifier.{h,cpp} + RtMat* / PathTraceMaterial* types.
@@ -97,8 +96,8 @@ producer/PathTracePrimarySurface.hlsli classifier packing into the record.
 --------------------------------------------------------------------------------
 5. LEGACY DISPOSITION / LIFECYCLE
 --------------------------------------------------------------------------------
-  - Keep legacy as DEFAULT until the new path passes the doc-04 acceptance gate
-    AND soaks on real levels.
+  - Keep legacy as the rollback path after the new path passes the doc-04
+    acceptance gate and soaks on real levels.
   - Even after default-flip (enable 0->1), KEEP the cvar + legacy code for instant
     rollback (mirrors how the RR depth + history-reset work kept toggles).
   - Only consider deleting legacy after the new path is the proven default for a

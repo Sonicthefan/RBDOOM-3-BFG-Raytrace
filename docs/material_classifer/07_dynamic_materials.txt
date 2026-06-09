@@ -59,7 +59,7 @@ NOT YET PRESENT:
 --------------------------------------------------------------------------------
 Add to the NEW RtMaterialRecord a small dynamic descriptor (static only). Do not
 add this to RtSmokeMaterialUniverseFacts; the legacy facts record remains the
-default-off rollback path:
+rollback path when r_pathTracingMatClassEnable is 0:
   bool   isDynamic            = (ConstantRegisters()==NULL)
   bool   hasDynamicColor      = any active stage with non-constant color.registers
   bool   hasDynamicAlpha      = alpha register non-constant (fade)

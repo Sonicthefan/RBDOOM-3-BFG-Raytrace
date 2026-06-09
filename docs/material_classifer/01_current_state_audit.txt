@@ -61,8 +61,8 @@ Is*Decal helpers are referenced from 7 files:
   PathTraceMaterialTextureDiscovery.cpp, PathTraceSceneCapture.cpp,
   PathTraceSurfaceClassification.cpp.
 => Keep these signatures stable. The new classifier must not require these callers
-   to change while it is default-off; branch to the new module only at the
-   material-table switch seam described in 08.
+   to change; branch to the new module only at the material-table switch seam
+   described in 08, with r_pathTracingMatClassEnable 0 as the rollback path.
 
 --------------------------------------------------------------------------------
 D. LEGACY PERSISTENT FACTS  (PathTraceMaterialUniverse.h)

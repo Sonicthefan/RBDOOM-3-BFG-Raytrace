@@ -851,9 +851,9 @@ idCVar r_pathTracingForceTextureCodeUse(
 
 idCVar r_pathTracingMatClassEnable(
     "r_pathTracingMatClassEnable",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Enable the new material-classifier path; default 0 keeps the legacy classifier/table path active" );
+    "Enable the new material-classifier path; set 0 to roll back to the legacy classifier/table path" );
 
 idCVar r_pathTracingMatClassUseRmao(
     "r_pathTracingMatClassUseRmao",

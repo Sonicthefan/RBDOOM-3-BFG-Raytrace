@@ -209,7 +209,8 @@ MATCLASS-08b  Color-coded material-type DEBUG VIEW.
 
 MATCLASS-09  Run the 04 acceptance gate (V1-V5). Record validated cvar defaults
              back into 03's table. Then flip MatClassEnable default 0->1.
-  DONE: all 04 gate boxes checked; defaults locked; legacy path retained.
+DONE: all 04 gate boxes checked; r_pathTracingMatClassEnable now defaults to 1;
+      legacy path remains available with r_pathTracingMatClassEnable 0.
 
 --------------------------------------------------------------------------------
 PHASE 5 — DYNAMIC MATERIALS (fade / flipbook / video / decals)

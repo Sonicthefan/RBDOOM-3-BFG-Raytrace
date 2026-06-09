@@ -70,12 +70,13 @@ defaults into 03's table (record the chosen numbers back into that doc, as the
 RR depth slice locked its near/far defaults).
 
 --------------------------------------------------------------------------------
-ACCEPTANCE GATE (all required before default-enable)
+ACCEPTANCE GATE (completed before default-enable)
 --------------------------------------------------------------------------------
-  [ ] V1 corpus replay: declaration beats name in 100% of conflict cases.
-  [ ] V2: Authoritative fraction is plausibly non-trivial on a real level.
-  [ ] V3: metal/glass/liquid visibly improved; no black materials.
-  [ ] V4: held-still stable, table-cache hit rate unchanged, no new RR resets.
-  [ ] 03 table defaults updated with validated numbers.
-Then flip r_pathTracingMatClassEnable default 0 -> 1, keep cvar for rollback.
+  [x] V1 corpus replay: declaration beats name in 100% of conflict cases.
+  [x] V2: Authoritative fraction is plausibly non-trivial on a real level.
+  [x] V3: metal/glass/liquid visibly improved; no black materials.
+  [x] V4: held-still stable, table-cache hit rate unchanged, no new RR resets.
+  [x] 03 table defaults updated with validated numbers.
+DONE: r_pathTracingMatClassEnable now defaults to 1 after the runtime acceptance
+gate. Keep cvar value 0 as the immediate legacy rollback path.
 </content>

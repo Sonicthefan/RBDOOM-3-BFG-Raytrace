@@ -13,9 +13,9 @@ Extracted .mtr corpus for study: E:/prog/references/doom3_MTR/materials (64 file
 *** BSDF table in 03 is ROUTE C ONLY. 06 overrides 00/02/03 where they conflict.
 ***
 *** BUILD STRATEGY (08, authoritative): this is a NEW module built ALONGSIDE the
-*** legacy classifier, gated by r_pathTracingMatClassEnable (default 0). Legacy
+*** legacy classifier, gated by r_pathTracingMatClassEnable (default 1). Legacy
 *** (the throwaway debug classifier + RtSmokeMaterialUniverseFacts) is NOT
-*** upgraded in place — it stays as default + rollback + parallel-work safety net.
+*** upgraded in place — it stays as rollback + parallel-work safety net.
 *** The new path owns its OWN per-materialId record (not the legacy facts struct).
 *** 08 supersedes any "extend existing facts/classifier" wording in 00-07.
 
