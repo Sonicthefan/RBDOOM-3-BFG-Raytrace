@@ -17,6 +17,7 @@
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
+#include <unordered_set>
 
 RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 
@@ -1305,6 +1306,62 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextur
             RegisterSmokeMaterialTextureInfo(material);
             timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
         }
+    }
+
+    timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+    return timing;
+}
+
+RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMaterialIds(const std::vector<uint32_t>& materialIds, bool enabled)
+{
+    OPTICK_EVENT("PT Material Metadata Id Hydration");
+
+    RtSmokeMaterialMetadataRegistrationTiming timing;
+    const int metadataStartMs = Sys_Milliseconds();
+    if (!enabled || !declManager || materialIds.empty())
+    {
+        timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+        return timing;
+    }
+
+    std::unordered_set<uint32_t> missingMaterialIds;
+    missingMaterialIds.reserve(materialIds.size());
+    for (uint32_t materialId : materialIds)
+    {
+        if (materialId == 0u || FindSmokeMaterialTextureInfo(materialId))
+        {
+            continue;
+        }
+        missingMaterialIds.insert(materialId);
+    }
+
+    if (missingMaterialIds.empty())
+    {
+        timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+        return timing;
+    }
+
+    const int declCount = declManager->GetNumDecls(DECL_MATERIAL);
+    for (int declIndex = 0; declIndex < declCount && !missingMaterialIds.empty(); ++declIndex)
+    {
+        const idDecl* decl = declManager->DeclByIndex(DECL_MATERIAL, declIndex, false);
+        const idMaterial* material = static_cast<const idMaterial*>(decl);
+        if (!material)
+        {
+            continue;
+        }
+
+        const uint32_t materialId = SmokeMaterialId(material);
+        std::unordered_set<uint32_t>::iterator missing = missingMaterialIds.find(materialId);
+        if (missing == missingMaterialIds.end())
+        {
+            continue;
+        }
+
+        const int registrationStartMs = Sys_Milliseconds();
+        RegisterSmokeMaterialTextureInfo(material);
+        timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
+        missingMaterialIds.erase(missing);
     }
 
     timing.metadataMs = Sys_Milliseconds() - metadataStartMs;

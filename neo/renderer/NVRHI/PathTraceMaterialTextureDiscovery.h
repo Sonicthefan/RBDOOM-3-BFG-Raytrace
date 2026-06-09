@@ -6,6 +6,9 @@
 // material table construction. Classification decides what kind of material we
 // have; discovery records usable texture handles and fallback reasons.
 
+#include <cstdint>
+#include <vector>
+
 class idMaterial;
 struct viewDef_t;
 
@@ -30,3 +33,4 @@ extern RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 void RegisterSmokeMaterialTextureInfo(const idMaterial* material);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextureInfo(const viewDef_t* viewDef, bool enabled);
+RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMaterialIds(const std::vector<uint32_t>& materialIds, bool enabled);

@@ -2590,9 +2590,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             metadataTiming.registrationMs += worldStaticMetadataTiming.registrationMs;
         }
     }
-    const int metadataMs = metadataTiming.metadataMs;
-    const int metadataValidationMs = metadataTiming.validationMs;
-    const int metadataRegistrationMs = metadataTiming.registrationMs;
 
     ProcessSmokeCrosshairZeroRoughnessToggle(viewDef);
 
@@ -2726,6 +2723,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const std::vector<uint32_t> rigidRouteMaterialIds = m_smokeGeometryUniverse.CollectRigidRouteMaterialIds(rigidTlasPlan);
         materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
     }
+    {
+        OPTICK_EVENT("PT Hydrate Cached Material Metadata");
+        const RtSmokeMaterialMetadataRegistrationTiming cachedStaticMetadataTiming =
+            RegisterSmokeMaterialTextureInfoForMaterialIds(materialTableStaticIds, enableTextureProbe);
+        metadataTiming.metadataMs += cachedStaticMetadataTiming.metadataMs;
+        metadataTiming.registrationMs += cachedStaticMetadataTiming.registrationMs;
+    }
+    const int metadataMs = metadataTiming.metadataMs;
+    const int metadataValidationMs = metadataTiming.validationMs;
+    const int metadataRegistrationMs = metadataTiming.registrationMs;
     uint64 materialTableSignature = 0;
     bool materialTableCacheHit = false;
     RtSmokeMaterialTableCompareStats materialUniverseTableCompareStats;
