@@ -991,6 +991,13 @@ bool RtSpecialStageIntentFromNames(const RtSmokeMaterialTextureInfo& info, const
         "light",
         "symbol",
         "letter",
+        "screen",
+        "monitor",
+        "terminal",
+        "console",
+        "video",
+        "cinematic",
+        "cursor",
         "flare",
         "glow",
         "beam",
@@ -1131,6 +1138,14 @@ RtMaterialClassCandidate ResolveSurfaceClassCandidate(const idMaterial* material
         return candidate;
     }
 
+    if (RtSpecialStageIntentFromNames(info, stageFacts, candidate.evidence))
+    {
+        candidate.surfaceClass = RtMaterialSurfaceClass::Special;
+        candidate.reason = RtMaterialSurfaceClassReason::StageKind;
+        candidate.confidence = RtMaterialClassConfidence::Heuristic;
+        return candidate;
+    }
+
     if (RtCharacterFleshFromNames(info, candidate.evidence))
     {
         candidate.surfaceClass = RtMaterialSurfaceClass::Flesh;
@@ -1143,14 +1158,6 @@ RtMaterialClassCandidate ResolveSurfaceClassCandidate(const idMaterial* material
     if (candidate.surfaceClass != RtMaterialSurfaceClass::Unknown)
     {
         candidate.reason = RtMaterialSurfaceClassReason::NameToken;
-        candidate.confidence = RtMaterialClassConfidence::Heuristic;
-        return candidate;
-    }
-
-    if (RtSpecialStageIntentFromNames(info, stageFacts, candidate.evidence))
-    {
-        candidate.surfaceClass = RtMaterialSurfaceClass::Special;
-        candidate.reason = RtMaterialSurfaceClassReason::StageKind;
         candidate.confidence = RtMaterialClassConfidence::Heuristic;
         return candidate;
     }
