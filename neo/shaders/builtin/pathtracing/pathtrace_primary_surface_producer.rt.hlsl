@@ -549,7 +549,7 @@ float4 SampleSmokeSurfaceAlbedo(PathTraceSmokeMaterial material, float2 texCoord
     return saturate(albedo);
 }
 
-bool SmokeMaterialUsesUnlitAdditiveStage(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
+bool SmokeMaterialUsesUnlitColorFallback(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
 {
     if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
     {
@@ -562,7 +562,13 @@ bool SmokeMaterialUsesUnlitAdditiveStage(PathTraceSmokeMaterial material, uint s
         return false;
     }
 
-    return (material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u;
+    if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
+    {
+        return true;
+    }
+
+    return translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE &&
+        material.alphaTextureIndex == 0xffffffffu;
 }
 
 float4 SampleSmokeAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
@@ -725,7 +731,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
     material.emissiveRadiance = SampleSmokeEmissive(smokeMaterial, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
-    if (SmokeMaterialUsesUnlitAdditiveStage(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
+    if (SmokeMaterialUsesUnlitColorFallback(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
     {
         material.emissiveRadiance = max(material.emissiveRadiance, materialAlbedo);
     }
