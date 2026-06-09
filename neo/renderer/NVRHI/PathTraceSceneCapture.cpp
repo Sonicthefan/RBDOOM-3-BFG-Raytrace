@@ -1395,6 +1395,16 @@ uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, ui
     return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
 }
 
+uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
+{
+    const uint32_t variantMaterialId = SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, baseMaterialId);
+    if (variantMaterialId == baseMaterialId)
+    {
+        return baseMaterialId;
+    }
+    return RegisterSmokeMaterialTextureVariant(variantMaterialId, baseMaterialId) ? variantMaterialId : baseMaterialId;
+}
+
 bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
@@ -1591,7 +1601,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
             const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
             const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-            const uint32_t materialId = SmokeMaterialId(drawSurf->material);
+            const uint32_t baseMaterialId = SmokeMaterialId(drawSurf->material);
+            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
             const int entityIndex = (drawSurf->space && drawSurf->space->entityDef) ? drawSurf->space->entityDef->index : -1;
             const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
             const bool isStaticWorld = surfaceClass == RtSmokeSurfaceClass::StaticWorld;
@@ -1664,7 +1675,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             }
 
             AddSmokeMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
-            AddSmokeDynamicMaterialEvalStats(materialStats, drawSurf, emittedIndexes);
+            AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, emittedIndexes, materialId);
             if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
             {
                 AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
@@ -1681,7 +1692,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 RtSmokeCapturedDynamicSurfaceKey capturedKey;
                 capturedKey.entityIndex = entityIndex;
                 capturedKey.tri = tri;
-                capturedKey.materialId = materialId;
+                capturedKey.materialId = baseMaterialId;
                 capturedDynamicSurfaces.push_back(capturedKey);
             }
             dynamicVerts += tri->numVerts;
@@ -1758,8 +1769,8 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                         continue;
                     }
 
-                    const uint32_t materialId = SmokeMaterialId(shader);
-                    if (SmokeDynamicSurfaceAlreadyCaptured(capturedDynamicSurfaces, entityIndex, tri, materialId))
+                    const uint32_t baseMaterialId = SmokeMaterialId(shader);
+                    if (SmokeDynamicSurfaceAlreadyCaptured(capturedDynamicSurfaces, entityIndex, tri, baseMaterialId))
                     {
                         continue;
                     }
@@ -1781,6 +1792,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     }
                     const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(&retainedDrawSurf) : RtSmokeTranslucentSubtype::Unknown;
                     const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+                    const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(&retainedDrawSurf, baseMaterialId);
                     const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
 
                     if (dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
@@ -1819,7 +1831,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                     }
 
                     AddSmokeMaterialStats(materialStats, shader, emittedIndexes, surfaceClass, translucentSubtype);
-                    AddSmokeDynamicMaterialEvalStats(materialStats, &retainedDrawSurf, emittedIndexes);
+                    AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, &retainedDrawSurf, emittedIndexes, materialId);
                     ++sourceSurfaces;
                     ++dynamicSurfaces;
                     ++retainedSurfaces;
