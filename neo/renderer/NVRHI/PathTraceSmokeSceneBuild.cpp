@@ -60,7 +60,7 @@ const int RT_SMOKE_GEOMETRY_VALIDATION_DUMP_RECORDS = 16;
 const int RT_SMOKE_GEOMETRY_RANGE_DUMP_RECORDS = 16;
 const int RT_PT_RESIDENT_BOUNDS_OVERLAY_SAFE_BOXES = 64;
 const float RT_SMOKE_SKINNED_TELEPORT_DISTANCE = 1024.0f;
-const int RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES = 8;
+const int RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES = 64;
 
 int g_smokeLastSceneTimingLogMs = -1000000;
 uint64 g_smokeLastGeometryValidationDumpGeneration = 0;
@@ -292,7 +292,10 @@ void AddSmokeRuntimeMaterialApplySample(
     const char* source,
     bool disabled)
 {
-    if (stats.sampleCount >= RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES)
+    const int maxSamples = r_pathTracingMatClassDebugMax.GetInteger() > 0
+        ? idMath::ClampInt(1, RT_SMOKE_RUNTIME_MATERIAL_APPLY_SAMPLES, r_pathTracingMatClassDebugMax.GetInteger())
+        : 8;
+    if (stats.sampleCount >= maxSamples)
     {
         return;
     }
@@ -350,7 +353,7 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
         bool disableFromLiveSample = false;
         bool selectedFromLiveSample = false;
         idImage* selectedImage = nullptr;
-        const char* applySource = "fallback";
+        const char* applySource = "decl";
         if (FindSmokeRuntimeMaterialEvalSample(materialStats, materialId, selectedStageColor, disableFromLiveSample, selectedImage))
         {
             ++stats.evaluated;
