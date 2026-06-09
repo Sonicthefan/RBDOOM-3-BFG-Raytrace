@@ -78,6 +78,23 @@ The existing validate-compare harness (CompareSmokeMaterialTables) can A/B the n
 table vs legacy for free.
 
 --------------------------------------------------------------------------------
+4b. HARD RULE — CLASSIFIER DATA CARRIER (added 2026-06-08 after a dead end)
+--------------------------------------------------------------------------------
+Classifier route/class/BSDF travel ONLY in the shared SmokeMaterials table
+(PathTraceSmokeMaterial.padding0/1/2). Consume them where the material is loaded
+for shading: LoadSmokeMaterial(materialIndex) -> read padding. This is what the
+working legacy debug view (smoke debugMode 57) does.
+
+NEVER route classifier data through the primary-surface HISTORY record
+(PathTracePrimarySurfaceRecord.materialAndSurface.y/.w). That record is
+reprojected/temporally-offset with its own index + validity semantics that do NOT
+align with the live material table; a prior agent burned a long session there
+(both materialIndex and a .w-repack rendered wrong) and got stuck. For a clean-DI
+view, resolve the LIVE per-hit index (PathTraceCleanRoomLoadTriangleMaterialIndex)
+-> PathTraceCleanRoomLoadSmokeMaterial -> read padding. Revert any
+producer/PathTracePrimarySurface.hlsli classifier packing into the record.
+
+--------------------------------------------------------------------------------
 5. LEGACY DISPOSITION / LIFECYCLE
 --------------------------------------------------------------------------------
   - Keep legacy as DEFAULT until the new path passes the doc-04 acceptance gate

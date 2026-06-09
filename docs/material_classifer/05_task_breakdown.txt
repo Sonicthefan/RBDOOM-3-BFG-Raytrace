@@ -7,6 +7,38 @@ core is route detection (A real-PBR rmao / B legacy gloss / C surfaceType), not
 the 03 table. Honor shader-rebuild-gotcha + build/deploy steps (below).
 Keep everything behind r_pathTracingMatClassEnable until the 04 gate passes.
 
+================================================================================
+*** COURSE CORRECTION (2026-06-08) — READ BEFORE ANY SHADER WORK ***
+================================================================================
+A prior agent's classifier CPU stack + GPU packing (padding1/padding2) + the
+LEGACY smoke debug view (debugMode 57) are CORRECT and committed (6ee68f4e). It
+then went down a dead end and got stuck; do NOT repeat it:
+
+WRONG (revert this): it tried to recreate the debug view as clean-DI
+cleanrtxdidiview 24 by threading classifier bits through the PRIMARY-SURFACE
+HISTORY RECORD (record.materialAndSurface.y / .w in
+pathtrace_clean_rtxdi_di_sentinel.rt.hlsl), adding classifierFlags/Params/Control
+to RAB_Material in pathtrace_primary_surface_producer.rt.hlsl, the
+RB_PATH_TRACE_PRIMARY_SURFACE_ENABLE_MATCLASS_RECORD_METADATA pack in
+PathTracePrimarySurface.hlsli, and SmokeMatClassPrimarySurface* accessors. The
+history record is a REPROJECTED/temporally-offset G-buffer with its own index +
+validity semantics; its materialIndex/.w do NOT align with the live SmokeMaterials
+table. BOTH the materialIndex and the .w variants render wrong because the record
+is the wrong channel. This is not a classification bug — mode 57 proves the
+classification is right.
+
+RIGHT (the rule): classifier data lives ONLY in the shared SmokeMaterials table
+(padding1/padding2). Read it where the material is loaded for shading, exactly
+like mode 57 does: LoadSmokeMaterial(materialIndex) -> read padding1/padding2.
+NEVER route classifier data through the primary-surface history record. For a
+clean-path view, resolve the LIVE per-hit material index
+(PathTraceCleanRoomLoadTriangleMaterialIndex, sentinel ~3025) ->
+PathTraceCleanRoomLoadSmokeMaterial -> read padding1/padding2; do not read the
+reprojected record. Better: prefer mode 57 (already primary-pipeline, already
+correct) and integrate the BSDF at the clean path's LoadSmokeMaterial point so
+the debug view and production shading read identical data by construction.
+This supersedes any earlier "sidestep via record.materialAndSurface.w" wording.
+
 --------------------------------------------------------------------------------
 PHASE 0 — GROUNDING (read-only, no code)
 --------------------------------------------------------------------------------
@@ -145,6 +177,11 @@ MATCLASS-06  Copy RtMaterialRecord.bsdf -> PathTraceSmokeMaterial in the NEW
 
 MATCLASS-07  Consume BSDF params in the path-tracing shader BSDF eval.
   Files: the clean RTXDI DI material/BSDF hlsli(s). Behind MatClassEnable.
+  - HOOK POINT (per COURSE CORRECTION): read padding1/padding2 from the loaded
+    PathTraceSmokeMaterial at PathTraceCleanRoomLoadSmokeMaterial /
+    pathtrace_clean_rtxdi_di_material_texture.hlsli — the SAME place production
+    shading already resolves the material. Apply SmokeApplyMaterialClassifierBsdf
+    there. Do NOT read from the primary-surface history record.
   - Drive metallic/roughness/ior/transmission/F0 into the existing BSDF; glass/
     liquid transmission; flesh subsurface hint (or just lower-roughness dielectric
     if no SSS available v1).
@@ -157,6 +194,18 @@ PHASE 4 — DIAGNOSTICS + VALIDATION
 MATCLASS-08  Debug list (r_pathTracingMatClassDebugList) per 02 diagnostics +
              04 V1/V2 dump. Files: PathTraceSurfaceDebugDumps / PathTraceDebugDumps.
   DONE: per-material name/surfaceType/class/confidence/bsdf listing works.
+
+MATCLASS-08b  Color-coded material-type DEBUG VIEW.
+  PRIMARY: legacy smoke debugMode 57 (EvaluateSmokeMaterialClassifierDebug,
+  pathtrace_smoke.rt.hlsl) is DONE and CORRECT — it reads padding1/padding2 from
+  LoadSmokeMaterial(payload.materialIndex). Keep it as the reference view.
+  IF a clean-DI equivalent is needed: resolve the LIVE per-hit material via
+  PathTraceCleanRoomLoadTriangleMaterialIndex -> PathTraceCleanRoomLoadSmokeMaterial
+  -> read padding1/padding2 (mirror mode 57). Do NOT use the primary-surface
+  history record (the prior dead end — see COURSE CORRECTION). Re-expand the
+  collapsed categories if the single "Special" bucket needs decals/lights/
+  volumetric separated by color.
+  DONE: color-coded view matches mode 57; no dependence on the reprojected record.
 
 MATCLASS-09  Run the 04 acceptance gate (V1-V5). Record validated cvar defaults
              back into 03's table. Then flip MatClassEnable default 0->1.
