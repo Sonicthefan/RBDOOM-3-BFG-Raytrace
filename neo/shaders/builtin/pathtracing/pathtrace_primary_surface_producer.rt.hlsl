@@ -390,6 +390,17 @@ float SmokeHashToUnitFloat(uint hash)
     return ((hash >> 8) & 0x00ffffffu) * (1.0 / 16777215.0);
 }
 
+uint SmokeAlphaStochasticHash(uint stableHash, uint salt)
+{
+    const uint2 pixel = DispatchRaysIndex().xy + PathTraceDispatchTileOffset();
+    const uint frameIndex = (uint)max(RestirPTInfo.x, 0.0);
+    return stableHash ^
+        pixel.x * 1597334677u ^
+        pixel.y * 3812015801u ^
+        frameIndex * 277803737u ^
+        salt * 3266489917u;
+}
+
 void SmokePBRFromSpecmap(float3 specMap, out float3 F0, out float roughness)
 {
     const float specLum = dot(float3(0.2125, 0.7154, 0.0721), specMap);
@@ -1107,7 +1118,7 @@ bool SmokeFilterDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord
         ditherCell.y * 668265263u ^
         baryCell.x * 747796405u ^
         baryCell.y * 2891336453u;
-    return saturate(key) < SmokeHashToUnitFloat(hash);
+    return saturate(key) < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 11u));
 }
 
 bool SmokeParticleDitherRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, uint triangleClassAndFlags, bool shadowRay)
@@ -1143,7 +1154,7 @@ bool SmokeParticleDitherRejectsHit(PathTraceSmokeMaterial material, float2 texCo
         ditherCell.y * 3266489917u ^
         baryCell.x * 668265263u ^
         baryCell.y * 2246822519u;
-    return alpha < SmokeHashToUnitFloat(hash);
+    return alpha < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 23u));
 }
 
 bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, float2 barycentrics, uint instanceId, uint primitiveIndex, uint triangleClassAndFlags, bool shadowRay)
@@ -1191,7 +1202,7 @@ bool SmokeGlassFallbackRejectsHit(PathTraceSmokeMaterial material, float2 texCoo
         ditherCell.y * 2891336453u ^
         baryCell.x * 277803737u ^
         baryCell.y * 3266489917u;
-    return opacity < SmokeHashToUnitFloat(hash);
+    return opacity < SmokeHashToUnitFloat(SmokeAlphaStochasticHash(hash, 37u));
 }
 
 bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 hitBarycentrics, uint rayMode)
