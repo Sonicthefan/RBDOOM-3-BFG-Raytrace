@@ -374,6 +374,75 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     return records;
 }
 
+bool SmokeDynamicMaterialRecordHasTexMatrix(const std::vector<PathTraceDynamicMaterialRecord>& records, uint32_t materialIndex)
+{
+    if (materialIndex >= records.size())
+    {
+        return false;
+    }
+
+    const PathTraceDynamicMaterialRecord& record = records[materialIndex];
+    return (record.flags & (RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID | RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX)) ==
+            (RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID | RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX) &&
+        record.materialIndex == materialIndex;
+}
+
+idVec2 SmokeApplyDynamicMaterialTexMatrix(const PathTraceDynamicMaterialRecord& record, const idVec2& texCoord)
+{
+    return idVec2(
+        record.texMatrix0[0] * texCoord.x + record.texMatrix0[1] * texCoord.y + record.texMatrix0[2],
+        record.texMatrix1[0] * texCoord.x + record.texMatrix1[1] * texCoord.y + record.texMatrix1[2]);
+}
+
+int ApplySmokeDynamicMaterialTexMatricesToVertices(
+    std::vector<PathTraceSmokeVertex>& vertices,
+    const std::vector<uint32_t>& indexes,
+    const std::vector<uint32_t>& triangleMaterialIndexes,
+    const std::vector<PathTraceDynamicMaterialRecord>& records)
+{
+    if (vertices.empty() || indexes.empty() || triangleMaterialIndexes.empty() || records.empty())
+    {
+        return 0;
+    }
+
+    int transformedVertices = 0;
+    std::vector<uint32_t> transformedMaterial(vertices.size(), UINT32_MAX);
+    const int triangleCount = Min(static_cast<int>(triangleMaterialIndexes.size()), static_cast<int>(indexes.size() / 3));
+    for (int triangleIndex = 0; triangleIndex < triangleCount; ++triangleIndex)
+    {
+        const uint32_t materialIndex = triangleMaterialIndexes[triangleIndex];
+        if (!SmokeDynamicMaterialRecordHasTexMatrix(records, materialIndex))
+        {
+            continue;
+        }
+
+        const PathTraceDynamicMaterialRecord& record = records[materialIndex];
+        const int indexOffset = triangleIndex * 3;
+        for (int corner = 0; corner < 3; ++corner)
+        {
+            const uint32_t vertexIndex = indexes[indexOffset + corner];
+            if (vertexIndex >= vertices.size())
+            {
+                continue;
+            }
+
+            uint32_t& transformedForMaterial = transformedMaterial[vertexIndex];
+            if (transformedForMaterial != UINT32_MAX)
+            {
+                continue;
+            }
+
+            PathTraceSmokeVertex& vertex = vertices[vertexIndex];
+            const idVec2 transformed = SmokeApplyDynamicMaterialTexMatrix(record, idVec2(vertex.texCoord[0], vertex.texCoord[1]));
+            vertex.texCoord[0] = transformed.x;
+            vertex.texCoord[1] = transformed.y;
+            transformedForMaterial = materialIndex;
+            ++transformedVertices;
+        }
+    }
+    return transformedVertices;
+}
+
 bool SmokeRuntimeMaterialEvaluateRegisters(
     const viewDef_t* viewDef,
     const idMaterial* material,
@@ -3001,6 +3070,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 rigidRouteBuild.stats.skippedMissingBlas,
                 rigidRouteBuild.stats.missingMaterialTableIndex);
         }
+    }
+    const int dynamicTexMatrixVertices = ApplySmokeDynamicMaterialTexMatricesToVertices(
+        dynamicVertexData,
+        dynamicIndexData,
+        dynamicTriangleMaterialData,
+        dynamicMaterialRecords);
+    const int rigidRouteTexMatrixVertices = ApplySmokeDynamicMaterialTexMatricesToVertices(
+        rigidRouteBuild.vertices,
+        rigidRouteBuild.indexes,
+        rigidRouteBuild.triangleMaterialIndexes,
+        dynamicMaterialRecords);
+    if (r_pathTracingSmokeLog.GetInteger() != 0 &&
+        (dynamicTexMatrixVertices > 0 || rigidRouteTexMatrixVertices > 0) &&
+        (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+    {
+        common->Printf(
+            "PathTracePrimaryPass: RT smoke dynamic material tex matrices applied dynamicVerts=%d rigidRouteVerts=%d records=%d\n",
+            dynamicTexMatrixVertices,
+            rigidRouteTexMatrixVertices,
+            static_cast<int>(dynamicMaterialRecords.size()));
     }
 
     RtSmokeEmissiveInventoryStats emissiveInventoryStats;
