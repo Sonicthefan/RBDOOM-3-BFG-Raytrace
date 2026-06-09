@@ -44,6 +44,27 @@ const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_DECAL = 0x00000100u;
 const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_GUI_RENDER = 0x00000200u;
 const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_PROGRAM = 0x00000400u;
 const uint32_t RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_FLIPBOOK = 0x00000800u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX = 0x00000008u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST = 0x00000010u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_DYNAMIC_IMAGE = 0x00000020u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_CINEMATIC = 0x00000040u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_GUI_RENDER_TARGET = 0x00000080u;
+const uint32_t RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM = 0x00000100u;
+
+struct PathTraceDynamicMaterialRecord
+{
+    float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float texMatrix0[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    float texMatrix1[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
+    uint32_t materialIndex = UINT32_MAX;
+    uint32_t materialId = 0;
+    uint32_t stageIndex = UINT32_MAX;
+    uint32_t flags = 0;
+};
+static_assert((sizeof(PathTraceDynamicMaterialRecord) % 16) == 0, "PathTraceDynamicMaterialRecord must stay 16-byte aligned for HLSL StructuredBuffer reads");
 
 struct RtSmokeMaterialTableBuild
 {

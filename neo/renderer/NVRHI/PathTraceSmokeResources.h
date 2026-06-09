@@ -33,6 +33,7 @@ struct RtSmokeSceneBufferHandles
     nvrhi::BufferHandle dynamicTriangleMaterialBuffer;
     nvrhi::BufferHandle dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle materialTableBuffer;
+    nvrhi::BufferHandle dynamicMaterialBuffer;
     nvrhi::BufferHandle emissiveTriangleBuffer;
     nvrhi::BufferHandle previousEmissiveTriangleBuffer;
     nvrhi::BufferHandle emissiveRemapBuffer;
@@ -88,6 +89,7 @@ struct RtSmokeSceneBufferCreateDesc
     size_t dynamicTriangleMaterialBytes = 0;
     size_t dynamicTriangleMaterialIndexBytes = 0;
     size_t materialTableBytes = 0;
+    size_t dynamicMaterialBytes = 0;
     size_t emissiveTriangleBytes = 0;
     size_t previousEmissiveTriangleBytes = 0;
     size_t emissiveRemapBytes = 0;

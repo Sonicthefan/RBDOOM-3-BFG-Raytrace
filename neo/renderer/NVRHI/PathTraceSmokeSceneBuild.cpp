@@ -260,6 +260,105 @@ float SmokeRuntimeMaterialLuminance(const idVec4& color)
         Max(0.0f, color.z) * 0.0722f;
 }
 
+int FindSmokeMaterialTableIndexById(const RtSmokeMaterialTableBuild& table, uint32_t materialId)
+{
+    const int materialCount = static_cast<int>(table.materialIds.size());
+    for (int materialIndex = 0; materialIndex < materialCount; ++materialIndex)
+    {
+        if (table.materialIds[materialIndex] == materialId)
+        {
+            return materialIndex;
+        }
+    }
+    return -1;
+}
+
+bool SmokeDynamicMaterialSampleHasTexMatrix(const RtSmokeDynamicMaterialEvalSample& sample)
+{
+    return sample.texMatrixStages > 0 ||
+        idMath::Fabs(sample.texMatrix[0][0] - 1.0f) > 1.0e-6f ||
+        idMath::Fabs(sample.texMatrix[0][1]) > 1.0e-6f ||
+        idMath::Fabs(sample.texMatrix[0][2]) > 1.0e-6f ||
+        idMath::Fabs(sample.texMatrix[1][0]) > 1.0e-6f ||
+        idMath::Fabs(sample.texMatrix[1][1] - 1.0f) > 1.0e-6f ||
+        idMath::Fabs(sample.texMatrix[1][2]) > 1.0e-6f;
+}
+
+std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
+    const RtSmokeMaterialTableBuild& table,
+    const RtSmokeMaterialStats& materialStats)
+{
+    std::vector<PathTraceDynamicMaterialRecord> records;
+    records.reserve(materialStats.dynamicEvalMaterialSamples.size());
+
+    for (const RtSmokeDynamicMaterialEvalSample& sample : materialStats.dynamicEvalMaterialSamples)
+    {
+        if (!sample.valid)
+        {
+            continue;
+        }
+
+        const int materialIndex = FindSmokeMaterialTableIndexById(table, sample.id);
+        if (materialIndex < 0)
+        {
+            continue;
+        }
+
+        PathTraceDynamicMaterialRecord record;
+        record.color[0] = Max(0.0f, sample.color[0]);
+        record.color[1] = Max(0.0f, sample.color[1]);
+        record.color[2] = Max(0.0f, sample.color[2]);
+        record.color[3] = idMath::ClampFloat(0.0f, 1.0f, sample.color[3]);
+        record.texMatrix0[0] = sample.texMatrix[0][0];
+        record.texMatrix0[1] = sample.texMatrix[0][1];
+        record.texMatrix0[2] = sample.texMatrix[0][2];
+        record.texMatrix0[3] = sample.condition;
+        record.texMatrix1[0] = sample.texMatrix[1][0];
+        record.texMatrix1[1] = sample.texMatrix[1][1];
+        record.texMatrix1[2] = sample.texMatrix[1][2];
+        record.texMatrix1[3] = sample.alphaTest;
+        record.materialIndex = static_cast<uint32_t>(materialIndex);
+        record.materialId = sample.id;
+        record.stageIndex = sample.stageIndex >= 0 ? static_cast<uint32_t>(sample.stageIndex) : UINT32_MAX;
+        record.flags = RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID;
+        if (sample.condition != 0.0f && sample.enabledStages > 0)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
+        }
+        if (sample.selectedStageEmissive)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
+        }
+        if (SmokeDynamicMaterialSampleHasTexMatrix(sample))
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX;
+        }
+        if (sample.alphaTestStages > 0 || sample.alphaTest > 0.0f)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_ALPHA_TEST;
+        }
+        if (sample.dynamicImageStages > 0)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_DYNAMIC_IMAGE;
+        }
+        if (sample.cinematicStages > 0)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_CINEMATIC;
+        }
+        if (sample.guiRenderTargetStages > 0)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_GUI_RENDER_TARGET;
+        }
+        if (sample.programStages > 0)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM;
+        }
+        records.push_back(record);
+    }
+
+    return records;
+}
+
 bool SmokeRuntimeMaterialEvaluateRegisters(
     const viewDef_t* viewDef,
     const idMaterial* material,
@@ -2039,6 +2138,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeDynamicTriangleMaterialBuffer = nullptr;
             m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
             m_smokeMaterialTableBuffer = nullptr;
+            m_smokeDynamicMaterialBuffer = nullptr;
             m_smokeEmissiveTriangleBuffer = nullptr;
             m_smokeEmissiveDistributionBuffer = nullptr;
             m_smokeLightCandidateBuffer = nullptr;
@@ -2842,6 +2942,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
     }
     ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
+    const std::vector<PathTraceDynamicMaterialRecord> dynamicMaterialRecords =
+        BuildSmokeDynamicMaterialRecords(materialTable, materialStats);
     LogSmokeMaterialClassifierLiveSummary(materialTable, materialClassifierStats);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
@@ -4262,6 +4364,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
     bufferCreateDesc.existingBuffers.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
     bufferCreateDesc.existingBuffers.materialTableBuffer = m_smokeMaterialTableBuffer;
+    bufferCreateDesc.existingBuffers.dynamicMaterialBuffer = m_smokeDynamicMaterialBuffer;
     bufferCreateDesc.existingBuffers.emissiveTriangleBuffer = m_smokeEmissiveTriangleBuffer;
     bufferCreateDesc.existingBuffers.previousEmissiveTriangleBuffer = m_smokePreviousEmissiveTriangleBuffer;
     bufferCreateDesc.existingBuffers.emissiveRemapBuffer = m_smokeEmissiveRemapBuffer;
@@ -4309,6 +4412,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleMaterialBytes = dynamicTriangleMaterialData.size() * sizeof(dynamicTriangleMaterialData[0]);
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
     bufferCreateDesc.materialTableBytes = materialTable.materials.size() * sizeof(materialTable.materials[0]);
+    bufferCreateDesc.dynamicMaterialBytes = dynamicMaterialRecords.size() * sizeof(dynamicMaterialRecords[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
     bufferCreateDesc.previousEmissiveTriangleBytes = previousEmissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle);
     bufferCreateDesc.emissiveRemapBytes = emissiveLightRemap.size() * sizeof(PathTraceEmissiveLightRemap);
@@ -4367,6 +4471,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     nvrhi::BufferHandle smokeDynamicTriangleMaterialBuffer = smokeBuffers.dynamicTriangleMaterialBuffer;
     nvrhi::BufferHandle smokeDynamicTriangleMaterialIndexBuffer = smokeBuffers.dynamicTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle smokeMaterialTableBuffer = smokeBuffers.materialTableBuffer;
+    nvrhi::BufferHandle smokeDynamicMaterialBuffer = smokeBuffers.dynamicMaterialBuffer;
     nvrhi::BufferHandle smokeEmissiveTriangleBuffer = smokeBuffers.emissiveTriangleBuffer;
     nvrhi::BufferHandle smokePreviousEmissiveTriangleBuffer = smokeBuffers.previousEmissiveTriangleBuffer;
     nvrhi::BufferHandle smokeEmissiveRemapBuffer = smokeBuffers.emissiveRemapBuffer;
@@ -4817,6 +4922,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveRemapBuffer, emissiveLightRemap, nvrhi::ResourceStates::ShaderResource, false),
@@ -5079,9 +5185,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t previousStaticUploadBytes = SumSmokeUploadBytes(uploadItems, 5, 5);
     const uint64_t previousStaticUploadSkippedBytes = SumSmokeSkippedUploadBytes(uploadItems, 5, 5);
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
-    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 1);
-    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 16, 17);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 33, 5);
+    const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 2);
+    const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 17, 17);
+    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 34, 5);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -5358,11 +5464,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         RT_SCENE_INPUT_SKINNED_GPU_SKINNING_RESERVED;
 
     sceneInputs.materials.materialTableBuffer = smokeMaterialTableBuffer;
+    sceneInputs.materials.dynamicMaterialBuffer = smokeDynamicMaterialBuffer;
     sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     sceneInputs.materials.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
+    sceneInputs.materials.dynamicMaterialRecordCount = static_cast<int>(dynamicMaterialRecords.size());
     sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
     sceneInputs.materials.materialTablePath = materialTablePath;
     sceneInputs.materials.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER | RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED | RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED;
+    if (!dynamicMaterialRecords.empty())
+    {
+        sceneInputs.materials.capabilityFlags |= RT_SCENE_INPUT_MATERIAL_DYNAMIC_CHANNEL_RESERVED;
+        sceneInputs.capabilityFlags |= RT_SCENE_INPUT_MATERIAL_DYNAMIC_CHANNEL_RESERVED;
+    }
 
     sceneInputs.lights.emissiveTriangleBuffer = smokeEmissiveTriangleBuffer;
     sceneInputs.lights.previousEmissiveTriangleBuffer = smokePreviousEmissiveTriangleBuffer;

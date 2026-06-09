@@ -37,7 +37,8 @@ enum RtPathTraceSceneInputCapabilityFlags : uint32_t
     RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED = 1u << 8,
     RT_SCENE_INPUT_LIGHT_PREVIOUS_IDENTITY_RESERVED = 1u << 9,
     RT_SCENE_INPUT_SKINNED_SOURCE_GEOMETRY_RESERVED = 1u << 10,
-    RT_SCENE_INPUT_SKINNED_GPU_SKINNING_RESERVED = 1u << 11
+    RT_SCENE_INPUT_SKINNED_GPU_SKINNING_RESERVED = 1u << 11,
+    RT_SCENE_INPUT_MATERIAL_DYNAMIC_CHANNEL_RESERVED = 1u << 12
 };
 
 struct RtPathTraceSceneInputSignatures
@@ -219,8 +220,10 @@ struct RtPathTraceSceneInputGeometry
 struct RtPathTraceSceneInputMaterials
 {
     nvrhi::BufferHandle materialTableBuffer;
+    nvrhi::BufferHandle dynamicMaterialBuffer;
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     int materialTableEntryCount = 0;
+    int dynamicMaterialRecordCount = 0;
     int activeTextureCount = 0;
     const char* materialTablePath = "unknown";
     uint32_t capabilityFlags = 0;
