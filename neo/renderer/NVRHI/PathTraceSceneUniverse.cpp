@@ -124,6 +124,7 @@ void SceneUniverseDynamicEvalCopySelectedStage(RtSmokeDynamicMaterialEvalSample&
     dst.valid = src.valid;
     dst.stageIndex = src.stageIndex;
     dst.stagePriority = src.stagePriority;
+    dst.selectedStageEmissive = src.selectedStageEmissive;
     dst.condition = src.condition;
     dst.alphaTest = src.alphaTest;
     dst.image = src.image;
@@ -600,11 +601,13 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
             ++surfaceSample.programStages;
         }
 
-        const int stagePriority = (enabled ? 2 : 0) + (SceneUniverseStageIsAdditiveOrGlowLike(stage) ? 1 : 0);
+        const bool stageEmissive = SceneUniverseStageIsAdditiveOrGlowLike(stage);
+        const int stagePriority = (enabled ? 2 : 0) + (stageEmissive ? 1 : 0);
         RtSmokeDynamicMaterialEvalSample stageSample;
         stageSample.valid = true;
         stageSample.stageIndex = stageIndex;
         stageSample.stagePriority = stagePriority;
+        stageSample.selectedStageEmissive = stageEmissive;
         stageSample.condition = condition;
         stageSample.alphaTest = alphaTest;
         stageSample.image = stage->texture.image;

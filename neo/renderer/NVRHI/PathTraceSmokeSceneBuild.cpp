@@ -185,6 +185,10 @@ bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStat
         {
             continue;
         }
+        if (!sample.selectedStageEmissive)
+        {
+            continue;
+        }
 
         color = idVec4(
             Max(0.0f, sample.color[0]),
@@ -202,6 +206,10 @@ bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStat
     {
         const RtSmokeDynamicMaterialEvalSample& sample = materialStats.dynamicEvalSamples[sampleIndex];
         if (!sample.valid || sample.id != materialId)
+        {
+            continue;
+        }
+        if (!sample.selectedStageEmissive)
         {
             continue;
         }
