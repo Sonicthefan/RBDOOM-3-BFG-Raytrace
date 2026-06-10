@@ -129,6 +129,9 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
@@ -378,6 +381,7 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
         !inputs.doomAnalyticLightBuffer ||
+        !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer || !inputs.neeCacheProviderResultBuffer ||
         !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
         !inputs.materialSampler)
     {
@@ -414,6 +418,9 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, inputs.rigidRouteTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, inputs.rigidRouteInstanceBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, inputs.doomAnalyticLightBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, inputs.emissiveDistributionBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, inputs.rluCurrentLightBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, inputs.neeCacheProviderResultBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(80, state.reservoirBuffer));
@@ -466,6 +473,9 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(inputs.emissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.rluCurrentLightBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.neeCacheProviderResultBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
 
     nvrhi::rt::State giState;

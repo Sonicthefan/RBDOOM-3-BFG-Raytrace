@@ -13,8 +13,9 @@
 // + invalid hit-geometry flag. The firefly clamp applies here only.
 //
 // io_whitelist: reads GI-I-01 (current primary surface), GI-I-04 (current
-// light universe, secondary vertex only), GI-I-05 (TLAS rays), GI-I-09
-// (parameters). Writes GI-O-01 (producer textures), GI-O-06 (debug views).
+// light universe, secondary vertex only), GI-I-05 (TLAS rays), GI-I-06
+// (NEE-cache query), GI-I-09 (parameters). Writes GI-O-01 (producer textures),
+// GI-O-06 (debug views).
 // Never reads DI reservoir pages.
 
 #include "../../../vulkan.hlsli"
@@ -116,6 +117,14 @@ struct PathTraceSmokeEmissiveTriangle
     uint padding0;
 };
 
+struct PathTraceEmissiveDistributionEntry
+{
+    uint emissiveTriangleIndex;
+    float cumulativePdf;
+    float weight;
+    float padding0;
+};
+
 struct PathTraceDoomAnalyticLightCandidate
 {
     float4 originAndRadius;
@@ -127,7 +136,24 @@ struct PathTraceDoomAnalyticLightCandidate
     uint padding0;
 };
 
+struct PathTraceNeeCacheProviderResult
+{
+    uint selectedDenseRluIndex;
+    uint sourceLabel;
+    uint fallbackReason;
+    uint cellIndex;
+    uint candidateSlot;
+    uint flags;
+    float sourcePdf;
+    float invSourcePdf;
+    float mixtureProbability;
+    float reserved0;
+    uint reserved1;
+    uint reserved2;
+};
+
 #include "../pathtrace_material_classifier.hlsli"
+#include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 RaytracingAccelerationStructure SmokeScene : register(t0);
@@ -145,6 +171,9 @@ StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
+StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution : register(t46);
+StructuredBuffer<PathTraceUnifiedLightRecord> CleanRestirGiRluCurrentLights : register(t66);
+StructuredBuffer<PathTraceNeeCacheProviderResult> CleanRestirGiNeeCacheProviderResults : register(t74);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceMotionVectors : register(u39);
@@ -266,10 +295,12 @@ bool RAB_UnifiedLightSampleEnabled()
 static const uint CLEAN_RAB_DIAGNOSTIC_RELAX_BRDF_GATES = 1u << 8u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DOOM_TARGET_FLOOR = 1u << 9u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
+static const uint CLEAN_FLAG_NEE_CACHE_PROVIDER = 1u << 11u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #include "../RtxdiBridge/RAB_UnifiedLightRecord.hlsli"
 #include "../RtxdiBridge/RAB_LightTarget.hlsli"
+#include "../RtxdiBridge/RAB_NeeCache.hlsli"
 
 #define REMIX_RAB_GI_RESERVOIR_BRIDGE_EXTERNAL_BINDINGS 1
 #include "../remix_bridge/RAB_GIReservoirBridge.hlsli"
@@ -841,6 +872,39 @@ bool CleanGiLoadTriangleGeometry(
     return true;
 }
 
+bool CleanGiResolveTriangleNormalAndArea(
+    float3 p0,
+    float3 p1,
+    float3 p2,
+    float3 payloadNormal,
+    out float3 triangleNormal,
+    out float triangleArea)
+{
+    triangleNormal = float3(0.0, 0.0, 1.0);
+    triangleArea = 0.0;
+    if (!CleanGiAllFinite3(p0) || !CleanGiAllFinite3(p1) || !CleanGiAllFinite3(p2))
+    {
+        return false;
+    }
+
+    const float3 crossValue = cross(p1 - p0, p2 - p0);
+    const float doubleAreaSquared = dot(crossValue, crossValue);
+    if (doubleAreaSquared <= 1.0e-12)
+    {
+        return false;
+    }
+
+    const float doubleArea = sqrt(doubleAreaSquared);
+    triangleNormal = crossValue / doubleArea;
+    const float3 safePayloadNormal = CleanGiSafeNormalize(payloadNormal, triangleNormal);
+    if (dot(triangleNormal, safePayloadNormal) < 0.0)
+    {
+        triangleNormal = -triangleNormal;
+    }
+    triangleArea = 0.5 * doubleArea;
+    return triangleArea > 1.0e-6 && triangleArea < 3.402823e+38;
+}
+
 // ---------------------------------------------------------------------------
 // Analytic light universe at the secondary vertex (GI-I-04)
 // ---------------------------------------------------------------------------
@@ -878,6 +942,269 @@ RAB_LightInfo CleanGiBuildAnalyticLightInfo(PathTraceDoomAnalyticLightCandidate 
     lightInfo.area = max(light.doomRadiusAndArea.y, 1.0e-4);
     lightInfo.weight = CleanGiLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
+}
+
+RAB_LightInfo CleanGiBuildRluAnalyticLightInfo(PathTraceUnifiedLightRecord light, uint lightIndex)
+{
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    if (light.type != PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC ||
+        !CleanGiAllFinite3(light.positionAndRadius.xyz) ||
+        !CleanGiAllFinite3(light.radianceAndLuminance.rgb))
+    {
+        return lightInfo;
+    }
+
+    lightInfo.lightType = RAB_LIGHT_TYPE_DOOM_ANALYTIC_SPHERE;
+    lightInfo.lightIndex = lightIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC;
+    lightInfo.materialIndex = RAB_INVALID_LIGHT_INDEX;
+    lightInfo.flags = light.flags;
+    lightInfo.position = light.positionAndRadius.xyz;
+    lightInfo.radius = max(light.positionAndRadius.w, 0.01);
+    lightInfo.normal = float3(0.0, 0.0, 1.0);
+    lightInfo.radiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(CleanRtxdiDiDoomAnalyticLightInfo.z, 0.0);
+    lightInfo.influenceRadius = max(light.uvOrDoomParams.x, lightInfo.radius);
+    lightInfo.area = max(light.uvOrDoomParams.y, 1.0e-4);
+    lightInfo.weight = CleanGiLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
+    return lightInfo;
+}
+
+RAB_LightInfo CleanGiBuildEmissiveLightInfo(uint sourceIndex, uint lightIndex)
+{
+    RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
+    if (sourceIndex >= CleanRtxdiDiCurrentEmissiveTriangleCount)
+    {
+        return lightInfo;
+    }
+
+    const PathTraceSmokeEmissiveTriangle emissiveTriangle = SmokeEmissiveTriangles[sourceIndex];
+    if (emissiveTriangle.materialIndex >= (uint)TextureInfo.z ||
+        (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
+    {
+        return lightInfo;
+    }
+
+    const PathTraceSmokeMaterial emissiveMaterial = CleanGiLoadSmokeMaterial(emissiveTriangle.materialIndex);
+    if ((emissiveMaterial.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
+    {
+        return lightInfo;
+    }
+
+    float3 p0, p1, p2;
+    float2 uv0, uv1, uv2;
+    if (!CleanGiLoadTriangleGeometry(emissiveTriangle.instanceId, emissiveTriangle.primitiveIndex, p0, p1, p2, uv0, uv1, uv2))
+    {
+        return lightInfo;
+    }
+
+    float3 triangleNormal;
+    float triangleArea;
+    if (!CleanGiResolveTriangleNormalAndArea(p0, p1, p2, emissiveTriangle.normalAndLuminance.xyz, triangleNormal, triangleArea))
+    {
+        return lightInfo;
+    }
+
+    const float3 centroidRadiance = CleanGiSampleEmissiveRadiance(emissiveMaterial, emissiveTriangle.centroidUvAndWeight.xy);
+    if (CleanGiLuminance(centroidRadiance) <= 0.0)
+    {
+        return lightInfo;
+    }
+
+    lightInfo.lightType = RAB_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+    lightInfo.lightIndex = lightIndex;
+    lightInfo.unifiedLightType = PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE;
+    lightInfo.materialIndex = emissiveTriangle.materialIndex;
+    lightInfo.flags = emissiveTriangle.flags;
+    lightInfo.position = emissiveTriangle.centerAndArea.xyz;
+    lightInfo.radius = 0.0;
+    lightInfo.normal = triangleNormal;
+    lightInfo.radiance = centroidRadiance;
+    lightInfo.influenceRadius = 0.0;
+    lightInfo.area = triangleArea;
+    lightInfo.weight = max(emissiveTriangle.sampleWeightAndPdf.x, CleanGiLuminance(centroidRadiance) * triangleArea);
+    lightInfo.sourceIndex = sourceIndex;
+    lightInfo.hasTriangleGeometry = 1u;
+    lightInfo.emissiveTextureIndex = emissiveMaterial.emissiveTextureIndex;
+    lightInfo.emissiveTextureWidth = emissiveMaterial.emissiveTextureWidth;
+    lightInfo.emissiveTextureHeight = emissiveMaterial.emissiveTextureHeight;
+    lightInfo.emissiveActiveStage = 1u;
+    lightInfo.emissiveColor = max(emissiveMaterial.emissiveColor.rgb, float3(0.0, 0.0, 0.0));
+    lightInfo.trianglePosition0 = p0;
+    lightInfo.trianglePosition1 = p1;
+    lightInfo.trianglePosition2 = p2;
+    lightInfo.triangleUv0 = uv0;
+    lightInfo.triangleUv1 = uv1;
+    lightInfo.triangleUv2 = uv2;
+    return lightInfo;
+}
+
+RAB_LightInfo CleanGiLoadCurrentRluLightInfo(uint denseRluIndex)
+{
+    if (denseRluIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        return RAB_EmptyLightInfo();
+    }
+
+    const PathTraceUnifiedLightRecord light = CleanRestirGiRluCurrentLights[denseRluIndex];
+    if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE)
+    {
+        if (light.sourceIndex == PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX)
+        {
+            return RAB_EmptyLightInfo();
+        }
+        return CleanGiBuildEmissiveLightInfo(light.sourceIndex, denseRluIndex);
+    }
+    if (light.type == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC)
+    {
+        if (light.sourceIndex != PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX &&
+            light.sourceIndex < CleanRtxdiDiDoomAnalyticFullCurrentCount)
+        {
+            return CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[light.sourceIndex], denseRluIndex);
+        }
+        return CleanGiBuildRluAnalyticLightInfo(light, denseRluIndex);
+    }
+    return RAB_EmptyLightInfo();
+}
+
+bool CleanGiAccumulateLightSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    RAB_LightInfo lightInfo,
+    float sourcePdf,
+    inout RAB_RandomSamplerState rng)
+{
+    if (!RAB_IsLightInfoValid(lightInfo) || sourcePdf <= 1.0e-8)
+    {
+        return false;
+    }
+
+    const float2 uv = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, secondarySurface, uv);
+    if (!RAB_IsReplayableLightSample(lightSample) ||
+        lightSample.solidAnglePdf <= 1.0e-8 ||
+        CleanGiLuminance(lightSample.radiance) <= 0.0)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
+    if (ndotl <= 0.0)
+    {
+        return false;
+    }
+
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
+    if (CleanGiLuminance(brdf) <= 0.0)
+    {
+        return false;
+    }
+
+    const float visibility = CleanGiTraceVisibility(
+        RAB_GetSurfaceWorldPos(secondarySurface), hitGeometricNormal, lightSample.position);
+    if (visibility <= 0.0)
+    {
+        return false;
+    }
+
+    radiance += brdf * lightSample.radiance * ndotl * visibility /
+        max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6);
+    return true;
+}
+
+bool CleanGiSelectEmissiveDistributionSample(
+    inout RAB_RandomSamplerState rng,
+    out uint sourceIndex,
+    out float sourcePdf)
+{
+    sourceIndex = 0xffffffffu;
+    sourcePdf = 0.0;
+
+    const uint distributionCount = min((uint)max(CleanRtxdiDiEmissiveDistributionInfo.x, 0.0), CleanRtxdiDiCurrentEmissiveTriangleCount);
+    if (CleanRtxdiDiEmissiveDistributionInfo.y >= 0.5 && distributionCount > 0u)
+    {
+        const float selector = RAB_GetNextRandom(rng);
+        float previousCdf = 0.0;
+        [loop]
+        for (uint entryIndex = 0u; entryIndex < distributionCount; ++entryIndex)
+        {
+            const PathTraceEmissiveDistributionEntry entry = SmokeEmissiveDistribution[entryIndex];
+            const float currentCdf = saturate(entry.cumulativePdf);
+            if (selector <= currentCdf || entryIndex + 1u == distributionCount)
+            {
+                if (entry.emissiveTriangleIndex < CleanRtxdiDiCurrentEmissiveTriangleCount)
+                {
+                    sourceIndex = entry.emissiveTriangleIndex;
+                    sourcePdf = max(currentCdf - previousCdf, 1.0e-6);
+                    return true;
+                }
+                return false;
+            }
+            previousCdf = currentCdf;
+        }
+    }
+
+    const uint emissiveCount = CleanRtxdiDiCurrentEmissiveTriangleCount;
+    if (emissiveCount == 0u)
+    {
+        return false;
+    }
+    sourceIndex = min((uint)(RAB_GetNextRandom(rng) * (float)emissiveCount), emissiveCount - 1u);
+    sourcePdf = 1.0 / max((float)emissiveCount, 1.0);
+    return true;
+}
+
+bool CleanGiNeeCacheProviderReady()
+{
+    return (CleanRtxdiDiFlags & CLEAN_FLAG_NEE_CACHE_PROVIDER) != 0u &&
+        CleanRtxdiDiNeeCacheInfo0.x >= 0.5 &&
+        CleanRtxdiDiNeeCacheInfo1.z > 0.0 &&
+        CleanRtxdiDiNeeCacheInfo1.w > 0.0 &&
+        CleanRtxdiDiRluCurrentLightCount > 0u;
+}
+
+bool CleanGiAccumulateNeeCacheProviderSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    inout RAB_RandomSamplerState rng)
+{
+    if (!CleanGiNeeCacheProviderReady())
+    {
+        return false;
+    }
+
+    const PathTraceNeeCacheCellDebug cell = PathTraceNeeCacheMapWorldPositionToCell(
+        RAB_GetSurfaceWorldPos(secondarySurface),
+        CleanRtxdiDiCameraOriginAndValid.xyz,
+        max((uint)max(CleanRtxdiDiNeeCacheInfo1.x, 1.0), 1u),
+        max(CleanRtxdiDiNeeCacheInfo1.y, 1.0),
+        max((uint)max(CleanRtxdiDiNeeCacheInfo1.z, 1.0), 1u));
+    const uint cellCount = max((uint)max(CleanRtxdiDiNeeCacheInfo1.z, 1.0), 1u);
+    if (cell.valid == 0u || cell.cellIndex >= cellCount)
+    {
+        return false;
+    }
+
+    const PathTraceNeeCacheProviderResult providerResult = CleanRestirGiNeeCacheProviderResults[cell.cellIndex];
+    if (providerResult.flags == 0u ||
+        providerResult.selectedDenseRluIndex >= CleanRtxdiDiRluCurrentLightCount ||
+        providerResult.sourcePdf <= 1.0e-8)
+    {
+        return false;
+    }
+
+    const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(providerResult.selectedDenseRluIndex);
+    return CleanGiAccumulateLightSample(
+        radiance,
+        secondarySurface,
+        hitGeometricNormal,
+        lightInfo,
+        providerResult.sourcePdf,
+        rng);
 }
 
 // ---------------------------------------------------------------------------
@@ -928,8 +1255,9 @@ struct CleanGiProducerResult
     float3 hitNormal;
 };
 
-// Shades the secondary vertex: its own emissive plus one NEE sample from the
-// analytic light universe (uniform pick), using the shared diffuse BRDF.
+// Shades the secondary vertex: its own emissive plus one direct-light proposal.
+// The NEE cache provider is the preferred proposal source when ready; otherwise
+// the producer falls back to one analytic and one emissive sample.
 float3 CleanGiShadeSecondaryVertex(
     RAB_Surface secondarySurface,
     float3 hitGeometricNormal,
@@ -938,50 +1266,39 @@ float3 CleanGiShadeSecondaryVertex(
 {
     float3 radiance = secondaryEmissive;
 
+    if (CleanGiAccumulateNeeCacheProviderSample(radiance, secondarySurface, hitGeometricNormal, rng))
+    {
+        return radiance;
+    }
+
     const uint lightCount = CleanRtxdiDiAnalyticLightCount;
-    if (lightCount == 0u)
+    if (lightCount > 0u)
     {
-        return radiance;
+        const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * lightCount), lightCount - 1u);
+        const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
+        CleanGiAccumulateLightSample(
+            radiance,
+            secondarySurface,
+            hitGeometricNormal,
+            lightInfo,
+            1.0 / max((float)lightCount, 1.0),
+            rng);
     }
 
-    const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * lightCount), lightCount - 1u);
-    const float inversePickPdf = (float)lightCount;
-    const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
-    if (!RAB_IsLightInfoValid(lightInfo))
+    uint emissiveSourceIndex;
+    float emissiveSourcePdf;
+    if (CleanGiSelectEmissiveDistributionSample(rng, emissiveSourceIndex, emissiveSourcePdf))
     {
-        return radiance;
+        const RAB_LightInfo emissiveInfo = CleanGiBuildEmissiveLightInfo(emissiveSourceIndex, emissiveSourceIndex);
+        CleanGiAccumulateLightSample(
+            radiance,
+            secondarySurface,
+            hitGeometricNormal,
+            emissiveInfo,
+            emissiveSourcePdf,
+            rng);
     }
 
-    const float2 uv = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, secondarySurface, uv);
-    if (!RAB_IsReplayableLightSample(lightSample) || CleanGiLuminance(lightSample.radiance) <= 0.0)
-    {
-        return radiance;
-    }
-
-    float3 lightDir;
-    float lightDistance;
-    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
-    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
-    if (ndotl <= 0.0)
-    {
-        return radiance;
-    }
-
-    const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
-    if (CleanGiLuminance(brdf) <= 0.0)
-    {
-        return radiance;
-    }
-
-    const float visibility = CleanGiTraceVisibility(
-        RAB_GetSurfaceWorldPos(secondarySurface), hitGeometricNormal, lightSample.position);
-    if (visibility <= 0.0)
-    {
-        return radiance;
-    }
-
-    radiance += brdf * lightSample.radiance * ndotl * visibility * inversePickPdf / max(lightSample.solidAnglePdf, 1.0e-6);
     return radiance;
 }
 

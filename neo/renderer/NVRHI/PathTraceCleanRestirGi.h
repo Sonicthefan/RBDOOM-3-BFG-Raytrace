@@ -54,7 +54,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     uint32_t diConstantsSize = 0;
 
     // Scene resources shared read-only with the DI lane (GI io_whitelist
-    // input classes GI-I-01/04/05/09).
+    // input classes GI-I-01/04/05/06/09).
     nvrhi::rt::IAccelStruct* tlas = nullptr;
     nvrhi::IBuffer* staticVertexBuffer = nullptr;
     nvrhi::IBuffer* staticIndexBuffer = nullptr;
@@ -65,11 +65,14 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* materialTableBuffer = nullptr;
     nvrhi::ITexture* fallbackTexture = nullptr;
     nvrhi::IBuffer* emissiveTriangleBuffer = nullptr;
+    nvrhi::IBuffer* emissiveDistributionBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteVertexBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteIndexBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteInstanceBuffer = nullptr;
     nvrhi::IBuffer* doomAnalyticLightBuffer = nullptr;
+    nvrhi::IBuffer* rluCurrentLightBuffer = nullptr;
+    nvrhi::IBuffer* neeCacheProviderResultBuffer = nullptr;
     nvrhi::IBuffer* primarySurfaceCurrentBuffer = nullptr;
     nvrhi::IBuffer* primarySurfacePreviousBuffer = nullptr;
     nvrhi::ISampler* materialSampler = nullptr;

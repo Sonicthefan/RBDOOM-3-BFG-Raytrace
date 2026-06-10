@@ -4121,11 +4121,14 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
             giInputs.fallbackTexture = cleanFallbackTexture;
             giInputs.emissiveTriangleBuffer = cleanOptionalSrv(m_smokeEmissiveTriangleBuffer);
+            giInputs.emissiveDistributionBuffer = cleanOptionalSrv(m_smokeEmissiveDistributionBuffer);
             giInputs.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
             giInputs.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
             giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
             giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
             giInputs.doomAnalyticLightBuffer = cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
+            giInputs.rluCurrentLightBuffer = cleanOptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer);
+            giInputs.neeCacheProviderResultBuffer = cleanNeeCacheProviderSrv;
             giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
             giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;
             giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
