@@ -182,6 +182,8 @@ RWStructuredBuffer<RTXDI_PackedGIReservoir> RemixRAB_GIReservoirs : register(u80
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerRadiance : register(u81);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> CleanRestirGiProducerHitPosition : register(u82);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : register(u83);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
+VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
 
@@ -259,7 +261,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiNeeCacheSeedEnabled;
     uint CleanRestirGiFrameIndex;
     uint CleanRestirGiPhase;
-    uint CleanRestirGiPad1;
+    uint CleanRestirGiResolveEnabled;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -1633,6 +1635,59 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
 }
 
 // ---------------------------------------------------------------------------
+// RGI-07: final shading + resolve. Evaluates the primary diffuse lobe toward
+// reservoir.position: the dedicated GI output stores the DEMODULATED indirect
+// diffuse (cos/pi * radiance * W, albedo excluded, NRD-shaped like Remix);
+// the resolve step re-applies albedo when adding into the combined outputs.
+// ---------------------------------------------------------------------------
+
+float3 CleanGiFinalShadeIndirectDiffuse(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidGIReservoir(reservoir))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float weight = max(reservoir.weightSum, 0.0);
+    if (weight <= 0.0 || !CleanGiAllFinite3(reservoir.radiance) || weight != weight)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 toSample = reservoir.position - RAB_GetSurfaceWorldPos(surface);
+    const float distanceSquared = dot(toSample, toSample);
+    if (distanceSquared <= 1.0e-6)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 sampleDir = toSample * rsqrt(distanceSquared);
+    if (dot(sampleDir, RAB_GetSurfaceGeoNormal(surface)) <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), sampleDir));
+    // Diffuse lobe sans albedo: brdf * cos = (albedo/pi) * ndotl, demodulated.
+    const float3 indirect = max(reservoir.radiance, float3(0.0, 0.0, 0.0)) * weight * (ndotl / RTXDI_PI);
+    return CleanGiAllFinite3(indirect) ? indirect : float3(0.0, 0.0, 0.0);
+}
+
+// Writes the GI-O-05 output and, under r_pathTracingCleanRestirGiResolve,
+// adds the albedo-modulated contribution into the combined outputs. The
+// debug-view selector may overwrite SmokeOutput afterwards (views win).
+void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    const float3 indirectDiffuse = CleanGiFinalShadeIndirectDiffuse(surface, reservoir);
+    CleanRestirGiIndirectDiffuse[pixel] = float4(indirectDiffuse, 1.0);
+
+    // The resolve add only targets the combined beauty outputs; with a GI
+    // debug view active the views own SmokeOutput instead.
+    if (CleanRestirGiResolveEnabled != 0u && CleanRestirGiView == 0u && RAB_IsSurfaceValid(surface))
+    {
+        const float3 modulated = GetDiffuseAlbedo(RAB_GetMaterial(surface)) * indirectDiffuse;
+        SmokeOutput[pixel] += float4(modulated, 0.0);
+        PathTraceRRInputColor[pixel] += float4(modulated, 0.0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Debug views
 // ---------------------------------------------------------------------------
 
@@ -1689,7 +1744,16 @@ void RayGen()
         }
         RAB_StoreGIReservoir(spatialReservoir, int2(pixel), int(RemixRAB_GetGISpatialOutputReservoirIndex()));
 
-        if (view == 5u)
+        // RGI-07: final shading + optional resolve from the spatial output.
+        CleanGiFinalShadingAndResolve(pixel, spatialSurface, spatialReservoir);
+
+        if (view == 6u)
+        {
+            // Isolated indirect diffuse (demodulated, no albedo, no DI).
+            const float3 indirect = CleanGiFinalShadeIndirectDiffuse(spatialSurface, spatialReservoir);
+            SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(indirect) : float3(0.08, 0.08, 0.08), 1.0);
+        }
+        else if (view == 5u)
         {
             float3 spatialColor = float3(1.0, 0.0, 1.0);
             if (!spatialSurfaceValid)
@@ -1740,10 +1804,17 @@ void RayGen()
 
     // Spatial disabled: pass the temporal output through to the spatial page
     // here so the SPATIAL_OUTPUT page is always this frame's data and view 5
-    // reproduces view 4 exactly. With spatial enabled, phase 1 writes it.
+    // reproduces view 4 exactly. With spatial enabled, phase 1 writes it and
+    // also owns final shading + resolve (RGI-07).
     if (CleanRestirGiSpatialEnabled == 0u)
     {
         RAB_StoreGIReservoir(temporalReservoir, int2(pixel), int(RemixRAB_GetGISpatialOutputReservoirIndex()));
+        RAB_Surface resolveSurface = RAB_EmptySurface();
+        if (surfaceValid)
+        {
+            resolveSurface = CleanGiMaterialSurfaceFromRecord(record);
+        }
+        CleanGiFinalShadingAndResolve(pixel, resolveSurface, temporalReservoir);
     }
 
     // ---- Debug views (GI lane resources only) ----
@@ -1857,6 +1928,23 @@ void RayGen()
         else
         {
             color = CleanGiToneMap(temporalReservoir.radiance * max(temporalReservoir.weightSum, 0.0));
+        }
+    }
+    else if (view == 6u)
+    {
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            // Phase 1 owns the view-6 output when spatial actually runs.
+            return;
+        }
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else
+        {
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            color = CleanGiToneMap(CleanGiFinalShadeIndirectDiffuse(viewSurface, temporalReservoir));
         }
     }
     else if (view == 7u)

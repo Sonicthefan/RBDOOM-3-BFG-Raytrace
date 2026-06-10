@@ -24,6 +24,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle producerRadianceTexture;
     nvrhi::TextureHandle producerHitPositionTexture;
     nvrhi::TextureHandle producerHitNormalTexture;
+    nvrhi::TextureHandle indirectDiffuseTexture;
     nvrhi::BufferHandle placeholderSrvBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::ShaderLibraryHandle shaderLibrary;
@@ -78,6 +79,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* primarySurfacePreviousBuffer = nullptr;
     nvrhi::ITexture* motionVectorTexture = nullptr;
     nvrhi::ITexture* motionVectorMaskTexture = nullptr;
+    nvrhi::ITexture* rrInputColorTexture = nullptr;
     nvrhi::ISampler* materialSampler = nullptr;
 };
 

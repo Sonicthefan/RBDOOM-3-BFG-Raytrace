@@ -53,7 +53,7 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t neeCacheSeedEnabled;
     uint32_t frameIndex;
     uint32_t phase;
-    uint32_t pad1;
+    uint32_t resolveEnabled;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
@@ -140,6 +140,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
         state.bindingLayout = inputs.device->createBindingLayout(layoutDesc);
         if (!state.bindingLayout)
@@ -300,7 +302,12 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         producerDesc.debugName = "PathTraceCleanRestirGiProducerHitNormal";
         state.producerHitNormalTexture = inputs.device->createTexture(producerDesc);
 
-        if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture)
+        producerDesc.format = nvrhi::Format::RGBA16_FLOAT;
+        producerDesc.debugName = "PathTraceCleanRestirGiIndirectDiffuse";
+        state.indirectDiffuseTexture = inputs.device->createTexture(producerDesc);
+
+        if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture ||
+            !state.indirectDiffuseTexture)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI producer textures (%ux%u)\n", width, height);
             return false;
@@ -325,6 +332,7 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerRadianceTexture = nullptr;
     producerHitPositionTexture = nullptr;
     producerHitNormalTexture = nullptr;
+    indirectDiffuseTexture = nullptr;
     placeholderSrvBuffer = nullptr;
     bindingLayout = nullptr;
     shaderLibrary = nullptr;
@@ -418,6 +426,7 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.primarySurfacePreviousBuffer) return "primary-surface-previous";
         if (!inputs.motionVectorTexture) return "motion-vectors";
         if (!inputs.motionVectorMaskTexture) return "motion-vector-mask";
+        if (!inputs.rrInputColorTexture) return "rr-input-color";
         if (!inputs.materialSampler) return "material-sampler";
         return nullptr;
     };
@@ -450,6 +459,7 @@ bool PathTraceCleanRestirGiExecute(
         (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
         !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
         !inputs.motionVectorTexture || !inputs.motionVectorMaskTexture ||
+        !inputs.rrInputColorTexture ||
         !inputs.materialSampler)
     {
         clearFailureOutput();
@@ -500,6 +510,8 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(81, state.producerRadianceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(82, state.producerHitPositionTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(83, state.producerHitNormalTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(84, state.indirectDiffuseTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
     nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
     if (!bindingSet)
@@ -531,6 +543,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.fireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiFireflyThreshold.GetFloat());
     tail.neeCacheSeedEnabled = r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ? 1u : 0u;
     tail.frameIndex = state.frameIndex;
+    tail.resolveEnabled = r_pathTracingCleanRestirGiResolve.GetInteger() != 0 ? 1u : 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's
@@ -553,6 +566,8 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.indirectDiffuseTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(inputs.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
