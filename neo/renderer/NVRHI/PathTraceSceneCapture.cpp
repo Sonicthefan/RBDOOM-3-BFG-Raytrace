@@ -1266,7 +1266,6 @@ RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef,
     const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
     const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
 
     reason.hasEntityDef = entityDef != nullptr;
     reason.isWorldSpace = viewDef && space == &viewDef->worldSpace;
@@ -1275,14 +1274,14 @@ RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef,
     reason.sort = material ? material->GetSort() : SS_BAD;
     reason.deform = material ? material->Deform() : DFRM_NONE;
     reason.entityNum = renderEntity ? renderEntity->entityNum : -1;
-    reason.modelName = model ? model->Name() : "<none>";
-    reason.dynamicModel = model ? model->IsDynamicModel() : DM_STATIC;
+    reason.modelName = renderEntity && renderEntity->hModel ? "<entity-model>" : "<none>";
+    reason.dynamicModel = DM_STATIC;
     reason.hasJointCache = drawSurf && drawSurf->jointCache != 0;
     reason.hasStaticModelWithJoints = tri && tri->staticModelWithJoints != nullptr;
     reason.hasRenderEntityJoints = renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0;
     reason.ambientCacheStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache);
     reason.indexCacheStatic = drawSurf && idVertexCache::CacheIsStatic(drawSurf->indexCache);
-    reason.isStaticWorldModel = model && model->IsStaticWorldModel();
+    reason.isStaticWorldModel = false;
     reason.hasDynamicModel = entityDef && entityDef->dynamicModel != nullptr;
     reason.hasCachedDynamicModel = entityDef && entityDef->cachedDynamicModel != nullptr;
     reason.hasCallback = renderEntity && renderEntity->callback != nullptr;

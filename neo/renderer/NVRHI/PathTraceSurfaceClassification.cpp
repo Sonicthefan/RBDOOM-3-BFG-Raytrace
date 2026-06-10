@@ -133,10 +133,8 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
         }
     }
 
-    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
     if ((viewDef && space == &viewDef->worldSpace) ||
         !entityDef ||
-        (model && model->IsStaticWorldModel()) ||
         (drawSurf && idVertexCache::CacheIsStatic(drawSurf->ambientCache) && idVertexCache::CacheIsStatic(drawSurf->indexCache) && !entityDef))
     {
         return RtSmokeSurfaceClass::StaticWorld;

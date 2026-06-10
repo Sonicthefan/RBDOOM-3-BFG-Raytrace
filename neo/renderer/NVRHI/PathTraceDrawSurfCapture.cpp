@@ -110,7 +110,6 @@ uint32_t PtSourceFlagsForDrawSurf(const viewDef_t* viewDef, const drawSurf_t* dr
     const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
 
     if (IsSmokeGuiDrawSurface(drawSurf))
     {
@@ -122,8 +121,7 @@ uint32_t PtSourceFlagsForDrawSurf(const viewDef_t* viewDef, const drawSurf_t* dr
     }
     if ((drawSurf && drawSurf->jointCache != 0) ||
         (tri && tri->staticModelWithJoints != nullptr) ||
-        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0) ||
-        (model && model->IsDynamicModel() != DM_STATIC))
+        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0))
     {
         flags |= RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING;
     }
@@ -155,7 +153,6 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
     const viewEntity_t* space = drawSurf->space;
     const idRenderEntityLocal* entity = space->entityDef;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
-    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
     const idMaterial* material = drawSurf->material;
     const char* materialName = material->GetName();
 
@@ -164,7 +161,6 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
         drawSurf->jointCache != 0 ||
         tri->staticModelWithJoints != nullptr ||
         (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0) ||
-        (model && model->IsDynamicModel() != DM_STATIC) ||
         (renderEntity && (renderEntity->callback != nullptr || renderEntity->forceUpdate != 0)) ||
         (entity->dynamicModel != nullptr || entity->cachedDynamicModel != nullptr) ||
         material->Deform() != DFRM_NONE ||
@@ -539,7 +535,7 @@ void CapturePathTraceDrawSurfMirror(
         const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
         const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
-        const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+        const char* modelName = renderEntity && renderEntity->hModel ? "<entity-model>" : "<none>";
         const uint32_t materialId = SmokeMaterialId(material);
         const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
@@ -556,7 +552,7 @@ void CapturePathTraceDrawSurfMirror(
         meshObservation.stableHash = PtMeshKeyHash(meshObservation.key);
         meshObservation.baseMaterial = material;
         meshObservation.materialName = material ? material->GetName() : "<none>";
-        meshObservation.modelName = model ? model->Name() : "<none>";
+        meshObservation.modelName = modelName;
         meshObservation.localSpaceValid = true;
 
         RtPathTraceInstanceObservation instanceObservation;
