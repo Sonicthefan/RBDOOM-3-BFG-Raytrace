@@ -1669,22 +1669,13 @@ float3 CleanGiFinalShadeIndirectDiffuse(RAB_Surface surface, RTXDI_GIReservoir r
     return CleanGiAllFinite3(indirect) ? indirect : float3(0.0, 0.0, 0.0);
 }
 
-// Writes the GI-O-05 output and, under r_pathTracingCleanRestirGiResolve,
-// adds the albedo-modulated contribution into the combined outputs. The
-// debug-view selector may overwrite SmokeOutput afterwards (views win).
+// Writes the GI-O-05 output. The boiling-filter compute pass consumes it,
+// clamps outliers, and performs the resolve add into the combined outputs
+// (so the beauty image receives the FILTERED contribution).
 void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
     const float3 indirectDiffuse = CleanGiFinalShadeIndirectDiffuse(surface, reservoir);
     CleanRestirGiIndirectDiffuse[pixel] = float4(indirectDiffuse, 1.0);
-
-    // The resolve add only targets the combined beauty outputs; with a GI
-    // debug view active the views own SmokeOutput instead.
-    if (CleanRestirGiResolveEnabled != 0u && CleanRestirGiView == 0u && RAB_IsSurfaceValid(surface))
-    {
-        const float3 modulated = GetDiffuseAlbedo(RAB_GetMaterial(surface)) * indirectDiffuse;
-        SmokeOutput[pixel] += float4(modulated, 0.0);
-        PathTraceRRInputColor[pixel] += float4(modulated, 0.0);
-    }
 }
 
 // ---------------------------------------------------------------------------

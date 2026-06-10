@@ -103,3 +103,46 @@ Rule of thumb (user confirmed): Remix source/SDK base values are NOT what
 deployed games run; prefer shipped rtx.conf values when picking rbdoom
 defaults. Example already applied: r_pathTracingCleanRestirGiMaxHistoryLength
 default 4, not the SDK-comparable 30.
+
+2026-06-11 RGI-08 Status + Deferred Features
+--------------------------------------------
+
+Boiling filter: ported as a GI compute pass
+(pathtrace_clean_restir_gi_boiling_filter.cs.hlsl) that clamps shaded
+indirect-diffuse outliers to the 8x8-group average luminance, matching the
+Remix final-shading diffuse boiling behavior (the reservoir-kill branch is
+specular-only upstream and the lane is diffuse-only). Threshold cvar
+r_pathTracingCleanRestirGiBoilingFilter, default 15 (HL2 RTX value);
+0 disables. The same pass owns the resolve add, so the combined outputs
+receive the filtered contribution.
+
+Remaining deferred features and their trigger conditions:
+
+    virtual samples                 OFF in shipped HL2 RTX; revisit only if
+                                    glossy GI is added (needs roughness-aware
+                                    sample repositioning)
+    reflection reprojection         needs specular GI lane
+    portal-space sample transforms  needs active ray portals (none in rbdoom)
+    sample stealing                 ON in HL2 RTX; port after the resolve
+                                    path is proven (feeds PT integrator)
+    lighting validation /           needs the gradients pipeline; HL2 RTX
+      validateVisibilityChange      ships validateVisibilityChange=True, so
+                                    this is the highest-value deferred item
+                                    (kills stale GI when lights/doors change;
+                                    baseline relies on maxReservoirAge)
+    historyDiscardStrength          part of the validation feature set
+    pairwise / ray-traced bias      upstream supports it; BASIC is proven
+      correction                    baseline first
+    DLSS-RR compatibility mode      ON in HL2 RTX; needs RR-aware temporal
+                                    randomization; revisit with denoiser work
+    pre-denoise resolve             current resolve adds GI after the DI
+                                    lane's DLSS-RR evaluate, so GI is not
+                                    denoised; move the GI lane before RR
+                                    evaluate (and feed rrInputColor) when
+                                    promoting resolve past proof stage
+
+Known debug-view caveats:
+    GI debug views share SmokeOutput with the DI route; with DI views 12/16 +
+    DLSS-RR active the RR output copy can overwrite GI views. Use GI views
+    with DLSS-RR off. View 6 shows the pre-filter indirect diffuse; the
+    beauty resolve uses the filtered value.

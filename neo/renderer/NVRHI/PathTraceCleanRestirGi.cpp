@@ -201,6 +201,105 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     return true;
 }
 
+struct PathTraceCleanRestirGiBoilingFilterConstants
+{
+    uint32_t width;
+    uint32_t height;
+    float threshold;
+    uint32_t resolveEnabled;
+};
+
+bool CleanRestirGiEnsureBoilingFilterPipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    if (state.boilingFilterPipeline)
+    {
+        return true;
+    }
+    if (state.boilingFilterInitAttempted)
+    {
+        return false;
+    }
+    state.boilingFilterInitAttempted = true;
+
+    const char* shaderPath = nullptr;
+    if (inputs.isD3D12)
+    {
+        shaderPath = "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.bin";
+    }
+    else if (inputs.isVulkan)
+    {
+        shaderPath = "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.bin";
+    }
+    else
+    {
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf("PathTraceCleanRestirGi: couldn't read GI boiling-filter shader %s\n", shaderPath);
+        return false;
+    }
+    nvrhi::ShaderDesc csDesc;
+    csDesc.shaderType = nvrhi::ShaderType::Compute;
+    csDesc.entryName = "main";
+    csDesc.debugName = "PathTraceCleanRestirGiBoilingFilterCS";
+    state.boilingFilterShader = inputs.device->createShader(csDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!state.boilingFilterShader)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI boiling-filter shader\n");
+        return false;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    state.boilingFilterBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!state.boilingFilterBindingLayout)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI boiling-filter binding layout\n");
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = state.boilingFilterShader;
+    pipelineDesc.bindingLayouts = { state.boilingFilterBindingLayout };
+    state.boilingFilterPipeline = inputs.device->createComputePipeline(pipelineDesc);
+    if (!state.boilingFilterPipeline)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI boiling-filter pipeline\n");
+        return false;
+    }
+
+    nvrhi::BufferDesc constantsDesc;
+    constantsDesc.byteSize = 16;
+    constantsDesc.debugName = "PathTraceCleanRestirGiBoilingFilterConstants";
+    constantsDesc.isConstantBuffer = true;
+    constantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+    constantsDesc.keepInitialState = true;
+    state.boilingFilterConstantsBuffer = inputs.device->createBuffer(constantsDesc);
+    if (!state.boilingFilterConstantsBuffer)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI boiling-filter constants buffer\n");
+        state.boilingFilterPipeline = nullptr;
+        return false;
+    }
+    common->Printf("PathTraceCleanRestirGi: GI boiling-filter pipeline initialized\n");
+    return true;
+}
+
 bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
 {
     const uint32_t width = static_cast<uint32_t>(Max(inputs.width, 1));
@@ -334,6 +433,11 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerHitNormalTexture = nullptr;
     indirectDiffuseTexture = nullptr;
     placeholderSrvBuffer = nullptr;
+    boilingFilterConstantsBuffer = nullptr;
+    boilingFilterShader = nullptr;
+    boilingFilterBindingLayout = nullptr;
+    boilingFilterPipeline = nullptr;
+    boilingFilterInitAttempted = false;
     bindingLayout = nullptr;
     shaderLibrary = nullptr;
     pipeline = nullptr;
@@ -604,6 +708,8 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
     nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
 
+    nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
+
     // RGI-06: spatial reuse runs as a second dispatch so every pixel's
     // TEMPORAL_OUTPUT page write has completed before neighbors read it.
     // With spatial disabled, phase 0 already passed the temporal output
@@ -617,6 +723,50 @@ bool PathTraceCleanRestirGiExecute(
         commandList->dispatchRays(giArgs);
         nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
+        nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
+    }
+
+    // RGI-08: boiling filter + resolve consumer over the GI output. The
+    // compute pass clamps shaded outliers to the group average (Remix
+    // final-shading diffuse behavior) and performs the resolve add so the
+    // combined outputs receive the filtered contribution. Debug views own
+    // SmokeOutput, so the resolve add only runs with the views off.
+    const float boilingFilterThreshold = Max(0.0f, r_pathTracingCleanRestirGiBoilingFilter.GetFloat());
+    const bool resolveAddRequested = tail.resolveEnabled != 0u && view == 0;
+    if ((boilingFilterThreshold > 0.0f || resolveAddRequested) &&
+        CleanRestirGiEnsureBoilingFilterPipeline(state, inputs))
+    {
+        nvrhi::BindingSetDesc filterSetDesc;
+        filterSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, state.boilingFilterConstantsBuffer));
+        filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, state.indirectDiffuseTexture));
+        filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(2, inputs.outputTexture));
+        filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(3, inputs.rrInputColorTexture));
+        filterSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, inputs.primarySurfaceCurrentBuffer));
+        nvrhi::BindingSetHandle filterSet = inputs.device->createBindingSet(filterSetDesc, state.boilingFilterBindingLayout);
+        if (filterSet)
+        {
+            PathTraceCleanRestirGiBoilingFilterConstants filterConstants;
+            filterConstants.width = static_cast<uint32_t>(inputs.width);
+            filterConstants.height = static_cast<uint32_t>(inputs.height);
+            filterConstants.threshold = boilingFilterThreshold;
+            filterConstants.resolveEnabled = resolveAddRequested ? 1u : 0u;
+            commandList->writeBuffer(state.boilingFilterConstantsBuffer, &filterConstants, sizeof(filterConstants));
+
+            commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::ShaderResource);
+            commandList->commitBarriers();
+
+            nvrhi::ComputeState filterState;
+            filterState.pipeline = state.boilingFilterPipeline;
+            filterState.bindings = { filterSet };
+            commandList->setComputeState(filterState);
+            commandList->dispatch(
+                static_cast<uint32_t>((inputs.width + 7) / 8),
+                static_cast<uint32_t>((inputs.height + 7) / 8),
+                1);
+            nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, inputs.rrInputColorTexture);
+        }
     }
 
     if (!state.dispatchLogged)

@@ -30,6 +30,11 @@ struct PathTraceCleanRestirGiState
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;
     nvrhi::rt::ShaderTableHandle shaderTable;
+    nvrhi::BufferHandle boilingFilterConstantsBuffer;
+    nvrhi::ShaderHandle boilingFilterShader;
+    nvrhi::BindingLayoutHandle boilingFilterBindingLayout;
+    nvrhi::ComputePipelineHandle boilingFilterPipeline;
+    bool boilingFilterInitAttempted = false;
     bool pipelineInitAttempted = false;
     uint32_t frameIndex = 0;
     bool dispatchLogged = false;

@@ -290,6 +290,7 @@ extern idCVar r_pathTracingCleanRestirGiMaxReservoirAge;
 extern idCVar r_pathTracingCleanRestirGiFireflyThreshold;
 extern idCVar r_pathTracingCleanRestirGiNeeCacheSeed;
 extern idCVar r_pathTracingCleanRestirGiResolve;
+extern idCVar r_pathTracingCleanRestirGiBoilingFilter;
 extern idCVar r_pathTracingCleanRestirGiDump;
 extern idCVar r_pathTracingRestirPTView68Dump;
 extern idCVar r_pathTracingRestirPTView68DumpX;
