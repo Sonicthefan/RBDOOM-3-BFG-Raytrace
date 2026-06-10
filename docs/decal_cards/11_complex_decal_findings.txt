@@ -137,6 +137,38 @@ WHAT LANDED (framework, file by file)
   - New DIFFUSE_LIT branch (checked first): albedo = saturate(albedo +
     decalRgb * stageAlpha). Black texels = no contribution. Never darkens.
 
+FIELD-TEST ROUND 1 (user dumps: pentastic.txt / alphabetdecal.txt / splat.txt)
+------------------------------------------------------------------------------
+Composite stage 4 false-color confirmed working -> collection/binding healthy.
+But all three printed blendKind=modulate and GPU flags lacked 0x8000:
+  BUG FOUND: the DIFFUSE_LIT predicate excluded on rgbKeyedBlendDecal, and
+  IsSmokeRgbKeyedBlendDecalMaterial returns true for ANY decal whose
+  ambient/diffuse stage image is TD_DIFFUSE or YCoCg - i.e. for every
+  diffuse-map decal. The exclusion strangled the new kind at birth.
+  FIX: dropped that exclusion; excluded classifier.hasAmbientBlendStage
+  instead (splat-style art-in-ambient materials are not diffuse-lit).
+The splat diffuse rescue DID work (reason='detail-decal ambient-stage diffuse
+fallback: stage 0', splat7/9 textures resolved, heightmap normal safe=1).
+
+SPECTRUM DISCOVERY (the pentastic pulse mechanism, confirmed from hell.mtr):
+pentastic1_spectrum = DECAL_MACRO + `spectrum 1` + single `blend diffusemap`
+stage with CONSTANT registers. The pulse is NOT in the material - a light
+with `spectrum 1` animates, and spectrum surfaces are only illuminated by
+matching-spectrum lights (idtech4 invisible writing).
+  IMPLEMENTation: discovery stores info->detailDecalSpectrum =
+  material->Spectrum(). BuildSmokeDynamicMaterialRecords (SceneBuild) now
+  synthesizes a record per in-table spectrum detail decal: color = brightest
+  matching-spectrum view light color (evaluated from the light shader
+  registers x r_lightScale), STAGE_ENABLED only when such a light is lit.
+  The record carries SELECTED_EMISSIVE; the composite routes such layers to
+  emissiveRadiance (glows/pulses with the light, vanishes with it) instead of
+  albedo.
+
+SPLAT ROUTING FIX: when the ambient-stage diffuse rescue fires, the material
+now routes OVER (filter flags cleared) with coverage from its makealpha()
+stage image wired as the alpha texture - matching the raster src-alpha blend
+of the art stage, instead of modulate/blackKey darkening.
+
 OPEN ITEMS / FIELD-TEST NOTES
 -----------------------------
 - pentastic pulse: if the pulse is authored as overbright stage color (>1),

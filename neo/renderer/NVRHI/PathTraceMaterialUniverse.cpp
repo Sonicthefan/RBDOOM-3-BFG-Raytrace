@@ -129,6 +129,7 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecal ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDynamic ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDiffuseLit ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, static_cast<uint64>(Max(0, info.detailDecalSpectrum)));
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.forceFallbackAlbedo ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);

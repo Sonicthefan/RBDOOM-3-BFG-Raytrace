@@ -51,6 +51,7 @@
 #include <vector>
 
 extern DeviceManager* deviceManager;
+extern idCVar r_lightScale;
 
 namespace {
 
@@ -284,9 +285,62 @@ bool SmokeDynamicMaterialSampleHasTexMatrix(const RtSmokeDynamicMaterialEvalSamp
         idMath::Fabs(sample.texMatrix[1][2]) > 1.0e-6f;
 }
 
+// Max per-spectrum-group color of the matching lights in view this frame.
+// Spectrum surfaces ("invisible writing") only receive matching-spectrum
+// lights; the decal composite consumes this as the layer's visibility/tint.
+static void BuildSmokeSpectrumLightColors(const viewDef_t* viewDef, std::unordered_map<int, idVec4>& spectrumColors)
+{
+    if (!viewDef)
+    {
+        return;
+    }
+
+    const float lightScale = r_lightScale.GetFloat();
+    for (const viewLight_t* vLight = viewDef->viewLights; vLight != NULL; vLight = vLight->next)
+    {
+        if (!vLight->lightShader || !vLight->shaderRegisters || vLight->removeFromList)
+        {
+            continue;
+        }
+        const int spectrum = vLight->lightShader->Spectrum();
+        if (spectrum <= 0)
+        {
+            continue;
+        }
+
+        const idMaterial* lightShader = vLight->lightShader;
+        const float* lightRegs = vLight->shaderRegisters;
+        for (int lightStageNum = 0; lightStageNum < lightShader->GetNumStages(); lightStageNum++)
+        {
+            const shaderStage_t* lightStage = lightShader->GetStage(lightStageNum);
+            if (!lightStage || !lightRegs[lightStage->conditionRegister])
+            {
+                continue;
+            }
+            const int* registers = lightStage->color.registers;
+            const idVec4 color(
+                Max(0.0f, lightScale * lightRegs[registers[0]]),
+                Max(0.0f, lightScale * lightRegs[registers[1]]),
+                Max(0.0f, lightScale * lightRegs[registers[2]]),
+                1.0f);
+            const float luminance = Max(color.x, Max(color.y, color.z));
+            if (luminance <= 0.0f)
+            {
+                continue;
+            }
+            idVec4& best = spectrumColors[spectrum];
+            if (luminance > Max(best.x, Max(best.y, best.z)))
+            {
+                best = color;
+            }
+        }
+    }
+}
+
 std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     const RtSmokeMaterialTableBuild& table,
-    const RtSmokeMaterialStats& materialStats)
+    const RtSmokeMaterialStats& materialStats,
+    const viewDef_t* viewDef)
 {
     std::vector<PathTraceDynamicMaterialRecord> records;
     const int materialCount = Min(static_cast<int>(table.materials.size()), static_cast<int>(table.materialIds.size()));
@@ -365,6 +419,55 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
             ++validRecordCount;
         }
         records[materialIndex] = record;
+    }
+
+    // Synthesize records for spectrum detail decals (pentastic1_spectrum):
+    // the layer's visibility and tint track the brightest matching-spectrum
+    // light in view. No matching light -> stage disabled -> the composite
+    // drops the layer (invisible writing stays invisible).
+    std::unordered_map<int, idVec4> spectrumColors;
+    bool spectrumColorsBuilt = false;
+    const int infoCount = Min(materialCount, static_cast<int>(table.materialInfos.size()));
+    for (int materialIndex = 0; materialIndex < infoCount; ++materialIndex)
+    {
+        const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
+        if (!info.detailDecal || info.detailDecalSpectrum <= 0)
+        {
+            continue;
+        }
+        if ((records[materialIndex].flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) != 0u)
+        {
+            continue;
+        }
+        if (!spectrumColorsBuilt)
+        {
+            BuildSmokeSpectrumLightColors(viewDef, spectrumColors);
+            spectrumColorsBuilt = true;
+        }
+
+        const std::unordered_map<int, idVec4>::const_iterator match = spectrumColors.find(info.detailDecalSpectrum);
+        const idVec4 lightColor = match != spectrumColors.end() ? match->second : idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+        const bool lit = lightColor.x > 0.0f || lightColor.y > 0.0f || lightColor.z > 0.0f;
+
+        PathTraceDynamicMaterialRecord record;
+        record.color[0] = lightColor.x;
+        record.color[1] = lightColor.y;
+        record.color[2] = lightColor.z;
+        record.color[3] = 1.0f;
+        record.texMatrix0[3] = lit ? 1.0f : 0.0f;
+        record.materialIndex = static_cast<uint32_t>(materialIndex);
+        record.materialId = table.materialIds[materialIndex];
+        record.stageIndex = UINT32_MAX;
+        // SELECTED_EMISSIVE marks the layer as self-revealing in the composite:
+        // it contributes as emissive tinted by the matching light, so the
+        // reveal pulses with the light instead of riding local DI.
+        record.flags = RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID | RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
+        if (lit)
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
+        }
+        records[materialIndex] = record;
+        ++validRecordCount;
     }
 
     if (validRecordCount == 0)
@@ -3027,7 +3130,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
     const std::vector<PathTraceDynamicMaterialRecord> dynamicMaterialRecords =
-        BuildSmokeDynamicMaterialRecords(materialTable, materialStats);
+        BuildSmokeDynamicMaterialRecords(materialTable, materialStats, viewDef);
     LogSmokeMaterialClassifierLiveSummary(materialTable, materialClassifierStats);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;

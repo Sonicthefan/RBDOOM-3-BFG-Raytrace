@@ -302,6 +302,7 @@ static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC = 0x00004000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
 static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
@@ -1466,6 +1467,7 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         // material record for this (variant) material index. A condition-off
         // stage DROPS the layer - it must not composite at zero.
         float4 decalStageColor = float4(1.0, 1.0, 1.0, 1.0);
+        bool decalLayerSelfEmissive = false;
         const uint dynamicRecordCount = (uint)max(DecalInfo2.x, 0.0);
         if (decalMaterialIndex < dynamicRecordCount)
         {
@@ -1479,6 +1481,7 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
                     continue;
                 }
                 decalStageColor = float4(max(dynamicRecord.color.rgb, float3(0.0, 0.0, 0.0)), saturate(dynamicRecord.color.a));
+                decalLayerSelfEmissive = (dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) != 0u;
             }
         }
 
@@ -1496,7 +1499,17 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             // contribute nothing, the stage color carries the authored tint or
             // animation, and it never darkens the receiver.
             const float3 litLayer = decalRgb * decalStageColor.a;
-            surface.material.diffuseAlbedo = saturate(surface.material.diffuseAlbedo + litLayer);
+            if (decalLayerSelfEmissive)
+            {
+                // Spectrum "invisible writing" reveal: the synthesized record
+                // carries the matching light's color, so the layer glows with
+                // that light (and disappears with it) instead of riding DI.
+                surface.material.emissiveRadiance += litLayer;
+            }
+            else
+            {
+                surface.material.diffuseAlbedo = saturate(surface.material.diffuseAlbedo + litLayer);
+            }
             coverage = saturate(max(max(litLayer.r, litLayer.g), litLayer.b));
         }
         else if ((decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u)

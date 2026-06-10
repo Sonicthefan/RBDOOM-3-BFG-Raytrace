@@ -1126,18 +1126,26 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     // litWall + light * tex.rgb * stageColor. Black texels contribute nothing.
     // Treating them as filter/modulate darkens the receiver with the texture
     // (the alphabet4/pentastic1_spectrum failure). Composite them as an
-    // additive ALBEDO layer instead.
+    // additive ALBEDO layer instead. Do NOT exclude on the rgb-keyed/YCoCg
+    // decal heuristics - those tag every diffuse-map decal and are exactly the
+    // misroute this kind corrects. Materials whose ART lives in an ambient
+    // alpha-blend stage (splat-style: ambient art + white diffuse lighting
+    // mask) are NOT diffuse-lit; they keep their over/filter routing.
     info->detailDecalDiffuseLit =
         info->detailDecal &&
         classifier.hasDiffuseStage &&
+        !classifier.hasAmbientBlendStage &&
         !foundFilterBlend &&
-        !info->additiveDecal &&
-        !rgbKeyedBlendDecal;
+        !info->additiveDecal;
     if (info->detailDecalDiffuseLit)
     {
         info->filterDecal = false;
         info->filterDecalBlackKey = false;
     }
+    // Spectrum surfaces ("invisible writing", e.g. pentastic1_spectrum) only
+    // receive light from lights with a matching spectrum. The per-frame record
+    // synthesis keys off this (PathTraceSmokeSceneBuild).
+    info->detailDecalSpectrum = info->detailDecal && material ? material->Spectrum() : 0;
     info->alphaFromDiffuseLuma =
         (info->hasAlphaTest &&
             diffuseImage != nullptr &&
@@ -1223,6 +1231,32 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             info->hasDiffuseImage = true;
             info->forceFallbackAlbedo = false;
             info->fallbackReason = va("detail-decal ambient-stage diffuse fallback: stage %d", stageIndex);
+            // The rescued art stage raster-blends as src-alpha OVER; route the
+            // composite the same way instead of filter/modulate, with coverage
+            // from the material's makealpha() stage when it has one.
+            info->filterDecal = false;
+            info->filterDecalBlackKey = false;
+            for (int alphaStageIndex = 0; alphaStageIndex < material->GetNumStages(); ++alphaStageIndex)
+            {
+                const shaderStage_t* alphaStage = material->GetStage(alphaStageIndex);
+                if (!alphaStage || alphaStage->lighting != SL_AMBIENT || !alphaStage->texture.image)
+                {
+                    continue;
+                }
+                idImage* alphaImage = alphaStage->texture.image;
+                if (idStr::FindText(alphaImage->GetName(), "makealpha", false) < 0 ||
+                    !alphaImage->GetTextureHandle())
+                {
+                    continue;
+                }
+                info->alphaImage = alphaImage;
+                info->alphaImageName = alphaImage->GetName();
+                info->alphaUsage = alphaImage->GetUsage();
+                info->alphaColorFormat = alphaImage->GetOpts().colorFormat;
+                info->hasAlphaImage = true;
+                info->alphaReason = va("detail-decal makealpha coverage: stage %d", alphaStageIndex);
+                break;
+            }
             RefreshSmokeMaterialTextureHandleState(*info);
             break;
         }
