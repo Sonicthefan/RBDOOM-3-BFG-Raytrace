@@ -24,6 +24,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle producerRadianceTexture;
     nvrhi::TextureHandle producerHitPositionTexture;
     nvrhi::TextureHandle producerHitNormalTexture;
+    nvrhi::BufferHandle placeholderSrvBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;

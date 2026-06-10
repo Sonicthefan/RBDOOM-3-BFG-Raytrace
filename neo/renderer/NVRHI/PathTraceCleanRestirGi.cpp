@@ -217,6 +217,23 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
             return false;
         }
     }
+    if (!state.placeholderSrvBuffer)
+    {
+        nvrhi::BufferDesc placeholderDesc;
+        placeholderDesc.debugName = "PathTraceCleanRestirGiPlaceholderSRV";
+        placeholderDesc.byteSize = 256;
+        placeholderDesc.structStride = sizeof(uint32_t);
+        placeholderDesc.canHaveUAVs = false;
+        placeholderDesc.canHaveTypedViews = false;
+        placeholderDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+        placeholderDesc.keepInitialState = true;
+        state.placeholderSrvBuffer = inputs.device->createBuffer(placeholderDesc);
+        if (!state.placeholderSrvBuffer)
+        {
+            common->Printf("PathTraceCleanRestirGi: failed to create GI placeholder SRV buffer\n");
+            return false;
+        }
+    }
 
     const RTXDI_ReservoirBufferParameters reservoirParams =
         rtxdi::CalculateReservoirBufferParameters(width, height, rtxdi::CheckerboardMode::Off);
@@ -306,6 +323,7 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerRadianceTexture = nullptr;
     producerHitPositionTexture = nullptr;
     producerHitNormalTexture = nullptr;
+    placeholderSrvBuffer = nullptr;
     bindingLayout = nullptr;
     shaderLibrary = nullptr;
     pipeline = nullptr;
@@ -356,6 +374,49 @@ bool PathTraceCleanRestirGiExecute(
             earlyReturn);
         r_pathTracingCleanRestirGiDump.SetInteger(0);
     };
+    auto clearFailureOutput = [&]()
+    {
+        if (!inputs.commandList || !inputs.outputTexture)
+        {
+            return;
+        }
+        inputs.commandList->setTextureState(inputs.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+        inputs.commandList->commitBarriers();
+        inputs.commandList->clearTextureFloat(inputs.outputTexture, nvrhi::AllSubresources, nvrhi::Color(0.75f, 0.0f, 0.75f, 1.0f));
+    };
+    auto missingResource = [&]() -> const char*
+    {
+        if (!inputs.device) return "device";
+        if (!inputs.commandList) return "command-list";
+        if (!inputs.outputTexture) return "output-texture";
+        if (!inputs.textureBindlessLayout) return "texture-bindless-layout";
+        if (!inputs.textureDescriptorTable) return "texture-descriptor-table";
+        if (inputs.width <= 0 || inputs.height <= 0) return "extent";
+        if (!inputs.diConstantsBlob) return "di-constants";
+        if (inputs.diConstantsSize == 0 || inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE) return "di-constants-size";
+        if (!inputs.tlas) return "tlas";
+        if (!inputs.staticVertexBuffer) return "static-vertex";
+        if (!inputs.staticIndexBuffer) return "static-index";
+        if (!inputs.dynamicVertexBuffer) return "dynamic-vertex";
+        if (!inputs.dynamicIndexBuffer) return "dynamic-index";
+        if (!inputs.staticTriangleMaterialIndexBuffer) return "static-triangle-material-index";
+        if (!inputs.dynamicTriangleMaterialIndexBuffer) return "dynamic-triangle-material-index";
+        if (!inputs.materialTableBuffer) return "material-table";
+        if (!inputs.fallbackTexture) return "fallback-texture";
+        if (!inputs.emissiveTriangleBuffer) return "emissive-triangles";
+        if (!inputs.emissiveDistributionBuffer) return "emissive-distribution";
+        if (!inputs.rigidRouteVertexBuffer) return "rigid-route-vertex";
+        if (!inputs.rigidRouteIndexBuffer) return "rigid-route-index";
+        if (!inputs.rigidRouteTriangleMaterialIndexBuffer) return "rigid-route-triangle-material-index";
+        if (!inputs.rigidRouteInstanceBuffer) return "rigid-route-instance";
+        if (!inputs.doomAnalyticLightBuffer) return "doom-analytic-lights";
+        if (!inputs.rluCurrentLightBuffer) return "rlu-current-lights";
+        if (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) return "nee-cache-provider-results";
+        if (!inputs.primarySurfaceCurrentBuffer) return "primary-surface-current";
+        if (!inputs.primarySurfacePreviousBuffer) return "primary-surface-previous";
+        if (!inputs.materialSampler) return "material-sampler";
+        return nullptr;
+    };
 
     if (r_pathTracingCleanRestirGiEnable.GetInteger() == 0)
     {
@@ -381,21 +442,25 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
         !inputs.doomAnalyticLightBuffer ||
-        !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer || !inputs.neeCacheProviderResultBuffer ||
+        !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer ||
+        (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
         !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
         !inputs.materialSampler)
     {
-        printDump("base-resource");
+        clearFailureOutput();
+        printDump(missingResource());
         return false;
     }
 
     if (!CleanRestirGiEnsurePipeline(state, inputs))
     {
+        clearFailureOutput();
         printDump("pipeline");
         return false;
     }
     if (!CleanRestirGiEnsureResources(state, inputs))
     {
+        clearFailureOutput();
         printDump("resources");
         return false;
     }
@@ -420,7 +485,8 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, inputs.doomAnalyticLightBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, inputs.emissiveDistributionBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, inputs.rluCurrentLightBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, inputs.neeCacheProviderResultBuffer));
+    nvrhi::IBuffer* neeCacheProviderResultBuffer = inputs.neeCacheProviderResultBuffer ? inputs.neeCacheProviderResultBuffer : state.placeholderSrvBuffer.Get();
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, neeCacheProviderResultBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(80, state.reservoirBuffer));
@@ -431,6 +497,7 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
     if (!bindingSet)
     {
+        clearFailureOutput();
         printDump("binding-set");
         return false;
     }
@@ -475,7 +542,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.emissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rluCurrentLightBuffer, nvrhi::ResourceStates::ShaderResource);
-    commandList->setBufferState(inputs.neeCacheProviderResultBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(neeCacheProviderResultBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
 
     nvrhi::rt::State giState;
