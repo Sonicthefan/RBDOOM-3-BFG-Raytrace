@@ -222,6 +222,18 @@ HANDED OFF AS MUNDANE CLASSIFIER WORK (instructions for another agent):
 
 OPEN ITEMS / FIELD-TEST NOTES
 -----------------------------
+- 2026-06-11 GI integration regression note:
+  last known fully functional/stable animated-decal baseline before the clean
+  ReSTIR GI work was `41c5a115 Associate spectrum decals with their own light,
+  fix decal tint source`. The subsequent GI bridge commits introduced an
+  always-entered clean-GI call block after clean DI; even with
+  `r_pathTracingCleanRestirGiEnable 0`, that block constructed GI inputs until
+  `02c43347 Skip GI bridge when disabled`. The crash was resolved by skipping
+  the GI bridge when disabled plus the primary producer dynamic-material SRV
+  transition in `21881c7a Fix primary producer dynamic material state`.
+  Remaining issue: a few animated/spectrum decals still show animation
+  poisoning. Treat that as a separate decal dynamic-eval follow-up, not as the
+  GI crash root.
 - pentastic pulse: if the pulse is authored as overbright stage color (>1),
   the albedo saturates at 1; if the glow must EMIT light, route excess
   luminance (stageColor luminance above 1) into emissiveRadiance - deliberate

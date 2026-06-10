@@ -275,6 +275,9 @@ static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL = 0x00002000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC = 0x00004000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 #define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
@@ -664,6 +667,38 @@ bool CleanGiMaterialDoesNotOccludeVisibility(uint materialIndex)
         RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
         RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
     return (material.flags & transparentCardFlags) != 0u;
+}
+
+bool CleanGiMaterialIsUnsupportedSecondaryCard(PathTraceSmokeMaterial material)
+{
+    const uint unsupportedCardFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
+        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC |
+        RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT;
+    return (material.flags & unsupportedCardFlags) != 0u;
+}
+
+bool CleanGiAllowsSecondarySelfEmission(uint instanceId, PathTraceSmokeMaterial material)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
+    {
+        return false;
+    }
+    if (CleanGiMaterialIsUnsupportedSecondaryCard(material))
+    {
+        return false;
+    }
+    // Dynamic instance 1 contains characters, effects, particles, and runtime
+    // cards. Until GI has a validated dynamic-emissive contract, only static
+    // world and routed rigid emissive geometry may seed secondary self-emission.
+    return instanceId == 0u || instanceId >= 2u;
 }
 
 // ---------------------------------------------------------------------------
@@ -1368,8 +1403,14 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
 
     const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
     const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
+    if (CleanGiMaterialIsUnsupportedSecondaryCard(hitMaterial))
+    {
+        return result;
+    }
     const float3 hitAlbedo = CleanGiSampleDiffuseAlbedo(hitMaterial, hitTexCoord);
-    const float3 hitEmissive = CleanGiSampleEmissiveRadiance(hitMaterial, hitTexCoord);
+    const float3 hitEmissive = CleanGiAllowsSecondarySelfEmission(payload.hitInstanceId, hitMaterial)
+        ? CleanGiSampleEmissiveRadiance(hitMaterial, hitTexCoord)
+        : float3(0.0, 0.0, 0.0);
 
     RAB_Surface secondarySurface = RAB_EmptySurface();
     secondarySurface.valid = 1u;
