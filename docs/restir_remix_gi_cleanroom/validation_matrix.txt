@@ -15,12 +15,14 @@ RGI-02 producer
     view 1: per-pixel noisy radiance; changes every frame (new rays);
         dark on surfaces facing away from all bounce light
     view 2: hit position/normal bands stable for static camera
-    secondary decal/transparent card hits: rejected until GI has a dedicated
-        decal composite or receiver-retrace path; decals must not appear as
-        black GI surfaces
-    dynamic characters/effects: must not seed secondary self-emission; only
-        static world and routed rigid emissive geometry may contribute direct
-        secondary emission in the producer
+    secondary decal/transparent card hits: open issue. A broad reject of
+        decal/alpha cards in `0e586ea7` caused severe texture destruction and
+        repeatable crashes, so do not reapply that approach. The future fix
+        needs a receiver-aware decal/alpha contract, not a coarse material-flag
+        rejection in the producer.
+    dynamic characters/effects: open issue when they appear to seed GI
+        emission. Do not solve this by rejecting all dynamic/card materials at
+        secondary hit time; validate the emissive inventory/source contract.
     sky/miss pixels: zero radiance, flagged invalid, no NaN view
     firefly cvar 0 vs default: clamp visibly removes outliers only
 

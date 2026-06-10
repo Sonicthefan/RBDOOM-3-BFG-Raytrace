@@ -234,6 +234,13 @@ OPEN ITEMS / FIELD-TEST NOTES
   Remaining issue: a few animated/spectrum decals still show animation
   poisoning. Treat that as a separate decal dynamic-eval follow-up, not as the
   GI crash root.
+- 2026-06-11 rejected GI filter attempt:
+  `0e586ea7 Filter unsupported GI secondary surfaces` tried to solve black GI
+  decal/card hits and character self-emission by broadly rejecting decal/alpha
+  card material flags at the GI secondary hit. Field result: severe destruction
+  of decal and alpha textures plus hard repeatable crash. That shader behavior
+  was backed out; future GI fixes must use a narrower receiver-aware
+  decal/alpha contract and validated emissive-source filtering.
 - pentastic pulse: if the pulse is authored as overbright stage color (>1),
   the albedo saturates at 1; if the glow must EMIT light, route excess
   luminance (stageColor luminance above 1) into emissiveRadiance - deliberate
