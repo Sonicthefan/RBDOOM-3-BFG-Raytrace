@@ -258,7 +258,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     float CleanRestirGiFireflyThreshold;
     uint CleanRestirGiNeeCacheSeedEnabled;
     uint CleanRestirGiFrameIndex;
-    uint CleanRestirGiPad0;
+    uint CleanRestirGiPhase;
     uint CleanRestirGiPad1;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
@@ -560,6 +560,77 @@ float3 CleanGiLoadScreenSpaceMotion(uint2 pixel, PathTracePrimarySurfaceRecord c
         return cameraMotion;
     }
     return float3(0.0, 0.0, 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// RGI-06: spatial reuse. Runs as a second dispatch (phase 1) so every
+// pixel's TEMPORAL_OUTPUT page write has completed before neighbors read it.
+// Neighbor offsets reuse the DI spatial pass's disk sequence (power-of-two
+// count for the RTXDI offset mask).
+// ---------------------------------------------------------------------------
+
+static const float2 CleanGiNeighborOffsets[32] =
+{
+    float2( 0.096,  0.071), float2(-0.154,  0.141), float2( 0.032, -0.287), float2( 0.247,  0.246),
+    float2(-0.365, -0.065), float2( 0.362, -0.248), float2(-0.135,  0.492), float2(-0.282, -0.451),
+    float2( 0.553,  0.087), float2(-0.502,  0.321), float2( 0.160, -0.615), float2( 0.364,  0.563),
+    float2(-0.681, -0.157), float2( 0.648, -0.331), float2(-0.245,  0.718), float2(-0.390, -0.686),
+    float2( 0.793,  0.201), float2(-0.762,  0.356), float2( 0.313, -0.803), float2( 0.407,  0.779),
+    float2(-0.869, -0.272), float2( 0.857, -0.347), float2(-0.392,  0.849), float2(-0.393, -0.864),
+    float2( 0.908,  0.358), float2(-0.929,  0.306), float2( 0.488, -0.858), float2( 0.341,  0.930),
+    float2(-0.909, -0.442), float2( 0.981, -0.226), float2(-0.589,  0.829), float2(-0.242, -0.971)
+};
+static const uint CLEAN_RESTIR_GI_NEIGHBOR_OFFSET_MASK = 31u;
+static const uint CLEAN_RESTIR_GI_SPATIAL_RNG_PASS = 0x52525812u;
+
+int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
+{
+    const int width = int(max(CleanRtxdiDiWidth, 1u));
+    const int height = int(max(CleanRtxdiDiHeight, 1u));
+    return int2(clamp(pixelPosition.x, 0, width - 1), clamp(pixelPosition.y, 0, height - 1));
+}
+
+#define RTXDI_NEIGHBOR_OFFSETS_BUFFER CleanGiNeighborOffsets
+#include "Rtxdi/GI/SpatialResampling.hlsli"
+
+// Spatial reuse over the TEMPORAL_OUTPUT page per the Remix policy:
+// 4 neighbor samples while history-starved (M below the history cap), else 1;
+// search radius alternates large/small per frame and pixel block. Relaxed
+// similarity gates (depth 0.28 / normal 0.8) match the moving-camera temporal
+// gates since neighbor reuse inherently crosses surface variation.
+RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir inputReservoir)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return inputReservoir;
+    }
+
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPATIAL_RNG_PASS);
+
+    RTXDI_RuntimeParameters params = (RTXDI_RuntimeParameters)0;
+    params.activeCheckerboardField = 0u;
+    params.neighborOffsetMask = CLEAN_RESTIR_GI_NEIGHBOR_OFFSET_MASK;
+
+    const bool historyStarved = inputReservoir.M < CleanRestirGiMaxHistoryLength;
+    const bool largeRadius = historyStarved ||
+        ((CleanRestirGiFrameIndex + pixel.x / 16u + pixel.y / 8u) & 1u) == 0u;
+
+    RTXDI_GISpatialResamplingParameters sparams = (RTXDI_GISpatialResamplingParameters)0;
+    sparams.samplingRadius = largeRadius ? 200.0 : 85.0;
+    sparams.numSamples = historyStarved ? 4u : 1u;
+    sparams.depthThreshold = 0.28;
+    sparams.normalThreshold = 0.8;
+    sparams.biasCorrectionMode = min(CleanRestirGiBiasCorrection, uint(RTXDI_BIAS_CORRECTION_BASIC));
+
+    return RTXDI_GISpatialResampling(
+        pixel,
+        surface,
+        RemixRAB_GetGITemporalOutputReservoirIndex(),
+        inputReservoir,
+        rng,
+        params,
+        RemixRAB_GIReservoirParams,
+        sparams);
 }
 
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
@@ -1597,6 +1668,52 @@ void RayGen()
 
     const uint view = CleanRestirGiView;
 
+    // ---- Phase 1: spatial reuse (separate dispatch; every pixel's
+    // TEMPORAL_OUTPUT write from phase 0 has completed) ----
+    if (CleanRestirGiPhase == 1u)
+    {
+        PathTracePrimarySurfaceRecord spatialRecord;
+        const bool spatialSurfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, spatialRecord);
+        RAB_Surface spatialSurface = RAB_EmptySurface();
+        if (spatialSurfaceValid)
+        {
+            spatialSurface = CleanGiMaterialSurfaceFromRecord(spatialRecord);
+        }
+
+        RTXDI_GIReservoir spatialInput = RAB_LoadGIReservoir(
+            int2(pixel), int(RemixRAB_GetGITemporalOutputReservoirIndex()));
+        RTXDI_GIReservoir spatialReservoir = spatialInput;
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            spatialReservoir = CleanGiRunSpatialReuse(pixel, spatialSurface, spatialInput);
+        }
+        RAB_StoreGIReservoir(spatialReservoir, int2(pixel), int(RemixRAB_GetGISpatialOutputReservoirIndex()));
+
+        if (view == 5u)
+        {
+            float3 spatialColor = float3(1.0, 0.0, 1.0);
+            if (!spatialSurfaceValid)
+            {
+                spatialColor = float3(0.08, 0.08, 0.08);
+            }
+            else if (!RTXDI_IsValidGIReservoir(spatialReservoir))
+            {
+                spatialColor = float3(0.0, 0.0, 0.0);
+            }
+            else if (!CleanGiAllFinite3(spatialReservoir.radiance) ||
+                spatialReservoir.weightSum != spatialReservoir.weightSum)
+            {
+                spatialColor = float3(1.0, 1.0, 0.0);
+            }
+            else
+            {
+                spatialColor = CleanGiToneMap(spatialReservoir.radiance * max(spatialReservoir.weightSum, 0.0));
+            }
+            SmokeOutput[pixel] = float4(spatialColor, 1.0);
+        }
+        return;
+    }
+
     // ---- Producer stage (always runs while the lane is active) ----
     PathTracePrimarySurfaceRecord record;
     const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
@@ -1620,6 +1737,14 @@ void RayGen()
         CleanGiRunTemporalContract(pixel, dimensions, surfaceValid, record);
     const RTXDI_GIReservoir initialReservoir = temporalResult.initialReservoir;
     const RTXDI_GIReservoir temporalReservoir = temporalResult.temporalReservoir;
+
+    // Spatial disabled: pass the temporal output through to the spatial page
+    // here so the SPATIAL_OUTPUT page is always this frame's data and view 5
+    // reproduces view 4 exactly. With spatial enabled, phase 1 writes it.
+    if (CleanRestirGiSpatialEnabled == 0u)
+    {
+        RAB_StoreGIReservoir(temporalReservoir, int2(pixel), int(RemixRAB_GetGISpatialOutputReservoirIndex()));
+    }
 
     // ---- Debug views (GI lane resources only) ----
     if (view == 0u)
@@ -1707,6 +1832,27 @@ void RayGen()
             temporalReservoir.weightSum != temporalReservoir.weightSum)
         {
             color = float3(1.0, 1.0, 0.0);
+        }
+        else
+        {
+            color = CleanGiToneMap(temporalReservoir.radiance * max(temporalReservoir.weightSum, 0.0));
+        }
+    }
+    else if (view == 5u)
+    {
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            // Phase 1 owns the view-5 output when spatial actually runs.
+            return;
+        }
+        // Pass-through proof: identical to view 4 by construction.
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (!RTXDI_IsValidGIReservoir(temporalReservoir))
+        {
+            color = float3(0.0, 0.0, 0.0);
         }
         else
         {

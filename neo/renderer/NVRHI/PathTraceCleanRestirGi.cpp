@@ -52,7 +52,7 @@ struct PathTraceCleanRestirGiConstantsTail
     float fireflyThreshold;
     uint32_t neeCacheSeedEnabled;
     uint32_t frameIndex;
-    uint32_t pad0;
+    uint32_t phase;
     uint32_t pad1;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
@@ -588,6 +588,21 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
     nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
+
+    // RGI-06: spatial reuse runs as a second dispatch so every pixel's
+    // TEMPORAL_OUTPUT page write has completed before neighbors read it.
+    // With spatial disabled, phase 0 already passed the temporal output
+    // through to the SPATIAL_OUTPUT page.
+    if (tail.spatialEnabled != 0u)
+    {
+        tail.phase = 1u;
+        std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
+        commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
+        commandList->setRayTracingState(giState);
+        commandList->dispatchRays(giArgs);
+        nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
+        nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
+    }
 
     if (!state.dispatchLogged)
     {
