@@ -65,7 +65,10 @@ r_pathTracingCleanRestirGiJacobian
     bring-up; turning it off is a diagnostic, not a shipping mode.
 
 r_pathTracingCleanRestirGiMaxHistoryLength
-    int, default 30 (Remix-comparable temporal history cap).
+    int, default 4. Temporal history cap matching deployed-game Remix tuning
+    (field finding 2026-06-11: the Remix SDK base value of 30 is wildly
+    different from what shipped games configure and over-weights stale
+    history).
 
 r_pathTracingCleanRestirGiMaxReservoirAge
     int, default 50. Stale-radiance backstop for the baseline (no

@@ -1673,9 +1673,9 @@ idCVar r_pathTracingCleanRestirGiJacobian(
 
 idCVar r_pathTracingCleanRestirGiMaxHistoryLength(
     "r_pathTracingCleanRestirGiMaxHistoryLength",
-    "30",
+    "4",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI temporal history cap (Remix-comparable default 30)" );
+    "Clean-room ReSTIR GI temporal history cap. Default 4 matches deployed-game Remix tuning; the Remix SDK base value of 30 over-weights stale history" );
 
 idCVar r_pathTracingCleanRestirGiMaxReservoirAge(
     "r_pathTracingCleanRestirGiMaxReservoirAge",

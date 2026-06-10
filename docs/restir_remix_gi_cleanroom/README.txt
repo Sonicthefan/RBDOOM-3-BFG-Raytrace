@@ -125,3 +125,4 @@ File Map
     cvar_contract.txt       clean-room GI cvar set
     worker_tasks.txt        ordered implementation tasks RGI-00 .. RGI-08
     validation_matrix.txt   required proofs per task
+    field_notes.txt         runtime crash/material findings from field tests

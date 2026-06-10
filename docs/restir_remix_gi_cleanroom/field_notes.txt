@@ -1,0 +1,105 @@
+GI Field Notes
+==============
+
+These notes record runtime findings that must shape the next GI work. Treat
+them as constraints, not as completed validation.
+
+
+2026-06-11 Crash Triage
+-----------------------
+
+Symptom:
+    Repeatable access-violation crashes in action/enemy-spawn areas. The crash
+    reproduced even with the GI lane disabled and also reproduced when testing
+    the pre-GI decal checkpoint `41c5a115`, once the test build was cleaned up.
+
+Test contamination found:
+    Early "old commit" tests were not clean because the prebuilt
+    `base/renderprogs2` directory had been overlay-copied. It retained hundreds
+    of stale shader binaries from later commits. For any future commit-to-commit
+    runtime comparison, clean-mirror the renderprogs2 contents instead of
+    overlay-copying them.
+
+Resolved crash cause:
+    The stable crash path was CPU-side drawSurf capture, not GI shader code.
+    Windows crash offsets mapped to virtual calls through
+    `renderEntity->hModel` reached from view drawSurf metadata:
+
+        `ClassifySmokeSurface` -> `hModel->IsStaticWorldModel()`
+        `CapturePathTraceDrawSurfMirror` -> `hModel->Name()`
+
+    A drawSurf can carry an entity/model pointer that is stale during action or
+    spawn churn. Calling virtual methods through that pointer is unsafe in the
+    drawSurf mirror/classification path.
+
+Fix checkpoint:
+    `b09a8f8a Avoid stale hModel calls during drawSurf capture`
+
+Runtime result:
+    User looped the previous crash area four times without a crash, then tested
+    with GI enabled and still saw no crash.
+
+Follow-up rule:
+    Do not reintroduce `hModel` virtual calls in drawSurf-derived capture,
+    classification, or diagnostic paths unless the model pointer is proven live
+    by a stronger ownership/lifetime contract. Entity/material/tri data are
+    acceptable for this path; model name/dynamic/static-world model diagnostics
+    are not worth an unsafe dereference.
+
+
+2026-06-11 GI Material Correctness
+----------------------------------
+
+Current GI producer limitation:
+    The RGI-02 producer traces a secondary ray and interprets the hit through a
+    small GI-local material path. That path is not equivalent to the primary
+    material/composite path. It does not fully model rbdoom's detail decals,
+    alpha/translucent cards, dynamic material records, spectrum-light decal
+    behavior, material-classifier routing, or emissive-source ownership.
+
+Observed issues:
+    - Some decal/card surfaces appear black or invalid in GI views.
+    - Characters or dynamic objects can appear to seed indirect light when they
+      should not be treated as emissive GI sources.
+    - Broadly rejecting decal/alpha card material flags at secondary-hit time
+      caused severe decal/alpha texture destruction and repeatable crashes in
+      `0e586ea7 Filter unsupported GI secondary surfaces`; that approach was
+      backed out and must not be reapplied.
+
+Implication:
+    The producer must eventually consume shared/main material semantics for
+    secondary hits, or an explicitly validated subset of those semantics. Adding
+    ad-hoc material guesses to the GI shader is likely to regress decals,
+    alpha cards, spectrum decals, or emissive ownership again.
+
+Near-term guardrails:
+    - Keep crash fixes separate from material filtering experiments.
+    - Validate emissive inventory/source ownership before suppressing dynamic
+      character/object emission.
+    - Treat decal/alpha behavior as receiver-aware material composition, not as
+      a coarse secondary-hit reject list.
+    - Test RGI-02 views in scenes containing animated decals, alpha cards,
+      spectrum decals, characters, and ordinary static emissives before moving
+      to temporal/spatial reuse.
+
+2026-06-11 Deployed-Game Tuning Reference (Half-Life 2 RTX rtx.conf)
+--------------------------------------------------------------------
+
+User-supplied reference: E:/SteamLibrary/steamapps/common/Half-Life 2 RTX/rtx.conf.
+Key ReSTIR GI values a shipped Remix title actually runs:
+
+    restirGI.useVirtualSample = False          (validates our deferral)
+    restirGI.useAdaptiveTemporalHistory = False
+    restirGI.boilingFilterMinThreshold = 15
+    restirGI.boilingFilterRemoveReservoirThreshold = 30
+    restirGI.validateVisibilityChange = True   (consider promoting from
+                                                deferred into RGI-08)
+    restirGI.historyDiscardStrength = 10
+    restirGI.useSampleStealing = 1, sampleStealingJitter = 3  (deferred)
+    restirGI.useDLSSRRCompatibilityMode = True (deferred)
+    neeCache.enableModeAfterFirstBounce = 2    (RGI-05 relevant)
+
+Rule of thumb (user confirmed): Remix source/SDK base values are NOT what
+deployed games run; prefer shipped rtx.conf values when picking rbdoom
+defaults. Example already applied: r_pathTracingCleanRestirGiMaxHistoryLength
+default 4, not the SDK-comparable 30.
