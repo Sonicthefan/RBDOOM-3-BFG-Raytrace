@@ -4147,6 +4147,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.neeCacheProviderResultBuffer = cleanNeeCacheProviderSrv;
             giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
             giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;
+            giInputs.motionVectorTexture = m_frameResources.motionVectorTexture;
+            giInputs.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
             giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
             PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
         }

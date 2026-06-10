@@ -1420,22 +1420,63 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     return result;
 }
 
-RTXDI_GIReservoir CleanGiBuildAndStoreInitialReservoir(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
+// RGI-03/RGI-04: drives the frozen temporal contract. Builds the initial
+// reservoir from the producer textures (via the REMIX_RAB_* initial-sample
+// callbacks), stores it to the INIT page, then runs RTXDI GI temporal
+// resampling against the TEMPORAL_INPUT page and stores the TEMPORAL_OUTPUT
+// page. With temporal disabled the initial reservoir passes through.
+RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
+    uint2 pixel,
+    uint2 dimensions,
+    bool surfaceValid,
+    PathTracePrimarySurfaceRecord record)
 {
-    RTXDI_GIReservoir reservoir = RTXDI_EmptyGIReservoir();
+    RAB_Surface surface = RAB_EmptySurface();
     if (surfaceValid)
     {
-        RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
-        RemixRestirGIInitialSampleControls controls = (RemixRestirGIInitialSampleControls)0;
-        controls.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
-
-        RemixRestirGIPreparedInitialSample initialSample =
-            RemixRestirGIBuildInitialSampleContract(surface, pixel, controls);
-        reservoir = initialSample.reservoir;
+        surface = CleanGiMaterialSurfaceFromRecord(record);
     }
 
-    RAB_StoreGIReservoir(reservoir, int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
-    return reservoir;
+    RemixRestirGITemporalReuseDesc desc = (RemixRestirGITemporalReuseDesc)0;
+    desc.pixel = pixel;
+    desc.frameIndex = CleanRestirGiFrameIndex;
+    desc.screenSpaceMotion = surfaceValid
+        ? CleanGiLoadScreenSpaceMotion(pixel, record, dimensions)
+        : float3(0.0, 0.0, 0.0);
+    desc.initSamplePage = RemixRAB_GetGIInitSampleReservoirIndex();
+    desc.temporalInputPage = RemixRAB_GetGITemporalInputReservoirIndex();
+    desc.temporalOutputPage = RemixRAB_GetGITemporalOutputReservoirIndex();
+    desc.activeCheckerboardField = 0u;
+    desc.enableTemporalReuse = CleanRestirGiTemporalEnabled;
+    // Remix-shaped reprojection thresholds: depth scales with view angle,
+    // normal relaxes with roughness. When the pixel is actually moving Remix
+    // activates its temporal search radius and relaxes the gates to
+    // depth 0.28 / normal 0.8 (restir_gi_temporal_reuse.comp.slang); without
+    // that relaxation panning rejects history back to single-sample noise.
+    const float viewDotNormal = surfaceValid
+        ? abs(dot(CleanGiSafeNormalize(record.viewDirectionAndReserved.xyz, float3(0.0, 0.0, 1.0)),
+            CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0))))
+        : 1.0;
+    float depthThreshold = 0.01 / max(viewDotNormal, 0.01);
+    float normalThreshold = surfaceValid
+        ? lerp(0.995, 0.5, saturate(record.geometricNormalAndRoughness.w))
+        : 0.995;
+    if (dot(desc.screenSpaceMotion.xy, desc.screenSpaceMotion.xy) > 0.25)
+    {
+        depthThreshold = max(depthThreshold, 0.28);
+        normalThreshold = min(normalThreshold, 0.8);
+    }
+    desc.depthThreshold = depthThreshold;
+    desc.normalThreshold = normalThreshold;
+    desc.maxHistoryLength = CleanRestirGiMaxHistoryLength;
+    desc.enableFallbackSampling = 1u;
+    desc.biasCorrectionMode = CleanRestirGiBiasCorrection;
+    desc.maxReservoirAge = CleanRestirGiMaxReservoirAge;
+    desc.enablePermutationSampling = 0u;
+    desc.uniformRandomNumber = 0u;
+    desc.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
+
+    return RemixRestirGIRunTemporalReuseContract(surface, desc);
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,8 +1530,11 @@ void RayGen()
     CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
     CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
 
-    // ---- RGI-03 initial reservoir stage ----
-    const RTXDI_GIReservoir initialReservoir = CleanGiBuildAndStoreInitialReservoir(pixel, surfaceValid, record);
+    // ---- RGI-03/04 initial reservoir + temporal reuse (frozen contract) ----
+    const RemixRestirGITemporalReuseResult temporalResult =
+        CleanGiRunTemporalContract(pixel, dimensions, surfaceValid, record);
+    const RTXDI_GIReservoir initialReservoir = temporalResult.initialReservoir;
+    const RTXDI_GIReservoir temporalReservoir = temporalResult.temporalReservoir;
 
     // ---- Debug views (GI lane resources only) ----
     if (view == 0u)
@@ -1560,6 +1604,47 @@ void RayGen()
         else
         {
             color = CleanGiToneMap(initialReservoir.radiance * max(initialReservoir.weightSum, 0.0));
+        }
+    }
+    else if (view == 4u)
+    {
+        // Temporal output radiance * W. Static camera: converges over frames
+        // vs view 3; temporal cvar 0 must reproduce view 3 exactly.
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (!RTXDI_IsValidGIReservoir(temporalReservoir))
+        {
+            color = float3(0.0, 0.0, 0.0);
+        }
+        else if (!CleanGiAllFinite3(temporalReservoir.radiance) ||
+            temporalReservoir.weightSum != temporalReservoir.weightSum)
+        {
+            color = float3(1.0, 1.0, 0.0);
+        }
+        else
+        {
+            color = CleanGiToneMap(temporalReservoir.radiance * max(temporalReservoir.weightSum, 0.0));
+        }
+    }
+    else if (view == 7u)
+    {
+        // Reservoir M / age diagnostics: green ramp = M / maxHistoryLength,
+        // red ramp = age / maxReservoirAge, blue marks invalid reservoirs.
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (!RTXDI_IsValidGIReservoir(temporalReservoir))
+        {
+            color = float3(0.0, 0.0, 0.35);
+        }
+        else
+        {
+            const float mRamp = saturate((float)temporalReservoir.M / max((float)CleanRestirGiMaxHistoryLength, 1.0));
+            const float ageRamp = saturate((float)temporalReservoir.age / max((float)CleanRestirGiMaxReservoirAge, 1.0));
+            color = float3(ageRamp, mRamp, 0.0);
         }
     }
     else if (view == 8u)

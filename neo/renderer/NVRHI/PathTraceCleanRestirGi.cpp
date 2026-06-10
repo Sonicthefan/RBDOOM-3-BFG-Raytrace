@@ -134,6 +134,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
@@ -414,6 +416,8 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) return "nee-cache-provider-results";
         if (!inputs.primarySurfaceCurrentBuffer) return "primary-surface-current";
         if (!inputs.primarySurfacePreviousBuffer) return "primary-surface-previous";
+        if (!inputs.motionVectorTexture) return "motion-vectors";
+        if (!inputs.motionVectorMaskTexture) return "motion-vector-mask";
         if (!inputs.materialSampler) return "material-sampler";
         return nullptr;
     };
@@ -445,6 +449,7 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer ||
         (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
         !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
+        !inputs.motionVectorTexture || !inputs.motionVectorMaskTexture ||
         !inputs.materialSampler)
     {
         clearFailureOutput();
@@ -489,6 +494,8 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, neeCacheProviderResultBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, inputs.motionVectorTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, inputs.motionVectorMaskTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(80, state.reservoirBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(81, state.producerRadianceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(82, state.producerHitPositionTexture));
@@ -526,9 +533,13 @@ bool PathTraceCleanRestirGiExecute(
     tail.frameIndex = state.frameIndex;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
+    // Page rotation (RGI-04): this frame's temporal output is next frame's
+    // temporal input, so the two pages alternate by frame parity. INIT and
+    // SPATIAL_OUTPUT are transient within the frame.
+    const bool oddFrame = (state.frameIndex & 1u) != 0u;
     tail.pageInfo[0] = CLEAN_RESTIR_GI_PAGE_INIT;
-    tail.pageInfo[1] = CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT;
-    tail.pageInfo[2] = CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT;
+    tail.pageInfo[1] = oddFrame ? CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT : CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT;
+    tail.pageInfo[2] = oddFrame ? CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT : CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT;
     tail.pageInfo[3] = CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT;
     std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
     commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
@@ -540,6 +551,8 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(inputs.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(inputs.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);

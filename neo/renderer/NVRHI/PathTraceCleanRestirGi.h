@@ -76,6 +76,8 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* neeCacheProviderResultBuffer = nullptr;
     nvrhi::IBuffer* primarySurfaceCurrentBuffer = nullptr;
     nvrhi::IBuffer* primarySurfacePreviousBuffer = nullptr;
+    nvrhi::ITexture* motionVectorTexture = nullptr;
+    nvrhi::ITexture* motionVectorMaskTexture = nullptr;
     nvrhi::ISampler* materialSampler = nullptr;
 };
 
