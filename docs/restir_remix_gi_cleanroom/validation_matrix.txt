@@ -1,0 +1,53 @@
+GI Validation Matrix
+====================
+
+Same discipline as the DI matrix: human-visible behavior is the proof.
+Counters, bands, and clean builds are diagnostics only. All proofs use a map
+location with at least one bright colored surface near a neutral receiver.
+
+
+RGI-01 scaffold
+    enable=0: GPU capture / dump shows zero GI dispatches, zero GI writes
+    enable=1 view sentinel: every pixel written from GI lane resources only
+    DI output bit-identical with GI enabled vs disabled (sentinel aside)
+
+RGI-02 producer
+    view 1: per-pixel noisy radiance; changes every frame (new rays);
+        dark on surfaces facing away from all bounce light
+    view 2: hit position/normal bands stable for static camera
+    sky/miss pixels: zero radiance, flagged invalid, no NaN view
+    firefly cvar 0 vs default: clamp visibly removes outliers only
+
+RGI-03 initial reservoir
+    view 3 == view 1 modulo W weighting; no structural differences
+    NaN/INF sweep clean (reuse DI dump tooling pattern)
+
+RGI-04 temporal
+    static camera: visible convergence over ~1-2 seconds in view 4
+    temporal cvar 0: view 4 identical to view 3 (pass-through proof)
+    camera strafe: no trailing smear; disocclusion regions show
+        single-sample noise that re-converges
+    light toggled off (script or trigger): stale energy decays within
+        maxReservoirAge frames, does not persist indefinitely
+    jacobian cvar 0 vs 1: 1 must not be darker overall (validation must
+        reject outliers, not energy)
+
+RGI-05 NEE cache seed
+    seed on: lower variance in view 3/4 near cached lights
+    seed off/on: no mean-brightness shift on a converged still
+
+RGI-06 spatial
+    spatial cvar 0: output identical to temporal output
+    spatial on: convergence visibly faster; checker-pattern or blotch
+        boiling absent for static camera
+    thin-wall scene: no indirect light leaking across occluders
+
+RGI-07 final shading + resolve
+    view 6: indirect diffuse only; black where no bounce light possible
+    resolve on: colored wall bleeds onto neutral floor; removing the wall
+        (or its light) removes the bleed
+    resolve off: combined output identical to pre-GI baseline
+
+RGI-08 stabilization
+    boiling filter on/off comparison: fewer persistent bright blobs,
+        no overall darkening

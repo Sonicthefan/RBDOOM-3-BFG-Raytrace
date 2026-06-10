@@ -1,0 +1,201 @@
+Worker Tasks
+============
+
+Use these tasks in order. Do not skip ahead. Each task's required proof is in
+validation_matrix.txt. Worker protocol is inherited from
+../restir_remix_di_cleanroom/worker_protocol.txt.
+
+
+RGI-00: GI Contract Audit
+-------------------------
+
+Type:
+    read-only audit
+
+Goal:
+    Verify remix_gi_contract.txt against the reference files and the current
+    rbdoom DI lane, and produce the GI io whitelist.
+
+Reference files:
+    all files listed in remix_gi_contract.txt
+
+rbdoom files to inspect:
+    neo/shaders/builtin/pathtracing/remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+    neo/shaders/builtin/pathtracing/remix_bridge/RAB_GI*.hlsli
+    neo/shaders/builtin/pathtracing/cleanroom_rtxdi/ (current functional DI lane)
+    neo/renderer/NVRHI/PathTraceSmokeDispatch.cpp (clean DI dispatch route)
+    neo/renderer/NVRHI/PathTraceNeeCache.cpp
+    docs/restir_remix_di_cleanroom/io_whitelist.txt
+
+Required output:
+    io_whitelist.txt for the GI lane (allowed inputs/outputs per pass)
+    confirmation that upstream Rtxdi/GI headers compile-include cleanly from
+        RTXDI_RUNTIME_DIR (CMake include registration may be missing; list
+        the exact CMakeLists edits needed)
+    list of DI-lane symbols the GI lane will link against (surface supplier,
+        visibility, light sampling at secondary vertex, NEE cache query)
+    any contract corrections to remix_gi_contract.txt
+
+Forbidden:
+    no edits outside this docs folder
+
+
+RGI-01: GI Lane Scaffold + Sentinel
+-----------------------------------
+
+Type:
+    narrow implementation
+
+Goal:
+    Stand up the isolated GI route: CVars, C++ dispatch, GI reservoir pages,
+    producer output textures, and a sentinel debug view that writes every
+    pixel from the GI lane only.
+
+Allowed write set:
+    new shader file(s) under neo/shaders/builtin/pathtracing/remix_restir_gi/
+    new C++ file(s) under neo/renderer/NVRHI/
+    neo/renderer/NVRHI/PathTraceCVars.cpp / .h
+    neo/shaders/CMakeLists.txt, neo/CMakeLists.txt (GI header include reg.)
+
+Requirements:
+    r_pathTracingCleanRestirGiEnable / ...View control the route
+    GI reservoir buffer with the four pages from RAB_GIReservoirBridge
+    producer radiance (rgba16f) + hit geometry textures allocated
+    sentinel writes every pixel; no albedo, no lighting, no DI reads
+    enable=0 provably dispatches nothing
+
+Forbidden:
+    no reservoir math, no rays, no edits to DI behavior
+
+
+RGI-02: Initial-Sample Producer
+-------------------------------
+
+Type:
+    implementation
+
+Goal:
+    From each valid primary surface, BSDF-sample one indirect ray, trace it,
+    shade the hit with the existing secondary-vertex light machinery
+    (analytic lights + emissive + NEE cache), and write producer textures.
+
+Contract points (from remix_gi_contract.txt):
+    radiance excludes primary BSDF/albedo (incoming radiance only)
+    alpha channel = indirect path length
+    hit geometry texture stores hit position + normal (portalID slot
+        reserved, always invalid for baseline)
+    miss = zero radiance, invalid hit geometry flag
+    firefly clamp per cvar applies here only
+
+Proof views:
+    view 1 (producer radiance), view 2 (hit geometry)
+
+Forbidden:
+    no reservoir construction yet
+    no multibounce beyond the single indirect vertex's NEE estimate
+    no reading DI reservoir buffers
+
+
+RGI-03: Initial Reservoir Construction
+--------------------------------------
+
+Type:
+    implementation
+
+Goal:
+    In the GI temporal pass shell, rebuild the initial reservoir from the
+    producer textures per the Remix recipe (M=1, RIS update with
+    target pdf = luminance, finalize with M=1), store to INIT page.
+    Implement RAB_GetGISampleTargetPdfForSurface via the
+    REMIX_RAB_* external-callback override point.
+
+Proof views:
+    view 3 must visually match view 1 modulo weighting
+
+Forbidden:
+    no temporal reuse yet
+    no edits to the frozen contract files' default (rejecting) bodies;
+        provide functional callbacks through the external override macros
+
+
+RGI-04: Temporal Reuse
+----------------------
+
+Type:
+    implementation
+
+Goal:
+    Wire RTXDI_GITemporalResampling with motion-vector reprojection, the
+    DI-owned previous-frame surface, jacobian validation
+    (RAB_ValidateGISampleWithJacobian), BASIC bias correction, history and
+    age caps. Page rotation across frames.
+
+Proof:
+    static camera: view 4 converges over frames vs view 3
+    moving camera: tracking + disocclusion noise, no smearing trails
+    r_pathTracingCleanRestirGiTemporal 0 reproduces view 3 exactly
+
+Forbidden:
+    no spatial reads, no validation extras, no permutation sampling
+
+
+RGI-05: NEE Cache Seed Hook (optional order swap with RGI-06)
+-------------------------------------------------------------
+
+Type:
+    narrow implementation
+
+Goal:
+    Implement r_pathTracingCleanRestirGiNeeCacheSeed: merge the NEE-cache
+    seeded reservoir into the initial RIS update, matching the Remix
+    enableOnFirstBounce merge point (before finalize, M forced to 1).
+
+Proof:
+    on/off comparison shows variance reduction, no energy shift
+
+
+RGI-06: Spatial Reuse
+---------------------
+
+Type:
+    implementation
+
+Goal:
+    GI spatial pass with RTXDI_GISpatialResampling: similarity gates,
+    per-neighbor jacobian, target pdf at receiving surface, Remix
+    sample-count policy (more neighbors while history-starved).
+
+Proof:
+    view 5 vs view 4: faster convergence, no directional bias, no
+        light bleeding through thin walls (conservative visibility check
+        exercised)
+    spatial 0 reproduces view 4 exactly
+
+
+RGI-07: Final Shading + Resolve Integration
+-------------------------------------------
+
+Type:
+    implementation
+
+Goal:
+    Final shading pass: primary BSDF (diffuse lobe only) toward
+    reservoir.position * radiance * W into a dedicated indirect output;
+    combined resolve consumes it under r_pathTracingCleanRestirGiResolve.
+
+Proof:
+    view 6 isolated indirect diffuse
+    resolve on: color bleed scenario from README step 5
+    energy sanity: GI off vs on changes indirect term only
+
+
+RGI-08: Stabilization
+---------------------
+
+Type:
+    implementation
+
+Goal:
+    Port the boiling filter pattern from the DI lane to GI reservoirs;
+    tune age/history defaults; document remaining deferred features and
+    their trigger conditions in this folder.

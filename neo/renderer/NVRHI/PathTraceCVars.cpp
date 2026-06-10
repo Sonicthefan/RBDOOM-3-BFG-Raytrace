@@ -1635,6 +1635,78 @@ idCVar r_pathTracingCleanRtxdiDiTemporalAudit(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room RTXDI DI temporal audit: 0 off, 1 encode per-pixel accumulator gates into the clean output and aggregate them into the ImGui panel via readback" );
 
+idCVar r_pathTracingCleanRestirGiEnable(
+    "r_pathTracingCleanRestirGiEnable",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room Remix ReSTIR GI lane: 0 = no GI producer/reservoir/resolve work dispatches at all; 1 = the GI lane runs through its own explicit route only" );
+
+idCVar r_pathTracingCleanRestirGiView(
+    "r_pathTracingCleanRestirGiView",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect diffuse (isolated), 7 reservoir M/age diagnostics, 8 route sentinel. Reads GI lane resources only" );
+
+idCVar r_pathTracingCleanRestirGiTemporal(
+    "r_pathTracingCleanRestirGiTemporal",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI temporal resampling: 0 = initial reservoir passes through to the temporal output page unchanged" );
+
+idCVar r_pathTracingCleanRestirGiSpatial(
+    "r_pathTracingCleanRestirGiSpatial",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI spatial resampling: 0 = spatial input passes through to the spatial output page unchanged. Default 0 until RGI-06 is proven" );
+
+idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
+    "r_pathTracingCleanRestirGiTemporalBiasCorrection",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI temporal bias correction: 0 off, 1 BASIC. Values above BASIC are deferred and clamp down" );
+
+idCVar r_pathTracingCleanRestirGiJacobian(
+    "r_pathTracingCleanRestirGiJacobian",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI jacobian validation of reused samples. Turning this off is a diagnostic, not a shipping mode" );
+
+idCVar r_pathTracingCleanRestirGiMaxHistoryLength(
+    "r_pathTracingCleanRestirGiMaxHistoryLength",
+    "30",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI temporal history cap (Remix-comparable default 30)" );
+
+idCVar r_pathTracingCleanRestirGiMaxReservoirAge(
+    "r_pathTracingCleanRestirGiMaxReservoirAge",
+    "50",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI max reservoir age in frames; stale-radiance backstop for the baseline (no gradient validation yet)" );
+
+idCVar r_pathTracingCleanRestirGiFireflyThreshold(
+    "r_pathTracingCleanRestirGiFireflyThreshold",
+    "20",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI firefly filtering luminance threshold applied to initial-sample radiance only (never to reused reservoirs); 0 disables" );
+
+idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
+    "r_pathTracingCleanRestirGiNeeCacheSeed",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: merge the NEE-cache-seeded reservoir at the temporal pass initial-sample step (Remix neeCache.enableOnFirstBounce equivalent). Off for bring-up" );
+
+idCVar r_pathTracingCleanRestirGiResolve(
+    "r_pathTracingCleanRestirGiResolve",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: add the final-shaded GI output into the combined resolve. Default 0 until RGI-07. Debug views work without it" );
+
+idCVar r_pathTracingCleanRestirGiDump(
+    "r_pathTracingCleanRestirGiDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI one-shot CPU dump of route state, resource/page roles, and dispatch dimensions; auto-clears" );
+
 idCVar r_pathTracingRestirPTView68Dump(
     "r_pathTracingRestirPTView68Dump",
     "0",

@@ -14,6 +14,7 @@
 #include "PathTraceFrameResources.h"
 #include "PathTraceInstanceUniverse.h"
 #include "PathTraceLightUniverse.h"
+#include "PathTraceCleanRestirGi.h"
 #include "PathTraceNeeCache.h"
 #include "PathTraceReGIR.h"
 #include "PathTraceRemixFramePrepare.h"
@@ -188,6 +189,7 @@ private:
     nvrhi::BufferHandle m_smokeCleanRtxdiDiTemporalReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiPreviousReservoirBuffer;
     nvrhi::BufferHandle m_smokeCleanRtxdiDiSpatialReservoirBuffer;
+    PathTraceCleanRestirGiState m_cleanRestirGiState;
     PathTraceNeeCacheState m_smokeNeeCacheState;
     PathTraceReGIRState m_smokeReGIRState;
     uint32_t m_smokeCleanRtxdiDiCurrentReservoirCount = 0;

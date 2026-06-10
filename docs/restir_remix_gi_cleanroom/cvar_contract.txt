@@ -1,0 +1,96 @@
+Clean-Room GI CVar Contract
+===========================
+
+Purpose
+-------
+
+The clean-room Remix GI path gets its own CVar namespace, with the same
+isolation rules as the DI lane: it must not be hidden behind, overloaded
+into, or implicitly activated by mode 56, RRX debug CVars, or any DI CVar.
+
+The GI path may DEPEND on the DI lane being enabled (it reuses DI-owned
+surface history and light sampling at secondary vertices), but a DI CVar must
+never silently enable GI.
+
+
+Required CVar Namespace
+-----------------------
+
+All new controls must begin with:
+
+    r_pathTracingCleanRestirGi
+
+Workers may not invent another prefix.
+
+
+Required CVars
+--------------
+
+r_pathTracingCleanRestirGiEnable
+    int, default 0.
+    When 0 the GI path must not run: no producer dispatch, no GI reservoir
+    writes, no GI contribution to resolve. When 1 the path runs only through
+    its own explicit route.
+
+r_pathTracingCleanRestirGiView
+    int, default 0.
+    Reservoir-owned debug view selector, same discipline as the DI views:
+        0  off (GI contributes to combined resolve only)
+        1  producer radiance (raw initial sample, pre-reservoir)
+        2  producer hit geometry (position/normal bands)
+        3  initial reservoir radiance * W
+        4  temporal output radiance * W
+        5  spatial output radiance * W
+        6  final shaded indirect diffuse (isolated, no DI, no albedo modulate)
+        7  reservoir M / age diagnostics
+    Views must read only GI-lane resources.
+
+r_pathTracingCleanRestirGiTemporal
+    int, default 1. Enables temporal resampling. When 0, the initial
+    reservoir passes through to the temporal output page unchanged
+    (matching Remix's enableReSTIRGITemporalReuse=off behavior).
+
+r_pathTracingCleanRestirGiSpatial
+    int, default 0 until RGI-06 is proven, then 1. When 0, spatial input
+    passes through to the spatial output page unchanged.
+
+r_pathTracingCleanRestirGiTemporalBiasCorrection
+    int, default 1 (BASIC). Clamped to [0, 1] for baseline; values above
+    BASIC are a deferred feature and must clamp down, mirroring the frozen
+    stub's min() clamp.
+
+r_pathTracingCleanRestirGiJacobian
+    int, default 1. Enables jacobian validation of reused samples.
+    Exposed because it is the most likely bias/instability suspect during
+    bring-up; turning it off is a diagnostic, not a shipping mode.
+
+r_pathTracingCleanRestirGiMaxHistoryLength
+    int, default 30 (Remix-comparable temporal history cap).
+
+r_pathTracingCleanRestirGiMaxReservoirAge
+    int, default 50. Stale-radiance backstop for the baseline (no
+    gradient validation yet).
+
+r_pathTracingCleanRestirGiFireflyThreshold
+    float, default matches the producer's clamp policy; 0 disables.
+    Applied to initial-sample radiance only, never to reused reservoirs.
+
+r_pathTracingCleanRestirGiNeeCacheSeed
+    int, default 0 for bring-up. When 1, merges the NEE-cache-seeded
+    reservoir at the temporal pass's initial-sample step (Remix
+    neeCache.enableOnFirstBounce equivalent). Off for the first proofs so
+    producer correctness is judged alone.
+
+r_pathTracingCleanRestirGiResolve
+    int, default 0 until RGI-07. When 1, the final-shaded GI output is
+    added into the combined resolve. Debug views must work without it.
+
+
+Rules
+-----
+
+    No GI CVar may change DI behavior.
+    Defaults must produce the deferred-feature-off Remix baseline.
+    Every dispatch-gating CVar must be checked on the C++ side, not only
+        in shader constants.
+    GUI exposure follows the DI lane's existing panel pattern.

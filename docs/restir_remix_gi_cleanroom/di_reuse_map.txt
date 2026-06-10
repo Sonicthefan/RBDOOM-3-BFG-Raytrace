@@ -1,0 +1,101 @@
+DI -> GI Reuse Map
+==================
+
+Answers the planning question: how much of the functional DI lane carries over
+to GI. Summary: the framework and plumbing carry over almost entirely; the
+reservoir payload, candidate generation, and reuse-time reweighting do not.
+
+Both passes share the same skeleton: fill reservoirs from biased importance
+sampling, then temporal reuse, then spatial reuse, then resolve. The
+difference is what a reservoir sample IS:
+
+    DI sample  = a light reference (light index + sample point on the light).
+                 Cheap to re-evaluate anywhere; target pdf is recomputed by
+                 shading that light at any receiving surface.
+
+    GI sample  = a secondary surface (position, normal) plus CACHED incoming
+                 radiance from an indirect bounce. Re-evaluating it at a
+                 different receiving pixel changes the solid angle, so reuse
+                 needs the reconnection-shift jacobian; and the cached
+                 radiance can go stale when lighting changes, so it needs
+                 validation rather than simple recomputation.
+
+Everything below follows from that one difference.
+
+
+Reused As-Is (no changes beyond bindings)
+-----------------------------------------
+
+    surface supplier / G-buffer adapters    RAB_SurfaceBridge + DI suppliers
+    previous-frame surface history          owned by DI lane
+    motion vectors + reprojection inputs    same buffers
+    TLAS + visibility ray adapters          RAB_Visibility et al.
+    random sampler plumbing                 RTXDI RandomSamplerState
+    reservoir page rotation scheme          same in/out page model
+    surface similarity gates                normal/depth/material compare
+    GI reservoir pack/unpack + page ABI     RAB_GIReservoirBridge.hlsli
+                                            (already written and functional)
+    boiling filter pattern                  port of DI cs pass, later task
+    cvar/GUI/dump infrastructure pattern    PathTraceCVars, debug dump style
+
+
+Reused As Pattern (clone + adapt, GI-specific internals)
+--------------------------------------------------------
+
+    C++ dispatch + resource creation        clone the clean DI dispatch path;
+                                            new buffers: GI reservoir pages,
+                                            producer radiance + hit-geometry
+                                            textures, GI debug output
+    temporal driver shader                  same shape as DI temporal driver,
+                                            but calls RTXDI_GITemporalResampling
+                                            and builds the initial reservoir
+                                            from producer textures first
+    spatial driver shader                   same shape as DI spatial driver,
+                                            calls RTXDI_GISpatialResampling
+    resolve integration                     combined resolve gains a GI input
+                                            the same way it consumes DI
+
+
+New Work (no DI equivalent)
+---------------------------
+
+    GI initial-sample PRODUCER pass
+        BSDF-sample one indirect ray from the primary surface, trace, shade
+        the hit with the existing light sampling / NEE cache machinery, write
+        radiance(+pathLength) and hit position/normal textures. This replaces
+        DI's "pick light candidates from the light list / NEE cache" stage.
+        Largest new piece; it is effectively a one-bounce path tracer step.
+
+    GI target pdf callback
+        RAB_GetGISampleTargetPdfForSurface = luminance(cached radiance).
+        DI's target pdf re-shades a light; GI's reads cached radiance.
+
+    Jacobian validation callback
+        RAB_ValidateGISampleWithJacobian. No DI counterpart; DI light samples
+        need no reconnection shift.
+
+    Radiance factoring discipline
+        Producer radiance must EXCLUDE the primary BSDF/albedo; final shading
+        applies the receiving BRDF. DI has no such split. Getting this wrong
+        double-applies or drops albedo.
+
+    GI final shading pass
+        Evaluate primary BSDF toward reservoir.position * radiance * W into a
+        dedicated indirect channel. DI resolve shades a light instead.
+
+    Stale-radiance validation (deferred)
+        DI reservoirs self-heal because target pdfs are recomputed against
+        live lights every frame. GI caches radiance, so a moved/extinguished
+        light leaves stale energy until age/history limits or validation
+        kill it. Baseline relies on maxReservoirAge + history length;
+        gradient-based validation comes later with the gradients pipeline.
+
+
+Rough Reuse Ratios
+------------------
+
+    C++ side (resources, dispatch, cvars, debug)    ~80% pattern reuse
+    temporal/spatial driver shaders                 ~50-60% pattern reuse
+    candidate generation / payload / target pdf     new code
+    SDK resampling math                             0% written by us (header
+                                                    include, both lanes)

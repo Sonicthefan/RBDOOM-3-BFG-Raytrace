@@ -1,0 +1,235 @@
+Clean-Room GI I/O Whitelist
+===========================
+
+Produced by RGI-00. Inherits the DI whitelist discipline
+(../restir_remix_di_cleanroom/io_whitelist.txt); DI input classes I-01..I-09
+keep their meanings and are referenced below as DI:I-xx.
+
+Every GI worker must list the whitelist entries it consumes and writes before
+editing.
+
+
+Allowed Input Classes
+---------------------
+
+GI-I-01: Current Primary Surface (= DI:I-01)
+
+    rbdoom sources:
+        PrimarySurfaceHistoryCurrent page via
+        PathTracePrimarySurface.hlsli + the DI lane surface adapters
+        (PathTraceCleanRoomSurfaceFromRecord /
+         PathTraceCleanRoomMaterialSurfaceFromRecord / RAB_GetGBufferSurface)
+
+    Allowed use:
+        GI producer (ray origin, BSDF sampling basis)
+        GI temporal pass (receiving surface, target pdf)
+        GI spatial pass (receiving + neighbor surfaces)
+        GI final shading (primary BSDF evaluation)
+
+    Forbidden use:
+        producer radiance must NOT include the primary BSDF or primary albedo
+
+
+GI-I-02: Previous Primary Surface (= DI:I-02)
+
+    Allowed use:
+        GI temporal pass only (reprojection target surface)
+
+    Ownership stays with the DI lane; the GI lane must not write or duplicate
+    surface history.
+
+
+GI-I-03: Motion / Projection Data (= DI:I-03)
+
+    rbdoom sources:
+        PathTraceMotionVectors, PathTraceMotionVectorMask,
+        previous-camera constants
+
+    Allowed use:
+        GI temporal pass only
+
+
+GI-I-04: Current Light Universe (= DI:I-04) + Emissive Records
+
+    Allowed use:
+        GI producer only, for shading the SECONDARY vertex
+        (analytic lights, emissive triangles, emissive distribution)
+
+    Forbidden use:
+        not allowed in GI temporal/spatial reweighting; GI target pdf is
+        luminance(cached radiance), never a live light re-shade
+
+
+GI-I-05: TLAS / Visibility Ray API (= DI:I-08)
+
+    Allowed use:
+        GI producer indirect ray + secondary-vertex NEE shadow rays
+        GI temporal/spatial bias-correction conservative visibility only
+        when the RTXDI GI header contract requires it
+        spatial conservative visibility check
+
+
+GI-I-06: NEE Cache Query (= DI lane NEE cache provider)
+
+    rbdoom sources:
+        pathtrace_clean_rtxdi_di_nee_cache.hlsli helpers,
+        RAB_NeeCache.hlsli, NEE cache buffers as bound for the DI lane
+
+    Allowed use:
+        GI producer secondary-vertex light selection
+        RGI-05 initial-reservoir seed merge only
+
+    Forbidden use:
+        no old NEE contribution outputs, records, or debug views
+
+
+GI-I-07: GI Producer Textures (lane-owned)
+
+    Meaning:
+        producer radiance (rgba16f: rgb incoming radiance, a path length)
+        producer hit geometry (hit position + normal, portal slot reserved)
+
+    Written by GI producer; read by GI temporal pass initial-reservoir
+    rebuild and producer debug views 1/2 only.
+
+
+GI-I-08: GI Reservoir Pages (lane-owned)
+
+    Four pages per RAB_GIReservoirBridge: INIT, TEMPORAL_INPUT,
+    TEMPORAL_OUTPUT, SPATIAL_OUTPUT.
+
+    temporal pass: writes INIT + TEMPORAL_OUTPUT, reads TEMPORAL_INPUT
+    spatial pass:  reads TEMPORAL_OUTPUT, writes SPATIAL_OUTPUT
+    final shading: reads SPATIAL_OUTPUT
+    rotation:      TEMPORAL_OUTPUT(frame N) = TEMPORAL_INPUT(frame N+1)
+
+    Forbidden use:
+        DI reservoir pages are NOT readable by the GI lane
+        GI pages are NOT readable by the DI lane
+
+
+GI-I-09: RTXDI / Remix-Style Parameters (= DI:I-07)
+
+    Runtime parameters, GI cvar-derived constants. No hidden overrides.
+
+
+Allowed Output Classes
+----------------------
+
+GI-O-01: Producer Textures
+    Written by GI producer only. Every dispatched pixel written; miss =
+    zero radiance + invalid hit-geometry flag. Firefly clamp applies here
+    only.
+
+GI-O-02: INIT Reservoir Page
+    Written by GI temporal pass step (a)-(e) (initial reservoir rebuild).
+
+GI-O-03: TEMPORAL_OUTPUT Reservoir Page
+    Written by GI temporal pass; pass-through of initial reservoir when
+    temporal cvar = 0.
+
+GI-O-04: SPATIAL_OUTPUT Reservoir Page
+    Written by GI spatial pass; pass-through when spatial cvar = 0.
+
+GI-O-05: GI Indirect Diffuse Output
+    Written by GI final shading only (diffuse lobe, primary BSDF toward
+    reservoir.position * radiance * W). Consumed by combined resolve only
+    under r_pathTracingCleanRestirGiResolve.
+
+GI-O-06: GI Debug Output
+    Views 1-7 per cvar_contract.txt. Reads only GI lane resources +
+    GI-I-01 for status. Every pixel explicitly written; invalid states are
+    explicit colors; no fallback shading, no albedo modulate (view 6
+    isolated).
+
+GI-O-07: One-Shot CPU Dump
+    Same rules as DI O-05.
+
+
+Forbidden Input Classes
+-----------------------
+
+    everything in the DI forbidden list (SmokeOutput/SmokeAccumulation,
+        mode-56 outputs, RRX synthetic reservoirs, beauty output, denoiser
+        buffers, debug views as data)
+    DI reservoir pages (current/temporal/previous/spatial)
+    DI debug view outputs
+    any GI debug view texture as a data source
+
+
+Stage Connectivity
+------------------
+
+Producer:        reads GI-I-01, GI-I-04, GI-I-05, GI-I-06, GI-I-09
+                 writes GI-O-01
+Temporal:        reads GI-I-01, GI-I-02, GI-I-03, GI-I-07, GI-I-08(T_IN),
+                     GI-I-09 (+ GI-I-05 only for header-required visibility)
+                 writes GI-O-02, GI-O-03
+Spatial:         reads GI-I-01, GI-I-08(T_OUT), GI-I-09, GI-I-05(conservative)
+                 writes GI-O-04
+Final shading:   reads GI-I-01, GI-I-08(S_OUT)
+                 writes GI-O-05
+Debug resolve:   reads GI lane resources only
+                 writes GI-O-06
+
+
+RGI-00 Audit Findings
+---------------------
+
+1. Upstream headers verified present at
+   E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/
+   (Reservoir, TemporalResampling, SpatialResampling, BoilingFilter,
+   SpatioTemporalResampling, ReSTIRGIParameters). Include path is already
+   passed to the shader compiler via PATH_TRACING_RTXDI_INCLUDE_ARGS
+   (-I RTXDI_RUNTIME_DIR/Include) in neo/shaders/CMakeLists.txt:104-107,
+   so GI headers are reachable. CMake edits needed for RGI-01:
+       - add a GI shader source + outputs (clone of the DI sentinel
+         compile rules at neo/shaders/CMakeLists.txt:76+,130+,333+)
+       - add Rtxdi/GI/*.hlsli to the dependency-include list so edits
+         retrigger compilation (mirror lines 86-99)
+
+2. Required RAB callbacks confirmed against upstream GI headers:
+   TemporalResampling.hlsli uses RAB_GetGBufferSurface, RAB_IsSurfaceValid,
+   RAB_GetSurfaceNormal/LinearDepth/WorldPos, RAB_GetMaterial,
+   RAB_AreMaterialsSimilar, RAB_GetGISampleTargetPdfForSurface,
+   RAB_ValidateGISampleWithJacobian, RAB_GetTemporalConservativeVisibility,
+   RTXDI_CalculateJacobian(currentPos, neighborPos, position, normal).
+   SpatialResampling.hlsli additionally uses
+   RAB_ClampSamplePositionIntoView and RAB_GetConservativeVisibility.
+
+3. DI-lane symbols the GI lane links against (in
+   pathtrace_clean_rtxdi_di_sentinel.rt.hlsl and its includes):
+       surface supplier: PathTraceCleanRoomSurfaceFromRecord,
+           PathTraceCleanRoomMaterialSurfaceFromRecord,
+           PathTraceCleanRoomLoadSurfaceRecordSigned, RAB_GetGBufferSurface
+       visibility: shadow TraceRay path, ShadowAnyHit material filter,
+           RAB_GetConservativeVisibility pattern
+       light sampling at secondary vertex: RtxdiBridge
+           RAB_LightSampling/RAB_LightTarget helpers,
+           PathTraceCleanRoomBuildAnalyticLightInfo, emissive distribution
+           helpers (pathtrace_clean_rtxdi_di_emissive_distribution.hlsli)
+       NEE cache: pathtrace_clean_rtxdi_di_nee_cache.hlsli, RAB_NeeCache
+       random: RTXDI_InitRandomSampler + RAB_GetNextRandom
+   These are pattern/include reuse: the GI lane is a separate .rt.hlsl that
+   includes the same helper headers; it does not call into DI dispatch.
+
+4. Contract corrections to remix_gi_contract.txt: none required. Verified
+   against restir_gi_temporal_reuse.comp.slang (initial reservoir M=1,
+   avgWeight=1, firefly factor ~30 * cb threshold, RIS update with
+   wiT = avgWeight * M * targetPdf, store to INIT page) and
+   integrator_indirect.slangh (ReSTIRGI_StoreHitGeometry at secondary hit,
+   storeRestirGIRadiance excludes primary throughput, .a = hit distance /
+   path length). One note: Remix uses the modified rtxdi-sdk
+   ReSTIRGI_Reservoir with an avgWeight field; upstream RTXDI_GIReservoir
+   carries weightSum/M/age. The frozen rbdoom stub compiles against
+   upstream, so the avgWeight extension is recorded as deferred, matching
+   README guidance.
+
+5. The frozen contract files (restir_gi_temporal_reuse.rt.hlsl,
+   RAB_GI*.hlsli) compile against the upstream signatures and expose
+   override points REMIX_RAB_GI_INITIAL_SAMPLE_EXTERNAL_CALLBACKS,
+   REMIX_RAB_GI_TEMPORAL_VALIDATION_EXTERNAL_CALLBACKS,
+   REMIX_RAB_GI_RESERVOIR_BRIDGE_EXTERNAL_BINDINGS,
+   REMIX_RAB_SURFACE_BRIDGE_EXTERNAL_CALLBACKS. The GI driver shader must
+   define these and provide functional callbacks; default bodies stay
+   untouched.

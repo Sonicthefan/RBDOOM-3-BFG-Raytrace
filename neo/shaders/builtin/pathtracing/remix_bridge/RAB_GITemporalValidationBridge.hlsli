@@ -57,6 +57,21 @@ RemixRestirGITemporalValidationResult RemixRAB_ValidateGITemporalReservoir(
     result.reservoir = resultReservoir;
     return result;
 }
+#else
+// External-callback override point: the active driver shader provides the
+// definitions after including this contract; prototypes keep the wrappers
+// below compilable.
+float RemixRAB_GetGISampleTargetPdfForSurface(float3 samplePosition, float3 sampleRadiance, RAB_Surface surface);
+bool RemixRAB_ValidateGISampleWithJacobian(float jacobian);
+bool RemixRAB_GetTemporalConservativeVisibility(
+    RAB_Surface currentSurface,
+    RAB_Surface temporalSurface,
+    float3 samplePosition);
+RemixRestirGITemporalValidationResult RemixRAB_ValidateGITemporalReservoir(
+    RAB_Surface currentSurface,
+    RTXDI_GIReservoir inputReservoir,
+    RTXDI_GIReservoir resultReservoir,
+    RemixRestirGITemporalValidationDesc desc);
 #endif
 
 float RAB_GetGISampleTargetPdfForSurface(float3 samplePosition, float3 sampleRadiance, RAB_Surface surface)

@@ -245,6 +245,7 @@ PathTracePrimaryPass::~PathTracePrimaryPass()
     m_smokePdfNeeVerifierShaderTable = nullptr;
     m_smokeCleanRtxdiDiSentinelShaderTable = nullptr;
     m_smokeCleanRtxdiDiSpatialShaderTable = nullptr;
+    m_cleanRestirGiState.ReleaseResources();
     m_smokeReGIRDebugShaderTable = nullptr;
     m_smokeRestirAttributionShaderTable = nullptr;
     m_smokeRestirSpatialShaderTable = nullptr;

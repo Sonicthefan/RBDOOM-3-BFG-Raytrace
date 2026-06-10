@@ -1,0 +1,496 @@
+#include "precompiled.h"
+#pragma hdrstop
+
+// Clean-room Remix ReSTIR GI lane dispatch (docs/restir_remix_gi_cleanroom).
+//
+// RGI-01: isolated route with its own cvars, reservoir pages, producer
+// textures, and a sentinel debug view.
+// RGI-02: producer dispatch with the shared scene/light bindings so the GI
+// raygen can trace the bounce ray and shade the secondary vertex.
+// The lane never reads DI reservoirs and never writes anything when
+// r_pathTracingCleanRestirGiEnable is 0.
+
+#include "PathTraceCleanRestirGi.h"
+#include "PathTraceCVars.h"
+#include "../RenderCommon.h"
+#include "../../sys/DeviceManager.h"
+
+#include <cstring>
+
+#include <nvrhi/utils.h>
+
+#include <Rtxdi/RtxdiUtils.h>
+#include <Rtxdi/GI/ReSTIRGIParameters.h>
+
+extern DeviceManager* deviceManager;
+
+namespace {
+
+// Page roles inside the single GI reservoir buffer (RAB_GIReservoirBridge
+// page info: x=init, y=temporalInput, z=temporalOutput, w=spatialOutput).
+const uint32_t CLEAN_RESTIR_GI_PAGE_INIT = 0u;
+const uint32_t CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT = 1u;
+const uint32_t CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT = 2u;
+const uint32_t CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT = 3u;
+const uint32_t CLEAN_RESTIR_GI_PAGE_COUNT = 4u;
+
+// Must match the DI sentinel constants blob size mirrored at the head of the
+// GI cbuffer (PathTraceCleanRtxdiDiSentinelConstants).
+const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE = 480u;
+
+// GI-owned cbuffer tail; layout must match the trailing fields of
+// PathTraceCleanRestirGiConstants in pathtrace_clean_restir_gi.rt.hlsl.
+struct PathTraceCleanRestirGiConstantsTail
+{
+    uint32_t view;
+    uint32_t temporalEnabled;
+    uint32_t spatialEnabled;
+    uint32_t biasCorrection;
+    uint32_t jacobianEnabled;
+    uint32_t maxHistoryLength;
+    uint32_t maxReservoirAge;
+    float fireflyThreshold;
+    uint32_t neeCacheSeedEnabled;
+    uint32_t frameIndex;
+    uint32_t pad0;
+    uint32_t pad1;
+    RTXDI_ReservoirBufferParameters reservoirParams;
+    uint32_t pageInfo[4];
+};
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 80, "GI constants tail must match the HLSL cbuffer tail layout");
+
+const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
+
+bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    if (state.shaderTable)
+    {
+        return true;
+    }
+    if (state.pipelineInitAttempted)
+    {
+        return false;
+    }
+    state.pipelineInitAttempted = true;
+
+    const char* shaderPath = nullptr;
+    if (inputs.isD3D12)
+    {
+        shaderPath = "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
+    }
+    else if (inputs.isVulkan)
+    {
+        shaderPath = "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin";
+    }
+    else
+    {
+        common->Printf("PathTraceCleanRestirGi: unsupported graphics API\n");
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf("PathTraceCleanRestirGi: couldn't read GI shader %s\n", shaderPath);
+        return false;
+    }
+    state.shaderLibrary = inputs.device->createShaderLibrary(shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!state.shaderLibrary)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI shader library\n");
+        return false;
+    }
+
+    if (!state.bindingLayout)
+    {
+        nvrhi::BindingLayoutDesc layoutDesc;
+        layoutDesc.visibility = nvrhi::ShaderType::AllRayTracing;
+        layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+            .setShaderResourceOffset(0)
+            .setConstantBufferOffset(0)
+            .setUnorderedAccessViewOffset(0);
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
+        state.bindingLayout = inputs.device->createBindingLayout(layoutDesc);
+        if (!state.bindingLayout)
+        {
+            common->Printf("PathTraceCleanRestirGi: failed to create GI binding layout\n");
+            return false;
+        }
+    }
+
+    nvrhi::ShaderHandle rayGen = state.shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle miss = state.shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle shadowMiss = state.shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
+    nvrhi::ShaderHandle closestHit = state.shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle anyHit = state.shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
+    nvrhi::ShaderHandle shadowClosestHit = state.shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
+    nvrhi::ShaderHandle shadowAnyHit = state.shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
+    if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
+    {
+        common->Printf("PathTraceCleanRestirGi: GI shader library is missing required entry points\n");
+        return false;
+    }
+
+    nvrhi::rt::PipelineDesc pipelineDesc;
+    pipelineDesc.globalBindingLayouts = { state.bindingLayout, inputs.textureBindlessLayout };
+    pipelineDesc.shaders = {
+        { "", rayGen, nullptr },
+        { "", miss, nullptr },
+        { "", shadowMiss, nullptr }
+    };
+    pipelineDesc.hitGroups = {
+        { "HitGroup", closestHit, anyHit, nullptr, nullptr, false },
+        { "ShadowHitGroup", shadowClosestHit, shadowAnyHit, nullptr, nullptr, false }
+    };
+    pipelineDesc.maxPayloadSize = 64;
+    pipelineDesc.maxAttributeSize = 8;
+    pipelineDesc.maxRecursionDepth = 1;
+
+    state.pipeline = inputs.device->createRayTracingPipeline(pipelineDesc);
+    if (!state.pipeline)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI pipeline\n");
+        return false;
+    }
+    state.shaderTable = state.pipeline->createShaderTable();
+    if (!state.shaderTable)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI shader table\n");
+        state.pipeline = nullptr;
+        return false;
+    }
+    state.shaderTable->setRayGenerationShader("RayGen");
+    state.shaderTable->addMissShader("Miss");
+    state.shaderTable->addMissShader("ShadowMiss");
+    state.shaderTable->addHitGroup("HitGroup");
+    state.shaderTable->addHitGroup("ShadowHitGroup");
+    common->Printf("PathTraceCleanRestirGi: GI pipeline initialized\n");
+    return true;
+}
+
+bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    const uint32_t width = static_cast<uint32_t>(Max(inputs.width, 1));
+    const uint32_t height = static_cast<uint32_t>(Max(inputs.height, 1));
+
+    if (!state.constantsBuffer)
+    {
+        nvrhi::BufferDesc constantsDesc;
+        constantsDesc.byteSize = 768;
+        constantsDesc.debugName = "PathTraceCleanRestirGiConstants";
+        constantsDesc.isConstantBuffer = true;
+        constantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+        constantsDesc.keepInitialState = true;
+        state.constantsBuffer = inputs.device->createBuffer(constantsDesc);
+        if (!state.constantsBuffer)
+        {
+            common->Printf("PathTraceCleanRestirGi: failed to create GI constants buffer\n");
+            return false;
+        }
+    }
+
+    const RTXDI_ReservoirBufferParameters reservoirParams =
+        rtxdi::CalculateReservoirBufferParameters(width, height, rtxdi::CheckerboardMode::Off);
+    const uint64_t reservoirBytes =
+        static_cast<uint64_t>(reservoirParams.reservoirArrayPitch) *
+        static_cast<uint64_t>(CLEAN_RESTIR_GI_PAGE_COUNT) *
+        static_cast<uint64_t>(sizeof(RTXDI_PackedGIReservoir));
+    const bool reservoirValid =
+        state.reservoirBuffer &&
+        state.reservoirWidth == width &&
+        state.reservoirHeight == height &&
+        state.reservoirBuffer->getDesc().byteSize >= reservoirBytes;
+    if (!reservoirValid)
+    {
+        nvrhi::BufferDesc reservoirDesc;
+        reservoirDesc.byteSize = reservoirBytes;
+        reservoirDesc.structStride = sizeof(RTXDI_PackedGIReservoir);
+        reservoirDesc.canHaveUAVs = true;
+        reservoirDesc.debugName = "PathTraceCleanRestirGiReservoirs";
+        reservoirDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        reservoirDesc.keepInitialState = true;
+        state.reservoirBuffer = inputs.device->createBuffer(reservoirDesc);
+        if (!state.reservoirBuffer)
+        {
+            common->Printf("PathTraceCleanRestirGi: failed to create GI reservoir buffer (%llu bytes)\n",
+                static_cast<unsigned long long>(reservoirBytes));
+            return false;
+        }
+        state.reservoirWidth = width;
+        state.reservoirHeight = height;
+        state.reservoirArrayPitch = reservoirParams.reservoirArrayPitch;
+        state.reservoirBlockRowPitch = reservoirParams.reservoirBlockRowPitch;
+        state.reservoirBytes = reservoirBytes;
+        state.reservoirClearPending = true;
+    }
+
+    const bool texturesValid =
+        state.producerRadianceTexture &&
+        state.producerRadianceTexture->getDesc().width == width &&
+        state.producerRadianceTexture->getDesc().height == height;
+    if (!texturesValid)
+    {
+        nvrhi::TextureDesc producerDesc;
+        producerDesc.width = width;
+        producerDesc.height = height;
+        producerDesc.mipLevels = 1;
+        producerDesc.arraySize = 1;
+        producerDesc.dimension = nvrhi::TextureDimension::Texture2D;
+        producerDesc.isUAV = true;
+        producerDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        producerDesc.keepInitialState = true;
+
+        producerDesc.format = nvrhi::Format::RGBA16_FLOAT;
+        producerDesc.debugName = "PathTraceCleanRestirGiProducerRadiance";
+        state.producerRadianceTexture = inputs.device->createTexture(producerDesc);
+
+        producerDesc.format = nvrhi::Format::RGBA32_FLOAT;
+        producerDesc.debugName = "PathTraceCleanRestirGiProducerHitPosition";
+        state.producerHitPositionTexture = inputs.device->createTexture(producerDesc);
+
+        producerDesc.format = nvrhi::Format::RGBA16_FLOAT;
+        producerDesc.debugName = "PathTraceCleanRestirGiProducerHitNormal";
+        state.producerHitNormalTexture = inputs.device->createTexture(producerDesc);
+
+        if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture)
+        {
+            common->Printf("PathTraceCleanRestirGi: failed to create GI producer textures (%ux%u)\n", width, height);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+} // namespace
+
+void PathTraceCleanRestirGiState::ReleaseResources()
+{
+    constantsBuffer = nullptr;
+    reservoirBuffer = nullptr;
+    reservoirWidth = 0;
+    reservoirHeight = 0;
+    reservoirArrayPitch = 0;
+    reservoirBlockRowPitch = 0;
+    reservoirBytes = 0;
+    reservoirClearPending = true;
+    producerRadianceTexture = nullptr;
+    producerHitPositionTexture = nullptr;
+    producerHitNormalTexture = nullptr;
+    bindingLayout = nullptr;
+    shaderLibrary = nullptr;
+    pipeline = nullptr;
+    shaderTable = nullptr;
+    pipelineInitAttempted = false;
+}
+
+bool PathTraceCleanRestirGiExecute(
+    PathTraceCleanRestirGiState& state,
+    const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    const bool dumpRequested = r_pathTracingCleanRestirGiDump.GetInteger() != 0;
+    auto printDump = [&](const char* earlyReturn)
+    {
+        if (!dumpRequested)
+        {
+            return;
+        }
+        common->Printf(
+            "PathTraceCleanRestirGi DUMP enable=%d view=%d temporal=%d spatial=%d biasCorrection=%d jacobian=%d "
+            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d resolve=%d size=%dx%d frame=%u "
+            "reservoirBuffer=%s pages[init=%u tIn=%u tOut=%u sOut=%u] arrayPitch=%u producerTex=%d pipeline=%d "
+            "diBlob=%d lights=%d earlyReturn=%s\n",
+            r_pathTracingCleanRestirGiEnable.GetInteger(),
+            r_pathTracingCleanRestirGiView.GetInteger(),
+            r_pathTracingCleanRestirGiTemporal.GetInteger(),
+            r_pathTracingCleanRestirGiSpatial.GetInteger(),
+            r_pathTracingCleanRestirGiTemporalBiasCorrection.GetInteger(),
+            r_pathTracingCleanRestirGiJacobian.GetInteger(),
+            r_pathTracingCleanRestirGiMaxHistoryLength.GetInteger(),
+            r_pathTracingCleanRestirGiMaxReservoirAge.GetInteger(),
+            r_pathTracingCleanRestirGiFireflyThreshold.GetFloat(),
+            r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger(),
+            r_pathTracingCleanRestirGiResolve.GetInteger(),
+            inputs.width,
+            inputs.height,
+            state.frameIndex,
+            state.reservoirBuffer ? "u80" : "none",
+            CLEAN_RESTIR_GI_PAGE_INIT,
+            CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT,
+            CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT,
+            CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT,
+            state.reservoirArrayPitch,
+            (state.producerRadianceTexture && state.producerHitPositionTexture && state.producerHitNormalTexture) ? 1 : 0,
+            state.shaderTable ? 1 : 0,
+            inputs.diConstantsBlob ? 1 : 0,
+            inputs.doomAnalyticLightBuffer ? 1 : 0,
+            earlyReturn);
+        r_pathTracingCleanRestirGiDump.SetInteger(0);
+    };
+
+    if (r_pathTracingCleanRestirGiEnable.GetInteger() == 0)
+    {
+        printDump("disabled");
+        return false;
+    }
+
+    const int view = idMath::ClampInt(0, 8, r_pathTracingCleanRestirGiView.GetInteger());
+    if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0)
+    {
+        // Nothing consumes the lane yet without a debug view or resolve.
+        printDump("no-view");
+        return false;
+    }
+
+    if (!inputs.device || !inputs.commandList || !inputs.outputTexture || !inputs.textureBindlessLayout || !inputs.textureDescriptorTable ||
+        inputs.width <= 0 || inputs.height <= 0 ||
+        !inputs.diConstantsBlob || inputs.diConstantsSize == 0 || inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE ||
+        !inputs.tlas || !inputs.staticVertexBuffer || !inputs.staticIndexBuffer ||
+        !inputs.dynamicVertexBuffer || !inputs.dynamicIndexBuffer ||
+        !inputs.staticTriangleMaterialIndexBuffer || !inputs.dynamicTriangleMaterialIndexBuffer ||
+        !inputs.materialTableBuffer || !inputs.fallbackTexture || !inputs.emissiveTriangleBuffer ||
+        !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
+        !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
+        !inputs.doomAnalyticLightBuffer ||
+        !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
+        !inputs.materialSampler)
+    {
+        printDump("base-resource");
+        return false;
+    }
+
+    if (!CleanRestirGiEnsurePipeline(state, inputs))
+    {
+        printDump("pipeline");
+        return false;
+    }
+    if (!CleanRestirGiEnsureResources(state, inputs))
+    {
+        printDump("resources");
+        return false;
+    }
+
+    nvrhi::BindingSetDesc bindingSetDesc;
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(0, inputs.tlas));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(1, inputs.outputTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, state.constantsBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, inputs.staticVertexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, inputs.staticIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, inputs.dynamicVertexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, inputs.dynamicIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, inputs.staticTriangleMaterialIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, inputs.dynamicTriangleMaterialIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, inputs.materialTableBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(14, inputs.fallbackTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, inputs.emissiveTriangleBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, inputs.rigidRouteVertexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, inputs.rigidRouteIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, inputs.rigidRouteTriangleMaterialIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, inputs.rigidRouteInstanceBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, inputs.doomAnalyticLightBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(80, state.reservoirBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(81, state.producerRadianceTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(82, state.producerHitPositionTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(83, state.producerHitNormalTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
+    nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
+    if (!bindingSet)
+    {
+        printDump("binding-set");
+        return false;
+    }
+
+    nvrhi::ICommandList* commandList = inputs.commandList;
+    if (state.reservoirClearPending)
+    {
+        commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+        commandList->commitBarriers();
+        commandList->clearBufferUInt(state.reservoirBuffer, 0);
+        state.reservoirClearPending = false;
+    }
+
+    uint8_t constants[CLEAN_RESTIR_GI_CONSTANTS_SIZE] = {};
+    std::memcpy(constants, inputs.diConstantsBlob, inputs.diConstantsSize);
+    PathTraceCleanRestirGiConstantsTail tail = {};
+    tail.view = static_cast<uint32_t>(view);
+    tail.temporalEnabled = r_pathTracingCleanRestirGiTemporal.GetInteger() != 0 ? 1u : 0u;
+    tail.spatialEnabled = r_pathTracingCleanRestirGiSpatial.GetInteger() != 0 ? 1u : 0u;
+    tail.biasCorrection = static_cast<uint32_t>(idMath::ClampInt(0, 1, r_pathTracingCleanRestirGiTemporalBiasCorrection.GetInteger()));
+    tail.jacobianEnabled = r_pathTracingCleanRestirGiJacobian.GetInteger() != 0 ? 1u : 0u;
+    tail.maxHistoryLength = static_cast<uint32_t>(idMath::ClampInt(1, 255, r_pathTracingCleanRestirGiMaxHistoryLength.GetInteger()));
+    tail.maxReservoirAge = static_cast<uint32_t>(idMath::ClampInt(1, 255, r_pathTracingCleanRestirGiMaxReservoirAge.GetInteger()));
+    tail.fireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiFireflyThreshold.GetFloat());
+    tail.neeCacheSeedEnabled = r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ? 1u : 0u;
+    tail.frameIndex = state.frameIndex;
+    tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
+    tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
+    tail.pageInfo[0] = CLEAN_RESTIR_GI_PAGE_INIT;
+    tail.pageInfo[1] = CLEAN_RESTIR_GI_PAGE_TEMPORAL_INPUT;
+    tail.pageInfo[2] = CLEAN_RESTIR_GI_PAGE_TEMPORAL_OUTPUT;
+    tail.pageInfo[3] = CLEAN_RESTIR_GI_PAGE_SPATIAL_OUTPUT;
+    std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
+    commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
+
+    commandList->setTextureState(inputs.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.producerRadianceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.producerHitPositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.producerHitNormalTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->commitBarriers();
+
+    nvrhi::rt::State giState;
+    giState.shaderTable = state.shaderTable;
+    giState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    commandList->setRayTracingState(giState);
+
+    nvrhi::rt::DispatchRaysArguments giArgs;
+    giArgs.width = inputs.width;
+    giArgs.height = inputs.height;
+    giArgs.depth = 1;
+    commandList->dispatchRays(giArgs);
+
+    nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
+    nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
+    nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);
+    nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
+    nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
+
+    if (!state.dispatchLogged)
+    {
+        common->Printf("PathTraceCleanRestirGi: dispatched GI lane raygen (%dx%d, view=%d)\n", inputs.width, inputs.height, view);
+        state.dispatchLogged = true;
+    }
+    printDump("none");
+    state.frameIndex++;
+    return view != 0;
+}

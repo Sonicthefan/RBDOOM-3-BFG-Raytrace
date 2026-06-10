@@ -4094,6 +4094,43 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
             m_frameResources.primarySurfaceHistoryNeedsClear = false;
         }
+        {
+            // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom). Runs
+            // after the DI lane so GI debug views overwrite the output; when
+            // r_pathTracingCleanRestirGiEnable is 0 this dispatches nothing
+            // and the DI output is untouched.
+            PathTraceCleanRestirGiDispatchInputs giInputs;
+            giInputs.device = device;
+            giInputs.commandList = commandList;
+            giInputs.outputTexture = m_frameResources.outputTexture;
+            giInputs.textureDescriptorTable = m_smokeTextureDescriptorTable;
+            giInputs.textureBindlessLayout = m_smokeTextureBindlessLayout;
+            giInputs.isD3D12 = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12;
+            giInputs.isVulkan = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+            giInputs.width = m_frameResources.width;
+            giInputs.height = m_frameResources.height;
+            giInputs.diConstantsBlob = &cleanConstants;
+            giInputs.diConstantsSize = static_cast<uint32_t>(sizeof(cleanConstants));
+            giInputs.tlas = m_smokeTlas;
+            giInputs.staticVertexBuffer = m_smokeStaticVertexBuffer;
+            giInputs.staticIndexBuffer = m_smokeStaticIndexBuffer;
+            giInputs.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
+            giInputs.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+            giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+            giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+            giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
+            giInputs.fallbackTexture = cleanFallbackTexture;
+            giInputs.emissiveTriangleBuffer = cleanOptionalSrv(m_smokeEmissiveTriangleBuffer);
+            giInputs.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
+            giInputs.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+            giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
+            giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+            giInputs.doomAnalyticLightBuffer = cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
+            giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
+            giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;
+            giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
+            PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
+        }
         if (!m_smokeTestDispatched)
         {
             common->Printf("PathTracePrimaryPass: dispatched clean-room RTXDI DI sentinel raygen (%dx%d, view=%d)\n", m_frameResources.width, m_frameResources.height, cleanRtxdiDiView);

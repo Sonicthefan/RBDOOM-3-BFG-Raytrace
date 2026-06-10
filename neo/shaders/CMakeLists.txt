@@ -9,6 +9,7 @@ file(GLOB lighting "builtin/lighting/*hlsl")
 file(GLOB post "builtin/post/*hlsl")
 file(GLOB pathtracing "builtin/pathtracing/*hlsl")
 file(GLOB_RECURSE cleanroom_rtxdi "builtin/pathtracing/cleanroom_rtxdi/*hlsl")
+file(GLOB_RECURSE remix_restir_gi "builtin/pathtracing/remix_restir_gi/*hlsl")
 file(GLOB ssao "builtin/SSAO/*hlsl")
 file(GLOB ssgi "builtin/SSGI/*hlsl")
 file(GLOB video "builtin/video/*hlsl")
@@ -17,7 +18,7 @@ file(GLOB usershaders "*.hlsl")
 
 list(REMOVE_ITEM usershaders ${globalshaders})
 
-set(shaders ${globalshaders} ${builtins} ${debug} ${fog} ${legacy} ${lighting} ${post} ${pathtracing} ${cleanroom_rtxdi} ${ssao} ${ssgi} ${video} ${vr} ${usershaders})
+set(shaders ${globalshaders} ${builtins} ${debug} ${fog} ${legacy} ${lighting} ${post} ${pathtracing} ${cleanroom_rtxdi} ${remix_restir_gi} ${ssao} ${ssgi} ${video} ${vr} ${usershaders})
 
 source_group("builtin" FILES ${builtins})
 source_group("builtin/debug" FILES ${debug})
@@ -27,6 +28,7 @@ source_group("builtin/lighting" FILES ${lighting})
 source_group("builtin/post" FILES ${post})
 source_group("builtin/pathtracing" FILES ${pathtracing})
 source_group("builtin/pathtracing/cleanroom_rtxdi" FILES ${cleanroom_rtxdi})
+source_group("builtin/pathtracing/remix_restir_gi" FILES ${remix_restir_gi})
 source_group("builtin/SSAO" FILES ${ssao})
 source_group("builtin/SSGI" FILES ${ssgi})
 source_group("builtin/video" FILES ${video})
@@ -75,6 +77,7 @@ set(PATH_TRACING_REGIR_DEBUG_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/p
 set(PATH_TRACING_NEE_CACHE_DEBUG_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/pathtrace_nee_cache_debug.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl)
+set(PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl)
 file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES
@@ -94,6 +97,26 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/R
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Checkerboard.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerState.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
+endif()
+file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
+    "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/*.hlsli"
+    "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_bridge/*.hlsli")
+set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
+    ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES}
+    ${PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES})
+if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/Reservoir.hlsli")
+    list(APPEND PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/Reservoir.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/TemporalResampling.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/SpatialResampling.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/BoilingFilter.hlsli
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/ReSTIRGIParameters.h
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/RtxdiParameters.h
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerState.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
 endif()
@@ -129,6 +152,7 @@ if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     set(PATH_TRACING_NEE_CACHE_DEBUG_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/pathtrace_nee_cache_debug.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin)
+    set(PATH_TRACING_CLEAN_RESTIR_GI_DXIL_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin)
     add_custom_command(
         OUTPUT ${PATH_TRACING_DXIL_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing
@@ -283,6 +307,13 @@ if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
         DEPENDS ${PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
         COMMENT "Compiling clean-room RTXDI DI spatial RT shader library (DXIL)"
         VERBATIM)
+    add_custom_command(
+        OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_DXIL_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/dxil/builtin/pathtracing/remix_restir_gi
+        COMMAND ${DXC_PATH} -T lib_6_6 ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RESTIR_GI_DXIL_OUTPUT} ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES}
+        COMMENT "Compiling clean-room ReSTIR GI RT shader library (DXIL)"
+        VERBATIM)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_PRIMARY_SURFACE_PRODUCER_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_INDIRECT_INITIAL_PRODUCER_DXIL_OUTPUT})
@@ -296,6 +327,7 @@ if(USE_DX12 AND USE_DXIL_ON_DX12 AND PATH_TRACING_BUILD_DXIL_RT_SHADERS)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_NEE_CACHE_DEBUG_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_DXIL_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_DXIL_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_DXIL_OUTPUT})
     if(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS)
         list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_MODE18_RESTIR_HYBRID_DXIL_OUTPUT})
         list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_INITIAL_DXIL_OUTPUT})
@@ -332,6 +364,7 @@ if(USE_VULKAN)
     set(PATH_TRACING_NEE_CACHE_DEBUG_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/pathtrace_nee_cache_debug.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin)
     set(PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.bin)
+    set(PATH_TRACING_CLEAN_RESTIR_GI_SPIRV_OUTPUT ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi.rt.bin)
     add_custom_command(
         OUTPUT ${PATH_TRACING_SPIRV_OUTPUT}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing
@@ -486,6 +519,13 @@ if(USE_VULKAN)
         DEPENDS ${PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES}
         COMMENT "Compiling clean-room RTXDI DI spatial RT shader library (SPIR-V)"
         VERBATIM)
+    add_custom_command(
+        OUTPUT ${PATH_TRACING_CLEAN_RESTIR_GI_SPIRV_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${PATH_TRACING_SHADER_OUTPUT_BASE}/spirv/builtin/pathtracing/remix_restir_gi
+        COMMAND ${DXC_SPIRV_PATH} -T lib_6_6 -spirv -fspv-target-env=vulkan1.2 -D SPIRV ${PATH_TRACING_RTXDI_INCLUDE_ARGS} -Fo ${PATH_TRACING_CLEAN_RESTIR_GI_SPIRV_OUTPUT} ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE}
+        DEPENDS ${PATH_TRACING_CLEAN_RESTIR_GI_SHADER_SOURCE} ${PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES}
+        COMMENT "Compiling clean-room ReSTIR GI RT shader library (SPIR-V)"
+        VERBATIM)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_PRIMARY_SURFACE_PRODUCER_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_INDIRECT_INITIAL_PRODUCER_SPIRV_OUTPUT})
@@ -499,6 +539,7 @@ if(USE_VULKAN)
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_NEE_CACHE_DEBUG_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_SPIRV_OUTPUT})
     list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RTXDI_DI_SPATIAL_SPIRV_OUTPUT})
+    list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_CLEAN_RESTIR_GI_SPIRV_OUTPUT})
     if(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS)
         list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_MODE18_RESTIR_HYBRID_SPIRV_OUTPUT})
         list(APPEND PATH_TRACING_SHADER_OUTPUTS ${PATH_TRACING_RESTIR_INITIAL_SPIRV_OUTPUT})

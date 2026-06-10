@@ -1,0 +1,181 @@
+RTX Remix ReSTIR GI Contract
+============================
+
+Behavioral contract for the clean-room rbdoom GI build. Reference files define
+behavior; they are not source text to copy.
+
+
+Reference Files
+---------------
+
+Pass scheduling and options:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_restir_gi_rayquery.cpp
+    E:/prog/references/dxvk-remix-git/src/dxvk/rtx_render/rtx_restir_gi_rayquery.h
+
+Remix shader passes:
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_spatial_reuse.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_final_shading.comp.slang
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_reuse_bindings.slangh
+
+Remix initial-sample producer (inside the indirect integrator):
+
+    E:/prog/references/dxvk-remix-git/src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh
+        (RestirGIRadiance writes, ReSTIRGI_StoreHitGeometry, storeRestirGIRadiance)
+
+RTXDI SDK math reference (upstream, clean signatures):
+
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/Reservoir.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/TemporalResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/SpatialResampling.hlsli
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/ReSTIRGIParameters.h
+
+
+Remix Pass Order
+----------------
+
+    1. Indirect integrator (producer, runs inside the path/integrator pass):
+         - from the primary surface, BSDF-sample one indirect ray
+         - shade the secondary hit (NEE / lights / emissive / NEE-cache)
+         - write per-pixel:
+             RestirGIRadiance     rgba16f  rgb = incoming radiance at primary
+                                           surface from the indirect path,
+                                           a = indirect path length;
+                                           sign bit of .x flags non-opaque hit
+             RestirGIHitGeometry  packed   hit position, hit normal, portalID
+         - radiance excludes the primary-surface BSDF and primary albedo
+           (factored out so the reservoir stores incoming radiance, and the
+           final shading pass applies the receiving BRDF)
+
+    2. ReSTIR GI temporal reuse (one compute pass does all of this):
+         a. rebuild the initial reservoir in-place from RestirGIRadiance +
+            RestirGIHitGeometry (M=1, avgWeight=1, flags from producer)
+         b. firefly-filter the initial radiance (threshold * ~30)
+         c. optional: merge a NEE-cache-seeded reservoir from the init page
+            when the NEE cache first-bounce mode is enabled (rbdoom: this is
+            the hook for our existing NEE cache feed)
+         d. RIS-update with target pdf = luminance(radiance) for the surface,
+            finalize with M forced to 1 (both inputs are MIS-weighted)
+         e. store the finalized initial reservoir to the INIT page
+         f. reproject with the virtual motion vector; depth threshold scales
+            with view angle; normal threshold relaxes with roughness
+         g. temporal resampling against the TEMPORAL_INPUT page with
+            jacobian validation and BASIC bias correction
+         h. optional validation/visibility extras (all deferred for rbdoom)
+         i. if temporal reuse is disabled, pass the initial reservoir through
+         j. store result to the TEMPORAL_OUTPUT page
+
+    3. ReSTIR GI spatial reuse:
+         - load TEMPORAL_OUTPUT (= spatial input) page
+         - spatial resampling over screen neighbors with surface similarity
+           gates (normal, depth, material), jacobian per neighbor, target pdf
+           re-evaluated at the receiving surface
+         - Remix policy: numSamples = 4 while M < temporalHistoryLength
+           (history starved), else 1; search radius alternates large/small
+         - if spatial reuse is disabled, pass input through
+         - store to SPATIAL_OUTPUT page
+         - also archives the current surface to the previous-frame G-buffer
+           (rbdoom: our DI lane already owns surface history; keep ownership
+           where the DI lane put it, do not duplicate)
+
+    4. ReSTIR GI final shading:
+         - load SPATIAL_OUTPUT reservoir
+         - evaluate the primary surface BSDF toward reservoir.position,
+           multiply by reservoir.radiance * reservoir weight
+         - split into diffuse and specular lobes; write
+           indirect radiance + hit distance outputs (NRD-shaped in Remix)
+         - rbdoom baseline: diffuse lobe only, into a dedicated GI output
+           consumed by the combined resolve; specular lobe deferred
+
+
+Reservoir Payload (upstream RTXDI GI)
+-------------------------------------
+
+    RTXDI_GIReservoir
+        float3 position      second-bounce surface position
+        float3 normal        second-bounce surface normal
+        float3 radiance      incoming radiance from that surface
+        float  weightSum     RIS weight sum, then W after finalize
+        uint   M
+        uint   age           frames the chosen sample survived
+
+Packed form and page addressing are already implemented in
+RAB_GIReservoirBridge.hlsli (RTXDI_PackedGIReservoir + page indices
+init / temporalInput / temporalOutput / spatialOutput).
+
+Page rotation per frame mirrors the DI lane: temporal output of frame N is
+temporal input of frame N+1. The INIT page is transient within the frame.
+
+
+Required RAB Callbacks (upstream GI headers)
+--------------------------------------------
+
+Shared with DI (already functional in the DI lane, adapt bindings only):
+
+    RAB_GetGBufferSurface(pixel, previousFrame)
+    RAB_IsSurfaceValid
+    RAB_GetSurfaceNormal / RAB_GetSurfaceLinearDepth / RAB_GetSurfaceWorldPos
+    RAB_GetMaterial / RAB_AreMaterialsSimilar
+    RAB_ClampSamplePositionIntoView
+    RAB_GetConservativeVisibility            (spatial, bias correction)
+    RAB_GetTemporalConservativeVisibility    (temporal, bias correction)
+    random sampler state + RAB_GetNextRandom
+
+New for GI (must be implemented, currently stubbed to reject):
+
+    RAB_GetGISampleTargetPdfForSurface(samplePosition, sampleRadiance, surface)
+        target pdf of a GI sample for a receiving surface.
+        Remix behavior: luminance of the radiance (optionally BSDF-weighted;
+        baseline = luminance only, matching RAB_GetGITargetPdfForSurface).
+
+    RAB_ValidateGISampleWithJacobian(jacobian)
+        accept/reject reused samples by jacobian magnitude (rejects extreme
+        solid-angle ratios). Behavior: reject when outside a sane range;
+        exact bounds come from the RTXDI GI header usage, not invented.
+
+    RAB_LoadGIReservoir / RAB_StoreGIReservoir
+        already functional via RAB_GIReservoirBridge.
+
+The jacobian itself (RTXDI_CalculateJacobian: distance^2 and cosine ratios of
+the reconnection shift) lives in the SDK header. Do not reimplement it.
+
+
+Inputs The Producer Needs From rbdoom
+-------------------------------------
+
+    primary surface (position, shading normal, roughness, albedo-free BSDF
+        sampling) - same supplier the DI lane uses
+    TLAS trace for the indirect ray - same acceleration structure the DI
+        visibility rays use
+    secondary-hit material/light evaluation - reuse the DI lane's light
+        sampling + NEE cache at the secondary vertex
+    motion vectors - same buffer the DI temporal pass uses
+    previous-frame surface history - owned by the DI lane already
+
+Forbidden inputs (same classes as the DI io_whitelist):
+
+    legacy RRX/synthetic reservoir buffers
+    display-ramped or fallback-composited lighting outputs
+    any debug-view texture as a data source
+
+
+Remix Feature Toggles That Must Be OFF For Baseline
+---------------------------------------------------
+
+    enableReSTIRGIVirtualSample
+    enableReSTIRGIReflectionReprojection
+    enableReSTIRGIDLSSRRCompatibilityMode
+    enableReSTIRGILightingValidation (needs gradients)
+    enableReSTIRGIPermutationSampling
+    sample stealing (ReSTIRGISampleStealing = None)
+    bias correction above BASIC
+    portals (numActiveRayPortals = 0)
+
+Baseline ON:
+
+    enableReSTIRGITemporalReuse
+    enableReSTIRGITemporalJacobian
+    enableReSTIRGITemporalBiasCorrection (BASIC)
+    enableReSTIRGISpatialReuse (after temporal is proven)

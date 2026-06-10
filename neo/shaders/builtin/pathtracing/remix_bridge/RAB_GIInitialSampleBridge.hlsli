@@ -74,6 +74,16 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
 {
     return RTXDI_EmptyGIReservoir();
 }
+#else
+// External-callback override point: the active driver shader provides the
+// definitions after including this contract; prototypes keep the contract
+// functions below compilable.
+RemixRestirGIRawInitialSample RemixRAB_LoadRawGIInitialSample(uint2 pixel);
+RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
+    uint2 pixel,
+    RAB_Surface surface,
+    RemixRestirGIRawInitialSample rawSample,
+    RemixRestirGIInitialSampleControls controls);
 #endif
 
 bool RemixRestirGIIsValidRawInitialSample(RemixRestirGIRawInitialSample sample)
