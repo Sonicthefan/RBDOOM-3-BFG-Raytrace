@@ -52,6 +52,7 @@ struct RtSmokeMaterialTextureInfo
     bool filterDecalBlackKey = false;
     bool detailDecal = false;
     bool detailDecalDynamic = false;
+    bool detailDecalDiffuseLit = false;
     bool alphaFromDiffuseLuma = false;
     bool forceFallbackAlbedo = false;
     bool alphaFromDiffuseDarkKey = false;

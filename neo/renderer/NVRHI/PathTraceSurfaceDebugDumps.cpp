@@ -138,7 +138,7 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
     common->Printf("PathTracePrimaryPass: RT smoke crosshair detail-decal isDetailDecal=%d isDynamic=%d blendKind=%s compositeStage=%d\n",
         info.detailDecal ? 1 : 0,
         info.detailDecalDynamic ? 1 : 0,
-        info.filterDecal ? "modulate" : (info.additiveDecal ? "additive" : "over"),
+        info.detailDecalDiffuseLit ? "diffuse-lit" : (info.filterDecal ? "modulate" : (info.additiveDecal ? "additive" : "over")),
         r_pathTracingDecalComposite.GetInteger());
 
     common->Printf("PathTracePrimaryPass: RT smoke crosshair RT metadata diffuse='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' alpha='%s' usage=%s color=%s image=%d handle=%d safe=%d reason='%s' hasAlphaTest=%d cutoff=%.3f alphaFromLuma=%d alphaDarkKey=%d alphaMagentaKey=%d normal='%s' usage=%s color=%s safe=%d specular='%s' usage=%s color=%s safe=%d emissive='%s' usage=%s color=%s safe=%d emissive=%d additiveDecal=%d additiveWhiteKey=%d filterDecal=%d blackKey=%d forceAlbedo=%d portalFallback=%d objectGlassFallback=%d fallbackAlbedo=%d(%.2f %.2f %.2f)\n",

@@ -1093,9 +1093,9 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     info->detailDecal = IsSmokeDetailDecalCardMaterial(material, classifier);
     info->detailDecalDynamic = info->detailDecal && material && material->ConstantRegisters() == NULL;
     info->filterDecalBlackKey = false;
+    bool foundFilterBlend = false;
     if (info->filterDecal)
     {
-        bool foundFilterBlend = false;
         for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
         {
             const shaderStage_t* stage = material->GetStage(stageIndex);
@@ -1120,6 +1120,23 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         {
             info->filterDecalBlackKey = true;
         }
+    }
+    // `blend diffuseMap` detail decals (SL_DIFFUSE route stage, no explicit
+    // ambient filter blend) are LIT DIFFUSE interaction layers in raster:
+    // litWall + light * tex.rgb * stageColor. Black texels contribute nothing.
+    // Treating them as filter/modulate darkens the receiver with the texture
+    // (the alphabet4/pentastic1_spectrum failure). Composite them as an
+    // additive ALBEDO layer instead.
+    info->detailDecalDiffuseLit =
+        info->detailDecal &&
+        classifier.hasDiffuseStage &&
+        !foundFilterBlend &&
+        !info->additiveDecal &&
+        !rgbKeyedBlendDecal;
+    if (info->detailDecalDiffuseLit)
+    {
+        info->filterDecal = false;
+        info->filterDecalBlackKey = false;
     }
     info->alphaFromDiffuseLuma =
         (info->hasAlphaTest &&
@@ -1178,6 +1195,38 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         ForceSmokeAbsorbingBlackMaterialInfo(*info);
     }
     RefreshSmokeMaterialTextureHandleState(*info);
+    // Detail-decal diffuse rescue (splat16 case): some trigger-spawned decals
+    // carry a gui-like mask (e.g. guis/assets/white) in their SL_DIFFUSE stage,
+    // which the safety filter rejects, leaving no diffuse texture. The visible
+    // art is the first explicit SL_AMBIENT stage image - use it instead.
+    if (info->detailDecal && material && (!info->hasDiffuseImage || !info->hasSafeTexture))
+    {
+        for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+        {
+            const shaderStage_t* stage = material->GetStage(stageIndex);
+            if (!stage || stage->lighting != SL_AMBIENT || !stage->texture.image ||
+                stage->texture.texgen != TG_EXPLICIT)
+            {
+                continue;
+            }
+            idImage* stageImage = stage->texture.image;
+            if (idStr::FindText(stageImage->GetName(), "makealpha", false) >= 0 ||
+                !IsSmokeImageNameSafeForRayTracing(stageImage->GetName()) ||
+                !stageImage->GetTextureHandle())
+            {
+                continue;
+            }
+            info->diffuseImage = stageImage;
+            info->diffuseImageName = stageImage->GetName();
+            info->diffuseUsage = stageImage->GetUsage();
+            info->diffuseColorFormat = stageImage->GetOpts().colorFormat;
+            info->hasDiffuseImage = true;
+            info->forceFallbackAlbedo = false;
+            info->fallbackReason = va("detail-decal ambient-stage diffuse fallback: stage %d", stageIndex);
+            RefreshSmokeMaterialTextureHandleState(*info);
+            break;
+        }
+    }
     if (info->hasDiffuseImage && !info->hasSafeTexture)
     {
         if (diffuseImage && !IsSmokeImageNameSafeForRayTracing(diffuseImage->GetName()))

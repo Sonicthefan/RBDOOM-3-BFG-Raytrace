@@ -1,0 +1,158 @@
+COMPLEX DECAL CASES - RUNNING FINDINGS (2026-06-10)
+====================================================
+Live working notes for the three reported cases. Updated as work proceeds so a
+session cut mid-task loses nothing. Companion dumps: pentastic1_spectrum.txt,
+splat16.txt, external_research.txt (treat the latter as leads, not fact).
+
+CASE 1 - textures/decals/alphabet4 (grey text renders as darkening)
+-------------------------------------------------------------------
+Material stage is `colored` + `blend diffuseMap` (SL_DIFFUSE). This is NOT a
+filter/modulate decal: blend diffuseMap makes the stage a LIT DIFFUSE
+INTERACTION layer. Raster result = litWall + light * tex.rgb * stageColor.rgb.
+Black texels contribute zero (implicit mask); grey text picks up light color
+and the `colored` per-entity tint (shaderParm0-3 / _color), which is why the
+same texture reads white or yellow by placement.
+OUR BUG: IsSmokeTranslucentOverlayCardMaterial tags it filterDecal (it is
+sort=decal + ambientBlend-ish heuristics) -> composite MODULATES base albedo by
+grey text -> darkening. Correct composite in our material-layer terms:
+    albedo = saturate(albedo + tex.rgb * stageColor.rgb)   (additive ALBEDO,
+    not emissive - the layer is lit, it is not a light source)
+Tint source = evaluated stage color registers (drawSurf->shaderRegisters at
+capture; parm-driven, per-instance, usually constant after spawn).
+
+CASE 2 - textures/hell/pentastic1_spectrum (pulse-once emissive overlay)
+------------------------------------------------------------------------
+Dump: sort=2 (decal), polyOffset=1, 2 stages (bump _flat + DIFFUSE
+pentastic1), filterDecal=1 blackKey=1 under current classifier, dump-time
+stage color (1,1,1,1), isDynamic printed 0.
+Same mis-route as case 1 (diffuse interaction stage treated as modulate), PLUS
+animation: the pulse must come from evaluated stage color registers changing
+per frame (and/or condition register turning the stage off = invisible state).
+The dump's color=(1,1,1,1) is the materials own constant-register evaluation;
+the live value needs drawSurf->shaderRegisters each frame.
+=> Needs a PER-FRAME evaluated color/condition channel for detail-decal
+materials, not a capture-time bake. Invisible state must DROP the layer
+(condition==0 or color==black with diffuse-lit kind -> zero contribution
+naturally).
+
+CASE 3 - textures/decals/splat16 (post-trigger decal, invisible to new path)
+----------------------------------------------------------------------------
+Dump: 5 stages. stage0 AMBIENT splat16 (the real visible art), stage1
+makealpha(splat16), stage2 reflect-cube2 env/genb, stage3 bump
+heightmap(splat16,1), stage4 DIFFUSE 'guis/assets/white'.
+KEY FINDING: texture discovery picked the stage-4 diffuse image
+'guis/assets/white' and REJECTED it ("rejected dynamic image name" - gui-like
+name filter) -> material has NO diffuse texture -> SampleSmokeDiffuseTexture
+returns debugAlbedo. The 'solid white texture on top' the user sees in legacy
+modes IS guis/assets/white - it is a lighting MASK for the diffuse interaction,
+not art. The art is the ambient stage0 image.
+The card is added by a trigger -> it is captured as DYNAMIC geometry (or
+late-promoted static). Two gaps:
+  (a) the face-normal offset only runs in the STATIC capture pass -> dynamic
+      decal card z-fights (legacy modes show exactly that) and its any-hit
+      collect is a coin flip -> invisible/unstable in composite mode.
+  (b) even when collected, the composite samples the (missing) diffuse ->
+      debug albedo, not splat16.
+Also note: dynamic surfaces get VARIANT material ids
+(SmokeRuntimeMaterialTableIdForDrawSurf) - the variant record must inherit
+DETAIL_DECAL flags or the any-hit will not collect it. VERIFY.
+'no material=' in the dump just means the condump missed the first line;
+not evidence of an implicit material. The heightmap(...) normal is ordinary
+idtech4 image-program syntax.
+
+PLAN (framework work this session)
+----------------------------------
+1. New blend kind DIFFUSE_LIT: detail-decal materials whose visible route
+   stage is SL_DIFFUSE composite additively onto ALBEDO (cases 1+2ytes).
+   New flag RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT.
+2. Per-frame dynamic color/condition for detail decals: reuse the existing
+   dynamic material eval machinery (RtSmokeDynamicMaterialEvalSample /
+   PathTraceDynamicMaterialRecord) - investigate GPU plumbing next.
+3. DECAL-DYN-1: run the normal offset in the DYNAMIC capture pass too
+   (stable per-surface key needed for a per-frame index).
+4. Discovery fix: when a detail-decal material's diffuse image is
+   missing/unsafe, fall back to the first safe AMBIENT stage image (splat16).
+
+DYNAMIC CHANNEL INVESTIGATION (done)
+------------------------------------
+The engine ALREADY has the needed per-frame channel - do not rebuild it:
+  - Capture: SmokeStageUsesPerSurfaceMaterialState (PathTraceSceneCapture.cpp:925)
+    selects stages whose condition/color/alphaTest/texMatrix registers depend on
+    runtime (parms or time). `colored` qualifies. Each such drawSurf gets a
+    per-entity VARIANT material id (SmokeRuntimeMaterialTableIdForDrawSurf:1495)
+    and an RtSmokeDynamicMaterialEvalSample with the EVALUATED color/condition
+    from drawSurf->shaderRegisters.
+  - Upload: BuildSmokeDynamicMaterialRecords (PathTraceSmokeSceneBuild.cpp:287)
+    -> PathTraceDynamicMaterialRecord {color, texMatrix0 (.w=condition),
+    texMatrix1 (.w=alphaTest), materialIndex, flags} -> dynamicMaterialBuffer.
+    Count: m_sceneInputs.materials.dynamicMaterialRecordCount.
+  - GPU: clean DI binds it as SmokeDynamicMaterials t15 (sentinel layout only).
+    The PRODUCER's shared layout has Vulkan slot 15 taken by a UAV; free slot
+    chosen for producer binding: StructuredBuffer_SRV(76) (74,75,77 used; 76
+    free). Record count passed via new decalInfo2.x constant.
+  - IMPORTANT dump insight: pentastic1_spectrum and splat16 dumps show
+    class=particle/alpha -> these decals are captured in the DYNAMIC pass
+    (instance 1) every frame, with VARIANT material indexes. That is why the
+    static-pass-only offset never applied to them. The decal bin already stores
+    the variant materialIndex, so a record lookup by decalMaterialIndex works.
+  - Variant texture-info inheritance verified next (RegisterSmokeMaterialTextureVariant,
+    PathTraceTextureRegistry.cpp:206).
+
+STATUS LOG
+----------
+[x] investigated dynamic material GPU channel (see above)
+[x] DIFFUSE_LIT classification + composite
+[x] per-frame color/condition into composite
+[x] dynamic-pass offset (DECAL-DYN-1)
+[x] ambient-stage diffuse fallback for detail decals
+ALL BUILT + DEPLOYED 2026-06-10 evening. Untested in game.
+
+WHAT LANDED (framework, file by file)
+-------------------------------------
+- RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT (0x8000)
+  (PathTraceDynamicMaterialState.h; mapped in PathTraceMaterialUniverse.cpp).
+- Discovery (PathTraceMaterialTextureDiscovery.cpp):
+  - detailDecalDiffuseLit = detailDecal && hasDiffuseStage && no explicit
+    ambient filter-blend stage && !additive && !rgbKeyedBlend. Clears
+    filterDecal so diffuse-map decals stop modulating (cases 1+2).
+  - Ambient-stage diffuse rescue after RefreshSmokeMaterialTextureHandleState:
+    detail decals whose diffuse image is missing/unsafe take the first explicit
+    safe SL_AMBIENT stage image (skips makealpha(...)) - the splat16 fix.
+- Capture (PathTraceSceneCapture.cpp):
+  - ApplySmokeDetailDecalNormalOffset now also runs in the DYNAMIC pass with a
+    stable key hash(baseMaterialId, entityIndex); cheap sort/polyoffset gate
+    added since it runs per frame. This is DECAL-DYN-1 - pentastic/splat16 are
+    class=particle/alpha and captured dynamically every frame.
+- GPU plumbing: SmokeDynamicMaterials (PathTraceDynamicMaterialRecord) bound to
+  the shared smoke layout/set as StructuredBuffer_SRV(76) (fallback binding =
+  lightCandidateBuffer when the optional buffer is null; pdfNee binding sets
+  updated too - ANY new pipeline using m_smokeBindingLayout must bind slot 76).
+  Record count rides new decalInfo2.x (PathTraceSmokeConstants; DecalInfo2 in
+  the producer cbuffer - keep these two tail fields in sync, they are LAST).
+- Composite (pathtrace_primary_surface_producer.rt.hlsl):
+  - Per layer: look up dynamic record by decal materialIndex (variant ids
+    flow through capture -> bin automatically). VALID record with stage
+    disabled or condition==0 DROPS the layer (the pulse-off / removal state).
+    record.color tints decalRgb; color.a scales coverage in all blend kinds.
+  - New DIFFUSE_LIT branch (checked first): albedo = saturate(albedo +
+    decalRgb * stageAlpha). Black texels = no contribution. Never darkens.
+
+OPEN ITEMS / FIELD-TEST NOTES
+-----------------------------
+- pentastic pulse: if the pulse is authored as overbright stage color (>1),
+  the albedo saturates at 1; if the glow must EMIT light, route excess
+  luminance (stageColor luminance above 1) into emissiveRadiance - deliberate
+  follow-up, not implemented.
+- pentastic dump printed isDynamic=0 (constant registers) - if the pulse does
+  not animate in game, the animation source is NOT material registers; check
+  entity parms / show-hide; capture handles show-hide for free.
+- splat16 stage0 raster blend is alpha-OVER, but the rescued composite treats
+  it diffuse-lit (additive). If it reads too bright/ghostly, consider routing
+  rescued-ambient detail decals to OVER with SmokeAlphaCoverage instead.
+- Dynamic-record lookup keys on materialIndex (table row). Static-pass decals
+  with runtime registers (if any exist) do not get variants today (variants
+  are dynamic-pass only); their record would sit on the base material row -
+  works the same via the lookup.
+- Verify in game with the crosshair dump: alphabet4 should print
+  blendKind=diffuse-lit; splat16 should print a real diffuse texture
+  (textures/decals/splat16) in the metadata line, not guis/assets/white.

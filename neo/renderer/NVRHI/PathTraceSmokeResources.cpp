@@ -814,6 +814,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(41, desc.buffers.skinnedTriangleDispatchIndexBuffer));
+        bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(76, desc.buffers.dynamicMaterialBuffer ? desc.buffers.dynamicMaterialBuffer : desc.buffers.lightCandidateBuffer));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, desc.motionVectorTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, desc.motionVectorMaskTexture));
         bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(47, desc.restirPTReflectionTexture));
@@ -1181,6 +1182,7 @@ void PathTracePrimaryPass::InitRayTracingSmokeTest()
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(41));
+    bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(76));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
     bindingLayoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(47));

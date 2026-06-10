@@ -128,6 +128,7 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.filterDecalBlackKey ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecal ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDynamic ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDiffuseLit ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.forceFallbackAlbedo ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseDarkKey ? 1u : 0u);
@@ -205,6 +206,10 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
         if (info.detailDecalDynamic)
         {
             record.material.flags |= RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC;
+        }
+        if (info.detailDecalDiffuseLit)
+        {
+            record.material.flags |= RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT;
         }
     }
     if (info.alphaFromDiffuseLuma)

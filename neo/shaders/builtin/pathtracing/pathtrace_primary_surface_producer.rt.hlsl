@@ -113,6 +113,17 @@ struct PathTraceSkinnedPreviousPosition
     float4 previousPosition;
 };
 
+struct PathTraceDynamicMaterialRecord
+{
+    float4 color;
+    float4 texMatrix0; // .w = evaluated condition register
+    float4 texMatrix1; // .w = evaluated alpha-test value
+    uint materialIndex;
+    uint materialId;
+    uint stageIndex;
+    uint flags;
+};
+
 struct PathTraceSkinnedSurfaceDispatchRecord
 {
     uint sourceVertexOffset;
@@ -204,6 +215,7 @@ StructuredBuffer<uint> SmokePreviousStaticTriangleClasses : register(t36);
 StructuredBuffer<uint> SmokePreviousStaticTriangleMaterials : register(t37);
 StructuredBuffer<uint> SmokePreviousStaticTriangleMaterialIndexes : register(t38);
 StructuredBuffer<uint> SmokeSkinnedTriangleDispatchIndexes : register(t41);
+StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -254,6 +266,7 @@ cbuffer PathTraceSmokeConstants : register(b2)
     // PathTraceSmokeConstants struct, which this shader does not consume.
     float4 ProducerReservedTail[20];
     float4 DecalInfo;
+    float4 DecalInfo2;
 };
 
 #define RB_PATH_TRACE_PRIMARY_SURFACE_HAS_RR_PROJECTION_DEPTH_INFO
@@ -286,6 +299,9 @@ static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL = 0x00002000u;
 static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DYNAMIC = 0x00004000u;
+static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
 static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
@@ -1437,17 +1453,53 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             continue;
         }
 
-        const PathTraceSmokeMaterial decalMaterial = LoadSmokeMaterial(payload.decalMaterialIndex[entry]);
+        const uint decalMaterialIndex = payload.decalMaterialIndex[entry];
+        const PathTraceSmokeMaterial decalMaterial = LoadSmokeMaterial(decalMaterialIndex);
         if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL) == 0u)
         {
             continue;
         }
+
+        // Per-frame evaluated stage state (docs/decal_cards/07 DYN-2): runtime
+        // register materials (`colored` tints, animated pulses, condition
+        // toggles) carry their evaluated color/condition in the dynamic
+        // material record for this (variant) material index. A condition-off
+        // stage DROPS the layer - it must not composite at zero.
+        float4 decalStageColor = float4(1.0, 1.0, 1.0, 1.0);
+        const uint dynamicRecordCount = (uint)max(DecalInfo2.x, 0.0);
+        if (decalMaterialIndex < dynamicRecordCount)
+        {
+            const PathTraceDynamicMaterialRecord dynamicRecord = SmokeDynamicMaterials[decalMaterialIndex];
+            if ((dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) != 0u &&
+                dynamicRecord.materialIndex == decalMaterialIndex)
+            {
+                if ((dynamicRecord.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) == 0u ||
+                    dynamicRecord.texMatrix0.w == 0.0)
+                {
+                    continue;
+                }
+                decalStageColor = float4(max(dynamicRecord.color.rgb, float3(0.0, 0.0, 0.0)), saturate(dynamicRecord.color.a));
+            }
+        }
+
         const uint packedTexCoord = payload.decalPackedTexCoord[entry];
         const float2 decalTexCoord = float2(f16tof32(packedTexCoord & 0xffffu), f16tof32(packedTexCoord >> 16));
-        const float3 decalRgb = saturate(SampleSmokeDiffuseTexture(decalMaterial, decalTexCoord).rgb);
+        const float3 decalRgb = saturate(SampleSmokeDiffuseTexture(decalMaterial, decalTexCoord).rgb) * decalStageColor.rgb;
 
         float coverage;
-        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u)
+        if ((decalMaterial.flags & RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT) != 0u)
+        {
+            // LIT DIFFUSE interaction layer (`blend diffuseMap`, e.g.
+            // textures/decals/alphabet4, textures/hell/pentastic1_spectrum):
+            // raster adds light * tex.rgb * stageColor on top of the lit wall.
+            // In material terms that is an additive ALBEDO layer - black texels
+            // contribute nothing, the stage color carries the authored tint or
+            // animation, and it never darkens the receiver.
+            const float3 litLayer = decalRgb * decalStageColor.a;
+            surface.material.diffuseAlbedo = saturate(surface.material.diffuseAlbedo + litLayer);
+            coverage = saturate(max(max(litLayer.r, litLayer.g), litLayer.b));
+        }
+        else if ((decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u)
         {
             // MODULATE: out = lerp(base, decal*base, coverage) -- the product the
             // stochastic path could never express (docs/decal_cards/03 sec.1).
@@ -1458,7 +1510,7 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
             const bool blackKey = (decalMaterial.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
             coverage = saturate(blackKey
                 ? max(max(decalRgb.r, decalRgb.g), decalRgb.b)
-                : 1.0 - min(min(decalRgb.r, decalRgb.g), decalRgb.b));
+                : 1.0 - min(min(decalRgb.r, decalRgb.g), decalRgb.b)) * decalStageColor.a;
             const float modulateFloor = saturate(DecalInfo.w);
             surface.material.diffuseAlbedo = lerp(
                 surface.material.diffuseAlbedo,
@@ -1469,13 +1521,13 @@ void ApplyDetailDecalComposite(inout RAB_Surface surface, PathTraceSmokePayload 
         {
             // ADDITIVE: contributes radiance, mirroring the unlit-color fallback the
             // stochastic path uses for additive cards (glows, light leaks).
-            coverage = saturate(SmokeAdditiveDecalMaterialOpacity(decalMaterial, decalRgb));
+            coverage = saturate(SmokeAdditiveDecalMaterialOpacity(decalMaterial, decalRgb)) * decalStageColor.a;
             surface.material.emissiveRadiance += decalRgb * coverage;
         }
         else
         {
             // OVER: src-alpha blend -- signage, posters, alpha-cut grime.
-            coverage = saturate(SmokeAlphaCoverage(decalMaterial, decalTexCoord));
+            coverage = saturate(SmokeAlphaCoverage(decalMaterial, decalTexCoord)) * decalStageColor.a;
             surface.material.diffuseAlbedo = lerp(surface.material.diffuseAlbedo, decalRgb, coverage);
         }
 

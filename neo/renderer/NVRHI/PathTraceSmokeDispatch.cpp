@@ -678,6 +678,7 @@ struct PathTraceSmokeConstants
     float neeCacheInfo3[4];
     float neeCacheConsumerInfo[4];
     float decalInfo[4];
+    float decalInfo2[4];
 };
 
 struct PathTraceIntegratorSettings
@@ -2554,6 +2555,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.decalInfo[1] = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
             primarySurfaceConstants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
             primarySurfaceConstants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
+            primarySurfaceConstants.decalInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount));
 
             commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -2959,6 +2961,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(75, pdfNeePrepassNeeCacheCellSrv),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(77, pdfNeePrepassNeeCacheCandidateSrv),
                 nvrhi::BindingSetItem::StructuredBuffer_SRV(41, m_smokeSkinnedTriangleDispatchIndexBuffer),
+                nvrhi::BindingSetItem::StructuredBuffer_SRV(76, m_smokeDynamicMaterialBuffer ? m_smokeDynamicMaterialBuffer : m_smokeLightCandidateBuffer),
                 nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture),
                 nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture),
                 nvrhi::BindingSetItem::Texture_UAV(47, m_frameResources.restirPTReflectionTexture),
@@ -4480,6 +4483,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::BindingSetItem::StructuredBuffer_SRV(75, pdfNeeNeeCacheCellSrv),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(77, pdfNeeNeeCacheCandidateSrv),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(41, m_smokeSkinnedTriangleDispatchIndexBuffer),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(76, m_smokeDynamicMaterialBuffer ? m_smokeDynamicMaterialBuffer : m_smokeLightCandidateBuffer),
             nvrhi::BindingSetItem::Texture_UAV(39, m_frameResources.motionVectorTexture),
             nvrhi::BindingSetItem::Texture_UAV(40, m_frameResources.motionVectorMaskTexture),
             nvrhi::BindingSetItem::Texture_UAV(47, m_frameResources.restirPTReflectionTexture),

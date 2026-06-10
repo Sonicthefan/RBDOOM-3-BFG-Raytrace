@@ -509,7 +509,7 @@ static void SmokeDynamicEvalAddMaterialSample(RtSmokeMaterialStats& stats, const
 // static BVH stays temporally stable.
 static void ApplySmokeDetailDecalNormalOffset(
     const drawSurf_t* drawSurf,
-    uint64 staticSurfaceKey,
+    uint64 surfaceOffsetKey,
     std::vector<PathTraceSmokeVertex>& vertices,
     const std::vector<uint32_t>& indexes,
     size_t vertexStart,
@@ -524,6 +524,13 @@ static void ApplySmokeDetailDecalNormalOffset(
     {
         return;
     }
+    // Cheap cost gate before the stage-scanning classifier build: this also runs
+    // per-frame in the dynamic capture pass (DECAL-DYN-1).
+    const float sort = material->GetSort();
+    if (!(sort >= SS_DECAL && sort < SS_FAR) && !material->TestMaterialFlag(MF_POLYGONOFFSET))
+    {
+        return;
+    }
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     if (!IsSmokeDetailDecalCardMaterial(material, classifier))
     {
@@ -532,7 +539,7 @@ static void ApplySmokeDetailDecalNormalOffset(
 
     const float step = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
     const int maxOffsetIndex = Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger());
-    uint64 hash = staticSurfaceKey;
+    uint64 hash = surfaceOffsetKey;
     hash ^= hash >> 33;
     hash *= 0xff51afd7ed558ccdull;
     hash ^= hash >> 33;
@@ -1783,6 +1790,19 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             {
                 continue;
             }
+            // DECAL-DYN-1 (docs/decal_cards/07): trigger-spawned / translucent-class
+            // detail decals are captured here per frame; without the lift they
+            // coplanar-z-fight exactly like an un-offset static card. The key is
+            // stable per held instance (entity + material), so the offset index
+            // does not churn frame to frame.
+            ApplySmokeDetailDecalNormalOffset(
+                drawSurf,
+                (static_cast<uint64>(baseMaterialId) << 32) ^
+                    (static_cast<uint64>(static_cast<uint32_t>(entityIndex + 1)) * 2654435761ull),
+                bucketVertices,
+                bucketIndexes,
+                static_cast<size_t>(bucketVertexStart),
+                static_cast<size_t>(bucketIndexStart));
             const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityIndex + 1));
             const int emittedTriangles = emittedIndexes / 3;
             bucketInstances.insert(bucketInstances.end(), emittedTriangles, dynamicInstanceId);
