@@ -4,6 +4,17 @@ RTX Remix ReSTIR GI Contract
 Behavioral contract for the clean-room rbdoom GI build. Reference files define
 behavior; they are not source text to copy.
 
+Clean-room restriction:
+
+    Do not copy, paste, transliterate, or lightly rename code from the Remix
+    reference tree or NVIDIA RTXDI source files into rbdoom. The reference
+    files may be read to understand pass order, data dependencies, parameters,
+    and validation behavior. Implementation must be written against rbdoom's
+    existing renderer interfaces and upstream RTXDI APIs as linked headers.
+    When a Remix-only behavior depends on proprietary/local reference code or
+    fields that the public upstream RTXDI API cannot express, document it as a
+    deferred feature instead of importing the reference implementation.
+
 
 Reference Files
 ---------------

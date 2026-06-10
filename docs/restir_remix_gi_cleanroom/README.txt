@@ -15,6 +15,16 @@ The GI lane reuses the DI lane's rules verbatim unless overridden here:
     worker protocol            (see ../restir_remix_di_cleanroom/worker_protocol.txt)
     io whitelist discipline    (see ../restir_remix_di_cleanroom/io_whitelist.txt)
 
+Clean-room rule:
+
+    The Remix and RTXDI files named by this folder are behavioral/API
+    references only. Do not copy files, comments, shader bodies, helper
+    functions, struct layouts, or renamed blocks from E:/prog/references into
+    rbdoom. Use existing rbdoom helpers and the public RTXDI headers through
+    normal includes/calls. If matching Remix requires code that is not already
+    expressible through rbdoom data and upstream RTXDI APIs, mark that feature
+    deferred instead of transliterating reference source.
+
 Scope of this lane:
 
     GI initial-sample producer (one indirect bounce ray + shading at hit)
@@ -101,6 +111,9 @@ stub contract, which compiles against RTXDI_GIReservoir and
 RTXDI_GITemporalResampling. No ReSTIR math may be changed or re-derived; if
 the upstream signature cannot express a Remix behavior, record it as deferred
 instead of approximating it.
+
+Calling upstream RTXDI APIs from the configured include path is allowed.
+Copying or retyping upstream header implementation into rbdoom files is not.
 
 
 File Map

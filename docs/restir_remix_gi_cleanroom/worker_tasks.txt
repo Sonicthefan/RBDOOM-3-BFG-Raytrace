@@ -5,6 +5,13 @@ Use these tasks in order. Do not skip ahead. Each task's required proof is in
 validation_matrix.txt. Worker protocol is inherited from
 ../restir_remix_di_cleanroom/worker_protocol.txt.
 
+Clean-room implementation rule:
+    Reference files listed in remix_gi_contract.txt are read-only behavioral
+    references. Do not copy external files or paste/rename reference code into
+    rbdoom. Use rbdoom-local helpers and public RTXDI include APIs. If a task
+    cannot be completed without importing reference implementation text, stop
+    and record the missing contract/deferred feature in this folder.
+
 
 RGI-00: GI Contract Audit
 -------------------------

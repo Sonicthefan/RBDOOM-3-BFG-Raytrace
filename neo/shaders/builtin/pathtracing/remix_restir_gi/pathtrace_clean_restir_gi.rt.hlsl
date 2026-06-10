@@ -1412,6 +1412,24 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     return result;
 }
 
+RTXDI_GIReservoir CleanGiBuildAndStoreInitialReservoir(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
+{
+    RTXDI_GIReservoir reservoir = RTXDI_EmptyGIReservoir();
+    if (surfaceValid)
+    {
+        RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+        RemixRestirGIInitialSampleControls controls = (RemixRestirGIInitialSampleControls)0;
+        controls.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
+
+        RemixRestirGIPreparedInitialSample initialSample =
+            RemixRestirGIBuildInitialSampleContract(surface, pixel, controls);
+        reservoir = initialSample.reservoir;
+    }
+
+    RAB_StoreGIReservoir(reservoir, int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+    return reservoir;
+}
+
 // ---------------------------------------------------------------------------
 // Debug views
 // ---------------------------------------------------------------------------
@@ -1463,6 +1481,9 @@ void RayGen()
     CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
     CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
 
+    // ---- RGI-03 initial reservoir stage ----
+    const RTXDI_GIReservoir initialReservoir = CleanGiBuildAndStoreInitialReservoir(pixel, surfaceValid, record);
+
     // ---- Debug views (GI lane resources only) ----
     if (view == 0u)
     {
@@ -1509,6 +1530,28 @@ void RayGen()
             color = band != 0u
                 ? saturate(producer.hitNormal * 0.5 + 0.5)
                 : frac(producer.hitPosition / 128.0);
+        }
+    }
+    else if (view == 3u)
+    {
+        // Initial-reservoir radiance after the single-sample RIS update.
+        // This should match view 1 structurally; W only changes intensity.
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (!RTXDI_IsValidGIReservoir(initialReservoir))
+        {
+            color = float3(0.0, 0.0, 0.0);
+        }
+        else if (!CleanGiAllFinite3(initialReservoir.radiance) ||
+            initialReservoir.weightSum != initialReservoir.weightSum)
+        {
+            color = float3(1.0, 1.0, 0.0);
+        }
+        else
+        {
+            color = CleanGiToneMap(initialReservoir.radiance * max(initialReservoir.weightSum, 0.0));
         }
     }
     else if (view == 8u)
