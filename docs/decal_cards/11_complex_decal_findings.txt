@@ -241,6 +241,14 @@ OPEN ITEMS / FIELD-TEST NOTES
   of decal and alpha textures plus hard repeatable crash. That shader behavior
   was backed out; future GI fixes must use a narrower receiver-aware
   decal/alpha contract and validated emissive-source filtering.
+- 2026-06-11 GI crash follow-up:
+  the clean GI pass bound static/dynamic geometry, material, emissive,
+  analytic-light, and rigid-route buffers but only explicitly transitioned a
+  subset before dispatch. That left the pass dependent on prior DI/producer
+  state and is a plausible repeatable crash source when action/enemy spawning
+  churns dynamic resources. The follow-up fix makes the GI pass explicitly
+  transition every SRV/UAV binding it consumes before dispatch; it does not
+  change GI material interpretation.
 - pentastic pulse: if the pulse is authored as overbright stage color (>1),
   the albedo saturates at 1; if the glow must EMIT light, route excess
   luminance (stageColor luminance above 1) into emissiveRadiance - deliberate
