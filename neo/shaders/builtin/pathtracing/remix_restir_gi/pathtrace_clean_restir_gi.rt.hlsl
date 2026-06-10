@@ -276,6 +276,10 @@ static const uint CLEAN_RAB_DIAGNOSTIC_DUMMY_EMISSIVE_NORMALS = 1u << 13u;
 
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 
+float3 CleanGiSafeNormalize(float3 value, float3 fallback);
+float CleanGiLuminance(float3 value);
+float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3 toPosition);
+
 // ---------------------------------------------------------------------------
 // Surface bridge callback (GI-I-01/GI-I-02): material RAB_Surface from the
 // DI-owned primary surface history, current or previous frame.
@@ -326,9 +330,15 @@ RAB_Surface RemixRAB_LoadSurface(int2 pixel, bool previousFrame)
         return RAB_EmptySurface();
     }
     const uint index = uint(pixel.y) * CleanRtxdiDiWidth + uint(pixel.x);
-    const PathTracePrimarySurfaceRecord record = previousFrame
-        ? PrimarySurfaceHistoryPrevious[index]
-        : PrimarySurfaceHistoryCurrent[index];
+    PathTracePrimarySurfaceRecord record = (PathTracePrimarySurfaceRecord)0;
+    if (previousFrame)
+    {
+        record = PrimarySurfaceHistoryPrevious[index];
+    }
+    else
+    {
+        record = PrimarySurfaceHistoryCurrent[index];
+    }
     return CleanGiMaterialSurfaceFromRecord(record);
 }
 
