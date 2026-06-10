@@ -4120,14 +4120,27 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
             giInputs.fallbackTexture = cleanFallbackTexture;
-            giInputs.emissiveTriangleBuffer = cleanOptionalSrv(m_smokeEmissiveTriangleBuffer);
-            giInputs.emissiveDistributionBuffer = cleanOptionalSrv(m_smokeEmissiveDistributionBuffer);
+            const bool cleanGiNeedsEmissiveTriangles = cleanConstants.currentEmissiveTriangleCount > 0u;
+            const bool cleanGiNeedsEmissiveDistribution = cleanEmissiveDistributionCount > 0u;
+            const bool cleanGiNeedsDoomAnalyticLights =
+                cleanConstants.analyticLightCount > 0u || cleanConstants.doomAnalyticFullCurrentCount > 0u;
+            const bool cleanGiNeedsRluCurrentLights = cleanConstants.rluCurrentLightCount > 0u;
+            giInputs.emissiveTriangleBuffer = cleanGiNeedsEmissiveTriangles
+                ? m_smokeEmissiveTriangleBuffer
+                : cleanOptionalSrv(m_smokeEmissiveTriangleBuffer);
+            giInputs.emissiveDistributionBuffer = cleanGiNeedsEmissiveDistribution
+                ? m_smokeEmissiveDistributionBuffer
+                : cleanOptionalSrv(m_smokeEmissiveDistributionBuffer);
             giInputs.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
             giInputs.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
             giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
             giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
-            giInputs.doomAnalyticLightBuffer = cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
-            giInputs.rluCurrentLightBuffer = cleanOptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer);
+            giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights
+                ? m_smokeDoomAnalyticLightBuffer
+                : cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
+            giInputs.rluCurrentLightBuffer = cleanGiNeedsRluCurrentLights
+                ? m_smokeRestirLightManagerCurrentPayloadBuffer
+                : cleanOptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer);
             giInputs.neeCacheProviderResultBuffer = cleanNeeCacheProviderSrv;
             giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
             giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;

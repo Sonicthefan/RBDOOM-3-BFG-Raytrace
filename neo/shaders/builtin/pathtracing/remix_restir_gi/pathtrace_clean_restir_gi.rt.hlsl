@@ -1127,23 +1127,31 @@ bool CleanGiSelectEmissiveDistributionSample(
     if (CleanRtxdiDiEmissiveDistributionInfo.y >= 0.5 && distributionCount > 0u)
     {
         const float selector = RAB_GetNextRandom(rng);
-        float previousCdf = 0.0;
+        uint low = 0u;
+        uint high = distributionCount;
         [loop]
-        for (uint entryIndex = 0u; entryIndex < distributionCount; ++entryIndex)
+        while (low < high)
         {
-            const PathTraceEmissiveDistributionEntry entry = SmokeEmissiveDistribution[entryIndex];
-            const float currentCdf = saturate(entry.cumulativePdf);
-            if (selector <= currentCdf || entryIndex + 1u == distributionCount)
+            const uint mid = low + ((high - low) >> 1u);
+            const PathTraceEmissiveDistributionEntry entry = SmokeEmissiveDistribution[mid];
+            if (selector <= saturate(entry.cumulativePdf))
             {
-                if (entry.emissiveTriangleIndex < CleanRtxdiDiCurrentEmissiveTriangleCount)
-                {
-                    sourceIndex = entry.emissiveTriangleIndex;
-                    sourcePdf = max(currentCdf - previousCdf, 1.0e-6);
-                    return true;
-                }
-                return false;
+                high = mid;
             }
-            previousCdf = currentCdf;
+            else
+            {
+                low = mid + 1u;
+            }
+        }
+        const uint entryIndex = min(low, distributionCount - 1u);
+        const PathTraceEmissiveDistributionEntry entry = SmokeEmissiveDistribution[entryIndex];
+        if (entry.emissiveTriangleIndex < CleanRtxdiDiCurrentEmissiveTriangleCount)
+        {
+            const float previousCdf = entryIndex > 0u ? saturate(SmokeEmissiveDistribution[entryIndex - 1u].cumulativePdf) : 0.0;
+            const float currentCdf = max(saturate(entry.cumulativePdf), previousCdf);
+            sourceIndex = entry.emissiveTriangleIndex;
+            sourcePdf = max(currentCdf - previousCdf, 1.0e-6);
+            return true;
         }
     }
 
