@@ -169,6 +169,57 @@ now routes OVER (filter flags cleared) with coverage from its makealpha()
 stage image wired as the alpha texture - matching the raster src-alpha blend
 of the art stage, instead of modulate/blackKey darkening.
 
+FIELD-TEST ROUND 2 (emissive_escaped_animation/glow_instead_of_overlay/
+alphabet_wrong_color dumps)
+------------------------------------------------------------------------
+Spectrum reveal worked but flickered green/blue, ran a phantom second cycle,
+and sibling spectrum decals in the room ran the wrong/no animation.
+ROOT CAUSE (not ID churn - the variant ids are per-entity stable; tableIndex
+churn 196->120 across runs is same-frame-consistent): the spectrum scale was
+a GLOBAL per-spectrum-number max over all in-view matching lights. The room
+has several spectrum-1 lights with independent animations; every decal pulsed
+with whichever light won the max that frame (flicker = differently-colored
+lights trading the max; the phantom cycle = a second light bleeding in).
+ALSO: spectrum decals with runtime registers (spectrum_symbol_letters_01,
+isDynamic=1) get per-entity EVAL records, and the synthesis SKIPPED rows with
+valid records -> those decals never received spectrum gating at all ("escaped
+animation": always-on lit layer).
+FIXES (round 2):
+  - RtSmokeDynamicMaterialEvalSample now carries a representative world
+    position (drawSurf tri bounds center -> world) per variant.
+  - BuildSmokeSpectrumLights collects ALL matching-spectrum view lights with
+    origin/radius/evaluated color (luminance capped at 8); a currently-dark
+    light still claims its volume so its decal goes dark with it.
+  - ChooseSmokeSpectrumLightColor picks the nearest light by volume-normalized
+    distance when the surface position is known (per-entity variants), else
+    the brightest match (constant-register base rows like pentastic).
+  - Spectrum gating now also applies ON TOP of eval records (multiplied into
+    record color, SELECTED_EMISSIVE set, disabled when the chosen light is
+    dark) - no more skipped rows.
+
+alphabet4 WRONG COLOR root cause: the eval record's generic stage selection
+picks the highest-luminance stage; the white bump stage (1,1,1) beats the
+authored yellow diffuse (0.949,0.561,0.200) seen in the dump. The sample now
+carries the DIFFUSE stage's evaluated color/condition separately and
+detail-decal records use it.
+
+HANDED OFF AS MUNDANE CLASSIFIER WORK (instructions for another agent):
+  1. textures/decals/alphabet3 ("glow_instead_of_overlay"): single ambient
+     `blend add` stage. Discovery marks it emissive=1 (FindSmokeEmissiveImage)
+     and the emissive-clear block strips additiveDecal -> detail-decal routes
+     OVER with coverage=1 (alpha reason 'emissive stage ignores alpha/blend
+     semantics') + EMISSIVE flag -> albedo fully replaced + glow. Correct
+     route: additive detail decals with emissive intent should take the
+     ADDITIVE composite branch (radiance-only, keyed opacity), not OVER. Fix
+     the ordering so detailDecal+additive survives the emissive-clear, or
+     special-case in the composite: EMISSIVE+OVER detail decal -> additive.
+     Files: PathTraceMaterialTextureDiscovery.cpp (emissive-clear block ~line
+     1135), composite branch order in pathtrace_primary_surface_producer.rt.hlsl.
+  2. Overlapping splat decals: bin sort works; overlap quality is OVER
+     coverage/ordering tuning (draw-order sort key is primitive-order proxy).
+     If two splats stack wrongly, check their sort keys and consider the
+     dedicated decal metadata buffer (DECAL-03 full version, 02 M2 packing).
+
 OPEN ITEMS / FIELD-TEST NOTES
 -----------------------------
 - pentastic pulse: if the pulse is authored as overbright stage color (>1),

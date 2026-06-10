@@ -285,10 +285,20 @@ bool SmokeDynamicMaterialSampleHasTexMatrix(const RtSmokeDynamicMaterialEvalSamp
         idMath::Fabs(sample.texMatrix[1][2]) > 1.0e-6f;
 }
 
-// Max per-spectrum-group color of the matching lights in view this frame.
-// Spectrum surfaces ("invisible writing") only receive matching-spectrum
-// lights; the decal composite consumes this as the layer's visibility/tint.
-static void BuildSmokeSpectrumLightColors(const viewDef_t* viewDef, std::unordered_map<int, idVec4>& spectrumColors)
+// Matching-spectrum lights in view this frame, with their volumes. Spectrum
+// surfaces ("invisible writing") only receive matching-spectrum lights, and a
+// room can hold several with INDEPENDENT animations - each decal must follow
+// the light whose volume covers it, never a global per-spectrum max (that
+// cross-poisons timings and colors between set pieces).
+struct RtSmokeSpectrumLight
+{
+    int spectrum = 0;
+    idVec3 origin = idVec3(0.0f, 0.0f, 0.0f);
+    float radius = 300.0f;
+    idVec4 color = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+};
+
+static void BuildSmokeSpectrumLights(const viewDef_t* viewDef, std::vector<RtSmokeSpectrumLight>& spectrumLights)
 {
     if (!viewDef)
     {
@@ -296,6 +306,7 @@ static void BuildSmokeSpectrumLightColors(const viewDef_t* viewDef, std::unorder
     }
 
     const float lightScale = r_lightScale.GetFloat();
+    const float intensityCap = 8.0f;
     for (const viewLight_t* vLight = viewDef->viewLights; vLight != NULL; vLight = vLight->next)
     {
         if (!vLight->lightShader || !vLight->shaderRegisters || vLight->removeFromList)
@@ -308,6 +319,15 @@ static void BuildSmokeSpectrumLightColors(const viewDef_t* viewDef, std::unorder
             continue;
         }
 
+        RtSmokeSpectrumLight spectrumLight;
+        spectrumLight.spectrum = spectrum;
+        spectrumLight.origin = vLight->globalLightOrigin;
+        if (vLight->lightDef)
+        {
+            const idVec3& lightRadiusVec = vLight->lightDef->parms.lightRadius;
+            spectrumLight.radius = Max(1.0f, Max(lightRadiusVec.x, Max(lightRadiusVec.y, lightRadiusVec.z)));
+        }
+
         const idMaterial* lightShader = vLight->lightShader;
         const float* lightRegs = vLight->shaderRegisters;
         for (int lightStageNum = 0; lightStageNum < lightShader->GetNumStages(); lightStageNum++)
@@ -318,23 +338,68 @@ static void BuildSmokeSpectrumLightColors(const viewDef_t* viewDef, std::unorder
                 continue;
             }
             const int* registers = lightStage->color.registers;
-            const idVec4 color(
+            idVec4 color(
                 Max(0.0f, lightScale * lightRegs[registers[0]]),
                 Max(0.0f, lightScale * lightRegs[registers[1]]),
                 Max(0.0f, lightScale * lightRegs[registers[2]]),
                 1.0f);
-            const float luminance = Max(color.x, Max(color.y, color.z));
-            if (luminance <= 0.0f)
+            float luminance = Max(color.x, Max(color.y, color.z));
+            if (luminance > intensityCap)
             {
-                continue;
+                const float scale = intensityCap / luminance;
+                color.x *= scale;
+                color.y *= scale;
+                color.z *= scale;
+                luminance = intensityCap;
             }
-            idVec4& best = spectrumColors[spectrum];
-            if (luminance > Max(best.x, Max(best.y, best.z)))
+            if (luminance > Max(spectrumLight.color.x, Max(spectrumLight.color.y, spectrumLight.color.z)))
             {
-                best = color;
+                spectrumLight.color = color;
             }
         }
+
+        // A currently-dark matching light still claims its volume: the decal it
+        // owns must go dark with it, not adopt another light's animation.
+        spectrumLights.push_back(spectrumLight);
     }
+}
+
+// Nearest matching-spectrum light by volume-normalized distance when a surface
+// position is known; brightest match otherwise.
+static bool ChooseSmokeSpectrumLightColor(
+    const std::vector<RtSmokeSpectrumLight>& spectrumLights,
+    int spectrum,
+    const idVec3* surfaceOrigin,
+    idVec4& chosenColor)
+{
+    bool found = false;
+    float bestScore = idMath::INFINITUM;
+    float bestLuminance = -1.0f;
+    for (const RtSmokeSpectrumLight& spectrumLight : spectrumLights)
+    {
+        if (spectrumLight.spectrum != spectrum)
+        {
+            continue;
+        }
+        const float luminance = Max(spectrumLight.color.x, Max(spectrumLight.color.y, spectrumLight.color.z));
+        if (surfaceOrigin)
+        {
+            const float score = (spectrumLight.origin - *surfaceOrigin).Length() / spectrumLight.radius;
+            if (!found || score < bestScore)
+            {
+                found = true;
+                bestScore = score;
+                chosenColor = spectrumLight.color;
+            }
+        }
+        else if (!found || luminance > bestLuminance)
+        {
+            found = true;
+            bestLuminance = luminance;
+            chosenColor = spectrumLight.color;
+        }
+    }
+    return found;
 }
 
 std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
@@ -351,6 +416,8 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
 
     records.resize(materialCount);
     int validRecordCount = 0;
+    std::vector<RtSmokeSpectrumLight> spectrumLights;
+    bool spectrumLightsBuilt = false;
 
     for (const RtSmokeDynamicMaterialEvalSample& sample : materialStats.dynamicEvalMaterialSamples)
     {
@@ -414,6 +481,53 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         {
             record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_PROGRAM;
         }
+        // Detail-decal overrides: the composite consumes record.color as the
+        // decal layer's tint, which must be the DIFFUSE stage's evaluated color
+        // (the generic selection above prefers the brightest stage and loses
+        // e.g. alphabet4's yellow to a white bump stage). Spectrum decals are
+        // additionally gated/tinted by their ASSOCIATED matching-spectrum light.
+        if (materialIndex < static_cast<int>(table.materialInfos.size()))
+        {
+            const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
+            if (info.detailDecal && sample.hasDiffuseStageColor)
+            {
+                record.color[0] = Max(0.0f, sample.diffuseStageColor[0]);
+                record.color[1] = Max(0.0f, sample.diffuseStageColor[1]);
+                record.color[2] = Max(0.0f, sample.diffuseStageColor[2]);
+                record.color[3] = idMath::ClampFloat(0.0f, 1.0f, sample.diffuseStageColor[3]);
+                record.texMatrix0[3] = sample.diffuseStageCondition;
+                if (sample.diffuseStageCondition != 0.0f)
+                {
+                    record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
+                }
+                else
+                {
+                    record.flags &= ~RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
+                }
+            }
+            if (info.detailDecal && info.detailDecalSpectrum > 0)
+            {
+                if (!spectrumLightsBuilt)
+                {
+                    BuildSmokeSpectrumLights(viewDef, spectrumLights);
+                    spectrumLightsBuilt = true;
+                }
+                idVec4 lightColor(0.0f, 0.0f, 0.0f, 1.0f);
+                ChooseSmokeSpectrumLightColor(
+                    spectrumLights,
+                    info.detailDecalSpectrum,
+                    sample.hasSurfaceOrigin ? &sample.surfaceOrigin : nullptr,
+                    lightColor);
+                record.color[0] *= lightColor.x;
+                record.color[1] *= lightColor.y;
+                record.color[2] *= lightColor.z;
+                record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
+                if (Max(record.color[0], Max(record.color[1], record.color[2])) <= 0.0f)
+                {
+                    record.flags &= ~RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED;
+                }
+            }
+        }
         if ((records[materialIndex].flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u)
         {
             ++validRecordCount;
@@ -421,12 +535,10 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         records[materialIndex] = record;
     }
 
-    // Synthesize records for spectrum detail decals (pentastic1_spectrum):
-    // the layer's visibility and tint track the brightest matching-spectrum
-    // light in view. No matching light -> stage disabled -> the composite
-    // drops the layer (invisible writing stays invisible).
-    std::unordered_map<int, idVec4> spectrumColors;
-    bool spectrumColorsBuilt = false;
+    // Synthesize records for spectrum detail decals with NO eval record
+    // (constant-register materials, e.g. pentastic1_spectrum): visibility and
+    // tint track the associated matching-spectrum light. No matching light ->
+    // stage disabled -> the composite drops the layer (invisible writing).
     const int infoCount = Min(materialCount, static_cast<int>(table.materialInfos.size()));
     for (int materialIndex = 0; materialIndex < infoCount; ++materialIndex)
     {
@@ -439,14 +551,14 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         {
             continue;
         }
-        if (!spectrumColorsBuilt)
+        if (!spectrumLightsBuilt)
         {
-            BuildSmokeSpectrumLightColors(viewDef, spectrumColors);
-            spectrumColorsBuilt = true;
+            BuildSmokeSpectrumLights(viewDef, spectrumLights);
+            spectrumLightsBuilt = true;
         }
 
-        const std::unordered_map<int, idVec4>::const_iterator match = spectrumColors.find(info.detailDecalSpectrum);
-        const idVec4 lightColor = match != spectrumColors.end() ? match->second : idVec4(0.0f, 0.0f, 0.0f, 1.0f);
+        idVec4 lightColor(0.0f, 0.0f, 0.0f, 1.0f);
+        ChooseSmokeSpectrumLightColor(spectrumLights, info.detailDecalSpectrum, nullptr, lightColor);
         const bool lit = lightColor.x > 0.0f || lightColor.y > 0.0f || lightColor.z > 0.0f;
 
         PathTraceDynamicMaterialRecord record;

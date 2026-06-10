@@ -107,6 +107,14 @@ struct RtSmokeDynamicMaterialEvalSample
     float alphaTest = 0.0f;
     idImage* image = nullptr;
     float texMatrix[2][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+    // Detail-decal channels: the DIFFUSE stage's evaluated color (generic stage
+    // selection can pick a white bump stage over the authored tint), and a
+    // representative world position for spectrum light association.
+    bool hasDiffuseStageColor = false;
+    float diffuseStageColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float diffuseStageCondition = 1.0f;
+    bool hasSurfaceOrigin = false;
+    idVec3 surfaceOrigin = idVec3(0.0f, 0.0f, 0.0f);
 };
 
 struct RtSmokeTranslucentSubtypeDebugSample

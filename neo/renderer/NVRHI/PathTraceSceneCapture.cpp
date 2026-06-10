@@ -478,6 +478,20 @@ static void SmokeDynamicEvalAccumulateSample(RtSmokeDynamicMaterialEvalSample& s
     sample.cinematicStages += surfaceSample.cinematicStages;
     sample.guiRenderTargetStages += surfaceSample.guiRenderTargetStages;
     sample.programStages += surfaceSample.programStages;
+    if (!sample.hasDiffuseStageColor && surfaceSample.hasDiffuseStageColor)
+    {
+        sample.hasDiffuseStageColor = true;
+        sample.diffuseStageCondition = surfaceSample.diffuseStageCondition;
+        for (int component = 0; component < 4; ++component)
+        {
+            sample.diffuseStageColor[component] = surfaceSample.diffuseStageColor[component];
+        }
+    }
+    if (!sample.hasSurfaceOrigin && surfaceSample.hasSurfaceOrigin)
+    {
+        sample.hasSurfaceOrigin = true;
+        sample.surfaceOrigin = surfaceSample.surfaceOrigin;
+    }
     if (SmokeDynamicEvalSampleShouldReplace(sample, surfaceSample))
     {
         SmokeDynamicEvalCopySelectedStage(sample, surfaceSample);
@@ -1027,6 +1041,34 @@ RtSmokeDynamicEvalBuildResult BuildSmokeDynamicMaterialEvalSampleForId(const dra
     surfaceSample.valid = false;
     surfaceSample.id = materialId;
     surfaceSample.name = material->GetName();
+
+    // Detail-decal channels: evaluate the first SL_DIFFUSE stage directly (the
+    // generic selection below prefers the brightest stage and can pick a white
+    // bump stage over the authored diffuse tint), and record a representative
+    // world position for spectrum light association.
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage || stage->lighting != SL_DIFFUSE)
+        {
+            continue;
+        }
+        surfaceSample.hasDiffuseStageColor = true;
+        SmokeEvalRegister(regs, registerCount, stage->conditionRegister, 1.0f, surfaceSample.diffuseStageCondition);
+        for (int component = 0; component < 4; ++component)
+        {
+            SmokeEvalRegister(regs, registerCount, stage->color.registers[component], 1.0f, surfaceSample.diffuseStageColor[component]);
+        }
+        break;
+    }
+    const srfTriangles_t* surfaceTri = drawSurf->frontEndGeo;
+    if (surfaceTri)
+    {
+        idVec3 worldCenter;
+        TransformSurfacePointToWorld(drawSurf, surfaceTri->bounds.GetCenter(), worldCenter);
+        surfaceSample.hasSurfaceOrigin = true;
+        surfaceSample.surfaceOrigin = worldCenter;
+    }
 
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
