@@ -2556,6 +2556,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
             primarySurfaceConstants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
             primarySurfaceConstants.decalInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount));
+            {
+                static int lastLoggedDecalStage = -1;
+                const int decalStageNow = static_cast<int>(primarySurfaceConstants.decalInfo[0]);
+                if (decalStageNow != lastLoggedDecalStage)
+                {
+                    lastLoggedDecalStage = decalStageNow;
+                    common->Printf("PathTracePrimaryPass: decal composite stage=%d offsetStep=%.3f maxOffsetIndex=%.0f modulateFloor=%.2f dynamicMaterialRecords=%d\n",
+                        decalStageNow,
+                        primarySurfaceConstants.decalInfo[1],
+                        primarySurfaceConstants.decalInfo[2],
+                        primarySurfaceConstants.decalInfo[3],
+                        m_sceneInputs.materials.dynamicMaterialRecordCount);
+                }
+            }
 
             commandList->setBufferState(m_smokeStaticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
             commandList->setBufferState(m_smokeStaticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
