@@ -4095,6 +4095,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
             m_frameResources.primarySurfaceHistoryNeedsClear = false;
         }
+        if (r_pathTracingCleanRestirGiEnable.GetInteger() != 0 ||
+            r_pathTracingCleanRestirGiDump.GetInteger() != 0)
         {
             // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom). Runs
             // after the DI lane so GI debug views overwrite the output; when
