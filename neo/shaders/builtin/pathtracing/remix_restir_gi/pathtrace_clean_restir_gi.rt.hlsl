@@ -1480,6 +1480,88 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
 }
 
 // ---------------------------------------------------------------------------
+// RGI-05: NEE cache seed. Mirrors the Remix integrate_nee ReSTIR GI feed:
+// build a GI sample from the cache-selected light at the PRIMARY surface
+// (position/normal from the light sample, radiance = lightSample.radiance /
+// (solidAnglePdf * cacheSourcePdf), visible samples only), stream it into an
+// un-finalized reservoir (M=1, weightSum = wi), and store it on the INIT page
+// before the temporal contract's initial RIS update merges it (M forced to 1
+// at finalize, so this adds a candidate without an energy shift).
+// ---------------------------------------------------------------------------
+
+static const uint CLEAN_RESTIR_GI_NEE_SEED_RNG_PASS = 0x52525811u;
+
+void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
+{
+    if (CleanRestirGiNeeCacheSeedEnabled == 0u)
+    {
+        return;
+    }
+
+    // The INIT page is transient: always overwrite it so a stale reservoir
+    // from a previous frame can never masquerade as a seed.
+    RTXDI_GIReservoir seeded = RTXDI_EmptyGIReservoir();
+
+    if (surfaceValid && CleanGiNeeCacheProviderReady())
+    {
+        RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+        const PathTraceNeeCacheCellDebug cell = PathTraceNeeCacheMapWorldPositionToCell(
+            RAB_GetSurfaceWorldPos(surface),
+            CleanRtxdiDiCameraOriginAndValid.xyz,
+            max((uint)max(CleanRtxdiDiNeeCacheInfo1.x, 1.0), 1u),
+            max(CleanRtxdiDiNeeCacheInfo1.y, 1.0),
+            max((uint)max(CleanRtxdiDiNeeCacheInfo1.z, 1.0), 1u));
+        const uint cellCount = max((uint)max(CleanRtxdiDiNeeCacheInfo1.z, 1.0), 1u);
+        if (cell.valid != 0u && cell.cellIndex < cellCount)
+        {
+            const PathTraceNeeCacheProviderResult providerResult = CleanRestirGiNeeCacheProviderResults[cell.cellIndex];
+            if (providerResult.flags != 0u &&
+                providerResult.selectedDenseRluIndex < CleanRtxdiDiRluCurrentLightCount &&
+                providerResult.sourcePdf > 1.0e-8)
+            {
+                const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(providerResult.selectedDenseRluIndex);
+                if (RAB_IsLightInfoValid(lightInfo))
+                {
+                    RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_NEE_SEED_RNG_PASS);
+                    const float2 uv = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+                    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, surface, uv);
+                    if (RAB_IsReplayableLightSample(lightSample) &&
+                        lightSample.solidAnglePdf > 1.0e-8 &&
+                        CleanGiLuminance(lightSample.radiance) > 0.0)
+                    {
+                        float3 lightDir;
+                        float lightDistance;
+                        RAB_GetLightDirDistance(surface, lightSample, lightDir, lightDistance);
+                        const float ndotl = saturate(dot(RAB_GetSurfaceNormal(surface), lightDir));
+                        const float visibility = ndotl > 0.0
+                            ? CleanGiTraceVisibility(RAB_GetSurfaceWorldPos(surface), RAB_GetSurfaceGeoNormal(surface), lightSample.position)
+                            : 0.0;
+                        if (visibility > 0.0)
+                        {
+                            const float3 seedRadiance = min(
+                                lightSample.radiance / max(lightSample.solidAnglePdf * providerResult.sourcePdf, 1.0e-6),
+                                float3(65504.0, 65504.0, 65504.0));
+                            const RTXDI_GIReservoir seedSample = RTXDI_MakeGIReservoir(
+                                lightSample.position,
+                                CleanGiSafeNormalize(lightSample.normal, -lightDir),
+                                seedRadiance,
+                                1.0);
+                            const float wi = RemixRAB_GetGISampleTargetPdfForSurface(seedSample.position, seedSample.radiance, surface);
+                            if (wi > 0.0)
+                            {
+                                RTXDI_CombineGIReservoirs(seeded, seedSample, 0.5, wi);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    RAB_StoreGIReservoir(seeded, int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+}
+
+// ---------------------------------------------------------------------------
 // Debug views
 // ---------------------------------------------------------------------------
 
@@ -1529,6 +1611,9 @@ void RayGen()
     CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
     CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
     CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
+
+    // ---- RGI-05 NEE cache seed (writes the INIT page pre-merge) ----
+    CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
 
     // ---- RGI-03/04 initial reservoir + temporal reuse (frozen contract) ----
     const RemixRestirGITemporalReuseResult temporalResult =
