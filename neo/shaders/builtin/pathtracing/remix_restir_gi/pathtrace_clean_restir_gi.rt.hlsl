@@ -272,6 +272,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
+static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
 static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
@@ -295,6 +296,7 @@ static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
@@ -894,6 +896,24 @@ float3 CleanGiSampleDiffuseAlbedo(PathTraceSmokeMaterial material, float2 texCoo
     return saturate(CleanGiSampleDiffuseTexture(material, texCoord).rgb);
 }
 
+float4 CleanGiSampleSurfaceAlbedo(
+    PathTraceSmokeMaterial material,
+    float2 texCoord,
+    uint surfaceClass,
+    uint translucentSubtype,
+    float4 vertexColor)
+{
+    float4 albedo = CleanGiSampleDiffuseTexture(material, texCoord);
+    if (surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN)
+    {
+        albedo = material.diffuseTextureIndex != 0xffffffffu
+            ? float4(albedo.rgb * vertexColor.rgb, albedo.a * vertexColor.a)
+            : vertexColor;
+    }
+    return saturate(albedo);
+}
+
 float4 CleanGiSampleAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
     return material.alphaTextureIndex != 0xffffffffu
@@ -978,6 +998,74 @@ float3 CleanGiSampleDirectSpecular(PathTraceSmokeMaterial material, float2 texCo
         float4(0.0, 0.0, 0.0, 1.0)).rgb);
 }
 
+float3 CleanGiBuildPerpendicular(float3 normal)
+{
+    const float3 axis = abs(normal.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(0.0, 1.0, 0.0);
+    return CleanGiSafeNormalize(cross(axis, normal), float3(1.0, 0.0, 0.0));
+}
+
+float3 CleanGiDecodeNormalTexture(
+    PathTraceSmokeMaterial material,
+    float2 texCoord,
+    float3 normal,
+    float3 tangent,
+    float3 bitangent)
+{
+    if (material.normalTextureIndex == 0xffffffffu ||
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS) == 0u))
+    {
+        return normal;
+    }
+
+    const float4 bump = CleanGiSampleTexture(
+        material.normalTextureIndex,
+        material.normalTextureWidth,
+        material.normalTextureHeight,
+        texCoord,
+        float4(0.5, 0.5, 1.0, 1.0)) * 2.0 - 1.0;
+    if (!all(bump == bump))
+    {
+        return normal;
+    }
+
+    const float2 normalXY = SmokeMatClassNormalXY(material, bump, 0.0);
+    float3 decoded = float3(normalXY, 0.0);
+    const float xyLengthSquared = dot(decoded.xy, decoded.xy);
+    if (xyLengthSquared >= 1.0)
+    {
+        decoded.xy *= rsqrt(xyLengthSquared);
+        decoded.z = 0.0;
+    }
+    else
+    {
+        decoded.z = sqrt(1.0 - xyLengthSquared);
+    }
+    return CleanGiSafeNormalize(tangent * decoded.x + bitangent * decoded.y + normal * decoded.z, normal);
+}
+
+float3 CleanGiConstrainShadingNormal(float3 shadingNormal, float3 geometryNormal)
+{
+    const float minGeometryDot = 0.02;
+    geometryNormal = CleanGiSafeNormalize(geometryNormal, float3(0.0, 0.0, 1.0));
+    shadingNormal = CleanGiSafeNormalize(shadingNormal, geometryNormal);
+    const float geometryDot = dot(shadingNormal, geometryNormal);
+    if (geometryDot >= minGeometryDot)
+    {
+        return shadingNormal;
+    }
+
+    float3 tangentComponent = shadingNormal - geometryNormal * geometryDot;
+    const float tangentLengthSquared = dot(tangentComponent, tangentComponent);
+    if (tangentLengthSquared <= 1.0e-8)
+    {
+        return geometryNormal;
+    }
+
+    tangentComponent *= rsqrt(tangentLengthSquared);
+    const float tangentScale = sqrt(max(1.0 - minGeometryDot * minGeometryDot, 0.0));
+    return CleanGiSafeNormalize(tangentComponent * tangentScale + geometryNormal * minGeometryDot, geometryNormal);
+}
+
 bool CleanGiMaterialUsesUnlitColorFallback(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
 {
     if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
@@ -1027,9 +1115,10 @@ RAB_Material CleanGiBuildMaterialFromHit(
     float2 texCoord,
     uint surfaceClass,
     uint translucentSubtype,
-    uint triangleClassAndFlags)
+    uint triangleClassAndFlags,
+    float4 vertexColor)
 {
-    float3 materialAlbedo = CleanGiSampleDiffuseAlbedo(smokeMaterial, texCoord);
+    float3 materialAlbedo = CleanGiSampleSurfaceAlbedo(smokeMaterial, texCoord, surfaceClass, translucentSubtype, vertexColor).rgb;
     const float3 specularColor = CleanGiSampleDirectSpecular(smokeMaterial, texCoord);
     float3 specularF0 = specularColor;
     float roughness = 1.0;
@@ -1073,6 +1162,131 @@ float3 CleanGiTransformRigidRoutePoint(PathTraceRigidRouteInstance routeInstance
         dot(routeInstance.currentObjectToWorld0, float4(localPoint, 1.0)),
         dot(routeInstance.currentObjectToWorld1, float4(localPoint, 1.0)),
         dot(routeInstance.currentObjectToWorld2, float4(localPoint, 1.0)));
+}
+
+float3 CleanGiTransformRigidRouteVector(PathTraceRigidRouteInstance routeInstance, float3 localVector)
+{
+    return float3(
+        dot(routeInstance.currentObjectToWorld0.xyz, localVector),
+        dot(routeInstance.currentObjectToWorld1.xyz, localVector),
+        dot(routeInstance.currentObjectToWorld2.xyz, localVector));
+}
+
+bool CleanGiLoadTriangleGeometryFull(
+    uint instanceId,
+    uint primitiveIndex,
+    out float3 p0, out float3 p1, out float3 p2,
+    out float3 n0, out float3 n1, out float3 n2,
+    out float2 uv0, out float2 uv1, out float2 uv2,
+    out float4 c0, out float4 c1, out float4 c2,
+    out float4 c20, out float4 c21, out float4 c22)
+{
+    p0 = float3(0.0, 0.0, 0.0);
+    p1 = float3(0.0, 0.0, 0.0);
+    p2 = float3(0.0, 0.0, 0.0);
+    n0 = float3(0.0, 0.0, 1.0);
+    n1 = float3(0.0, 0.0, 1.0);
+    n2 = float3(0.0, 0.0, 1.0);
+    uv0 = float2(0.0, 0.0);
+    uv1 = float2(0.0, 0.0);
+    uv2 = float2(0.0, 0.0);
+    c0 = float4(1.0, 1.0, 1.0, 1.0);
+    c1 = float4(1.0, 1.0, 1.0, 1.0);
+    c2 = float4(1.0, 1.0, 1.0, 1.0);
+    c20 = float4(0.5, 0.5, 0.5, 0.5);
+    c21 = float4(0.5, 0.5, 0.5, 0.5);
+    c22 = float4(0.5, 0.5, 0.5, 0.5);
+
+    if (instanceId == 0u)
+    {
+        const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo0.x, 0.0);
+        const uint indexCount = (uint)max(CleanRtxdiDiGeometryInfo0.y, 0.0);
+        const uint triangleCount = (uint)max(CleanRtxdiDiGeometryInfo0.z, 0.0);
+        const uint indexOffset = primitiveIndex * 3u;
+        if (primitiveIndex >= triangleCount || indexOffset + 2u >= indexCount)
+        {
+            return false;
+        }
+        const uint i0 = SmokeStaticIndices[indexOffset + 0u];
+        const uint i1 = SmokeStaticIndices[indexOffset + 1u];
+        const uint i2 = SmokeStaticIndices[indexOffset + 2u];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 = SmokeStaticVertices[i0];
+        const PathTraceSmokeVertex v1 = SmokeStaticVertices[i1];
+        const PathTraceSmokeVertex v2 = SmokeStaticVertices[i2];
+        p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
+        n0 = v0.normal.xyz; n1 = v1.normal.xyz; n2 = v2.normal.xyz;
+        uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        c0 = v0.color; c1 = v1.color; c2 = v2.color;
+        c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
+        return true;
+    }
+    if (instanceId == 1u)
+    {
+        const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo0.w, 0.0);
+        const uint indexCount = (uint)max(CleanRtxdiDiGeometryInfo1.x, 0.0);
+        const uint triangleCount = (uint)max(CleanRtxdiDiGeometryInfo1.y, 0.0);
+        const uint indexOffset = primitiveIndex * 3u;
+        if (primitiveIndex >= triangleCount || indexOffset + 2u >= indexCount)
+        {
+            return false;
+        }
+        const uint i0 = SmokeDynamicIndices[indexOffset + 0u];
+        const uint i1 = SmokeDynamicIndices[indexOffset + 1u];
+        const uint i2 = SmokeDynamicIndices[indexOffset + 2u];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+        {
+            return false;
+        }
+        const PathTraceSmokeVertex v0 = SmokeDynamicVertices[i0];
+        const PathTraceSmokeVertex v1 = SmokeDynamicVertices[i1];
+        const PathTraceSmokeVertex v2 = SmokeDynamicVertices[i2];
+        p0 = v0.position.xyz; p1 = v1.position.xyz; p2 = v2.position.xyz;
+        n0 = v0.normal.xyz; n1 = v1.normal.xyz; n2 = v2.normal.xyz;
+        uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+        c0 = v0.color; c1 = v1.color; c2 = v2.color;
+        c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
+        return true;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= routeInstanceCount)
+    {
+        return false;
+    }
+    const PathTraceRigidRouteInstance route = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint vertexCount = (uint)max(CleanRtxdiDiGeometryInfo1.z, 0.0);
+    const uint indexCount = (uint)max(CleanRtxdiDiGeometryInfo1.w, 0.0);
+    const uint indexOffset = route.indexOffset + primitiveIndex * 3u;
+    if (primitiveIndex >= route.triangleCount || indexOffset + 2u >= indexCount)
+    {
+        return false;
+    }
+    const uint i0 = SmokeRigidRouteIndices[indexOffset + 0u];
+    const uint i1 = SmokeRigidRouteIndices[indexOffset + 1u];
+    const uint i2 = SmokeRigidRouteIndices[indexOffset + 2u];
+    if (i0 >= route.vertexCount || i1 >= route.vertexCount || i2 >= route.vertexCount ||
+        route.vertexOffset + i0 >= vertexCount || route.vertexOffset + i1 >= vertexCount || route.vertexOffset + i2 >= vertexCount)
+    {
+        return false;
+    }
+    const PathTraceSmokeVertex v0 = SmokeRigidRouteVertices[route.vertexOffset + i0];
+    const PathTraceSmokeVertex v1 = SmokeRigidRouteVertices[route.vertexOffset + i1];
+    const PathTraceSmokeVertex v2 = SmokeRigidRouteVertices[route.vertexOffset + i2];
+    p0 = CleanGiTransformRigidRoutePoint(route, v0.position.xyz);
+    p1 = CleanGiTransformRigidRoutePoint(route, v1.position.xyz);
+    p2 = CleanGiTransformRigidRoutePoint(route, v2.position.xyz);
+    n0 = CleanGiTransformRigidRouteVector(route, v0.normal.xyz);
+    n1 = CleanGiTransformRigidRouteVector(route, v1.normal.xyz);
+    n2 = CleanGiTransformRigidRouteVector(route, v2.normal.xyz);
+    uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
+    c0 = v0.color; c1 = v1.color; c2 = v2.color;
+    c20 = v0.color2; c21 = v1.color2; c22 = v2.color2;
+    return true;
 }
 
 bool CleanGiLoadTriangleGeometry(
@@ -1215,13 +1429,39 @@ bool CleanGiMaterialRejectsHit(uint instanceId, uint primitiveIndex, float2 bary
         return false;
     }
 
-    float2 texCoord;
-    if (!CleanGiLoadHitTexCoord(instanceId, primitiveIndex, barycentrics, texCoord))
+    float3 p0, p1, p2;
+    float3 n0, n1, n2;
+    float2 uv0, uv1, uv2;
+    float4 c0, c1, c2;
+    float4 c20, c21, c22;
+    if (!CleanGiLoadTriangleGeometryFull(
+        instanceId,
+        primitiveIndex,
+        p0, p1, p2,
+        n0, n1, n2,
+        uv0, uv1, uv2,
+        c0, c1, c2,
+        c20, c21, c22))
     {
         return false;
     }
+    const float b1 = saturate(barycentrics.x);
+    const float b2 = saturate(barycentrics.y);
+    const float b0 = saturate(1.0 - b1 - b2);
+    const float2 texCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+    const float4 vertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
     const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+    const uint triangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(instanceId, primitiveIndex);
+    const uint surfaceClass = CleanGiTriangleSurfaceClass(triangleClassAndFlags);
+    const uint translucentSubtype = CleanGiTriangleTranslucentSubtype(triangleClassAndFlags);
+    if (surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN &&
+        vertexColor.a <= 0.03)
+    {
+        return true;
+    }
+
     const float coverage = saturate(CleanGiAlphaCoverage(material, texCoord));
     if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u &&
         coverage < material.alphaCutoff)
@@ -1757,21 +1997,71 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     const float3 hitPosition = bounceRay.Origin + bounceDir * payload.hitT;
 
     float3 p0, p1, p2;
+    float3 n0, n1, n2;
     float2 uv0, uv1, uv2;
-    float3 hitNormal = -bounceDir;
+    float4 c0, c1, c2;
+    float4 c20, c21, c22;
+    float3 hitGeometricNormal = -bounceDir;
+    float3 hitShadingNormal = -bounceDir;
     float2 hitTexCoord = float2(0.0, 0.0);
-    if (CleanGiLoadTriangleGeometry(payload.hitInstanceId, payload.hitPrimitiveIndex, p0, p1, p2, uv0, uv1, uv2))
+    float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
+    if (CleanGiLoadTriangleGeometryFull(
+        payload.hitInstanceId,
+        payload.hitPrimitiveIndex,
+        p0, p1, p2,
+        n0, n1, n2,
+        uv0, uv1, uv2,
+        c0, c1, c2,
+        c20, c21, c22))
     {
         const float3 crossValue = cross(p1 - p0, p2 - p0);
-        hitNormal = CleanGiSafeNormalize(crossValue, -bounceDir);
-        if (dot(hitNormal, bounceDir) > 0.0)
+        hitGeometricNormal = CleanGiSafeNormalize(crossValue, -bounceDir);
+        if (dot(hitGeometricNormal, bounceDir) > 0.0)
         {
-            hitNormal = -hitNormal;
+            hitGeometricNormal = -hitGeometricNormal;
         }
         const float b1 = saturate(payload.hitBarycentrics.x);
         const float b2 = saturate(payload.hitBarycentrics.y);
         const float b0 = saturate(1.0 - b1 - b2);
         hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+        hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
+
+        const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+        const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
+        float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, hitGeometricNormal);
+        if (dot(interpolatedNormal, hitGeometricNormal) < 0.0)
+        {
+            interpolatedNormal = -interpolatedNormal;
+        }
+        hitShadingNormal = forceGeometricNormal ? hitGeometricNormal : interpolatedNormal;
+
+        const float3 tangentFallback = CleanGiBuildPerpendicular(hitShadingNormal);
+        const float3 bitangentFallback = CleanGiSafeNormalize(cross(hitShadingNormal, tangentFallback), float3(0.0, 1.0, 0.0));
+        float3 hitTangent = tangentFallback;
+        float3 hitBitangent = bitangentFallback;
+        const float3 dp1 = p1 - p0;
+        const float3 dp2 = p2 - p0;
+        const float2 duv1 = uv1 - uv0;
+        const float2 duv2 = uv2 - uv0;
+        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
+        if (abs(uvDeterminant) > 1.0e-8)
+        {
+            const float inverseDeterminant = 1.0 / uvDeterminant;
+            const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
+            const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
+            hitTangent = CleanGiSafeNormalize(rawTangent - hitShadingNormal * dot(hitShadingNormal, rawTangent), tangentFallback);
+            hitBitangent = CleanGiSafeNormalize(rawBitangent - hitShadingNormal * dot(hitShadingNormal, rawBitangent) - hitTangent * dot(hitTangent, rawBitangent), bitangentFallback);
+            if (dot(cross(hitTangent, hitBitangent), hitShadingNormal) < 0.0)
+            {
+                hitBitangent = -hitBitangent;
+            }
+        }
+
+        const uint hitMaterialIndexForNormal = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
+        const PathTraceSmokeMaterial hitMaterialForNormal = CleanGiLoadSmokeMaterial(hitMaterialIndexForNormal);
+        hitShadingNormal = CleanGiConstrainShadingNormal(
+            CleanGiDecodeNormalTexture(hitMaterialForNormal, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            hitGeometricNormal);
     }
 
     const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
@@ -1787,15 +2077,16 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
         hitTexCoord,
         hitSurfaceClass,
         hitTranslucentSubtype,
-        hitTriangleClassAndFlags);
+        hitTriangleClassAndFlags,
+        hitVertexColor);
     const float3 hitEmissive = hitRabMaterial.emissiveRadiance;
 
     RAB_Surface secondarySurface = RAB_EmptySurface();
     secondarySurface.valid = 1u;
     secondarySurface.worldPos = hitPosition;
     secondarySurface.linearDepth = payload.hitT;
-    secondarySurface.geometryNormal = hitNormal;
-    secondarySurface.shadingNormal = hitNormal;
+    secondarySurface.geometryNormal = hitGeometricNormal;
+    secondarySurface.shadingNormal = hitShadingNormal;
     secondarySurface.viewDir = -bounceDir;
     secondarySurface.materialId = hitMaterialId;
     secondarySurface.materialIndex = hitMaterialIndex;
@@ -1805,7 +2096,7 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     secondarySurface.flags = hitTriangleClassAndFlags;
     secondarySurface.material = hitRabMaterial;
 
-    const float3 outgoing = CleanGiShadeSecondaryVertex(secondarySurface, hitNormal, hitEmissive, rng);
+    const float3 outgoing = CleanGiShadeSecondaryVertex(secondarySurface, hitGeometricNormal, hitEmissive, rng);
 
     // Producer radiance contract: incoming radiance at the primary surface
     // divided by the bounce-direction solid-angle pdf; the primary BSDF and
@@ -1834,7 +2125,7 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     result.radiance = max(producerRadiance, float3(0.0, 0.0, 0.0));
     result.pathLength = payload.hitT;
     result.hitPosition = hitPosition;
-    result.hitNormal = hitNormal;
+    result.hitNormal = hitShadingNormal;
     return result;
 }
 
