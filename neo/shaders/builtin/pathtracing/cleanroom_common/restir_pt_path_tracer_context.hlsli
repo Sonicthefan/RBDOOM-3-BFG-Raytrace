@@ -248,6 +248,7 @@ struct RTXDI_PathTracerContext
         reservoir.WeightSum = 1.0;
         reservoir.M = max(reservoir.M + 1u, 1u);
         reservoir.TranslatedWorldPosition = RAB_GetSurfaceWorldPos(surface);
+        reservoir.WorldNormal = RAB_GetSurfaceNormal(surface);
         reservoir.PathLength = bounceDepth + 1u;
         reservoir.RcVertexLength = min(reservoir.PathLength, maxRcVertexLength);
         reservoir.PartialJacobian = max(reconnectibility.partialJacobian, 1.0e-6);
@@ -282,6 +283,7 @@ struct RTXDI_PathTracerContext
         reservoir.WeightSum = 1.0;
         reservoir.M = max(reservoir.M + 1u, 1u);
         reservoir.TranslatedWorldPosition = lightSample.position;
+        reservoir.WorldNormal = RAB_GetSurfaceNormal(intersectionSurface);
         reservoir.PathLength = bounceDepth + 1u;
         reservoir.RcVertexLength = reservoir.PathLength;
         reservoir.PartialJacobian = 1.0;
