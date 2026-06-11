@@ -13,8 +13,8 @@
 #include "../RAB_LightTarget.hlsli"
 #include "../RAB_MISCallbacks.hlsli"
 #include "../RAB_Visibility.hlsli"
-#include "Rtxdi/PT/PathTracerContext.hlsli"
-#include "Rtxdi/PT/PathTracerRandomContext.hlsli"
+#include "../../cleanroom_common/restir_pt_path_tracer_context.hlsli"
+#include "../../cleanroom_common/restir_pt_path_tracer_random_context.hlsli"
 #include "RAB_PathTracerUserData.hlsli"
 
 RAB_RayPayload RAB_BuildRayPayloadFromSmokePayload(PathTraceSmokePayload payload, float3 rayDirection)
