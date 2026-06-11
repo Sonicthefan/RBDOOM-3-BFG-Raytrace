@@ -86,10 +86,24 @@ file(GLOB_RECURSE PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES
 set(PATH_TRACING_RANDOM_SAMPLER_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/RandomSamplerState.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_random_sampler_state.hlsli)
+set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/RtxdiParameters.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/Color.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/SampledLightData.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/BrdfRaySample.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/ReservoirAddressing.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/Math.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_parameters.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_color.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_sampled_light_data.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_brdf_ray_sample.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_reservoir_addressing.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_math.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
+    ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
     ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES})
 if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/Reservoir.hlsli")
     list(APPEND PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
@@ -98,11 +112,8 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/R
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/ReSTIRDIParameters.h
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/TemporalResampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/ReservoirStorage.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/RtxdiParameters.h
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Checkerboard.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli)
 endif()
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/*.hlsli"
@@ -111,6 +122,7 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
+    ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
     ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES}
     ${PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES})
 if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/Reservoir.hlsli")
@@ -119,10 +131,7 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/R
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/TemporalResampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/SpatialResampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/BoilingFilter.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/ReSTIRGIParameters.h
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/RtxdiParameters.h
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/ReSTIRGIParameters.h)
 endif()
 option(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS "Build legacy monolithic ReSTIR PT diagnostic RT shader libraries that are not used by the mode 56 primary-prepass path." OFF)
 option(PATH_TRACING_BUILD_DXIL_RT_SHADERS "Build DirectX DXIL path tracing RT shader libraries. Disable for Vulkan-only PT debug iteration." ON)

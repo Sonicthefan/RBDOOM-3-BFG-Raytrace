@@ -5,6 +5,7 @@
 #include "Rtxdi/Utils/Color.hlsli"
 #include "restir_random_sampler_state.hlsli"
 #include "Rtxdi/Utils/SampledLightData.hlsli"
+#include "Rtxdi/Utils/ReservoirAddressing.hlsli"
 
 #ifndef RTXDI_PT_RESERVOIR_BUFFER
 #error "RTXDI_PT_RESERVOIR_BUFFER must name the ReSTIR PT reservoir RWStructuredBuffer."
@@ -287,41 +288,6 @@ RTXDI_PTReservoir RTXDI_UnpackPTReservoir(in const RTXDI_PackedPTReservoir packe
     reservoir.RandomIndex = packedReservoir.Data3.w;
     return reservoir;
 }
-
-#ifndef RTXDI_RESERVOIR_ADDRESSING_HLSLI
-#define RTXDI_RESERVOIR_ADDRESSING_HLSLI
-
-uint2 RTXDI_PixelPosToReservoirPos(uint2 pixelPosition, uint activeCheckerboardField)
-{
-    return pixelPosition;
-}
-
-uint RTXDI_ReservoirPositionToPointer(
-    RTXDI_ReservoirBufferParameters reservoirParams,
-    uint2 reservoirPosition,
-    uint reservoirArrayIndex)
-{
-    const uint blockSize = 16u;
-    const uint blockArea = blockSize * blockSize;
-    const uint blockX = reservoirPosition.x / blockSize;
-    const uint blockY = reservoirPosition.y / blockSize;
-    const uint inBlockX = reservoirPosition.x & (blockSize - 1u);
-    const uint inBlockY = reservoirPosition.y & (blockSize - 1u);
-    const uint blockIndexInRow = blockX * blockArea;
-    const uint blockRowOffset = blockY * reservoirParams.reservoirBlockRowPitch;
-    const uint inBlockOffset = inBlockY * blockSize + inBlockX;
-    return reservoirArrayIndex * reservoirParams.reservoirArrayPitch + blockRowOffset + blockIndexInRow + inBlockOffset;
-}
-
-void RTXDI_ApplyPermutationSampling(inout int2 prevPixelPos, uint uniformRandomNumber)
-{
-    const int2 offset = int2(
-        (int)(uniformRandomNumber & 3u) - 1,
-        (int)((uniformRandomNumber >> 2) & 3u) - 1);
-    prevPixelPos += clamp(offset, int2(-1, -1), int2(1, 1));
-}
-
-#endif
 
 void RTXDI_StorePackedPTReservoir(
     const RTXDI_PackedPTReservoir packedPTReservoir,

@@ -1,0 +1,6 @@
+#ifndef RB_PATH_TRACING_RTXDI_UTILS_RESERVOIR_ADDRESSING_HLSLI
+#define RB_PATH_TRACING_RTXDI_UTILS_RESERVOIR_ADDRESSING_HLSLI
+
+#include "cleanroom_common/restir_shared_reservoir_addressing.hlsli"
+
+#endif
