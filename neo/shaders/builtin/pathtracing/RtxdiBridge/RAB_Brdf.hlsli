@@ -4,9 +4,11 @@
 #include "RAB_SurfaceCore.hlsli"
 #include "RAB_RandomSamplerState.hlsli"
 
+static const float RB_RAB_BRDF_PI = 3.14159265358979323846;
+
 float3 RAB_CosineHemisphereDirection(float3 normal, float2 randomValues)
 {
-    const float phi = 2.0 * RTXDI_PI * randomValues.x;
+    const float phi = 2.0 * RB_RAB_BRDF_PI * randomValues.x;
     const float radius = sqrt(saturate(randomValues.y));
     const float x = cos(phi) * radius;
     const float y = sin(phi) * radius;
@@ -39,7 +41,7 @@ float RAB_GetSurfaceBrdfPdf(RAB_Surface surface, float3 dir)
 
     const float3 normal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float ndotDir = saturate(dot(normal, RAB_SafeNormalize(dir, normal)));
-    return dot(RAB_GetSurfaceGeoNormal(surface), dir) > 0.0 ? ndotDir / RTXDI_PI : 0.0;
+    return dot(RAB_GetSurfaceGeoNormal(surface), dir) > 0.0 ? ndotDir / RB_RAB_BRDF_PI : 0.0;
 }
 
 float3 RAB_EvaluateSurfaceBrdf(RAB_Surface surface, float3 wi, float3 wo)
@@ -57,7 +59,7 @@ float3 RAB_EvaluateSurfaceBrdf(RAB_Surface surface, float3 wi, float3 wo)
         {
             return float3(0.0, 0.0, 0.0);
         }
-        return GetDiffuseAlbedo(surface.material) * (1.0 / RTXDI_PI);
+        return GetDiffuseAlbedo(surface.material) * (1.0 / RB_RAB_BRDF_PI);
     }
 #endif
     if (dot(normal, wi) <= 0.0 || dot(normal, wo) <= 0.0 ||
@@ -67,7 +69,7 @@ float3 RAB_EvaluateSurfaceBrdf(RAB_Surface surface, float3 wi, float3 wo)
         return float3(0.0, 0.0, 0.0);
     }
 
-    return GetDiffuseAlbedo(surface.material) * (1.0 / RTXDI_PI);
+    return GetDiffuseAlbedo(surface.material) * (1.0 / RB_RAB_BRDF_PI);
 }
 
 float3 RAB_EvaluateSurfaceBrdfOverPdf(RAB_Surface surface, float3 wi, float3 wo)

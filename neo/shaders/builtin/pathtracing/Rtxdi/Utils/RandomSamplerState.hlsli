@@ -1,0 +1,6 @@
+#ifndef RB_PATH_TRACING_RTXDI_UTILS_RANDOM_SAMPLER_STATE_HLSLI
+#define RB_PATH_TRACING_RTXDI_UTILS_RANDOM_SAMPLER_STATE_HLSLI
+
+#include "cleanroom_common/restir_random_sampler_state.hlsli"
+
+#endif

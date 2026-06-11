@@ -23,6 +23,8 @@
 #ifndef RB_PATH_TRACING_RAB_LIGHT_LOAD_RUNTIME_HLSLI
 #define RB_PATH_TRACING_RAB_LIGHT_LOAD_RUNTIME_HLSLI
 
+static const float RB_RAB_LIGHT_LOAD_PI = 3.14159265358979323846;
+
 uint RAB_GetCurrentUnifiedLightCount()
 {
     return (uint)max(UnifiedLightInfo.x, 0.0);
@@ -429,7 +431,7 @@ RAB_LightInfo RAB_BuildLightInfoFromDoomAnalyticPayload(PathTraceDoomAnalyticLig
     lightInfo.radius = radius;
     lightInfo.influenceRadius = influenceRadius;
     lightInfo.normal = float3(0.0, 0.0, 1.0);
-    lightInfo.area = 4.0 * RTXDI_PI * radius * radius;
+    lightInfo.area = 4.0 * RB_RAB_LIGHT_LOAD_PI * radius * radius;
     lightInfo.radiance = radiance;
     lightInfo.weight = radianceLuminance * lightInfo.area * influenceRadius;
     return lightInfo;

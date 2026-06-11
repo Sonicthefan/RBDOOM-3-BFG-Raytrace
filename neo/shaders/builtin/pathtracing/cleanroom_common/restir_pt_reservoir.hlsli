@@ -3,7 +3,7 @@
 
 #include "Rtxdi/RtxdiParameters.h"
 #include "Rtxdi/Utils/Color.hlsli"
-#include "Rtxdi/Utils/RandomSamplerState.hlsli"
+#include "restir_random_sampler_state.hlsli"
 #include "Rtxdi/Utils/SampledLightData.hlsli"
 
 #ifndef RTXDI_PT_RESERVOIR_BUFFER

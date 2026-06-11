@@ -137,6 +137,8 @@ RtxdiBridge/PathTracer/RAB_PathTracerUserData.hlsli             DELETE?
     PT/ReSTIRPTParameters.h
 RtxdiBridge/PathTracer/RAB_PathTracerNee.hlsli                  DELETE?
     DI/InitialSampling.hlsli
+cleanroom_common/restir_pt_reservoir.hlsli                      REWRITE
+    Utils/Color.hlsli, Utils/SampledLightData.hlsli
 
 Note: the clean DI/GI lanes pull some RtxdiBridge/*.hlsli helpers
 (surface, light records, NEE cache). Those helper files contain no Rtxdi

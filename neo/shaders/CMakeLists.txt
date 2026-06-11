@@ -83,9 +83,13 @@ file(GLOB_RECURSE PATH_TRACING_SHADER_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/*.hlsli")
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_rtxdi/*.hlsli")
+set(PATH_TRACING_RANDOM_SAMPLER_INCLUDES
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/RandomSamplerState.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_random_sampler_state.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES})
 if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/Reservoir.hlsli")
     list(APPEND PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
@@ -98,7 +102,6 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/R
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Checkerboard.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerState.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
 endif()
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
@@ -107,6 +110,7 @@ file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
 set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/vulkan.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/PathTracePrimarySurface.hlsli
+    ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES}
     ${PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES})
 if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/Reservoir.hlsli")
@@ -118,7 +122,6 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/R
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/ReSTIRGIParameters.h
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/RtxdiParameters.h
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Math.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerState.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/ReservoirAddressing.hlsli)
 endif()
 option(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS "Build legacy monolithic ReSTIR PT diagnostic RT shader libraries that are not used by the mode 56 primary-prepass path." OFF)

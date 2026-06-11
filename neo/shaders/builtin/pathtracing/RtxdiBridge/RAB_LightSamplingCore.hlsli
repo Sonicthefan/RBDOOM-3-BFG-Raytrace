@@ -9,6 +9,8 @@
 #include "RAB_LightInfo.hlsli"
 #endif
 
+static const float RB_RAB_LIGHT_SAMPLING_PI = 3.14159265358979323846;
+
 float RAB_Luminance(float3 radiance)
 {
     return dot(max(radiance, float3(0.0, 0.0, 0.0)), float3(0.2126, 0.7152, 0.0722));
@@ -26,7 +28,7 @@ float3 RAB_SampleDirectionCone(float3 axis, float cosThetaMax, float2 uv)
 {
     const float cosTheta = lerp(1.0, cosThetaMax, saturate(uv.x));
     const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-    const float phi = 2.0 * RTXDI_PI * saturate(uv.y);
+    const float phi = 2.0 * RB_RAB_LIGHT_SAMPLING_PI * saturate(uv.y);
     const float3 tangent = RAB_BuildPerpendicular(axis);
     const float3 bitangent = RAB_SafeNormalize(cross(axis, tangent), float3(0.0, 1.0, 0.0));
     return RAB_SafeNormalize(axis * cosTheta + tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta), axis);
@@ -311,7 +313,7 @@ RAB_LightSample RAB_SampleDoomAnalyticSphereLight(RAB_LightInfo lightInfo, RAB_S
     const float sphereRadius = clamp(lightInfo.radius, 0.01, doomRadius);
     const float sinThetaMax = saturate(sphereRadius / centerDistance);
     const float cosThetaMax = sqrt(max(0.0, 1.0 - sinThetaMax * sinThetaMax));
-    const float solidAngle = max(2.0 * RTXDI_PI * (1.0 - cosThetaMax), 1.0e-5);
+    const float solidAngle = max(2.0 * RB_RAB_LIGHT_SAMPLING_PI * (1.0 - cosThetaMax), 1.0e-5);
     const float3 sampledDir = RAB_SampleDirectionCone(centerDir, cosThetaMax, uv);
     const float sampledNdotL = saturate(dot(RAB_GetSurfaceNormal(surface), sampledDir));
     if (sampledNdotL <= 0.0)
