@@ -4119,6 +4119,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.staticIndexBuffer = m_smokeStaticIndexBuffer;
             giInputs.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
             giInputs.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+            giInputs.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
+            giInputs.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
+            giInputs.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
+            giInputs.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
             giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
             giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
@@ -4136,6 +4140,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 : cleanOptionalSrv(m_smokeEmissiveDistributionBuffer);
             giInputs.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
             giInputs.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+            giInputs.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
             giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
             giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
             giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights

@@ -67,6 +67,10 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* staticIndexBuffer = nullptr;
     nvrhi::IBuffer* dynamicVertexBuffer = nullptr;
     nvrhi::IBuffer* dynamicIndexBuffer = nullptr;
+    nvrhi::IBuffer* staticTriangleClassBuffer = nullptr;
+    nvrhi::IBuffer* dynamicTriangleClassBuffer = nullptr;
+    nvrhi::IBuffer* staticTriangleMaterialBuffer = nullptr;
+    nvrhi::IBuffer* dynamicTriangleMaterialBuffer = nullptr;
     nvrhi::IBuffer* staticTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* dynamicTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* materialTableBuffer = nullptr;
@@ -75,6 +79,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* emissiveDistributionBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteVertexBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteIndexBuffer = nullptr;
+    nvrhi::IBuffer* rigidRouteTriangleMaterialBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteTriangleMaterialIndexBuffer = nullptr;
     nvrhi::IBuffer* rigidRouteInstanceBuffer = nullptr;
     nvrhi::IBuffer* doomAnalyticLightBuffer = nullptr;

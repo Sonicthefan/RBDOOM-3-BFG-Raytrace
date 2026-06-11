@@ -117,8 +117,12 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(8));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(9));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(10));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
@@ -126,6 +130,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
@@ -513,6 +518,10 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.staticIndexBuffer) return "static-index";
         if (!inputs.dynamicVertexBuffer) return "dynamic-vertex";
         if (!inputs.dynamicIndexBuffer) return "dynamic-index";
+        if (!inputs.staticTriangleClassBuffer) return "static-triangle-class";
+        if (!inputs.dynamicTriangleClassBuffer) return "dynamic-triangle-class";
+        if (!inputs.staticTriangleMaterialBuffer) return "static-triangle-material";
+        if (!inputs.dynamicTriangleMaterialBuffer) return "dynamic-triangle-material";
         if (!inputs.staticTriangleMaterialIndexBuffer) return "static-triangle-material-index";
         if (!inputs.dynamicTriangleMaterialIndexBuffer) return "dynamic-triangle-material-index";
         if (!inputs.materialTableBuffer) return "material-table";
@@ -521,6 +530,7 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.emissiveDistributionBuffer) return "emissive-distribution";
         if (!inputs.rigidRouteVertexBuffer) return "rigid-route-vertex";
         if (!inputs.rigidRouteIndexBuffer) return "rigid-route-index";
+        if (!inputs.rigidRouteTriangleMaterialBuffer) return "rigid-route-triangle-material";
         if (!inputs.rigidRouteTriangleMaterialIndexBuffer) return "rigid-route-triangle-material-index";
         if (!inputs.rigidRouteInstanceBuffer) return "rigid-route-instance";
         if (!inputs.doomAnalyticLightBuffer) return "doom-analytic-lights";
@@ -554,9 +564,12 @@ bool PathTraceCleanRestirGiExecute(
         !inputs.diConstantsBlob || inputs.diConstantsSize == 0 || inputs.diConstantsSize > CLEAN_RESTIR_GI_DI_BLOB_SIZE ||
         !inputs.tlas || !inputs.staticVertexBuffer || !inputs.staticIndexBuffer ||
         !inputs.dynamicVertexBuffer || !inputs.dynamicIndexBuffer ||
+        !inputs.staticTriangleClassBuffer || !inputs.dynamicTriangleClassBuffer ||
+        !inputs.staticTriangleMaterialBuffer || !inputs.dynamicTriangleMaterialBuffer ||
         !inputs.staticTriangleMaterialIndexBuffer || !inputs.dynamicTriangleMaterialIndexBuffer ||
         !inputs.materialTableBuffer || !inputs.fallbackTexture || !inputs.emissiveTriangleBuffer ||
         !inputs.rigidRouteVertexBuffer || !inputs.rigidRouteIndexBuffer ||
+        !inputs.rigidRouteTriangleMaterialBuffer ||
         !inputs.rigidRouteTriangleMaterialIndexBuffer || !inputs.rigidRouteInstanceBuffer ||
         !inputs.doomAnalyticLightBuffer ||
         !inputs.emissiveDistributionBuffer || !inputs.rluCurrentLightBuffer ||
@@ -590,8 +603,12 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(2, state.constantsBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, inputs.staticVertexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, inputs.staticIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(5, inputs.staticTriangleClassBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, inputs.dynamicVertexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, inputs.dynamicIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(8, inputs.dynamicTriangleClassBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(9, inputs.staticTriangleMaterialBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(10, inputs.dynamicTriangleMaterialBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, inputs.staticTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(12, inputs.dynamicTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(13, inputs.materialTableBuffer));
@@ -599,6 +616,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(16, inputs.emissiveTriangleBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(22, inputs.rigidRouteVertexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(23, inputs.rigidRouteIndexBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(24, inputs.rigidRouteTriangleMaterialBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(25, inputs.rigidRouteTriangleMaterialIndexBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(26, inputs.rigidRouteInstanceBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(27, inputs.doomAnalyticLightBuffer));
@@ -676,6 +694,10 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.dynamicVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.dynamicIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.staticTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.dynamicTriangleClassBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.staticTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.dynamicTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.staticTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.dynamicTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.materialTableBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -684,6 +706,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.emissiveDistributionBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteIndexBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(inputs.rigidRouteTriangleMaterialBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteTriangleMaterialIndexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rigidRouteInstanceBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.doomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);

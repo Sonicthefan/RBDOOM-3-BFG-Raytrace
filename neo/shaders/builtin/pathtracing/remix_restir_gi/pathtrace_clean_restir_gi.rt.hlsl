@@ -159,8 +159,12 @@ VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> SmokeOutput : register(u1);
 RaytracingAccelerationStructure SmokeScene : register(t0);
 StructuredBuffer<PathTraceSmokeVertex> SmokeStaticVertices : register(t3);
 StructuredBuffer<uint> SmokeStaticIndices : register(t4);
+StructuredBuffer<uint> SmokeStaticTriangleClasses : register(t5);
 StructuredBuffer<PathTraceSmokeVertex> SmokeDynamicVertices : register(t6);
 StructuredBuffer<uint> SmokeDynamicIndices : register(t7);
+StructuredBuffer<uint> SmokeDynamicTriangleClasses : register(t8);
+StructuredBuffer<uint> SmokeStaticTriangleMaterials : register(t9);
+StructuredBuffer<uint> SmokeDynamicTriangleMaterials : register(t10);
 StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
@@ -168,6 +172,7 @@ Texture2D<float4> SmokeFallbackTexture : register(t14);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
+StructuredBuffer<uint> SmokeRigidRouteTriangleMaterials : register(t24);
 StructuredBuffer<uint> SmokeRigidRouteTriangleMaterialIndexes : register(t25);
 StructuredBuffer<PathTraceRigidRouteInstance> SmokeRigidRouteInstances : register(t26);
 StructuredBuffer<PathTraceDoomAnalyticLightCandidate> DoomAnalyticLights : register(t27);
@@ -266,19 +271,35 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint4 RemixRAB_GIReservoirPageInfo;
 };
 
+static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF = 0x00040000u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT = 24u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK = 0x0f000000u;
+static const uint RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY = 1u;
+static const uint RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED = 2u;
+static const uint RT_SMOKE_SURFACE_CLASS_TRANSLUCENT = 3u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS = 1u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE = 2u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW = 4u;
+static const uint RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN = 5u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_TEST = 0x00000001u;
 static const uint RT_SMOKE_MATERIAL_DIFFUSE_YCOCG = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL = 0x00000004u;
 static const uint RT_SMOKE_MATERIAL_EMISSIVE = 0x00000008u;
 static const uint RT_SMOKE_MATERIAL_FILTER_DECAL = 0x00000010u;
+static const uint RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY = 0x00000020u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA = 0x00000040u;
 static const uint RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO = 0x00000080u;
+static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY = 0x00000100u;
 static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
+static const uint RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR = 0x00000080u;
+static const uint RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS = 0x00000001u;
 #define DoomAnalyticLightInfo CleanRtxdiDiDoomAnalyticLightInfo
 #define MotionVectorInfo CleanRtxdiDiMotionVectorInfo
 #define RestirPTSurfaceInfo CleanRtxdiDiRestirPTSurfaceInfo
@@ -702,6 +723,63 @@ uint CleanGiLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex)
     return SmokeRigidRouteTriangleMaterialIndexes[routedPrimitiveIndex];
 }
 
+uint CleanGiLoadTriangleMaterialId(uint instanceId, uint primitiveIndex)
+{
+    if (instanceId == 0u)
+    {
+        return primitiveIndex < CleanRtxdiDiStaticTriangleCount
+            ? SmokeStaticTriangleMaterials[primitiveIndex]
+            : 0u;
+    }
+    if (instanceId == 1u)
+    {
+        return primitiveIndex < CleanRtxdiDiDynamicTriangleCount
+            ? SmokeDynamicTriangleMaterials[primitiveIndex]
+            : 0u;
+    }
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= routeInstanceCount)
+    {
+        return 0u;
+    }
+    const PathTraceRigidRouteInstance route = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint routedPrimitiveIndex = route.triangleOffset + primitiveIndex;
+    if (primitiveIndex >= route.triangleCount ||
+        routedPrimitiveIndex >= CleanRtxdiDiRigidRouteTriangleCount)
+    {
+        return route.materialId;
+    }
+    return SmokeRigidRouteTriangleMaterials[routedPrimitiveIndex];
+}
+
+uint CleanGiLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
+{
+    if (instanceId == 0u)
+    {
+        return primitiveIndex < CleanRtxdiDiStaticTriangleCount
+            ? SmokeStaticTriangleClasses[primitiveIndex]
+            : 0u;
+    }
+    if (instanceId == 1u)
+    {
+        return primitiveIndex < CleanRtxdiDiDynamicTriangleCount
+            ? SmokeDynamicTriangleClasses[primitiveIndex]
+            : 0u;
+    }
+    return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
+}
+
+uint CleanGiTriangleSurfaceClass(uint triangleClassAndFlags)
+{
+    return triangleClassAndFlags & RT_SMOKE_TRIANGLE_CLASS_MASK;
+}
+
+uint CleanGiTriangleTranslucentSubtype(uint triangleClassAndFlags)
+{
+    return (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
+}
+
 PathTraceSmokeMaterial CleanGiLoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material = (PathTraceSmokeMaterial)0;
@@ -713,30 +791,20 @@ PathTraceSmokeMaterial CleanGiLoadSmokeMaterial(uint materialIndex)
     material.emissiveTextureIndex = 0xffffffffu;
     material.textureWidth = 1u;
     material.textureHeight = 1u;
+    material.alphaTextureWidth = 1u;
+    material.alphaTextureHeight = 1u;
+    material.normalTextureWidth = 1u;
+    material.normalTextureHeight = 1u;
+    material.specularTextureWidth = 1u;
+    material.specularTextureHeight = 1u;
+    material.emissiveTextureWidth = 1u;
+    material.emissiveTextureHeight = 1u;
     const uint materialCount = (uint)TextureInfo.z;
     if (materialIndex < materialCount)
     {
         material = SmokeMaterials[materialIndex];
     }
     return material;
-}
-
-bool CleanGiMaterialDoesNotOccludeVisibility(uint materialIndex)
-{
-    if (materialIndex >= (uint)TextureInfo.z)
-    {
-        return false;
-    }
-    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
-    const uint transparentCardFlags =
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
-        RT_SMOKE_MATERIAL_FILTER_DECAL |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
-        RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK |
-        RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK |
-        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
-        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
-    return (material.flags & transparentCardFlags) != 0u;
 }
 
 // ---------------------------------------------------------------------------
@@ -803,24 +871,139 @@ float3 CleanGiConvertYCoCgToRGB(float4 ycocg)
         dot(ycocg, float4(-1.0, -1.0, 1.00392156, 1.0))));
 }
 
-float3 CleanGiSampleDiffuseAlbedo(PathTraceSmokeMaterial material, float2 texCoord)
+float4 CleanGiSampleDecodedDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
-    if ((material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u)
-    {
-        return saturate(material.debugAlbedo.rgb);
-    }
     float4 texel = CleanGiSampleTexture(material.diffuseTextureIndex, material.textureWidth, material.textureHeight, texCoord, material.debugAlbedo);
     const bool textureDecodeEnabled = (((uint)TextureInfo.w) & 4u) != 0u;
     if (textureDecodeEnabled && (material.flags & RT_SMOKE_MATERIAL_DIFFUSE_YCOCG) != 0u)
     {
         texel.rgb = CleanGiConvertYCoCgToRGB(texel);
     }
-    return saturate(texel.rgb);
+    return texel;
 }
 
-float3 CleanGiSampleEmissiveRadiance(PathTraceSmokeMaterial material, float2 texCoord)
+float4 CleanGiSampleDiffuseTexture(PathTraceSmokeMaterial material, float2 texCoord)
 {
-    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
+    return (material.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u
+        ? material.debugAlbedo
+        : CleanGiSampleDecodedDiffuseTexture(material, texCoord);
+}
+
+float3 CleanGiSampleDiffuseAlbedo(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    return saturate(CleanGiSampleDiffuseTexture(material, texCoord).rgb);
+}
+
+float4 CleanGiSampleAlphaTexture(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    return material.alphaTextureIndex != 0xffffffffu
+        ? CleanGiSampleTexture(
+            material.alphaTextureIndex,
+            material.alphaTextureWidth,
+            material.alphaTextureHeight,
+            texCoord,
+            CleanGiSampleDiffuseTexture(material, texCoord))
+        : CleanGiSampleDiffuseTexture(material, texCoord);
+}
+
+float CleanGiAlphaCoverage(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY) != 0u)
+    {
+        const float3 decoded = saturate(CleanGiSampleDecodedDiffuseTexture(material, texCoord).rgb);
+        return 1.0 - max(max(decoded.r, decoded.g), decoded.b);
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA) != 0u)
+    {
+        const float3 decoded = saturate(CleanGiSampleDecodedDiffuseTexture(material, texCoord).rgb);
+        return max(max(decoded.r, decoded.g), decoded.b);
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY) != 0u)
+    {
+        const float3 decoded = saturate(CleanGiSampleDecodedDiffuseTexture(material, texCoord).rgb);
+        const float keyDistance = max(abs(decoded.r - 1.0), max(abs(decoded.g), abs(decoded.b - 1.0)));
+        return keyDistance <= 0.08 ? 0.0 : 1.0;
+    }
+    return saturate(CleanGiSampleAlphaTexture(material, texCoord).a);
+}
+
+float CleanGiSmokeLinear1(float c)
+{
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+
+float3 CleanGiSmokeLinear3(float3 c)
+{
+    return float3(CleanGiSmokeLinear1(c.r), CleanGiSmokeLinear1(c.g), CleanGiSmokeLinear1(c.b));
+}
+
+void CleanGiSmokePBRFromSpecmap(float3 specMap, out float3 F0, out float roughness)
+{
+    const float specLum = dot(float3(0.2125, 0.7154, 0.0721), specMap);
+    F0 = float3(0.04, 0.04, 0.04);
+    const float contrastMid = 0.214;
+    const float contrastAmount = 2.0;
+    float contrast = saturate((specLum - contrastMid) / (1.0 - contrastMid));
+    contrast += saturate(specLum / contrastMid) - 1.0;
+    contrast = exp2(contrastAmount * contrast);
+    F0 *= contrast;
+    const float linearBrightness = CleanGiSmokeLinear1(2.0 * specLum);
+    const float specPow = max(0.0, ((8.0 * linearBrightness) / max(F0.y, 1.0e-4)) - 2.0);
+    F0 *= min(1.0, linearBrightness / max(F0.y * 0.25, 1.0e-4));
+    roughness = sqrt(2.0 / (specPow + 2.0));
+    const float glossiness = saturate(1.0 - roughness);
+    const float metallic = step(0.7, glossiness);
+    const float3 glossColor = CleanGiSmokeLinear3(specMap.rgb);
+    F0 = lerp(F0, glossColor, metallic);
+    roughness = sqrt(roughness);
+}
+
+bool CleanGiToyFakePBRSpecularEnabled()
+{
+    return (((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR) != 0u;
+}
+
+float3 CleanGiSampleDirectSpecular(PathTraceSmokeMaterial material, float2 texCoord)
+{
+    if (material.specularTextureIndex == 0xffffffffu ||
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS) == 0u))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return saturate(CleanGiSampleTexture(
+        material.specularTextureIndex,
+        material.specularTextureWidth,
+        material.specularTextureHeight,
+        texCoord,
+        float4(0.0, 0.0, 0.0, 1.0)).rgb);
+}
+
+bool CleanGiMaterialUsesUnlitColorFallback(PathTraceSmokeMaterial material, uint surfaceClass, uint translucentSubtype)
+{
+    if (surfaceClass != RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    {
+        return false;
+    }
+    if (translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_OBJECT_GLASS ||
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_PORTAL_WINDOW ||
+        translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN)
+    {
+        return false;
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
+    {
+        return true;
+    }
+    return translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_SMOKE_PARTICLE &&
+        material.alphaTextureIndex == 0xffffffffu;
+}
+
+float3 CleanGiSampleEmissiveRadiance(PathTraceSmokeMaterial material, float2 texCoord, uint surfaceClass, bool activeEmissiveStage)
+{
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        !activeEmissiveStage ||
+        surfaceClass == RT_SMOKE_SURFACE_CLASS_SKINNED_DEFORMED ||
+        ((((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) == 0u))
     {
         return float3(0.0, 0.0, 0.0);
     }
@@ -829,14 +1012,55 @@ float3 CleanGiSampleEmissiveRadiance(PathTraceSmokeMaterial material, float2 tex
     {
         return float3(0.0, 0.0, 0.0);
     }
-    const uint textureFlags = (uint)TextureInfo.w;
-    const bool useEmissiveMaps = (textureFlags & RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS) != 0u;
     float3 emissiveTexel = float3(1.0, 1.0, 1.0);
-    if (useEmissiveMaps && material.emissiveTextureIndex != 0xffffffffu)
+    if (material.emissiveTextureIndex != 0xffffffffu)
     {
         emissiveTexel = saturate(CleanGiSampleTexture(material.emissiveTextureIndex, material.emissiveTextureWidth, material.emissiveTextureHeight, texCoord, float4(1.0, 1.0, 1.0, 1.0)).rgb);
     }
     return max(material.emissiveColor.rgb, float3(0.0, 0.0, 0.0)) * emissiveTexel * (1.75 * emissiveScale);
+}
+
+RAB_Material CleanGiBuildMaterialFromHit(
+    uint materialId,
+    uint materialIndex,
+    PathTraceSmokeMaterial smokeMaterial,
+    float2 texCoord,
+    uint surfaceClass,
+    uint translucentSubtype,
+    uint triangleClassAndFlags)
+{
+    float3 materialAlbedo = CleanGiSampleDiffuseAlbedo(smokeMaterial, texCoord);
+    const float3 specularColor = CleanGiSampleDirectSpecular(smokeMaterial, texCoord);
+    float3 specularF0 = specularColor;
+    float roughness = 1.0;
+    if (CleanGiToyFakePBRSpecularEnabled())
+    {
+        CleanGiSmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
+    }
+    SmokeApplyMaterialClassifierBsdfWithSpecularTexel(smokeMaterial, materialAlbedo, saturate(specularColor), specularF0, roughness);
+    if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
+    {
+        roughness = 0.0;
+        specularF0 = max(specularF0, float3(0.85, 0.85, 0.85));
+    }
+    const bool activeEmissiveStage = (triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
+
+    RAB_Material material = RAB_EmptyMaterial();
+    material.materialId = materialId;
+    material.materialIndex = materialIndex;
+    material.flags = smokeMaterial.flags;
+    material.alphaCutoff = smokeMaterial.alphaCutoff;
+    material.diffuseAlbedo = saturate(materialAlbedo);
+    material.roughness = saturate(roughness);
+    material.specularF0 = max(specularF0, float3(0.0, 0.0, 0.0));
+    material.opacity = CleanGiAlphaCoverage(smokeMaterial, texCoord);
+    material.emissiveRadiance = CleanGiSampleEmissiveRadiance(smokeMaterial, texCoord, surfaceClass, activeEmissiveStage);
+    if (CleanGiMaterialUsesUnlitColorFallback(smokeMaterial, surfaceClass, translucentSubtype))
+    {
+        material.emissiveRadiance = max(material.emissiveRadiance, material.diffuseAlbedo);
+    }
+    material.emissiveTextureIndex = smokeMaterial.emissiveTextureIndex;
+    return material;
 }
 
 // ---------------------------------------------------------------------------
@@ -943,6 +1167,112 @@ bool CleanGiLoadTriangleGeometry(
     p2 = CleanGiTransformRigidRoutePoint(route, v2.position.xyz);
     uv0 = v0.texCoord.xy; uv1 = v1.texCoord.xy; uv2 = v2.texCoord.xy;
     return true;
+}
+
+bool CleanGiLoadHitTexCoord(uint instanceId, uint primitiveIndex, float2 barycentrics, out float2 texCoord)
+{
+    texCoord = float2(0.0, 0.0);
+    float3 p0, p1, p2;
+    float2 uv0, uv1, uv2;
+    if (!CleanGiLoadTriangleGeometry(instanceId, primitiveIndex, p0, p1, p2, uv0, uv1, uv2))
+    {
+        return false;
+    }
+    const float b1 = saturate(barycentrics.x);
+    const float b2 = saturate(barycentrics.y);
+    const float b0 = saturate(1.0 - b1 - b2);
+    texCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+    return true;
+}
+
+float CleanGiHashToUnitFloat(uint hash)
+{
+    hash ^= hash >> 16;
+    hash *= 2246822519u;
+    hash ^= hash >> 13;
+    hash *= 3266489917u;
+    hash ^= hash >> 16;
+    return ((hash >> 8) & 0x00ffffffu) * (1.0 / 16777215.0);
+}
+
+float CleanGiVisibilityRandom(uint instanceId, uint primitiveIndex, uint salt)
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    return CleanGiHashToUnitFloat(
+        instanceId * 1597334677u ^
+        primitiveIndex * 3812015801u ^
+        pixel.x * 2798796415u ^
+        pixel.y * 1979697957u ^
+        CleanRestirGiFrameIndex * 3266489917u ^
+        salt);
+}
+
+bool CleanGiMaterialRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentrics, bool shadowRay)
+{
+    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(instanceId, primitiveIndex);
+    if (materialIndex >= (uint)TextureInfo.z)
+    {
+        return false;
+    }
+
+    float2 texCoord;
+    if (!CleanGiLoadHitTexCoord(instanceId, primitiveIndex, barycentrics, texCoord))
+    {
+        return false;
+    }
+
+    const PathTraceSmokeMaterial material = CleanGiLoadSmokeMaterial(materialIndex);
+    const float coverage = saturate(CleanGiAlphaCoverage(material, texCoord));
+    if ((material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0u &&
+        coverage < material.alphaCutoff)
+    {
+        return true;
+    }
+
+    float visibilityCoverage = coverage;
+    if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) != 0u)
+    {
+        const float3 albedo = saturate(CleanGiSampleDiffuseTexture(material, texCoord).rgb);
+        visibilityCoverage = (material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY) != 0u
+            ? 1.0 - min(min(albedo.r, albedo.g), albedo.b)
+            : max(max(albedo.r, albedo.g), albedo.b);
+        visibilityCoverage = saturate(visibilityCoverage * 0.5);
+    }
+    else if ((material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL) != 0u)
+    {
+        const float3 albedo = saturate(CleanGiSampleDiffuseTexture(material, texCoord).rgb);
+        const bool blackKey = (material.flags & RT_SMOKE_MATERIAL_FILTER_DECAL_BLACK_KEY) != 0u;
+        visibilityCoverage = blackKey
+            ? max(max(albedo.r, albedo.g), albedo.b)
+            : 1.0 - min(min(albedo.r, albedo.g), albedo.b);
+        visibilityCoverage = saturate(visibilityCoverage * 0.5);
+    }
+
+    const uint alphaMaterialFlags =
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL |
+        RT_SMOKE_MATERIAL_FILTER_DECAL |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_DARK_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_LUMA |
+        RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY |
+        RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY;
+    const bool alphaDriven =
+        material.alphaTextureIndex != 0xffffffffu ||
+        (material.flags & alphaMaterialFlags) != 0u;
+    if (!alphaDriven)
+    {
+        return false;
+    }
+    if (visibilityCoverage <= 0.001)
+    {
+        return true;
+    }
+    if (visibilityCoverage >= 0.999)
+    {
+        return false;
+    }
+
+    const uint salt = shadowRay ? 0xa8f31b2du : 0x51d734bbu;
+    return CleanGiVisibilityRandom(instanceId, primitiveIndex, salt) > visibilityCoverage;
 }
 
 bool CleanGiResolveTriangleNormalAndArea(
@@ -1062,6 +1392,11 @@ RAB_LightInfo CleanGiBuildEmissiveLightInfo(uint sourceIndex, uint lightIndex)
     {
         return lightInfo;
     }
+    const uint triangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(emissiveTriangle.instanceId, emissiveTriangle.primitiveIndex);
+    const uint surfaceClass = CleanGiTriangleSurfaceClass(triangleClassAndFlags);
+    const bool activeEmissiveStage =
+        (emissiveTriangle.padding0 & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u &&
+        (triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
 
     float3 p0, p1, p2;
     float2 uv0, uv1, uv2;
@@ -1077,7 +1412,7 @@ RAB_LightInfo CleanGiBuildEmissiveLightInfo(uint sourceIndex, uint lightIndex)
         return lightInfo;
     }
 
-    const float3 centroidRadiance = CleanGiSampleEmissiveRadiance(emissiveMaterial, emissiveTriangle.centroidUvAndWeight.xy);
+    const float3 centroidRadiance = CleanGiSampleEmissiveRadiance(emissiveMaterial, emissiveTriangle.centroidUvAndWeight.xy, surfaceClass, activeEmissiveStage);
     if (CleanGiLuminance(centroidRadiance) <= 0.0)
     {
         return lightInfo;
@@ -1440,9 +1775,20 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     }
 
     const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
+    const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
     const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
-    const float3 hitAlbedo = CleanGiSampleDiffuseAlbedo(hitMaterial, hitTexCoord);
-    const float3 hitEmissive = CleanGiSampleEmissiveRadiance(hitMaterial, hitTexCoord);
+    const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
+        hitMaterialId,
+        hitMaterialIndex,
+        hitMaterial,
+        hitTexCoord,
+        hitSurfaceClass,
+        hitTranslucentSubtype,
+        hitTriangleClassAndFlags);
+    const float3 hitEmissive = hitRabMaterial.emissiveRadiance;
 
     RAB_Surface secondarySurface = RAB_EmptySurface();
     secondarySurface.valid = 1u;
@@ -1451,14 +1797,13 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     secondarySurface.geometryNormal = hitNormal;
     secondarySurface.shadingNormal = hitNormal;
     secondarySurface.viewDir = -bounceDir;
-    secondarySurface.materialId = hitMaterial.flags;
+    secondarySurface.materialId = hitMaterialId;
     secondarySurface.materialIndex = hitMaterialIndex;
-    secondarySurface.surfaceClass = 0u;
-    secondarySurface.material = RAB_EmptyMaterial();
-    secondarySurface.material.materialIndex = hitMaterialIndex;
-    secondarySurface.material.diffuseAlbedo = hitAlbedo;
-    secondarySurface.material.roughness = 1.0;
-    secondarySurface.material.opacity = 1.0;
+    secondarySurface.instanceId = payload.hitInstanceId;
+    secondarySurface.primitiveIndex = payload.hitPrimitiveIndex;
+    secondarySurface.surfaceClass = hitSurfaceClass;
+    secondarySurface.flags = hitTriangleClassAndFlags;
+    secondarySurface.material = hitRabMaterial;
 
     const float3 outgoing = CleanGiShadeSecondaryVertex(secondarySurface, hitNormal, hitEmissive, rng);
 
@@ -1979,8 +2324,7 @@ void ShadowMiss(inout PathTraceCleanRestirGiPayload payload)
 [shader("anyhit")]
 void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(InstanceID(), PrimitiveIndex());
-    if (CleanGiMaterialDoesNotOccludeVisibility(materialIndex))
+    if (CleanGiMaterialRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, false))
     {
         IgnoreHit();
     }
@@ -1989,8 +2333,7 @@ void AnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersec
 [shader("anyhit")]
 void ShadowAnyHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
-    const uint materialIndex = CleanGiLoadTriangleMaterialIndex(InstanceID(), PrimitiveIndex());
-    if (CleanGiMaterialDoesNotOccludeVisibility(materialIndex))
+    if (CleanGiMaterialRejectsHit(InstanceID(), PrimitiveIndex(), attributes.barycentrics, true))
     {
         IgnoreHit();
     }
