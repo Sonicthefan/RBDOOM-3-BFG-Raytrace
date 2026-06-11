@@ -1,0 +1,117 @@
+Step 3 Boundary - Legacy PT / Smoke
+===================================
+
+Audit status: 2026-06-11, coordinator pass only.
+
+Conclusion
+----------
+
+Step 3 is not a safe mechanical delete yet.
+
+Some older monolithic ReSTIR PT diagnostic shader variants are already behind
+PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS=OFF in neo/shaders/CMakeLists.txt.
+However, the active path-tracing stack still reaches the RTXDI PT surface:
+
+    neo/shaders/builtin/pathtracing/pathtrace_smoke.rt.hlsl
+        #ifdef RB_PT_ENABLE_RESTIR
+            Rtxdi/PT/ReSTIRPTParameters.h
+            Rtxdi/PT/Reservoir.hlsli
+            Rtxdi/PT/InitialSampling.hlsli
+            Rtxdi/PT/TemporalResampling.hlsli
+            Rtxdi/PT/SpatialResampling.hlsli
+            RtxdiBridge/PathTracer/RAB_PathTracer.hlsli
+
+    neo/renderer/NVRHI/PathTraceRestirPT.h
+        Rtxdi/PT/ReSTIRPT.h
+
+    neo/renderer/NVRHI/PathTraceRestirPTReservoirs.h
+        Rtxdi/PT/ReSTIRPT.h
+
+This means the next Step 3 action is a replacement/delete decision for the
+legacy ReSTIR PT module surface, not a coordinator cleanup. It must be handled
+by a stand-alone worker because it touches RTXDI PT parameter structs,
+reservoir layout/storage, initial sampling, temporal reuse, spatial reuse, and
+C++ parameter packing.
+
+Do Not Do In Coordinator
+------------------------
+
+Do not replace, paraphrase, or rewrite:
+
+    Rtxdi/PT/ReSTIRPT.h
+    Rtxdi/PT/ReSTIRPTParameters.h
+    Rtxdi/PT/Reservoir.hlsli
+    Rtxdi/PT/InitialSampling.hlsli
+    Rtxdi/PT/TemporalResampling.hlsli
+    Rtxdi/PT/SpatialResampling.hlsli
+    Rtxdi/PT/PathTracerContext.hlsli
+    Rtxdi/PT/PathTracerRandomContext.hlsli
+
+Do not remove pathtrace_smoke.rt.hlsl as a whole. It is still the monolithic
+path-tracing integrator for mode 18 and other non-ReSTIR/debug behavior.
+
+Validation Rule
+---------------
+
+The active renderer path for this branch is Vulkan. Shader workers must validate
+PT/smoke changes with:
+
+    cmake --build --preset win64-pt-dev-release
+
+from E:/prog/rbdoom-3-bfg-rt/neo, and the SPIR-V shader custom-build steps must
+pass. Direct DXIL compiles are useful only as quick syntax/type checks; they are
+not runtime proof and do not prove that a forbidden RTXDI header has been
+removed from the actual Vulkan compile graph.
+
+Next Action
+-----------
+
+Start a stand-alone worker for the legacy ReSTIR PT fate decision:
+
+    either delete/disable the RTXDI PT feature surface while preserving
+    pathtrace_smoke mode 18 and non-PT paths,
+
+    or define the minimal rbdoom-owned replacement modules needed to keep the
+    feature.
+
+The preferred remediation direction remains deletion unless the worker proves
+that a kept feature is still required and can be replaced cleanly.
+
+Older Prototype Check - remix_rtxdi
+-----------------------------------
+
+The older prototype under:
+
+    neo/shaders/builtin/pathtracing/remix_rtxdi
+
+is not an equivalent replacement for Rtxdi/PT/ReSTIRPT.h.
+
+It is useful as local contract evidence for rbdoom's DI bridge shape, but it is
+DI-oriented and still delegates core math/storage to proprietary RTXDI symbols:
+
+    rtxdi_initial_sampling.rt.hlsl
+        Rtxdi/DI/InitialSampling.hlsli
+        RTXDI_DIReservoir
+        RTXDI_DIInitialSamplingParameters
+
+    rtxdi_temporal_reuse.rt.hlsl
+        Rtxdi/DI/TemporalResampling.hlsli
+        RTXDI_DITemporalResamplingParameters
+        RTXDI_ReservoirBufferParameters
+
+    rtxdi_spatial_reuse.rt.hlsl
+        Rtxdi/DI/SpatialResampling.hlsli
+        RTXDI_DISpatialResamplingParameters
+        RTXDI_ReservoirBufferParameters
+
+So the first stand-alone replacement for the PT path should target the
+host/shared parameter ABI currently imported by:
+
+    neo/renderer/NVRHI/PathTraceRestirPT.h
+    neo/renderer/NVRHI/PathTraceRestirPTReservoirs.h
+    neo/renderer/NVRHI/PathTraceRestirPasses.h
+
+That replacement must define the CPU-visible names currently provided by
+Rtxdi/PT/ReSTIRPT.h, but it must not attempt to replace the PT HLSL reservoir,
+initial sampling, temporal reuse, spatial reuse, path tracer context, or random
+context modules in the same worker.

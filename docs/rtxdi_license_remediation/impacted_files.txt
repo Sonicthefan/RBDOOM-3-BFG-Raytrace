@@ -1,0 +1,207 @@
+Impacted File Inventory
+=======================
+
+Every file that directly consumes proprietary NVIDIA RTXDI headers
+(SPDX LicenseRef-NvidiaProprietary, NVIDIA RTX SDKs License), plus the
+build files that wire the include path and the artifacts that contain
+compiled NVIDIA code. Audit date 2026-06-11.
+
+"Action" key:
+    REWRITE  rebuild against rbdoom-owned replacement headers
+    DELETE?  legacy lane; prefer deletion over rewrite (plan Step 3)
+    EDIT     remove/replace the dependency wiring
+    REBUILD  binary artifact; regenerate after source remediation
+
+
+Build System
+------------
+
+neo/CMakeLists.txt                                              EDIT
+    RTXDI_RUNTIME_DIR cache var pointing at
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi (~line 458),
+    include_directories of its Include dir, and compilation of
+    ${RTXDI_RUNTIME_DIR}/Source/RtxdiUtils.cpp into the executable.
+    Also PATH_TRACING_STREAMLINE_SDK_ROOT (~line 80) points outside the
+    repo (DLSS SDK; same external-dependency pattern, separate license).
+
+neo/shaders/CMakeLists.txt                                      EDIT
+    PATH_TRACING_RTXDI_INCLUDE_ARGS adds -I ${RTXDI_RUNTIME_DIR}/Include
+    to every DXC invocation; DI header dependency list (~lines 90-103);
+    GI header dependency list (~lines 112-123); PT existence check
+    (~line 129).
+
+
+Proprietary headers currently consumed (the replacement surface)
+-----------------------------------------------------------------
+
+From E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include:
+
+    Rtxdi/RtxdiParameters.h
+    Rtxdi/RtxdiUtils.h            (+ Source/RtxdiUtils.cpp in the exe)
+    Rtxdi/DI/Reservoir.hlsli
+    Rtxdi/DI/ReservoirStorage.hlsli
+    Rtxdi/DI/InitialSampling.hlsli
+    Rtxdi/DI/TemporalResampling.hlsli
+    Rtxdi/DI/SpatialResampling.hlsli
+    Rtxdi/DI/ReSTIRDIParameters.h
+    Rtxdi/DI/ReSTIRDI.h           (C++)
+    Rtxdi/GI/Reservoir.hlsli
+    Rtxdi/GI/TemporalResampling.hlsli
+    Rtxdi/GI/SpatialResampling.hlsli
+    Rtxdi/GI/ReSTIRGIParameters.h
+    Rtxdi/GI/ReSTIRGI.h           (C++)
+    Rtxdi/PT/Reservoir.hlsli
+    Rtxdi/PT/InitialSampling.hlsli
+    Rtxdi/PT/TemporalResampling.hlsli
+    Rtxdi/PT/SpatialResampling.hlsli
+    Rtxdi/PT/ReSTIRPTParameters.h
+    Rtxdi/PT/ReSTIRPT.h           (C++)
+    Rtxdi/PT/PathTracerContext.hlsli
+    Rtxdi/PT/PathTracerRandomContext.hlsli
+    Rtxdi/Utils/Math.hlsli
+    Rtxdi/Utils/RandomSamplerState.hlsli
+    Rtxdi/Utils/ReservoirAddressing.hlsli
+    Rtxdi/Utils/BrdfRaySample.hlsli
+    Rtxdi/Utils/Checkerboard.hlsli
+    Rtxdi/GI/BoilingFilter.hlsli  (registered in CMake deps; verify no
+                                   shader includes it before dropping)
+
+
+Clean GI lane (active)  -  neo/shaders/builtin/pathtracing/
+----------------------------------------------------------
+
+remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl               REWRITE
+    Rtxdi/RtxdiParameters.h, GI/ReSTIRGIParameters.h,
+    GI/SpatialResampling.hlsli, Utils/RandomSamplerState.hlsli,
+    Utils/Math.hlsli
+remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl                REWRITE
+    GI/TemporalResampling.hlsli, Utils/RandomSamplerState.hlsli
+remix_bridge/RAB_GIReservoirBridge.hlsli                        REWRITE
+    GI/Reservoir.hlsli, Utils/ReservoirAddressing.hlsli
+remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.hlsl
+    no direct Rtxdi includes; rebuild blob only after the lane rewires.
+
+
+Clean DI lane (active)  -  neo/shaders/builtin/pathtracing/
+-----------------------------------------------------------
+
+cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl       REWRITE
+    DI/Reservoir.hlsli, DI/ReservoirStorage.hlsli,
+    DI/InitialSampling.hlsli, DI/TemporalResampling.hlsli,
+    DI/ReSTIRDIParameters.h, RtxdiParameters.h,
+    Utils/Math.hlsli, Utils/RandomSamplerState.hlsli
+cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl        REWRITE
+    DI/Reservoir.hlsli, DI/ReservoirStorage.hlsli,
+    DI/ReSTIRDIParameters.h, RtxdiParameters.h, Utils/Math.hlsli,
+    Utils/RandomSamplerState.hlsli (spatial math via
+    DI/SpatialResampling.hlsli through the include chain)
+remix_bridge/RAB_ReservoirBridge.hlsli                          REWRITE
+    DI/ReservoirStorage.hlsli, Utils/ReservoirAddressing.hlsli
+
+
+Legacy PT / smoke lanes  -  neo/shaders/builtin/pathtracing/
+------------------------------------------------------------
+
+These lanes consume Rtxdi/PT/* (ReSTIR PT) headers from the upstream
+RTXDI sample - a basic non-shipping example. The project's mandate was to
+conform to the RTX Remix shipping design; using the PT sample files
+directly likely degraded performance and quality on top of the license
+issue. This strengthens the case for DELETE? over REWRITE.
+
+pathtrace_smoke.rt.hlsl                                         DELETE?
+    DI/Reservoir, DI/ReservoirStorage, DI/ReSTIRDIParameters,
+    PT/Reservoir, PT/InitialSampling, PT/TemporalResampling,
+    PT/SpatialResampling, PT/ReSTIRPTParameters,
+    Utils/RandomSamplerState
+pathtrace_restir_combined_resolve.rt.hlsl                       DELETE?
+    DI/ReservoirStorage, PT/Reservoir, PT/ReSTIRPTParameters
+pathtrace_pdf_nee_verifier.rt.hlsl                              DELETE?
+    DI/Reservoir, DI/ReservoirStorage, PT/* (5 headers)
+pathtrace_regir_debug.rt.hlsl                                   DELETE?
+    Utils/Math.hlsli
+pathtrace_restir_di_initial_debug.hlsli                         DELETE?
+    DI/InitialSampling.hlsli
+rtxdi_initial_sampling.rt.hlsl                                  DELETE?
+    DI/InitialSampling.hlsli
+rtxdi_temporal_reuse.rt.hlsl                                    DELETE?
+    DI/TemporalResampling.hlsli
+rtxdi_spatial_reuse.rt.hlsl                                     DELETE?
+    DI/SpatialResampling.hlsli
+RtxdiBridge/RAB_RandomSamplerState.hlsli                        DELETE?
+    Utils/RandomSamplerState.hlsli
+RtxdiBridge/RAB_MISCallbacks.hlsli                              DELETE?
+    Utils/BrdfRaySample.hlsli
+RtxdiBridge/PathTracer/RAB_PathTracer.hlsli                     DELETE?
+    PT/PathTracerContext.hlsli, PT/PathTracerRandomContext.hlsli
+RtxdiBridge/PathTracer/RAB_PathTracerUserData.hlsli             DELETE?
+    PT/ReSTIRPTParameters.h
+RtxdiBridge/PathTracer/RAB_PathTracerNee.hlsli                  DELETE?
+    DI/InitialSampling.hlsli
+
+Note: the clean DI/GI lanes pull some RtxdiBridge/*.hlsli helpers
+(surface, light records, NEE cache). Those helper files contain no Rtxdi
+includes themselves; only the ones listed above are impacted. If Step 3
+keeps any legacy lane alive, its files move from DELETE? to REWRITE.
+
+
+C++ renderer  -  neo/renderer/NVRHI/
+------------------------------------
+
+PathTraceCleanRestirGi.cpp                                      REWRITE
+    <Rtxdi/RtxdiUtils.h>, <Rtxdi/GI/ReSTIRGIParameters.h>
+PathTraceRemixRtxdiResources.h                                  REWRITE
+    <Rtxdi/DI/ReSTIRDI.h>, <Rtxdi/GI/ReSTIRGI.h>
+    (PathTraceRemixRtxdiResources.cpp + ResourceGate follow it)
+PathTraceRestirPT.h                                             DELETE?
+    <Rtxdi/PT/ReSTIRPT.h>
+PathTraceRestirPTReservoirs.h                                   DELETE?
+    <Rtxdi/PT/ReSTIRPT.h>
+    (~20 further .cpp/.h reference these types transitively -
+    PathTraceSmokeDispatch.cpp, PathTraceFrameResources.*, etc. They
+    need recompile/touch-up, not redesign, once the headers above are
+    replaced.)
+
+External C++ compiled into the exe:
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi/Source/RtxdiUtils.cpp
+                                                                REWRITE
+    (replace with rbdoom-owned utility; remove from neo/CMakeLists.txt)
+
+
+Vendored external trees (pre-existing, separate from RTXDI runtime)
+-------------------------------------------------------------------
+
+neo/bin/ShaderDynamic/Source/Rtxpt/        (NVIDIA RTX-PT sample tree)
+neo/bin/ShaderDynamic/Source/External/donut/shaders/
+neo/bin/ShaderDynamic/Source/External/NVAPI/   (3 NVAPI headers,
+    byte-identical to dxvk-remix submodule copies)
+    Gitignored, on-disk since 2026-03-12. Plan Step 11: delete or
+    document. Not reachable from the normal build.
+
+
+Artifacts containing compiled NVIDIA code                       REBUILD
+-----------------------------------------
+
+base/renderprogs2/spirv/builtin/pathtracing/   (untracked Vulkan runtime blobs)
+base/renderprogs2/dxil/builtin/pathtracing/    (secondary build outputs; not
+                                                runtime validation for this
+                                                branch)
+build-win64-pt-dev/ (and other build-*) outputs incl. RBDoom3BFG.exe
+E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/
+    All Vulkan/SPIR-V runtime blobs must be regenerated after Steps 4-9 and
+    the old copies deleted. Until then, do not distribute any of them.
+    DXIL-only success is not an acceptance criterion for shader remediation;
+    the preset build must pass its SPIR-V custom-build steps.
+
+
+Documentation requiring correction
+----------------------------------
+
+docs/restir_remix_gi_cleanroom/README.txt
+    "public RTXDI headers" claim is false; Math Source Decision section
+    must disclose the proprietary license.
+docs/restir_remix_gi_cleanroom/worker_tasks.txt
+    "public RTXDI include APIs" same correction.
+docs/restir_remix_di_cleanroom/README.txt + worker_protocol.txt
+    Must disclose that the implemented DI lane includes proprietary
+    headers, contrary to the written rule.
