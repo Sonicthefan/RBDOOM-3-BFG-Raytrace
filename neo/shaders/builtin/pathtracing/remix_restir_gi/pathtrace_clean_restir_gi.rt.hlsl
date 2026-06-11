@@ -269,6 +269,8 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiResolveEnabled;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
+    float CleanRestirGiTemporalScreenValidation;
+    float3 CleanRestirGiPadding0;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -457,8 +459,63 @@ bool RemixRAB_GetTemporalConservativeVisibility(
         samplePosition) > 0.0;
 }
 
-// Baseline has no gradient/lighting validation; pass the resampled reservoir
-// through (stale energy is bounded by maxReservoirAge).
+bool CleanGiProjectCurrentPixel(float3 worldPosition, out uint2 pixel, out float sampleDepth)
+{
+    pixel = uint2(0u, 0u);
+    sampleDepth = 0.0;
+    const float3 delta = worldPosition - CleanRtxdiDiCameraOriginAndValid.xyz;
+    const float forwardDistance = dot(delta, CleanRtxdiDiCameraForwardAndTanX.xyz);
+    if (forwardDistance <= 0.05)
+    {
+        return false;
+    }
+
+    const float ndcX = -dot(delta, CleanRtxdiDiCameraLeftAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiCameraForwardAndTanX.w, 1.0e-5);
+    const float ndcY = -dot(delta, CleanRtxdiDiCameraUpAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiCameraLeftAndTanY.w, 1.0e-5);
+    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
+    {
+        return false;
+    }
+
+    const float2 pixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(CleanRtxdiDiWidth, CleanRtxdiDiHeight);
+    if (!all(pixelFloat == pixelFloat) ||
+        pixelFloat.x < 0.0 || pixelFloat.y < 0.0 ||
+        pixelFloat.x >= (float)CleanRtxdiDiWidth || pixelFloat.y >= (float)CleanRtxdiDiHeight)
+    {
+        return false;
+    }
+
+    pixel = uint2(pixelFloat);
+    sampleDepth = length(delta);
+    return sampleDepth == sampleDepth;
+}
+
+bool CleanGiCurrentScreenOccludesSample(float3 samplePosition)
+{
+    uint2 samplePixel;
+    float sampleDepth;
+    if (!CleanGiProjectCurrentPixel(samplePosition, samplePixel, sampleDepth))
+    {
+        return false;
+    }
+
+    const uint index = samplePixel.y * CleanRtxdiDiWidth + samplePixel.x;
+    const PathTracePrimarySurfaceRecord record = PrimarySurfaceHistoryCurrent[index];
+    if (record.header.x != RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION ||
+        (record.header.y & RT_PRIMARY_SURFACE_VALID) == 0u)
+    {
+        return false;
+    }
+
+    const float visibleDepth = record.worldPositionAndViewDepth.w;
+    const float tolerance = max(0.75, sampleDepth * 0.05);
+    return visibleDepth + tolerance < sampleDepth;
+}
+
+// Screen-space stale-sample validation, shaped after Remix's gradient-depth
+// validation. If a reused GI sample projects behind current-frame primary
+// geometry, fall back to this frame's initial reservoir. This avoids a
+// portal-invalid world visibility ray and only targets occluded reused samples.
 RemixRestirGITemporalValidationResult RemixRAB_ValidateGITemporalReservoir(
     RAB_Surface currentSurface,
     RTXDI_GIReservoir inputReservoir,
@@ -467,6 +524,16 @@ RemixRestirGITemporalValidationResult RemixRAB_ValidateGITemporalReservoir(
 {
     RemixRestirGITemporalValidationResult result = (RemixRestirGITemporalValidationResult)0;
     result.reservoir = resultReservoir;
+    if (desc.enableScreenSpaceValidation != 0u &&
+        dot(desc.screenSpaceMotion, desc.screenSpaceMotion) > 0.25 &&
+        RTXDI_IsValidGIReservoir(inputReservoir) &&
+        RTXDI_IsValidGIReservoir(resultReservoir) &&
+        resultReservoir.M > inputReservoir.M &&
+        CleanGiCurrentScreenOccludesSample(resultReservoir.position))
+    {
+        result.reservoir = inputReservoir;
+        result.staleSampleRejected = 1u;
+    }
     return result;
 }
 
@@ -565,6 +632,28 @@ bool CleanGiProjectCameraMotion(PathTracePrimarySurfaceRecord currentSurface, ui
     return all(screenSpaceMotion == screenSpaceMotion);
 }
 
+bool CleanGiComputeLinearDepthMotionDelta(PathTracePrimarySurfaceRecord currentSurface, out float depthDelta)
+{
+    depthDelta = 0.0;
+    if (CleanRtxdiDiPrevCameraOriginAndValid.w < 0.5)
+    {
+        return false;
+    }
+
+    const uint objectMotionFlags = RT_PRIMARY_SURFACE_HAS_OBJECT_MOTION | RT_PRIMARY_SURFACE_HAS_PREVIOUS_POSITION;
+    const bool hasObjectPreviousPosition =
+        currentSurface.header.x == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
+        (currentSurface.header.y & objectMotionFlags) == objectMotionFlags &&
+        currentSurface.previousPositionOrMotion.w >= 0.5;
+
+    const float3 previousPosition = hasObjectPreviousPosition
+        ? currentSurface.previousPositionOrMotion.xyz
+        : currentSurface.worldPositionAndViewDepth.xyz;
+    const float previousDepth = length(previousPosition - CleanRtxdiDiPrevCameraOriginAndValid.xyz);
+    depthDelta = previousDepth - currentSurface.worldPositionAndViewDepth.w;
+    return depthDelta == depthDelta;
+}
+
 float3 CleanGiLoadScreenSpaceMotion(uint2 pixel, PathTracePrimarySurfaceRecord currentSurface, uint2 dimensions)
 {
     if (pixel.x < CleanRtxdiDiWidth && pixel.y < CleanRtxdiDiHeight)
@@ -572,10 +661,12 @@ float3 CleanGiLoadScreenSpaceMotion(uint2 pixel, PathTracePrimarySurfaceRecord c
         const uint motionMask = PathTraceMotionVectorMask[pixel];
         if ((motionMask & PT_MOTION_VECTOR_MASK_VALID) != 0u)
         {
-            const float3 motion = PathTraceMotionVectors[pixel].xyz;
-            if (all(motion == motion))
+            const float2 motionXY = PathTraceMotionVectors[pixel].xy;
+            float depthDelta = 0.0;
+            if (all(motionXY == motionXY) &&
+                CleanGiComputeLinearDepthMotionDelta(currentSurface, depthDelta))
             {
-                return motion;
+                return float3(motionXY, depthDelta);
             }
         }
     }
@@ -816,24 +907,22 @@ PathTraceSmokeMaterial CleanGiLoadSmokeMaterial(uint materialIndex)
 
 float4 CleanGiTextureLoad(uint textureIndex, uint textureWidth, uint textureHeight, float2 wrappedTexCoord, bool bindlessEnabled, bool bilinearFilter)
 {
-    if (textureWidth == 0u || textureHeight == 0u)
-    {
-        return float4(1.0, 1.0, 1.0, 1.0);
-    }
+    const uint width = max(textureWidth, 1u);
+    const uint height = max(textureHeight, 1u);
     if (!bilinearFilter)
     {
-        const uint2 texel = min((uint2)floor(wrappedTexCoord * float2(textureWidth, textureHeight)), uint2(textureWidth - 1u, textureHeight - 1u));
+        const uint2 texel = min((uint2)floor(wrappedTexCoord * float2(width, height)), uint2(width - 1u, height - 1u));
         return bindlessEnabled
             ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel, 0))
             : SmokeFallbackTexture.Load(int3(0, 0, 0));
     }
-    const float2 scaled = wrappedTexCoord * float2(textureWidth, textureHeight) - float2(0.5, 0.5);
+    const float2 scaled = wrappedTexCoord * float2(width, height) - float2(0.5, 0.5);
     const int2 baseTexel = (int2)floor(scaled);
     const float2 fracPart = frac(scaled);
-    const uint2 texel00 = uint2((baseTexel.x % (int)textureWidth + (int)textureWidth) % (int)textureWidth, (baseTexel.y % (int)textureHeight + (int)textureHeight) % (int)textureHeight);
-    const uint2 texel10 = uint2((texel00.x + 1u) % textureWidth, texel00.y);
-    const uint2 texel01 = uint2(texel00.x, (texel00.y + 1u) % textureHeight);
-    const uint2 texel11 = uint2((texel00.x + 1u) % textureWidth, (texel00.y + 1u) % textureHeight);
+    const uint2 texel00 = uint2((baseTexel.x % (int)width + (int)width) % (int)width, (baseTexel.y % (int)height + (int)height) % (int)height);
+    const uint2 texel10 = uint2((texel00.x + 1u) % width, texel00.y);
+    const uint2 texel01 = uint2(texel00.x, (texel00.y + 1u) % height);
+    const uint2 texel11 = uint2((texel00.x + 1u) % width, (texel00.y + 1u) % height);
     const float4 c00 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel00, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
     const float4 c10 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel10, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
     const float4 c01 = bindlessEnabled ? SmokeDiffuseTextures[NonUniformResourceIndex(textureIndex)].Load(int3(texel01, 0)) : SmokeFallbackTexture.Load(int3(0, 0, 0));
@@ -1909,6 +1998,10 @@ struct CleanGiProducerResult
     float pathLength;    // indirect path length (hitT)
     float3 hitPosition;
     float3 hitNormal;
+    float3 materialAlbedo;
+    float materialOpacity;
+    uint materialFlags;
+    uint diffuseTextureIndex;
 };
 
 // Shades the secondary vertex: its own emissive plus one direct-light proposal.
@@ -2126,6 +2219,10 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     result.pathLength = payload.hitT;
     result.hitPosition = hitPosition;
     result.hitNormal = hitShadingNormal;
+    result.materialAlbedo = hitRabMaterial.diffuseAlbedo;
+    result.materialOpacity = hitRabMaterial.opacity;
+    result.materialFlags = hitMaterial.flags;
+    result.diffuseTextureIndex = hitMaterial.diffuseTextureIndex;
     return result;
 }
 
@@ -2184,6 +2281,7 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.enablePermutationSampling = 0u;
     desc.uniformRandomNumber = 0u;
     desc.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
+    desc.enableLightingValidation = CleanRestirGiTemporalScreenValidation != 0.0 ? 1u : 0u;
 
     return RemixRestirGIRunTemporalReuseContract(surface, desc);
 }
@@ -2596,6 +2694,42 @@ void RayGen()
     else if (view == 8u)
     {
         color = PathTraceCleanRestirGiSentinelColor(pixel);
+    }
+    else if (view == 9u)
+    {
+        // Secondary-hit material proof: sampled diffuse/classifier albedo.
+        // Invalid primary surface = dark gray; bounce miss = dark red.
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (producer.valid == 0u)
+        {
+            color = float3(0.25, 0.0, 0.0);
+        }
+        else
+        {
+            color = saturate(producer.materialAlbedo);
+        }
+    }
+    else if (view == 10u)
+    {
+        // Secondary-hit material source: green = has diffuse texture slot,
+        // red = diffuse fallback/debug albedo, blue = forced debug albedo flag.
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (producer.valid == 0u)
+        {
+            color = float3(0.25, 0.0, 0.0);
+        }
+        else
+        {
+            const bool hasDiffuseTexture = producer.diffuseTextureIndex != 0xffffffffu;
+            const bool forceDebugAlbedo = (producer.materialFlags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
+            color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
+        }
     }
     SmokeOutput[pixel] = float4(color, 1.0);
 }

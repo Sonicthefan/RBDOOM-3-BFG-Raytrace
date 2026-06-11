@@ -78,6 +78,12 @@ r_pathTracingCleanRestirGiFireflyThreshold
     float, default matches the producer's clamp policy; 0 disables.
     Applied to initial-sample radiance only, never to reused reservoirs.
 
+r_pathTracingCleanRestirGiTemporalScreenValidation
+    bool, default 1. Motion-only screen-space stale-sample validation.
+    Projects reused temporal GI samples into the current frame and rejects
+    them when current primary geometry is clearly in front of the sample.
+    0 disables.
+
 r_pathTracingCleanRestirGiNeeCacheSeed
     int, default 0 for bring-up. When 1, merges the NEE-cache-seeded
     reservoir at the temporal pass's initial-sample step (Remix

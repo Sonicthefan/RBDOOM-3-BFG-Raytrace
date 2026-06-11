@@ -180,6 +180,8 @@ RemixRestirGITemporalReuseResult RemixRestirGIRunTemporalReuseContract(
     validationDesc.gradientDepthTolerance = desc.lightingValidationDepthTolerance;
     validationDesc.enableRayTracedVisibility = desc.biasCorrectionMode > uint(RTXDI_BIAS_CORRECTION_BASIC);
     validationDesc.numActivePortals = desc.numActivePortals;
+    validationDesc.screenSpaceMotion = desc.screenSpaceMotion.xy;
+    validationDesc.enableScreenSpaceValidation = desc.enableLightingValidation;
 
     RemixRestirGITemporalValidationResult validationResult =
         RemixRAB_ValidateGITemporalReservoir(

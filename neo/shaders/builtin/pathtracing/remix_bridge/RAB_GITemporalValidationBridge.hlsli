@@ -19,6 +19,8 @@ struct RemixRestirGITemporalValidationDesc
     float gradientDepthTolerance;
     uint enableRayTracedVisibility;
     uint numActivePortals;
+    float2 screenSpaceMotion;
+    uint enableScreenSpaceValidation;
 };
 
 struct RemixRestirGITemporalValidationResult

@@ -1645,7 +1645,7 @@ idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect diffuse (isolated), 7 reservoir M/age diagnostics, 8 route sentinel. Reads GI lane resources only" );
+    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect diffuse (isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags. Reads GI lane resources only" );
 
 idCVar r_pathTracingCleanRestirGiTemporal(
     "r_pathTracingCleanRestirGiTemporal",
@@ -1688,6 +1688,12 @@ idCVar r_pathTracingCleanRestirGiFireflyThreshold(
     "20",
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI firefly filtering luminance threshold applied to initial-sample radiance only (never to reused reservoirs); 0 disables" );
+
+idCVar r_pathTracingCleanRestirGiTemporalScreenValidation(
+    "r_pathTracingCleanRestirGiTemporalScreenValidation",
+    "1",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI temporal screen-space sample-depth validation: rejects reused moving temporal samples hidden behind current-frame primary geometry. 0 disables" );
 
 idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     "r_pathTracingCleanRestirGiNeeCacheSeed",

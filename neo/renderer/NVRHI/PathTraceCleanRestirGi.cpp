@@ -56,8 +56,10 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t resolveEnabled;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
+    float temporalScreenValidation;
+    float padding[3];
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 80, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 96, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -551,7 +553,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 8, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 10, r_pathTracingCleanRestirGiView.GetInteger());
     if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0)
     {
         // Nothing consumes the lane yet without a debug view or resolve.
@@ -666,6 +668,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.neeCacheSeedEnabled = r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ? 1u : 0u;
     tail.frameIndex = state.frameIndex;
     tail.resolveEnabled = r_pathTracingCleanRestirGiResolve.GetInteger() != 0 ? 1u : 0u;
+    tail.temporalScreenValidation = r_pathTracingCleanRestirGiTemporalScreenValidation.GetFloat() != 0.0f ? 1.0f : 0.0f;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

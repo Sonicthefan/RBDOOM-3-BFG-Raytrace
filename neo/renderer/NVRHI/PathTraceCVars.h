@@ -288,6 +288,7 @@ extern idCVar r_pathTracingCleanRestirGiJacobian;
 extern idCVar r_pathTracingCleanRestirGiMaxHistoryLength;
 extern idCVar r_pathTracingCleanRestirGiMaxReservoirAge;
 extern idCVar r_pathTracingCleanRestirGiFireflyThreshold;
+extern idCVar r_pathTracingCleanRestirGiTemporalScreenValidation;
 extern idCVar r_pathTracingCleanRestirGiNeeCacheSeed;
 extern idCVar r_pathTracingCleanRestirGiResolve;
 extern idCVar r_pathTracingCleanRestirGiBoilingFilter;
